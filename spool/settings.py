@@ -105,7 +105,11 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # Only the compiled Tailwind output is collected — static/src is Tailwind's
 # *input* file (it "@import"s the tailwindcss/daisyui packages, which aren't
 # real files whitenoise can resolve) and must never be served or post-processed.
-STATICFILES_DIRS = [BASE_DIR / "static" / "dist"]
+# The ("dist", ...) prefix form is required: STATICFILES_DIRS entries map
+# directly onto STATIC_URL by default, so an unprefixed entry would serve
+# app.css at /static/app.css instead of the /static/dist/app.css templates
+# reference.
+STATICFILES_DIRS = [("dist", BASE_DIR / "static" / "dist")]
 STORAGES = {
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",

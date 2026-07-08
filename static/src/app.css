@@ -1,6 +1,92 @@
 @import "tailwindcss";
-@plugin "daisyui";
+@plugin "daisyui" {
+  themes: false; /* only our own theme is bundled, no daisyUI built-ins */
+}
 
-/* Full custom "spool" theme + fonts land in build step 2
-   (Tailwind v4 + daisyUI theme) — this is a placeholder so the
-   asset pipeline has something to compile in step 1. */
+@plugin "daisyui/theme" {
+  name: "spool";
+  default: true;
+  prefersdark: true;
+  color-scheme: dark;
+
+  --color-base-100: #14161c;
+  --color-base-200: #1b1e26;
+  --color-base-300: #232732;
+  --color-base-content: #eceef2;
+
+  --color-primary: #e8a63c; /* marquee amber */
+  --color-primary-content: #1a1305;
+  --color-secondary: #3fa9a0; /* teal — anime accent */
+  --color-secondary-content: #0c211f;
+  --color-accent: #8b85d6; /* violet — TV split in charts */
+  --color-accent-content: #171531;
+  --color-neutral: #1b1e26;
+  --color-neutral-content: #eceef2;
+  --color-info: #6fb7ce;
+  --color-info-content: #0a1f26;
+  --color-success: #5bd58a;
+  --color-success-content: #07230f;
+  --color-warning: #e8a63c;
+  --color-warning-content: #1a1305;
+  --color-error: #fa5a3d;
+  --color-error-content: #240a05;
+
+  --radius-selector: 8px;
+  --radius-field: 8px;
+  --radius-box: 16px;
+}
+
+@theme {
+  --font-display: "Bebas Neue", sans-serif;
+  --font-body: "Public Sans", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  /* Brand tokens straight from the mockup that fall outside daisyUI's
+     semantic palette — rating-source colors, dimmed pairs for gradients/
+     borders, and the mockup's r-s/r-m/r-l radius scale (r-m/r-l already
+     match --radius-field/--radius-box above; r-s has no daisyUI slot). */
+  --color-line: #2b2f3b;
+  --color-ink: #eceef2;
+  --color-ink-dim: #9195a6;
+  --color-ink-faint: #5c606f;
+
+  --color-marquee: #e8a63c;
+  --color-marquee-dim: #8a641f;
+  --color-teal: #3fa9a0;
+  --color-teal-dim: #245852;
+  --color-violet: #8b85d6;
+  --color-violet-dim: #4b4880;
+
+  --color-imdb: #f5c518;
+  --color-rt: #fa5a3d;
+  --color-trakt: #ed4a50;
+
+  /* No custom radius tokens: Tailwind's built-in rounded-sm (4px) /
+     rounded-lg (8px) / rounded-2xl (16px) already match the mockup's
+     r-s/r-m/r-l exactly. (A same-named --radius-s/--radius-l override was
+     tried and dropped — those names collide with Tailwind's *reserved*
+     logical-corner utilities, "start corners" and "left corners", not
+     "small"/"large", producing a conflicting duplicate rule.) */
+}
+
+@layer base {
+  body {
+    font-family: var(--font-body);
+  }
+  h1,
+  h2,
+  h3,
+  .font-display {
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: 0.02em;
+  }
+}
+
+/* Scope the Anime section to the teal accent without a second daisyUI theme —
+   swaps what `btn-primary` / `text-primary` / etc. resolve to on this subtree
+   only, per spool-stack-addendum.md §1. */
+.section-anime {
+  --color-primary: var(--color-secondary);
+  --color-primary-content: var(--color-secondary-content);
+}

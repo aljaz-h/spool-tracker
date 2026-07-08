@@ -1,0 +1,65 @@
+{% load static %}
+<!doctype html>
+<html lang="en" data-theme="spool">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spool — Theme Preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Public+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'dist/app.css' %}">
+</head>
+<body class="bg-base-100 text-base-content min-h-screen p-10 space-y-10">
+  <div>
+    <h1 class="text-4xl">SPOOL</h1>
+    <p class="text-ink-dim text-sm">Theme preview — step 2 sanity check, not a real page.</p>
+  </div>
+
+  <section class="space-y-3">
+    <h2 class="text-2xl">Buttons (daisyUI semantic)</h2>
+    <div class="flex gap-3 flex-wrap">
+      <button class="btn btn-primary">Primary</button>
+      <button class="btn btn-secondary">Secondary</button>
+      <button class="btn btn-accent">Accent</button>
+      <button class="btn btn-neutral">Neutral</button>
+      <button class="btn btn-error">Error</button>
+    </div>
+  </section>
+
+  <section class="section-anime space-y-3">
+    <h2 class="text-2xl">Anime section (teal accent override)</h2>
+    <div class="flex gap-3 flex-wrap items-center">
+      <button class="btn btn-primary">btn-primary (should be teal here)</button>
+      <span class="text-primary font-mono text-sm">text-primary also swaps</span>
+    </div>
+  </section>
+
+  <section class="space-y-3">
+    <h2 class="text-2xl">Brand color tokens</h2>
+    <div class="flex gap-3 flex-wrap">
+      <div class="rounded-lg p-4 bg-marquee text-black font-mono text-xs">marquee</div>
+      <div class="rounded-lg p-4 bg-teal text-black font-mono text-xs">teal</div>
+      <div class="rounded-lg p-4 bg-violet text-black font-mono text-xs">violet</div>
+      <div class="rounded-lg p-4 bg-imdb text-black font-mono text-xs">imdb</div>
+      <div class="rounded-lg p-4 bg-rt text-black font-mono text-xs">rt</div>
+      <div class="rounded-lg p-4 bg-trakt text-black font-mono text-xs">trakt</div>
+    </div>
+  </section>
+
+  <section class="space-y-3">
+    <h2 class="text-2xl">Surfaces &amp; radii</h2>
+    <div class="flex gap-3 flex-wrap">
+      <div class="rounded-sm p-4 bg-base-200 border border-line text-xs font-mono">base-200 / rounded-sm (4px)</div>
+      <div class="rounded-lg p-4 bg-base-300 border border-line text-xs font-mono">base-300 / rounded-lg (8px)</div>
+      <div class="rounded-2xl p-4 bg-base-200 border border-line text-xs font-mono">rounded-2xl (16px)</div>
+    </div>
+  </section>
+
+  <section class="space-y-2">
+    <h2 class="text-2xl">Type</h2>
+    <p class="font-display text-3xl text-marquee">Bebas Neue display heading</p>
+    <p class="font-body">Public Sans body copy — the default body font.</p>
+    <p class="font-mono text-ink-dim text-sm">JetBrains Mono · S3E7 of 11 · IMDb 8.1</p>
+  </section>
+</body>
+</html>
