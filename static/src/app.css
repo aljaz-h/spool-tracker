@@ -1,0 +1,6 @@
+@import "tailwindcss";
+@plugin "daisyui";
+
+/* Full custom "spool" theme + fonts land in build step 2
+   (Tailwind v4 + daisyUI theme) — this is a placeholder so the
+   asset pipeline has something to compile in step 1. */

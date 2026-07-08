@@ -1,0 +1,73 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: spool
+      POSTGRES_USER: spool
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spool"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    volumes:
+      - media_data:/app/media
+    command: >
+      sh -c "python manage.py migrate &&
+             gunicorn spool.wsgi:application --bind 0.0.0.0:8000 --workers 3"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    env_file: .env
+    volumes:
+      - media_data:/app/media
+    command: celery -A spool worker -l info
+
+  scheduler:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    env_file: .env
+    command: celery -A spool beat -l info
+
+volumes:
+  db_data:
+  redis_data:
+  media_data:

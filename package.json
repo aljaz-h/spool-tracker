@@ -1,0 +1,14 @@
+{
+  "name": "spool",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build:css": "tailwindcss -i ./static/src/app.css -o ./static/dist/app.css --minify",
+    "watch:css": "tailwindcss -i ./static/src/app.css -o ./static/dist/app.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.0",
+    "tailwindcss": "^4.1.0",
+    "daisyui": "^5.0.0"
+  }
+}
