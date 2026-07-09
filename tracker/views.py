@@ -2,14 +2,24 @@ from django.contrib.auth.decorators import login_required
 from django.http import Http404
 from django.shortcuts import render
 
+from . import selectors
 from .models import Profile
 
 
 @login_required
 def dashboard(request):
-    # Real content lands in build step 5 — this step is the base
-    # template/nav shell only.
-    return render(request, "tracker/dashboard.html")
+    profile = Profile.objects.filter(user=request.user).first()
+    context = {"profile": profile}
+    if profile is not None:
+        context.update(
+            {
+                "continue_watching": selectors.continue_watching(profile),
+                "up_next": selectors.up_next(profile),
+                "recently_added": selectors.recently_added_to_lists(profile),
+                "stats": selectors.quick_stats(profile),
+            }
+        )
+    return render(request, "tracker/dashboard.html", context)
 
 
 @login_required

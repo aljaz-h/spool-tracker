@@ -43,6 +43,11 @@ class Title(models.Model):
     name = models.CharField(max_length=255)
     year = models.PositiveSmallIntegerField()
     poster_url = models.URLField(blank=True)
+    # Movie runtime only — episode runtime lives on Episode. Needed for the
+    # "X min left" progress captions and the Stats "total watch time" figure;
+    # null for titles imported/entered without it, which those features
+    # degrade gracefully around rather than assuming.
+    runtime_minutes = models.PositiveSmallIntegerField(null=True, blank=True)
     genres = models.ManyToManyField(Genre, related_name="titles", blank=True)
     # {"trakt": "...", "simkl": "...", "tmdb": "..."} — used to upsert-match
     # incoming rows during Trakt/Simkl import instead of creating duplicates.
@@ -61,6 +66,7 @@ class Episode(models.Model):
     season = models.PositiveSmallIntegerField()
     episode = models.PositiveSmallIntegerField()
     name = models.CharField(max_length=255, blank=True)
+    runtime_minutes = models.PositiveSmallIntegerField(null=True, blank=True)
 
     class Meta:
         ordering = ["title", "season", "episode"]
@@ -122,6 +128,11 @@ class WatchProgress(models.Model):
     class Status(models.TextChoices):
         WATCHING = "watching", "Watching"
         PLANNED = "planned", "Planned"
+        # Not in the original doc sketch — added because the Dashboard/Stats
+        # "Shows completed" figure needs a real status to count rather than
+        # a guessed-at derived query (spool-product-spec.md doesn't define
+        # a completion signal otherwise).
+        COMPLETED = "completed", "Completed"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="watch_progress")
     title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="watch_progress")

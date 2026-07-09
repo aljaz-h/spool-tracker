@@ -1,0 +1,12 @@
+{# context: ratings (ExternalRating iterable), user_rating (int|None) #}
+<div class="flex gap-1.5 flex-wrap mb-1.5">
+  {% for r in ratings %}
+    <span class="font-mono text-[10.5px] px-1.5 py-0.5 rounded
+      {% if r.source == 'imdb' %}bg-imdb/15 text-imdb
+      {% elif r.source == 'rt' %}bg-rt/15 text-rt
+      {% elif r.source == 'trakt' %}bg-trakt/15 text-trakt{% endif %}">{{ r.get_source_display }} {{ r.score }}</span>
+  {% endfor %}
+  {% if user_rating %}
+    <span class="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-primary/15 text-primary">★ {{ user_rating }}</span>
+  {% endif %}
+</div>

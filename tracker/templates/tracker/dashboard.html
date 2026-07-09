@@ -1,6 +1,74 @@
 {% extends "tracker/base.html" %}
 {% block title %}Dashboard · Spool{% endblock %}
 {% block content %}
-  <h1 class="font-display text-4xl">Dashboard</h1>
-  <p class="text-ink-dim text-sm mt-2">Real content (continue watching, up next, quick stats) lands in build step 5.</p>
+
+{% if not profile %}
+  <h1 class="font-display text-4xl">Welcome to Spool</h1>
+  <p class="text-ink-dim text-sm mt-2">
+    Your account isn't linked to a household profile yet — ask an admin to create one for you
+    (Settings &amp; Import, or Django admin under Tracker → Profiles).
+  </p>
+{% else %}
+  <div class="flex justify-between items-end flex-wrap gap-3 mb-6">
+    <div>
+      <h1 class="font-display text-4xl">Welcome back, {{ profile.display_name }}</h1>
+      <div class="text-ink-dim text-sm mt-1">
+        {% now "l, F j" %}
+        {% if stats.streak > 0 %} — you're on a <span class="font-mono text-primary">{{ stats.streak }}-day</span> watch streak{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    {% include "tracker/partials/stat_card.html" with value=stats.streak label="Day watch streak" %}
+    {% include "tracker/partials/stat_card.html" with value=stats.movies_this_year label="Movies watched this year" %}
+    {% include "tracker/partials/stat_card.html" with value=stats.shows_completed label="Shows completed" color_class="text-secondary" %}
+    {% include "tracker/partials/stat_card.html" with value=stats.total_watch_hours|stringformat:"s"|add:"h" label="Total watch time" %}
+  </div>
+
+  <div class="flex justify-between items-center mt-9 mb-3.5">
+    <h2 class="font-display text-xl">Continue watching</h2>
+  </div>
+  {% if continue_watching %}
+    <div class="flex gap-4 overflow-x-auto pb-2">
+      {% for item in continue_watching %}
+        {% include "tracker/partials/poster_card.html" with title=item.title progress=item %}
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-ink-faint text-sm">Nothing in progress — mark something as watching from Movies &amp; TV or Anime.</p>
+  {% endif %}
+
+  <div class="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-5 mt-8 items-start">
+    <div>
+      <h2 class="font-display text-xl mb-3.5">Recently added to lists</h2>
+      {% if recently_added %}
+        <div class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-5">
+          {% for item in recently_added %}
+            {% include "tracker/partials/poster_card.html" with title=item.title show_ratings=True width_class="" %}
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="text-ink-faint text-sm">No lists have titles yet — see Lists to create one.</p>
+      {% endif %}
+    </div>
+    <div class="bg-base-200 border border-line rounded-2xl p-5">
+      <h3 class="text-lg mb-3">Up next</h3>
+      {% if up_next %}
+        {% for item in up_next %}
+          <div class="flex justify-between items-center py-2.5 border-b border-line last:border-b-0">
+            <div>
+              <div class="text-[13px] font-semibold">{{ item.title.name }}</div>
+              <div class="text-xs text-ink-dim">{{ item.caption }}</div>
+            </div>
+            <div class="font-mono text-[11px] text-primary">{{ item.when }}</div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <p class="text-ink-faint text-sm">Nothing scheduled yet.</p>
+      {% endif %}
+    </div>
+  </div>
+{% endif %}
+
 {% endblock %}
