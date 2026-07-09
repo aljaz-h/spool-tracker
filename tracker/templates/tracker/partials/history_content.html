@@ -1,0 +1,44 @@
+{% load tracker_extras %}
+{% if not profile %}
+  <p class="text-ink-faint text-sm">Your account isn't linked to a household profile yet.</p>
+{% elif not day_groups %}
+  <div class="py-10 text-center text-ink-faint text-sm">No watch history matches these filters.</div>
+{% else %}
+  {% for group in day_groups %}
+    <div class="flex justify-between items-baseline {% if not forloop.first %}mt-7{% endif %} mb-3 pb-2 border-b border-line">
+      <div class="font-display text-lg tracking-wide">{{ group.date|day_header }}</div>
+      <div class="text-[11.5px] text-ink-faint font-mono">
+        {% if group.movie_count %}{{ group.movie_count }} movie{{ group.movie_count|pluralize }}{% endif %}
+        {% if group.movie_count and group.episode_count %}·{% endif %}
+        {% if group.episode_count %}{{ group.episode_count }} episode{{ group.episode_count|pluralize }}{% endif %}
+      </div>
+    </div>
+    <div class="grid grid-cols-[repeat(auto-fill,minmax(102px,1fr))] gap-3.5">
+      {% for event in group.items %}
+        {% include "tracker/partials/history_tile.html" with event=event %}
+      {% endfor %}
+    </div>
+  {% endfor %}
+
+  <div class="flex justify-between items-center flex-wrap gap-3 mt-7">
+    <span class="font-mono text-xs text-ink-faint">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }} · {{ page_obj.paginator.count }} entries</span>
+    <div class="flex gap-1.5">
+      {% if page_obj.has_previous %}
+        <a hx-get="?type={{ type_filter }}&period={{ period }}&sort={{ sort }}&page={{ page_obj.previous_page_number }}" hx-target="#history-content" hx-push-url="true"
+           class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim cursor-pointer">‹ Prev</a>
+      {% endif %}
+      {% for num in page_obj.paginator.page_range %}
+        {% if num == page_obj.number %}
+          <span class="px-3 py-1.5 rounded-md bg-primary text-primary-content font-mono text-xs font-bold">{{ num }}</span>
+        {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}
+          <a hx-get="?type={{ type_filter }}&period={{ period }}&sort={{ sort }}&page={{ num }}" hx-target="#history-content" hx-push-url="true"
+             class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim cursor-pointer">{{ num }}</a>
+        {% endif %}
+      {% endfor %}
+      {% if page_obj.has_next %}
+        <a hx-get="?type={{ type_filter }}&period={{ period }}&sort={{ sort }}&page={{ page_obj.next_page_number }}" hx-target="#history-content" hx-push-url="true"
+           class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim cursor-pointer">Next ›</a>
+      {% endif %}
+    </div>
+  </div>
+{% endif %}

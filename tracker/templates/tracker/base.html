@@ -8,7 +8,15 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Public+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'dist/app.css' %}">
+  <script defer src="{% static 'vendor/htmx.js' %}"></script>
   <script defer src="{% static 'vendor/alpinejs.js' %}"></script>
+  <script>
+    // document, not document.body — this script runs while <head> is still
+    // parsing, before <body> exists; the event bubbles up to document anyway.
+    document.addEventListener('htmx:configRequest', (e) => {
+      e.detail.headers['X-CSRFToken'] = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
+    });
+  </script>
 </head>
 <body class="bg-base-100 text-base-content min-h-screen">
   <div class="flex min-h-screen" x-data="{ sidebarOpen: window.innerWidth > 900 }">

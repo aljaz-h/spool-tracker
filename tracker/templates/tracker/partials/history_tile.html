@@ -1,0 +1,27 @@
+{% load tracker_extras %}
+{# context: event (WatchEvent) #}
+<div class="group relative" id="hist-item-{{ event.id }}">
+  <div class="aspect-[2/3] rounded-lg relative overflow-hidden border border-white/5 bg-cover bg-center {% if not event.title.poster_url %}{{ event.title.pk|gradient_class }}{% endif %}"
+       {% if event.title.poster_url %}style="background-image:url('{{ event.title.poster_url }}')"{% endif %}>
+    <div class="absolute inset-0 bg-linear-to-t from-black/50 to-transparent"></div>
+    {% if event.episode %}
+      <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[8px] bg-black/55 px-1.5 py-0.5 rounded text-white/90">S{{ event.episode.season }}:E{{ event.episode.episode }}</span>
+    {% endif %}
+    <span class="absolute bottom-1.5 left-1.5 z-10 font-mono text-[8px] bg-black/50 px-1 py-0.5 rounded text-white/90">{{ event.title.media_type|upper }}</span>
+    <button
+      hx-delete="/api/history/{{ event.id }}"
+      hx-confirm="Remove &quot;{{ event.title.name }}&quot; from your watch history? This can't be undone."
+      hx-target="#hist-item-{{ event.id }}"
+      hx-swap="outerHTML swap:150ms"
+      title="Remove from history"
+      class="absolute top-1.5 right-1.5 z-20 w-5 h-5 rounded-full bg-black/75 text-white text-xs leading-none flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-error"
+    >&times;</button>
+  </div>
+  <div class="mt-1.5 min-w-0">
+    <div class="text-[11.5px] font-semibold truncate">{{ event.title.name }}</div>
+    <div class="flex justify-between items-center mt-0.5 text-[10px] font-mono text-ink-dim">
+      <span>{{ event.title.year }}</span>
+      <span class="text-ink-faint">{{ event.watched_at|time:"g:i A" }}</span>
+    </div>
+  </div>
+</div>

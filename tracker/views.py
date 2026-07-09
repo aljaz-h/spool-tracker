@@ -1,12 +1,19 @@
+from datetime import timedelta
+from itertools import groupby
+
 from django.contrib.auth.decorators import login_required
+from django.core.paginator import Paginator
 from django.http import Http404
 from django.shortcuts import render
+from django.utils import timezone
 
 from . import selectors
 from .models import MediaType, Profile, Title, WatchEvent
 
 MOVIE_TV_TYPES = [MediaType.MOVIE, MediaType.TV]
 LIBRARY_TABS = {"watching", "watchlist", "history"}
+HISTORY_PAGE_SIZE = 24
+HISTORY_PERIODS = {"today", "yesterday", "7", "30", "365"}
 
 
 @login_required
@@ -65,9 +72,55 @@ def library(request, media_type, tab):
     return render(request, "tracker/library.html", context)
 
 
+def _group_history_by_day(events):
+    """Mirrors the mockup's groupHistByDate() — events must already be
+    ordered by watched_at (either direction; date only moves monotonically
+    along that ordering, so groupby's adjacency requirement still holds)."""
+    groups = []
+    for day, items in groupby(events, key=lambda e: timezone.localtime(e.watched_at).date()):
+        items = list(items)
+        movie_count = sum(1 for e in items if e.title.media_type == MediaType.MOVIE)
+        groups.append(
+            {"date": day, "items": items, "movie_count": movie_count, "episode_count": len(items) - movie_count}
+        )
+    return groups
+
+
 @login_required
 def history(request):
-    return render(request, "tracker/coming_soon.html", {"page_title": "History"})
+    profile = Profile.objects.filter(user=request.user).first()
+    type_filter = request.GET.get("type", "all")
+    period = request.GET.get("period", "all") if request.GET.get("period") in HISTORY_PERIODS else "all"
+    sort = "old" if request.GET.get("sort") == "old" else "new"
+
+    page_obj = None
+    if profile is not None:
+        events = WatchEvent.objects.filter(profile=profile).select_related("title", "episode")
+        if type_filter in (MediaType.MOVIE, MediaType.TV, MediaType.ANIME):
+            events = events.filter(title__media_type=type_filter)
+
+        now = timezone.now()
+        today_start = timezone.localtime(now).replace(hour=0, minute=0, second=0, microsecond=0)
+        if period == "today":
+            events = events.filter(watched_at__gte=today_start)
+        elif period == "yesterday":
+            events = events.filter(watched_at__gte=today_start - timedelta(days=1), watched_at__lt=today_start)
+        elif period in ("7", "30", "365"):
+            events = events.filter(watched_at__gte=now - timedelta(days=int(period)))
+
+        events = events.order_by("-watched_at" if sort == "new" else "watched_at")
+        page_obj = Paginator(events, HISTORY_PAGE_SIZE).get_page(request.GET.get("page"))
+
+    context = {
+        "profile": profile,
+        "page_obj": page_obj,
+        "day_groups": _group_history_by_day(page_obj.object_list) if page_obj else [],
+        "type_filter": type_filter,
+        "period": period,
+        "sort": sort,
+    }
+    template = "tracker/partials/history_content.html" if request.headers.get("HX-Request") else "tracker/history.html"
+    return render(request, template, context)
 
 
 @login_required

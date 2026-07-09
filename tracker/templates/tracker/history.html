@@ -1,0 +1,52 @@
+{% extends "tracker/base.html" %}
+{% block title %}History · Spool{% endblock %}
+{% block content %}
+
+  <div class="mb-6">
+    <h1 class="font-display text-4xl">History</h1>
+    <div class="text-ink-dim text-sm mt-1">Every movie, episode and rewatch, across Movies, TV &amp; Anime</div>
+  </div>
+
+  <form
+    hx-get="{% url 'history' %}"
+    hx-target="#history-content"
+    hx-trigger="change"
+    hx-push-url="true"
+    class="flex justify-between items-center flex-wrap gap-3 mb-5"
+  >
+    <div class="inline-flex bg-base-200 border border-line rounded-lg p-1 gap-0.5">
+      {% load tracker_extras %}
+      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer {% if type_filter|eq:"all" %}bg-base-300 text-base-content{% else %}text-ink-dim{% endif %}">
+        <input type="radio" name="type" value="all" class="hidden" {% if type_filter == "all" %}checked{% endif %}>All
+      </label>
+      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer {% if type_filter|eq:"movie" %}bg-base-300 text-base-content{% else %}text-ink-dim{% endif %}">
+        <input type="radio" name="type" value="movie" class="hidden" {% if type_filter == "movie" %}checked{% endif %}>Movies
+      </label>
+      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer {% if type_filter|eq:"tv" %}bg-base-300 text-base-content{% else %}text-ink-dim{% endif %}">
+        <input type="radio" name="type" value="tv" class="hidden" {% if type_filter == "tv" %}checked{% endif %}>TV
+      </label>
+      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer {% if type_filter|eq:"anime" %}bg-base-300 text-base-content{% else %}text-ink-dim{% endif %}">
+        <input type="radio" name="type" value="anime" class="hidden" {% if type_filter == "anime" %}checked{% endif %}>Anime
+      </label>
+    </div>
+    <div class="flex gap-2.5 flex-wrap">
+      <select name="period" class="bg-base-200 border border-line text-ink-dim text-xs px-3 py-2 rounded-lg">
+        <option value="all" {% if period == "all" %}selected{% endif %}>All time</option>
+        <option value="today" {% if period == "today" %}selected{% endif %}>Today</option>
+        <option value="yesterday" {% if period == "yesterday" %}selected{% endif %}>Yesterday</option>
+        <option value="7" {% if period == "7" %}selected{% endif %}>Last 7 days</option>
+        <option value="30" {% if period == "30" %}selected{% endif %}>Last 30 days</option>
+        <option value="365" {% if period == "365" %}selected{% endif %}>Last year</option>
+      </select>
+      <select name="sort" class="bg-base-200 border border-line text-ink-dim text-xs px-3 py-2 rounded-lg">
+        <option value="new" {% if sort == "new" %}selected{% endif %}>Newest first</option>
+        <option value="old" {% if sort == "old" %}selected{% endif %}>Oldest first</option>
+      </select>
+    </div>
+  </form>
+
+  <div id="history-content">
+    {% include "tracker/partials/history_content.html" %}
+  </div>
+
+{% endblock %}

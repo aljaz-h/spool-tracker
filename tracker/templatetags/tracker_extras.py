@@ -1,4 +1,5 @@
 from django import template
+from django.utils import timezone
 
 register = template.Library()
 
@@ -29,3 +30,15 @@ _GRADIENTS = [
 def gradient_class(pk):
     index = int(pk) % len(_GRADIENTS) if pk is not None else 0
     return "bg-linear-to-br " + _GRADIENTS[index]
+
+
+@register.filter
+def day_header(d):
+    today = timezone.localdate()
+    if d == today:
+        return "Today"
+    if d == today - timezone.timedelta(days=1):
+        return "Yesterday"
+    # Not %-d (platform-specific, breaks on Windows) — build the "no
+    # leading zero" day number by hand instead.
+    return f"{d.strftime('%A, %b')} {d.day}, {d.year}"
