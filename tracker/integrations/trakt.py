@@ -59,12 +59,33 @@ def _headers(access_token):
     }
 
 
-def fetch_history(access_token, limit=200):
-    resp = requests.get(
-        f"{API_BASE}/sync/history", headers=_headers(access_token), params={"limit": limit}, timeout=15
-    )
-    resp.raise_for_status()
-    return resp.json()
+def fetch_history(access_token, limit=200, max_pages=50):
+    """Follows Trakt's /sync/history pagination (X-Pagination-Page-Count
+    response header) instead of returning just the first page — a first
+    version of this that only fetched page 1 silently capped every sync at
+    200 items, confirmed against a real account importing exactly 200. Caps
+    at max_pages (50 * 200 = 10k items) as a hard safety bound so a missing
+    or unexpected pagination header can't turn this into an unbounded loop
+    inside a background worker."""
+    items = []
+    page = 1
+    while page <= max_pages:
+        resp = requests.get(
+            f"{API_BASE}/sync/history",
+            headers=_headers(access_token),
+            params={"limit": limit, "page": page},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        batch = resp.json()
+        if not batch:
+            break
+        items.extend(batch)
+        page_count = int(resp.headers.get("X-Pagination-Page-Count", page))
+        if page >= page_count:
+            break
+        page += 1
+    return items
 
 
 def _get_or_create_title(media_type, name, year, trakt_id):

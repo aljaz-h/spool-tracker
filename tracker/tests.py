@@ -1,9 +1,11 @@
 import io
+from unittest.mock import Mock, patch
 
 from django.contrib.auth.models import User
 from django.test import TestCase
 
 from . import csv_import
+from .integrations import trakt
 from .models import MediaType, Profile, Title, WatchEvent
 
 
@@ -141,3 +143,57 @@ class CsvImportCommitTests(TestCase):
         imported, skipped = csv_import.commit_rows(self.profile, rows)
         self.assertEqual(imported, 0)
         self.assertEqual(skipped[0][1], "already in history")
+
+
+class TraktFetchHistoryPaginationTests(TestCase):
+    """A first version of fetch_history() only ever requested page 1 -
+    confirmed against a real Trakt account that it silently capped every
+    sync at exactly 200 items. These mock requests.get directly rather
+    than hitting the network, same as the rest of this integration."""
+
+    def _response(self, items, page, page_count):
+        resp = Mock()
+        resp.json.return_value = items
+        resp.headers = {"X-Pagination-Page-Count": str(page_count)}
+        resp.raise_for_status = Mock()
+        return resp
+
+    @patch("tracker.integrations.trakt.requests.get")
+    def test_follows_pagination_across_multiple_pages(self, mock_get):
+        mock_get.side_effect = [
+            self._response([{"id": 1}, {"id": 2}], page=1, page_count=3),
+            self._response([{"id": 3}, {"id": 4}], page=2, page_count=3),
+            self._response([{"id": 5}], page=3, page_count=3),
+        ]
+        items = trakt.fetch_history("token", limit=2)
+        self.assertEqual([i["id"] for i in items], [1, 2, 3, 4, 5])
+        self.assertEqual(mock_get.call_count, 3)
+        self.assertEqual(mock_get.call_args_list[2].kwargs["params"], {"limit": 2, "page": 3})
+
+    @patch("tracker.integrations.trakt.requests.get")
+    def test_stops_after_single_page_when_header_missing(self, mock_get):
+        resp = Mock()
+        resp.json.return_value = [{"id": 1}]
+        resp.headers = {}
+        resp.raise_for_status = Mock()
+        mock_get.return_value = resp
+        items = trakt.fetch_history("token")
+        self.assertEqual(len(items), 1)
+        self.assertEqual(mock_get.call_count, 1)
+
+    @patch("tracker.integrations.trakt.requests.get")
+    def test_stops_on_empty_page_even_if_header_claims_more(self, mock_get):
+        mock_get.side_effect = [
+            self._response([{"id": 1}], page=1, page_count=5),
+            self._response([], page=2, page_count=5),
+        ]
+        items = trakt.fetch_history("token", limit=1)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(mock_get.call_count, 2)
+
+    @patch("tracker.integrations.trakt.requests.get")
+    def test_respects_max_pages_safety_cap(self, mock_get):
+        mock_get.return_value = self._response([{"id": 1}], page=1, page_count=999)
+        items = trakt.fetch_history("token", limit=1, max_pages=3)
+        self.assertEqual(len(items), 3)
+        self.assertEqual(mock_get.call_count, 3)
