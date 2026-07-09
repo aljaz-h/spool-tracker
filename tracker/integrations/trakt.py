@@ -59,14 +59,19 @@ def _headers(access_token):
     }
 
 
-def fetch_history(access_token, limit=200, max_pages=50):
+def fetch_history(access_token, limit=200, max_pages=500):
     """Follows Trakt's /sync/history pagination (X-Pagination-Page-Count
     response header) instead of returning just the first page — a first
     version of this that only fetched page 1 silently capped every sync at
-    200 items, confirmed against a real account importing exactly 200. Caps
-    at max_pages (50 * 200 = 10k items) as a hard safety bound so a missing
-    or unexpected pagination header can't turn this into an unbounded loop
-    inside a background worker."""
+    200 items, confirmed against a real account importing exactly 200. A
+    second version's max_pages=50 (10k item) cap turned out too tight too -
+    confirmed against a real account with 10,303 plays, which got silently
+    truncated to exactly 10,000, dropping its oldest ~300 events. max_pages
+    is still a hard safety bound so a missing/unexpected pagination header
+    can't turn this into a truly unbounded loop inside a background worker,
+    but 500 pages (100k items) is now far enough beyond any real personal
+    watch history that it should never actually be the thing that stops
+    the loop."""
     items = []
     page = 1
     while page <= max_pages:
