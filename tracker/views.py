@@ -305,9 +305,85 @@ def search_titles(request, list_id):
     return render(request, "tracker/partials/title_search_results.html", {"results": results, "watchlist": watchlist})
 
 
+GENRE_TYPES = {"movie": MediaType.MOVIE, "tv": MediaType.TV, "anime": MediaType.ANIME}
+
+
+def _build_heatmap_grid(counts, year):
+    """Mon-start week columns for a whole year, GitHub-contribution-graph
+    style — ported from the mockup's renderHeatmap(), server-side."""
+    start, end = date(year, 1, 1), date(year, 12, 31)
+    cells = [None] * start.weekday()
+    d = start
+    while d <= end:
+        c = counts.get(d, 0)
+        level = 0 if c == 0 else 1 if c == 1 else 2 if c <= 3 else 3 if c <= 5 else 4
+        cells.append({"date": d, "count": c, "level": level})
+        d += timedelta(days=1)
+    while len(cells) % 7:
+        cells.append(None)
+    weeks = [cells[i : i + 7] for i in range(0, len(cells), 7)]
+
+    month_labels, last_month = [], None
+    for week in weeks:
+        first_real = next((c for c in week if c), None)
+        if first_real and first_real["date"].month != last_month:
+            last_month = first_real["date"].month
+            month_labels.append(first_real["date"].strftime("%b"))
+        else:
+            month_labels.append(None)
+    return weeks, month_labels
+
+
 @login_required
 def stats(request):
-    return render(request, "tracker/coming_soon.html", {"page_title": "Stats"})
+    profile = Profile.objects.filter(user=request.user).first()
+    genre_type = request.GET.get("genre_type")
+    genre_type = genre_type if genre_type in GENRE_TYPES else "movie"
+    context = {"profile": profile, "genre_type": genre_type}
+    if profile is not None:
+        overview = selectors.stats_overview(profile)
+        overview["split"]["movie_end"] = overview["split"]["movie_pct"]
+        overview["split"]["tv_end"] = overview["split"]["movie_pct"] + overview["split"]["tv_pct"]
+        context.update(overview)
+
+        context["genre_breakdown"] = selectors.genre_breakdown(profile, GENRE_TYPES[genre_type])
+
+        years = selectors.year_breakdown(profile, GENRE_TYPES[genre_type])
+        max_count = max((y["count"] for y in years), default=0)
+        for y in years:
+            y["height_pct"] = max(6, round(y["count"] / max_count * 100)) if max_count else 6
+        context["year_breakdown"] = years
+
+        context["heatmap_years"] = selectors.heatmap_available_years(profile)
+        year = context["heatmap_years"][0]
+        context["heatmap_year"] = year
+        context["heatmap_weeks"], context["heatmap_months"] = _build_heatmap_grid(
+            selectors.heatmap_counts_by_day(profile, year), year
+        )
+        context["heatmap_active_days"] = sum(
+            1 for w in context["heatmap_weeks"] for c in w if c and c["count"] > 0
+        )
+    return render(request, "tracker/stats.html", context)
+
+
+@login_required
+def stats_heatmap(request):
+    profile = Profile.objects.filter(user=request.user).first()
+    try:
+        year = int(request.GET.get("year"))
+    except (TypeError, ValueError):
+        year = timezone.localdate().year
+
+    context = {"heatmap_year": year, "heatmap_years": [], "heatmap_weeks": [], "heatmap_months": []}
+    if profile is not None:
+        context["heatmap_years"] = selectors.heatmap_available_years(profile)
+        context["heatmap_weeks"], context["heatmap_months"] = _build_heatmap_grid(
+            selectors.heatmap_counts_by_day(profile, year), year
+        )
+        context["heatmap_active_days"] = sum(
+            1 for w in context["heatmap_weeks"] for c in w if c and c["count"] > 0
+        )
+    return render(request, "tracker/partials/stats_heatmap.html", context)
 
 
 @login_required

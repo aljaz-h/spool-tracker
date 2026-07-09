@@ -17,6 +17,7 @@ urlpatterns = [
     path("lists/<int:list_id>/remove/", views.remove_from_list, name="remove_from_list"),
     path("lists/<int:list_id>/search-titles/", views.search_titles, name="search_titles"),
     path("stats/", views.stats, name="stats"),
+    path("stats/heatmap/", views.stats_heatmap, name="stats_heatmap"),
     path("activity/", views.activity, name="activity"),
     path("settings/", views.settings_view, name="settings"),
     path(

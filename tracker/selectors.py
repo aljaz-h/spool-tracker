@@ -4,7 +4,7 @@ the template")."""
 
 from datetime import timedelta
 
-from django.db.models import Q, Sum
+from django.db.models import Count, Q, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -18,6 +18,20 @@ def current_streak(profile):
         streak += 1
         day -= timedelta(days=1)
     return streak
+
+
+def longest_streak(profile):
+    dates = sorted(set(WatchEvent.objects.filter(profile=profile).values_list("watched_at__date", flat=True)))
+    if not dates:
+        return 0
+    longest = current = 1
+    for prev, cur in zip(dates, dates[1:]):
+        if (cur - prev).days == 1:
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 1
+    return longest
 
 
 def continue_watching(profile, media_types=None, limit=8):
@@ -212,3 +226,76 @@ def visible_lists(profile):
         .prefetch_related("items__title")
         .distinct()
     )
+
+
+def stats_overview(profile):
+    """Lifetime totals for the Stats page hero + donut — deliberately not
+    year-scoped, unlike Dashboard's quick_stats()."""
+    events = WatchEvent.objects.filter(profile=profile)
+    total_minutes = (
+        events.aggregate(total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))["total"] or 0
+    )
+    total_hours = round(total_minutes / 60)
+
+    cur, longest = current_streak(profile), longest_streak(profile)
+
+    type_counts = dict(events.values_list("title__media_type").annotate(c=Count("id")).order_by())
+    total_events = sum(type_counts.values())
+
+    def pct(media_type):
+        return round(type_counts.get(media_type, 0) / total_events * 100) if total_events else 0
+
+    return {
+        "current_streak": cur,
+        "longest_streak": longest,
+        "dial_pct": min(100, round(cur / longest * 100)) if longest else 0,
+        "total_watch_hours": total_hours,
+        "total_watch_days": round(total_hours / 24, 1),
+        "movies_watched": events.filter(title__media_type=MediaType.MOVIE).count(),
+        "shows_completed": WatchProgress.objects.filter(
+            profile=profile,
+            status=WatchProgress.Status.COMPLETED,
+            title__media_type__in=[MediaType.TV, MediaType.ANIME],
+        ).count(),
+        "episodes_logged": events.filter(episode__isnull=False).count(),
+        "split": {
+            "movie_pct": pct(MediaType.MOVIE),
+            "tv_pct": pct(MediaType.TV),
+            "anime_pct": pct(MediaType.ANIME),
+        },
+    }
+
+
+def genre_breakdown(profile, media_type):
+    qs = (
+        WatchEvent.objects.filter(profile=profile, title__media_type=media_type, title__genres__isnull=False)
+        .values("title__genres__name")
+        .annotate(count=Count("id"))
+        .order_by("-count")
+    )
+    return [{"name": row["title__genres__name"], "count": row["count"]} for row in qs]
+
+
+def year_breakdown(profile, media_type):
+    qs = (
+        WatchEvent.objects.filter(profile=profile, title__media_type=media_type)
+        .values("title__year")
+        .annotate(count=Count("id"))
+        .order_by("title__year")
+    )
+    return [{"year": row["title__year"], "count": row["count"]} for row in qs]
+
+
+def heatmap_available_years(profile):
+    years = {d.year for d in WatchEvent.objects.filter(profile=profile).dates("watched_at", "year")}
+    years.add(timezone.localdate().year)
+    return sorted(years, reverse=True)
+
+
+def heatmap_counts_by_day(profile, year):
+    qs = (
+        WatchEvent.objects.filter(profile=profile, watched_at__year=year)
+        .values("watched_at__date")
+        .annotate(count=Count("id"))
+    )
+    return {row["watched_at__date"]: row["count"] for row in qs}

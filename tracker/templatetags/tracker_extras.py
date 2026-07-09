@@ -32,6 +32,20 @@ def gradient_class(pk):
     return "bg-linear-to-br " + _GRADIENTS[index]
 
 
+# Cycled by position (forloop.counter0), not keyed by genre name — the
+# mockup's fixed 14-genre palette assumed a known genre list; ours is
+# whatever genres actually appear in the profile's watch history.
+_GENRE_COLORS = [
+    "#e8a63c", "#3fa9a0", "#8b85d6", "#c0473a", "#5b8fd6", "#d67ab1", "#7fae5b",
+    "#d6c14c", "#a67ac9", "#e08a4c", "#4ca6c9", "#9a9fb0", "#c9574c", "#5bc9a0",
+]
+
+
+@register.filter
+def color_at_index(index):
+    return _GENRE_COLORS[int(index) % len(_GENRE_COLORS)]
+
+
 @register.filter
 def day_header(d):
     today = timezone.localdate()

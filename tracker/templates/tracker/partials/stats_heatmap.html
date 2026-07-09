@@ -1,0 +1,53 @@
+{# context: heatmap_year, heatmap_years, heatmap_weeks, heatmap_months, heatmap_active_days #}
+<div id="heatmap-panel">
+  <div class="flex justify-between items-center flex-wrap gap-3 mb-4">
+    <h3 class="text-lg m-0">Watch activity — <span class="font-mono text-ink-dim text-sm font-normal">{{ heatmap_active_days }} day{{ heatmap_active_days|pluralize }} watched something in {{ heatmap_year }}</span></h3>
+    <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
+      {% for y in heatmap_years %}
+        <a
+          hx-get="{% url 'stats_heatmap' %}?year={{ y }}" hx-target="#heatmap-panel" hx-swap="outerHTML"
+          class="px-3 py-1.5 rounded-md text-xs font-semibold cursor-pointer {% if y == heatmap_year %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}"
+        >{{ y }}</a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="overflow-x-auto pb-1">
+    <div class="inline-flex flex-col min-w-full">
+      <div class="flex gap-[3px] mb-1">
+        {% for label in heatmap_months %}
+          <div class="w-[11px] flex-none text-[10px] font-mono text-ink-dim whitespace-nowrap">{% if label %}{{ label }}{% endif %}</div>
+        {% endfor %}
+      </div>
+      <div class="flex gap-[3px]">
+        {% for week in heatmap_weeks %}
+          <div class="flex flex-col gap-[3px] flex-none">
+            {% for cell in week %}
+              {% if cell %}
+                <div
+                  class="w-[11px] h-[11px] rounded-sm {% if cell.level == 0 %}bg-base-300{% elif cell.level == 1 %}bg-primary/25{% elif cell.level == 2 %}bg-primary/50{% elif cell.level == 3 %}bg-primary/75{% else %}bg-primary{% endif %}"
+                  title="{{ cell.date|date:'M j, Y' }} · {{ cell.count }} watched"
+                ></div>
+              {% else %}
+                <div class="w-[11px] h-[11px]"></div>
+              {% endif %}
+            {% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="flex justify-between items-center mt-3 flex-wrap gap-2">
+    <span class="font-mono text-[10.5px] text-ink-faint">One square per day · counted from titles marked watched</span>
+    <div class="flex items-center gap-1.5">
+      <span class="font-mono text-[10.5px] text-ink-faint">Less</span>
+      <span class="w-2.5 h-2.5 rounded-sm bg-base-300"></span>
+      <span class="w-2.5 h-2.5 rounded-sm bg-primary/25"></span>
+      <span class="w-2.5 h-2.5 rounded-sm bg-primary/50"></span>
+      <span class="w-2.5 h-2.5 rounded-sm bg-primary/75"></span>
+      <span class="w-2.5 h-2.5 rounded-sm bg-primary"></span>
+      <span class="font-mono text-[10.5px] text-ink-faint">More</span>
+    </div>
+  </div>
+</div>
