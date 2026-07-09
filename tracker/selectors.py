@@ -20,13 +20,14 @@ def current_streak(profile):
     return streak
 
 
-def continue_watching(profile, limit=8):
+def continue_watching(profile, media_types=None, limit=8):
     items = []
-    qs = (
-        WatchProgress.objects.filter(profile=profile, status=WatchProgress.Status.WATCHING)
-        .select_related("title", "current_episode")
-        .order_by("-updated_at")[:limit]
-    )
+    qs = WatchProgress.objects.filter(profile=profile, status=WatchProgress.Status.WATCHING)
+    if media_types:
+        qs = qs.filter(title__media_type__in=media_types)
+    qs = qs.select_related("title", "current_episode").order_by("-updated_at")
+    if limit:
+        qs = qs[:limit]
     for progress in qs:
         title = progress.title
         if title.media_type == MediaType.MOVIE:
@@ -107,10 +108,32 @@ def quick_stats(profile):
     }
 
 
+def _visible_watchlist_items(profile, media_types=None):
+    qs = WatchListItem.objects.filter(Q(watchlist__profile=profile) | Q(watchlist__is_shared=True))
+    if media_types:
+        qs = qs.filter(title__media_type__in=media_types)
+    return qs.select_related("title").prefetch_related("title__ratings").order_by("-added_at").distinct()
+
+
 def recently_added_to_lists(profile, limit=3):
+    return _visible_watchlist_items(profile)[:limit]
+
+
+def library_watchlist(profile, media_types):
+    """Movies & TV / Anime 'Watchlist' tab — every title on any list visible
+    to this profile (own + shared), scoped to the section's media types.
+    There's no separate 'watchlist' model; the tab is a filtered view over
+    WatchList/WatchListItem (spool-product-spec.md doesn't define a
+    distinct concept for it)."""
+    return _visible_watchlist_items(profile, media_types)
+
+
+def library_history(profile, media_types, limit=50):
+    """Per-section History tab — a simple recent-first list. Filtering/
+    pagination/day-grouping is the combined /history/ page's job (build
+    step 7); this stays intentionally simpler."""
     return (
-        WatchListItem.objects.filter(Q(watchlist__profile=profile) | Q(watchlist__is_shared=True))
-        .select_related("title")
-        .prefetch_related("title__ratings")
-        .order_by("-added_at")[:limit]
+        WatchEvent.objects.filter(profile=profile, title__media_type__in=media_types)
+        .select_related("title", "episode")
+        .order_by("-watched_at")[:limit]
     )

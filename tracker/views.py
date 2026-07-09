@@ -3,7 +3,10 @@ from django.http import Http404
 from django.shortcuts import render
 
 from . import selectors
-from .models import Profile
+from .models import MediaType, Profile, Title, WatchEvent
+
+MOVIE_TV_TYPES = [MediaType.MOVIE, MediaType.TV]
+LIBRARY_TABS = {"watching", "watchlist", "history"}
 
 
 @login_required
@@ -24,11 +27,42 @@ def dashboard(request):
 
 @login_required
 def library(request, media_type, tab):
-    return render(
-        request,
-        "tracker/coming_soon.html",
-        {"page_title": "Anime" if media_type == "anime" else "Movies & TV"},
-    )
+    if tab not in LIBRARY_TABS:
+        raise Http404
+
+    is_anime = media_type == "anime"
+    base_types = [MediaType.ANIME] if is_anime else MOVIE_TV_TYPES
+
+    type_filter = request.GET.get("type", "all")
+    if not is_anime and type_filter in ("movie", "tv"):
+        active_types = [type_filter]
+    else:
+        active_types = base_types
+        type_filter = "all"
+
+    profile = Profile.objects.filter(user=request.user).first()
+    context = {
+        "page_title": "Anime" if is_anime else "Movies & TV",
+        "is_anime": is_anime,
+        # The URL name ("movies_tv"/"anime") — distinct from the `media_type`
+        # kwarg ("movie_tv"/"anime") the two path()s pass into this view.
+        "library_url_name": "anime" if is_anime else "movies_tv",
+        "tab": tab,
+        "type_filter": type_filter,
+        "profile": profile,
+        "total_titles": Title.objects.filter(media_type__in=base_types).count(),
+    }
+    if profile is not None:
+        if tab == "watching":
+            context["watching"] = selectors.continue_watching(profile, media_types=active_types, limit=None)
+        elif tab == "watchlist":
+            context["watchlist_items"] = selectors.library_watchlist(profile, active_types)
+        elif tab == "history":
+            context["history_events"] = selectors.library_history(profile, active_types)
+        context["total_episodes_logged"] = WatchEvent.objects.filter(
+            profile=profile, title__media_type__in=base_types, episode__isnull=False
+        ).count()
+    return render(request, "tracker/library.html", context)
 
 
 @login_required
