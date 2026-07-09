@@ -1,0 +1,92 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: spool
+      POSTGRES_USER: spool
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spool"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    image: ghcr.io/aljaz-h/spool-tracker:latest
+    container_name: spool-web
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    volumes:
+      - media_data:/app/media
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py bootstrap_admin &&
+             gunicorn spool.wsgi:application --bind 0.0.0.0:8000 --workers 3"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - default
+      - proxy
+    # Uncomment for direct host access (e.g. debugging without going through
+    # the reverse proxy). Leave commented if Nginx Proxy Manager is the only
+    # thing that should be able to reach this.
+    # ports:
+    #   - "${WEB_PORT:-8123}:8000"
+
+  worker:
+    image: ghcr.io/aljaz-h/spool-tracker:latest
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    env_file: .env
+    volumes:
+      - media_data:/app/media
+    command: celery -A spool worker -l info
+
+  scheduler:
+    image: ghcr.io/aljaz-h/spool-tracker:latest
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    env_file: .env
+    command: >
+      sh -c "python manage.py bootstrap_periodic_tasks &&
+             celery -A spool beat -l info"
+
+volumes:
+  db_data:
+  redis_data:
+  media_data:
+
+networks:
+  proxy:
+    external: true
+    # Replace with the network your Nginx Proxy Manager container is on -
+    # find it with `docker inspect <npm-container-name> --format '{{json .NetworkSettings.Networks}}'`
+    # or `docker network ls` and match it against what NPM's own compose
+    # file uses.
+    name: CHANGE_ME_TO_YOUR_NPM_NETWORK_NAME

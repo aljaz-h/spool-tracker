@@ -80,6 +80,52 @@ Profile.objects.create(user=User.objects.get(username='<the username you just cr
 Additional household members can be added afterward from Settings & Import →
 Profiles → "+ Add profile", no shell access needed.
 
+## Deploying without cloning the repo (pre-built image)
+
+If you're adding Spool to a host that already runs other Docker Compose
+stacks — e.g. behind an existing Nginx Proxy Manager, Traefik, or
+nginx-proxy setup — you don't need the repo at all. Every push to `master`
+publishes a ready-to-run image to `ghcr.io/aljaz-h/spool-tracker:latest`
+via GitHub Actions (`.github/workflows/docker-publish.yml`), so a new
+folder just needs two files:
+
+```bash
+mkdir spool && cd spool
+curl -o docker-compose.yml https://raw.githubusercontent.com/aljaz-h/spool-tracker/master/docker-compose.prod.yml
+curl -o .env https://raw.githubusercontent.com/aljaz-h/spool-tracker/master/.env.example
+```
+
+Edit `.env` as described above, then in `docker-compose.yml`:
+
+- If you're running behind a containerized reverse proxy on a shared
+  Docker network (Nginx Proxy Manager, Traefik, nginx-proxy), replace
+  `CHANGE_ME_TO_YOUR_NPM_NETWORK_NAME` under `networks: proxy:` with that
+  network's actual name — find it with
+  `docker inspect <your-proxy-container> --format '{{json .NetworkSettings.Networks}}'`
+  or `docker network ls`. In your proxy's UI/config, point it at
+  `spool-web:8000` (container name : internal port — not the host port).
+- If you'd rather reach Spool directly on a host port instead (no
+  containerized proxy in the mix), uncomment the `ports:` line under the
+  `web` service and remove the `networks:` block instead.
+
+Then:
+
+```bash
+docker compose up -d
+```
+
+No Dockerfile, no Node/npm, no build step on the VPS — just pulls the
+published image.
+
+**GHCR image visibility:** the first time the workflow runs, the package
+it creates may default to private, which means `docker compose up -d`
+will fail to pull with an auth error. Go to the repo on GitHub → the
+"Packages" link in the right sidebar → the `spool-tracker` package →
+Package settings → change visibility to Public (there's no secret code in
+the image, so this is safe). Alternatively, keep it private and
+`docker login ghcr.io` on the VPS with a personal access token that has
+`read:packages` scope.
+
 ## Configuration reference
 
 All configuration is environment variables — see `.env.example` for the
