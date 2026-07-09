@@ -94,6 +94,7 @@ def fetch_history(access_token, limit=200, max_pages=500):
 
 
 def _get_or_create_title(media_type, name, year, trakt_id):
+    from tracker.integrations import tmdb
     from tracker.models import Title
 
     # Manual filter-then-create instead of get_or_create(): a JSONField key
@@ -103,8 +104,9 @@ def _get_or_create_title(media_type, name, year, trakt_id):
     title = Title.objects.filter(media_type=media_type, external_ids__trakt=str(trakt_id)).first()
     if title:
         return title
+    poster_url = tmdb.find_poster_url(media_type, name, year) or ""
     return Title.objects.create(
-        media_type=media_type, name=name, year=year or 0, external_ids={"trakt": str(trakt_id)}
+        media_type=media_type, name=name, year=year or 0, external_ids={"trakt": str(trakt_id)}, poster_url=poster_url
     )
 
 

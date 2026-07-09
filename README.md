@@ -141,10 +141,30 @@ full list with inline comments. The ones you're most likely to touch:
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `ADMIN_DISPLAY_NAME` | First-run bootstrap account, see above |
 | `TRAKT_CLIENT_ID` / `TRAKT_CLIENT_SECRET` | Optional, enables Trakt import |
 | `SIMKL_CLIENT_ID` / `SIMKL_CLIENT_SECRET` | Optional, enables Simkl import |
+| `TMDB_API_KEY` | Optional, enables poster lookup (see below) |
 | `TIME_ZONE` | Used for scheduling and display |
 
-`TMDB_API_KEY` is declared but currently unused — nothing in the app reads
-it yet (see [Known limitations](#known-limitations)).
+## Posters
+
+Trakt's API doesn't serve poster images at all, and CSV exports never do
+either, so titles created via Trakt/Simkl sync or CSV import get a
+best-effort poster looked up from TMDB at creation time — set
+`TMDB_API_KEY` (a free v3 API key from themoviedb.org) in `.env` and
+restart `web`/`worker` for this to take effect. It's matched by title +
+year search, so an unusual title or a wrong year in the source data can
+occasionally miss; titles with no match just keep the gradient-placeholder
+fallback rather than erroring.
+
+If you connected Trakt/Simkl (or ran a CSV import) *before* setting
+`TMDB_API_KEY`, those titles were created without a poster and won't
+retroactively get one — backfill them once the key's in place:
+
+```bash
+docker compose exec web python manage.py backfill_posters
+```
+
+This looks up every title that currently has no `poster_url`, so it's
+safe to re-run any time (already-illustrated titles are skipped).
 
 ## Connecting Trakt / Simkl
 
@@ -227,8 +247,9 @@ docker compose exec db pg_dump -U spool spool > backup.sql
   duplicate Title.
 - **No light theme** — the Settings → Appearance light-mode swatch is
   decorative; only the dark theme is implemented.
-- **TMDB_API_KEY** is declared in config but not yet used anywhere
-  (posters/artwork must be added manually per title today).
+- **Poster matching is title+year search, not ID-based** — an unusual
+  title, an off-by-one release year, or a title TMDB just doesn't have
+  will silently keep the gradient-placeholder fallback rather than error.
 - **Single Django project, no multi-tenancy** — profiles share one
   instance/database by design (this is a household tracker, not a
   multi-user SaaS); anyone with a login can see every shared list and the

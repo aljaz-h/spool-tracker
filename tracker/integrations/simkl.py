@@ -62,13 +62,15 @@ def fetch_history(access_token):
 
 
 def _get_or_create_title(media_type, name, year, simkl_id):
+    from tracker.integrations import tmdb
     from tracker.models import Title
 
     title = Title.objects.filter(media_type=media_type, external_ids__simkl=str(simkl_id)).first()
     if title:
         return title
+    poster_url = tmdb.find_poster_url(media_type, name, year) or ""
     return Title.objects.create(
-        media_type=media_type, name=name, year=year or 0, external_ids={"simkl": str(simkl_id)}
+        media_type=media_type, name=name, year=year or 0, external_ids={"simkl": str(simkl_id)}, poster_url=poster_url
     )
 
 

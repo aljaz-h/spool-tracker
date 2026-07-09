@@ -142,7 +142,10 @@ def _get_or_create_title(media_type, name, year):
     title = Title.objects.filter(media_type=media_type, name__iexact=name, year=year or 0).first()
     if title:
         return title
-    return Title.objects.create(media_type=media_type, name=name, year=year or 0)
+    from tracker.integrations import tmdb
+
+    poster_url = tmdb.find_poster_url(media_type, name, year) or ""
+    return Title.objects.create(media_type=media_type, name=name, year=year or 0, poster_url=poster_url)
 
 
 def commit_rows(profile, rows):

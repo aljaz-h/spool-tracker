@@ -2,10 +2,10 @@ import io
 from unittest.mock import Mock, patch
 
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from . import csv_import
-from .integrations import trakt
+from .integrations import tmdb, trakt
 from .models import MediaType, Profile, Title, WatchEvent
 
 
@@ -197,3 +197,48 @@ class TraktFetchHistoryPaginationTests(TestCase):
         items = trakt.fetch_history("token", limit=1, max_pages=3)
         self.assertEqual(len(items), 3)
         self.assertEqual(mock_get.call_count, 3)
+
+
+class TmdbPosterLookupTests(TestCase):
+    def _response(self, results):
+        resp = Mock()
+        resp.json.return_value = {"results": results}
+        resp.raise_for_status = Mock()
+        return resp
+
+    @override_settings(TMDB_API_KEY="")
+    def test_returns_none_without_api_key(self):
+        self.assertIsNone(tmdb.find_poster_url(MediaType.MOVIE, "Fathom", 2020))
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_returns_poster_url_on_match(self, mock_get):
+        mock_get.return_value = self._response([{"poster_path": "/abc123.jpg"}])
+        url = tmdb.find_poster_url(MediaType.MOVIE, "The Long Corridor", 2020)
+        self.assertEqual(url, "https://image.tmdb.org/t/p/w500/abc123.jpg")
+        self.assertEqual(mock_get.call_args.args[0], "https://api.themoviedb.org/3/search/movie")
+        self.assertEqual(mock_get.call_args.kwargs["params"]["year"], 2020)
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_returns_none_on_no_results(self, mock_get):
+        mock_get.return_value = self._response([])
+        self.assertIsNone(tmdb.find_poster_url(MediaType.MOVIE, "Nonexistent Movie", 2020))
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_anime_tries_tv_then_falls_back_to_movie(self, mock_get):
+        mock_get.side_effect = [self._response([]), self._response([{"poster_path": "/anime-movie.jpg"}])]
+        url = tmdb.find_poster_url(MediaType.ANIME, "Ashfall Requiem", 2022)
+        self.assertEqual(url, "https://image.tmdb.org/t/p/w500/anime-movie.jpg")
+        self.assertEqual(mock_get.call_count, 2)
+        self.assertIn("search/tv", mock_get.call_args_list[0].args[0])
+        self.assertIn("search/movie", mock_get.call_args_list[1].args[0])
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_returns_none_on_request_exception(self, mock_get):
+        import requests
+
+        mock_get.side_effect = requests.RequestException("boom")
+        self.assertIsNone(tmdb.find_poster_url(MediaType.MOVIE, "Fathom", 2020))
