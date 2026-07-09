@@ -1,0 +1,12 @@
+{# context: results, watchlist #}
+{% for title in results %}
+  <div class="flex justify-between items-center px-3 py-2 rounded-lg hover:bg-base-300">
+    <span class="text-sm">{{ title.name }} <span class="text-ink-faint font-mono text-xs">({{ title.year }}) · {{ title.get_media_type_display }}</span></span>
+    <form hx-post="{% url 'add_to_list' watchlist.id %}" hx-target="#list-items" hx-swap="outerHTML">
+      <input type="hidden" name="title_id" value="{{ title.id }}">
+      <button type="submit" class="text-xs font-bold text-primary hover:underline">+ Add</button>
+    </form>
+  </div>
+{% empty %}
+  <p class="text-ink-faint text-xs px-3 py-2">No matching titles found.</p>
+{% endfor %}

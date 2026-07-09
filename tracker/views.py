@@ -2,14 +2,16 @@ import calendar as calendar_stdlib
 from datetime import date, timedelta
 from itertools import groupby
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.http import Http404
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 
 from . import selectors
-from .models import MediaType, Profile, Title, WatchEvent
+from .models import MediaType, Profile, Title, WatchEvent, WatchList, WatchListItem
 
 MOVIE_TV_TYPES = [MediaType.MOVIE, MediaType.TV]
 LIBRARY_TABS = {"watching", "watchlist", "history"}
@@ -202,7 +204,105 @@ def calendar_view(request):
 
 @login_required
 def lists(request):
-    return render(request, "tracker/coming_soon.html", {"page_title": "Lists"})
+    profile = Profile.objects.filter(user=request.user).first()
+    context = {"profile": profile}
+    if profile is not None:
+        context["watchlists"] = selectors.visible_lists(profile)
+    return render(request, "tracker/lists.html", context)
+
+
+def _get_visible_list_or_404(profile, list_id):
+    watchlist = get_object_or_404(WatchList.objects.select_related("profile"), pk=list_id)
+    if profile is None or not (watchlist.profile_id == profile.id or watchlist.is_shared):
+        raise Http404
+    return watchlist
+
+
+@login_required
+def list_detail(request, list_id):
+    profile = Profile.objects.filter(user=request.user).first()
+    watchlist = _get_visible_list_or_404(profile, list_id)
+    context = {
+        "profile": profile,
+        "watchlist": watchlist,
+        "can_edit": watchlist.can_edit(profile),
+        "items": watchlist.items.select_related("title").prefetch_related("title__ratings"),
+    }
+    return render(request, "tracker/list_detail.html", context)
+
+
+@login_required
+@require_POST
+def create_list(request):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    name = request.POST.get("name", "").strip()
+    if not name:
+        messages.error(request, "List name is required.")
+        return redirect("lists")
+    watchlist = WatchList.objects.create(profile=profile, name=name, is_shared=bool(request.POST.get("is_shared")))
+    return redirect("list_detail", list_id=watchlist.id)
+
+
+@login_required
+@require_POST
+def delete_list(request, list_id):
+    profile = Profile.objects.filter(user=request.user).first()
+    watchlist = get_object_or_404(WatchList, pk=list_id)
+    if profile is None or not watchlist.can_edit(profile):
+        messages.error(request, "Only the creator of a list can delete it.")
+        return redirect("list_detail", list_id=list_id)
+    watchlist.delete()
+    return redirect("lists")
+
+
+def _render_list_items(request, watchlist):
+    items = watchlist.items.select_related("title").prefetch_related("title__ratings")
+    return render(
+        request, "tracker/partials/list_detail_items.html", {"watchlist": watchlist, "can_edit": True, "items": items}
+    )
+
+
+@login_required
+@require_POST
+def add_to_list(request, list_id):
+    profile = Profile.objects.filter(user=request.user).first()
+    watchlist = get_object_or_404(WatchList, pk=list_id)
+    if profile is None or not watchlist.can_edit(profile):
+        raise Http404
+    title = get_object_or_404(Title, pk=request.POST.get("title_id"))
+    WatchListItem.objects.get_or_create(watchlist=watchlist, title=title)
+    if request.headers.get("HX-Request"):
+        return _render_list_items(request, watchlist)
+    return redirect("list_detail", list_id=list_id)
+
+
+@login_required
+@require_POST
+def remove_from_list(request, list_id):
+    profile = Profile.objects.filter(user=request.user).first()
+    watchlist = get_object_or_404(WatchList, pk=list_id)
+    if profile is None or not watchlist.can_edit(profile):
+        raise Http404
+    WatchListItem.objects.filter(watchlist=watchlist, title_id=request.POST.get("title_id")).delete()
+    if request.headers.get("HX-Request"):
+        return _render_list_items(request, watchlist)
+    return redirect("list_detail", list_id=list_id)
+
+
+@login_required
+def search_titles(request, list_id):
+    profile = Profile.objects.filter(user=request.user).first()
+    watchlist = get_object_or_404(WatchList, pk=list_id)
+    if profile is None or not watchlist.can_edit(profile):
+        raise Http404
+    query = request.GET.get("q", "").strip()
+    results = []
+    if query:
+        existing_ids = watchlist.items.values_list("title_id", flat=True)
+        results = Title.objects.filter(name__icontains=query).exclude(pk__in=existing_ids)[:8]
+    return render(request, "tracker/partials/title_search_results.html", {"results": results, "watchlist": watchlist})
 
 
 @login_required

@@ -8,7 +8,7 @@ from django.db.models import Q, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
-from .models import Episode, MediaType, ReleaseSchedule, WatchEvent, WatchListItem, WatchProgress
+from .models import Episode, MediaType, ReleaseSchedule, WatchEvent, WatchList, WatchListItem, WatchProgress
 
 
 def current_streak(profile):
@@ -200,3 +200,15 @@ def ready_to_watch_queue(profile, queue_size=3):
 
     featured, rest = upcoming[0], upcoming[1:]
     return {"title": progress.title, "episode": featured}, [{"title": progress.title, "episode": e} for e in rest]
+
+
+def visible_lists(profile):
+    """Lists index — every list this profile can see (owned + shared),
+    with just enough prefetched to render the cover collage + count
+    without a query per card."""
+    return (
+        WatchList.objects.filter(Q(profile=profile) | Q(is_shared=True))
+        .select_related("profile")
+        .prefetch_related("items__title")
+        .distinct()
+    )

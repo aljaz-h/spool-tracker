@@ -1,0 +1,45 @@
+{% extends "tracker/base.html" %}
+{% block title %}{{ watchlist.name }} · Spool{% endblock %}
+{% block content %}
+<div x-data="{ showSearch: false }">
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="bg-error/15 text-error text-sm rounded-lg px-4 py-2.5 mb-4">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="flex justify-between items-start flex-wrap gap-3 mb-6">
+    <div>
+      <a href="{% url 'lists' %}" class="text-xs text-ink-faint hover:text-ink-dim">&larr; All lists</a>
+      <h1 class="font-display text-4xl mt-1">{{ watchlist.name }}</h1>
+      <div class="text-ink-dim text-sm mt-1">
+        {{ items|length }} title{{ items|length|pluralize }} · {% if watchlist.is_shared %}shared{% else %}private{% endif %} · by {{ watchlist.profile.display_name }}
+      </div>
+    </div>
+    {% if can_edit %}
+      <div class="flex gap-2">
+        <button @click="showSearch = !showSearch" class="btn btn-primary btn-sm">+ Add title</button>
+        <form method="post" action="{% url 'delete_list' watchlist.id %}" onsubmit="return confirm('Delete \'{{ watchlist.name|escapejs }}\'? This can\'t be undone.');">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-sm">Delete list</button>
+        </form>
+      </div>
+    {% endif %}
+  </div>
+
+  {% if can_edit %}
+    <div x-show="showSearch" x-cloak class="bg-base-200 border border-line rounded-2xl p-4 mb-6">
+      <input
+        type="search" name="q" placeholder="Search titles to add…" autocomplete="off"
+        hx-get="{% url 'search_titles' watchlist.id %}" hx-trigger="input changed delay:200ms" hx-target="#search-results"
+        class="input w-full bg-base-100"
+      >
+      <div id="search-results" class="mt-3 flex flex-col gap-1"></div>
+    </div>
+  {% endif %}
+
+  {% include "tracker/partials/list_detail_items.html" %}
+
+</div>
+{% endblock %}

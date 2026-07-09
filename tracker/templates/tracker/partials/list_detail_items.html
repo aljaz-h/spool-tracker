@@ -1,0 +1,20 @@
+{# context: watchlist, can_edit, items #}
+<div id="list-items" class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-5">
+  {% for item in items %}
+    <div class="group relative">
+      {% include "tracker/partials/poster_card.html" with title=item.title show_ratings=True width_class="" %}
+      {% if can_edit %}
+        <form
+          hx-post="{% url 'remove_from_list' watchlist.id %}"
+          hx-target="#list-items" hx-swap="outerHTML"
+          class="absolute top-2 right-2"
+        >
+          <input type="hidden" name="title_id" value="{{ item.title.id }}">
+          <button type="submit" title="Remove from list" class="w-6 h-6 rounded-full bg-black/70 text-white text-sm opacity-0 group-hover:opacity-100 hover:bg-error transition-opacity flex items-center justify-center">&times;</button>
+        </form>
+      {% endif %}
+    </div>
+  {% empty %}
+    <p class="text-ink-faint text-sm col-span-full">No titles on this list yet.</p>
+  {% endfor %}
+</div>
