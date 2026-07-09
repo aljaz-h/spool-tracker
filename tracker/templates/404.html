@@ -1,0 +1,20 @@
+{% load static %}
+<!doctype html>
+<html lang="en" data-theme="spool">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Not found · Spool</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Public+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'dist/app.css' %}">
+</head>
+<body class="bg-base-100 text-base-content min-h-screen flex items-center justify-center p-6">
+  <div class="text-center max-w-sm">
+    <div class="font-display text-3xl text-marquee tracking-wide mb-4">SPOOL</div>
+    <div class="font-display text-6xl text-ink-dim mb-2">404</div>
+    <p class="text-ink-dim text-sm mb-6">That page doesn't exist, or you don't have access to it.</p>
+    <a href="/" class="btn btn-primary">Back to Dashboard</a>
+  </div>
+</body>
+</html>

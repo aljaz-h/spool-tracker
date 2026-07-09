@@ -1,0 +1,43 @@
+{% extends "tracker/base.html" %}
+{% block title %}Activity · Spool{% endblock %}
+{% block content %}
+
+  <div class="mb-6">
+    <h1 class="font-display text-4xl">Activity</h1>
+    <div class="text-ink-dim text-sm mt-1">What your household has been watching</div>
+  </div>
+
+  <div class="bg-base-200 border border-dashed border-line rounded-lg px-4 py-3 text-[12.5px] text-ink-dim mb-5">
+    This page only appears once a Spool server has more than one profile — it's hidden entirely on single-user installs.
+  </div>
+
+  <div class="bg-base-200 border border-line rounded-2xl p-2">
+    {% if not feed %}
+      <div class="py-10 text-center text-ink-faint text-sm">No activity yet.</div>
+    {% else %}
+      {% for item in feed %}
+        <div class="flex gap-3 px-3.5 py-3.5 {% if not forloop.last %}border-b border-line{% endif %}">
+          <div class="w-[34px] h-[34px] rounded-full flex-none flex items-center justify-center font-mono text-[13px] font-bold" style="background:{{ item.profile.avatar_color }};color:#fff;">
+            {{ item.profile.display_name|first|upper }}
+          </div>
+          <div>
+            <div class="text-[13.5px]">
+              <b>{{ item.profile.display_name }}</b>
+              {% if item.kind == "rated" %}
+                rated <b>{{ item.title.name }}</b> — {{ item.rating }}/10
+              {% elif item.kind == "added_to_list" %}
+                added <b>{{ item.title.name }}</b> to {{ item.watchlist.name }}
+              {% elif item.episode %}
+                watched <b>{{ item.title.name }}</b> — S{{ item.episode.season }}E{{ item.episode.episode }}
+              {% else %}
+                watched <b>{{ item.title.name }}</b>
+              {% endif %}
+            </div>
+            <div class="font-mono text-[11px] text-ink-faint mt-0.5">{{ item.timestamp|timesince }} ago</div>
+          </div>
+        </div>
+      {% endfor %}
+    {% endif %}
+  </div>
+
+{% endblock %}

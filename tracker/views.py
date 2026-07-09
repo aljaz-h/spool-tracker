@@ -399,12 +399,11 @@ def stats_heatmap(request):
 
 @login_required
 def activity(request):
-    # Real feed + full edge-case handling lands in the polish/empty-states
-    # step — this guard just keeps the URL consistent with the nav item
-    # being hidden on single-profile instances (spool-product-spec.md §5).
+    # Hidden entirely (nav item + route) on single-profile instances,
+    # not just an empty feed — spool-product-spec.md §5.
     if Profile.objects.count() <= 1:
         raise Http404
-    return render(request, "tracker/coming_soon.html", {"page_title": "Activity"})
+    return render(request, "tracker/activity.html", {"feed": selectors.activity_feed()})
 
 
 @login_required

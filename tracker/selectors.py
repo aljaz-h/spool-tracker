@@ -299,3 +299,38 @@ def heatmap_counts_by_day(profile, year):
         .annotate(count=Count("id"))
     )
     return {row["watched_at__date"]: row["count"] for row in qs}
+
+
+def activity_feed(limit=30):
+    """What your household has been watching — merges two real, directly-
+    derivable action types (watched/rated, added-to-list) across every
+    profile. Only meaningful with >1 profile, which is exactly when the
+    Activity page exists at all (spool-product-spec.md §5)."""
+    items = []
+    for event in (
+        WatchEvent.objects.select_related("profile", "title", "episode").order_by("-watched_at")[:limit]
+    ):
+        items.append(
+            {
+                "profile": event.profile,
+                "timestamp": event.watched_at,
+                "kind": "rated" if event.user_rating else "watched",
+                "title": event.title,
+                "episode": event.episode,
+                "rating": event.user_rating,
+            }
+        )
+    for wli in (
+        WatchListItem.objects.select_related("watchlist__profile", "title").order_by("-added_at")[:limit]
+    ):
+        items.append(
+            {
+                "profile": wli.watchlist.profile,
+                "timestamp": wli.added_at,
+                "kind": "added_to_list",
+                "title": wli.title,
+                "watchlist": wli.watchlist,
+            }
+        )
+    items.sort(key=lambda i: i["timestamp"], reverse=True)
+    return items[:limit]

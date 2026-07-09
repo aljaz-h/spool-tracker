@@ -1,0 +1,37 @@
+<!--
+  Deliberately no static-file template tags anywhere in this file: Django
+  renders the 500 handler without context processors (the error that got
+  us here might itself be a context-processor or DB failure), so this
+  page can't safely depend on template tags that touch settings/DB.
+  Fonts and theme colors are inlined instead of loading the compiled CSS.
+  Also deliberately avoiding writing Django's own tag-delimiter
+  punctuation as prose anywhere in this comment, full stop — the
+  template compiler tokenizes those characters before it knows about
+  HTML comment boundaries, and describing the bug by reproducing the
+  exact punctuation that causes it is how this file broke twice while
+  being written.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Server error · Spool</title>
+  <style>
+    body { background: #14161c; color: #eceef2; font-family: -apple-system, sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; padding: 24px; }
+    .box { text-align: center; max-width: 24rem; }
+    .brand { font-size: 1.5rem; font-weight: 700; letter-spacing: 0.03em; color: #e8a63c; margin-bottom: 1rem; }
+    h1 { font-size: 2.5rem; color: #9195a6; margin: 0 0 0.5rem; }
+    p { color: #9195a6; font-size: 0.875rem; margin: 0 0 1.5rem; }
+    a { display: inline-block; background: #e8a63c; color: #1a1305; font-weight: 700; padding: 0.6rem 1.25rem; border-radius: 8px; text-decoration: none; font-size: 0.875rem; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="brand">SPOOL</div>
+    <h1>500</h1>
+    <p>Something went wrong on the server. Try again in a moment.</p>
+    <a href="/">Back to Dashboard</a>
+  </div>
+</body>
+</html>
