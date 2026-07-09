@@ -40,6 +40,7 @@ services:
       - media_data:/app/media
     command: >
       sh -c "python manage.py migrate &&
+             python manage.py bootstrap_admin &&
              gunicorn spool.wsgi:application --bind 0.0.0.0:8000 --workers 3"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
