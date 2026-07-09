@@ -1,0 +1,57 @@
+{% load tracker_extras %}
+{% with url_name=request.resolver_match.url_name %}
+<div
+  x-show="sidebarOpen"
+  x-cloak
+  @click="sidebarOpen = false"
+  x-transition.opacity
+  class="fixed inset-0 bg-black/60 z-40 md:hidden"
+></div>
+
+<aside
+  :class="sidebarOpen ? 'w-60' : 'w-17'"
+  class="fixed md:sticky top-0 left-0 h-screen z-50 md:z-auto flex flex-col bg-base-200 border-r border-line p-3.5 transition-all duration-200 overflow-hidden flex-none"
+  :style="!sidebarOpen && window.innerWidth <= 900 ? 'transform:translateX(-100%)' : 'transform:translateX(0)'"
+>
+  <div class="flex items-baseline gap-2 px-2.5 pb-5 mb-4 border-b border-line whitespace-nowrap">
+    <span x-show="sidebarOpen" class="font-display text-[28px] text-marquee tracking-wide">SPOOL</span>
+    <span x-show="!sidebarOpen" x-cloak class="font-display text-[28px] text-marquee tracking-wide">S</span>
+    <span x-show="sidebarOpen" class="text-[10px] text-ink-faint uppercase tracking-widest">self-hosted</span>
+  </div>
+
+  <nav class="flex flex-col gap-0.5">
+    {% url 'dashboard' as dashboard_url %}
+    {% include "tracker/partials/nav_item.html" with href=dashboard_url icon_name="layout-dashboard" label="Dashboard" is_active=url_name|eq:"dashboard" active_border="border-primary" %}
+
+    {% url 'movies_tv' tab="watching" as movies_tv_url %}
+    {% include "tracker/partials/nav_item.html" with href=movies_tv_url icon_name="clapperboard" label="Movies & TV" is_active=url_name|eq:"movies_tv" active_border="border-primary" %}
+
+    {% url 'anime' tab="watching" as anime_url %}
+    {% include "tracker/partials/nav_item.html" with href=anime_url icon_name="sparkles" label="Anime" is_active=url_name|eq:"anime" active_border="border-secondary" %}
+
+    {% url 'history' as history_url %}
+    {% include "tracker/partials/nav_item.html" with href=history_url icon_name="history" label="History" is_active=url_name|eq:"history" active_border="border-primary" %}
+
+    {% url 'calendar' as calendar_url %}
+    {% include "tracker/partials/nav_item.html" with href=calendar_url icon_name="calendar-days" label="Calendar" is_active=url_name|eq:"calendar" active_border="border-primary" %}
+
+    {% url 'lists' as lists_url %}
+    {% include "tracker/partials/nav_item.html" with href=lists_url icon_name="list-checks" label="Lists" is_active=url_name|eq:"lists" active_border="border-primary" %}
+
+    {% url 'stats' as stats_url %}
+    {% include "tracker/partials/nav_item.html" with href=stats_url icon_name="bar-chart-3" label="Stats" is_active=url_name|eq:"stats" active_border="border-primary" %}
+
+    {% if show_activity_nav %}
+      {% url 'activity' as activity_url %}
+      {% include "tracker/partials/nav_item.html" with href=activity_url icon_name="users" label="Activity" is_active=url_name|eq:"activity" active_border="border-primary" %}
+    {% endif %}
+
+    {% url 'settings' as settings_url %}
+    {% include "tracker/partials/nav_item.html" with href=settings_url icon_name="settings" label="Settings & Import" is_active=url_name|eq:"settings" active_border="border-primary" %}
+  </nav>
+
+  <div x-show="sidebarOpen" class="mt-auto pt-2.5 px-2.5 border-t border-line text-[11px] text-ink-faint leading-relaxed whitespace-nowrap">
+    <div>{{ all_profiles|length }} profile{{ all_profiles|length|pluralize }} on this server</div>
+  </div>
+</aside>
+{% endwith %}

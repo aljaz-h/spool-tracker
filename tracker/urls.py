@@ -1,13 +1,22 @@
-from django.shortcuts import render
+from django.contrib.auth import views as auth_views
 from django.urls import path
 
-
-def scaffold_placeholder(request):
-    # Temporary theme sanity-check page for build step 2 — replaced by the
-    # real dashboard view (with base template + sidebar nav) in step 4/5.
-    return render(request, "theme_preview.html")
-
+from . import views
 
 urlpatterns = [
-    path("", scaffold_placeholder, name="dashboard"),
+    path("", views.dashboard, name="dashboard"),
+    path("movies-tv/<str:tab>/", views.library, {"media_type": "movie_tv"}, name="movies_tv"),
+    path("anime/<str:tab>/", views.library, {"media_type": "anime"}, name="anime"),
+    path("history/", views.history, name="history"),
+    path("calendar/", views.calendar_view, name="calendar"),
+    path("lists/", views.lists, name="lists"),
+    path("stats/", views.stats, name="stats"),
+    path("activity/", views.activity, name="activity"),
+    path("settings/", views.settings_view, name="settings"),
+    path(
+        "accounts/login/",
+        auth_views.LoginView.as_view(template_name="tracker/login.html"),
+        name="login",
+    ),
+    path("accounts/logout/", auth_views.LogoutView.as_view(next_page="login"), name="logout"),
 ]

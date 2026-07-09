@@ -109,7 +109,10 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # directly onto STATIC_URL by default, so an unprefixed entry would serve
 # app.css at /static/app.css instead of the /static/dist/app.css templates
 # reference.
-STATICFILES_DIRS = [("dist", BASE_DIR / "static" / "dist")]
+STATICFILES_DIRS = [
+    ("dist", BASE_DIR / "static" / "dist"),
+    ("vendor", BASE_DIR / "static" / "vendor"),
+]
 STORAGES = {
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",

@@ -1,11 +1,16 @@
-def active_profile(request):
-    """Exposes the signed-in user's Profile and household size to every template.
+from .models import Profile
 
-    Placeholder until the Profile model + auth wiring lands (build step 3/4) —
-    returns empty values so templates can reference `active_profile` /
-    `show_activity_nav` safely from the very first page render.
-    """
+
+def active_profile(request):
+    """Exposes the signed-in user's Profile and household size to every
+    template — drives the topbar avatar/name and the Activity nav item's
+    visibility (spool-product-spec.md §5: hidden entirely, not just empty,
+    on single-profile instances)."""
+    profile = None
+    if request.user.is_authenticated:
+        profile = Profile.objects.select_related("user").filter(user=request.user).first()
     return {
-        "active_profile": None,
-        "show_activity_nav": False,
+        "active_profile": profile,
+        "all_profiles": Profile.objects.all(),
+        "show_activity_nav": Profile.objects.count() > 1,
     }

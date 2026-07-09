@@ -1,0 +1,24 @@
+{% load static %}
+<!doctype html>
+<html lang="en" data-theme="spool">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Spool{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Public+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'dist/app.css' %}">
+  <script defer src="{% static 'vendor/alpinejs.js' %}"></script>
+</head>
+<body class="bg-base-100 text-base-content min-h-screen">
+  <div class="flex min-h-screen" x-data="{ sidebarOpen: window.innerWidth > 900 }">
+    {% include "tracker/partials/sidebar.html" %}
+    <div class="flex-1 min-w-0 flex flex-col">
+      {% include "tracker/partials/topbar.html" %}
+      <main class="p-8 pb-16">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+</body>
+</html>

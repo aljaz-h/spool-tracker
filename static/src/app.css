@@ -90,3 +90,10 @@
   --color-primary: var(--color-secondary);
   --color-primary-content: var(--color-secondary-content);
 }
+
+/* Alpine hides x-cloak'd elements only once it has booted; without this
+   rule an element that must start hidden (e.g. the mobile sidebar's
+   backdrop) flashes visible for one frame on every page load. */
+[x-cloak] {
+  display: none !important;
+}
