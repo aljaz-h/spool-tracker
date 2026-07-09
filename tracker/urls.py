@@ -23,8 +23,10 @@ urlpatterns = [
     path("settings/profile/create/", views.create_profile, name="create_profile"),
     path("settings/profile/<int:profile_id>/delete/", views.delete_profile, name="delete_profile"),
     path("settings/appearance/", views.save_appearance, name="save_appearance"),
-    path("import/trakt/connect/", views.import_connect_stub, {"provider": "trakt"}, name="trakt_connect"),
-    path("import/simkl/connect/", views.import_connect_stub, {"provider": "simkl"}, name="simkl_connect"),
+    path("import/trakt/connect/", views.oauth_connect, {"provider": "trakt"}, name="trakt_connect"),
+    path("import/trakt/callback/", views.oauth_callback, {"provider": "trakt"}, name="trakt_callback"),
+    path("import/simkl/connect/", views.oauth_connect, {"provider": "simkl"}, name="simkl_connect"),
+    path("import/simkl/callback/", views.oauth_callback, {"provider": "simkl"}, name="simkl_callback"),
     path("import/csv/", views.import_csv_stub, name="import_csv"),
     path(
         "accounts/login/",

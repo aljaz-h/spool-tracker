@@ -65,7 +65,9 @@ services:
       web:
         condition: service_healthy
     env_file: .env
-    command: celery -A spool beat -l info
+    command: >
+      sh -c "python manage.py bootstrap_periodic_tasks &&
+             celery -A spool beat -l info"
 
 volumes:
   db_data:

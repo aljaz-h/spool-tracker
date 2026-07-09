@@ -142,6 +142,17 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+# Without these, a request-path .apply_async() call (e.g. the OAuth
+# callback kicking off an immediate sync) hangs for a very long time if
+# Redis is briefly unreachable — broker_connection_retry defaults to
+# retrying the *connection* itself with backoff, which per-call
+# retry=False does not override (that only skips retrying the publish
+# once connected). Confirmed by reproducing the hang locally with no
+# Redis running before adding this.
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = False
+CELERY_BROKER_CONNECTION_RETRY = False
+CELERY_BROKER_CONNECTION_TIMEOUT = 3
+CELERY_BROKER_TRANSPORT_OPTIONS = {"socket_connect_timeout": 3, "socket_timeout": 3}
 
 
 # Third-party API credentials (used by tracker/integrations, §6 of the addendum)

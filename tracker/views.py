@@ -1,8 +1,12 @@
 import calendar as calendar_stdlib
+import logging
+import secrets
+import threading
 from datetime import date, timedelta
 from itertools import groupby
 
 import django
+import requests
 from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -11,10 +15,12 @@ from django.core.paginator import Paginator
 from django.db import IntegrityError
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from . import selectors
+from . import selectors, tasks
+from .integrations import simkl, trakt
 from .models import ExternalAccount, MediaType, Profile, Title, WatchEvent, WatchList, WatchListItem
 
 MOVIE_TV_TYPES = [MediaType.MOVIE, MediaType.TV]
@@ -470,13 +476,93 @@ def save_appearance(request):
     return HttpResponse(status=204)
 
 
+PROVIDER_MODULES = {"trakt": trakt, "simkl": simkl}
+SYNC_TASKS = {"trakt": tasks.sync_trakt_history, "simkl": tasks.sync_simkl_history}
+
+
 @login_required
-def import_connect_stub(request, provider):
-    # Real OAuth flow lands in build step 12 — this keeps the Settings
-    # page's Connect buttons pointing at a real, working URL in the
-    # meantime instead of a dead link.
-    messages.info(request, f"{provider.title()} OAuth connect isn't wired up yet — coming in a later build step.")
+def oauth_connect(request, provider):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    client_id = getattr(django_settings, f"{provider.upper()}_CLIENT_ID", "")
+    if not client_id:
+        messages.error(
+            request,
+            f"{provider.title()} isn't configured on this server — set "
+            f"{provider.upper()}_CLIENT_ID / {provider.upper()}_CLIENT_SECRET in the environment and restart.",
+        )
+        return redirect("settings")
+
+    state = secrets.token_urlsafe(24)
+    request.session[f"{provider}_oauth_state"] = state
+    redirect_uri = request.build_absolute_uri(reverse(f"{provider}_callback"))
+    return redirect(PROVIDER_MODULES[provider].authorize_url(redirect_uri, state))
+
+
+@login_required
+def oauth_callback(request, provider):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+
+    expected_state = request.session.pop(f"{provider}_oauth_state", None)
+    if not expected_state or request.GET.get("state") != expected_state:
+        messages.error(request, "That connection request expired or was invalid — please try connecting again.")
+        return redirect("settings")
+
+    code = request.GET.get("code")
+    if not code:
+        messages.error(request, f"{provider.title()} didn't return an authorization code.")
+        return redirect("settings")
+
+    redirect_uri = request.build_absolute_uri(reverse(f"{provider}_callback"))
+    try:
+        token_data = PROVIDER_MODULES[provider].exchange_code(code, redirect_uri)
+    except requests.RequestException:
+        messages.error(request, f"Couldn't complete the {provider.title()} connection — please try again.")
+        return redirect("settings")
+
+    expires_in = token_data.get("expires_in")
+    ExternalAccount.objects.update_or_create(
+        profile=profile,
+        provider=provider,
+        defaults={
+            "access_token": token_data.get("access_token", ""),
+            "refresh_token": token_data.get("refresh_token", ""),
+            "token_expires_at": timezone.now() + timedelta(seconds=expires_in) if expires_in else None,
+        },
+    )
+    # The connection itself (the ExternalAccount row above) must succeed
+    # independently of the broker being reachable right now. Confirmed by
+    # reproducing it locally: a down broker makes .apply_async() block for
+    # ~16s even with retry=False and short socket timeouts configured
+    # (redis-py's own internal retry-with-backoff sits underneath both),
+    # so config alone doesn't bound this — a hard thread-join timeout
+    # does. Worst case, a broker hiccup costs nothing worse than "today's
+    # sync happens on the next daily beat run instead of immediately."
+    _dispatch_sync_task_safely(SYNC_TASKS[provider], profile.id)
+    messages.success(request, f"Connected to {provider.title()} — syncing your history now.")
     return redirect("settings")
+
+
+def _dispatch_sync_task_safely(task, profile_id, timeout=2.0):
+    def _dispatch():
+        try:
+            task.apply_async(args=[profile_id], retry=False)
+        except Exception:
+            logging.getLogger(__name__).exception("Background dispatch of %s failed", task.name)
+
+    thread = threading.Thread(target=_dispatch, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+    if thread.is_alive():
+        logging.getLogger(__name__).warning(
+            "Dispatch of %s did not complete within %ss; abandoning it for this request "
+            "(the daily beat sync will still pick it up)",
+            task.name,
+            timeout,
+        )
 
 
 @login_required
