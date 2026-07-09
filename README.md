@@ -151,13 +151,24 @@ it yet (see [Known limitations](#known-limitations)).
 1. Register an application with the provider:
    - Trakt: create an app at Trakt's API settings page.
    - Simkl: create an app at Simkl's developer settings page.
-2. Set the app's redirect URI to exactly:
-   `http://<your-host>:<WEB_PORT>/import/trakt/callback/` (or `/import/simkl/callback/`
-   for Simkl) — scheme, host, port, and trailing slash all have to match
-   character-for-character what Spool sends, since OAuth2 redirect URIs are
-   matched exactly, not just by origin. In particular, `localhost` and
-   `127.0.0.1` are different strings to the provider even though they're the
-   same machine — use whichever one you register, consistently.
+2. Set the app's redirect URI to exactly what Spool will send — scheme,
+   host, port, and trailing slash all have to match character-for-character,
+   since OAuth2 redirect URIs are matched exactly, not just by origin:
+   - **Running behind a reverse proxy with a real domain** (the
+     `docker-compose.prod.yml` / Nginx Proxy Manager setup):
+     `https://<your-domain>/import/trakt/callback/` (or `/import/simkl/callback/`
+     for Simkl). This requires `DJANGO_ALLOWED_HOSTS` to include that domain
+     and `DJANGO_CSRF_TRUSTED_ORIGINS=https://<your-domain>` in `.env` — see
+     [Configuration reference](#configuration-reference). Spool trusts the
+     proxy's `X-Forwarded-Proto` header to know the original request was
+     HTTPS even though the proxy forwards to it over plain HTTP internally;
+     without that, it would generate an `http://` redirect_uri that won't
+     match what you registered.
+   - **No reverse proxy, accessing directly by host:port**:
+     `http://<your-host>:<WEB_PORT>/import/trakt/callback/`. `localhost` and
+     `127.0.0.1` are different strings to the provider even though they're
+     the same machine — use whichever one you'll actually browse Spool
+     through, consistently.
 3. Put the client ID/secret in `.env` and restart the web service:
    `docker compose up -d --force-recreate web`
 4. Settings & Import → Connect. A daily background sync (04:00 server time)

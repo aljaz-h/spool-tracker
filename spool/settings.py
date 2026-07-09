@@ -22,6 +22,14 @@ DEBUG = env("DEBUG")
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
 
+# Trust the reverse proxy's X-Forwarded-Proto header (Nginx Proxy Manager,
+# Traefik, nginx-proxy, and most others set this by default). Without it,
+# request.build_absolute_uri() thinks every request is plain HTTP even when
+# the proxy terminated real HTTPS in front of it - which silently breaks
+# Trakt/Simkl's OAuth redirect_uri (it'd send http:// while https:// is
+# what's registered) since gunicorn itself never sees TLS directly.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 
 # Application definition
 
