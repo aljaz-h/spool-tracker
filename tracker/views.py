@@ -1,4 +1,5 @@
-from datetime import timedelta
+import calendar as calendar_stdlib
+from datetime import date, timedelta
 from itertools import groupby
 
 from django.contrib.auth.decorators import login_required
@@ -123,9 +124,80 @@ def history(request):
     return render(request, template, context)
 
 
+CALENDAR_TYPES = {"movie": MediaType.MOVIE, "tv": MediaType.TV, "anime": MediaType.ANIME}
+
+
 @login_required
 def calendar_view(request):
-    return render(request, "tracker/coming_soon.html", {"page_title": "Calendar"})
+    profile = Profile.objects.filter(user=request.user).first()
+    type_filter = request.GET.get("type", "all")
+    source_filter = request.GET.get("source") if request.GET.get("source") in ("watching", "watchlist") else "all"
+    media_type = CALENDAR_TYPES.get(type_filter)
+
+    today = timezone.localdate()
+    try:
+        year, month = map(int, request.GET.get("month", "").split("-"))
+        base_date = date(year, month, 1)
+    except (ValueError, TypeError):
+        base_date = today.replace(day=1)
+
+    prev_month = (base_date - timedelta(days=1)).replace(day=1)
+    next_month = (base_date.replace(day=28) + timedelta(days=4)).replace(day=1)
+
+    context = {
+        "profile": profile,
+        "current_month_label": base_date.strftime("%B %Y"),
+        "current_month_param": base_date.strftime("%Y-%m"),
+        "prev_month_param": prev_month.strftime("%Y-%m"),
+        "next_month_param": next_month.strftime("%Y-%m"),
+        "prev_month_label": prev_month.strftime("%B"),
+        "next_month_label": next_month.strftime("%B"),
+        "type_filter": type_filter,
+        "source_filter": source_filter,
+        "today": today,
+        "grid": [],
+        "agenda": [],
+    }
+    if profile is not None:
+        releases = list(selectors.calendar_releases(profile, media_type, source_filter))
+        by_date = {}
+        for rs in releases:
+            by_date.setdefault(timezone.localtime(rs.release_date).date(), []).append(rs)
+
+        weeks = calendar_stdlib.Calendar(firstweekday=0).monthdatescalendar(base_date.year, base_date.month)
+        grid = []
+        for week in weeks:
+            row = []
+            for d in week:
+                day_items = by_date.get(d, [])
+                row.append(
+                    {
+                        "date": d,
+                        "in_month": d.month == base_date.month,
+                        "is_today": d == today,
+                        "items": day_items[:3],
+                        "more_count": max(0, len(day_items) - 3),
+                    }
+                )
+            grid.append(row)
+
+        featured, queue = selectors.ready_to_watch_queue(profile)
+        agenda_groups = [
+            {"date": day, "items": list(items)}
+            for day, items in groupby(releases, key=lambda r: timezone.localtime(r.release_date).date())
+        ]
+        context.update(
+            {"grid": grid, "agenda_groups": agenda_groups, "featured": featured, "queue": queue}
+        )
+
+    hx_target = request.headers.get("HX-Target")
+    if hx_target == "cal-main":
+        template = "tracker/partials/calendar_main.html"
+    elif request.headers.get("HX-Request"):
+        template = "tracker/partials/calendar_body.html"
+    else:
+        template = "tracker/calendar.html"
+    return render(request, template, context)
 
 
 @login_required

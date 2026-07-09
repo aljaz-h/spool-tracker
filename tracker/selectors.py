@@ -137,3 +137,66 @@ def library_history(profile, media_types, limit=50):
         .select_related("title", "episode")
         .order_by("-watched_at")[:limit]
     )
+
+
+def calendar_releases(profile, media_type=None, source="all"):
+    """Upcoming releases for titles this profile is watching or has on any
+    visible watchlist (own + shared, same visibility rule as everywhere
+    else lists show up) — spool-handoff-addendum.md §1."""
+    watching_q = Q(
+        title__watch_progress__profile=profile, title__watch_progress__status=WatchProgress.Status.WATCHING
+    )
+    watchlist_q = Q(title__watchlist_items__watchlist__profile=profile) | Q(
+        title__watchlist_items__watchlist__is_shared=True
+    )
+    if source == "watching":
+        scope_q = watching_q
+    elif source == "watchlist":
+        scope_q = watchlist_q
+    else:
+        scope_q = watching_q | watchlist_q
+
+    qs = (
+        ReleaseSchedule.objects.filter(scope_q, release_date__gte=timezone.now())
+        .select_related("title", "episode")
+        .order_by("release_date")
+        .distinct()
+    )
+    if media_type:
+        qs = qs.filter(title__media_type=media_type)
+    return qs
+
+
+def ready_to_watch_queue(profile, queue_size=3):
+    """The Calendar sidebar's featured card — the next *already-released*
+    episode for whatever this profile most recently progressed (not a
+    future release; that's the agenda below it). Movies have no "next
+    episode" concept, so they're excluded from consideration."""
+    progress = (
+        WatchProgress.objects.filter(profile=profile, status=WatchProgress.Status.WATCHING)
+        .exclude(title__media_type=MediaType.MOVIE)
+        .exclude(current_episode__isnull=True)
+        .select_related("title", "current_episode")
+        .order_by("-updated_at")
+        .first()
+    )
+    if not progress:
+        return None, []
+
+    ep = progress.current_episode
+    upcoming = list(
+        Episode.objects.filter(title=progress.title, season=ep.season, episode__gt=ep.episode).order_by("episode")[
+            :queue_size
+        ]
+    )
+    if not upcoming:
+        upcoming = list(
+            Episode.objects.filter(title=progress.title, season__gt=ep.season).order_by("season", "episode")[
+                :queue_size
+            ]
+        )
+    if not upcoming:
+        return None, []
+
+    featured, rest = upcoming[0], upcoming[1:]
+    return {"title": progress.title, "episode": featured}, [{"title": progress.title, "episode": e} for e in rest]

@@ -1,0 +1,61 @@
+{% extends "tracker/base.html" %}
+{% block title %}Calendar · Spool{% endblock %}
+{% block content %}
+
+  <div class="mb-6">
+    <h1 class="font-display text-4xl">Calendar</h1>
+    <div class="text-ink-dim text-sm mt-1">New episodes, season premieres &amp; releases — from what you're watching and your watchlists</div>
+  </div>
+
+  <form
+    hx-get="{% url 'calendar' %}"
+    hx-target="#calendar-body"
+    hx-trigger="change"
+    hx-push-url="true"
+    class="flex justify-between items-center flex-wrap gap-3 mb-5"
+  >
+    <input type="hidden" name="month" value="{{ current_month_param }}" id="calendar-month-field">
+    <div class="inline-flex bg-base-200 border border-line rounded-lg p-1 gap-0.5">
+      {% comment %}
+        has-checked: (CSS, not a server-rendered class) — this form sits
+        outside #calendar-body, the only thing HTMX re-renders, so a
+        server-computed active class would go stale after the first swap.
+        (Django's {# #} comment is single-line only — a multi-line one
+        like this isn't recognized as a tag and renders as literal text.)
+      {% endcomment %}
+      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+        <input type="radio" name="type" value="all" class="hidden" {% if type_filter == "all" %}checked{% endif %}>All
+      </label>
+      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+        <input type="radio" name="type" value="movie" class="hidden" {% if type_filter == "movie" %}checked{% endif %}>Movies
+      </label>
+      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+        <input type="radio" name="type" value="tv" class="hidden" {% if type_filter == "tv" %}checked{% endif %}>TV
+      </label>
+      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+        <input type="radio" name="type" value="anime" class="hidden" {% if type_filter == "anime" %}checked{% endif %}>Anime
+      </label>
+    </div>
+    <select name="source" class="bg-base-200 border border-line text-ink-dim text-xs px-3 py-2 rounded-lg">
+      <option value="all" {% if source_filter == "all" %}selected{% endif %}>Watching &amp; Watchlist</option>
+      <option value="watching" {% if source_filter == "watching" %}selected{% endif %}>Watching only</option>
+      <option value="watchlist" {% if source_filter == "watchlist" %}selected{% endif %}>Watchlist only</option>
+    </select>
+  </form>
+
+  <div id="calendar-body">
+    {% include "tracker/partials/calendar_body.html" %}
+  </div>
+
+  <script>
+    // Keep the filter form's hidden "month" field in sync with whatever
+    // month calendar_main.html last rendered, so a filter change doesn't
+    // silently reset the user back to the current month.
+    document.body.addEventListener('htmx:afterSwap', (e) => {
+      const monthEl = e.target.querySelector('[data-active-month]');
+      const field = document.getElementById('calendar-month-field');
+      if (monthEl && field) field.value = monthEl.dataset.activeMonth;
+    });
+  </script>
+
+{% endblock %}

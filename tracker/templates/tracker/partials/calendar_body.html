@@ -1,0 +1,8 @@
+<div class="flex gap-5 items-start flex-col lg:flex-row">
+  <div id="cal-main" class="flex-1 min-w-0">
+    {% include "tracker/partials/calendar_main.html" %}
+  </div>
+  <aside id="cal-sidebar" class="w-full lg:w-[300px] flex-none bg-base-200 border border-line rounded-2xl p-3.5 max-h-[660px] overflow-y-auto">
+    {% include "tracker/partials/calendar_sidebar.html" %}
+  </aside>
+</div>

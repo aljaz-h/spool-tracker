@@ -15,17 +15,21 @@
     class="flex justify-between items-center flex-wrap gap-3 mb-5"
   >
     <div class="inline-flex bg-base-200 border border-line rounded-lg p-1 gap-0.5">
-      {% load tracker_extras %}
-      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer {% if type_filter|eq:"all" %}bg-base-300 text-base-content{% else %}text-ink-dim{% endif %}">
+      {% comment %}
+        has-checked: (CSS, not a server-rendered class) so the active pill
+        stays in sync with the native radio state even though this form
+        sits outside #history-content, the only thing HTMX re-renders.
+      {% endcomment %}
+      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
         <input type="radio" name="type" value="all" class="hidden" {% if type_filter == "all" %}checked{% endif %}>All
       </label>
-      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer {% if type_filter|eq:"movie" %}bg-base-300 text-base-content{% else %}text-ink-dim{% endif %}">
+      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
         <input type="radio" name="type" value="movie" class="hidden" {% if type_filter == "movie" %}checked{% endif %}>Movies
       </label>
-      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer {% if type_filter|eq:"tv" %}bg-base-300 text-base-content{% else %}text-ink-dim{% endif %}">
+      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
         <input type="radio" name="type" value="tv" class="hidden" {% if type_filter == "tv" %}checked{% endif %}>TV
       </label>
-      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer {% if type_filter|eq:"anime" %}bg-base-300 text-base-content{% else %}text-ink-dim{% endif %}">
+      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
         <input type="radio" name="type" value="anime" class="hidden" {% if type_filter == "anime" %}checked{% endif %}>Anime
       </label>
     </div>
