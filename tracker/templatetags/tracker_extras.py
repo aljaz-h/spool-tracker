@@ -47,6 +47,13 @@ def color_at_index(index):
 
 
 @register.filter
+def get_item(d, key):
+    """Dict lookup by a variable key — Django's `.` lookup only accepts
+    literal attribute/key names, not a template variable holding the key."""
+    return d.get(key)
+
+
+@register.filter
 def day_header(d):
     today = timezone.localdate()
     if d == today:

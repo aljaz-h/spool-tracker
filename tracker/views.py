@@ -1,7 +1,9 @@
 import calendar as calendar_stdlib
 import logging
+import os
 import secrets
 import threading
+import uuid
 from datetime import date, timedelta
 from itertools import groupby
 
@@ -19,7 +21,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from . import selectors, tasks
+from . import csv_import, selectors, tasks
 from .integrations import simkl, trakt
 from .models import ExternalAccount, MediaType, Profile, Title, WatchEvent, WatchList, WatchListItem
 
@@ -564,8 +566,133 @@ def _dispatch_sync_task_safely(task, profile_id, timeout=2.0):
         )
 
 
+CSV_IMPORT_DIR = os.path.join(django_settings.MEDIA_ROOT, "csv_imports")
+
+
+def _discard_pending_csv_import(request):
+    """Removes the temp file backing request.session['csv_import'], if any."""
+    pending = request.session.pop("csv_import", None)
+    if pending:
+        try:
+            os.remove(pending["path"])
+        except OSError:
+            pass
+
+
 @login_required
 @require_POST
-def import_csv_stub(request):
-    messages.info(request, "CSV import isn't available yet.")
+def import_csv_upload(request):
+    upload = request.FILES.get("csv_file")
+    if not upload:
+        messages.error(request, "Choose a CSV file first.")
+        return redirect("settings")
+
+    os.makedirs(CSV_IMPORT_DIR, exist_ok=True)
+    path = os.path.join(CSV_IMPORT_DIR, f"{uuid.uuid4().hex}.csv")
+    with open(path, "wb") as f:
+        for chunk in upload.chunks():
+            f.write(chunk)
+
+    try:
+        with open(path, "rb") as f:
+            headers = csv_import.open_csv_reader(f).fieldnames or []
+    except (OSError, UnicodeDecodeError):
+        headers = []
+    if not headers:
+        os.remove(path)
+        messages.error(request, f'"{upload.name}" doesn\'t look like a CSV file (no header row found).')
+        return redirect("settings")
+
+    _discard_pending_csv_import(request)
+    request.session["csv_import"] = {
+        "path": path,
+        "filename": upload.name,
+        "headers": headers,
+        "mapping": csv_import.detect_mapping(headers),
+    }
+    return redirect("import_csv_preview")
+
+
+@login_required
+def import_csv_preview(request):
+    pending = request.session.get("csv_import")
+    if not pending:
+        messages.error(request, "No CSV import in progress — upload a file to start.")
+        return redirect("settings")
+
+    with open(pending["path"], "rb") as f:
+        reader = csv_import.open_csv_reader(f)
+        sample_rows, sample_errors = csv_import.parse_rows(reader, pending["mapping"], limit=10)
+
+    context = {
+        "filename": pending["filename"],
+        "headers": pending["headers"],
+        "mapping": pending["mapping"],
+        "fields": csv_import.FIELDS,
+        "required_fields": csv_import.REQUIRED_FIELDS,
+        "sample_rows": sample_rows,
+        "sample_errors": sample_errors,
+        "missing_required": [f for f in csv_import.REQUIRED_FIELDS if f not in pending["mapping"]],
+    }
+    return render(request, "tracker/import_csv_preview.html", context)
+
+
+@login_required
+@require_POST
+def import_csv_remap(request):
+    pending = request.session.get("csv_import")
+    if not pending:
+        return redirect("settings")
+    mapping = {}
+    for field in csv_import.FIELDS:
+        header = request.POST.get(f"map_{field}", "")
+        if header:
+            mapping[field] = header
+    pending["mapping"] = mapping
+    request.session["csv_import"] = pending
+    return redirect("import_csv_preview")
+
+
+@login_required
+@require_POST
+def import_csv_cancel(request):
+    _discard_pending_csv_import(request)
+    messages.info(request, "CSV import cancelled.")
     return redirect("settings")
+
+
+@login_required
+@require_POST
+def import_csv_commit(request):
+    profile = Profile.objects.filter(user=request.user).first()
+    pending = request.session.get("csv_import")
+    if profile is None or not pending:
+        return redirect("settings")
+
+    missing_required = [f for f in csv_import.REQUIRED_FIELDS if f not in pending["mapping"]]
+    if missing_required:
+        messages.error(request, f"Map the required column(s) first: {', '.join(missing_required)}.")
+        return redirect("import_csv_preview")
+
+    with open(pending["path"], "rb") as f:
+        reader = csv_import.open_csv_reader(f)
+        rows, parse_errors = csv_import.parse_rows(reader, pending["mapping"])
+    imported, skipped = csv_import.commit_rows(profile, rows)
+    _discard_pending_csv_import(request)
+
+    all_skipped = parse_errors + skipped
+    request.session["csv_import_result"] = {
+        "imported": imported,
+        "skipped_count": len(all_skipped),
+        "skipped": all_skipped[:50],
+        "skipped_truncated": len(all_skipped) > 50,
+    }
+    return redirect("import_csv_result")
+
+
+@login_required
+def import_csv_result(request):
+    result = request.session.pop("csv_import_result", None)
+    if not result:
+        return redirect("settings")
+    return render(request, "tracker/import_csv_result.html", result)

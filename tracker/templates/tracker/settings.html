@@ -40,7 +40,11 @@
 
       <div class="flex justify-between items-center py-3.5">
         <div><div class="font-semibold text-[13.5px]">CSV file</div><div class="text-xs text-ink-dim">Upload an export from any tracker</div></div>
-        <form method="post" action="{% url 'import_csv' %}">{% csrf_token %}<button type="submit" class="btn btn-sm">Upload</button></form>
+        <form method="post" action="{% url 'import_csv' %}" enctype="multipart/form-data" class="flex items-center gap-2">
+          {% csrf_token %}
+          <input type="file" name="csv_file" accept=".csv,text/csv" required class="file-input file-input-sm w-40">
+          <button type="submit" class="btn btn-sm">Upload</button>
+        </form>
       </div>
     </div>
 

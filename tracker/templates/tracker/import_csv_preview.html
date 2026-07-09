@@ -1,0 +1,104 @@
+{% extends "tracker/base.html" %}
+{% load tracker_extras %}
+{% block title %}Preview CSV import · Spool{% endblock %}
+{% block content %}
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="{% if message.tags == 'error' %}bg-error/15 text-error{% else %}bg-info/15 text-info{% endif %} text-sm rounded-lg px-4 py-2.5 mb-4">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="mb-6">
+    <h1 class="font-display text-4xl">Preview import</h1>
+    <div class="text-ink-dim text-sm mt-1">{{ filename }} — confirm the column mapping before importing</div>
+  </div>
+
+  {% if missing_required %}
+    <div class="bg-error/15 text-error text-sm rounded-lg px-4 py-2.5 mb-5">
+      Map the required column(s) before importing: {{ missing_required|join:", " }}.
+    </div>
+  {% endif %}
+
+  <div class="bg-base-200 border border-line rounded-2xl p-5 mb-5">
+    <h3 class="text-lg mb-1">Column mapping</h3>
+    <div class="text-ink-dim text-xs mb-4">Detected automatically from your file's headers — adjust any that guessed wrong, then refresh the preview below.</div>
+    <form method="post" action="{% url 'import_csv_remap' %}" class="grid grid-cols-2 md:grid-cols-4 gap-3.5">
+      {% csrf_token %}
+      {% for field in fields %}
+        <div>
+          <label class="block text-xs text-ink-dim mb-1">
+            {{ field }}{% if field in required_fields %} <span class="text-error">*</span>{% endif %}
+          </label>
+          <select name="map_{{ field }}" class="select select-sm w-full bg-base-100">
+            <option value="">— none —</option>
+            {% for header in headers %}
+              <option value="{{ header }}" {% if header == mapping|get_item:field %}selected{% endif %}>{{ header }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      {% endfor %}
+      <div class="col-span-2 md:col-span-4 flex justify-end">
+        <button type="submit" class="btn btn-sm">Refresh preview</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="bg-base-200 border border-line rounded-2xl p-5 mb-5">
+    <h3 class="text-lg mb-3.5">First {{ sample_rows|length }} rows as interpreted</h3>
+    {% if not sample_rows and not sample_errors %}
+      <div class="text-ink-faint text-sm py-4 text-center">No data rows found in this file.</div>
+    {% else %}
+      <div class="overflow-x-auto">
+        <table class="w-full text-[12.5px]">
+          <thead>
+            <tr class="text-left text-ink-dim border-b border-line">
+              <th class="py-2 pr-3 font-mono text-[11px]">Row</th>
+              <th class="py-2 pr-3">Title</th>
+              <th class="py-2 pr-3">Type</th>
+              <th class="py-2 pr-3">Year</th>
+              <th class="py-2 pr-3">S/E</th>
+              <th class="py-2 pr-3">Watched at</th>
+              <th class="py-2 pr-3">Rating</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in sample_rows %}
+              <tr class="border-b border-line last:border-b-0">
+                <td class="py-2 pr-3 font-mono text-[11px] text-ink-faint">{{ row.row }}</td>
+                <td class="py-2 pr-3">{{ row.title }}</td>
+                <td class="py-2 pr-3 font-mono text-[11px]">{{ row.media_type }}</td>
+                <td class="py-2 pr-3">{{ row.year|default:"—" }}</td>
+                <td class="py-2 pr-3">{% if row.season %}S{{ row.season }}E{{ row.episode }}{% else %}—{% endif %}</td>
+                <td class="py-2 pr-3 font-mono text-[11px]">{{ row.watched_at|date:"Y-m-d H:i" }}</td>
+                <td class="py-2 pr-3">{{ row.rating|default:"—" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if sample_errors %}
+        <div class="mt-3.5 pt-3.5 border-t border-line">
+          <div class="text-xs text-ink-dim mb-1.5">{{ sample_errors|length }} of the first rows failed to parse and would be skipped:</div>
+          <ul class="text-[11.5px] text-ink-faint font-mono space-y-0.5">
+            {% for row_num, reason in sample_errors %}
+              <li>row {{ row_num }}: {{ reason }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  <div class="flex gap-3">
+    <form method="post" action="{% url 'import_csv_commit' %}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-primary" {% if missing_required %}disabled{% endif %}>Import full file</button>
+    </form>
+    <form method="post" action="{% url 'import_csv_cancel' %}">
+      {% csrf_token %}
+      <button type="submit" class="btn">Cancel</button>
+    </form>
+  </div>
+
+{% endblock %}

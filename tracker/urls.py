@@ -27,7 +27,12 @@ urlpatterns = [
     path("import/trakt/callback/", views.oauth_callback, {"provider": "trakt"}, name="trakt_callback"),
     path("import/simkl/connect/", views.oauth_connect, {"provider": "simkl"}, name="simkl_connect"),
     path("import/simkl/callback/", views.oauth_callback, {"provider": "simkl"}, name="simkl_callback"),
-    path("import/csv/", views.import_csv_stub, name="import_csv"),
+    path("import/csv/", views.import_csv_upload, name="import_csv"),
+    path("import/csv/preview/", views.import_csv_preview, name="import_csv_preview"),
+    path("import/csv/remap/", views.import_csv_remap, name="import_csv_remap"),
+    path("import/csv/cancel/", views.import_csv_cancel, name="import_csv_cancel"),
+    path("import/csv/commit/", views.import_csv_commit, name="import_csv_commit"),
+    path("import/csv/result/", views.import_csv_result, name="import_csv_result"),
     path(
         "accounts/login/",
         auth_views.LoginView.as_view(template_name="tracker/login.html"),
