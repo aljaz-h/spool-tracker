@@ -1,0 +1,115 @@
+{% extends "tracker/base.html" %}
+{% load tracker_extras %}
+{% block title %}Settings & Import · Spool{% endblock %}
+{% block content %}
+<div x-data="{ showAddProfile: false }">
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="{% if message.tags == 'error' %}bg-error/15 text-error{% else %}bg-info/15 text-info{% endif %} text-sm rounded-lg px-4 py-2.5 mb-4">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="mb-6">
+    <h1 class="font-display text-4xl">Settings &amp; Import</h1>
+    <div class="text-ink-dim text-sm mt-1">Bring in history from other trackers, manage profiles</div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+    <div class="bg-base-200 border border-line rounded-2xl p-5">
+      <h3 class="text-lg mb-3.5">Import your history</h3>
+
+      <div class="flex justify-between items-center py-3.5 border-b border-line">
+        <div><div class="font-semibold text-[13.5px]">Trakt</div><div class="text-xs text-ink-dim">Sync watched history, ratings &amp; lists</div></div>
+        {% if "trakt" in connected_providers %}
+          <span class="font-mono text-xs text-success">&#10003; Connected</span>
+        {% else %}
+          <form method="post" action="{% url 'trakt_connect' %}">{% csrf_token %}<button type="submit" class="btn btn-sm">Connect</button></form>
+        {% endif %}
+      </div>
+
+      <div class="flex justify-between items-center py-3.5 border-b border-line">
+        <div><div class="font-semibold text-[13.5px]">Simkl</div><div class="text-xs text-ink-dim">Import history &amp; anime progress</div></div>
+        {% if "simkl" in connected_providers %}
+          <span class="font-mono text-xs text-success">&#10003; Connected</span>
+        {% else %}
+          <form method="post" action="{% url 'simkl_connect' %}">{% csrf_token %}<button type="submit" class="btn btn-sm">Connect</button></form>
+        {% endif %}
+      </div>
+
+      <div class="flex justify-between items-center py-3.5">
+        <div><div class="font-semibold text-[13.5px]">CSV file</div><div class="text-xs text-ink-dim">Upload an export from any tracker</div></div>
+        <form method="post" action="{% url 'import_csv' %}">{% csrf_token %}<button type="submit" class="btn btn-sm">Upload</button></form>
+      </div>
+    </div>
+
+    <div class="bg-base-200 border border-line rounded-2xl p-5">
+      <h3 class="text-lg mb-3.5">Profiles</h3>
+      {% for p in profiles %}
+        <div class="flex items-center gap-3 py-3 border-b border-line last:border-b-0">
+          <div class="w-8 h-8 rounded-full flex items-center justify-center font-mono text-xs font-semibold" style="background:{{ p.avatar_color }};color:#fff;">{{ p.display_name|first|upper }}</div>
+          <div class="flex-1 min-w-0">
+            <div class="font-semibold text-[13.5px]">{{ p.display_name }}</div>
+            <div class="text-[11.5px] text-ink-dim font-mono">{% if p.is_owner %}Owner{% else %}Member{% endif %}</div>
+          </div>
+          {% if profile.is_owner and p.id != profile.id %}
+            <form method="post" action="{% url 'delete_profile' p.id %}" onsubmit="return confirm('Remove {{ p.display_name|escapejs }}? This deletes their entire watch history.');">
+              {% csrf_token %}
+              <button type="submit" class="text-xs text-ink-faint hover:text-error">Remove</button>
+            </form>
+          {% endif %}
+        </div>
+      {% endfor %}
+      <button @click="showAddProfile = !showAddProfile" class="btn mt-3 w-full">+ Add profile</button>
+
+      <div x-show="showAddProfile" x-cloak class="mt-4 pt-4 border-t border-line">
+        <form method="post" action="{% url 'create_profile' %}">
+          {% csrf_token %}
+          <label class="block text-xs text-ink-dim mb-1">Display name</label>
+          <input type="text" name="display_name" required class="input w-full mb-3 bg-base-100">
+          <label class="block text-xs text-ink-dim mb-1">Username (for sign-in)</label>
+          <input type="text" name="username" required class="input w-full mb-3 bg-base-100">
+          <label class="block text-xs text-ink-dim mb-1">Password</label>
+          <input type="password" name="password" required class="input w-full mb-4 bg-base-100">
+          <button type="submit" class="btn btn-primary w-full">Create profile</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="bg-base-200 border border-line rounded-2xl p-5">
+      <h3 class="text-lg mb-1">Appearance</h3>
+      <div class="text-ink-dim text-xs mb-3">Dark is the default; a light mode preview isn't built yet.</div>
+      <div class="flex gap-2.5">
+        <div class="w-13 h-9 rounded-md border-2 border-primary" style="background:#14161c;"></div>
+        <div class="w-13 h-9 rounded-md border-2 border-transparent opacity-40" style="background:#f4f2ec;" title="Light mode isn't available yet"></div>
+      </div>
+
+      <div class="text-ink-dim text-xs mt-4 mb-2">Time format</div>
+      <form
+        hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none"
+        class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5"
+      >
+        <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-100 has-checked:text-base-content">
+          <input type="radio" name="time_format" value="12h" class="hidden" {% if profile.time_format == "12h" %}checked{% endif %}>12-hour (AM/PM)
+        </label>
+        <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-100 has-checked:text-base-content">
+          <input type="radio" name="time_format" value="24h" class="hidden" {% if profile.time_format == "24h" %}checked{% endif %}>24-hour
+        </label>
+      </form>
+    </div>
+
+    <div class="bg-base-200 border border-line rounded-2xl p-5">
+      <h3 class="text-lg mb-3">Server</h3>
+      <div class="font-mono text-[11.5px] text-ink-faint leading-loose">
+        django&nbsp;&nbsp;&nbsp;{{ django_version }}<br>
+        database&nbsp;{{ db_engine }}<br>
+        debug&nbsp;&nbsp;&nbsp;&nbsp;{{ debug }}<br>
+        timezone&nbsp;{{ time_zone }}<br>
+        profiles&nbsp;{{ profiles|length }}
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

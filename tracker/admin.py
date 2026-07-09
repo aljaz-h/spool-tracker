@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from .models import (
     Episode,
+    ExternalAccount,
     ExternalRating,
     Genre,
     Profile,
@@ -86,3 +87,9 @@ class ReleaseScheduleAdmin(admin.ModelAdmin):
     list_filter = ("release_type",)
     date_hierarchy = "release_date"
     autocomplete_fields = ("title", "episode")
+
+
+@admin.register(ExternalAccount)
+class ExternalAccountAdmin(admin.ModelAdmin):
+    list_display = ("profile", "provider", "connected_at", "token_expires_at")
+    list_filter = ("provider",)

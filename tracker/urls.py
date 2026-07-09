@@ -20,6 +20,12 @@ urlpatterns = [
     path("stats/heatmap/", views.stats_heatmap, name="stats_heatmap"),
     path("activity/", views.activity, name="activity"),
     path("settings/", views.settings_view, name="settings"),
+    path("settings/profile/create/", views.create_profile, name="create_profile"),
+    path("settings/profile/<int:profile_id>/delete/", views.delete_profile, name="delete_profile"),
+    path("settings/appearance/", views.save_appearance, name="save_appearance"),
+    path("import/trakt/connect/", views.import_connect_stub, {"provider": "trakt"}, name="trakt_connect"),
+    path("import/simkl/connect/", views.import_connect_stub, {"provider": "simkl"}, name="simkl_connect"),
+    path("import/csv/", views.import_csv_stub, name="import_csv"),
     path(
         "accounts/login/",
         auth_views.LoginView.as_view(template_name="tracker/login.html"),

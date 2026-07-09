@@ -21,7 +21,7 @@
     <div class="text-[11.5px] font-semibold truncate">{{ event.title.name }}</div>
     <div class="flex justify-between items-center mt-0.5 text-[10px] font-mono text-ink-dim">
       <span>{{ event.title.year }}</span>
-      <span class="text-ink-faint">{{ event.watched_at|time:"g:i A" }}</span>
+      <span class="text-ink-faint">{{ event.watched_at|time:time_format_str }}</span>
     </div>
   </div>
 </div>

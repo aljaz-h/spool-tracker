@@ -13,9 +13,17 @@ class Profile(models.Model):
     """One per household member. Everything else is scoped to a Profile,
     not directly to the Django User — see spool-product-spec.md §2."""
 
+    class TimeFormat(models.TextChoices):
+        H12 = "12h", "12-hour (AM/PM)"
+        H24 = "24h", "24-hour"
+
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     display_name = models.CharField(max_length=50)
     avatar_color = models.CharField(max_length=7, default="#3a2a1c")
+    # Settings → Appearance. The only persisted preference with real
+    # downstream behavior (History's time column) — the mockup's dark/light
+    # theme swatch has no second theme built, so it stays decorative.
+    time_format = models.CharField(max_length=3, choices=TimeFormat.choices, default=TimeFormat.H12)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -23,6 +31,13 @@ class Profile(models.Model):
 
     def __str__(self):
         return self.display_name
+
+    @property
+    def is_owner(self):
+        """No dedicated role field — the mockup's Owner/Member badge maps
+        onto Django's own superuser flag instead of inventing new schema
+        for a distinction Django auth already expresses."""
+        return self.user.is_superuser
 
 
 class Genre(models.Model):
@@ -219,3 +234,29 @@ class ReleaseSchedule(models.Model):
 
     def __str__(self):
         return f"{self.title} · {self.get_release_type_display()} @ {self.release_date:%Y-%m-%d}"
+
+
+class ExternalAccount(models.Model):
+    """OAuth connection state for Trakt/Simkl — Settings (this step) needs
+    to display real connect/connected status, and the sync jobs (build
+    step 12) need somewhere to keep the tokens, so the model lands now
+    rather than getting invented twice."""
+
+    class Provider(models.TextChoices):
+        TRAKT = "trakt", "Trakt"
+        SIMKL = "simkl", "Simkl"
+
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="external_accounts")
+    provider = models.CharField(max_length=10, choices=Provider.choices)
+    access_token = models.TextField(blank=True)
+    refresh_token = models.TextField(blank=True)
+    token_expires_at = models.DateTimeField(null=True, blank=True)
+    connected_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["profile", "provider"], name="unique_provider_per_profile")
+        ]
+
+    def __str__(self):
+        return f"{self.profile} · {self.get_provider_display()}"

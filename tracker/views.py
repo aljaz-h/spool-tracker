@@ -2,16 +2,20 @@ import calendar as calendar_stdlib
 from datetime import date, timedelta
 from itertools import groupby
 
+import django
+from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import User
 from django.core.paginator import Paginator
-from django.http import Http404
+from django.db import IntegrityError
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from . import selectors
-from .models import MediaType, Profile, Title, WatchEvent, WatchList, WatchListItem
+from .models import ExternalAccount, MediaType, Profile, Title, WatchEvent, WatchList, WatchListItem
 
 MOVIE_TV_TYPES = [MediaType.MOVIE, MediaType.TV]
 LIBRARY_TABS = {"watching", "watchlist", "history"}
@@ -121,6 +125,7 @@ def history(request):
         "type_filter": type_filter,
         "period": period,
         "sort": sort,
+        "time_format_str": "H:i" if profile and profile.time_format == Profile.TimeFormat.H24 else "g:i A",
     }
     template = "tracker/partials/history_content.html" if request.headers.get("HX-Request") else "tracker/history.html"
     return render(request, template, context)
@@ -398,4 +403,84 @@ def activity(request):
 
 @login_required
 def settings_view(request):
-    return render(request, "tracker/coming_soon.html", {"page_title": "Settings & Import"})
+    profile = Profile.objects.filter(user=request.user).first()
+    connected_providers = set()
+    if profile is not None:
+        connected_providers = set(
+            ExternalAccount.objects.filter(profile=profile).values_list("provider", flat=True)
+        )
+    db_engine = django_settings.DATABASES["default"]["ENGINE"].rsplit(".", 1)[-1]
+    context = {
+        "profile": profile,
+        "profiles": Profile.objects.select_related("user").all(),
+        "connected_providers": connected_providers,
+        "django_version": ".".join(map(str, django.VERSION[:3])),
+        "db_engine": db_engine,
+        "debug": django_settings.DEBUG,
+        "time_zone": django_settings.TIME_ZONE,
+    }
+    return render(request, "tracker/settings.html", context)
+
+
+@login_required
+@require_POST
+def create_profile(request):
+    username = request.POST.get("username", "").strip()
+    password = request.POST.get("password", "")
+    display_name = request.POST.get("display_name", "").strip()
+    avatar_color = request.POST.get("avatar_color") or "#3a2a1c"
+    if not username or not password or not display_name:
+        messages.error(request, "Username, password, and display name are all required.")
+        return redirect("settings")
+    try:
+        user = User.objects.create_user(username=username, password=password)
+    except IntegrityError:
+        messages.error(request, f'Username "{username}" is already taken.')
+        return redirect("settings")
+    Profile.objects.create(user=user, display_name=display_name, avatar_color=avatar_color)
+    messages.success(request, f"Added profile for {display_name}.")
+    return redirect("settings")
+
+
+@login_required
+@require_POST
+def delete_profile(request, profile_id):
+    profile = Profile.objects.filter(user=request.user).first()
+    target = get_object_or_404(Profile, pk=profile_id)
+    if profile is None or not profile.is_owner:
+        messages.error(request, "Only the server owner can remove profiles.")
+    elif target.id == profile.id:
+        messages.error(request, "You can't remove your own profile.")
+    else:
+        target.user.delete()  # cascades to the Profile via the OneToOne FK
+        messages.success(request, f"Removed {target.display_name}.")
+    return redirect("settings")
+
+
+@login_required
+@require_POST
+def save_appearance(request):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    time_format = request.POST.get("time_format")
+    if time_format in Profile.TimeFormat.values:
+        profile.time_format = time_format
+        profile.save(update_fields=["time_format"])
+    return HttpResponse(status=204)
+
+
+@login_required
+def import_connect_stub(request, provider):
+    # Real OAuth flow lands in build step 12 — this keeps the Settings
+    # page's Connect buttons pointing at a real, working URL in the
+    # meantime instead of a dead link.
+    messages.info(request, f"{provider.title()} OAuth connect isn't wired up yet — coming in a later build step.")
+    return redirect("settings")
+
+
+@login_required
+@require_POST
+def import_csv_stub(request):
+    messages.info(request, "CSV import isn't available yet.")
+    return redirect("settings")
