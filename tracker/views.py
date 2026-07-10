@@ -38,7 +38,7 @@ from .models import (
 
 MOVIE_TV_TYPES = [MediaType.MOVIE, MediaType.TV]
 LIBRARY_TABS = {"watching", "watchlist", "history"}
-HISTORY_PAGE_SIZE = 24
+HISTORY_PAGE_SIZE = 150
 HISTORY_PERIODS = {"today", "yesterday", "7", "30", "365"}
 
 
@@ -702,6 +702,21 @@ def oauth_callback(request, provider):
     # sync happens on the next daily beat run instead of immediately."
     _dispatch_sync_task_safely(SYNC_TASKS[provider], profile.id)
     messages.success(request, f"Connected to {provider.title()} — syncing your history now.")
+    return redirect("settings")
+
+
+@login_required
+@require_POST
+def disconnect_provider(request, provider):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    account = get_object_or_404(ExternalAccount, profile=profile, provider=provider)
+    scheduling.remove_periodic_task(account)
+    account.delete()
+    # Titles/episodes/watch events that sync already created are left in
+    # place - disconnecting stops future syncs, it isn't an "undo my import."
+    messages.success(request, f"Disconnected {provider.title()}. Your imported history hasn't been removed.")
     return redirect("settings")
 
 

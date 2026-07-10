@@ -807,3 +807,30 @@ class TopbarAvatarDedupeTests(TestCase):
         content = resp.content.decode()
         self.assertEqual(content.count('title="Self"'), 1)
         self.assertEqual(content.count('title="Other"'), 1)
+
+
+class DisconnectProviderTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("disconnecter", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Disconnecter")
+        self.account = ExternalAccount.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok"
+        )
+        scheduling.ensure_periodic_task(self.account)
+        self.client.login(username="disconnecter", password="pass12345")
+
+    def test_removes_account_and_periodic_task(self):
+        task_name = scheduling.sync_periodic_task_name(self.account)
+        self.client.post(reverse("disconnect_provider", args=["trakt"]))
+        self.assertFalse(ExternalAccount.objects.filter(pk=self.account.pk).exists())
+        self.assertFalse(PeriodicTask.objects.filter(name=task_name).exists())
+
+    def test_does_not_touch_imported_watch_history(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Kept Movie", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        self.client.post(reverse("disconnect_provider", args=["trakt"]))
+        self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title=title).exists())
+
+    def test_disconnecting_unconnected_provider_404s(self):
+        resp = self.client.post(reverse("disconnect_provider", args=["simkl"]))
+        self.assertEqual(resp.status_code, 404)
