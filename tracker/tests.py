@@ -5,9 +5,9 @@ from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from . import csv_import, instance_config
+from . import csv_import, instance_config, tasks
 from .integrations import tmdb, trakt
-from .models import InstanceConfig, MediaType, Profile, Title, WatchEvent
+from .models import ExternalAccount, InstanceConfig, MediaType, Profile, SyncLog, Title, WatchEvent
 
 
 class CsvImportMappingTests(TestCase):
@@ -410,3 +410,67 @@ class BootstrapAdminFlagTests(TestCase):
             call_command("bootstrap_admin")
         profile = Profile.objects.get(user__username="admin")
         self.assertFalse(profile.must_change_credentials)
+
+
+class SyncLogTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("watcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Watcher")
+        ExternalAccount.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok"
+        )
+
+    @patch("tracker.integrations.trakt.upsert_history_items")
+    @patch("tracker.integrations.trakt.fetch_history")
+    def test_successful_sync_creates_success_log(self, mock_fetch, mock_upsert):
+        mock_fetch.return_value = [{"id": 1}]
+        mock_upsert.return_value = 5
+        tasks.sync_trakt_history(self.profile.id)
+        log = SyncLog.objects.get(profile=self.profile)
+        self.assertEqual(log.status, SyncLog.Status.SUCCESS)
+        self.assertEqual(log.item_count, 5)
+        self.assertEqual(log.provider, ExternalAccount.Provider.TRAKT)
+        self.assertIsNotNone(log.finished_at)
+        self.assertEqual(log.error_message, "")
+
+    @patch("tracker.integrations.trakt.fetch_history")
+    def test_failed_sync_creates_failed_log_and_reraises(self, mock_fetch):
+        import requests
+
+        mock_fetch.side_effect = requests.RequestException("network broke")
+        with self.assertRaises(requests.RequestException):
+            tasks.sync_trakt_history(self.profile.id)
+        log = SyncLog.objects.get(profile=self.profile)
+        self.assertEqual(log.status, SyncLog.Status.FAILED)
+        self.assertIn("network broke", log.error_message)
+        self.assertIsNone(log.item_count)
+
+    def test_no_connected_account_does_not_create_log(self):
+        ExternalAccount.objects.filter(profile=self.profile).delete()
+        tasks.sync_trakt_history(self.profile.id)
+        self.assertEqual(SyncLog.objects.count(), 0)
+
+
+class SyncLogViewTests(TestCase):
+    def setUp(self):
+        owner_user = User.objects.create_user("logowner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=owner_user, display_name="LogOwner")
+        member_user = User.objects.create_user("logmember", password="pass12345")
+        Profile.objects.create(user=member_user, display_name="LogMember")
+        SyncLog.objects.create(
+            profile=self.owner,
+            provider=ExternalAccount.Provider.TRAKT,
+            status=SyncLog.Status.SUCCESS,
+            item_count=3,
+        )
+
+    def test_non_owner_gets_404(self):
+        self.client.login(username="logmember", password="pass12345")
+        resp = self.client.get(reverse("sync_log"))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_owner_sees_log_entries(self):
+        self.client.login(username="logowner", password="pass12345")
+        resp = self.client.get(reverse("sync_log"))
+        self.assertContains(resp, "LogOwner")
+        self.assertContains(resp, "success")

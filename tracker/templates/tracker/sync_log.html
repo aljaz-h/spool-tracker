@@ -1,0 +1,67 @@
+{% extends "tracker/base.html" %}
+{% block title %}Sync log · Spool{% endblock %}
+{% block content %}
+
+  <div class="mb-6">
+    <h1 class="font-display text-4xl">Sync log</h1>
+    <div class="text-ink-dim text-sm mt-1">When Trakt/Simkl syncs ran and whether they succeeded — admin-only, no per-title detail</div>
+  </div>
+
+  <div class="bg-base-200 border border-line rounded-2xl p-2">
+    {% if not page.object_list %}
+      <div class="py-10 text-center text-ink-faint text-sm">No syncs have run yet.</div>
+    {% else %}
+      <div class="overflow-x-auto">
+        <table class="w-full text-[12.5px]">
+          <thead>
+            <tr class="text-left text-ink-dim border-b border-line">
+              <th class="py-2.5 px-3.5">Profile</th>
+              <th class="py-2.5 px-3.5">Provider</th>
+              <th class="py-2.5 px-3.5">Started</th>
+              <th class="py-2.5 px-3.5">Duration</th>
+              <th class="py-2.5 px-3.5">Status</th>
+              <th class="py-2.5 px-3.5">Items</th>
+              <th class="py-2.5 px-3.5">Error</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for log in page.object_list %}
+              <tr class="border-b border-line last:border-b-0">
+                <td class="py-2.5 px-3.5">{{ log.profile.display_name }}</td>
+                <td class="py-2.5 px-3.5 font-mono text-[11px]">{{ log.get_provider_display }}</td>
+                <td class="py-2.5 px-3.5 font-mono text-[11px] text-ink-dim">{{ log.started_at|date:"Y-m-d H:i:s" }}</td>
+                <td class="py-2.5 px-3.5 font-mono text-[11px] text-ink-dim">
+                  {% if log.duration_seconds %}{{ log.duration_seconds|floatformat:1 }}s{% else %}—{% endif %}
+                </td>
+                <td class="py-2.5 px-3.5">
+                  {% if log.status == "success" %}
+                    <span class="font-mono text-[11px] text-success">success</span>
+                  {% elif log.status == "failed" %}
+                    <span class="font-mono text-[11px] text-error">failed</span>
+                  {% else %}
+                    <span class="font-mono text-[11px] text-warning">running</span>
+                  {% endif %}
+                </td>
+                <td class="py-2.5 px-3.5 font-mono text-[11px]">{{ log.item_count|default:"—" }}</td>
+                <td class="py-2.5 px-3.5 text-ink-faint text-[11px] max-w-[240px] truncate" title="{{ log.error_message }}">{{ log.error_message|default:"—" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="flex justify-between items-center flex-wrap gap-3 mt-3.5 px-2 pb-1">
+        <span class="font-mono text-xs text-ink-faint">Page {{ page.number }} of {{ page.paginator.num_pages }} · {{ page.paginator.count }} entries</span>
+        <div class="flex gap-1.5">
+          {% if page.has_previous %}
+            <a href="?page={{ page.previous_page_number }}" class="px-3 py-1.5 rounded-md border border-line bg-base-100 font-mono text-xs text-ink-dim">‹ Prev</a>
+          {% endif %}
+          {% if page.has_next %}
+            <a href="?page={{ page.next_page_number }}" class="px-3 py-1.5 rounded-md border border-line bg-base-100 font-mono text-xs text-ink-dim">Next ›</a>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+{% endblock %}

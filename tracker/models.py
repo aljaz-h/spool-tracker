@@ -288,3 +288,39 @@ class InstanceConfig(models.Model):
 
     def __str__(self):
         return "Instance configuration"
+
+
+class SyncLog(models.Model):
+    """Audit trail for Trakt/Simkl sync runs - deliberately just timing and
+    outcome (when it ran, how long, success/failure/item count), never a
+    per-title breakdown of what was imported."""
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "Running"
+        SUCCESS = "success", "Success"
+        FAILED = "failed", "Failed"
+
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="sync_logs")
+    provider = models.CharField(max_length=10, choices=ExternalAccount.Provider.choices)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.RUNNING)
+    item_count = models.PositiveIntegerField(null=True, blank=True)
+    error_message = models.TextField(blank=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+        indexes = [models.Index(fields=["profile", "-started_at"])]
+
+    def __str__(self):
+        return f"{self.profile} · {self.get_provider_display()} · {self.get_status_display()} @ {self.started_at:%Y-%m-%d %H:%M}"
+
+    @property
+    def duration_seconds(self):
+        # Django's timesince/timeuntil template filters round to whole
+        # minutes, which makes every real sync (usually a few seconds)
+        # misleadingly show as "0 minutes" - computed here instead so the
+        # template can format it with sub-second precision.
+        if self.finished_at is None:
+            return None
+        return (self.finished_at - self.started_at).total_seconds()

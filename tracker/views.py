@@ -24,7 +24,17 @@ from django.views.decorators.http import require_POST
 
 from . import csv_import, instance_config, selectors, tasks
 from .integrations import simkl, trakt
-from .models import ExternalAccount, InstanceConfig, MediaType, Profile, Title, WatchEvent, WatchList, WatchListItem
+from .models import (
+    ExternalAccount,
+    InstanceConfig,
+    MediaType,
+    Profile,
+    SyncLog,
+    Title,
+    WatchEvent,
+    WatchList,
+    WatchListItem,
+)
 
 MOVIE_TV_TYPES = [MediaType.MOVIE, MediaType.TV]
 LIBRARY_TABS = {"watching", "watchlist", "history"}
@@ -458,6 +468,20 @@ def save_instance_config(request):
     cfg.save()
     messages.success(request, "Saved integration credentials.")
     return redirect("settings")
+
+
+SYNC_LOG_PAGE_SIZE = 50
+
+
+@login_required
+def sync_log(request):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or not profile.is_owner:
+        raise Http404
+    logs = SyncLog.objects.select_related("profile").all()
+    paginator = Paginator(logs, SYNC_LOG_PAGE_SIZE)
+    page = paginator.get_page(request.GET.get("page"))
+    return render(request, "tracker/sync_log.html", {"profile": profile, "page": page})
 
 
 @login_required

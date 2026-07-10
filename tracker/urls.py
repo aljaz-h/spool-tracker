@@ -24,6 +24,7 @@ urlpatterns = [
     path("settings/profile/<int:profile_id>/delete/", views.delete_profile, name="delete_profile"),
     path("settings/appearance/", views.save_appearance, name="save_appearance"),
     path("settings/integrations/", views.save_instance_config, name="save_instance_config"),
+    path("settings/sync-log/", views.sync_log, name="sync_log"),
     path("change-credentials/", views.change_credentials, name="change_credentials"),
     path("import/trakt/connect/", views.oauth_connect, {"provider": "trakt"}, name="trakt_connect"),
     path("import/trakt/callback/", views.oauth_callback, {"provider": "trakt"}, name="trakt_callback"),

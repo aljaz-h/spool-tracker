@@ -1,11 +1,33 @@
 from celery import shared_task
 from celery.utils.log import get_task_logger
+from django.utils import timezone
 
 from . import instance_config
 from .integrations import simkl, trakt
-from .models import ExternalAccount
+from .models import ExternalAccount, SyncLog
 
 logger = get_task_logger(__name__)
+
+
+def _run_sync(profile, provider, fetch_and_upsert):
+    """Wraps a sync call with a SyncLog row - records when it ran and
+    whether it succeeded/failed (never what was imported). Re-raises on
+    failure after recording it, so the sync still shows up as failed in
+    Celery's own tracking/logs too, not just silently swallowed."""
+    log = SyncLog.objects.create(profile=profile, provider=provider)
+    try:
+        created = fetch_and_upsert()
+    except Exception as e:
+        log.status = SyncLog.Status.FAILED
+        log.error_message = str(e)[:500]
+        log.finished_at = timezone.now()
+        log.save(update_fields=["status", "error_message", "finished_at"])
+        raise
+    log.status = SyncLog.Status.SUCCESS
+    log.item_count = created
+    log.finished_at = timezone.now()
+    log.save(update_fields=["status", "item_count", "finished_at"])
+    return created
 
 
 @shared_task
@@ -17,9 +39,13 @@ def sync_trakt_history(profile_id):
     except ExternalAccount.DoesNotExist:
         logger.info("sync_trakt_history: profile %s has no Trakt account connected", profile_id)
         return 0
-    client_id, _ = instance_config.get_trakt_credentials()
-    items = trakt.fetch_history(account.access_token, client_id)
-    created = trakt.upsert_history_items(account.profile, items)
+
+    def do_sync():
+        client_id, _ = instance_config.get_trakt_credentials()
+        items = trakt.fetch_history(account.access_token, client_id)
+        return trakt.upsert_history_items(account.profile, items)
+
+    created = _run_sync(account.profile, ExternalAccount.Provider.TRAKT, do_sync)
     logger.info("sync_trakt_history: profile %s, %d new watch events", profile_id, created)
     return created
 
@@ -33,9 +59,13 @@ def sync_simkl_history(profile_id):
     except ExternalAccount.DoesNotExist:
         logger.info("sync_simkl_history: profile %s has no Simkl account connected", profile_id)
         return 0
-    client_id, _ = instance_config.get_simkl_credentials()
-    items = simkl.fetch_history(account.access_token, client_id)
-    created = simkl.upsert_history_items(account.profile, items)
+
+    def do_sync():
+        client_id, _ = instance_config.get_simkl_credentials()
+        items = simkl.fetch_history(account.access_token, client_id)
+        return simkl.upsert_history_items(account.profile, items)
+
+    created = _run_sync(account.profile, ExternalAccount.Provider.SIMKL, do_sync)
     logger.info("sync_simkl_history: profile %s, %d new watch events", profile_id, created)
     return created
 
