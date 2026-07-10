@@ -6,9 +6,19 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
-from . import csv_import, instance_config, scheduling, tasks
+from . import completion, csv_import, instance_config, scheduling, tasks
 from .integrations import tmdb, trakt
-from .models import ExternalAccount, InstanceConfig, MediaType, Profile, SyncLog, Title, WatchEvent
+from .models import (
+    Episode,
+    ExternalAccount,
+    InstanceConfig,
+    MediaType,
+    Profile,
+    SyncLog,
+    Title,
+    WatchEvent,
+    WatchProgress,
+)
 
 
 class CsvImportMappingTests(TestCase):
@@ -216,7 +226,45 @@ class TraktFetchHistoryPaginationTests(TestCase):
         self.assertEqual(mock_get.call_args.kwargs["params"]["start_at"], "2024-01-05T20:30:11.123Z")
 
 
-class TmdbPosterLookupTests(TestCase):
+class TraktUpsertCompletionWiringTests(TestCase):
+    """upsert_history_items() should run completion/runtime inference once
+    per unique title it touched, not once per watch event."""
+
+    def setUp(self):
+        user = User.objects.create_user("wiringwatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="WiringWatcher")
+
+    @patch("tracker.integrations.tmdb.find_match", return_value=None)
+    @patch("tracker.completion.sync_show_completion")
+    @patch("tracker.completion.update_movie_runtime")
+    def test_calls_completion_once_per_unique_title(self, mock_movie_runtime, mock_show_completion, mock_find_match):
+        items = [
+            {
+                "type": "movie",
+                "watched_at": "2024-01-01T00:00:00.000Z",
+                "movie": {"title": "Fathom", "year": 2020, "ids": {"trakt": 1}},
+            },
+            {
+                "type": "episode",
+                "watched_at": "2024-01-02T00:00:00.000Z",
+                "show": {"title": "Cinder Street", "year": 2022, "ids": {"trakt": 2}},
+                "episode": {"season": 1, "number": 1},
+            },
+            {
+                "type": "episode",
+                "watched_at": "2024-01-03T00:00:00.000Z",
+                "show": {"title": "Cinder Street", "year": 2022, "ids": {"trakt": 2}},
+                "episode": {"season": 1, "number": 2},
+            },
+        ]
+        trakt.upsert_history_items(self.profile, items)
+        self.assertEqual(mock_movie_runtime.call_count, 1)
+        self.assertEqual(mock_show_completion.call_count, 1)
+        show_title = mock_show_completion.call_args.args[1]
+        self.assertEqual(show_title.name, "Cinder Street")
+
+
+class TmdbFindMatchTests(TestCase):
     def _response(self, results):
         resp = Mock()
         resp.json.return_value = {"results": results}
@@ -225,29 +273,43 @@ class TmdbPosterLookupTests(TestCase):
 
     @override_settings(TMDB_API_KEY="")
     def test_returns_none_without_api_key(self):
-        self.assertIsNone(tmdb.find_poster_url(MediaType.MOVIE, "Fathom", 2020))
+        self.assertIsNone(tmdb.find_match(MediaType.MOVIE, "Fathom", 2020))
 
     @override_settings(TMDB_API_KEY="test-key")
     @patch("tracker.integrations.tmdb.requests.get")
-    def test_returns_poster_url_on_match(self, mock_get):
-        mock_get.return_value = self._response([{"poster_path": "/abc123.jpg"}])
-        url = tmdb.find_poster_url(MediaType.MOVIE, "The Long Corridor", 2020)
-        self.assertEqual(url, "https://image.tmdb.org/t/p/w500/abc123.jpg")
+    def test_returns_id_kind_and_poster_url_on_match(self, mock_get):
+        mock_get.return_value = self._response([{"id": 42, "poster_path": "/abc123.jpg"}])
+        match = tmdb.find_match(MediaType.MOVIE, "The Long Corridor", 2020)
+        self.assertEqual(match["id"], 42)
+        self.assertEqual(match["kind"], "movie")
+        self.assertEqual(match["poster_url"], "https://image.tmdb.org/t/p/w500/abc123.jpg")
         self.assertEqual(mock_get.call_args.args[0], "https://api.themoviedb.org/3/search/movie")
         self.assertEqual(mock_get.call_args.kwargs["params"]["year"], 2020)
 
     @override_settings(TMDB_API_KEY="test-key")
     @patch("tracker.integrations.tmdb.requests.get")
+    def test_poster_url_none_when_no_poster_path(self, mock_get):
+        mock_get.return_value = self._response([{"id": 42, "poster_path": None}])
+        match = tmdb.find_match(MediaType.MOVIE, "The Long Corridor", 2020)
+        self.assertEqual(match["id"], 42)
+        self.assertIsNone(match["poster_url"])
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
     def test_returns_none_on_no_results(self, mock_get):
         mock_get.return_value = self._response([])
-        self.assertIsNone(tmdb.find_poster_url(MediaType.MOVIE, "Nonexistent Movie", 2020))
+        self.assertIsNone(tmdb.find_match(MediaType.MOVIE, "Nonexistent Movie", 2020))
 
     @override_settings(TMDB_API_KEY="test-key")
     @patch("tracker.integrations.tmdb.requests.get")
     def test_anime_tries_tv_then_falls_back_to_movie(self, mock_get):
-        mock_get.side_effect = [self._response([]), self._response([{"poster_path": "/anime-movie.jpg"}])]
-        url = tmdb.find_poster_url(MediaType.ANIME, "Ashfall Requiem", 2022)
-        self.assertEqual(url, "https://image.tmdb.org/t/p/w500/anime-movie.jpg")
+        mock_get.side_effect = [
+            self._response([]),
+            self._response([{"id": 99, "poster_path": "/anime-movie.jpg"}]),
+        ]
+        match = tmdb.find_match(MediaType.ANIME, "Ashfall Requiem", 2022)
+        self.assertEqual(match["id"], 99)
+        self.assertEqual(match["kind"], "movie")
         self.assertEqual(mock_get.call_count, 2)
         self.assertIn("search/tv", mock_get.call_args_list[0].args[0])
         self.assertIn("search/movie", mock_get.call_args_list[1].args[0])
@@ -258,7 +320,143 @@ class TmdbPosterLookupTests(TestCase):
         import requests
 
         mock_get.side_effect = requests.RequestException("boom")
-        self.assertIsNone(tmdb.find_poster_url(MediaType.MOVIE, "Fathom", 2020))
+        self.assertIsNone(tmdb.find_match(MediaType.MOVIE, "Fathom", 2020))
+
+
+class TmdbDetailsTests(TestCase):
+    def _response(self, data):
+        resp = Mock()
+        resp.json.return_value = data
+        resp.raise_for_status = Mock()
+        return resp
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_movie_details_returns_runtime(self, mock_get):
+        mock_get.return_value = self._response({"runtime": 118})
+        details = tmdb.get_movie_details(42)
+        self.assertEqual(details["runtime"], 118)
+        self.assertIn("https://api.themoviedb.org/3/movie/42", mock_get.call_args.args[0])
+
+    @override_settings(TMDB_API_KEY="")
+    def test_get_movie_details_returns_none_without_api_key(self):
+        self.assertIsNone(tmdb.get_movie_details(42))
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_movie_details_returns_none_on_request_exception(self, mock_get):
+        import requests
+
+        mock_get.side_effect = requests.RequestException("boom")
+        self.assertIsNone(tmdb.get_movie_details(42))
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_tv_details_parses_episode_count_and_runtime(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "number_of_episodes": 24,
+                "episode_run_time": [24, 25],
+                "seasons": [
+                    {"season_number": 1, "episode_count": 12},
+                    {"season_number": 2, "episode_count": 12},
+                ],
+            }
+        )
+        details = tmdb.get_tv_details(99)
+        self.assertEqual(details["number_of_episodes"], 24)
+        self.assertEqual(details["episode_run_time"], 24)
+        self.assertEqual(details["seasons"], [
+            {"season_number": 1, "episode_count": 12},
+            {"season_number": 2, "episode_count": 12},
+        ])
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_tv_details_handles_missing_episode_run_time(self, mock_get):
+        mock_get.return_value = self._response({"number_of_episodes": 24, "seasons": []})
+        details = tmdb.get_tv_details(99)
+        self.assertIsNone(details["episode_run_time"])
+
+
+class CompletionMovieRuntimeTests(TestCase):
+    def test_sets_runtime_from_tmdb(self):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42"}
+        )
+        with patch("tracker.completion.tmdb.get_movie_details", return_value={"runtime": 104}) as mock_details:
+            completion.update_movie_runtime(title)
+        mock_details.assert_called_once_with("42")
+        title.refresh_from_db()
+        self.assertEqual(title.runtime_minutes, 104)
+
+    def test_skips_title_without_tmdb_id(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        with patch("tracker.completion.tmdb.get_movie_details") as mock_details:
+            completion.update_movie_runtime(title)
+        mock_details.assert_not_called()
+
+    def test_does_not_overwrite_existing_runtime(self):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42"}, runtime_minutes=90
+        )
+        with patch("tracker.completion.tmdb.get_movie_details") as mock_details:
+            completion.update_movie_runtime(title)
+        mock_details.assert_not_called()
+        title.refresh_from_db()
+        self.assertEqual(title.runtime_minutes, 90)
+
+
+class CompletionShowTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("completionwatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="CompletionWatcher")
+        self.title = Title.objects.create(
+            media_type=MediaType.TV, name="Fathom", year=2020, external_ids={"tmdb": "99"}
+        )
+
+    def _log_episodes(self, count):
+        for i in range(1, count + 1):
+            ep = Episode.objects.create(title=self.title, season=1, episode=i)
+            WatchEvent.objects.create(profile=self.profile, title=self.title, episode=ep, watched_at="2024-01-01T00:00:00Z")
+
+    def test_marks_completed_when_watched_count_meets_total(self):
+        self._log_episodes(10)
+        details = {"number_of_episodes": 10, "episode_run_time": 24, "seasons": []}
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            completion.sync_show_completion(self.profile, self.title)
+        progress = WatchProgress.objects.get(profile=self.profile, title=self.title)
+        self.assertEqual(progress.status, WatchProgress.Status.COMPLETED)
+
+    def test_does_not_mark_completed_when_watched_count_is_short(self):
+        self._log_episodes(5)
+        details = {"number_of_episodes": 10, "episode_run_time": 24, "seasons": []}
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            completion.sync_show_completion(self.profile, self.title)
+        self.assertFalse(WatchProgress.objects.filter(profile=self.profile, title=self.title).exists())
+
+    def test_backfills_episode_runtime_from_show_level_average(self):
+        self._log_episodes(3)
+        details = {"number_of_episodes": 10, "episode_run_time": 22, "seasons": []}
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            completion.sync_show_completion(self.profile, self.title)
+        for ep in Episode.objects.filter(title=self.title):
+            self.assertEqual(ep.runtime_minutes, 22)
+
+    def test_does_not_overwrite_existing_episode_runtime(self):
+        ep = Episode.objects.create(title=self.title, season=1, episode=1, runtime_minutes=30)
+        WatchEvent.objects.create(profile=self.profile, title=self.title, episode=ep, watched_at="2024-01-01T00:00:00Z")
+        details = {"number_of_episodes": 10, "episode_run_time": 22, "seasons": []}
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            completion.sync_show_completion(self.profile, self.title)
+        ep.refresh_from_db()
+        self.assertEqual(ep.runtime_minutes, 30)
+
+    def test_skips_title_without_tmdb_id(self):
+        title = Title.objects.create(media_type=MediaType.TV, name="No TMDB", year=2020)
+        with patch("tracker.completion.tmdb.get_tv_details") as mock_details:
+            completion.sync_show_completion(self.profile, title)
+        mock_details.assert_not_called()
 
 
 class InstanceConfigTests(TestCase):

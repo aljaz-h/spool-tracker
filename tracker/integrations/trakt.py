@@ -121,9 +121,15 @@ def _get_or_create_title(media_type, name, year, trakt_id):
     title = Title.objects.filter(media_type=media_type, external_ids__trakt=str(trakt_id)).first()
     if title:
         return title
-    poster_url = tmdb.find_poster_url(media_type, name, year) or ""
+    external_ids = {"trakt": str(trakt_id)}
+    poster_url = ""
+    match = tmdb.find_match(media_type, name, year)
+    if match:
+        external_ids["tmdb"] = str(match["id"])
+        external_ids["tmdb_kind"] = match["kind"]
+        poster_url = match["poster_url"] or ""
     return Title.objects.create(
-        media_type=media_type, name=name, year=year or 0, external_ids={"trakt": str(trakt_id)}, poster_url=poster_url
+        media_type=media_type, name=name, year=year or 0, external_ids=external_ids, poster_url=poster_url
     )
 
 
@@ -134,9 +140,12 @@ def upsert_history_items(profile, items):
     entries don't have a field we're already storing to key off of)."""
     from django.utils.dateparse import parse_datetime
 
-    from tracker.models import Episode, MediaType, WatchEvent
+    from tracker import completion
+    from tracker.models import Episode, MediaType, Title, WatchEvent
 
     created = 0
+    touched_movies = set()
+    touched_shows = set()
     for item in items:
         watched_at = parse_datetime(item.get("watched_at", ""))
         if watched_at is None:
@@ -149,6 +158,7 @@ def upsert_history_items(profile, items):
                 continue
             title = _get_or_create_title(MediaType.MOVIE, m.get("title", "Untitled"), m.get("year"), ids["trakt"])
             episode = None
+            touched_movies.add(title.id)
         elif item.get("type") == "episode":
             s = item.get("show") or {}
             e = item.get("episode") or {}
@@ -159,6 +169,7 @@ def upsert_history_items(profile, items):
             episode, _ = Episode.objects.get_or_create(
                 title=title, season=e["season"], episode=e["number"], defaults={"name": e.get("title") or ""}
             )
+            touched_shows.add(title.id)
         else:
             continue
 
@@ -168,4 +179,12 @@ def upsert_history_items(profile, items):
         if not already_logged:
             WatchEvent.objects.create(profile=profile, title=title, episode=episode, watched_at=watched_at)
             created += 1
+
+    # Best-effort - a TMDB hiccup here shouldn't fail a sync that already
+    # successfully wrote the watch history itself.
+    for title in Title.objects.filter(id__in=touched_movies):
+        completion.update_movie_runtime(title)
+    for title in Title.objects.filter(id__in=touched_shows):
+        completion.sync_show_completion(profile, title)
+
     return created

@@ -144,16 +144,27 @@ def _get_or_create_title(media_type, name, year):
         return title
     from tracker.integrations import tmdb
 
-    poster_url = tmdb.find_poster_url(media_type, name, year) or ""
-    return Title.objects.create(media_type=media_type, name=name, year=year or 0, poster_url=poster_url)
+    external_ids = {}
+    poster_url = ""
+    match = tmdb.find_match(media_type, name, year)
+    if match:
+        external_ids = {"tmdb": str(match["id"]), "tmdb_kind": match["kind"]}
+        poster_url = match["poster_url"] or ""
+    return Title.objects.create(
+        media_type=media_type, name=name, year=year or 0, external_ids=external_ids, poster_url=poster_url
+    )
 
 
 def commit_rows(profile, rows):
     """rows: parsed dicts from parse_rows(). Returns (imported_count,
     skipped) where skipped is [(csv_row_number, reason), ...] for rows that
     passed parsing but were rejected at the database step."""
+    from . import completion
+
     imported = 0
     skipped = []
+    touched_movies = set()
+    touched_shows = set()
     for r in rows:
         if r["media_type"] != MediaType.MOVIE and (r["season"] is None or r["episode"] is None):
             skipped.append((r["row"], "TV/anime rows need a season and episode number"))
@@ -163,6 +174,9 @@ def commit_rows(profile, rows):
         episode = None
         if r["media_type"] != MediaType.MOVIE:
             episode, _ = Episode.objects.get_or_create(title=title, season=r["season"], episode=r["episode"])
+            touched_shows.add(title.id)
+        else:
+            touched_movies.add(title.id)
 
         already_logged = WatchEvent.objects.filter(
             profile=profile, title=title, episode=episode, watched_at=r["watched_at"]
@@ -175,4 +189,10 @@ def commit_rows(profile, rows):
             profile=profile, title=title, episode=episode, watched_at=r["watched_at"], user_rating=r["rating"]
         )
         imported += 1
+
+    for title in Title.objects.filter(id__in=touched_movies):
+        completion.update_movie_runtime(title)
+    for title in Title.objects.filter(id__in=touched_shows):
+        completion.sync_show_completion(profile, title)
+
     return imported, skipped
