@@ -264,6 +264,156 @@ class TraktUpsertCompletionWiringTests(TestCase):
         self.assertEqual(show_title.name, "Cinder Street")
 
 
+class TraktFetchListsTests(TestCase):
+    def _response(self, data, headers=None):
+        resp = Mock()
+        resp.json.return_value = data
+        resp.headers = headers or {}
+        resp.raise_for_status = Mock()
+        return resp
+
+    @patch("tracker.integrations.trakt.requests.get")
+    def test_fetches_watchlist_and_custom_lists_with_items(self, mock_get):
+        mock_get.side_effect = [
+            self._response([{"type": "movie", "movie": {"title": "Fathom", "ids": {"trakt": 1}}}]),  # watchlist
+            self._response([{"name": "Favorites", "ids": {"trakt": 55}}]),  # users/me/lists
+            self._response([{"type": "show", "show": {"title": "Cinder Street", "ids": {"trakt": 2}}}]),  # list items
+        ]
+        lists = trakt.fetch_lists("token", "client-id")
+        self.assertEqual(len(lists), 2)
+        self.assertEqual(lists[0]["name"], "Watchlist")
+        self.assertEqual(lists[1]["name"], "Favorites")
+        self.assertEqual(mock_get.call_args_list[0].args[0], "https://api.trakt.tv/sync/watchlist")
+        self.assertEqual(mock_get.call_args_list[1].args[0], "https://api.trakt.tv/users/me/lists")
+        self.assertEqual(mock_get.call_args_list[2].args[0], "https://api.trakt.tv/users/me/lists/55/items")
+
+    @patch("tracker.integrations.trakt.requests.get")
+    def test_skips_custom_lists_without_a_trakt_id(self, mock_get):
+        mock_get.side_effect = [
+            self._response([]),
+            self._response([{"name": "No ID List", "ids": {}}]),
+        ]
+        lists = trakt.fetch_lists("token", "client-id")
+        # Only the (empty) Watchlist - the id-less custom list is skipped
+        # entirely, no items request made for it.
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(mock_get.call_count, 2)
+
+
+class TraktUpsertListsTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("listimporter", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ListImporter")
+
+    def test_creates_watchlist_and_items(self):
+        from tracker.models import WatchList, WatchListItem
+
+        lists_data = [
+            {
+                "name": "Watchlist",
+                "items": [
+                    {"type": "movie", "movie": {"title": "Fathom", "year": 2020, "ids": {"trakt": 1}}},
+                    {"type": "show", "show": {"title": "Cinder Street", "year": 2022, "ids": {"trakt": 2}}},
+                ],
+            }
+        ]
+        added = trakt.upsert_lists(self.profile, lists_data)
+        self.assertEqual(added, 2)
+        watchlist = WatchList.objects.get(profile=self.profile, name="Watchlist")
+        self.assertEqual(WatchListItem.objects.filter(watchlist=watchlist).count(), 2)
+
+    def test_reimport_does_not_duplicate_items_or_lists(self):
+        from tracker.models import WatchList
+
+        lists_data = [
+            {"name": "Watchlist", "items": [{"type": "movie", "movie": {"title": "Fathom", "ids": {"trakt": 1}}}]}
+        ]
+        trakt.upsert_lists(self.profile, lists_data)
+        added_second_time = trakt.upsert_lists(self.profile, lists_data)
+        self.assertEqual(added_second_time, 0)
+        self.assertEqual(WatchList.objects.filter(profile=self.profile, name="Watchlist").count(), 1)
+
+    def test_skips_items_missing_trakt_id(self):
+        lists_data = [{"name": "Watchlist", "items": [{"type": "movie", "movie": {"title": "No ID"}}]}]
+        added = trakt.upsert_lists(self.profile, lists_data)
+        self.assertEqual(added, 0)
+
+
+class SyncTraktListsWiringTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("listswiring", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ListsWiring")
+        self.account = ExternalAccount.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok"
+        )
+
+    @patch("tracker.integrations.trakt.upsert_lists")
+    @patch("tracker.integrations.trakt.fetch_lists")
+    @patch("tracker.integrations.trakt.upsert_history_items", return_value=0)
+    @patch("tracker.integrations.trakt.fetch_history", return_value=[])
+    def test_import_lists_enabled_fetches_and_upserts_lists(
+        self, mock_fetch_history, mock_upsert_history, mock_fetch_lists, mock_upsert_lists
+    ):
+        self.account.import_lists = True
+        self.account.save()
+        mock_fetch_lists.return_value = [{"name": "Watchlist", "items": []}]
+        mock_upsert_lists.return_value = 3
+        created = tasks.sync_trakt_history(self.profile.id)
+        mock_fetch_lists.assert_called_once()
+        mock_upsert_lists.assert_called_once()
+        self.assertEqual(created, 3)
+
+    @patch("tracker.integrations.trakt.upsert_lists")
+    @patch("tracker.integrations.trakt.fetch_lists")
+    @patch("tracker.integrations.trakt.upsert_history_items", return_value=0)
+    @patch("tracker.integrations.trakt.fetch_history", return_value=[])
+    def test_import_lists_disabled_skips_lists(
+        self, mock_fetch_history, mock_upsert_history, mock_fetch_lists, mock_upsert_lists
+    ):
+        created = tasks.sync_trakt_history(self.profile.id)
+        mock_fetch_lists.assert_not_called()
+        mock_upsert_lists.assert_not_called()
+        self.assertEqual(created, 0)
+
+
+class SaveSyncScheduleImportListsTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("listscheduleuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ListScheduleUser")
+        self.trakt_account = ExternalAccount.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok"
+        )
+        self.simkl_account = ExternalAccount.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.SIMKL, access_token="tok"
+        )
+        self.client.login(username="listscheduleuser", password="pass12345")
+
+    def test_checking_the_box_enables_import_lists_for_trakt(self):
+        self.client.post(
+            reverse("save_sync_schedule", args=["trakt"]),
+            {"sync_interval_days": "1", "sync_time": "04:00", "import_lists": "on"},
+        )
+        self.trakt_account.refresh_from_db()
+        self.assertTrue(self.trakt_account.import_lists)
+
+    def test_unchecked_box_disables_import_lists(self):
+        self.trakt_account.import_lists = True
+        self.trakt_account.save()
+        self.client.post(
+            reverse("save_sync_schedule", args=["trakt"]),
+            {"sync_interval_days": "1", "sync_time": "04:00"},
+        )
+        self.trakt_account.refresh_from_db()
+        self.assertFalse(self.trakt_account.import_lists)
+
+    def test_simkl_schedule_save_does_not_error_without_import_lists_field(self):
+        resp = self.client.post(
+            reverse("save_sync_schedule", args=["simkl"]),
+            {"sync_interval_days": "1", "sync_time": "04:00"},
+        )
+        self.assertEqual(resp.status_code, 302)
+
+
 class TmdbFindMatchTests(TestCase):
     def _response(self, results):
         resp = Mock()

@@ -10,6 +10,12 @@
     <span class="text-[11px] text-ink-dim">day(s) at</span>
     <input type="time" name="sync_time" value="{{ account.sync_hour|stringformat:'02d' }}:{{ account.sync_minute|stringformat:'02d' }}" class="input input-xs bg-base-100 px-1.5">
     <button type="submit" class="btn btn-xs">Save</button>
+    {% if provider == "trakt" %}
+      <label class="flex items-center gap-1.5 text-[11px] text-ink-dim cursor-pointer w-full mt-1">
+        <input type="checkbox" name="import_lists" class="checkbox checkbox-xs" {% if account.import_lists %}checked{% endif %}>
+        Also import my Trakt lists (Watchlist + custom lists)
+      </label>
+    {% endif %}
   </form>
   <form method="post" action="{% url 'disconnect_provider' provider %}" onsubmit="return confirm('Disconnect {{ provider|title }}? Future syncs stop; history already imported stays.');" class="mt-1.5">
     {% csrf_token %}

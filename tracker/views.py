@@ -776,7 +776,11 @@ def save_sync_schedule(request, provider):
     account.sync_interval_days = interval_days
     account.sync_hour = hour
     account.sync_minute = minute
-    account.save(update_fields=["sync_interval_days", "sync_hour", "sync_minute"])
+    update_fields = ["sync_interval_days", "sync_hour", "sync_minute"]
+    if provider == "trakt":
+        account.import_lists = bool(request.POST.get("import_lists"))
+        update_fields.append("import_lists")
+    account.save(update_fields=update_fields)
     scheduling.ensure_periodic_task(account)
     messages.success(request, f"Updated the {provider.title()} sync schedule.")
     return redirect("settings")

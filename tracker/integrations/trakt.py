@@ -188,3 +188,69 @@ def upsert_history_items(profile, items):
         completion.sync_show_completion(profile, title)
 
     return created
+
+
+def fetch_lists(access_token, client_id):
+    """Returns [{"name": str, "items": [...]}, ...] - the built-in
+    Watchlist plus every custom list, each with its items in the same
+    {type, movie|show, ids} shape /sync/history uses (list items are
+    whole titles, not individual episodes - Trakt lists don't hold
+    per-episode entries the way history does).
+
+    Matches Trakt's documented /sync/watchlist, /users/me/lists, and
+    /users/me/lists/{id}/items endpoints, and the URL shapes are
+    corroborated by multiple third-party Trakt client libraries, but -
+    same caveat as the rest of this module - unverified against a live
+    account from this environment."""
+    headers = _headers(access_token, client_id)
+    lists = []
+
+    resp = requests.get(f"{API_BASE}/sync/watchlist", headers=headers, timeout=15)
+    resp.raise_for_status()
+    lists.append({"name": "Watchlist", "items": resp.json()})
+
+    resp = requests.get(f"{API_BASE}/users/me/lists", headers=headers, timeout=15)
+    resp.raise_for_status()
+    for entry in resp.json():
+        list_id = (entry.get("ids") or {}).get("trakt")
+        if not list_id:
+            continue
+        items_resp = requests.get(f"{API_BASE}/users/me/lists/{list_id}/items", headers=headers, timeout=15)
+        items_resp.raise_for_status()
+        lists.append({"name": entry.get("name") or "Untitled list", "items": items_resp.json()})
+
+    return lists
+
+
+def upsert_lists(profile, lists_data):
+    """lists_data: fetch_lists()'s return value. Creates/updates a
+    WatchList per Trakt list - matched by name, since Trakt list ids
+    aren't tracked anywhere else in this schema, so renaming a list on
+    Trakt creates a new one here rather than renaming the existing one -
+    and adds items via the same title-matching fetch_history/
+    upsert_history_items already use. Returns the count of newly added
+    WatchListItems."""
+    from tracker.models import MediaType, WatchList, WatchListItem
+
+    added = 0
+    for entry in lists_data:
+        watchlist, _ = WatchList.objects.get_or_create(profile=profile, name=entry["name"])
+        for item in entry["items"]:
+            if item.get("type") == "movie":
+                m = item.get("movie") or {}
+                ids = m.get("ids") or {}
+                if "trakt" not in ids:
+                    continue
+                title = _get_or_create_title(MediaType.MOVIE, m.get("title", "Untitled"), m.get("year"), ids["trakt"])
+            elif item.get("type") == "show":
+                s = item.get("show") or {}
+                ids = s.get("ids") or {}
+                if "trakt" not in ids:
+                    continue
+                title = _get_or_create_title(MediaType.TV, s.get("title", "Untitled"), s.get("year"), ids["trakt"])
+            else:
+                continue
+            _, created = WatchListItem.objects.get_or_create(watchlist=watchlist, title=title)
+            if created:
+                added += 1
+    return added

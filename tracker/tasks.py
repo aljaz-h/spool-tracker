@@ -48,7 +48,11 @@ def sync_trakt_history(profile_id):
     def do_sync():
         client_id, _ = instance_config.get_trakt_credentials()
         items = trakt.fetch_history(account.access_token, client_id, start_at=account.last_synced_at)
-        return trakt.upsert_history_items(account.profile, items)
+        created = trakt.upsert_history_items(account.profile, items)
+        if account.import_lists:
+            lists_data = trakt.fetch_lists(account.access_token, client_id)
+            created += trakt.upsert_lists(account.profile, lists_data)
+        return created
 
     created = _run_sync(account.profile, ExternalAccount.Provider.TRAKT, do_sync)
     account.last_synced_at = sync_start

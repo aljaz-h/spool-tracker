@@ -272,6 +272,10 @@ class ExternalAccount(models.Model):
     sync_interval_days = models.PositiveSmallIntegerField(default=1)
     sync_hour = models.PositiveSmallIntegerField(default=4, validators=[MaxValueValidator(23)])
     sync_minute = models.PositiveSmallIntegerField(default=0, validators=[MaxValueValidator(59)])
+    # Trakt only for now (see trakt.py's fetch_lists/upsert_lists) - Simkl's
+    # list-equivalent endpoints are additional unverified surface on top of
+    # an already-unverified integration, not worth layering on yet.
+    import_lists = models.BooleanField(default=False)
 
     class Meta:
         constraints = [
