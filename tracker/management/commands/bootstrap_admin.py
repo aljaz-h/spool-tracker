@@ -40,6 +40,6 @@ class Command(BaseCommand):
         if created:
             user.set_password(password)
             user.save()
-        Profile.objects.create(user=user, display_name=display_name)
+        Profile.objects.create(user=user, display_name=display_name, must_change_credentials=created)
         verb = "Created" if created else "Attached a profile to the existing"
         self.stdout.write(self.style.SUCCESS(f'{verb} admin account "{username}".'))

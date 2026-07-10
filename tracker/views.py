@@ -11,6 +11,7 @@ import django
 import requests
 from django.conf import settings as django_settings
 from django.contrib import messages
+from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
@@ -457,6 +458,40 @@ def save_instance_config(request):
     cfg.save()
     messages.success(request, "Saved integration credentials.")
     return redirect("settings")
+
+
+@login_required
+def change_credentials(request):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or not profile.must_change_credentials:
+        return redirect("dashboard")
+
+    if request.method == "POST":
+        new_username = request.POST.get("username", "").strip()
+        new_password = request.POST.get("password", "")
+        confirm_password = request.POST.get("confirm_password", "")
+        if not new_username or not new_password:
+            messages.error(request, "Username and password are both required.")
+        elif new_password != confirm_password:
+            messages.error(request, "Passwords don't match.")
+        elif len(new_password) < 8:
+            messages.error(request, "Password must be at least 8 characters.")
+        elif User.objects.filter(username=new_username).exclude(pk=request.user.pk).exists():
+            messages.error(request, f'Username "{new_username}" is already taken.')
+        else:
+            request.user.username = new_username
+            request.user.set_password(new_password)
+            request.user.save()
+            profile.must_change_credentials = False
+            profile.save(update_fields=["must_change_credentials"])
+            # Changing the password rotates the session auth hash - without
+            # this the user would be immediately logged out by their own
+            # password change and have to sign back in with the new one.
+            update_session_auth_hash(request, request.user)
+            messages.success(request, "Your username and password have been updated.")
+            return redirect("dashboard")
+
+    return render(request, "tracker/change_credentials.html", {"profile": profile})
 
 
 @login_required

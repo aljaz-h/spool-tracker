@@ -25,6 +25,11 @@ class Profile(models.Model):
     # theme swatch has no second theme built, so it stays decorative.
     time_format = models.CharField(max_length=3, choices=TimeFormat.choices, default=TimeFormat.H12)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Set on the account bootstrap_admin creates from ADMIN_USERNAME/
+    # ADMIN_PASSWORD (see management/commands/bootstrap_admin.py) so its
+    # first login is forced through a real username/password change
+    # instead of leaving the .env-sourced credentials as permanent ones.
+    must_change_credentials = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["display_name"]

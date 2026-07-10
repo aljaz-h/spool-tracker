@@ -322,3 +322,91 @@ class SettingsPageIntegrationsVisibilityTests(TestCase):
         self.client.login(username="owner2", password="pass12345")
         resp = self.client.get(reverse("settings"))
         self.assertNotContains(resp, "super-secret-value")
+
+
+class ForceCredentialChangeTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("admin", password="temp-pass-123", is_superuser=True)
+        self.profile = Profile.objects.create(user=user, display_name="Admin", must_change_credentials=True)
+
+    def test_flagged_user_is_redirected_away_from_normal_pages(self):
+        self.client.login(username="admin", password="temp-pass-123")
+        resp = self.client.get(reverse("dashboard"))
+        self.assertRedirects(resp, reverse("change_credentials"))
+
+    def test_flagged_user_can_reach_the_change_form_itself(self):
+        self.client.login(username="admin", password="temp-pass-123")
+        resp = self.client.get(reverse("change_credentials"))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_unflagged_user_is_not_redirected(self):
+        self.profile.must_change_credentials = False
+        self.profile.save()
+        self.client.login(username="admin", password="temp-pass-123")
+        resp = self.client.get(reverse("dashboard"))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_successful_change_updates_username_password_and_clears_flag(self):
+        self.client.login(username="admin", password="temp-pass-123")
+        resp = self.client.post(
+            reverse("change_credentials"),
+            {"username": "realuser", "password": "a-real-password", "confirm_password": "a-real-password"},
+        )
+        self.assertRedirects(resp, reverse("dashboard"))
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.must_change_credentials)
+        self.profile.user.refresh_from_db()
+        self.assertEqual(self.profile.user.username, "realuser")
+        self.assertTrue(self.profile.user.check_password("a-real-password"))
+
+    def test_session_stays_valid_after_password_change(self):
+        self.client.login(username="admin", password="temp-pass-123")
+        self.client.post(
+            reverse("change_credentials"),
+            {"username": "realuser", "password": "a-real-password", "confirm_password": "a-real-password"},
+        )
+        # A stale session-auth-hash would immediately bounce this back to login.
+        resp = self.client.get(reverse("dashboard"))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_mismatched_passwords_rejected(self):
+        self.client.login(username="admin", password="temp-pass-123")
+        self.client.post(
+            reverse("change_credentials"),
+            {"username": "realuser", "password": "a-real-password", "confirm_password": "different"},
+        )
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.must_change_credentials)
+
+    def test_duplicate_username_rejected(self):
+        User.objects.create_user("taken", password="whatever123")
+        self.client.login(username="admin", password="temp-pass-123")
+        self.client.post(
+            reverse("change_credentials"),
+            {"username": "taken", "password": "a-real-password", "confirm_password": "a-real-password"},
+        )
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.must_change_credentials)
+
+
+class BootstrapAdminFlagTests(TestCase):
+    def test_created_account_is_flagged(self):
+        from django.core.management import call_command
+
+        with patch.dict(
+            "os.environ", {"ADMIN_USERNAME": "admin", "ADMIN_PASSWORD": "pass12345", "ADMIN_DISPLAY_NAME": "Admin"}
+        ):
+            call_command("bootstrap_admin")
+        profile = Profile.objects.get(user__username="admin")
+        self.assertTrue(profile.must_change_credentials)
+
+    def test_attaching_profile_to_preexisting_user_is_not_flagged(self):
+        from django.core.management import call_command
+
+        User.objects.create_user("admin", password="whatever-they-set")
+        with patch.dict(
+            "os.environ", {"ADMIN_USERNAME": "admin", "ADMIN_PASSWORD": "pass12345", "ADMIN_DISPLAY_NAME": "Admin"}
+        ):
+            call_command("bootstrap_admin")
+        profile = Profile.objects.get(user__username="admin")
+        self.assertFalse(profile.must_change_credentials)
