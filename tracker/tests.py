@@ -1207,3 +1207,52 @@ class ProfilePopupViewTests(TestCase):
     def test_nonexistent_profile_404s(self):
         resp = self.client.get(reverse("profile_popup", args=[999999]))
         self.assertEqual(resp.status_code, 404)
+
+
+class BackfillPostersCommandTests(TestCase):
+    """A poster_url=="" -only filter would silently skip titles that
+    already have a poster from an earlier run of this command that
+    predates it also capturing the TMDB id - confirmed against a real
+    library where that left almost everything without an id despite
+    already having posters, which then made backfill_completion find
+    nothing to do."""
+
+    def _match(self, tmdb_id, poster_url="https://image.tmdb.org/t/p/w500/x.jpg"):
+        return {"id": tmdb_id, "kind": "movie", "poster_url": poster_url}
+
+    @patch("tracker.integrations.tmdb.find_match")
+    def test_backfills_id_for_title_that_already_has_a_poster(self, mock_find_match):
+        from django.core.management import call_command
+
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Already Has Poster", year=2020,
+            poster_url="https://image.tmdb.org/t/p/w500/existing.jpg",
+        )
+        mock_find_match.return_value = self._match(42, poster_url="https://image.tmdb.org/t/p/w500/new.jpg")
+        call_command("backfill_posters")
+        title.refresh_from_db()
+        self.assertEqual(title.external_ids.get("tmdb"), "42")
+        # Existing poster is left alone - only the missing id gets filled in.
+        self.assertEqual(title.poster_url, "https://image.tmdb.org/t/p/w500/existing.jpg")
+
+    @patch("tracker.integrations.tmdb.find_match")
+    def test_skips_title_that_already_has_both(self, mock_find_match):
+        from django.core.management import call_command
+
+        Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fully Done", year=2020,
+            poster_url="https://image.tmdb.org/t/p/w500/x.jpg", external_ids={"tmdb": "1"},
+        )
+        call_command("backfill_posters")
+        mock_find_match.assert_not_called()
+
+    @patch("tracker.integrations.tmdb.find_match")
+    def test_fills_both_for_title_missing_everything(self, mock_find_match):
+        from django.core.management import call_command
+
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Missing Everything", year=2020)
+        mock_find_match.return_value = self._match(7)
+        call_command("backfill_posters")
+        title.refresh_from_db()
+        self.assertEqual(title.external_ids.get("tmdb"), "7")
+        self.assertTrue(title.poster_url)
