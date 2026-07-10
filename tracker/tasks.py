@@ -40,12 +40,19 @@ def sync_trakt_history(profile_id):
         logger.info("sync_trakt_history: profile %s has no Trakt account connected", profile_id)
         return 0
 
+    # Captured before the fetch, not after - so anything Trakt records
+    # between now and this task finishing is still >= this value and gets
+    # picked up by the *next* sync rather than falling in a gap.
+    sync_start = timezone.now()
+
     def do_sync():
         client_id, _ = instance_config.get_trakt_credentials()
-        items = trakt.fetch_history(account.access_token, client_id)
+        items = trakt.fetch_history(account.access_token, client_id, start_at=account.last_synced_at)
         return trakt.upsert_history_items(account.profile, items)
 
     created = _run_sync(account.profile, ExternalAccount.Provider.TRAKT, do_sync)
+    account.last_synced_at = sync_start
+    account.save(update_fields=["last_synced_at"])
     logger.info("sync_trakt_history: profile %s, %d new watch events", profile_id, created)
     return created
 

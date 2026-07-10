@@ -14,6 +14,7 @@ real /sync/history response with valid credentials, since Trakt's API can
 drift from documentation.
 """
 
+import datetime
 from urllib.parse import urlencode
 
 import requests
@@ -58,7 +59,17 @@ def _headers(access_token, client_id):
     }
 
 
-def fetch_history(access_token, client_id, limit=200, max_pages=500):
+def _format_trakt_datetime(dt):
+    """Trakt's own documented example format is 2014-09-01T09:10:11.000Z -
+    matched exactly here, though the start_at param itself is unverified
+    against a live account (see fetch_history). If the format's wrong,
+    Trakt should reject it with a 4xx that shows up as a failed sync in
+    the sync log (see tracker/tasks.py's _run_sync) rather than silently
+    misbehaving - worth checking there after this ships."""
+    return dt.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}Z"
+
+
+def fetch_history(access_token, client_id, limit=200, max_pages=500, start_at=None):
     """Follows Trakt's /sync/history pagination (X-Pagination-Page-Count
     response header) instead of returning just the first page — a first
     version of this that only fetched page 1 silently capped every sync at
@@ -70,14 +81,21 @@ def fetch_history(access_token, client_id, limit=200, max_pages=500):
     can't turn this into a truly unbounded loop inside a background worker,
     but 500 pages (100k items) is now far enough beyond any real personal
     watch history that it should never actually be the thing that stops
-    the loop."""
+    the loop.
+
+    start_at: a datetime - when given, only history after that point is
+    requested (incremental sync). None means a full history pull, same as
+    every sync before this parameter existed."""
     items = []
     page = 1
+    params = {"limit": limit}
+    if start_at is not None:
+        params["start_at"] = _format_trakt_datetime(start_at)
     while page <= max_pages:
         resp = requests.get(
             f"{API_BASE}/sync/history",
             headers=_headers(access_token, client_id),
-            params={"limit": limit, "page": page},
+            params={**params, "page": page},
             timeout=15,
         )
         resp.raise_for_status()

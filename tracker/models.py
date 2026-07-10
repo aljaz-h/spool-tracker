@@ -257,6 +257,12 @@ class ExternalAccount(models.Model):
     refresh_token = models.TextField(blank=True)
     token_expires_at = models.DateTimeField(null=True, blank=True)
     connected_at = models.DateTimeField(auto_now_add=True)
+    # High-water mark for incremental sync (Trakt only - see trakt.py's
+    # fetch_history start_at param). Set to the sync's own start time on
+    # success, not left null and not backfilled from watched_at, so a sync
+    # that started while new Trakt activity was still landing doesn't miss
+    # anything on the next run.
+    last_synced_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [

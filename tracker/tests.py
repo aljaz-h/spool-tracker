@@ -199,6 +199,21 @@ class TraktFetchHistoryPaginationTests(TestCase):
         self.assertEqual(len(items), 3)
         self.assertEqual(mock_get.call_count, 3)
 
+    @patch("tracker.integrations.trakt.requests.get")
+    def test_start_at_omitted_when_none(self, mock_get):
+        mock_get.return_value = self._response([], page=1, page_count=1)
+        trakt.fetch_history("token", "client-id")
+        self.assertNotIn("start_at", mock_get.call_args.kwargs["params"])
+
+    @patch("tracker.integrations.trakt.requests.get")
+    def test_start_at_included_and_formatted_when_given(self, mock_get):
+        import datetime
+
+        mock_get.return_value = self._response([], page=1, page_count=1)
+        dt = datetime.datetime(2024, 1, 5, 20, 30, 11, 123000, tzinfo=datetime.timezone.utc)
+        trakt.fetch_history("token", "client-id", start_at=dt)
+        self.assertEqual(mock_get.call_args.kwargs["params"]["start_at"], "2024-01-05T20:30:11.123Z")
+
 
 class TmdbPosterLookupTests(TestCase):
     def _response(self, results):
@@ -449,6 +464,57 @@ class SyncLogTests(TestCase):
         ExternalAccount.objects.filter(profile=self.profile).delete()
         tasks.sync_trakt_history(self.profile.id)
         self.assertEqual(SyncLog.objects.count(), 0)
+
+
+class IncrementalSyncTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("incremental", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Incremental")
+        self.account = ExternalAccount.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok"
+        )
+
+    @patch("tracker.integrations.trakt.upsert_history_items")
+    @patch("tracker.integrations.trakt.fetch_history")
+    def test_first_sync_passes_no_start_at(self, mock_fetch, mock_upsert):
+        mock_fetch.return_value = []
+        mock_upsert.return_value = 0
+        tasks.sync_trakt_history(self.profile.id)
+        self.assertIsNone(mock_fetch.call_args.kwargs["start_at"])
+
+    @patch("tracker.integrations.trakt.upsert_history_items")
+    @patch("tracker.integrations.trakt.fetch_history")
+    def test_second_sync_passes_previous_last_synced_at(self, mock_fetch, mock_upsert):
+        import datetime
+
+        mock_fetch.return_value = []
+        mock_upsert.return_value = 0
+        marker = datetime.datetime(2024, 6, 1, tzinfo=datetime.timezone.utc)
+        self.account.last_synced_at = marker
+        self.account.save(update_fields=["last_synced_at"])
+
+        tasks.sync_trakt_history(self.profile.id)
+        self.assertEqual(mock_fetch.call_args.kwargs["start_at"], marker)
+
+    @patch("tracker.integrations.trakt.upsert_history_items")
+    @patch("tracker.integrations.trakt.fetch_history")
+    def test_last_synced_at_advances_on_success(self, mock_fetch, mock_upsert):
+        mock_fetch.return_value = []
+        mock_upsert.return_value = 0
+        self.assertIsNone(self.account.last_synced_at)
+        tasks.sync_trakt_history(self.profile.id)
+        self.account.refresh_from_db()
+        self.assertIsNotNone(self.account.last_synced_at)
+
+    @patch("tracker.integrations.trakt.fetch_history")
+    def test_last_synced_at_does_not_advance_on_failure(self, mock_fetch):
+        import requests
+
+        mock_fetch.side_effect = requests.RequestException("boom")
+        with self.assertRaises(requests.RequestException):
+            tasks.sync_trakt_history(self.profile.id)
+        self.account.refresh_from_db()
+        self.assertIsNone(self.account.last_synced_at)
 
 
 class SyncLogViewTests(TestCase):
