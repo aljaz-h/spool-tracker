@@ -386,6 +386,7 @@ def stats(request):
         overview["split"]["tv_end"] = overview["split"]["movie_pct"] + overview["split"]["tv_pct"]
         context.update(overview)
 
+        context["watch_time_breakdown"] = selectors.watch_time_breakdown(profile)
         context["genre_breakdown"] = selectors.genre_breakdown(profile, GENRE_TYPES[genre_type])
 
         years = selectors.year_breakdown(profile, GENRE_TYPES[genre_type])

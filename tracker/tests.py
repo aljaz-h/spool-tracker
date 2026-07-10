@@ -1,4 +1,5 @@
 import io
+from datetime import timedelta
 from unittest.mock import Mock, patch
 
 from django.contrib.auth.models import User
@@ -6,7 +7,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
-from . import completion, csv_import, instance_config, scheduling, tasks
+from . import completion, csv_import, instance_config, scheduling, selectors, tasks
 from .integrations import tmdb, trakt
 from .models import (
     Episode,
@@ -1207,6 +1208,62 @@ class ProfilePopupViewTests(TestCase):
     def test_nonexistent_profile_404s(self):
         resp = self.client.get(reverse("profile_popup", args=[999999]))
         self.assertEqual(resp.status_code, 404)
+
+
+class FormatDurationTests(TestCase):
+    def test_minutes_only_under_an_hour(self):
+        self.assertEqual(selectors._format_duration(45), "45m")
+
+    def test_hours_and_minutes(self):
+        self.assertEqual(selectors._format_duration(82), "1h 22m")
+
+    def test_zero_minutes(self):
+        self.assertEqual(selectors._format_duration(0), "0m")
+
+    def test_days_hours_minutes(self):
+        # 2 days, 17 hours, 58 minutes = 2*1440 + 17*60 + 58 = 2880+1020+58 = 3958
+        self.assertEqual(selectors._format_duration(3958), "2d 17h 58m")
+
+    def test_exact_day_still_shows_zero_hours(self):
+        self.assertEqual(selectors._format_duration(1440), "1d 0h 0m")
+
+
+class WatchTimeBreakdownTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("breakdownwatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="BreakdownWatcher")
+
+    def test_splits_by_type_and_time_window(self):
+        from django.utils import timezone
+
+        now = timezone.now()
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Recent Movie", year=2020, runtime_minutes=120)
+        old_movie = Title.objects.create(media_type=MediaType.MOVIE, name="Old Movie", year=2010, runtime_minutes=90)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=now - timedelta(days=1))
+        WatchEvent.objects.create(profile=self.profile, title=old_movie, watched_at=now - timedelta(days=60))
+
+        breakdown = selectors.watch_time_breakdown(self.profile)
+        self.assertEqual(breakdown["last_30_days"][MediaType.MOVIE]["count"], 1)
+        self.assertEqual(breakdown["last_30_days"][MediaType.MOVIE]["duration"], "2h 0m")
+        self.assertEqual(breakdown["all_time"][MediaType.MOVIE]["count"], 2)
+        self.assertEqual(breakdown["all_time"][MediaType.MOVIE]["duration"], "3h 30m")
+
+    def test_tv_uses_episode_runtime(self):
+        from django.utils import timezone
+
+        show = Title.objects.create(media_type=MediaType.TV, name="A Show", year=2020)
+        ep = Episode.objects.create(title=show, season=1, episode=1, runtime_minutes=42)
+        WatchEvent.objects.create(profile=self.profile, title=show, episode=ep, watched_at=timezone.now())
+        breakdown = selectors.watch_time_breakdown(self.profile)
+        self.assertEqual(breakdown["all_time"][MediaType.TV]["duration"], "42m")
+        self.assertEqual(breakdown["all_time"][MediaType.TV]["count"], 1)
+
+    def test_empty_profile_returns_zeros_not_error(self):
+        breakdown = selectors.watch_time_breakdown(self.profile)
+        for window in ("last_30_days", "all_time"):
+            for media_type in (MediaType.MOVIE, MediaType.TV, MediaType.ANIME):
+                self.assertEqual(breakdown[window][media_type]["duration"], "0m")
+                self.assertEqual(breakdown[window][media_type]["count"], 0)
 
 
 class BackfillPostersCommandTests(TestCase):

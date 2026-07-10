@@ -266,6 +266,47 @@ def stats_overview(profile):
     }
 
 
+def _format_duration(total_minutes):
+    """"2d 17h 58m" / "22h 21m" / "45m" - matches how Trakt/Simkl format
+    their own watch-time breakdowns, which is why this exists separately
+    from stats_overview's plain "{hours}h" figure."""
+    days, rem = divmod(int(total_minutes), 24 * 60)
+    hours, minutes = divmod(rem, 60)
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if days or hours:
+        parts.append(f"{hours}h")
+    parts.append(f"{minutes}m")
+    return " ".join(parts)
+
+
+def watch_time_breakdown(profile):
+    """Per-type (Movies/TV/Anime) watch time + count, split into last-30-
+    days and all-time buckets - the single combined "Total watch time"
+    figure in stats_overview() doesn't break down by type or time window
+    the way Trakt/Simkl's own stats pages do."""
+
+    def bucket(events):
+        result = {}
+        for media_type in [MediaType.MOVIE, MediaType.TV, MediaType.ANIME]:
+            type_events = events.filter(title__media_type=media_type)
+            minutes = (
+                type_events.aggregate(
+                    total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0))
+                )["total"]
+                or 0
+            )
+            result[media_type] = {"duration": _format_duration(minutes), "count": type_events.count()}
+        return result
+
+    events = WatchEvent.objects.filter(profile=profile)
+    return {
+        "last_30_days": bucket(events.filter(watched_at__gte=timezone.now() - timedelta(days=30))),
+        "all_time": bucket(events),
+    }
+
+
 def genre_breakdown(profile, media_type):
     qs = (
         WatchEvent.objects.filter(profile=profile, title__media_type=media_type, title__genres__isnull=False)
