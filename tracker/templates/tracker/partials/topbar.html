@@ -17,15 +17,17 @@
     <button class="btn btn-primary btn-sm">+ Add title</button>
     <div class="flex">
       {% for p in all_profiles %}
-        <div
-          class="w-[30px] h-[30px] rounded-full flex items-center justify-center font-mono text-xs font-semibold border-2 border-base-100 -ml-2 first:ml-0"
-          style="background:{{ p.avatar_color }};color:#fff;"
-          title="{{ p.display_name }}"
-        >{{ p.display_name|first|upper }}</div>
+        {% if not active_profile or p.id != active_profile.id %}
+          <div
+            class="w-[30px] h-[30px] rounded-full flex items-center justify-center font-mono text-xs font-semibold border-2 border-base-100 -ml-2 first:ml-0"
+            style="background:{{ p.avatar_color }};color:#fff;"
+            title="{{ p.display_name }}"
+          >{{ p.display_name|first|upper }}</div>
+        {% endif %}
       {% endfor %}
     </div>
     {% if active_profile %}
-      <div class="relative" x-data="{ open: false }">
+      <div class="relative -ml-2" x-data="{ open: false }">
         <button
           @click="open = !open" @click.outside="open = false"
           class="w-[30px] h-[30px] rounded-full flex items-center justify-center font-mono text-xs font-semibold border-2 border-primary"
@@ -34,6 +36,7 @@
         >{{ active_profile.display_name|first|upper }}</button>
         <div x-show="open" x-cloak class="absolute right-0 mt-2 w-44 bg-base-200 border border-line rounded-lg shadow-lg z-40 py-1">
           <div class="px-3 py-2 text-xs text-ink-dim border-b border-line truncate">{{ active_profile.display_name }}</div>
+          <a href="{% url 'my_profile' %}" class="block px-3 py-2 text-sm hover:bg-base-300">My Profile</a>
           <form method="post" action="{% url 'logout' %}">
             {% csrf_token %}
             <button type="submit" class="w-full text-left px-3 py-2 text-sm hover:bg-base-300">Log out</button>

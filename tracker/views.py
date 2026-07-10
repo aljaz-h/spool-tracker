@@ -527,6 +527,60 @@ def change_credentials(request):
     return render(request, "tracker/change_credentials.html", {"profile": profile})
 
 
+# Same 14-color palette used to color Stats' genre legend - reused here so
+# an avatar's color always comes from a set that's already proven to look
+# good against the dark theme, rather than an open color picker.
+AVATAR_COLOR_CHOICES = [
+    "#e8a63c", "#3fa9a0", "#8b85d6", "#c0473a", "#5b8fd6", "#d67ab1", "#7fae5b",
+    "#d6c14c", "#a67ac9", "#e08a4c", "#4ca6c9", "#9a9fb0", "#c9574c", "#5bc9a0",
+]
+
+
+@login_required
+def my_profile(request):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+
+    if request.method == "POST" and request.POST.get("action") == "update_profile":
+        display_name = request.POST.get("display_name", "").strip()
+        avatar_color = request.POST.get("avatar_color", "").strip()
+        if not display_name:
+            messages.error(request, "Display name is required.")
+        else:
+            profile.display_name = display_name
+            if avatar_color in AVATAR_COLOR_CHOICES:
+                profile.avatar_color = avatar_color
+            profile.save(update_fields=["display_name", "avatar_color"])
+            messages.success(request, "Profile updated.")
+        return redirect("my_profile")
+
+    if request.method == "POST" and request.POST.get("action") == "change_password":
+        current_password = request.POST.get("current_password", "")
+        new_password = request.POST.get("new_password", "")
+        confirm_password = request.POST.get("confirm_password", "")
+        if not request.user.check_password(current_password):
+            messages.error(request, "Current password is incorrect.")
+        elif not new_password:
+            messages.error(request, "New password is required.")
+        elif new_password != confirm_password:
+            messages.error(request, "New passwords don't match.")
+        elif len(new_password) < 8:
+            messages.error(request, "Password must be at least 8 characters.")
+        else:
+            request.user.set_password(new_password)
+            request.user.save()
+            # Same reason as change_credentials above - without this the
+            # user's own password change immediately logs them out.
+            update_session_auth_hash(request, request.user)
+            messages.success(request, "Password changed.")
+        return redirect("my_profile")
+
+    return render(
+        request, "tracker/my_profile.html", {"profile": profile, "avatar_colors": AVATAR_COLOR_CHOICES}
+    )
+
+
 @login_required
 @require_POST
 def create_profile(request):

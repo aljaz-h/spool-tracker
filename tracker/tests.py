@@ -710,3 +710,100 @@ class SaveSyncScheduleViewTests(TestCase):
             {"sync_interval_days": "2", "sync_time": "13:45"},
         )
         self.assertEqual(resp.status_code, 404)
+
+
+class MyProfileViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("myprofileuser", password="original-pass-123")
+        self.profile = Profile.objects.create(
+            user=user, display_name="Original Name", avatar_color="#e8a63c"
+        )
+        self.client.login(username="myprofileuser", password="original-pass-123")
+
+    def test_updates_display_name_and_avatar_color(self):
+        self.client.post(
+            reverse("my_profile"),
+            {"action": "update_profile", "display_name": "New Name", "avatar_color": "#3fa9a0"},
+        )
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.display_name, "New Name")
+        self.assertEqual(self.profile.avatar_color, "#3fa9a0")
+
+    def test_rejects_avatar_color_outside_the_fixed_palette(self):
+        self.client.post(
+            reverse("my_profile"),
+            {"action": "update_profile", "display_name": "New Name", "avatar_color": "#ff0000"},
+        )
+        self.profile.refresh_from_db()
+        # Display name still updates - only the out-of-palette color is rejected.
+        self.assertEqual(self.profile.display_name, "New Name")
+        self.assertEqual(self.profile.avatar_color, "#e8a63c")
+
+    def test_blank_display_name_rejected(self):
+        self.client.post(reverse("my_profile"), {"action": "update_profile", "display_name": ""})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.display_name, "Original Name")
+
+    def test_change_password_requires_correct_current_password(self):
+        self.client.post(
+            reverse("my_profile"),
+            {
+                "action": "change_password",
+                "current_password": "wrong-password",
+                "new_password": "a-new-password-1",
+                "confirm_password": "a-new-password-1",
+            },
+        )
+        self.profile.user.refresh_from_db()
+        self.assertTrue(self.profile.user.check_password("original-pass-123"))
+
+    def test_change_password_succeeds_and_keeps_session_valid(self):
+        resp = self.client.post(
+            reverse("my_profile"),
+            {
+                "action": "change_password",
+                "current_password": "original-pass-123",
+                "new_password": "a-new-password-1",
+                "confirm_password": "a-new-password-1",
+            },
+        )
+        self.profile.user.refresh_from_db()
+        self.assertTrue(self.profile.user.check_password("a-new-password-1"))
+        # A stale session-auth-hash would immediately bounce this back to login.
+        dashboard_resp = self.client.get(reverse("dashboard"))
+        self.assertEqual(dashboard_resp.status_code, 200)
+
+    def test_mismatched_new_passwords_rejected(self):
+        self.client.post(
+            reverse("my_profile"),
+            {
+                "action": "change_password",
+                "current_password": "original-pass-123",
+                "new_password": "a-new-password-1",
+                "confirm_password": "something-else",
+            },
+        )
+        self.profile.user.refresh_from_db()
+        self.assertTrue(self.profile.user.check_password("original-pass-123"))
+
+
+class TopbarAvatarDedupeTests(TestCase):
+    def test_single_profile_avatar_not_duplicated_in_topbar(self):
+        user = User.objects.create_user("soloprofile", password="pass12345")
+        Profile.objects.create(user=user, display_name="Solo", avatar_color="#e8a63c")
+        self.client.login(username="soloprofile", password="pass12345")
+        resp = self.client.get(reverse("dashboard"))
+        # One from the household stack loop (filtered out) + one from the
+        # dropdown trigger - should only ever render once now.
+        self.assertEqual(resp.content.decode().count('title="Solo"'), 1)
+
+    def test_multi_profile_shows_others_plus_self(self):
+        user = User.objects.create_user("selfprofile", password="pass12345")
+        Profile.objects.create(user=user, display_name="Self", avatar_color="#e8a63c")
+        other_user = User.objects.create_user("otherprofile", password="pass12345")
+        Profile.objects.create(user=other_user, display_name="Other", avatar_color="#3fa9a0")
+        self.client.login(username="selfprofile", password="pass12345")
+        resp = self.client.get(reverse("dashboard"))
+        content = resp.content.decode()
+        self.assertEqual(content.count('title="Self"'), 1)
+        self.assertEqual(content.count('title="Other"'), 1)
