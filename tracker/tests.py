@@ -3,10 +3,11 @@ from unittest.mock import Mock, patch
 
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
+from django.urls import reverse
 
-from . import csv_import
+from . import csv_import, instance_config
 from .integrations import tmdb, trakt
-from .models import MediaType, Profile, Title, WatchEvent
+from .models import InstanceConfig, MediaType, Profile, Title, WatchEvent
 
 
 class CsvImportMappingTests(TestCase):
@@ -165,7 +166,7 @@ class TraktFetchHistoryPaginationTests(TestCase):
             self._response([{"id": 3}, {"id": 4}], page=2, page_count=3),
             self._response([{"id": 5}], page=3, page_count=3),
         ]
-        items = trakt.fetch_history("token", limit=2)
+        items = trakt.fetch_history("token", "client-id", limit=2)
         self.assertEqual([i["id"] for i in items], [1, 2, 3, 4, 5])
         self.assertEqual(mock_get.call_count, 3)
         self.assertEqual(mock_get.call_args_list[2].kwargs["params"], {"limit": 2, "page": 3})
@@ -177,7 +178,7 @@ class TraktFetchHistoryPaginationTests(TestCase):
         resp.headers = {}
         resp.raise_for_status = Mock()
         mock_get.return_value = resp
-        items = trakt.fetch_history("token")
+        items = trakt.fetch_history("token", "client-id")
         self.assertEqual(len(items), 1)
         self.assertEqual(mock_get.call_count, 1)
 
@@ -187,14 +188,14 @@ class TraktFetchHistoryPaginationTests(TestCase):
             self._response([{"id": 1}], page=1, page_count=5),
             self._response([], page=2, page_count=5),
         ]
-        items = trakt.fetch_history("token", limit=1)
+        items = trakt.fetch_history("token", "client-id", limit=1)
         self.assertEqual(len(items), 1)
         self.assertEqual(mock_get.call_count, 2)
 
     @patch("tracker.integrations.trakt.requests.get")
     def test_respects_max_pages_safety_cap(self, mock_get):
         mock_get.return_value = self._response([{"id": 1}], page=1, page_count=999)
-        items = trakt.fetch_history("token", limit=1, max_pages=3)
+        items = trakt.fetch_history("token", "client-id", limit=1, max_pages=3)
         self.assertEqual(len(items), 3)
         self.assertEqual(mock_get.call_count, 3)
 
@@ -242,3 +243,82 @@ class TmdbPosterLookupTests(TestCase):
 
         mock_get.side_effect = requests.RequestException("boom")
         self.assertIsNone(tmdb.find_poster_url(MediaType.MOVIE, "Fathom", 2020))
+
+
+class InstanceConfigTests(TestCase):
+    @override_settings(TRAKT_CLIENT_ID="env-id", TRAKT_CLIENT_SECRET="env-secret")
+    def test_falls_back_to_env_when_db_blank(self):
+        client_id, client_secret = instance_config.get_trakt_credentials()
+        self.assertEqual(client_id, "env-id")
+        self.assertEqual(client_secret, "env-secret")
+
+    @override_settings(TRAKT_CLIENT_ID="env-id", TRAKT_CLIENT_SECRET="env-secret")
+    def test_db_value_overrides_env(self):
+        InstanceConfig.objects.create(pk=1, trakt_client_id="db-id", trakt_client_secret="db-secret")
+        client_id, client_secret = instance_config.get_trakt_credentials()
+        self.assertEqual(client_id, "db-id")
+        self.assertEqual(client_secret, "db-secret")
+
+    def test_load_is_a_singleton(self):
+        a = InstanceConfig.load()
+        b = InstanceConfig.load()
+        self.assertEqual(a.pk, b.pk)
+        self.assertEqual(InstanceConfig.objects.count(), 1)
+
+
+class SaveInstanceConfigViewTests(TestCase):
+    def setUp(self):
+        owner_user = User.objects.create_user("owner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=owner_user, display_name="Owner")
+        member_user = User.objects.create_user("member", password="pass12345")
+        self.member = Profile.objects.create(user=member_user, display_name="Member")
+
+    def test_non_owner_gets_404(self):
+        self.client.login(username="member", password="pass12345")
+        resp = self.client.post(reverse("save_instance_config"), {"trakt_client_id": "x"})
+        self.assertEqual(resp.status_code, 404)
+
+    def test_owner_can_save_credentials(self):
+        self.client.login(username="owner", password="pass12345")
+        self.client.post(
+            reverse("save_instance_config"),
+            {"trakt_client_id": "new-id", "trakt_client_secret": "new-secret"},
+        )
+        cfg = InstanceConfig.load()
+        self.assertEqual(cfg.trakt_client_id, "new-id")
+        self.assertEqual(cfg.trakt_client_secret, "new-secret")
+
+    def test_blank_field_does_not_clear_existing_value(self):
+        InstanceConfig.objects.create(pk=1, trakt_client_id="existing-id")
+        self.client.login(username="owner", password="pass12345")
+        self.client.post(
+            reverse("save_instance_config"),
+            {"trakt_client_id": "", "simkl_client_id": "new-simkl"},
+        )
+        cfg = InstanceConfig.load()
+        self.assertEqual(cfg.trakt_client_id, "existing-id")
+        self.assertEqual(cfg.simkl_client_id, "new-simkl")
+
+
+class SettingsPageIntegrationsVisibilityTests(TestCase):
+    def setUp(self):
+        owner_user = User.objects.create_user("owner2", password="pass12345", is_superuser=True)
+        Profile.objects.create(user=owner_user, display_name="Owner2")
+        member_user = User.objects.create_user("member2", password="pass12345")
+        Profile.objects.create(user=member_user, display_name="Member2")
+
+    def test_owner_sees_integrations_card(self):
+        self.client.login(username="owner2", password="pass12345")
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, "Integrations")
+
+    def test_member_does_not_see_integrations_card(self):
+        self.client.login(username="member2", password="pass12345")
+        resp = self.client.get(reverse("settings"))
+        self.assertNotContains(resp, "Integrations")
+
+    def test_configured_secret_value_never_rendered_in_html(self):
+        InstanceConfig.objects.create(pk=1, trakt_client_secret="super-secret-value")
+        self.client.login(username="owner2", password="pass12345")
+        resp = self.client.get(reverse("settings"))
+        self.assertNotContains(resp, "super-secret-value")

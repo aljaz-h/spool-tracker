@@ -103,6 +103,37 @@
       </form>
     </div>
 
+    {% if profile.is_owner %}
+    <div class="bg-base-200 border border-line rounded-2xl p-5">
+      <h3 class="text-lg mb-1">Integrations</h3>
+      <div class="text-ink-dim text-xs mb-3.5">Admin-only. Overrides the server's .env values for Trakt/Simkl/TMDB — leave a field blank to keep what's already set.</div>
+      <form method="post" action="{% url 'save_instance_config' %}" class="space-y-3">
+        {% csrf_token %}
+        <div>
+          <label class="block text-xs text-ink-dim mb-1">Trakt Client ID {% if trakt_configured %}<span class="text-success">&#10003; configured</span>{% endif %}</label>
+          <input type="text" name="trakt_client_id" placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
+        </div>
+        <div>
+          <label class="block text-xs text-ink-dim mb-1">Trakt Client Secret</label>
+          <input type="password" name="trakt_client_secret" placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
+        </div>
+        <div>
+          <label class="block text-xs text-ink-dim mb-1">Simkl Client ID {% if simkl_configured %}<span class="text-success">&#10003; configured</span>{% endif %}</label>
+          <input type="text" name="simkl_client_id" placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
+        </div>
+        <div>
+          <label class="block text-xs text-ink-dim mb-1">Simkl Client Secret</label>
+          <input type="password" name="simkl_client_secret" placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
+        </div>
+        <div>
+          <label class="block text-xs text-ink-dim mb-1">TMDB API Key {% if tmdb_configured %}<span class="text-success">&#10003; configured</span>{% endif %}</label>
+          <input type="password" name="tmdb_api_key" placeholder="{% if tmdb_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
+        </div>
+        <button type="submit" class="btn btn-sm w-full">Save</button>
+      </form>
+    </div>
+    {% endif %}
+
     <div class="bg-base-200 border border-line rounded-2xl p-5">
       <h3 class="text-lg mb-3">Server</h3>
       <div class="font-mono text-[11.5px] text-ink-faint leading-loose">

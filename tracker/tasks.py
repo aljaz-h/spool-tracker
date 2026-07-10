@@ -1,6 +1,7 @@
 from celery import shared_task
 from celery.utils.log import get_task_logger
 
+from . import instance_config
 from .integrations import simkl, trakt
 from .models import ExternalAccount
 
@@ -16,7 +17,8 @@ def sync_trakt_history(profile_id):
     except ExternalAccount.DoesNotExist:
         logger.info("sync_trakt_history: profile %s has no Trakt account connected", profile_id)
         return 0
-    items = trakt.fetch_history(account.access_token)
+    client_id, _ = instance_config.get_trakt_credentials()
+    items = trakt.fetch_history(account.access_token, client_id)
     created = trakt.upsert_history_items(account.profile, items)
     logger.info("sync_trakt_history: profile %s, %d new watch events", profile_id, created)
     return created
@@ -31,7 +33,8 @@ def sync_simkl_history(profile_id):
     except ExternalAccount.DoesNotExist:
         logger.info("sync_simkl_history: profile %s has no Simkl account connected", profile_id)
         return 0
-    items = simkl.fetch_history(account.access_token)
+    client_id, _ = instance_config.get_simkl_credentials()
+    items = simkl.fetch_history(account.access_token, client_id)
     created = simkl.upsert_history_items(account.profile, items)
     logger.info("sync_simkl_history: profile %s, %d new watch events", profile_id, created)
     return created

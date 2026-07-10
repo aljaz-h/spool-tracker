@@ -21,9 +21,9 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from . import csv_import, selectors, tasks
+from . import csv_import, instance_config, selectors, tasks
 from .integrations import simkl, trakt
-from .models import ExternalAccount, MediaType, Profile, Title, WatchEvent, WatchList, WatchListItem
+from .models import ExternalAccount, InstanceConfig, MediaType, Profile, Title, WatchEvent, WatchList, WatchListItem
 
 MOVIE_TV_TYPES = [MediaType.MOVIE, MediaType.TV]
 LIBRARY_TABS = {"watching", "watchlist", "history"}
@@ -426,7 +426,37 @@ def settings_view(request):
         "debug": django_settings.DEBUG,
         "time_zone": django_settings.TIME_ZONE,
     }
+    if profile is not None and profile.is_owner:
+        context["cfg"] = InstanceConfig.load()
+        context["trakt_configured"] = bool(instance_config.get_trakt_credentials()[0])
+        context["simkl_configured"] = bool(instance_config.get_simkl_credentials()[0])
+        context["tmdb_configured"] = bool(instance_config.get_tmdb_api_key())
     return render(request, "tracker/settings.html", context)
+
+
+@login_required
+@require_POST
+def save_instance_config(request):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or not profile.is_owner:
+        raise Http404
+    cfg = InstanceConfig.load()
+    # Blank submitted value = "leave as-is", not "clear it" - the form never
+    # re-renders an existing secret's real value (see settings.html), so a
+    # blank field only ever means the admin didn't type a replacement.
+    for field in [
+        "trakt_client_id",
+        "trakt_client_secret",
+        "simkl_client_id",
+        "simkl_client_secret",
+        "tmdb_api_key",
+    ]:
+        value = request.POST.get(field, "").strip()
+        if value:
+            setattr(cfg, field, value)
+    cfg.save()
+    messages.success(request, "Saved integration credentials.")
+    return redirect("settings")
 
 
 @login_required
@@ -486,19 +516,20 @@ def oauth_connect(request, provider):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
-    client_id = getattr(django_settings, f"{provider.upper()}_CLIENT_ID", "")
+    client_id, _ = instance_config.get_credentials(provider)
     if not client_id:
         messages.error(
             request,
-            f"{provider.title()} isn't configured on this server — set "
-            f"{provider.upper()}_CLIENT_ID / {provider.upper()}_CLIENT_SECRET in the environment and restart.",
+            f"{provider.title()} isn't configured on this server — set it up under "
+            f"Settings & Import → Admin, or via {provider.upper()}_CLIENT_ID / "
+            f"{provider.upper()}_CLIENT_SECRET in the environment and restart.",
         )
         return redirect("settings")
 
     state = secrets.token_urlsafe(24)
     request.session[f"{provider}_oauth_state"] = state
     redirect_uri = request.build_absolute_uri(reverse(f"{provider}_callback"))
-    return redirect(PROVIDER_MODULES[provider].authorize_url(redirect_uri, state))
+    return redirect(PROVIDER_MODULES[provider].authorize_url(redirect_uri, state, client_id))
 
 
 @login_required
@@ -518,8 +549,9 @@ def oauth_callback(request, provider):
         return redirect("settings")
 
     redirect_uri = request.build_absolute_uri(reverse(f"{provider}_callback"))
+    client_id, client_secret = instance_config.get_credentials(provider)
     try:
-        token_data = PROVIDER_MODULES[provider].exchange_code(code, redirect_uri)
+        token_data = PROVIDER_MODULES[provider].exchange_code(code, redirect_uri, client_id, client_secret)
     except requests.RequestException:
         messages.error(request, f"Couldn't complete the {provider.title()} connection — please try again.")
         return redirect("settings")

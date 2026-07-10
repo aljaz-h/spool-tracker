@@ -260,3 +260,26 @@ class ExternalAccount(models.Model):
 
     def __str__(self):
         return f"{self.profile} · {self.get_provider_display()}"
+
+
+class InstanceConfig(models.Model):
+    """Singleton row (always pk=1) holding admin-configurable Trakt/Simkl/
+    TMDB credentials, so they're settable from the app instead of only via
+    .env + a container restart. A blank field here falls back to the
+    .env-sourced Django setting (see tracker/instance_config.py) - so
+    upgrading an existing install with working .env credentials doesn't
+    silently break anything."""
+
+    trakt_client_id = models.CharField(max_length=255, blank=True)
+    trakt_client_secret = models.CharField(max_length=255, blank=True)
+    simkl_client_id = models.CharField(max_length=255, blank=True)
+    simkl_client_secret = models.CharField(max_length=255, blank=True)
+    tmdb_api_key = models.CharField(max_length=255, blank=True)
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def __str__(self):
+        return "Instance configuration"

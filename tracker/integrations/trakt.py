@@ -17,30 +17,29 @@ drift from documentation.
 from urllib.parse import urlencode
 
 import requests
-from django.conf import settings
 
 AUTHORIZE_URL = "https://trakt.tv/oauth/authorize"
 TOKEN_URL = "https://api.trakt.tv/oauth/token"
 API_BASE = "https://api.trakt.tv"
 
 
-def authorize_url(redirect_uri, state):
+def authorize_url(redirect_uri, state, client_id):
     params = {
         "response_type": "code",
-        "client_id": settings.TRAKT_CLIENT_ID,
+        "client_id": client_id,
         "redirect_uri": redirect_uri,
         "state": state,
     }
     return f"{AUTHORIZE_URL}?{urlencode(params)}"
 
 
-def exchange_code(code, redirect_uri):
+def exchange_code(code, redirect_uri, client_id, client_secret):
     resp = requests.post(
         TOKEN_URL,
         json={
             "code": code,
-            "client_id": settings.TRAKT_CLIENT_ID,
-            "client_secret": settings.TRAKT_CLIENT_SECRET,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
         },
@@ -50,16 +49,16 @@ def exchange_code(code, redirect_uri):
     return resp.json()
 
 
-def _headers(access_token):
+def _headers(access_token, client_id):
     return {
         "Content-Type": "application/json",
         "trakt-api-version": "2",
-        "trakt-api-key": settings.TRAKT_CLIENT_ID,
+        "trakt-api-key": client_id,
         "Authorization": f"Bearer {access_token}",
     }
 
 
-def fetch_history(access_token, limit=200, max_pages=500):
+def fetch_history(access_token, client_id, limit=200, max_pages=500):
     """Follows Trakt's /sync/history pagination (X-Pagination-Page-Count
     response header) instead of returning just the first page — a first
     version of this that only fetched page 1 silently capped every sync at
@@ -77,7 +76,7 @@ def fetch_history(access_token, limit=200, max_pages=500):
     while page <= max_pages:
         resp = requests.get(
             f"{API_BASE}/sync/history",
-            headers=_headers(access_token),
+            headers=_headers(access_token, client_id),
             params={"limit": limit, "page": page},
             timeout=15,
         )

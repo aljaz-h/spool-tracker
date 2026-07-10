@@ -1,0 +1,38 @@
+"""Resolves Trakt/Simkl/TMDB credentials from the database first, falling
+back to the .env-sourced Django settings when the database has nothing set
+- lets an admin configure these from Settings without editing .env and
+restarting containers, while not breaking an existing install that already
+has working .env credentials and hasn't touched the new UI yet."""
+
+from django.conf import settings
+
+from .models import InstanceConfig
+
+
+def get_trakt_credentials():
+    cfg = InstanceConfig.load()
+    return (
+        cfg.trakt_client_id or settings.TRAKT_CLIENT_ID,
+        cfg.trakt_client_secret or settings.TRAKT_CLIENT_SECRET,
+    )
+
+
+def get_simkl_credentials():
+    cfg = InstanceConfig.load()
+    return (
+        cfg.simkl_client_id or settings.SIMKL_CLIENT_ID,
+        cfg.simkl_client_secret or settings.SIMKL_CLIENT_SECRET,
+    )
+
+
+def get_credentials(provider):
+    if provider == "trakt":
+        return get_trakt_credentials()
+    if provider == "simkl":
+        return get_simkl_credentials()
+    raise ValueError(f"unknown provider: {provider!r}")
+
+
+def get_tmdb_api_key():
+    cfg = InstanceConfig.load()
+    return cfg.tmdb_api_key or settings.TMDB_API_KEY

@@ -16,7 +16,6 @@ creation it's attached to.
 import logging
 
 import requests
-from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +33,9 @@ _SEARCH_PATHS = {
 
 
 def find_poster_url(media_type, name, year):
-    api_key = settings.TMDB_API_KEY
+    from tracker.instance_config import get_tmdb_api_key
+
+    api_key = get_tmdb_api_key()
     if not api_key:
         return None
     for path, year_param in _SEARCH_PATHS.get(media_type, []):

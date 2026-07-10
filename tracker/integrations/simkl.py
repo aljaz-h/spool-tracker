@@ -14,30 +14,29 @@ Simkl API responses are available, not a verified integration.
 from urllib.parse import urlencode
 
 import requests
-from django.conf import settings
 
 AUTHORIZE_URL = "https://simkl.com/oauth/authorize"
 TOKEN_URL = "https://api.simkl.com/oauth/token"
 API_BASE = "https://api.simkl.com"
 
 
-def authorize_url(redirect_uri, state):
+def authorize_url(redirect_uri, state, client_id):
     params = {
         "response_type": "code",
-        "client_id": settings.SIMKL_CLIENT_ID,
+        "client_id": client_id,
         "redirect_uri": redirect_uri,
         "state": state,
     }
     return f"{AUTHORIZE_URL}?{urlencode(params)}"
 
 
-def exchange_code(code, redirect_uri):
+def exchange_code(code, redirect_uri, client_id, client_secret):
     resp = requests.post(
         TOKEN_URL,
         json={
             "code": code,
-            "client_id": settings.SIMKL_CLIENT_ID,
-            "client_secret": settings.SIMKL_CLIENT_SECRET,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
         },
@@ -47,16 +46,16 @@ def exchange_code(code, redirect_uri):
     return resp.json()
 
 
-def _headers(access_token):
+def _headers(access_token, client_id):
     return {
         "Content-Type": "application/json",
-        "simkl-api-key": settings.SIMKL_CLIENT_ID,
+        "simkl-api-key": client_id,
         "Authorization": f"Bearer {access_token}",
     }
 
 
-def fetch_history(access_token):
-    resp = requests.get(f"{API_BASE}/sync/activities", headers=_headers(access_token), timeout=15)
+def fetch_history(access_token, client_id):
+    resp = requests.get(f"{API_BASE}/sync/activities", headers=_headers(access_token, client_id), timeout=15)
     resp.raise_for_status()
     return resp.json()
 
