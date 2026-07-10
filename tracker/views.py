@@ -59,6 +59,22 @@ def dashboard(request):
 
 
 @login_required
+def profile_popup(request, profile_id):
+    viewer = Profile.objects.filter(user=request.user).first()
+    if viewer is None:
+        raise Http404
+    target = get_object_or_404(Profile, pk=profile_id)
+    context = {
+        "target": target,
+        "stats": selectors.quick_stats(target),
+        "recent_events": selectors.library_history(
+            target, [MediaType.MOVIE, MediaType.TV, MediaType.ANIME], limit=8
+        ),
+    }
+    return render(request, "tracker/partials/profile_popup.html", context)
+
+
+@login_required
 def library(request, media_type, tab):
     if tab not in LIBRARY_TABS:
         raise Http404

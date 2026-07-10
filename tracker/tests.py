@@ -1032,3 +1032,28 @@ class DisconnectProviderTests(TestCase):
     def test_disconnecting_unconnected_provider_404s(self):
         resp = self.client.post(reverse("disconnect_provider", args=["simkl"]))
         self.assertEqual(resp.status_code, 404)
+
+
+class ProfilePopupViewTests(TestCase):
+    def setUp(self):
+        viewer_user = User.objects.create_user("popupviewer", password="pass12345")
+        Profile.objects.create(user=viewer_user, display_name="PopupViewer")
+        target_user = User.objects.create_user("popuptarget", password="pass12345")
+        self.target = Profile.objects.create(user=target_user, display_name="PopupTarget", avatar_color="#3fa9a0")
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Watched By Target", year=2020)
+        WatchEvent.objects.create(profile=self.target, title=title, watched_at="2024-01-01T00:00:00Z")
+        self.client.login(username="popupviewer", password="pass12345")
+
+    def test_shows_target_profiles_name_and_recent_watch(self):
+        resp = self.client.get(reverse("profile_popup", args=[self.target.id]))
+        self.assertContains(resp, "PopupTarget")
+        self.assertContains(resp, "Watched By Target")
+
+    def test_unauthenticated_user_redirected_to_login(self):
+        self.client.logout()
+        resp = self.client.get(reverse("profile_popup", args=[self.target.id]))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_nonexistent_profile_404s(self):
+        resp = self.client.get(reverse("profile_popup", args=[999999]))
+        self.assertEqual(resp.status_code, 404)

@@ -18,11 +18,16 @@
     <div class="flex">
       {% for p in all_profiles %}
         {% if not active_profile or p.id != active_profile.id %}
-          <div
-            class="w-[30px] h-[30px] rounded-full flex items-center justify-center font-mono text-xs font-semibold border-2 border-base-100 -ml-2 first:ml-0"
+          <button
+            type="button"
+            onclick="profile_popup_modal.showModal()"
+            hx-get="{% url 'profile_popup' p.id %}"
+            hx-target="#profile-popup-content"
+            hx-swap="innerHTML"
+            class="w-[30px] h-[30px] rounded-full flex items-center justify-center font-mono text-xs font-semibold border-2 border-base-100 -ml-2 first:ml-0 cursor-pointer"
             style="background:{{ p.avatar_color }};color:#fff;"
             title="{{ p.display_name }}"
-          >{{ p.display_name|first|upper }}</div>
+          >{{ p.display_name|first|upper }}</button>
         {% endif %}
       {% endfor %}
     </div>
@@ -45,4 +50,14 @@
       </div>
     {% endif %}
   </div>
+
+  <dialog id="profile_popup_modal" class="modal">
+    <div class="modal-box bg-base-200 border border-line">
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+      <div id="profile-popup-content">
+        <div class="py-10 text-center text-ink-faint text-sm">Loading…</div>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
 </header>

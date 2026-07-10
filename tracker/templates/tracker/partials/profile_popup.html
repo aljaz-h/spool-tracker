@@ -1,0 +1,45 @@
+{% load tracker_extras %}
+<div class="flex items-center gap-3 mb-5">
+  <div class="w-12 h-12 rounded-full flex items-center justify-center font-mono text-base font-semibold flex-none" style="background:{{ target.avatar_color }};color:#fff;">{{ target.display_name|first|upper }}</div>
+  <div>
+    <div class="text-lg font-semibold">{{ target.display_name }}</div>
+    <div class="text-xs text-ink-dim font-mono">{% if target.is_owner %}Owner{% else %}Member{% endif %}</div>
+  </div>
+</div>
+
+<div class="grid grid-cols-2 gap-3 mb-5">
+  <div class="bg-base-100 border border-line rounded-xl p-3.5">
+    <div class="text-2xl font-display text-primary">{{ stats.streak }}</div>
+    <div class="text-[11px] text-ink-dim">Day streak</div>
+  </div>
+  <div class="bg-base-100 border border-line rounded-xl p-3.5">
+    <div class="text-2xl font-display">{{ stats.movies_this_year }}</div>
+    <div class="text-[11px] text-ink-dim">Movies this year</div>
+  </div>
+  <div class="bg-base-100 border border-line rounded-xl p-3.5">
+    <div class="text-2xl font-display text-secondary">{{ stats.shows_completed }}</div>
+    <div class="text-[11px] text-ink-dim">Shows completed</div>
+  </div>
+  <div class="bg-base-100 border border-line rounded-xl p-3.5">
+    <div class="text-2xl font-display">{{ stats.total_watch_hours }}h</div>
+    <div class="text-[11px] text-ink-dim">Total watch time</div>
+  </div>
+</div>
+
+<div class="text-xs text-ink-dim mb-2">Recently watched</div>
+{% if not recent_events %}
+  <div class="text-ink-faint text-sm py-4 text-center">Nothing watched yet.</div>
+{% else %}
+  <div class="space-y-2">
+    {% for event in recent_events %}
+      <div class="flex items-center gap-2.5 text-[12.5px]">
+        <div class="w-7 h-9 rounded flex-none bg-cover bg-center {% if not event.title.poster_url %}{{ event.title.pk|gradient_class }}{% endif %}"
+             {% if event.title.poster_url %}style="background-image:url('{{ event.title.poster_url }}')"{% endif %}></div>
+        <div class="min-w-0 flex-1">
+          <div class="truncate font-semibold">{{ event.title.name }}{% if event.episode %} — S{{ event.episode.season }}E{{ event.episode.episode }}{% endif %}</div>
+          <div class="text-ink-faint font-mono text-[10.5px]">{{ event.watched_at|timesince }} ago</div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
