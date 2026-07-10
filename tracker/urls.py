@@ -20,6 +20,7 @@ urlpatterns = [
     path("stats/heatmap/", views.stats_heatmap, name="stats_heatmap"),
     path("activity/", views.activity, name="activity"),
     path("settings/", views.settings_view, name="settings"),
+    path("admin-dashboard/", views.admin_dashboard, name="admin_dashboard"),
     path("settings/profile/create/", views.create_profile, name="create_profile"),
     path("settings/profile/<int:profile_id>/delete/", views.delete_profile, name="delete_profile"),
     path("settings/appearance/", views.save_appearance, name="save_appearance"),

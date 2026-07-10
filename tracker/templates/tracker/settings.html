@@ -2,7 +2,7 @@
 {% load tracker_extras %}
 {% block title %}Settings & Import · Spool{% endblock %}
 {% block content %}
-<div x-data="{ showAddProfile: false }">
+<div>
 
   {% if messages %}
     {% for message in messages %}
@@ -12,7 +12,7 @@
 
   <div class="mb-6">
     <h1 class="font-display text-4xl">Settings &amp; Import</h1>
-    <div class="text-ink-dim text-sm mt-1">Bring in history from other trackers, manage profiles</div>
+    <div class="text-ink-dim text-sm mt-1">Bring in your own watch history, personal preferences</div>
   </div>
 
   <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -59,39 +59,6 @@
     </div>
 
     <div class="bg-base-200 border border-line rounded-2xl p-5">
-      <h3 class="text-lg mb-3.5">Profiles</h3>
-      {% for p in profiles %}
-        <div class="flex items-center gap-3 py-3 border-b border-line last:border-b-0">
-          <div class="w-8 h-8 rounded-full flex items-center justify-center font-mono text-xs font-semibold" style="background:{{ p.avatar_color }};color:#fff;">{{ p.display_name|first|upper }}</div>
-          <div class="flex-1 min-w-0">
-            <div class="font-semibold text-[13.5px]">{{ p.display_name }}</div>
-            <div class="text-[11.5px] text-ink-dim font-mono">{% if p.is_owner %}Owner{% else %}Member{% endif %}</div>
-          </div>
-          {% if profile.is_owner and p.id != profile.id %}
-            <form method="post" action="{% url 'delete_profile' p.id %}" onsubmit="return confirm('Remove {{ p.display_name|escapejs }}? This deletes their entire watch history.');">
-              {% csrf_token %}
-              <button type="submit" class="text-xs text-ink-faint hover:text-error">Remove</button>
-            </form>
-          {% endif %}
-        </div>
-      {% endfor %}
-      <button @click="showAddProfile = !showAddProfile" class="btn mt-3 w-full">+ Add profile</button>
-
-      <div x-show="showAddProfile" x-cloak class="mt-4 pt-4 border-t border-line">
-        <form method="post" action="{% url 'create_profile' %}">
-          {% csrf_token %}
-          <label class="block text-xs text-ink-dim mb-1">Display name</label>
-          <input type="text" name="display_name" required class="input w-full mb-3 bg-base-100">
-          <label class="block text-xs text-ink-dim mb-1">Username (for sign-in)</label>
-          <input type="text" name="username" required class="input w-full mb-3 bg-base-100">
-          <label class="block text-xs text-ink-dim mb-1">Password</label>
-          <input type="password" name="password" required class="input w-full mb-4 bg-base-100">
-          <button type="submit" class="btn btn-primary w-full">Create profile</button>
-        </form>
-      </div>
-    </div>
-
-    <div class="bg-base-200 border border-line rounded-2xl p-5">
       <h3 class="text-lg mb-1">Appearance</h3>
       <div class="text-ink-dim text-xs mb-3">Dark is the default; a light mode preview isn't built yet.</div>
       <div class="flex gap-2.5">
@@ -111,49 +78,6 @@
           <input type="radio" name="time_format" value="24h" class="hidden" {% if profile.time_format == "24h" %}checked{% endif %}>24-hour
         </label>
       </form>
-    </div>
-
-    {% if profile.is_owner %}
-    <div class="bg-base-200 border border-line rounded-2xl p-5">
-      <h3 class="text-lg mb-1">Integrations</h3>
-      <div class="text-ink-dim text-xs mb-3.5">Admin-only. Overrides the server's .env values for Trakt/Simkl/TMDB — leave a field blank to keep what's already set.</div>
-      <form method="post" action="{% url 'save_instance_config' %}" class="space-y-3">
-        {% csrf_token %}
-        <div>
-          <label class="block text-xs text-ink-dim mb-1">Trakt Client ID {% if trakt_configured %}<span class="text-success">&#10003; configured</span>{% endif %}</label>
-          <input type="text" name="trakt_client_id" placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
-        </div>
-        <div>
-          <label class="block text-xs text-ink-dim mb-1">Trakt Client Secret</label>
-          <input type="password" name="trakt_client_secret" placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
-        </div>
-        <div>
-          <label class="block text-xs text-ink-dim mb-1">Simkl Client ID {% if simkl_configured %}<span class="text-success">&#10003; configured</span>{% endif %}</label>
-          <input type="text" name="simkl_client_id" placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
-        </div>
-        <div>
-          <label class="block text-xs text-ink-dim mb-1">Simkl Client Secret</label>
-          <input type="password" name="simkl_client_secret" placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
-        </div>
-        <div>
-          <label class="block text-xs text-ink-dim mb-1">TMDB API Key {% if tmdb_configured %}<span class="text-success">&#10003; configured</span>{% endif %}</label>
-          <input type="password" name="tmdb_api_key" placeholder="{% if tmdb_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
-        </div>
-        <button type="submit" class="btn btn-sm w-full">Save</button>
-      </form>
-      <a href="{% url 'sync_log' %}" class="block text-center text-xs text-ink-dim hover:text-base-content mt-3.5 pt-3.5 border-t border-line">View sync log →</a>
-    </div>
-    {% endif %}
-
-    <div class="bg-base-200 border border-line rounded-2xl p-5">
-      <h3 class="text-lg mb-3">Server</h3>
-      <div class="font-mono text-[11.5px] text-ink-faint leading-loose">
-        django&nbsp;&nbsp;&nbsp;{{ django_version }}<br>
-        database&nbsp;{{ db_engine }}<br>
-        debug&nbsp;&nbsp;&nbsp;&nbsp;{{ debug }}<br>
-        timezone&nbsp;{{ time_zone }}<br>
-        profiles&nbsp;{{ profiles|length }}
-      </div>
     </div>
 
   </div>

@@ -425,23 +425,33 @@ def settings_view(request):
     external_accounts = {}
     if profile is not None:
         external_accounts = {a.provider: a for a in ExternalAccount.objects.filter(profile=profile)}
+    context = {
+        "profile": profile,
+        "connected_providers": external_accounts.keys(),
+        "external_accounts": external_accounts,
+    }
+    return render(request, "tracker/settings.html", context)
+
+
+@login_required
+def admin_dashboard(request):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or not profile.is_owner:
+        raise Http404
     db_engine = django_settings.DATABASES["default"]["ENGINE"].rsplit(".", 1)[-1]
     context = {
         "profile": profile,
         "profiles": Profile.objects.select_related("user").all(),
-        "connected_providers": external_accounts.keys(),
-        "external_accounts": external_accounts,
+        "cfg": InstanceConfig.load(),
+        "trakt_configured": bool(instance_config.get_trakt_credentials()[0]),
+        "simkl_configured": bool(instance_config.get_simkl_credentials()[0]),
+        "tmdb_configured": bool(instance_config.get_tmdb_api_key()),
         "django_version": ".".join(map(str, django.VERSION[:3])),
         "db_engine": db_engine,
         "debug": django_settings.DEBUG,
         "time_zone": django_settings.TIME_ZONE,
     }
-    if profile is not None and profile.is_owner:
-        context["cfg"] = InstanceConfig.load()
-        context["trakt_configured"] = bool(instance_config.get_trakt_credentials()[0])
-        context["simkl_configured"] = bool(instance_config.get_simkl_credentials()[0])
-        context["tmdb_configured"] = bool(instance_config.get_tmdb_api_key())
-    return render(request, "tracker/settings.html", context)
+    return render(request, "tracker/admin_dashboard.html", context)
 
 
 @login_required
@@ -452,8 +462,8 @@ def save_instance_config(request):
         raise Http404
     cfg = InstanceConfig.load()
     # Blank submitted value = "leave as-is", not "clear it" - the form never
-    # re-renders an existing secret's real value (see settings.html), so a
-    # blank field only ever means the admin didn't type a replacement.
+    # re-renders an existing secret's real value (see admin_dashboard.html),
+    # so a blank field only ever means the admin didn't type a replacement.
     for field in [
         "trakt_client_id",
         "trakt_client_secret",
@@ -466,7 +476,7 @@ def save_instance_config(request):
             setattr(cfg, field, value)
     cfg.save()
     messages.success(request, "Saved integration credentials.")
-    return redirect("settings")
+    return redirect("admin_dashboard")
 
 
 SYNC_LOG_PAGE_SIZE = 50
@@ -520,21 +530,24 @@ def change_credentials(request):
 @login_required
 @require_POST
 def create_profile(request):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or not profile.is_owner:
+        raise Http404
     username = request.POST.get("username", "").strip()
     password = request.POST.get("password", "")
     display_name = request.POST.get("display_name", "").strip()
     avatar_color = request.POST.get("avatar_color") or "#3a2a1c"
     if not username or not password or not display_name:
         messages.error(request, "Username, password, and display name are all required.")
-        return redirect("settings")
+        return redirect("admin_dashboard")
     try:
         user = User.objects.create_user(username=username, password=password)
     except IntegrityError:
         messages.error(request, f'Username "{username}" is already taken.')
-        return redirect("settings")
+        return redirect("admin_dashboard")
     Profile.objects.create(user=user, display_name=display_name, avatar_color=avatar_color)
     messages.success(request, f"Added profile for {display_name}.")
-    return redirect("settings")
+    return redirect("admin_dashboard")
 
 
 @login_required
@@ -549,7 +562,7 @@ def delete_profile(request, profile_id):
     else:
         target.user.delete()  # cascades to the Profile via the OneToOne FK
         messages.success(request, f"Removed {target.display_name}.")
-    return redirect("settings")
+    return redirect("admin_dashboard")
 
 
 @login_required

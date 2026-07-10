@@ -316,7 +316,7 @@ class SaveInstanceConfigViewTests(TestCase):
         self.assertEqual(cfg.simkl_client_id, "new-simkl")
 
 
-class SettingsPageIntegrationsVisibilityTests(TestCase):
+class AdminDashboardVisibilityTests(TestCase):
     def setUp(self):
         owner_user = User.objects.create_user("owner2", password="pass12345", is_superuser=True)
         Profile.objects.create(user=owner_user, display_name="Owner2")
@@ -325,18 +325,28 @@ class SettingsPageIntegrationsVisibilityTests(TestCase):
 
     def test_owner_sees_integrations_card(self):
         self.client.login(username="owner2", password="pass12345")
-        resp = self.client.get(reverse("settings"))
+        resp = self.client.get(reverse("admin_dashboard"))
         self.assertContains(resp, "Integrations")
 
-    def test_member_does_not_see_integrations_card(self):
+    def test_member_gets_404(self):
+        self.client.login(username="member2", password="pass12345")
+        resp = self.client.get(reverse("admin_dashboard"))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_member_does_not_see_admin_dashboard_nav_link(self):
         self.client.login(username="member2", password="pass12345")
         resp = self.client.get(reverse("settings"))
-        self.assertNotContains(resp, "Integrations")
+        self.assertNotContains(resp, "Admin Dashboard")
+
+    def test_owner_sees_admin_dashboard_nav_link(self):
+        self.client.login(username="owner2", password="pass12345")
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, "Admin Dashboard")
 
     def test_configured_secret_value_never_rendered_in_html(self):
         InstanceConfig.objects.create(pk=1, trakt_client_secret="super-secret-value")
         self.client.login(username="owner2", password="pass12345")
-        resp = self.client.get(reverse("settings"))
+        resp = self.client.get(reverse("admin_dashboard"))
         self.assertNotContains(resp, "super-secret-value")
 
 
@@ -625,6 +635,37 @@ class BootstrapPeriodicTasksTests(TestCase):
         call_command("bootstrap_periodic_tasks")
         call_command("bootstrap_periodic_tasks")
         self.assertEqual(PeriodicTask.objects.filter(task="tracker.tasks.sync_simkl_history").count(), 1)
+
+
+class CreateProfileOwnerGateTests(TestCase):
+    """create_profile previously had no owner check at all - any logged-in
+    profile could create an unrelated new account, even though the UI only
+    ever showed the delete button to owners. Tightened alongside the admin
+    dashboard split, since "admin adds users" was the explicit request."""
+
+    def setUp(self):
+        owner_user = User.objects.create_user("createowner", password="pass12345", is_superuser=True)
+        Profile.objects.create(user=owner_user, display_name="CreateOwner")
+        member_user = User.objects.create_user("creatememberuser", password="pass12345")
+        Profile.objects.create(user=member_user, display_name="CreateMember")
+
+    def test_member_cannot_create_profile(self):
+        self.client.login(username="creatememberuser", password="pass12345")
+        resp = self.client.post(
+            reverse("create_profile"),
+            {"display_name": "Sneaky", "username": "sneaky", "password": "pass12345"},
+        )
+        self.assertEqual(resp.status_code, 404)
+        self.assertFalse(User.objects.filter(username="sneaky").exists())
+
+    def test_owner_can_create_profile(self):
+        self.client.login(username="createowner", password="pass12345")
+        resp = self.client.post(
+            reverse("create_profile"),
+            {"display_name": "New Person", "username": "newperson", "password": "pass12345"},
+        )
+        self.assertRedirects(resp, reverse("admin_dashboard"))
+        self.assertTrue(User.objects.filter(username="newperson").exists())
 
 
 class SaveSyncScheduleViewTests(TestCase):

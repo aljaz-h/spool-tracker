@@ -48,6 +48,11 @@
 
     {% url 'settings' as settings_url %}
     {% include "tracker/partials/nav_item.html" with href=settings_url icon_name="settings" label="Settings & Import" is_active=url_name|eq:"settings" active_border="border-primary" %}
+
+    {% if active_profile.is_owner %}
+      {% url 'admin_dashboard' as admin_dashboard_url %}
+      {% include "tracker/partials/nav_item.html" with href=admin_dashboard_url icon_name="shield" label="Admin Dashboard" is_active=url_name|eq:"admin_dashboard" active_border="border-primary" %}
+    {% endif %}
   </nav>
 
   <div x-show="sidebarOpen" class="mt-auto pt-2.5 px-2.5 border-t border-line text-[11px] text-ink-faint leading-relaxed whitespace-nowrap">
