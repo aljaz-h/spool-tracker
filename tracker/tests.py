@@ -4,8 +4,9 @@ from unittest.mock import Mock, patch
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django_celery_beat.models import PeriodicTask
 
-from . import csv_import, instance_config, tasks
+from . import csv_import, instance_config, scheduling, tasks
 from .integrations import tmdb, trakt
 from .models import ExternalAccount, InstanceConfig, MediaType, Profile, SyncLog, Title, WatchEvent
 
@@ -540,3 +541,131 @@ class SyncLogViewTests(TestCase):
         resp = self.client.get(reverse("sync_log"))
         self.assertContains(resp, "LogOwner")
         self.assertContains(resp, "success")
+
+
+class SchedulingTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("scheduled", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Scheduled")
+        self.account = ExternalAccount.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok"
+        )
+
+    def test_creates_periodic_task_matching_defaults(self):
+        scheduling.ensure_periodic_task(self.account)
+        pt = PeriodicTask.objects.get(name=scheduling.sync_periodic_task_name(self.account))
+        self.assertEqual(pt.task, "tracker.tasks.sync_trakt_history")
+        self.assertEqual(pt.args, f"[{self.profile.id}]")
+        self.assertEqual(pt.crontab.hour, "4")
+        self.assertEqual(pt.crontab.minute, "0")
+        self.assertEqual(pt.crontab.day_of_month, "*")
+        self.assertTrue(pt.enabled)
+
+    def test_every_n_days_uses_day_of_month_step(self):
+        self.account.sync_interval_days = 3
+        self.account.sync_hour = 9
+        self.account.sync_minute = 30
+        self.account.save()
+        scheduling.ensure_periodic_task(self.account)
+        pt = PeriodicTask.objects.get(name=scheduling.sync_periodic_task_name(self.account))
+        self.assertEqual(pt.crontab.day_of_month, "*/3")
+        self.assertEqual(pt.crontab.hour, "9")
+        self.assertEqual(pt.crontab.minute, "30")
+
+    def test_re_running_updates_rather_than_duplicates(self):
+        scheduling.ensure_periodic_task(self.account)
+        self.account.sync_hour = 15
+        self.account.save()
+        scheduling.ensure_periodic_task(self.account)
+        self.assertEqual(
+            PeriodicTask.objects.filter(name=scheduling.sync_periodic_task_name(self.account)).count(), 1
+        )
+        pt = PeriodicTask.objects.get(name=scheduling.sync_periodic_task_name(self.account))
+        self.assertEqual(pt.crontab.hour, "15")
+
+    def test_remove_periodic_task(self):
+        scheduling.ensure_periodic_task(self.account)
+        scheduling.remove_periodic_task(self.account)
+        self.assertFalse(
+            PeriodicTask.objects.filter(name=scheduling.sync_periodic_task_name(self.account)).exists()
+        )
+
+
+class BootstrapPeriodicTasksTests(TestCase):
+    def test_creates_task_per_connected_account(self):
+        from django.core.management import call_command
+
+        user = User.objects.create_user("bootscheduled", password="pass12345")
+        profile = Profile.objects.create(user=user, display_name="BootScheduled")
+        account = ExternalAccount.objects.create(
+            profile=profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok"
+        )
+        call_command("bootstrap_periodic_tasks")
+        self.assertTrue(
+            PeriodicTask.objects.filter(name=scheduling.sync_periodic_task_name(account)).exists()
+        )
+
+    def test_removes_old_blanket_job(self):
+        from django.core.management import call_command
+        from django_celery_beat.models import CrontabSchedule
+
+        schedule = CrontabSchedule.objects.create(minute="0", hour="4")
+        PeriodicTask.objects.create(
+            name="daily-external-sync", task="tracker.tasks.sync_all_connected_accounts", crontab=schedule
+        )
+        call_command("bootstrap_periodic_tasks")
+        self.assertFalse(PeriodicTask.objects.filter(name="daily-external-sync").exists())
+
+    def test_idempotent_on_rerun(self):
+        from django.core.management import call_command
+
+        user = User.objects.create_user("bootscheduled2", password="pass12345")
+        profile = Profile.objects.create(user=user, display_name="BootScheduled2")
+        ExternalAccount.objects.create(profile=profile, provider=ExternalAccount.Provider.SIMKL, access_token="tok")
+        call_command("bootstrap_periodic_tasks")
+        call_command("bootstrap_periodic_tasks")
+        self.assertEqual(PeriodicTask.objects.filter(task="tracker.tasks.sync_simkl_history").count(), 1)
+
+
+class SaveSyncScheduleViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("scheduleview", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ScheduleView")
+        self.account = ExternalAccount.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok"
+        )
+        self.client.login(username="scheduleview", password="pass12345")
+
+    def test_updates_account_and_periodic_task(self):
+        self.client.post(
+            reverse("save_sync_schedule", args=["trakt"]),
+            {"sync_interval_days": "2", "sync_time": "13:45"},
+        )
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.sync_interval_days, 2)
+        self.assertEqual(self.account.sync_hour, 13)
+        self.assertEqual(self.account.sync_minute, 45)
+        pt = PeriodicTask.objects.get(name=scheduling.sync_periodic_task_name(self.account))
+        self.assertEqual(pt.crontab.hour, "13")
+        self.assertEqual(pt.crontab.minute, "45")
+
+    def test_invalid_time_falls_back_to_default(self):
+        self.client.post(
+            reverse("save_sync_schedule", args=["trakt"]),
+            {"sync_interval_days": "1", "sync_time": "garbage"},
+        )
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.sync_hour, 4)
+        self.assertEqual(self.account.sync_minute, 0)
+
+    def test_other_profiles_account_is_not_editable(self):
+        other_user = User.objects.create_user("otherschedule", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="OtherSchedule")
+        ExternalAccount.objects.create(profile=other_profile, provider=ExternalAccount.Provider.SIMKL, access_token="x")
+        self.client.logout()
+        self.client.login(username="otherschedule", password="pass12345")
+        resp = self.client.post(
+            reverse("save_sync_schedule", args=["trakt"]),
+            {"sync_interval_days": "2", "sync_time": "13:45"},
+        )
+        self.assertEqual(resp.status_code, 404)

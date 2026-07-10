@@ -263,6 +263,15 @@ class ExternalAccount(models.Model):
     # that started while new Trakt activity was still landing doesn't miss
     # anything on the next run.
     last_synced_at = models.DateTimeField(null=True, blank=True)
+    # Backs a per-account django-celery-beat PeriodicTask (see
+    # tracker/scheduling.py) - "every N days" is approximated via crontab's
+    # day_of_month=*/N, which resets each calendar month rather than
+    # counting N days from whenever this was set. Good enough for "sync
+    # roughly every few days at a time I chose", not a precise rolling
+    # interval.
+    sync_interval_days = models.PositiveSmallIntegerField(default=1)
+    sync_hour = models.PositiveSmallIntegerField(default=4, validators=[MaxValueValidator(23)])
+    sync_minute = models.PositiveSmallIntegerField(default=0, validators=[MaxValueValidator(59)])
 
     class Meta:
         constraints = [

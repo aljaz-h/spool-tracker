@@ -30,6 +30,7 @@ urlpatterns = [
     path("import/trakt/callback/", views.oauth_callback, {"provider": "trakt"}, name="trakt_callback"),
     path("import/simkl/connect/", views.oauth_connect, {"provider": "simkl"}, name="simkl_connect"),
     path("import/simkl/callback/", views.oauth_callback, {"provider": "simkl"}, name="simkl_callback"),
+    path("settings/sync-schedule/<str:provider>/", views.save_sync_schedule, name="save_sync_schedule"),
     path("import/csv/", views.import_csv_upload, name="import_csv"),
     path("import/csv/preview/", views.import_csv_preview, name="import_csv_preview"),
     path("import/csv/remap/", views.import_csv_remap, name="import_csv_remap"),

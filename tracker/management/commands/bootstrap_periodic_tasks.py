@@ -1,21 +1,29 @@
 from django.core.management.base import BaseCommand
-from django_celery_beat.models import CrontabSchedule, PeriodicTask
+from django_celery_beat.models import PeriodicTask
+
+from tracker import scheduling
+from tracker.models import ExternalAccount
 
 
 class Command(BaseCommand):
-    help = "Idempotently ensures the daily Trakt/Simkl sync periodic task exists (run by the scheduler service on start)."
+    help = (
+        "Idempotently ensures every connected Trakt/Simkl account has a "
+        "PeriodicTask matching its configured sync schedule (run by the "
+        "scheduler service on start). Superseded the old single "
+        "daily-external-sync job that fired for every account at once - "
+        "each account gets its own schedule now (see tracker/scheduling.py)."
+    )
 
     def handle(self, *args, **options):
-        schedule, _ = CrontabSchedule.objects.get_or_create(
-            minute="0", hour="4", day_of_week="*", day_of_month="*", month_of_year="*"
-        )
-        _, created = PeriodicTask.objects.update_or_create(
-            name="daily-external-sync",
-            defaults={
-                "crontab": schedule,
-                "task": "tracker.tasks.sync_all_connected_accounts",
-                "enabled": True,
-            },
-        )
-        verb = "Created" if created else "Confirmed"
-        self.stdout.write(self.style.SUCCESS(f"{verb} daily-external-sync periodic task (04:00 daily)."))
+        # Old blanket job from before per-account scheduling existed -
+        # remove it so an upgraded install doesn't double-sync (once via
+        # this and once via each account's own new PeriodicTask).
+        removed, _ = PeriodicTask.objects.filter(name="daily-external-sync").delete()
+        if removed:
+            self.stdout.write("Removed the old blanket daily-external-sync periodic task.")
+
+        count = 0
+        for account in ExternalAccount.objects.all():
+            scheduling.ensure_periodic_task(account)
+            count += 1
+        self.stdout.write(self.style.SUCCESS(f"Confirmed sync schedules for {count} connected account(s)."))

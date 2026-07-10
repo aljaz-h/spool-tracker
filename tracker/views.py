@@ -22,7 +22,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from . import csv_import, instance_config, selectors, tasks
+from . import csv_import, instance_config, scheduling, selectors, tasks
 from .integrations import simkl, trakt
 from .models import (
     ExternalAccount,
@@ -422,16 +422,15 @@ def activity(request):
 @login_required
 def settings_view(request):
     profile = Profile.objects.filter(user=request.user).first()
-    connected_providers = set()
+    external_accounts = {}
     if profile is not None:
-        connected_providers = set(
-            ExternalAccount.objects.filter(profile=profile).values_list("provider", flat=True)
-        )
+        external_accounts = {a.provider: a for a in ExternalAccount.objects.filter(profile=profile)}
     db_engine = django_settings.DATABASES["default"]["ENGINE"].rsplit(".", 1)[-1]
     context = {
         "profile": profile,
         "profiles": Profile.objects.select_related("user").all(),
-        "connected_providers": connected_providers,
+        "connected_providers": external_accounts.keys(),
+        "external_accounts": external_accounts,
         "django_version": ".".join(map(str, django.VERSION[:3])),
         "db_engine": db_engine,
         "debug": django_settings.DEBUG,
@@ -616,7 +615,7 @@ def oauth_callback(request, provider):
         return redirect("settings")
 
     expires_in = token_data.get("expires_in")
-    ExternalAccount.objects.update_or_create(
+    account, _ = ExternalAccount.objects.update_or_create(
         profile=profile,
         provider=provider,
         defaults={
@@ -625,6 +624,7 @@ def oauth_callback(request, provider):
             "token_expires_at": timezone.now() + timedelta(seconds=expires_in) if expires_in else None,
         },
     )
+    scheduling.ensure_periodic_task(account)
     # The connection itself (the ExternalAccount row above) must succeed
     # independently of the broker being reachable right now. Confirmed by
     # reproducing it locally: a down broker makes .apply_async() block for
@@ -655,6 +655,33 @@ def _dispatch_sync_task_safely(task, profile_id, timeout=2.0):
             task.name,
             timeout,
         )
+
+
+@login_required
+@require_POST
+def save_sync_schedule(request, provider):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    account = get_object_or_404(ExternalAccount, profile=profile, provider=provider)
+
+    try:
+        interval_days = max(1, min(30, int(request.POST.get("sync_interval_days", 1))))
+    except ValueError:
+        interval_days = 1
+    try:
+        hour_str, minute_str = request.POST.get("sync_time", "04:00").split(":")
+        hour, minute = max(0, min(23, int(hour_str))), max(0, min(59, int(minute_str)))
+    except (ValueError, AttributeError):
+        hour, minute = 4, 0
+
+    account.sync_interval_days = interval_days
+    account.sync_hour = hour
+    account.sync_minute = minute
+    account.save(update_fields=["sync_interval_days", "sync_hour", "sync_minute"])
+    scheduling.ensure_periodic_task(account)
+    messages.success(request, f"Updated the {provider.title()} sync schedule.")
+    return redirect("settings")
 
 
 CSV_IMPORT_DIR = os.path.join(django_settings.MEDIA_ROOT, "csv_imports")
