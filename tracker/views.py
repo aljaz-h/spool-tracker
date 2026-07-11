@@ -40,6 +40,18 @@ MOVIE_TV_TYPES = [MediaType.MOVIE, MediaType.TV]
 HISTORY_PAGE_SIZE = 150
 HISTORY_PERIODS = {"today", "yesterday", "7", "30", "365"}
 DISCOVER_CATEGORIES = {"trending", "popular", "upcoming", "top_rated"}
+# ISO 639-1 codes TMDB's with_original_language accepts - not exhaustive,
+# just the languages common enough in a movie/TV catalog to be worth a
+# dedicated dropdown entry instead of making everyone type a code.
+DISCOVER_LANGUAGES = [
+    ("en", "English"), ("ja", "Japanese"), ("ko", "Korean"), ("zh", "Chinese"),
+    ("es", "Spanish"), ("fr", "French"), ("de", "German"), ("it", "Italian"),
+    ("pt", "Portuguese"), ("hi", "Hindi"), ("ru", "Russian"), ("tr", "Turkish"),
+    ("ar", "Arabic"), ("th", "Thai"), ("sv", "Swedish"), ("da", "Danish"),
+    ("no", "Norwegian"), ("fi", "Finnish"), ("pl", "Polish"), ("nl", "Dutch"),
+    ("cs", "Czech"), ("el", "Greek"), ("he", "Hebrew"), ("id", "Indonesian"),
+    ("vi", "Vietnamese"), ("uk", "Ukrainian"), ("ro", "Romanian"), ("hu", "Hungarian"),
+]
 
 
 @login_required
@@ -136,6 +148,7 @@ def discover(request, media_type, category):
         "total_pages": min(page["total_pages"], 500),
         "genres": tmdb.genres(tmdb_media_type),
         "selected_genres": set(genre_ids),
+        "languages": DISCOVER_LANGUAGES,
         "base_query": query_without_page.urlencode(),
     }
     return render(request, "tracker/discover.html", context)

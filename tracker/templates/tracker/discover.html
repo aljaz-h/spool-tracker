@@ -1,5 +1,5 @@
 {% extends "tracker/base.html" %}
-{% load tracker_extras %}
+{% load tracker_extras icons %}
 {% block title %}{{ page_title }} · Spool{% endblock %}
 {% block content %}
 
@@ -8,123 +8,149 @@
     <div class="text-ink-dim text-sm mt-1">Browse what's trending, popular, upcoming, and top rated on TMDB</div>
   </div>
 
-  <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
-    <div class="flex flex-wrap items-center gap-3">
-      {% if not is_anime %}
-        <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
-          <a href="?type=movie" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if media_type == "movie" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Movies</a>
-          <a href="?type=tv" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if media_type == "tv" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">TV</a>
+  <div class="drawer drawer-end">
+    <input id="filters-drawer" type="checkbox" class="drawer-toggle" />
+    <div class="drawer-content">
+
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <div class="flex flex-wrap items-center gap-3">
+          {% if not is_anime %}
+            <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
+              <a href="?type=movie" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if media_type == "movie" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Movies</a>
+              <a href="?type=tv" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if media_type == "tv" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">TV</a>
+            </div>
+          {% endif %}
+          <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
+            {% url library_url_name category="trending" as trending_url %}
+            {% url library_url_name category="popular" as popular_url %}
+            {% url library_url_name category="upcoming" as upcoming_url %}
+            {% url library_url_name category="top_rated" as top_rated_url %}
+            <a href="{{ trending_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "trending" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Trending</a>
+            <a href="{{ popular_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "popular" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Popular</a>
+            <a href="{{ upcoming_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "upcoming" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Upcoming</a>
+            <a href="{{ top_rated_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "top_rated" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Top Rated</a>
+          </div>
+        </div>
+        <label for="filters-drawer" class="btn btn-sm bg-base-300 border-line gap-1.5 cursor-pointer">
+          {% icon "filter" "w-3.5 h-3.5" %}
+          Filters
+          {% if selected_genres or request.GET.year_from or request.GET.year_to or request.GET.runtime_from or request.GET.runtime_to or request.GET.rating_from or request.GET.rating_to or request.GET.language %}
+            <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+          {% endif %}
+        </label>
+      </div>
+
+      {% if not results %}
+        <div class="py-16 text-center text-ink-faint text-sm">
+          {% if not profile %}Your account isn't linked to a household profile yet.{% else %}Nothing found — try widening your filters, or check that a TMDB API key is configured in Settings.{% endif %}
+        </div>
+      {% else %}
+        <div class="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-5">
+          {% for item in results %}
+            {% include "tracker/partials/discover_tile.html" with item=item %}
+          {% endfor %}
+        </div>
+
+        <div class="flex justify-between items-center flex-wrap gap-3 mt-7">
+          <span class="font-mono text-xs text-ink-faint">Page {{ current_page }} of {{ total_pages }}</span>
+          <div class="flex gap-1.5">
+            {% if current_page > 1 %}
+              <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"-1" }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim">‹ Prev</a>
+            {% endif %}
+            {% if current_page < total_pages %}
+              <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"1" }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim">Next ›</a>
+            {% endif %}
+          </div>
         </div>
       {% endif %}
-      <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
-        {% url library_url_name category="trending" as trending_url %}
-        {% url library_url_name category="popular" as popular_url %}
-        {% url library_url_name category="upcoming" as upcoming_url %}
-        {% url library_url_name category="top_rated" as top_rated_url %}
-        <a href="{{ trending_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "trending" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Trending</a>
-        <a href="{{ popular_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "popular" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Popular</a>
-        <a href="{{ upcoming_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "upcoming" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Upcoming</a>
-        <a href="{{ top_rated_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "top_rated" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Top Rated</a>
-      </div>
+
     </div>
-  </div>
 
-  <div class="collapse collapse-arrow bg-base-200 border border-line rounded-2xl mb-5">
-    <input type="checkbox" {% if selected_genres or request.GET.year_from or request.GET.year_to or request.GET.runtime_from or request.GET.runtime_to or request.GET.rating_from or request.GET.rating_to or request.GET.language %}checked{% endif %}>
-    <div class="collapse-title text-sm font-semibold">Filters</div>
-    <div class="collapse-content">
-      {% now "Y" as current_year %}
-      {% with max_year=current_year|add:2 %}
-      <form
-        method="get"
-        class="pt-2"
-        x-data="{
-          yearFrom: {{ request.GET.year_from|default:1950 }},
-          yearTo: {{ request.GET.year_to|default:max_year }},
-          runtimeFrom: {{ request.GET.runtime_from|default:0 }},
-          runtimeTo: {{ request.GET.runtime_to|default:400 }},
-          ratingFrom: {{ request.GET.rating_from|default:0 }},
-          ratingTo: {{ request.GET.rating_to|default:10 }},
-        }"
-      >
-        <input type="hidden" name="type" value="{{ media_type }}">
+    <div class="drawer-side z-50">
+      <label for="filters-drawer" aria-label="close filters" class="drawer-overlay"></label>
+      <div class="w-full max-w-xs min-h-full bg-base-200 border-l border-line p-5 flex flex-col gap-5">
+        <div class="flex items-center justify-between">
+          <h2 class="font-display text-xl">Filters</h2>
+          <label for="filters-drawer" aria-label="close filters" class="btn btn-sm btn-circle btn-ghost cursor-pointer">
+            {% icon "x" "w-4 h-4" %}
+          </label>
+        </div>
 
-        <details class="mb-4" {% if selected_genres %}open{% endif %}>
-          <summary class="btn btn-sm bg-base-100 border-line font-normal inline-flex w-auto list-none cursor-pointer [&::-webkit-details-marker]:hidden">
-            Genres{% if selected_genres %} ({{ selected_genres|length }}){% endif %} <span class="text-ink-faint">&#9662;</span>
-          </summary>
-          <div class="flex flex-wrap gap-2 mt-2 max-h-40 overflow-y-auto p-2 border border-line rounded-lg bg-base-100">
-            {% for g in genres %}
-              <label class="flex items-center gap-1.5 text-xs bg-base-200 border border-line rounded-full px-3 py-1.5 cursor-pointer">
-                <input type="checkbox" name="genre" value="{{ g.id }}" class="checkbox checkbox-xs" {% if g.id in selected_genres %}checked{% endif %}>
-                {{ g.name }}
-              </label>
-            {% endfor %}
-          </div>
-        </details>
+        {% now "Y" as current_year %}
+        {% with max_year=current_year|add:2 %}
+        <form
+          method="get"
+          class="flex flex-col gap-5"
+          x-data="{
+            yearFrom: {{ request.GET.year_from|default:1950 }},
+            yearTo: {{ request.GET.year_to|default:max_year }},
+            runtimeFrom: {{ request.GET.runtime_from|default:0 }},
+            runtimeTo: {{ request.GET.runtime_to|default:400 }},
+            ratingFrom: {{ request.GET.rating_from|default:0 }},
+            ratingTo: {{ request.GET.rating_to|default:10 }},
+          }"
+        >
+          <input type="hidden" name="type" value="{{ media_type }}">
 
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+          <details {% if selected_genres %}open{% endif %}>
+            <summary class="btn btn-sm bg-base-100 border-line font-normal inline-flex w-auto list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+              Genres{% if selected_genres %} ({{ selected_genres|length }}){% endif %} <span class="text-ink-faint">&#9662;</span>
+            </summary>
+            <div class="flex flex-wrap gap-2 mt-2 max-h-40 overflow-y-auto p-2 border border-line rounded-lg bg-base-100">
+              {% for g in genres %}
+                <label class="flex items-center gap-1.5 text-xs bg-base-200 border border-line rounded-full px-3 py-1.5 cursor-pointer">
+                  <input type="checkbox" name="genre" value="{{ g.id }}" class="checkbox checkbox-xs" {% if g.id in selected_genres %}checked{% endif %}>
+                  {{ g.name }}
+                </label>
+              {% endfor %}
+            </div>
+          </details>
+
           <div>
             <div class="flex justify-between text-[11px] text-ink-dim mb-1.5">
               <span>Year</span>
               <span class="font-mono text-ink-faint" x-text="yearFrom + ' – ' + yearTo"></span>
             </div>
-            <input type="range" name="year_from" min="1950" max="{{ max_year }}" x-model.number="yearFrom" class="range range-xs w-full">
-            <input type="range" name="year_to" min="1950" max="{{ max_year }}" x-model.number="yearTo" class="range range-xs w-full -mt-1">
+            <input type="range" name="year_from" min="1950" max="{{ max_year }}" x-model.number="yearFrom" class="range range-xs range-primary w-full">
+            <input type="range" name="year_to" min="1950" max="{{ max_year }}" x-model.number="yearTo" class="range range-xs range-primary w-full -mt-1">
           </div>
+
           <div>
             <div class="flex justify-between text-[11px] text-ink-dim mb-1.5">
               <span>Runtime (min)</span>
               <span class="font-mono text-ink-faint" x-text="runtimeFrom + ' – ' + runtimeTo"></span>
             </div>
-            <input type="range" name="runtime_from" min="0" max="400" step="5" x-model.number="runtimeFrom" class="range range-xs w-full">
-            <input type="range" name="runtime_to" min="0" max="400" step="5" x-model.number="runtimeTo" class="range range-xs w-full -mt-1">
+            <input type="range" name="runtime_from" min="0" max="400" step="5" x-model.number="runtimeFrom" class="range range-xs range-primary w-full">
+            <input type="range" name="runtime_to" min="0" max="400" step="5" x-model.number="runtimeTo" class="range range-xs range-primary w-full -mt-1">
           </div>
+
           <div>
             <div class="flex justify-between text-[11px] text-ink-dim mb-1.5">
               <span>Rating</span>
               <span class="font-mono text-ink-faint" x-text="ratingFrom + ' – ' + ratingTo"></span>
             </div>
-            <input type="range" name="rating_from" min="0" max="10" step="0.1" x-model.number="ratingFrom" class="range range-xs w-full">
-            <input type="range" name="rating_to" min="0" max="10" step="0.1" x-model.number="ratingTo" class="range range-xs w-full -mt-1">
+            <input type="range" name="rating_from" min="0" max="10" step="0.1" x-model.number="ratingFrom" class="range range-xs range-primary w-full">
+            <input type="range" name="rating_to" min="0" max="10" step="0.1" x-model.number="ratingTo" class="range range-xs range-primary w-full -mt-1">
           </div>
+
           <div>
-            <div class="text-[11px] text-ink-dim mb-1.5">Language code</div>
-            <input type="text" name="language" placeholder="e.g. en, ja" maxlength="2" value="{{ request.GET.language }}" class="input input-sm w-full bg-base-100">
+            <div class="text-[11px] text-ink-dim mb-1.5">Language</div>
+            <select name="language" class="select select-sm w-full bg-base-100">
+              <option value="">Any language</option>
+              {% for code, name in languages %}
+                <option value="{{ code }}" {% if request.GET.language == code %}selected{% endif %}>{{ name }}</option>
+              {% endfor %}
+            </select>
           </div>
-        </div>
 
-        <div class="flex gap-2">
-          <button type="submit" class="btn btn-sm btn-primary">Apply filters</button>
-          <a href="?type={{ media_type }}" class="btn btn-sm">Clear</a>
-        </div>
-      </form>
-      {% endwith %}
-    </div>
-  </div>
-
-  {% if not results %}
-    <div class="py-16 text-center text-ink-faint text-sm">
-      {% if not profile %}Your account isn't linked to a household profile yet.{% else %}Nothing found — try widening your filters, or check that a TMDB API key is configured in Settings.{% endif %}
-    </div>
-  {% else %}
-    <div class="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-5">
-      {% for item in results %}
-        {% include "tracker/partials/discover_tile.html" with item=item %}
-      {% endfor %}
-    </div>
-
-    <div class="flex justify-between items-center flex-wrap gap-3 mt-7">
-      <span class="font-mono text-xs text-ink-faint">Page {{ current_page }} of {{ total_pages }}</span>
-      <div class="flex gap-1.5">
-        {% if current_page > 1 %}
-          <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"-1" }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim">‹ Prev</a>
-        {% endif %}
-        {% if current_page < total_pages %}
-          <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"1" }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim">Next ›</a>
-        {% endif %}
+          <div class="flex gap-2 mt-auto pt-2">
+            <button type="submit" class="btn btn-sm btn-primary flex-1">Apply filters</button>
+            <a href="?type={{ media_type }}" class="btn btn-sm">Clear</a>
+          </div>
+        </form>
+        {% endwith %}
       </div>
     </div>
-  {% endif %}
+  </div>
 
 {% endblock %}
