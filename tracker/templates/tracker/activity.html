@@ -16,24 +16,46 @@
       <div class="py-10 text-center text-ink-faint text-sm">No activity yet.</div>
     {% else %}
       {% for item in feed %}
-        <div class="flex gap-3 px-3.5 py-3.5 {% if not forloop.last %}border-b border-line{% endif %}">
-          <div class="w-[34px] h-[34px] rounded-full flex-none flex items-center justify-center font-mono text-[13px] font-bold" style="background:{{ item.profile.avatar_color }};color:#fff;">
-            {{ item.profile.display_name|first|upper }}
-          </div>
-          <div>
-            <div class="text-[13.5px]">
-              <b>{{ item.profile.display_name }}</b>
-              {% if item.kind == "rated" %}
-                rated <b>{{ item.title.name }}</b> — {{ item.rating }}/10
-              {% elif item.kind == "added_to_list" %}
-                added <b>{{ item.title.name }}</b> to {{ item.watchlist.name }}
-              {% elif item.episode %}
-                watched <b>{{ item.title.name }}</b> — S{{ item.episode.season }}E{{ item.episode.episode }}
+        <div class="px-3.5 py-3.5 {% if not forloop.last %}border-b border-line{% endif %}" {% if item.kind == "watched_group" %}x-data="{ open: false }"{% endif %}>
+          <div class="flex gap-3">
+            <div class="w-[34px] h-[34px] rounded-full flex-none flex items-center justify-center font-mono text-[13px] font-bold" style="background:{{ item.profile.avatar_color }};color:#fff;">
+              {{ item.profile.display_name|first|upper }}
+            </div>
+            <div class="min-w-0 flex-1">
+              {% if item.kind == "watched_group" %}
+                <button type="button" @click="open = !open" class="flex items-center gap-1.5 text-left">
+                  <div class="text-[13.5px]">
+                    <b>{{ item.profile.display_name }}</b> watched <b>{{ item.count }}</b> episodes of <b>{{ item.title.name }}</b>
+                    <span class="font-mono text-ink-dim">({{ item.range_label }})</span>
+                  </div>
+                  <span class="text-ink-faint text-[10px] transition-transform flex-none" :class="open && 'rotate-180'">&#9662;</span>
+                </button>
               {% else %}
-                watched <b>{{ item.title.name }}</b>
+                <div class="text-[13.5px]">
+                  <b>{{ item.profile.display_name }}</b>
+                  {% if item.kind == "rated" %}
+                    rated <b>{{ item.title.name }}</b> — {{ item.rating }}/10
+                  {% elif item.kind == "added_to_list" %}
+                    added <b>{{ item.title.name }}</b> to {{ item.watchlist.name }}
+                  {% elif item.episode %}
+                    watched <b>{{ item.title.name }}</b> — S{{ item.episode.season }}E{{ item.episode.episode }}
+                  {% else %}
+                    watched <b>{{ item.title.name }}</b>
+                  {% endif %}
+                </div>
+              {% endif %}
+              <div class="font-mono text-[11px] text-ink-faint mt-0.5">{{ item.timestamp|timesince }} ago</div>
+              {% if item.kind == "watched_group" %}
+                <div x-show="open" x-transition x-cloak class="mt-2.5 pl-3 border-l border-line flex flex-col gap-1.5">
+                  {% for ep_item in item.episodes %}
+                    <div class="flex justify-between gap-3 text-[12px] text-ink-dim">
+                      <span>S{{ ep_item.episode.season }}E{{ ep_item.episode.episode }}</span>
+                      <span class="font-mono text-ink-faint">{{ ep_item.timestamp|timesince }} ago</span>
+                    </div>
+                  {% endfor %}
+                </div>
               {% endif %}
             </div>
-            <div class="font-mono text-[11px] text-ink-faint mt-0.5">{{ item.timestamp|timesince }} ago</div>
           </div>
         </div>
       {% endfor %}

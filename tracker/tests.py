@@ -1766,3 +1766,103 @@ class DashboardWatchingWatchlistTests(TestCase):
         resp = self.client.get(reverse("dashboard"))
         self.assertEqual(len(resp.context["watchlist_items"]), 1)
         self.assertEqual(resp.context["watchlist_items"][0].title, title)
+
+
+class ActivityFeedGroupingTests(TestCase):
+    """A binge (many consecutive same-profile/same-title episode watches)
+    should collapse into one "watched N episodes" entry instead of burying
+    every other profile's activity under a wall of near-identical rows."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("aljaz", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="aljaz")
+        self.show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
+        self.now = timezone.now()
+
+    def _watch(self, episode_num, minutes_ago, season=1, profile=None, rating=None):
+        ep = Episode.objects.create(title=self.show, season=season, episode=episode_num)
+        return WatchEvent.objects.create(
+            profile=profile or self.profile,
+            title=self.show,
+            episode=ep,
+            watched_at=self.now - timedelta(minutes=minutes_ago),
+            user_rating=rating,
+        )
+
+    def test_consecutive_episode_watches_collapse_into_one_group(self):
+        for i, minutes_ago in enumerate([10, 20, 30, 40, 50]):
+            self._watch(episode_num=207 + i, minutes_ago=minutes_ago)
+        feed = selectors.activity_feed()
+        self.assertEqual(len(feed), 1)
+        self.assertEqual(feed[0]["kind"], "watched_group")
+        self.assertEqual(feed[0]["count"], 5)
+        self.assertEqual(feed[0]["range_label"], "S1E207–S1E211")
+
+    def test_group_timestamp_is_the_most_recent_episode(self):
+        self._watch(episode_num=1, minutes_ago=50)
+        self._watch(episode_num=2, minutes_ago=10)
+        feed = selectors.activity_feed()
+        self.assertEqual(feed[0]["timestamp"], self.now - timedelta(minutes=10))
+
+    def test_single_episode_does_not_get_grouped(self):
+        self._watch(episode_num=1, minutes_ago=10)
+        feed = selectors.activity_feed()
+        self.assertEqual(feed[0]["kind"], "watched")
+
+    def test_different_profiles_do_not_merge(self):
+        other_user = User.objects.create_user("other", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="Other")
+        self._watch(episode_num=1, minutes_ago=20)
+        self._watch(episode_num=2, minutes_ago=15, profile=other_profile)
+        self._watch(episode_num=3, minutes_ago=10)
+        feed = selectors.activity_feed()
+        # the other profile's single watch breaks the run into two separate
+        # (non-grouped, since each side only has one episode) entries
+        self.assertEqual(len(feed), 3)
+        self.assertTrue(all(item["kind"] == "watched" for item in feed))
+
+    def test_different_titles_do_not_merge(self):
+        other_show = Title.objects.create(media_type=MediaType.TV, name="Naruto", year=2002)
+        ep = Episode.objects.create(title=other_show, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=other_show, episode=ep, watched_at=self.now - timedelta(minutes=25))
+        self._watch(episode_num=1, minutes_ago=20)
+        self._watch(episode_num=2, minutes_ago=10)
+        feed = selectors.activity_feed()
+        self.assertEqual(len(feed), 2)
+        self.assertEqual(feed[0]["kind"], "watched_group")
+        self.assertEqual(feed[0]["title"], self.show)
+        self.assertEqual(feed[1]["title"], other_show)
+
+    def test_rated_event_is_not_grouped_and_breaks_the_run(self):
+        self._watch(episode_num=1, minutes_ago=30)
+        self._watch(episode_num=2, minutes_ago=20, rating=8)
+        self._watch(episode_num=3, minutes_ago=10)
+        feed = selectors.activity_feed()
+        # the rated watch is a real, individually-surfaced entry that
+        # splits what would otherwise be one three-episode run into two
+        # single (ungrouped) watches around it
+        self.assertEqual(len(feed), 3)
+        self.assertEqual(feed[1]["kind"], "rated")
+
+    def test_multi_season_group_range_spans_seasons(self):
+        self._watch(episode_num=24, minutes_ago=20, season=1)
+        self._watch(episode_num=1, minutes_ago=10, season=2)
+        feed = selectors.activity_feed()
+        self.assertEqual(feed[0]["range_label"], "S1E24–S2E1")
+
+    def test_expanding_a_group_exposes_each_individual_episode(self):
+        for i, minutes_ago in enumerate([30, 20, 10]):
+            self._watch(episode_num=1 + i, minutes_ago=minutes_ago)
+        feed = selectors.activity_feed()
+        episode_numbers = [item["episode"].episode for item in feed[0]["episodes"]]
+        self.assertEqual(episode_numbers, [3, 2, 1])  # newest-first, matching the feed's own order
+
+    def test_movies_do_not_group(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Movie A", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now - timedelta(minutes=10))
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now - timedelta(minutes=5))
+        feed = selectors.activity_feed()
+        self.assertEqual(len(feed), 2)
+        self.assertTrue(all(item["kind"] == "watched" for item in feed))
