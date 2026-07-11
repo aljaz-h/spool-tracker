@@ -3,23 +3,37 @@ context: label, name_from, name_to, min, max, step (optional, default 1),
 from_var, to_var (Alpine data property names in the enclosing x-data),
 suffix (optional, e.g. " min") - the enclosing element must already
 have from_var/to_var declared in its x-data.
+
+Position math accounts for the 16px thumb (see .dual-range-thumb in
+app.css) - a plain 0-100% mapping would place the fill bar/labels at
+the container's true edges, while the native thumb's own center never
+quite reaches them (browsers keep a range input's thumb fully inside
+its track, so at value=max the thumb's center sits at 100% - half its
+width, not literally 100%). calc(fraction * (100% - 16px) + 8px)
+matches that native positioning instead of drifting from it. x-cloak
+keeps the fill bar/labels hidden until Alpine has applied that
+calculation at least once, instead of briefly showing the pre-hydration
+unstyled (effectively full-width) state.
 {% endcomment %}
 <div>
   <div class="text-[11px] text-ink-dim mb-4 font-semibold uppercase tracking-wide">{{ label }}</div>
   <div class="relative h-4" x-data="{ _min: {{ min }}, _max: {{ max }} }">
     <span
+      x-cloak
       class="absolute bottom-full mb-1.5 -translate-x-1/2 whitespace-nowrap font-mono text-[10px] font-semibold text-primary"
-      :style="`left:${(({{ from_var }} - _min) / (_max - _min)) * 100}%`"
+      :style="`left:calc(${(({{ from_var }} - _min) / (_max - _min))} * (100% - 16px) + 8px)`"
     ><span x-text="{{ from_var }}"></span>{{ suffix }}</span>
     <span
+      x-cloak
       class="absolute bottom-full mb-1.5 -translate-x-1/2 whitespace-nowrap font-mono text-[10px] font-semibold text-primary"
-      :style="`left:${(({{ to_var }} - _min) / (_max - _min)) * 100}%`"
+      :style="`left:calc(${(({{ to_var }} - _min) / (_max - _min))} * (100% - 16px) + 8px)`"
     ><span x-text="{{ to_var }}"></span>{{ suffix }}</span>
 
     <div class="absolute top-1/2 inset-x-0 h-1.5 -translate-y-1/2 rounded-full bg-base-100"></div>
     <div
+      x-cloak
       class="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-primary"
-      :style="`left:${(({{ from_var }} - _min) / (_max - _min)) * 100}%; right:${100 - ((({{ to_var }} - _min) / (_max - _min)) * 100)}%`"
+      :style="`left:calc(${(({{ from_var }} - _min) / (_max - _min))} * (100% - 16px) + 8px); right:calc(100% - (${(({{ to_var }} - _min) / (_max - _min))} * (100% - 16px) + 8px))`"
     ></div>
 
     <input type="range" name="{{ name_from }}" min="{{ min }}" max="{{ max }}" step="{{ step|default:1 }}"

@@ -67,8 +67,8 @@
     </div>
 
     <div class="drawer-side z-50">
-      <label for="filters-drawer" aria-label="close filters" class="drawer-overlay"></label>
-      <div class="w-full max-w-xs max-h-screen overflow-y-auto bg-base-200 border-l border-line p-5 flex flex-col gap-5">
+      <label for="filters-drawer" aria-label="close filters" class="drawer-overlay bg-black/60"></label>
+      <div class="w-full max-w-xs max-h-screen overflow-y-auto bg-base-300 border-l border-line shadow-2xl p-5 flex flex-col gap-5">
         <div class="flex items-center justify-between">
           <h2 class="font-display text-xl">Filters</h2>
           <label for="filters-drawer" aria-label="close filters" class="btn btn-sm btn-circle btn-ghost cursor-pointer">
@@ -98,13 +98,16 @@
               <summary class="btn btn-sm bg-base-100 border-line font-normal inline-flex w-auto list-none cursor-pointer [&::-webkit-details-marker]:hidden">
                 {% if selected_genres %}{{ selected_genres|length }} selected{% else %}Any genre{% endif %} <span class="text-ink-faint">&#9662;</span>
               </summary>
-              <div class="flex flex-wrap gap-1.5 mt-2 max-h-40 overflow-y-auto p-2 border border-line rounded-lg bg-base-100">
-                {% for g in genres %}
-                  <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
-                    <input type="checkbox" name="genre" value="{{ g.id }}" class="sr-only" {% if g.id in selected_genres %}checked{% endif %}>
-                    {{ g.name }}
-                  </label>
-                {% endfor %}
+              <div class="relative mt-2">
+                <div class="flex flex-wrap gap-1.5 max-h-64 overflow-y-auto p-2 border border-line rounded-lg bg-base-100">
+                  {% for g in genres %}
+                    <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                      <input type="checkbox" name="genre" value="{{ g.id }}" class="sr-only" {% if g.id in selected_genres %}checked{% endif %}>
+                      {{ g.name }}
+                    </label>
+                  {% endfor %}
+                </div>
+                <div class="pointer-events-none absolute inset-x-1 bottom-1 h-5 rounded-b-lg bg-gradient-to-t from-base-100 to-transparent"></div>
               </div>
             </details>
           </div>
