@@ -132,6 +132,57 @@
   --color-primary-content: var(--color-secondary-content);
 }
 
+/* Dual-handle range sliders (discovery filter drawer's Year/Runtime/
+   Rating) - two overlapping native <input type=range> per slider, each
+   contributing only its thumb (native track hidden/transparent); a
+   separately-drawn fill bar behind them (positioned via Alpine, see
+   dual_range_slider.html) shows the selected span between the two
+   thumbs. pointer-events is left enabled only on the thumb pseudo-
+   element so the two inputs' full-width tracks don't fight each other
+   for clicks/drags. */
+.dual-range-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.dual-range-thumb::-webkit-slider-runnable-track {
+  background: transparent;
+}
+.dual-range-thumb::-moz-range-track {
+  background: transparent;
+  border: none;
+}
+.dual-range-thumb::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: var(--color-primary);
+  border: 2px solid var(--color-base-100);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  transition: box-shadow 0.15s ease;
+}
+.dual-range-thumb::-moz-range-thumb {
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: var(--color-primary);
+  border: 2px solid var(--color-base-100);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  transition: box-shadow 0.15s ease;
+}
+.dual-range-thumb:active::-webkit-slider-thumb,
+.dual-range-thumb:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 6px rgba(232, 166, 60, 0.28);
+}
+.dual-range-thumb:active::-moz-range-thumb,
+.dual-range-thumb:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 6px rgba(232, 166, 60, 0.28);
+}
+
 /* Alpine hides x-cloak'd elements only once it has booted; without this
    rule an element that must start hidden (e.g. the mobile sidebar's
    backdrop) flashes visible for one frame on every page load. */

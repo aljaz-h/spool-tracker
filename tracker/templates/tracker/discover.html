@@ -68,7 +68,7 @@
 
     <div class="drawer-side z-50">
       <label for="filters-drawer" aria-label="close filters" class="drawer-overlay"></label>
-      <div class="w-full max-w-xs min-h-full bg-base-200 border-l border-line p-5 flex flex-col gap-5">
+      <div class="w-full max-w-xs max-h-screen overflow-y-auto bg-base-200 border-l border-line p-5 flex flex-col gap-5">
         <div class="flex items-center justify-between">
           <h2 class="font-display text-xl">Filters</h2>
           <label for="filters-drawer" aria-label="close filters" class="btn btn-sm btn-circle btn-ghost cursor-pointer">
@@ -92,50 +92,38 @@
         >
           <input type="hidden" name="type" value="{{ media_type }}">
 
-          <details {% if selected_genres %}open{% endif %}>
-            <summary class="btn btn-sm bg-base-100 border-line font-normal inline-flex w-auto list-none cursor-pointer [&::-webkit-details-marker]:hidden">
-              Genres{% if selected_genres %} ({{ selected_genres|length }}){% endif %} <span class="text-ink-faint">&#9662;</span>
-            </summary>
-            <div class="flex flex-wrap gap-2 mt-2 max-h-40 overflow-y-auto p-2 border border-line rounded-lg bg-base-100">
-              {% for g in genres %}
-                <label class="flex items-center gap-1.5 text-xs bg-base-200 border border-line rounded-full px-3 py-1.5 cursor-pointer">
-                  <input type="checkbox" name="genre" value="{{ g.id }}" class="checkbox checkbox-xs" {% if g.id in selected_genres %}checked{% endif %}>
-                  {{ g.name }}
-                </label>
-              {% endfor %}
-            </div>
-          </details>
+          <div class="pb-5 border-b border-line">
+            <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Genres</div>
+            <details {% if selected_genres %}open{% endif %}>
+              <summary class="btn btn-sm bg-base-100 border-line font-normal inline-flex w-auto list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+                {% if selected_genres %}{{ selected_genres|length }} selected{% else %}Any genre{% endif %} <span class="text-ink-faint">&#9662;</span>
+              </summary>
+              <div class="flex flex-wrap gap-1.5 mt-2 max-h-40 overflow-y-auto p-2 border border-line rounded-lg bg-base-100">
+                {% for g in genres %}
+                  <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                    <input type="checkbox" name="genre" value="{{ g.id }}" class="sr-only" {% if g.id in selected_genres %}checked{% endif %}>
+                    {{ g.name }}
+                  </label>
+                {% endfor %}
+              </div>
+            </details>
+          </div>
 
-          <div>
-            <div class="flex justify-between text-[11px] text-ink-dim mb-1.5">
-              <span>Year</span>
-              <span class="font-mono text-ink-faint" x-text="yearFrom + ' – ' + yearTo"></span>
-            </div>
-            <input type="range" name="year_from" min="1950" max="{{ max_year }}" x-model.number="yearFrom" class="range range-xs range-primary w-full">
-            <input type="range" name="year_to" min="1950" max="{{ max_year }}" x-model.number="yearTo" class="range range-xs range-primary w-full -mt-1">
+          <div class="pb-5 border-b border-line">
+            {% include "tracker/partials/dual_range_slider.html" with label="Year" name_from="year_from" name_to="year_to" min=1950 max=max_year from_var="yearFrom" to_var="yearTo" suffix="" %}
+          </div>
+
+          <div class="pb-5 border-b border-line">
+            {% include "tracker/partials/dual_range_slider.html" with label="Runtime" name_from="runtime_from" name_to="runtime_to" min=0 max=400 step=5 from_var="runtimeFrom" to_var="runtimeTo" suffix="m" %}
+          </div>
+
+          <div class="pb-5 border-b border-line">
+            {% include "tracker/partials/dual_range_slider.html" with label="Rating" name_from="rating_from" name_to="rating_to" min=0 max=10 step=0.1 from_var="ratingFrom" to_var="ratingTo" suffix="" %}
           </div>
 
           <div>
-            <div class="flex justify-between text-[11px] text-ink-dim mb-1.5">
-              <span>Runtime (min)</span>
-              <span class="font-mono text-ink-faint" x-text="runtimeFrom + ' – ' + runtimeTo"></span>
-            </div>
-            <input type="range" name="runtime_from" min="0" max="400" step="5" x-model.number="runtimeFrom" class="range range-xs range-primary w-full">
-            <input type="range" name="runtime_to" min="0" max="400" step="5" x-model.number="runtimeTo" class="range range-xs range-primary w-full -mt-1">
-          </div>
-
-          <div>
-            <div class="flex justify-between text-[11px] text-ink-dim mb-1.5">
-              <span>Rating</span>
-              <span class="font-mono text-ink-faint" x-text="ratingFrom + ' – ' + ratingTo"></span>
-            </div>
-            <input type="range" name="rating_from" min="0" max="10" step="0.1" x-model.number="ratingFrom" class="range range-xs range-primary w-full">
-            <input type="range" name="rating_to" min="0" max="10" step="0.1" x-model.number="ratingTo" class="range range-xs range-primary w-full -mt-1">
-          </div>
-
-          <div>
-            <div class="text-[11px] text-ink-dim mb-1.5">Language</div>
-            <select name="language" class="select select-sm w-full bg-base-100">
+            <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Language</div>
+            <select name="language" class="select select-sm w-full bg-base-100 focus:outline-primary">
               <option value="">Any language</option>
               {% for code, name in languages %}
                 <option value="{{ code }}" {% if request.GET.language == code %}selected{% endif %}>{{ name }}</option>
@@ -143,9 +131,9 @@
             </select>
           </div>
 
-          <div class="flex gap-2 mt-auto pt-2">
+          <div class="flex items-center gap-3 pt-1">
             <button type="submit" class="btn btn-sm btn-primary flex-1">Apply filters</button>
-            <a href="?type={{ media_type }}" class="btn btn-sm">Clear</a>
+            <a href="?type={{ media_type }}" class="btn btn-sm btn-ghost">Clear all</a>
           </div>
         </form>
         {% endwith %}

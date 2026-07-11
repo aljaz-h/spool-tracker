@@ -1,0 +1,32 @@
+{% comment %}
+context: label, name_from, name_to, min, max, step (optional, default 1),
+from_var, to_var (Alpine data property names in the enclosing x-data),
+suffix (optional, e.g. " min") - the enclosing element must already
+have from_var/to_var declared in its x-data.
+{% endcomment %}
+<div>
+  <div class="text-[11px] text-ink-dim mb-4 font-semibold uppercase tracking-wide">{{ label }}</div>
+  <div class="relative h-4" x-data="{ _min: {{ min }}, _max: {{ max }} }">
+    <span
+      class="absolute bottom-full mb-1.5 -translate-x-1/2 whitespace-nowrap font-mono text-[10px] font-semibold text-primary"
+      :style="`left:${(({{ from_var }} - _min) / (_max - _min)) * 100}%`"
+    ><span x-text="{{ from_var }}"></span>{{ suffix }}</span>
+    <span
+      class="absolute bottom-full mb-1.5 -translate-x-1/2 whitespace-nowrap font-mono text-[10px] font-semibold text-primary"
+      :style="`left:${(({{ to_var }} - _min) / (_max - _min)) * 100}%`"
+    ><span x-text="{{ to_var }}"></span>{{ suffix }}</span>
+
+    <div class="absolute top-1/2 inset-x-0 h-1.5 -translate-y-1/2 rounded-full bg-base-100"></div>
+    <div
+      class="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-primary"
+      :style="`left:${(({{ from_var }} - _min) / (_max - _min)) * 100}%; right:${100 - ((({{ to_var }} - _min) / (_max - _min)) * 100)}%`"
+    ></div>
+
+    <input type="range" name="{{ name_from }}" min="{{ min }}" max="{{ max }}" step="{{ step|default:1 }}"
+      x-model.number="{{ from_var }}"
+      class="dual-range-thumb absolute inset-x-0 top-1/2 h-5 w-full -translate-y-1/2 cursor-pointer appearance-none bg-transparent pointer-events-none">
+    <input type="range" name="{{ name_to }}" min="{{ min }}" max="{{ max }}" step="{{ step|default:1 }}"
+      x-model.number="{{ to_var }}"
+      class="dual-range-thumb absolute inset-x-0 top-1/2 h-5 w-full -translate-y-1/2 cursor-pointer appearance-none bg-transparent pointer-events-none">
+  </div>
+</div>
