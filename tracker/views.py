@@ -23,7 +23,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from . import csv_import, instance_config, scheduling, selectors, tasks
-from .integrations import simkl, trakt
+from .integrations import simkl, tmdb, trakt
 from .models import (
     ExternalAccount,
     InstanceConfig,
@@ -37,9 +37,9 @@ from .models import (
 )
 
 MOVIE_TV_TYPES = [MediaType.MOVIE, MediaType.TV]
-LIBRARY_TABS = {"watching", "watchlist", "history"}
 HISTORY_PAGE_SIZE = 150
 HISTORY_PERIODS = {"today", "yesterday", "7", "30", "365"}
+DISCOVER_CATEGORIES = {"trending", "popular", "upcoming", "top_rated"}
 
 
 @login_required
@@ -49,7 +49,12 @@ def dashboard(request):
     if profile is not None:
         context.update(
             {
-                "continue_watching": selectors.continue_watching(profile),
+                # No limit - this is now the full Watching list, not just a
+                # "continue watching" teaser, since Movies & TV / Anime
+                # becoming discovery pages means there's nowhere else for
+                # in-progress tracking to live.
+                "continue_watching": selectors.continue_watching(profile, limit=None),
+                "watchlist_items": selectors.library_watchlist(profile, [MediaType.MOVIE, MediaType.TV, MediaType.ANIME]),
                 "up_next": selectors.up_next(profile),
                 "recently_added": selectors.recently_added_to_lists(profile),
                 "stats": selectors.quick_stats(profile),
@@ -74,44 +79,66 @@ def profile_popup(request, profile_id):
     return render(request, "tracker/partials/profile_popup.html", context)
 
 
+def _discover_int_param(request, name):
+    value = request.GET.get(name)
+    return int(value) if value and value.lstrip("-").isdigit() else None
+
+
 @login_required
-def library(request, media_type, tab):
-    if tab not in LIBRARY_TABS:
+def discover(request, media_type, category):
+    """Movies & TV / Anime pages - browsing what's trending/popular/
+    upcoming/top-rated on TMDB, with a genre/year/runtime/rating filter
+    panel. Replaced the old Watching/Watchlist/History tabs (moved to the
+    Dashboard) once this page became a discovery surface instead of a
+    library view."""
+    if category not in DISCOVER_CATEGORIES:
         raise Http404
 
     is_anime = media_type == "anime"
-    base_types = [MediaType.ANIME] if is_anime else MOVIE_TV_TYPES
+    tmdb_media_type = "tv" if is_anime else request.GET.get("type", "movie")
+    if tmdb_media_type not in ("movie", "tv"):
+        tmdb_media_type = "movie"
 
-    type_filter = request.GET.get("type", "all")
-    if not is_anime and type_filter in ("movie", "tv"):
-        active_types = [type_filter]
-    else:
-        active_types = base_types
-        type_filter = "all"
+    genre_ids = [int(g) for g in request.GET.getlist("genre") if g.isdigit()]
+    if is_anime:
+        genre_ids = list({*genre_ids, tmdb.ANIMATION_GENRE_ID})
+
+    filters = {
+        "genre_ids": genre_ids,
+        "year_from": _discover_int_param(request, "year_from"),
+        "year_to": _discover_int_param(request, "year_to"),
+        "runtime_from": _discover_int_param(request, "runtime_from"),
+        "runtime_to": _discover_int_param(request, "runtime_to"),
+        "rating_from": _discover_int_param(request, "rating_from"),
+        "rating_to": _discover_int_param(request, "rating_to"),
+        "original_language": request.GET.get("language") or None,
+    }
+    if is_anime:
+        filters["origin_country"] = "JP"
+
+    # TMDB refuses page requests beyond 500 regardless of total_pages.
+    page_num = min(_discover_int_param(request, "page") or 1, 500)
+    page = tmdb.discover(tmdb_media_type, category=category, page=page_num, **filters)
+
+    query_without_page = request.GET.copy()
+    query_without_page.pop("page", None)
 
     profile = Profile.objects.filter(user=request.user).first()
     context = {
+        "profile": profile,
         "page_title": "Anime" if is_anime else "Movies & TV",
         "is_anime": is_anime,
-        # The URL name ("movies_tv"/"anime") — distinct from the `media_type`
-        # kwarg ("movie_tv"/"anime") the two path()s pass into this view.
         "library_url_name": "anime" if is_anime else "movies_tv",
-        "tab": tab,
-        "type_filter": type_filter,
-        "profile": profile,
-        "total_titles": Title.objects.filter(media_type__in=base_types).count(),
+        "category": category,
+        "media_type": tmdb_media_type,
+        "results": page["results"],
+        "current_page": page_num,
+        "total_pages": min(page["total_pages"], 500),
+        "genres": tmdb.genres(tmdb_media_type),
+        "selected_genres": set(genre_ids),
+        "base_query": query_without_page.urlencode(),
     }
-    if profile is not None:
-        if tab == "watching":
-            context["watching"] = selectors.continue_watching(profile, media_types=active_types, limit=None)
-        elif tab == "watchlist":
-            context["watchlist_items"] = selectors.library_watchlist(profile, active_types)
-        elif tab == "history":
-            context["history_events"] = selectors.library_history(profile, active_types)
-        context["total_episodes_logged"] = WatchEvent.objects.filter(
-            profile=profile, title__media_type__in=base_types, episode__isnull=False
-        ).count()
-    return render(request, "tracker/library.html", context)
+    return render(request, "tracker/discover.html", context)
 
 
 def _group_history_by_day(events):

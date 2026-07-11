@@ -18,6 +18,8 @@ from .models import (
     SyncLog,
     Title,
     WatchEvent,
+    WatchList,
+    WatchListItem,
     WatchProgress,
 )
 
@@ -1446,3 +1448,264 @@ class BackfillRewatchesCommandTests(TestCase):
         self.assertFalse(e1.is_rewatch)
         self.assertTrue(e2.is_rewatch)
         self.assertFalse(e3.is_rewatch)  # profile2's only watch - not a rewatch even though same title
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class TmdbDiscoverTests(TestCase):
+    """Class-level LocMemCache override (see TmdbDiscoverCachingTests for
+    why it has to be class-level, not per-method) - these tests don't care
+    about caching itself, but without a real cache backend every call
+    pays _list_request's ~2s unreachable-Redis timeout for nothing."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    def _response(self, results, total_pages=1, page=1):
+        resp = Mock()
+        resp.json.return_value = {"results": results, "page": page, "total_pages": total_pages}
+        resp.raise_for_status = Mock()
+        return resp
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_normalizes_movie_result_fields(self, mock_get):
+        mock_get.return_value = self._response(
+            [{"id": 42, "title": "Fathom", "release_date": "2020-05-01", "poster_path": "/x.jpg", "vote_average": 7.5}]
+        )
+        page = tmdb.discover("movie", category="popular")
+        r = page["results"][0]
+        self.assertEqual(r["tmdb_id"], 42)
+        self.assertEqual(r["name"], "Fathom")
+        self.assertEqual(r["year"], "2020")
+        self.assertEqual(r["poster_url"], "https://image.tmdb.org/t/p/w500/x.jpg")
+        self.assertEqual(r["vote_average"], 7.5)
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_normalizes_tv_result_fields_and_handles_no_poster(self, mock_get):
+        mock_get.return_value = self._response(
+            [{"id": 99, "name": "Cinder Street", "first_air_date": "2022-01-01", "poster_path": None}]
+        )
+        page = tmdb.discover("tv", category="popular")
+        r = page["results"][0]
+        self.assertEqual(r["name"], "Cinder Street")
+        self.assertEqual(r["year"], "2022")
+        self.assertIsNone(r["poster_url"])
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_top_rated_sets_sort_and_vote_count_floor(self, mock_get):
+        mock_get.return_value = self._response([])
+        tmdb.discover("movie", category="top_rated")
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(params["sort_by"], "vote_average.desc")
+        self.assertEqual(params["vote_count.gte"], 200)
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_upcoming_filters_to_future_dates_sorted_ascending(self, mock_get):
+        mock_get.return_value = self._response([])
+        tmdb.discover("movie", category="upcoming")
+        params = mock_get.call_args.kwargs["params"]
+        self.assertIn("primary_release_date.gte", params)
+        self.assertEqual(params["sort_by"], "primary_release_date.asc")
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_filters_pass_through_to_discover_params(self, mock_get):
+        mock_get.return_value = self._response([])
+        tmdb.discover(
+            "movie",
+            category="popular",
+            genre_ids=[28, 16],
+            year_from=2020,
+            year_to=2022,
+            runtime_from=90,
+            runtime_to=150,
+            rating_from=6,
+            rating_to=9,
+            original_language="en",
+            origin_country="US",
+            with_companies="420",
+        )
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(params["with_genres"], "28,16")
+        self.assertEqual(params["primary_release_date.gte"], "2020-01-01")
+        self.assertEqual(params["primary_release_date.lte"], "2022-12-31")
+        self.assertEqual(params["with_runtime.gte"], 90)
+        self.assertEqual(params["with_runtime.lte"], 150)
+        self.assertEqual(params["vote_average.gte"], 6)
+        self.assertEqual(params["vote_average.lte"], 9)
+        self.assertEqual(params["with_original_language"], "en")
+        self.assertEqual(params["with_origin_country"], "US")
+        self.assertEqual(params["with_companies"], "420")
+
+    @override_settings(TMDB_API_KEY="")
+    def test_returns_empty_without_api_key(self):
+        page = tmdb.discover("movie")
+        self.assertEqual(page["results"], [])
+        self.assertEqual(page["total_pages"], 0)
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_returns_empty_on_request_exception(self, mock_get):
+        import requests
+
+        mock_get.side_effect = requests.RequestException("boom")
+        page = tmdb.discover("movie")
+        self.assertEqual(page["results"], [])
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_genres_returns_id_name_list(self, mock_get):
+        resp = Mock()
+        resp.json.return_value = {"genres": [{"id": 16, "name": "Animation"}]}
+        resp.raise_for_status = Mock()
+        mock_get.return_value = resp
+        self.assertEqual(tmdb.genres("movie"), [{"id": 16, "name": "Animation"}])
+
+
+@override_settings(
+    TMDB_API_KEY="test-key",
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
+)
+class TmdbDiscoverCachingTests(TestCase):
+    """Class-level override so the LocMemCache swap is active during
+    setUp() too, not just inside each decorated test method - needed so
+    cache.clear() below actually clears the right backend instead of
+    trying (and, pre-fix, failing) to reach the real default/Redis cache."""
+
+    def setUp(self):
+        # LocMemCache keeps a process-wide dict keyed by LOCATION, shared
+        # across every test using it (Django doesn't clear it between
+        # tests automatically) - without this, an earlier test's cached
+        # "movie popular" response makes this test see a false cache hit
+        # on its very first call.
+        from django.core.cache import cache
+
+        cache.clear()
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_repeated_call_with_same_params_hits_cache_not_network(self, mock_get):
+        resp = Mock()
+        resp.json.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp.raise_for_status = Mock()
+        mock_get.return_value = resp
+
+        tmdb.discover("movie", category="popular")
+        tmdb.discover("movie", category="popular")
+        self.assertEqual(mock_get.call_count, 1)
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_different_params_are_not_cached_together(self, mock_get):
+        resp = Mock()
+        resp.json.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp.raise_for_status = Mock()
+        mock_get.return_value = resp
+
+        tmdb.discover("movie", category="popular")
+        tmdb.discover("tv", category="popular")
+        self.assertEqual(mock_get.call_count, 2)
+
+
+class TmdbDiscoverCacheResilienceTests(TestCase):
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_unreachable_cache_degrades_instead_of_crashing(self, mock_get):
+        # Default (non-overridden) settings' CACHES points at a Redis
+        # instance that isn't running in this environment - confirms
+        # _list_request's try/except degrades to "no cache" rather than
+        # raising, instead of just trusting it without checking.
+        resp = Mock()
+        resp.json.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp.raise_for_status = Mock()
+        mock_get.return_value = resp
+        page = tmdb.discover("movie", category="popular")
+        self.assertEqual(page["results"], [])
+
+
+class DiscoverViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("discoverviewer", password="pass12345")
+        Profile.objects.create(user=user, display_name="DiscoverViewer")
+        self.client.login(username="discoverviewer", password="pass12345")
+
+    def test_invalid_category_404s(self):
+        resp = self.client.get(reverse("movies_tv", args=["bogus"]))
+        self.assertEqual(resp.status_code, 404)
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_movies_tv_defaults_to_movie_type(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        self.client.get(reverse("movies_tv", args=["trending"]))
+        self.assertEqual(mock_discover.call_args.args[0], "movie")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_movies_tv_respects_type_query_param(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        self.client.get(reverse("movies_tv", args=["trending"]), {"type": "tv"})
+        self.assertEqual(mock_discover.call_args.args[0], "tv")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_anime_always_uses_tv_and_japan_and_animation_genre(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        # Even a stray ?type=movie shouldn't switch anime off tv.
+        self.client.get(reverse("anime", args=["trending"]), {"type": "movie"})
+        self.assertEqual(mock_discover.call_args.args[0], "tv")
+        kwargs = mock_discover.call_args.kwargs
+        self.assertEqual(kwargs["origin_country"], "JP")
+        self.assertIn(tmdb.ANIMATION_GENRE_ID, kwargs["genre_ids"])
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_page_number_clamped_to_500(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 500, "total_pages": 500}
+        self.client.get(reverse("movies_tv", args=["popular"]), {"page": "99999"})
+        self.assertEqual(mock_discover.call_args.kwargs["page"], 500)
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_genre_filter_parsed_from_query_params(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        self.client.get(reverse("movies_tv", args=["popular"]), {"genre": ["28", "16"]})
+        self.assertEqual(set(mock_discover.call_args.kwargs["genre_ids"]), {28, 16})
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_renders_200_with_results(self, mock_discover, mock_genres):
+        mock_discover.return_value = {
+            "results": [{"tmdb_id": 1, "media_type": "movie", "name": "Fathom", "year": "2020",
+                         "poster_url": None, "vote_average": 7.1}],
+            "page": 1,
+            "total_pages": 3,
+        }
+        resp = self.client.get(reverse("movies_tv", args=["popular"]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Fathom")
+
+
+class DashboardWatchingWatchlistTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("dashboardwatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="DashboardWatcher")
+        self.client.login(username="dashboardwatcher", password="pass12345")
+
+    def test_shows_all_watching_items_not_just_a_teaser(self):
+        for i in range(10):
+            title = Title.objects.create(media_type=MediaType.TV, name=f"Show {i}", year=2020)
+            WatchProgress.objects.create(profile=self.profile, title=title, status=WatchProgress.Status.WATCHING)
+        resp = self.client.get(reverse("dashboard"))
+        self.assertEqual(len(resp.context["continue_watching"]), 10)
+
+    def test_shows_watchlist_items(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Listed Movie", year=2020)
+        watchlist = WatchList.objects.create(profile=self.profile, name="My List")
+        WatchListItem.objects.create(watchlist=watchlist, title=title)
+        resp = self.client.get(reverse("dashboard"))
+        self.assertEqual(len(resp.context["watchlist_items"]), 1)
+        self.assertEqual(resp.context["watchlist_items"][0].title, title)

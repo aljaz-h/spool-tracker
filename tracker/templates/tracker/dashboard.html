@@ -27,16 +27,29 @@
   </div>
 
   <div class="flex justify-between items-center mt-9 mb-3.5">
-    <h2 class="font-display text-xl">Continue watching</h2>
+    <h2 class="font-display text-xl">Watching</h2>
   </div>
   {% if continue_watching %}
-    <div class="flex gap-4 overflow-x-auto pb-2">
+    <div class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-5">
       {% for item in continue_watching %}
-        {% include "tracker/partials/poster_card.html" with title=item.title progress=item %}
+        {% include "tracker/partials/poster_card.html" with title=item.title progress=item width_class="" %}
       {% endfor %}
     </div>
   {% else %}
-    <p class="text-ink-faint text-sm">Nothing in progress — mark something as watching from Movies &amp; TV or Anime.</p>
+    <p class="text-ink-faint text-sm">Nothing in progress yet.</p>
+  {% endif %}
+
+  <div class="flex justify-between items-center mt-9 mb-3.5">
+    <h2 class="font-display text-xl">Watchlist</h2>
+  </div>
+  {% if watchlist_items %}
+    <div class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-5">
+      {% for item in watchlist_items %}
+        {% include "tracker/partials/poster_card.html" with title=item.title show_ratings=True width_class="" %}
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-ink-faint text-sm">Nothing on your watchlist yet — see Lists to add titles.</p>
   {% endif %}
 
   <div class="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-5 mt-8 items-start">

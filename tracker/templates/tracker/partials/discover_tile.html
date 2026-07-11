@@ -1,0 +1,16 @@
+{% load tracker_extras %}
+{# context: item (dict: tmdb_id, media_type, name, year, poster_url, vote_average) #}
+<div class="group relative">
+  <div class="aspect-[2/3] rounded-lg relative overflow-hidden border border-white/5 bg-cover bg-center {% if not item.poster_url %}{{ item.tmdb_id|gradient_class }}{% endif %}"
+       {% if item.poster_url %}style="background-image:url('{{ item.poster_url }}')"{% endif %}>
+    <div class="absolute inset-0 bg-linear-to-t from-black/50 to-transparent"></div>
+    <span class="absolute bottom-1.5 left-1.5 z-10 font-mono text-[8px] bg-black/50 px-1 py-0.5 rounded text-white/90">{{ item.media_type|upper }}</span>
+    {% if item.vote_average %}
+      <span class="absolute top-1.5 right-1.5 z-10 font-mono text-[8px] bg-black/55 px-1.5 py-0.5 rounded text-white/90">&#9733; {{ item.vote_average|floatformat:1 }}</span>
+    {% endif %}
+  </div>
+  <div class="mt-1.5 min-w-0">
+    <div class="text-[12.5px] font-semibold truncate">{{ item.name }}</div>
+    <div class="text-[10.5px] font-mono text-ink-dim mt-0.5">{{ item.year|default:"—" }}</div>
+  </div>
+</div>

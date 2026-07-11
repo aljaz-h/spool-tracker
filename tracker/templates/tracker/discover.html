@@ -1,0 +1,109 @@
+{% extends "tracker/base.html" %}
+{% load tracker_extras %}
+{% block title %}{{ page_title }} · Spool{% endblock %}
+{% block content %}
+
+  <div class="mb-6">
+    <h1 class="font-display text-4xl">{{ page_title }}</h1>
+    <div class="text-ink-dim text-sm mt-1">Browse what's trending, popular, upcoming, and top rated on TMDB</div>
+  </div>
+
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+    <div class="flex flex-wrap items-center gap-3">
+      {% if not is_anime %}
+        <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
+          <a href="?type=movie" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if media_type == "movie" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Movies</a>
+          <a href="?type=tv" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if media_type == "tv" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">TV</a>
+        </div>
+      {% endif %}
+      <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
+        {% url library_url_name category="trending" as trending_url %}
+        {% url library_url_name category="popular" as popular_url %}
+        {% url library_url_name category="upcoming" as upcoming_url %}
+        {% url library_url_name category="top_rated" as top_rated_url %}
+        <a href="{{ trending_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "trending" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Trending</a>
+        <a href="{{ popular_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "popular" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Popular</a>
+        <a href="{{ upcoming_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "upcoming" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Upcoming</a>
+        <a href="{{ top_rated_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "top_rated" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Top Rated</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="collapse collapse-arrow bg-base-200 border border-line rounded-2xl mb-5">
+    <input type="checkbox" {% if selected_genres or request.GET.year_from or request.GET.year_to or request.GET.runtime_from or request.GET.runtime_to or request.GET.rating_from or request.GET.rating_to or request.GET.language %}checked{% endif %}>
+    <div class="collapse-title text-sm font-semibold">Filters</div>
+    <div class="collapse-content">
+      <form method="get" class="pt-2">
+        <input type="hidden" name="type" value="{{ media_type }}">
+
+        <div class="text-[11px] text-ink-dim mb-2">Genres</div>
+        <div class="flex flex-wrap gap-2 mb-4">
+          {% for g in genres %}
+            <label class="flex items-center gap-1.5 text-xs bg-base-100 border border-line rounded-full px-3 py-1.5 cursor-pointer">
+              <input type="checkbox" name="genre" value="{{ g.id }}" class="checkbox checkbox-xs" {% if g.id in selected_genres %}checked{% endif %}>
+              {{ g.name }}
+            </label>
+          {% endfor %}
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+          <div>
+            <div class="text-[11px] text-ink-dim mb-1.5">Year</div>
+            <div class="flex items-center gap-1.5">
+              <input type="number" name="year_from" placeholder="From" value="{{ request.GET.year_from }}" class="input input-sm w-full bg-base-100">
+              <input type="number" name="year_to" placeholder="To" value="{{ request.GET.year_to }}" class="input input-sm w-full bg-base-100">
+            </div>
+          </div>
+          <div>
+            <div class="text-[11px] text-ink-dim mb-1.5">Runtime (min)</div>
+            <div class="flex items-center gap-1.5">
+              <input type="number" name="runtime_from" placeholder="From" value="{{ request.GET.runtime_from }}" class="input input-sm w-full bg-base-100">
+              <input type="number" name="runtime_to" placeholder="To" value="{{ request.GET.runtime_to }}" class="input input-sm w-full bg-base-100">
+            </div>
+          </div>
+          <div>
+            <div class="text-[11px] text-ink-dim mb-1.5">Rating (0-10)</div>
+            <div class="flex items-center gap-1.5">
+              <input type="number" step="0.1" min="0" max="10" name="rating_from" placeholder="From" value="{{ request.GET.rating_from }}" class="input input-sm w-full bg-base-100">
+              <input type="number" step="0.1" min="0" max="10" name="rating_to" placeholder="To" value="{{ request.GET.rating_to }}" class="input input-sm w-full bg-base-100">
+            </div>
+          </div>
+          <div>
+            <div class="text-[11px] text-ink-dim mb-1.5">Language code</div>
+            <input type="text" name="language" placeholder="e.g. en, ja" maxlength="2" value="{{ request.GET.language }}" class="input input-sm w-full bg-base-100">
+          </div>
+        </div>
+
+        <div class="flex gap-2">
+          <button type="submit" class="btn btn-sm btn-primary">Apply filters</button>
+          <a href="?type={{ media_type }}" class="btn btn-sm">Clear</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {% if not results %}
+    <div class="py-16 text-center text-ink-faint text-sm">
+      {% if not profile %}Your account isn't linked to a household profile yet.{% else %}Nothing found — try widening your filters, or check that a TMDB API key is configured in Settings.{% endif %}
+    </div>
+  {% else %}
+    <div class="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-5">
+      {% for item in results %}
+        {% include "tracker/partials/discover_tile.html" with item=item %}
+      {% endfor %}
+    </div>
+
+    <div class="flex justify-between items-center flex-wrap gap-3 mt-7">
+      <span class="font-mono text-xs text-ink-faint">Page {{ current_page }} of {{ total_pages }}</span>
+      <div class="flex gap-1.5">
+        {% if current_page > 1 %}
+          <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"-1" }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim">‹ Prev</a>
+        {% endif %}
+        {% if current_page < total_pages %}
+          <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"1" }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim">Next ›</a>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+
+{% endblock %}

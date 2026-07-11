@@ -163,6 +163,25 @@ CELERY_BROKER_CONNECTION_RETRY = False
 CELERY_BROKER_CONNECTION_TIMEOUT = 3
 CELERY_BROKER_TRANSPORT_OPTIONS = {"socket_connect_timeout": 3, "socket_timeout": 3}
 
+# Shared across gunicorn's multiple worker processes (LocMemCache, Django's
+# default, is per-process - each worker would hit TMDB separately for the
+# same trending/popular list). A separate Redis DB index from Celery's
+# broker/backend (REDIS_URL, above) so the two don't share a keyspace.
+# Explicit short socket timeouts - the Celery broker connection hang
+# (CELERY_BROKER_CONNECTION_TIMEOUT, above) was caused by exactly this
+# class of bug: redis-py's default connect behavior doesn't bound how long
+# an unreachable Redis can stall a request. tmdb.py's _list_request() also
+# wraps cache access in try/except as a second layer, since even a 2s
+# stall on every single discovery-page request if Redis is down for a
+# while is worth avoiding, not just bounding.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": env("CACHE_URL", default="redis://localhost:6379/2"),
+        "OPTIONS": {"socket_connect_timeout": 2, "socket_timeout": 2},
+    }
+}
+
 
 # Third-party API credentials (used by tracker/integrations, §6 of the addendum)
 

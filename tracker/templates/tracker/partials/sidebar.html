@@ -23,10 +23,10 @@
     {% url 'dashboard' as dashboard_url %}
     {% include "tracker/partials/nav_item.html" with href=dashboard_url icon_name="layout-dashboard" label="Dashboard" is_active=url_name|eq:"dashboard" active_border="border-primary" %}
 
-    {% url 'movies_tv' tab="watching" as movies_tv_url %}
+    {% url 'movies_tv' category="trending" as movies_tv_url %}
     {% include "tracker/partials/nav_item.html" with href=movies_tv_url icon_name="clapperboard" label="Movies & TV" is_active=url_name|eq:"movies_tv" active_border="border-primary" %}
 
-    {% url 'anime' tab="watching" as anime_url %}
+    {% url 'anime' category="trending" as anime_url %}
     {% include "tracker/partials/nav_item.html" with href=anime_url icon_name="sparkles" label="Anime" is_active=url_name|eq:"anime" active_border="border-secondary" %}
 
     {% url 'history' as history_url %}
