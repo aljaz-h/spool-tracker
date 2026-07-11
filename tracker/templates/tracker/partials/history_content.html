@@ -13,7 +13,7 @@
         {% if group.episode_count %}{{ group.episode_count }} episode{{ group.episode_count|pluralize }}{% endif %}
       </div>
     </div>
-    <div class="grid grid-cols-[repeat(auto-fill,minmax(102px,1fr))] gap-3.5">
+    <div class="grid grid-cols-[repeat(auto-fill,minmax(132px,1fr))] gap-4">
       {% for event in group.items %}
         {% include "tracker/partials/history_tile.html" with event=event %}
       {% endfor %}
