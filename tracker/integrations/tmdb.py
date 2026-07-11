@@ -131,6 +131,13 @@ ANIMATION_GENRE_ID = 16  # stable TMDB genre id, same for movie and tv
 
 _CACHE_TTL = 6 * 3600  # trending/popular lists don't need to be fresher than this
 
+# TMDB returns 20 results per page - too little to fill a wide grid (barely
+# 2 rows at desktop widths). discover() merges this many consecutive TMDB
+# pages into one logical "page" instead (3 * 20 = 60, which fills roughly 6
+# rows at typical desktop column counts). Each underlying TMDB page is still
+# cached/requested individually, so this doesn't change caching behavior.
+RESULTS_PAGE_SIZE = 3
+
 
 def _cache_key(path, params):
     normalized = json.dumps(params, sort_keys=True)
@@ -199,31 +206,42 @@ def genres(media_type):
 def discover(media_type, category="popular", page=1, genre_ids=None, year_from=None, year_to=None,
              runtime_from=None, runtime_to=None, rating_from=None, rating_to=None,
              original_language=None, origin_country=None, with_companies=None):
-    """Returns {"results": [...normalized...], "page": int, "total_pages": int}.
-    category picks a sort/date preset (see module docstring); every other
-    param is an optional filter layered on top of that preset, all of them
-    straight from TMDB's own documented /discover parameter set."""
+    """Returns {"results": [...normalized, up to RESULTS_PAGE_SIZE*20...], "page": int,
+    "total_pages": int}. category picks a sort/date preset (see module docstring);
+    every other param is an optional filter layered on top of that preset, all of
+    them straight from TMDB's own documented /discover parameter set."""
     date_field = "primary_release_date" if media_type == "movie" else "first_air_date"
-    params = {"page": page, "sort_by": "popularity.desc"}
+    params = {"sort_by": "popularity.desc"}
 
     if category == "top_rated":
         params["sort_by"] = "vote_average.desc"
         params["vote_count.gte"] = 200  # otherwise a single 10/10 vote from one person tops the list
-    elif category == "upcoming":
+
+    # gte/lte are built from candidate dates rather than assigned directly,
+    # since "upcoming"'s gte=today preset and a user's year_from filter (the
+    # range slider always submits a value, even at its untouched default)
+    # must combine rather than one silently clobbering the other - gte takes
+    # the latest/strictest candidate, lte the earliest/strictest one.
+    gte_candidates = []
+    lte_candidates = []
+    if category == "upcoming":
         import datetime
 
-        today = datetime.date.today().isoformat()
         params["sort_by"] = f"{date_field}.asc"
-        params[f"{date_field}.gte"] = today
+        gte_candidates.append(datetime.date.today().isoformat())
     # "trending" and "popular" both use the popularity.desc default above -
     # see the module docstring for why they're not more differentiated here.
 
     if genre_ids:
         params["with_genres"] = ",".join(str(g) for g in genre_ids)
     if year_from:
-        params[f"{date_field}.gte"] = f"{year_from}-01-01"
+        gte_candidates.append(f"{year_from}-01-01")
     if year_to:
-        params[f"{date_field}.lte"] = f"{year_to}-12-31"
+        lte_candidates.append(f"{year_to}-12-31")
+    if gte_candidates:
+        params[f"{date_field}.gte"] = max(gte_candidates)
+    if lte_candidates:
+        params[f"{date_field}.lte"] = min(lte_candidates)
     if runtime_from:
         params["with_runtime.gte"] = runtime_from
     if runtime_to:
@@ -239,9 +257,20 @@ def discover(media_type, category="popular", page=1, genre_ids=None, year_from=N
     if with_companies:
         params["with_companies"] = with_companies
 
-    data = _list_request(f"discover/{media_type}", params)
+    tmdb_start_page = (page - 1) * RESULTS_PAGE_SIZE + 1
+    results = []
+    total_pages_raw = 0
+    for offset in range(RESULTS_PAGE_SIZE):
+        tmdb_page = tmdb_start_page + offset
+        data = _list_request(f"discover/{media_type}", {**params, "page": tmdb_page})
+        total_pages_raw = data.get("total_pages") or total_pages_raw
+        page_results = data.get("results") or []
+        results.extend(_normalize_result(r, media_type) for r in page_results)
+        if not page_results or tmdb_page >= total_pages_raw:
+            break
+
     return {
-        "results": [_normalize_result(r, media_type) for r in data.get("results") or []],
-        "page": data.get("page", 1),
-        "total_pages": data.get("total_pages", 0),
+        "results": results,
+        "page": page,
+        "total_pages": -(-total_pages_raw // RESULTS_PAGE_SIZE) if total_pages_raw else 0,
     }

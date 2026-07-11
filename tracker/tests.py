@@ -1566,6 +1566,63 @@ class TmdbDiscoverTests(TestCase):
         mock_get.return_value = resp
         self.assertEqual(tmdb.genres("movie"), [{"id": 16, "name": "Animation"}])
 
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_merges_multiple_tmdb_pages_to_fill_a_bigger_grid(self, mock_get):
+        # A single TMDB page (20 results) barely fills 2 grid rows -
+        # discover() merges RESULTS_PAGE_SIZE (3) consecutive TMDB pages
+        # into one logical page instead, so the grid gets ~6 rows worth.
+        mock_get.side_effect = [
+            self._response([{"id": n, "title": f"Movie {n}", "release_date": "2020-01-01"}], total_pages=5, page=n)
+            for n in (1, 2, 3)
+        ]
+        page = tmdb.discover("movie", category="popular")
+        self.assertEqual(mock_get.call_count, 3)
+        self.assertEqual([r["tmdb_id"] for r in page["results"]], [1, 2, 3])
+        self.assertEqual(page["total_pages"], 2)  # ceil(5 TMDB pages / 3 per merged page)
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_stops_early_when_tmdb_has_fewer_pages_than_the_merge_width(self, mock_get):
+        mock_get.side_effect = [
+            self._response([{"id": n, "title": f"Movie {n}", "release_date": "2020-01-01"}], total_pages=2, page=n)
+            for n in (1, 2)
+        ]
+        page = tmdb.discover("movie", category="popular")
+        self.assertEqual(mock_get.call_count, 2)  # never asks TMDB for a page 3 that can't exist
+        self.assertEqual(page["total_pages"], 1)  # ceil(2/3)
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_page_2_starts_at_the_right_tmdb_page_offset(self, mock_get):
+        mock_get.return_value = self._response(
+            [{"id": 1, "title": "Filler", "release_date": "2020-01-01"}], total_pages=10
+        )
+        tmdb.discover("movie", category="popular", page=2)
+        called_pages = [c.kwargs["params"]["page"] for c in mock_get.call_args_list]
+        self.assertEqual(called_pages, [4, 5, 6])
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_upcoming_date_floor_survives_a_slider_at_its_default_lower_bound(self, mock_get):
+        # The year range slider always submits a value, even untouched -
+        # a wide-open year_from (e.g. 1950) must not push "upcoming"'s
+        # gte=today preset backwards in time.
+        mock_get.return_value = self._response([])
+        tmdb.discover("movie", category="upcoming", year_from=1950)
+        params = mock_get.call_args.kwargs["params"]
+        import datetime
+
+        self.assertEqual(params["primary_release_date.gte"], datetime.date.today().isoformat())
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_upcoming_date_floor_is_overridden_by_a_stricter_year_from(self, mock_get):
+        mock_get.return_value = self._response([])
+        tmdb.discover("movie", category="upcoming", year_from=2030)
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(params["primary_release_date.gte"], "2030-01-01")
+
 
 @override_settings(
     TMDB_API_KEY="test-key",
