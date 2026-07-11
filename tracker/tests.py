@@ -1228,6 +1228,35 @@ class FormatDurationTests(TestCase):
         self.assertEqual(selectors._format_duration(1440), "1d 0h 0m")
 
 
+class StatsOverviewMoviesWatchedTests(TestCase):
+    """movies_watched previously counted every WatchEvent (plays,
+    rewatches included) but was labeled/used as if it were a count of
+    distinct movies - confirmed against a real account where the two
+    numbers differed by 700+. Now movies_watched is the unique-title
+    count and movies_plays is the total, matching how Trakt/Simkl
+    present both ("2,034 movies (2,773 plays)")."""
+
+    def setUp(self):
+        user = User.objects.create_user("moviecountwatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="MovieCountWatcher")
+
+    def test_distinguishes_unique_titles_from_total_plays(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Rewatched A Lot", year=2020)
+        other = Title.objects.create(media_type=MediaType.MOVIE, name="Watched Once", year=2021)
+        for watched_at in ["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z", "2024-03-01T00:00:00Z"]:
+            WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=watched_at)
+        WatchEvent.objects.create(profile=self.profile, title=other, watched_at="2024-01-01T00:00:00Z")
+
+        overview = selectors.stats_overview(self.profile)
+        self.assertEqual(overview["movies_watched"], 2)  # 2 distinct movies
+        self.assertEqual(overview["movies_plays"], 4)  # 4 total watches
+
+    def test_no_movies_watched_is_zero_for_both(self):
+        overview = selectors.stats_overview(self.profile)
+        self.assertEqual(overview["movies_watched"], 0)
+        self.assertEqual(overview["movies_plays"], 0)
+
+
 class WatchTimeBreakdownTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("breakdownwatcher", password="pass12345")

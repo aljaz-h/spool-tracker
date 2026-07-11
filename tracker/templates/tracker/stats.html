@@ -24,7 +24,7 @@
     <div class="grid grid-cols-2 gap-4.5">
       <div><div class="font-display text-3xl text-primary">{{ longest_streak }}</div><div class="text-xs text-ink-dim">Longest streak (days)</div></div>
       <div><div class="font-display text-3xl">{{ total_watch_hours }}h</div><div class="text-xs text-ink-dim">Total watch time (&asymp; {{ total_watch_days }} days)</div></div>
-      <div><div class="font-display text-3xl text-accent">{{ movies_watched }} / {{ shows_completed }}</div><div class="text-xs text-ink-dim">Movies watched / Shows completed</div></div>
+      <div><div class="font-display text-3xl text-accent">{{ movies_watched }} / {{ shows_completed }}</div><div class="text-xs text-ink-dim">Movies watched ({{ movies_plays }} plays) / Shows completed</div></div>
       <div><div class="font-display text-3xl text-secondary">{{ episodes_logged }}</div><div class="text-xs text-ink-dim">Episodes logged</div></div>
     </div>
   </div>
@@ -49,7 +49,7 @@
       <div class="space-y-3">
         <div class="flex justify-between items-baseline">
           <span class="text-[13px] text-ink-dim">Movies</span>
-          <span class="font-mono text-sm"><b>{{ watch_time_breakdown.last_30_days.movie.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.last_30_days.movie.count }} movies)</span></span>
+          <span class="font-mono text-sm"><b>{{ watch_time_breakdown.last_30_days.movie.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.last_30_days.movie.count }} plays)</span></span>
         </div>
         <div class="flex justify-between items-baseline">
           <span class="text-[13px] text-ink-dim">TV</span>
@@ -67,7 +67,7 @@
       <div class="space-y-3">
         <div class="flex justify-between items-baseline">
           <span class="text-[13px] text-ink-dim">Movies</span>
-          <span class="font-mono text-sm"><b>{{ watch_time_breakdown.all_time.movie.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.all_time.movie.count }} movies)</span></span>
+          <span class="font-mono text-sm"><b>{{ watch_time_breakdown.all_time.movie.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.all_time.movie.count }} plays)</span></span>
         </div>
         <div class="flex justify-between items-baseline">
           <span class="text-[13px] text-ink-dim">TV</span>

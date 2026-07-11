@@ -251,7 +251,15 @@ def stats_overview(profile):
         "dial_pct": min(100, round(cur / longest * 100)) if longest else 0,
         "total_watch_hours": total_hours,
         "total_watch_days": round(total_hours / 24, 1),
-        "movies_watched": events.filter(title__media_type=MediaType.MOVIE).count(),
+        # "watched" (unique titles) vs "plays" (every watch, rewatches
+        # included) - the same distinction Trakt/Simkl draw ("2,034 movies
+        # (2,773 plays)"). movies_watched previously *was* the plays count
+        # mislabeled as a movie count, which reads as "2,773 different
+        # movies" when it's actually far fewer unique titles rewatched a
+        # lot - confirmed against a real account where the two numbers
+        # differed by 700+.
+        "movies_watched": events.filter(title__media_type=MediaType.MOVIE).values("title_id").distinct().count(),
+        "movies_plays": events.filter(title__media_type=MediaType.MOVIE).count(),
         "shows_completed": WatchProgress.objects.filter(
             profile=profile,
             status=WatchProgress.Status.COMPLETED,
