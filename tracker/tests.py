@@ -7,7 +7,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
-from . import completion, csv_import, instance_config, scheduling, selectors, tasks
+from . import completion, csv_import, instance_config, rewatches, scheduling, selectors, tasks
 from .integrations import tmdb, trakt
 from .models import (
     Episode,
@@ -1313,3 +1313,107 @@ class BackfillPostersCommandTests(TestCase):
         title.refresh_from_db()
         self.assertEqual(title.external_ids.get("tmdb"), "7")
         self.assertTrue(title.poster_url)
+
+
+class RecomputeIsRewatchTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("rewatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Rewatcher")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Rewatched Movie", year=2020)
+
+    def test_earliest_watch_is_not_a_rewatch_others_are(self):
+        # Created out of chronological order, mirroring Trakt's own
+        # newest-first history order - the fix has to be order-independent.
+        newest = WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at="2024-03-01T00:00:00Z")
+        oldest = WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at="2024-01-01T00:00:00Z")
+        middle = WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at="2024-02-01T00:00:00Z")
+
+        rewatches.recompute_is_rewatch(self.profile, self.title, None)
+
+        oldest.refresh_from_db()
+        middle.refresh_from_db()
+        newest.refresh_from_db()
+        self.assertFalse(oldest.is_rewatch)
+        self.assertTrue(middle.is_rewatch)
+        self.assertTrue(newest.is_rewatch)
+
+    def test_single_watch_is_never_a_rewatch(self):
+        event = WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at="2024-01-01T00:00:00Z")
+        rewatches.recompute_is_rewatch(self.profile, self.title, None)
+        event.refresh_from_db()
+        self.assertFalse(event.is_rewatch)
+
+    def test_corrects_a_wrongly_set_flag(self):
+        # Simulates bad data (e.g. from before this existed) - the
+        # earliest watch incorrectly flagged as a rewatch gets fixed.
+        oldest = WatchEvent.objects.create(
+            profile=self.profile, title=self.title, watched_at="2024-01-01T00:00:00Z", is_rewatch=True
+        )
+        rewatches.recompute_is_rewatch(self.profile, self.title, None)
+        oldest.refresh_from_db()
+        self.assertFalse(oldest.is_rewatch)
+
+
+class RewatchImportWiringTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("rewatchimporter", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="RewatchImporter")
+
+    @patch("tracker.integrations.tmdb.find_match", return_value=None)
+    def test_trakt_import_marks_rewatch_correctly(self, mock_find_match):
+        items = [
+            {
+                "type": "movie",
+                "watched_at": "2024-03-01T00:00:00.000Z",
+                "movie": {"title": "Fathom", "year": 2020, "ids": {"trakt": 1}},
+            },
+            {
+                "type": "movie",
+                "watched_at": "2024-01-01T00:00:00.000Z",
+                "movie": {"title": "Fathom", "year": 2020, "ids": {"trakt": 1}},
+            },
+        ]
+        trakt.upsert_history_items(self.profile, items)
+        events = WatchEvent.objects.filter(profile=self.profile).order_by("watched_at")
+        self.assertEqual(events.count(), 2)
+        self.assertFalse(events[0].is_rewatch)
+        self.assertTrue(events[1].is_rewatch)
+
+    @patch("tracker.integrations.tmdb.find_match", return_value=None)
+    def test_trakt_reimport_same_watched_at_does_not_duplicate_or_break_rewatch_flags(self, mock_find_match):
+        items = [
+            {
+                "type": "movie",
+                "watched_at": "2024-01-01T00:00:00.000Z",
+                "movie": {"title": "Fathom", "year": 2020, "ids": {"trakt": 1}},
+            },
+        ]
+        trakt.upsert_history_items(self.profile, items)
+        trakt.upsert_history_items(self.profile, items)  # re-sync, same item
+        events = WatchEvent.objects.filter(profile=self.profile)
+        self.assertEqual(events.count(), 1)
+        self.assertFalse(events.first().is_rewatch)
+
+
+class BackfillRewatchesCommandTests(TestCase):
+    def test_fixes_existing_history_across_multiple_profiles_and_titles(self):
+        from django.core.management import call_command
+
+        user1 = User.objects.create_user("backfillrewatch1", password="pass12345")
+        profile1 = Profile.objects.create(user=user1, display_name="BackfillRewatch1")
+        user2 = User.objects.create_user("backfillrewatch2", password="pass12345")
+        profile2 = Profile.objects.create(user=user2, display_name="BackfillRewatch2")
+
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Shared Movie", year=2020)
+        e1 = WatchEvent.objects.create(profile=profile1, title=title, watched_at="2024-01-01T00:00:00Z")
+        e2 = WatchEvent.objects.create(profile=profile1, title=title, watched_at="2024-02-01T00:00:00Z")
+        e3 = WatchEvent.objects.create(profile=profile2, title=title, watched_at="2024-01-15T00:00:00Z")
+
+        call_command("backfill_rewatches")
+
+        e1.refresh_from_db()
+        e2.refresh_from_db()
+        e3.refresh_from_db()
+        self.assertFalse(e1.is_rewatch)
+        self.assertTrue(e2.is_rewatch)
+        self.assertFalse(e3.is_rewatch)  # profile2's only watch - not a rewatch even though same title

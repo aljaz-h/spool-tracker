@@ -137,15 +137,20 @@ def upsert_history_items(profile, items):
     """items: the parsed JSON list from fetch_history(). Returns the count
     of newly created WatchEvent rows (existing ones are left alone —
     dedup is by (profile, title, episode, watched_at), since Trakt history
-    entries don't have a field we're already storing to key off of)."""
+    entries don't have a field we're already storing to key off of). A
+    rewatch has a different watched_at than the original, so it's never
+    collapsed by that dedup key - it lands as its own WatchEvent row same
+    as any other watch; is_rewatch just marks which one it is (see
+    tracker/rewatches.py)."""
     from django.utils.dateparse import parse_datetime
 
-    from tracker import completion
+    from tracker import completion, rewatches
     from tracker.models import Episode, MediaType, Title, WatchEvent
 
     created = 0
     touched_movies = set()
     touched_shows = set()
+    touched_watch_keys = set()
     for item in items:
         watched_at = parse_datetime(item.get("watched_at", ""))
         if watched_at is None:
@@ -179,6 +184,12 @@ def upsert_history_items(profile, items):
         if not already_logged:
             WatchEvent.objects.create(profile=profile, title=title, episode=episode, watched_at=watched_at)
             created += 1
+            touched_watch_keys.add((title.id, episode.id if episode else None))
+
+    for title_id, episode_id in touched_watch_keys:
+        rewatches.recompute_is_rewatch(
+            profile, Title.objects.get(id=title_id), Episode.objects.get(id=episode_id) if episode_id else None
+        )
 
     # Best-effort - a TMDB hiccup here shouldn't fail a sync that already
     # successfully wrote the watch history itself.

@@ -159,12 +159,13 @@ def commit_rows(profile, rows):
     """rows: parsed dicts from parse_rows(). Returns (imported_count,
     skipped) where skipped is [(csv_row_number, reason), ...] for rows that
     passed parsing but were rejected at the database step."""
-    from . import completion
+    from . import completion, rewatches
 
     imported = 0
     skipped = []
     touched_movies = set()
     touched_shows = set()
+    touched_watch_keys = set()
     for r in rows:
         if r["media_type"] != MediaType.MOVIE and (r["season"] is None or r["episode"] is None):
             skipped.append((r["row"], "TV/anime rows need a season and episode number"))
@@ -189,6 +190,12 @@ def commit_rows(profile, rows):
             profile=profile, title=title, episode=episode, watched_at=r["watched_at"], user_rating=r["rating"]
         )
         imported += 1
+        touched_watch_keys.add((title.id, episode.id if episode else None))
+
+    for title_id, episode_id in touched_watch_keys:
+        rewatches.recompute_is_rewatch(
+            profile, Title.objects.get(id=title_id), Episode.objects.get(id=episode_id) if episode_id else None
+        )
 
     for title in Title.objects.filter(id__in=touched_movies):
         completion.update_movie_runtime(title)
