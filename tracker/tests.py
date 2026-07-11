@@ -1859,10 +1859,67 @@ class ActivityFeedGroupingTests(TestCase):
         episode_numbers = [item["episode"].episode for item in feed[0]["episodes"]]
         self.assertEqual(episode_numbers, [3, 2, 1])  # newest-first, matching the feed's own order
 
-    def test_movies_do_not_group(self):
+    def test_consecutive_movie_watches_group_regardless_of_title(self):
+        # a movie marathon is almost always different films back to back,
+        # not the same one repeatedly - movies group per profile alone.
+        movie_a = Title.objects.create(media_type=MediaType.MOVIE, name="Movie A", year=2020)
+        movie_b = Title.objects.create(media_type=MediaType.MOVIE, name="Movie B", year=2021)
+        WatchEvent.objects.create(profile=self.profile, title=movie_a, watched_at=self.now - timedelta(minutes=20))
+        WatchEvent.objects.create(profile=self.profile, title=movie_b, watched_at=self.now - timedelta(minutes=10))
+        feed = selectors.activity_feed()
+        self.assertEqual(len(feed), 1)
+        self.assertEqual(feed[0]["kind"], "watched_movies_group")
+        self.assertEqual(feed[0]["count"], 2)
+        self.assertEqual([m["title"] for m in feed[0]["movies"]], [movie_b, movie_a])  # newest-first
+
+    def test_single_movie_watch_does_not_get_grouped(self):
         movie = Title.objects.create(media_type=MediaType.MOVIE, name="Movie A", year=2020)
         WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now - timedelta(minutes=10))
-        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now - timedelta(minutes=5))
+        feed = selectors.activity_feed()
+        self.assertEqual(feed[0]["kind"], "watched")
+
+    def test_movie_and_episode_watches_do_not_merge(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Movie A", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now - timedelta(minutes=20))
+        self._watch(episode_num=1, minutes_ago=10)
         feed = selectors.activity_feed()
         self.assertEqual(len(feed), 2)
         self.assertTrue(all(item["kind"] == "watched" for item in feed))
+
+    def test_consecutive_list_adds_to_the_same_list_group_regardless_of_title(self):
+        profile2_user = User.objects.create_user("p2", password="pass12345")
+        watchlist = WatchList.objects.create(profile=self.profile, name="Anime")
+        titles = [Title.objects.create(media_type=MediaType.TV, name=f"Show {i}", year=2020) for i in range(3)]
+        for i, title in enumerate(titles):
+            wli = WatchListItem.objects.create(watchlist=watchlist, title=title)
+            # added_at is auto_now_add - .update() bypasses that to backdate it for the test
+            WatchListItem.objects.filter(pk=wli.pk).update(added_at=self.now - timedelta(minutes=30 - i * 10))
+        feed = selectors.activity_feed()
+        self.assertEqual(len(feed), 1)
+        self.assertEqual(feed[0]["kind"], "added_to_list_group")
+        self.assertEqual(feed[0]["count"], 3)
+        self.assertEqual(feed[0]["watchlist"], watchlist)
+        self.assertEqual([i["title"] for i in feed[0]["items"]], list(reversed(titles)))  # newest-first
+
+    def test_list_adds_to_different_lists_do_not_merge(self):
+        watchlist_a = WatchList.objects.create(profile=self.profile, name="Anime")
+        watchlist_b = WatchList.objects.create(profile=self.profile, name="Watchlist")
+        title_a = Title.objects.create(media_type=MediaType.TV, name="Show A", year=2020)
+        title_b = Title.objects.create(media_type=MediaType.MOVIE, name="Movie B", year=2020)
+        WatchListItem.objects.create(watchlist=watchlist_a, title=title_a)
+        WatchListItem.objects.create(watchlist=watchlist_b, title=title_b)
+        feed = selectors.activity_feed()
+        self.assertEqual(len(feed), 2)
+        self.assertTrue(all(item["kind"] == "added_to_list" for item in feed))
+
+    def test_single_list_add_does_not_get_grouped(self):
+        watchlist = WatchList.objects.create(profile=self.profile, name="Anime")
+        title = Title.objects.create(media_type=MediaType.TV, name="Show A", year=2020)
+        WatchListItem.objects.create(watchlist=watchlist, title=title)
+        feed = selectors.activity_feed()
+        self.assertEqual(feed[0]["kind"], "added_to_list")
+
+    def test_non_group_items_have_no_is_group_flag(self):
+        self._watch(episode_num=1, minutes_ago=10)
+        feed = selectors.activity_feed()
+        self.assertNotIn("is_group", feed[0])

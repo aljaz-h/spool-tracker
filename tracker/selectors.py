@@ -385,52 +385,80 @@ def activity_feed(limit=30):
     return _group_consecutive_watches(items[:limit])
 
 
+def _group_key(item):
+    """What "run" an item could join, or None if this kind never groups.
+    Episode watches group per (profile, title) - a show binge. Movie
+    watches group per profile alone, not per title too - a movie marathon
+    is almost always different films back to back, not the same one
+    repeatedly. List-adds group per (profile, watchlist), not per title -
+    the noisy case is bulk-adding many different titles to one list, same
+    as the screenshot that prompted this. Ratings are always shown
+    individually; each one is already a single meaningful entry."""
+    if item["kind"] == "watched":
+        if item["episode"] is not None:
+            return ("episode", item["profile"].pk, item["title"].pk)
+        return ("movie", item["profile"].pk)
+    if item["kind"] == "added_to_list":
+        return ("list", item["profile"].pk, item["watchlist"].pk)
+    return None
+
+
 def _group_consecutive_watches(items):
     """Collapses a run of consecutive (adjacent in the already-sorted feed,
-    same profile+title) plain episode-watch events into one "watched N
-    episodes" entry, so a binge doesn't bury every other profile's activity
-    under a wall of near-identical rows. Only "watched" events with an
-    episode - not movies, not ratings, not list-adds - group; those are
-    each already a single meaningful entry."""
-
-    def groupable(item):
-        return item["kind"] == "watched" and item["episode"] is not None
-
+    same _group_key) events into one summary entry, so e.g. a 15-episode
+    binge or a 13-title bulk list-add doesn't bury every other profile's
+    activity under a wall of near-identical rows."""
     grouped = []
     i = 0
     while i < len(items):
         item = items[i]
-        if not groupable(item):
+        key = _group_key(item)
+        if key is None:
             grouped.append(item)
             i += 1
             continue
         run = [item]
         j = i + 1
-        while (
-            j < len(items)
-            and groupable(items[j])
-            and items[j]["profile"] == item["profile"]
-            and items[j]["title"] == item["title"]
-        ):
+        while j < len(items) and _group_key(items[j]) == key:
             run.append(items[j])
             j += 1
-        grouped.append(_build_watch_group(run) if len(run) > 1 else item)
+        grouped.append(_build_group(key[0], run) if len(run) > 1 else item)
         i = j
     return grouped
 
 
-def _build_watch_group(run):
+def _build_group(group_type, run):
     """run is ordered newest-first (matches the feed's own sort)."""
-    episodes = [i["episode"] for i in run]
-    first_by_ep = min(episodes, key=lambda e: (e.season, e.episode))
-    last_by_ep = max(episodes, key=lambda e: (e.season, e.episode))
-    range_label = f"S{first_by_ep.season}E{first_by_ep.episode}–S{last_by_ep.season}E{last_by_ep.episode}"
+    if group_type == "episode":
+        episodes = [i["episode"] for i in run]
+        first_by_ep = min(episodes, key=lambda e: (e.season, e.episode))
+        last_by_ep = max(episodes, key=lambda e: (e.season, e.episode))
+        range_label = f"S{first_by_ep.season}E{first_by_ep.episode}–S{last_by_ep.season}E{last_by_ep.episode}"
+        return {
+            "profile": run[0]["profile"],
+            "timestamp": run[0]["timestamp"],
+            "kind": "watched_group",
+            "title": run[0]["title"],
+            "count": len(run),
+            "range_label": range_label,
+            "episodes": run,
+            "is_group": True,
+        }
+    if group_type == "movie":
+        return {
+            "profile": run[0]["profile"],
+            "timestamp": run[0]["timestamp"],
+            "kind": "watched_movies_group",
+            "count": len(run),
+            "movies": run,
+            "is_group": True,
+        }
     return {
         "profile": run[0]["profile"],
         "timestamp": run[0]["timestamp"],
-        "kind": "watched_group",
-        "title": run[0]["title"],
+        "kind": "added_to_list_group",
+        "watchlist": run[0]["watchlist"],
         "count": len(run),
-        "range_label": range_label,
-        "episodes": run,
+        "items": run,
+        "is_group": True,
     }
