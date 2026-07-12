@@ -274,3 +274,76 @@ def discover(media_type, category="popular", page=1, genre_ids=None, year_from=N
         "page": page,
         "total_pages": -(-total_pages_raw // RESULTS_PAGE_SIZE) if total_pages_raw else 0,
     }
+
+
+# --- Title detail page (tracker/views.title_detail / title_preview) -----
+#
+# Unlike find_match/get_movie_details/get_tv_details above (each narrowly
+# scoped to what an existing caller needed), these back a page that shows
+# everything at once - overview, genres, runtime, cast, similar titles -
+# so each pulls its own TMDB endpoint rather than composing the narrower
+# helpers, and all three go through _list_request for the same caching/
+# timeout/no-crash-without-a-key behavior as discover().
+
+BACKDROP_BASE = "https://image.tmdb.org/t/p/w1280"
+PROFILE_BASE = "https://image.tmdb.org/t/p/w185"
+
+
+def get_full_details(media_type, tmdb_id):
+    """{"name", "year", "overview", "tagline", "genres": [str,...],
+    "runtime": int|None (movie), "number_of_seasons"/"number_of_episodes":
+    int|None (tv), "backdrop_url", "poster_url", "vote_average",
+    "vote_count", "original_language"} or None if nothing came back
+    (no api key, bad id, network error)."""
+    data = _list_request(f"{media_type}/{tmdb_id}")
+    if not data or data.get("id") is None:
+        return None
+    is_movie = media_type == "movie"
+    date = data.get("release_date") if is_movie else data.get("first_air_date")
+    backdrop_path = data.get("backdrop_path")
+    poster_path = data.get("poster_path")
+    return {
+        "tmdb_id": tmdb_id,
+        "media_type": media_type,
+        "name": (data.get("title") if is_movie else data.get("name")) or "Untitled",
+        "year": date[:4] if date else None,
+        "overview": data.get("overview") or "",
+        "tagline": data.get("tagline") or "",
+        "genres": [g["name"] for g in data.get("genres") or []],
+        "runtime": data.get("runtime") if is_movie else None,
+        "number_of_seasons": data.get("number_of_seasons") if not is_movie else None,
+        "number_of_episodes": data.get("number_of_episodes") if not is_movie else None,
+        "backdrop_url": f"{BACKDROP_BASE}{backdrop_path}" if backdrop_path else None,
+        "poster_url": f"{IMAGE_BASE}{poster_path}" if poster_path else None,
+        "vote_average": data.get("vote_average"),
+        "vote_count": data.get("vote_count"),
+        "original_language": data.get("original_language"),
+    }
+
+
+def get_credits(media_type, tmdb_id, limit=12):
+    """[{"name", "character", "profile_url"}, ...] billing-ordered cast,
+    or [] if nothing came back."""
+    data = _list_request(f"{media_type}/{tmdb_id}/credits")
+    cast = (data or {}).get("cast") or []
+    results = []
+    for person in cast[:limit]:
+        profile_path = person.get("profile_path")
+        results.append(
+            {
+                "name": person.get("name") or "",
+                "character": person.get("character") or "",
+                "profile_url": f"{PROFILE_BASE}{profile_path}" if profile_path else None,
+            }
+        )
+    return results
+
+
+def get_similar(media_type, tmdb_id, limit=12):
+    """Normalized results (same shape as discover()'s) for "if you like
+    this, check out..." - TMDB's own recommendations, not a fresh
+    /discover call, so it reflects TMDB's similarity model rather than
+    just "popular in the same genre"."""
+    data = _list_request(f"{media_type}/{tmdb_id}/recommendations")
+    results = (data or {}).get("results") or []
+    return [_normalize_result(r, media_type) for r in results[:limit]]

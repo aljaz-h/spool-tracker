@@ -1,0 +1,124 @@
+{% extends "tracker/base.html" %}
+{% load tracker_extras %}
+{% block title %}{{ display_name }} · Spool{% endblock %}
+{% block content %}
+
+  {% if is_preview %}
+    <div class="bg-base-200 border border-dashed border-line rounded-lg px-4 py-3 text-[12.5px] text-ink-dim mb-5">
+      Not in your library yet — this is a live preview from TMDB. Add it to your watchlist to start tracking it.
+    </div>
+  {% endif %}
+
+  <div class="rounded-2xl overflow-hidden relative mb-6 border border-line {% if not details.backdrop_url %}{{ poster_seed|gradient_class }}{% endif %}"
+       {% if details.backdrop_url %}style="background-image:url('{{ details.backdrop_url }}');background-size:cover;background-position:center"{% endif %}>
+    <div class="absolute inset-0 bg-linear-to-t from-base-100 via-base-100/70 to-base-100/10"></div>
+    <div class="relative z-10 flex flex-wrap gap-5 p-6 items-end">
+      <div class="w-[130px] aspect-[2/3] flex-none rounded-lg overflow-hidden border border-white/10 bg-cover bg-center {% if not display_poster_url %}{{ poster_seed|gradient_class }}{% endif %}"
+           {% if display_poster_url %}style="background-image:url('{{ display_poster_url }}')"{% endif %}>
+      </div>
+      <div class="min-w-0 flex-1">
+        <h1 class="font-display text-4xl">{{ display_name }}
+          <span class="text-ink-dim text-2xl font-body align-middle">{{ display_year }}</span>
+        </h1>
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-dim mt-2 font-mono">
+          {% if details.runtime %}<span>{{ details.runtime }} min</span>{% endif %}
+          {% if details.number_of_seasons %}<span>{{ details.number_of_seasons }} season{{ details.number_of_seasons|pluralize }} · {{ details.number_of_episodes }} episodes</span>{% endif %}
+          {% if details.genres %}<span>{{ details.genres|join:", " }}</span>{% endif %}
+        </div>
+        {% if details.tagline %}<div class="text-ink-dim italic text-sm mt-3">{{ details.tagline }}</div>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
+    <div class="min-w-0">
+
+      {% if details.overview %}
+        <p class="text-[14px] leading-relaxed text-ink-dim mb-6">{{ details.overview }}</p>
+      {% endif %}
+
+      {% if not is_preview %}
+        <div class="mb-6">
+          {% include "tracker/partials/pill_badges.html" with ratings=title.ratings.all user_rating=latest_rating %}
+        </div>
+      {% endif %}
+
+      {% if cast %}
+        <h2 class="font-display text-xl mb-3">Cast</h2>
+        <div class="flex gap-4 overflow-x-auto pb-2 mb-8">
+          {% for actor in cast %}
+            <div class="w-[90px] flex-none">
+              <div class="aspect-square rounded-full overflow-hidden bg-base-300 bg-cover bg-center border border-line"
+                   {% if actor.profile_url %}style="background-image:url('{{ actor.profile_url }}')"{% endif %}></div>
+              <div class="text-[11.5px] font-semibold mt-1.5 text-center truncate">{{ actor.name }}</div>
+              <div class="text-[10.5px] text-ink-faint text-center truncate">{{ actor.character }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% if similar %}
+        <h2 class="font-display text-xl mb-3">If you like this, check out</h2>
+        <div class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-4">
+          {% for item in similar %}
+            {% include "tracker/partials/discover_tile.html" with item=item %}
+          {% endfor %}
+        </div>
+      {% endif %}
+
+    </div>
+
+    <div class="flex flex-col gap-5">
+      <div class="bg-base-200 border border-line rounded-2xl p-4">
+        {% if is_preview %}
+          <form method="post" action="{% url 'title_preview_add_to_watchlist' preview_media_type preview_tmdb_id %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-primary btn-sm w-full">+ Add to Watchlist</button>
+          </form>
+        {% else %}
+          <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Lists</div>
+          <div class="flex flex-col gap-2">
+            {% for list in my_lists %}
+              <form method="post" action="{% if list.id in in_list_ids %}{% url 'remove_from_list' list.id %}{% else %}{% url 'add_to_list' list.id %}{% endif %}">
+                {% csrf_token %}
+                <input type="hidden" name="title_id" value="{{ title.pk }}">
+                <input type="hidden" name="next" value="{{ request.path }}">
+                <button type="submit" class="btn btn-sm w-full justify-between {% if list.id in in_list_ids %}btn-primary{% endif %}">
+                  {{ list.name }}
+                  <span>{% if list.id in in_list_ids %}✓{% else %}+{% endif %}</span>
+                </button>
+              </form>
+            {% empty %}
+              <div class="text-xs text-ink-faint">No lists yet — create one from <a href="{% url 'lists' %}" class="underline">Lists</a>.</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+
+      {% if not is_preview %}
+        <div class="bg-base-200 border border-line rounded-2xl p-4">
+          <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Your history</div>
+          {% if progress %}
+            <div class="text-[12.5px] mb-2">
+              Status: <span class="font-semibold">{{ progress.get_status_display }}</span>
+              {% if progress.current_episode %}— S{{ progress.current_episode.season }}E{{ progress.current_episode.episode }}{% endif %}
+            </div>
+          {% endif %}
+          {% if recent_events %}
+            <div class="flex flex-col gap-1.5">
+              {% for event in recent_events %}
+                <div class="flex justify-between gap-3 text-[12px] text-ink-dim">
+                  <span>{% if event.episode %}S{{ event.episode.season }}E{{ event.episode.episode }}{% else %}Watched{% endif %}</span>
+                  <span class="font-mono text-ink-faint">{{ event.watched_at|timesince }} ago</span>
+                </div>
+              {% endfor %}
+            </div>
+          {% elif not progress %}
+            <div class="text-xs text-ink-faint">Not watched yet.</div>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+{% endblock %}

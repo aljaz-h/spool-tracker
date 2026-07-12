@@ -462,3 +462,31 @@ def _build_group(group_type, run):
         "items": run,
         "is_group": True,
     }
+
+
+def title_local_context(profile, title):
+    """The title detail page's own-data half - watch/rating/list state -
+    kept separate from the TMDB-sourced half (overview/cast/similar,
+    fetched directly in the view) since this part never needs a network
+    call and stays correct even without a TMDB_API_KEY configured."""
+    progress = WatchProgress.objects.filter(profile=profile, title=title).select_related("current_episode").first()
+    recent_events = list(
+        WatchEvent.objects.filter(profile=profile, title=title).select_related("episode").order_by("-watched_at")[:10]
+    )
+    latest_rating = (
+        WatchEvent.objects.filter(profile=profile, title=title, user_rating__isnull=False)
+        .order_by("-watched_at")
+        .values_list("user_rating", flat=True)
+        .first()
+    )
+    my_lists = list(WatchList.objects.filter(profile=profile).order_by("name"))
+    in_list_ids = set(
+        WatchListItem.objects.filter(watchlist__profile=profile, title=title).values_list("watchlist_id", flat=True)
+    )
+    return {
+        "progress": progress,
+        "recent_events": recent_events,
+        "latest_rating": latest_rating,
+        "my_lists": my_lists,
+        "in_list_ids": in_list_ids,
+    }

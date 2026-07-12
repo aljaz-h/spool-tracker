@@ -8,6 +8,13 @@ urlpatterns = [
     path("profile/<int:profile_id>/popup/", views.profile_popup, name="profile_popup"),
     path("movies-tv/<str:category>/", views.discover, {"media_type": "movie_tv"}, name="movies_tv"),
     path("anime/<str:category>/", views.discover, {"media_type": "anime"}, name="anime"),
+    path("titles/<int:pk>/", views.title_detail, name="title_detail"),
+    path("titles/preview/<str:media_type>/<int:tmdb_id>/", views.title_preview, name="title_preview"),
+    path(
+        "titles/preview/<str:media_type>/<int:tmdb_id>/add-to-watchlist/",
+        views.title_preview_add_to_watchlist,
+        name="title_preview_add_to_watchlist",
+    ),
     path("history/", views.history, name="history"),
     path("calendar/", views.calendar_view, name="calendar"),
     path("lists/", views.lists, name="lists"),

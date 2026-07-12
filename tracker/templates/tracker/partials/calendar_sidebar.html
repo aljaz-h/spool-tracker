@@ -2,7 +2,7 @@
 {% if featured %}
   <div class="bg-base-300 rounded-lg p-3.5">
     <div class="flex justify-between items-baseline gap-2">
-      <span class="font-semibold text-sm">{{ featured.title.name }}</span>
+      <a href="{% url 'title_detail' featured.title.pk %}" class="font-semibold text-sm hover:underline">{{ featured.title.name }}</a>
       <span class="font-mono text-xs text-ink-dim whitespace-nowrap">S{{ featured.episode.season }} E{{ featured.episode.episode }}</span>
     </div>
     <div class="text-xs text-ink-dim mt-1">New episode ready to watch</div>
@@ -12,7 +12,7 @@
   </div>
   {% for q in queue %}
     <div class="flex justify-between px-3.5 py-2 text-ink-faint text-xs border-t border-line">
-      <span>{{ q.title.name }}</span>
+      <a href="{% url 'title_detail' q.title.pk %}" class="hover:underline hover:text-ink-dim">{{ q.title.name }}</a>
       <span class="font-mono">S{{ q.episode.season }} E{{ q.episode.episode }}</span>
     </div>
   {% endfor %}
@@ -25,7 +25,7 @@
     <div id="agenda-{{ group.date|date:'Y-m-d' }}" class="font-bold text-[13px] mt-4.5 mb-1.5 px-0.5">{{ group.date|date:"M j" }}</div>
     {% for rs in group.items %}
       <div class="flex justify-between items-center py-1.5 px-0.5 text-[12.5px] text-ink-faint {% if group.date == today %}text-base-content font-semibold{% endif %}">
-        <span>{{ rs.title.name }}</span>
+        <a href="{% url 'title_detail' rs.title.pk %}" class="hover:underline">{{ rs.title.name }}</a>
         <span class="font-mono text-[11.5px]">
           {% if rs.episode %}S{{ rs.episode.season }} E{{ rs.episode.episode }}{% else %}{{ rs.get_release_type_display }}{% endif %}
         </span>

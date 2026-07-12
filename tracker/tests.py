@@ -1628,6 +1628,132 @@ class TmdbDiscoverTests(TestCase):
     TMDB_API_KEY="test-key",
     CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
 )
+class TmdbDetailPageTests(TestCase):
+    """Class-level LocMemCache override for the same reason as
+    TmdbDiscoverTests - these don't test caching itself, just avoid
+    paying _list_request's unreachable-Redis timeout on every call."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    def _response(self, json_data):
+        resp = Mock()
+        resp.json.return_value = json_data
+        resp.raise_for_status = Mock()
+        return resp
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_full_details_normalizes_movie_fields(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 42,
+                "title": "Fathom",
+                "release_date": "2020-05-01",
+                "overview": "A movie.",
+                "tagline": "Deep.",
+                "genres": [{"id": 1, "name": "Drama"}, {"id": 2, "name": "Thriller"}],
+                "runtime": 118,
+                "backdrop_path": "/bd.jpg",
+                "poster_path": "/p.jpg",
+                "vote_average": 7.2,
+                "vote_count": 300,
+                "original_language": "en",
+            }
+        )
+        details = tmdb.get_full_details("movie", 42)
+        self.assertEqual(details["name"], "Fathom")
+        self.assertEqual(details["year"], "2020")
+        self.assertEqual(details["genres"], ["Drama", "Thriller"])
+        self.assertEqual(details["runtime"], 118)
+        self.assertIsNone(details["number_of_seasons"])
+        self.assertEqual(details["backdrop_url"], "https://image.tmdb.org/t/p/w1280/bd.jpg")
+        self.assertEqual(details["poster_url"], "https://image.tmdb.org/t/p/w500/p.jpg")
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_full_details_normalizes_tv_fields(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 99,
+                "name": "Cinder Street",
+                "first_air_date": "2022-01-01",
+                "genres": [],
+                "number_of_seasons": 3,
+                "number_of_episodes": 24,
+            }
+        )
+        details = tmdb.get_full_details("tv", 99)
+        self.assertEqual(details["name"], "Cinder Street")
+        self.assertIsNone(details["runtime"])
+        self.assertEqual(details["number_of_seasons"], 3)
+        self.assertEqual(details["number_of_episodes"], 24)
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_full_details_returns_none_on_missing_id(self, mock_get):
+        mock_get.return_value = self._response({})
+        self.assertIsNone(tmdb.get_full_details("movie", 1))
+
+    @override_settings(TMDB_API_KEY="")
+    def test_get_full_details_returns_none_without_api_key(self):
+        self.assertIsNone(tmdb.get_full_details("movie", 1))
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_full_details_returns_none_on_request_exception(self, mock_get):
+        import requests
+
+        mock_get.side_effect = requests.RequestException("boom")
+        self.assertIsNone(tmdb.get_full_details("movie", 1))
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_credits_returns_billing_ordered_cast(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "cast": [
+                    {"name": "Actor One", "character": "Hero", "profile_path": "/a.jpg"},
+                    {"name": "Actor Two", "character": "Villain", "profile_path": None},
+                ]
+            }
+        )
+        cast = tmdb.get_credits("movie", 42)
+        self.assertEqual(len(cast), 2)
+        self.assertEqual(cast[0], {"name": "Actor One", "character": "Hero", "profile_url": "https://image.tmdb.org/t/p/w185/a.jpg"})
+        self.assertIsNone(cast[1]["profile_url"])
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_credits_respects_limit(self, mock_get):
+        mock_get.return_value = self._response({"cast": [{"name": f"Actor {i}"} for i in range(20)]})
+        self.assertEqual(len(tmdb.get_credits("movie", 42, limit=5)), 5)
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_credits_returns_empty_list_on_failure(self, mock_get):
+        import requests
+
+        mock_get.side_effect = requests.RequestException("boom")
+        self.assertEqual(tmdb.get_credits("movie", 1), [])
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_similar_normalizes_like_discover_does(self, mock_get):
+        mock_get.return_value = self._response(
+            {"results": [{"id": 7, "title": "Similar Movie", "release_date": "2019-01-01", "vote_average": 6.5}]}
+        )
+        similar = tmdb.get_similar("movie", 42)
+        self.assertEqual(similar[0]["tmdb_id"], 7)
+        self.assertEqual(similar[0]["name"], "Similar Movie")
+        self.assertEqual(similar[0]["year"], "2019")
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_similar_returns_empty_list_on_failure(self, mock_get):
+        import requests
+
+        mock_get.side_effect = requests.RequestException("boom")
+        self.assertEqual(tmdb.get_similar("movie", 1), [])
+
+
+@override_settings(
+    TMDB_API_KEY="test-key",
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
+)
 class TmdbDiscoverCachingTests(TestCase):
     """Class-level override so the LocMemCache swap is active during
     setUp() too, not just inside each decorated test method - needed so
@@ -1923,3 +2049,182 @@ class ActivityFeedGroupingTests(TestCase):
         self._watch(episode_num=1, minutes_ago=10)
         feed = selectors.activity_feed()
         self.assertNotIn("is_group", feed[0])
+
+
+class TitleDetailViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("detailviewer", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="DetailViewer")
+        self.client.login(username="detailviewer", password="pass12345")
+        self.title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020,
+            external_ids={"tmdb": "42", "tmdb_kind": "movie"},
+        )
+
+    def _details(self, **overrides):
+        base = {
+            "tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020",
+            "overview": "A movie.", "tagline": "", "genres": ["Drama"], "runtime": 100,
+            "number_of_seasons": None, "number_of_episodes": None,
+            "backdrop_url": None, "poster_url": None, "vote_average": 7.0,
+            "vote_count": 100, "original_language": "en",
+        }
+        base.update(overrides)
+        return base
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_renders_200_with_tmdb_details(self, mock_details, mock_credits, mock_similar):
+        mock_details.return_value = self._details()
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Fathom")
+        self.assertContains(resp, "A movie.")
+        mock_details.assert_called_once_with("movie", "42")
+
+    def test_404s_for_nonexistent_title(self):
+        resp = self.client.get(reverse("title_detail", args=[999999]))
+        self.assertEqual(resp.status_code, 404)
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    def test_renders_with_local_data_only_when_tmdb_unavailable(self, mock_details, mock_credits, mock_similar):
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Fathom")
+
+    def test_no_tmdb_call_when_title_has_no_tmdb_id(self):
+        untracked_tmdb = Title.objects.create(media_type=MediaType.MOVIE, name="No TMDB", year=2021)
+        with patch("tracker.integrations.tmdb.get_full_details") as mock_details:
+            resp = self.client.get(reverse("title_detail", args=[untracked_tmdb.pk]))
+        self.assertEqual(resp.status_code, 200)
+        mock_details.assert_not_called()
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_shows_watch_history_and_rating(self, mock_details, mock_credits, mock_similar):
+        from django.utils import timezone
+
+        mock_details.return_value = self._details()
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=timezone.now(), user_rating=8)
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertEqual(resp.context["latest_rating"], 8)
+        self.assertEqual(len(resp.context["recent_events"]), 1)
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_shows_which_lists_it_is_already_in(self, mock_details, mock_credits, mock_similar):
+        mock_details.return_value = self._details()
+        watchlist = WatchList.objects.create(profile=self.profile, name="Favorites")
+        WatchListItem.objects.create(watchlist=watchlist, title=self.title)
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertIn(watchlist.id, resp.context["in_list_ids"])
+
+
+class TitlePreviewViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("previewviewer", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="PreviewViewer")
+        self.client.login(username="previewviewer", password="pass12345")
+
+    def _details(self, **overrides):
+        base = {
+            "tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020",
+            "overview": "A movie.", "tagline": "", "genres": ["Drama"], "runtime": 100,
+            "number_of_seasons": None, "number_of_episodes": None,
+            "backdrop_url": None, "poster_url": None, "vote_average": 7.0,
+            "vote_count": 100, "original_language": "en",
+        }
+        base.update(overrides)
+        return base
+
+    def test_invalid_media_type_404s(self):
+        resp = self.client.get(reverse("title_preview", args=["book", 1]))
+        self.assertEqual(resp.status_code, 404)
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    def test_404s_when_tmdb_has_nothing(self, mock_details):
+        resp = self.client.get(reverse("title_preview", args=["movie", 999]))
+        self.assertEqual(resp.status_code, 404)
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_renders_200_for_untracked_title(self, mock_details, mock_credits, mock_similar):
+        mock_details.return_value = self._details()
+        resp = self.client.get(reverse("title_preview", args=["movie", 42]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.context["is_preview"])
+        self.assertContains(resp, "Fathom")
+        self.assertContains(resp, "Add to Watchlist")
+
+    def test_redirects_to_real_detail_page_if_already_tracked(self):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Already Tracked", year=2020,
+            external_ids={"tmdb": "42", "tmdb_kind": "movie"},
+        )
+        resp = self.client.get(reverse("title_preview", args=["movie", 42]))
+        # fetch_redirect_response=False: the redirect target's own render is
+        # TitleDetailViewTests' job - following it here would hit the real
+        # (unmocked in this test) tmdb.get_credits/get_similar.
+        self.assertRedirects(resp, reverse("title_detail", args=[title.pk]), fetch_redirect_response=False)
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_add_to_watchlist_creates_title_and_adds_it(self, mock_details):
+        mock_details.return_value = self._details()
+        resp = self.client.post(reverse("title_preview_add_to_watchlist", args=["movie", 42]))
+        title = Title.objects.get(external_ids__tmdb="42")
+        self.assertEqual(title.name, "Fathom")
+        self.assertRedirects(resp, reverse("title_detail", args=[title.pk]), fetch_redirect_response=False)
+        watchlist = WatchList.objects.get(profile=self.profile, name="Watchlist")
+        self.assertTrue(WatchListItem.objects.filter(watchlist=watchlist, title=title).exists())
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_add_to_watchlist_reuses_existing_title_and_watchlist(self, mock_details):
+        mock_details.return_value = self._details()
+        existing_title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020,
+            external_ids={"tmdb": "42", "tmdb_kind": "movie"},
+        )
+        existing_watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist")
+        self.client.post(reverse("title_preview_add_to_watchlist", args=["movie", 42]))
+        mock_details.assert_not_called()  # title already existed - no need to refetch
+        self.assertEqual(Title.objects.filter(external_ids__tmdb="42").count(), 1)
+        self.assertEqual(WatchList.objects.filter(profile=self.profile, name="Watchlist").count(), 1)
+        self.assertTrue(WatchListItem.objects.filter(watchlist=existing_watchlist, title=existing_title).exists())
+
+    def test_add_to_watchlist_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("title_preview_add_to_watchlist", args=["movie", 42]))
+        self.assertNotEqual(resp.status_code, 200)
+
+
+class ListActionNextRedirectTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("listactor", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ListActor")
+        self.client.login(username="listactor", password="pass12345")
+        self.watchlist = WatchList.objects.create(profile=self.profile, name="Favorites")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+
+    def test_add_to_list_redirects_to_list_detail_by_default(self):
+        resp = self.client.post(reverse("add_to_list", args=[self.watchlist.id]), {"title_id": self.title.pk})
+        self.assertRedirects(resp, reverse("list_detail", args=[self.watchlist.id]))
+
+    def test_add_to_list_redirects_to_next_when_given(self):
+        target = reverse("title_detail", args=[self.title.pk])
+        resp = self.client.post(
+            reverse("add_to_list", args=[self.watchlist.id]), {"title_id": self.title.pk, "next": target}
+        )
+        self.assertRedirects(resp, target, fetch_redirect_response=False)
+
+    def test_add_to_list_ignores_an_external_next(self):
+        resp = self.client.post(
+            reverse("add_to_list", args=[self.watchlist.id]),
+            {"title_id": self.title.pk, "next": "https://evil.example/"},
+        )
+        self.assertRedirects(resp, reverse("list_detail", args=[self.watchlist.id]))

@@ -34,6 +34,7 @@ from .models import (
     WatchEvent,
     WatchList,
     WatchListItem,
+    WatchProgress,
 )
 
 MOVIE_TV_TYPES = [MediaType.MOVIE, MediaType.TV]
@@ -152,6 +153,137 @@ def discover(request, media_type, category):
         "base_query": query_without_page.urlencode(),
     }
     return render(request, "tracker/discover.html", context)
+
+
+def _tmdb_media_type_for(title):
+    """external_ids["tmdb_kind"] is the authoritative source (set at
+    match time by trakt.py/simkl.py/csv_import.py) since anime is almost
+    always matched against TMDB's tv catalog, not movie - title.media_type
+    alone can't be trusted to pick the right TMDB endpoint."""
+    return title.external_ids.get("tmdb_kind") or ("movie" if title.media_type == MediaType.MOVIE else "tv")
+
+
+def _title_display(title, details):
+    """Unifies the tracked (real Title row, TMDB details optional) and
+    preview (no Title row, TMDB details required) cases into one flat set
+    of display values, computed here rather than via template-side
+    `|default:` chains - those still evaluate their fallback argument even
+    when unused, and Django's test client's stricter template rendering
+    raises on any attribute access against a None title, unlike normal
+    (production) rendering, which just silently swallows it."""
+    return {
+        "display_name": (details or {}).get("name") or (title.name if title else "Untitled"),
+        "display_year": (details or {}).get("year") or (title.year if title else None),
+        "display_poster_url": (details or {}).get("poster_url") or (title.poster_url if title else None),
+    }
+
+
+@login_required
+def title_detail(request, pk):
+    """The click-through page for a title already in the local library -
+    reachable from History, Dashboard, Calendar, and Lists, all of which
+    already deal in real Title rows. Movies & TV / Anime discovery cards
+    aren't backed by a Title row yet and go to title_preview instead."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+
+    tmdb_id = title.external_ids.get("tmdb")
+    details = cast = similar = None
+    if tmdb_id:
+        tmdb_media_type = _tmdb_media_type_for(title)
+        details = tmdb.get_full_details(tmdb_media_type, tmdb_id)
+        cast = tmdb.get_credits(tmdb_media_type, tmdb_id)
+        similar = tmdb.get_similar(tmdb_media_type, tmdb_id)
+
+    context = {
+        "profile": profile,
+        "title": title,
+        "poster_seed": title.pk,
+        "details": details,
+        "cast": cast or [],
+        "similar": similar or [],
+        "is_preview": False,
+        "preview_media_type": None,
+        "preview_tmdb_id": None,
+        **_title_display(title, details),
+        **selectors.title_local_context(profile, title),
+    }
+    return render(request, "tracker/title_detail.html", context)
+
+
+@login_required
+def title_preview(request, media_type, tmdb_id):
+    """The click-through page for a Movies & TV / Anime discovery card -
+    not backed by a local Title row (the user may never have watched it),
+    so this is read-only against TMDB directly, with a single "add to
+    watchlist" action that's the only thing allowed to create the Title
+    row. If a matching Title already exists (found this exact tmdb_id
+    before, from a sync/import or an earlier watchlist-add here), that's
+    the real page for it - redirect there instead of showing a second,
+    library-blind copy of the same title."""
+    if media_type not in ("movie", "tv"):
+        raise Http404
+    existing = Title.objects.filter(external_ids__tmdb=str(tmdb_id)).first()
+    if existing is not None:
+        return redirect("title_detail", pk=existing.pk)
+
+    profile = Profile.objects.filter(user=request.user).first()
+    details = tmdb.get_full_details(media_type, tmdb_id)
+    if details is None:
+        raise Http404
+    context = {
+        "profile": profile,
+        "title": None,
+        "poster_seed": tmdb_id,
+        "details": details,
+        "cast": tmdb.get_credits(media_type, tmdb_id),
+        "similar": tmdb.get_similar(media_type, tmdb_id),
+        "is_preview": True,
+        "preview_media_type": media_type,
+        "preview_tmdb_id": tmdb_id,
+        **_title_display(None, details),
+        "progress": None,
+        "recent_events": [],
+        "latest_rating": None,
+        "my_lists": [],
+        "in_list_ids": set(),
+    }
+    return render(request, "tracker/title_detail.html", context)
+
+
+@login_required
+@require_POST
+def title_preview_add_to_watchlist(request, media_type, tmdb_id):
+    """The preview page's one write action - get-or-create the Title from
+    the TMDB id (same shape as trakt.py/simkl.py's own get-or-create, just
+    keyed off an id we already have instead of a name+year search), then
+    drop it on the profile's default "Watchlist" list (get-or-created by
+    name, since WatchList has no is_default flag to key off instead) and
+    hand off to the real detail page, where the fuller add-to-any-list UI
+    lives."""
+    if media_type not in ("movie", "tv"):
+        raise Http404
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+
+    title = Title.objects.filter(external_ids__tmdb=str(tmdb_id)).first()
+    if title is None:
+        details = tmdb.get_full_details(media_type, tmdb_id)
+        if details is None:
+            raise Http404
+        media_type_for_title = MediaType.MOVIE if media_type == "movie" else MediaType.TV
+        title = Title.objects.create(
+            media_type=media_type_for_title,
+            name=details["name"],
+            year=int(details["year"]) if details["year"] else 0,
+            poster_url=details["poster_url"] or "",
+            external_ids={"tmdb": str(tmdb_id), "tmdb_kind": media_type},
+        )
+
+    watchlist, _ = WatchList.objects.get_or_create(profile=profile, name="Watchlist")
+    WatchListItem.objects.get_or_create(watchlist=watchlist, title=title)
+    return redirect("title_detail", pk=title.pk)
 
 
 def _group_history_by_day(events):
@@ -344,6 +476,22 @@ def _render_list_items(request, watchlist):
     )
 
 
+def _list_action_redirect(request, list_id):
+    """add_to_list/remove_from_list default to list_detail, but the title
+    detail page also posts to these (to add/remove itself from a list
+    without a dedicated endpoint per action) and needs to land back on
+    itself, not list_detail - "next" opts into that, validated against
+    open-redirect the same way Django's own LoginView handles ?next=."""
+    from django.utils.http import url_has_allowed_host_and_scheme
+
+    next_url = request.POST.get("next")
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return redirect(next_url)
+    return redirect("list_detail", list_id=list_id)
+
+
 @login_required
 @require_POST
 def add_to_list(request, list_id):
@@ -355,7 +503,7 @@ def add_to_list(request, list_id):
     WatchListItem.objects.get_or_create(watchlist=watchlist, title=title)
     if request.headers.get("HX-Request"):
         return _render_list_items(request, watchlist)
-    return redirect("list_detail", list_id=list_id)
+    return _list_action_redirect(request, list_id)
 
 
 @login_required
@@ -368,7 +516,7 @@ def remove_from_list(request, list_id):
     WatchListItem.objects.filter(watchlist=watchlist, title_id=request.POST.get("title_id")).delete()
     if request.headers.get("HX-Request"):
         return _render_list_items(request, watchlist)
-    return redirect("list_detail", list_id=list_id)
+    return _list_action_redirect(request, list_id)
 
 
 @login_required

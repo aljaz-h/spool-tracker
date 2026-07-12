@@ -1,6 +1,6 @@
 {% load tracker_extras %}
 {# context: title (Title), progress ({percent,caption}|None), show_ratings (bool), user_rating (int|None), width_class (optional) #}
-<div class="{{ width_class|default:"w-[150px] flex-none" }}">
+<a href="{% url 'title_detail' title.pk %}" class="block {{ width_class|default:"w-[150px] flex-none" }}">
   <div
     class="aspect-[2/3] rounded-lg relative overflow-hidden flex items-end p-2.5 border border-white/5 bg-cover bg-center {% if not title.poster_url %}{{ title.pk|gradient_class }}{% endif %}"
     {% if title.poster_url %}style="background-image:url('{{ title.poster_url }}')"{% endif %}
@@ -18,4 +18,4 @@
       {% include "tracker/partials/pill_badges.html" with ratings=title.ratings.all user_rating=user_rating %}
     {% endif %}
   </div>
-</div>
+</a>

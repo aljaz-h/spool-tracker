@@ -1,6 +1,6 @@
 {% load tracker_extras %}
 {# context: item (dict: tmdb_id, media_type, name, year, poster_url, vote_average) #}
-<div class="group relative">
+<a href="{% url 'title_preview' item.media_type item.tmdb_id %}" class="group relative block">
   <div class="aspect-[2/3] rounded-lg relative overflow-hidden border border-white/5 bg-cover bg-center {% if not item.poster_url %}{{ item.tmdb_id|gradient_class }}{% endif %}"
        {% if item.poster_url %}style="background-image:url('{{ item.poster_url }}')"{% endif %}>
     <div class="absolute inset-0 bg-linear-to-t from-black/50 to-transparent"></div>
@@ -13,4 +13,4 @@
     <div class="text-[12.5px] font-semibold truncate">{{ item.name }}</div>
     <div class="text-[10.5px] font-mono text-ink-dim mt-0.5">{{ item.year|default:"—" }}</div>
   </div>
-</div>
+</a>
