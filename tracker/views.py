@@ -178,6 +178,25 @@ def _title_display(title, details):
     }
 
 
+def _star_fill(rating):
+    """5 stars representing a 1-10 rating, 2 points each - each entry's
+    "fill" (0/50/100) is precomputed here so the template just renders a
+    clipped overlay instead of doing this arithmetic per star per request."""
+    stars = []
+    for i in range(1, 6):
+        left, right = 2 * i - 1, 2 * i
+        if not rating:
+            fill = 0
+        elif rating >= right:
+            fill = 100
+        elif rating >= left:
+            fill = 50
+        else:
+            fill = 0
+        stars.append({"left": left, "right": right, "fill": fill})
+    return stars
+
+
 @login_required
 def title_detail(request, pk):
     """The click-through page for a title already in the local library -
@@ -188,13 +207,17 @@ def title_detail(request, pk):
     profile = Profile.objects.filter(user=request.user).first()
 
     tmdb_id = title.external_ids.get("tmdb")
-    details = cast = similar = None
+    details = cast = similar = director = None
+    watch_providers = []
     if tmdb_id:
         tmdb_media_type = _tmdb_media_type_for(title)
         details = tmdb.get_full_details(tmdb_media_type, tmdb_id)
         cast = tmdb.get_credits(tmdb_media_type, tmdb_id)
         similar = tmdb.get_similar(tmdb_media_type, tmdb_id)
+        director = tmdb.get_director(tmdb_media_type, tmdb_id)
+        watch_providers = tmdb.get_watch_providers(tmdb_media_type, tmdb_id)
 
+    local_context = selectors.title_local_context(profile, title)
     context = {
         "profile": profile,
         "title": title,
@@ -202,12 +225,14 @@ def title_detail(request, pk):
         "details": details,
         "cast": cast or [],
         "similar": similar or [],
+        "director": director,
+        "watch_providers": watch_providers,
         "is_preview": False,
         "preview_media_type": None,
         "preview_tmdb_id": None,
-        "rating_range": range(1, 11),
+        "star_fill": _star_fill(local_context["latest_rating"]),
         **_title_display(title, details),
-        **selectors.title_local_context(profile, title),
+        **local_context,
     }
     return render(request, "tracker/title_detail.html", context)
 
@@ -280,10 +305,12 @@ def title_preview(request, media_type, tmdb_id):
         "details": details,
         "cast": tmdb.get_credits(media_type, tmdb_id),
         "similar": tmdb.get_similar(media_type, tmdb_id),
+        "director": tmdb.get_director(media_type, tmdb_id),
+        "watch_providers": tmdb.get_watch_providers(media_type, tmdb_id),
         "is_preview": True,
         "preview_media_type": media_type,
         "preview_tmdb_id": tmdb_id,
-        "rating_range": range(0),
+        "star_fill": [],
         **_title_display(None, details),
         "progress": None,
         "recent_events": [],

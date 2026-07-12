@@ -347,3 +347,33 @@ def get_similar(media_type, tmdb_id, limit=12):
     data = _list_request(f"{media_type}/{tmdb_id}/recommendations")
     results = (data or {}).get("results") or []
     return [_normalize_result(r, media_type) for r in results[:limit]]
+
+
+def get_director(media_type, tmdb_id):
+    """Director's name, or None. Hits the same /credits endpoint as
+    get_credits() - _list_request's cache means calling both for the
+    same title in one request doesn't cost a second real HTTP call, so
+    this doesn't need its own cache-key/network story."""
+    data = _list_request(f"{media_type}/{tmdb_id}/credits")
+    crew = (data or {}).get("crew") or []
+    return next((c.get("name") for c in crew if c.get("job") == "Director"), None)
+
+
+def get_watch_providers(media_type, tmdb_id, region="US"):
+    """[{"name", "logo_url"}, ...] flatrate/free/ad-supported streaming
+    availability for one region - TMDB's data is region-keyed and Spool
+    has no per-profile region setting yet, so this defaults to "US"
+    rather than trying to guess. [] if nothing came back for that region."""
+    data = _list_request(f"{media_type}/{tmdb_id}/watch/providers")
+    region_data = ((data or {}).get("results") or {}).get(region) or {}
+    seen = set()
+    providers = []
+    for key in ("flatrate", "free", "ads"):
+        for p in region_data.get(key) or []:
+            name = p.get("provider_name")
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            logo_path = p.get("logo_path")
+            providers.append({"name": name, "logo_url": f"{PROFILE_BASE}{logo_path}" if logo_path else None})
+    return providers[:6]

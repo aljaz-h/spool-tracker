@@ -1749,6 +1749,60 @@ class TmdbDetailPageTests(TestCase):
         mock_get.side_effect = requests.RequestException("boom")
         self.assertEqual(tmdb.get_similar("movie", 1), [])
 
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_director_finds_the_director_job_in_crew(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "crew": [
+                    {"name": "Editor Person", "job": "Editor"},
+                    {"name": "Director Person", "job": "Director"},
+                ]
+            }
+        )
+        self.assertEqual(tmdb.get_director("movie", 42), "Director Person")
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_director_returns_none_when_no_director_credited(self, mock_get):
+        mock_get.return_value = self._response({"crew": [{"name": "Editor Person", "job": "Editor"}]})
+        self.assertIsNone(tmdb.get_director("movie", 42))
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_director_returns_none_on_failure(self, mock_get):
+        import requests
+
+        mock_get.side_effect = requests.RequestException("boom")
+        self.assertIsNone(tmdb.get_director("movie", 1))
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_watch_providers_flattens_flatrate_free_and_ads(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "results": {
+                    "US": {
+                        "flatrate": [{"provider_name": "Netflix", "logo_path": "/n.jpg"}],
+                        "free": [{"provider_name": "Tubi", "logo_path": None}],
+                        "ads": [{"provider_name": "Netflix", "logo_path": "/n.jpg"}],
+                    }
+                }
+            }
+        )
+        providers = tmdb.get_watch_providers("movie", 42)
+        self.assertEqual([p["name"] for p in providers], ["Netflix", "Tubi"])  # de-duplicated
+        self.assertEqual(providers[0]["logo_url"], "https://image.tmdb.org/t/p/w185/n.jpg")
+        self.assertIsNone(providers[1]["logo_url"])
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_watch_providers_returns_empty_for_missing_region(self, mock_get):
+        mock_get.return_value = self._response({"results": {"DE": {"flatrate": [{"provider_name": "Amazon"}]}}})
+        self.assertEqual(tmdb.get_watch_providers("movie", 42, region="US"), [])
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_watch_providers_returns_empty_list_on_failure(self, mock_get):
+        import requests
+
+        mock_get.side_effect = requests.RequestException("boom")
+        self.assertEqual(tmdb.get_watch_providers("movie", 1), [])
+
 
 @override_settings(
     TMDB_API_KEY="test-key",
@@ -2060,6 +2114,13 @@ class TitleDetailViewTests(TestCase):
             media_type=MediaType.MOVIE, name="Fathom", year=2020,
             external_ids={"tmdb": "42", "tmdb_kind": "movie"},
         )
+        # every test in this class hits title_detail, which now also calls
+        # these two - patched here (not per-method) so adding them didn't
+        # require touching every test's mock signature.
+        for name, default in (("get_director", None), ("get_watch_providers", [])):
+            patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def _details(self, **overrides):
         base = {
@@ -2191,6 +2252,10 @@ class TitlePreviewViewTests(TestCase):
         user = User.objects.create_user("previewviewer", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="PreviewViewer")
         self.client.login(username="previewviewer", password="pass12345")
+        for name, default in (("get_director", None), ("get_watch_providers", [])):
+            patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def _details(self, **overrides):
         base = {
