@@ -9,10 +9,11 @@
     </div>
   {% endif %}
 
-  <div class="rounded-2xl overflow-hidden relative mb-6 border border-line {% if not details.backdrop_url %}{{ poster_seed|gradient_class }}{% endif %}"
-       {% if details.backdrop_url %}style="background-image:url('{{ details.backdrop_url }}');background-size:cover;background-position:center"{% endif %}>
-    <div class="absolute inset-0 bg-linear-to-t from-base-100 via-base-100/70 to-base-100/10"></div>
-    <div class="relative z-10 flex flex-wrap gap-5 p-6 items-end">
+  <div class="rounded-2xl overflow-hidden relative mb-6 border border-line h-[300px] md:h-[340px] {% if not details.backdrop_url %}{{ poster_seed|gradient_class }}{% endif %}"
+       {% if details.backdrop_url %}style="background-image:url('{{ details.backdrop_url }}');background-size:cover;background-position:center 20%"{% endif %}>
+    <div class="absolute inset-0 bg-linear-to-t from-base-100 via-base-100/65 to-transparent"></div>
+    <div class="absolute inset-0 bg-linear-to-r from-base-100 via-base-100/35 to-transparent"></div>
+    <div class="relative z-10 h-full flex flex-wrap gap-5 p-6 items-end">
       <div class="w-[130px] aspect-[2/3] flex-none rounded-lg overflow-hidden border border-white/10 bg-cover bg-center {% if not display_poster_url %}{{ poster_seed|gradient_class }}{% endif %}"
            {% if display_poster_url %}style="background-image:url('{{ display_poster_url }}')"{% endif %}>
       </div>
@@ -26,15 +27,33 @@
           {% if details.genres %}<span>{{ details.genres|join:", " }}</span>{% endif %}
         </div>
         {% if details.tagline %}<div class="text-ink-dim italic text-sm mt-3">{{ details.tagline }}</div>{% endif %}
+
+        {% if not is_preview %}
+          <div class="flex flex-wrap items-center gap-4 mt-4">
+            <form method="post" action="{% url 'title_mark_watched' title.pk %}">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-primary btn-sm">&#10003; Mark as Watched</button>
+            </form>
+            <form method="post" action="{% url 'title_rate' title.pk %}" class="flex items-center gap-0.5 bg-base-100/60 rounded-lg px-2.5 py-1.5">
+              {% csrf_token %}
+              {% for n in rating_range %}
+                <button type="submit" name="rating" value="{{ n }}"
+                  class="text-lg leading-none transition-colors {% if latest_rating and n <= latest_rating %}text-primary{% else %}text-ink-faint hover:text-primary/70{% endif %}"
+                  title="Rate {{ n }}/10">&#9733;</button>
+              {% endfor %}
+              {% if latest_rating %}<span class="font-mono text-xs text-ink-dim ml-1.5">{{ latest_rating }}/10</span>{% endif %}
+            </form>
+          </div>
+        {% endif %}
       </div>
     </div>
   </div>
 
-  <div class="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
+  <div class="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8 mb-8">
     <div class="min-w-0">
 
       {% if details.overview %}
-        <p class="text-[14px] leading-relaxed text-ink-dim mb-6">{{ details.overview }}</p>
+        <p class="max-w-3xl text-[14px] leading-relaxed text-ink-dim mb-6">{{ details.overview }}</p>
       {% endif %}
 
       {% if not is_preview %}
@@ -47,21 +66,12 @@
         <h2 class="font-display text-xl mb-3">Cast</h2>
         <div class="flex gap-4 overflow-x-auto pb-2 mb-8">
           {% for actor in cast %}
-            <div class="w-[90px] flex-none">
+            <div class="w-[104px] flex-none">
               <div class="aspect-square rounded-full overflow-hidden bg-base-300 bg-cover bg-center border border-line"
                    {% if actor.profile_url %}style="background-image:url('{{ actor.profile_url }}')"{% endif %}></div>
-              <div class="text-[11.5px] font-semibold mt-1.5 text-center truncate">{{ actor.name }}</div>
-              <div class="text-[10.5px] text-ink-faint text-center truncate">{{ actor.character }}</div>
+              <div class="text-[11.5px] font-semibold mt-1.5 text-center leading-tight line-clamp-2">{{ actor.name }}</div>
+              <div class="text-[10.5px] text-ink-faint text-center leading-tight line-clamp-2 mt-0.5">{{ actor.character }}</div>
             </div>
-          {% endfor %}
-        </div>
-      {% endif %}
-
-      {% if similar %}
-        <h2 class="font-display text-xl mb-3">If you like this, check out</h2>
-        <div class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-4">
-          {% for item in similar %}
-            {% include "tracker/partials/discover_tile.html" with item=item %}
           {% endfor %}
         </div>
       {% endif %}
@@ -76,7 +86,7 @@
             <button type="submit" class="btn btn-primary btn-sm w-full">+ Add to Watchlist</button>
           </form>
         {% else %}
-          <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Lists</div>
+          <h2 class="font-display text-lg mb-2.5">Lists</h2>
           <div class="flex flex-col gap-2">
             {% for list in my_lists %}
               <form method="post" action="{% if list.id in in_list_ids %}{% url 'remove_from_list' list.id %}{% else %}{% url 'add_to_list' list.id %}{% endif %}">
@@ -97,7 +107,7 @@
 
       {% if not is_preview %}
         <div class="bg-base-200 border border-line rounded-2xl p-4">
-          <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Your history</div>
+          <h2 class="font-display text-lg mb-2.5">Your history</h2>
           {% if progress %}
             <div class="text-[12.5px] mb-2">
               Status: <span class="font-semibold">{{ progress.get_status_display }}</span>
@@ -107,8 +117,8 @@
           {% if recent_events %}
             <div class="flex flex-col gap-1.5">
               {% for event in recent_events %}
-                <div class="flex justify-between gap-3 text-[12px] text-ink-dim">
-                  <span>{% if event.episode %}S{{ event.episode.season }}E{{ event.episode.episode }}{% else %}Watched{% endif %}</span>
+                <div class="flex justify-between items-center gap-3 text-[12px] text-ink-dim">
+                  <span class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/15 text-primary">{% if event.episode %}S{{ event.episode.season }}E{{ event.episode.episode }}{% else %}Watched{% endif %}</span>
                   <span class="font-mono text-ink-faint">{{ event.watched_at|timesince }} ago</span>
                 </div>
               {% endfor %}
@@ -120,5 +130,14 @@
       {% endif %}
     </div>
   </div>
+
+  {% if similar %}
+    <h2 class="font-display text-xl mb-3">If you like this, check out</h2>
+    <div class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-4">
+      {% for item in similar %}
+        {% include "tracker/partials/discover_tile.html" with item=item %}
+      {% endfor %}
+    </div>
+  {% endif %}
 
 {% endblock %}

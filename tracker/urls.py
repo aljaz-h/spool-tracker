@@ -9,6 +9,8 @@ urlpatterns = [
     path("movies-tv/<str:category>/", views.discover, {"media_type": "movie_tv"}, name="movies_tv"),
     path("anime/<str:category>/", views.discover, {"media_type": "anime"}, name="anime"),
     path("titles/<int:pk>/", views.title_detail, name="title_detail"),
+    path("titles/<int:pk>/mark-watched/", views.title_mark_watched, name="title_mark_watched"),
+    path("titles/<int:pk>/rate/", views.title_rate, name="title_rate"),
     path("titles/preview/<str:media_type>/<int:tmdb_id>/", views.title_preview, name="title_preview"),
     path(
         "titles/preview/<str:media_type>/<int:tmdb_id>/add-to-watchlist/",

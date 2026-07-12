@@ -22,7 +22,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from . import csv_import, instance_config, scheduling, selectors, tasks
+from . import csv_import, instance_config, rewatches, scheduling, selectors, tasks
 from .integrations import simkl, tmdb, trakt
 from .models import (
     ExternalAccount,
@@ -205,10 +205,52 @@ def title_detail(request, pk):
         "is_preview": False,
         "preview_media_type": None,
         "preview_tmdb_id": None,
+        "rating_range": range(1, 11),
         **_title_display(title, details),
         **selectors.title_local_context(profile, title),
     }
     return render(request, "tracker/title_detail.html", context)
+
+
+@login_required
+@require_POST
+def title_mark_watched(request, pk):
+    """The detail page's quick "mark as watched" action - a plain,
+    episode-less WatchEvent (same shape History/the activity feed already
+    render as "watched <title>" with no episode), since there was no
+    manual "I watched this" action anywhere in the app before this page -
+    everything else arrives via sync/import/CSV."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    WatchEvent.objects.create(profile=profile, title=title, watched_at=timezone.now())
+    rewatches.recompute_is_rewatch(profile, title, None)
+    return redirect("title_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def title_rate(request, pk):
+    """Updates the most recent watch's rating if one exists, otherwise
+    rating implies a watch (same as clicking a star on Trakt logs the
+    watch too) and creates one."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    rating = request.POST.get("rating", "")
+    if not (rating.isdigit() and 1 <= int(rating) <= 10):
+        raise Http404
+    rating = int(rating)
+    latest_event = WatchEvent.objects.filter(profile=profile, title=title).order_by("-watched_at").first()
+    if latest_event:
+        latest_event.user_rating = rating
+        latest_event.save(update_fields=["user_rating"])
+    else:
+        WatchEvent.objects.create(profile=profile, title=title, watched_at=timezone.now(), user_rating=rating)
+        rewatches.recompute_is_rewatch(profile, title, None)
+    return redirect("title_detail", pk=pk)
 
 
 @login_required
@@ -241,6 +283,7 @@ def title_preview(request, media_type, tmdb_id):
         "is_preview": True,
         "preview_media_type": media_type,
         "preview_tmdb_id": tmdb_id,
+        "rating_range": range(0),
         **_title_display(None, details),
         "progress": None,
         "recent_events": [],

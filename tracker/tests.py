@@ -2125,6 +2125,67 @@ class TitleDetailViewTests(TestCase):
         self.assertIn(watchlist.id, resp.context["in_list_ids"])
 
 
+class TitleMarkWatchedAndRateTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("tracker_user", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="TrackerUser")
+        self.client.login(username="tracker_user", password="pass12345")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+
+    def test_mark_watched_creates_a_plain_watch_event(self):
+        resp = self.client.post(reverse("title_mark_watched", args=[self.title.pk]))
+        self.assertRedirects(resp, reverse("title_detail", args=[self.title.pk]), fetch_redirect_response=False)
+        event = WatchEvent.objects.get(profile=self.profile, title=self.title)
+        self.assertIsNone(event.episode)
+        self.assertIsNone(event.user_rating)
+
+    def test_mark_watched_a_second_time_flags_it_as_a_rewatch(self):
+        self.client.post(reverse("title_mark_watched", args=[self.title.pk]))
+        self.client.post(reverse("title_mark_watched", args=[self.title.pk]))
+        events = list(WatchEvent.objects.filter(profile=self.profile, title=self.title).order_by("watched_at"))
+        self.assertEqual(len(events), 2)
+        self.assertFalse(events[0].is_rewatch)
+        self.assertTrue(events[1].is_rewatch)
+
+    def test_mark_watched_requires_get_is_rejected(self):
+        resp = self.client.get(reverse("title_mark_watched", args=[self.title.pk]))
+        self.assertEqual(resp.status_code, 405)
+
+    def test_rate_with_no_prior_watch_creates_a_watch_event(self):
+        resp = self.client.post(reverse("title_rate", args=[self.title.pk]), {"rating": "7"})
+        self.assertRedirects(resp, reverse("title_detail", args=[self.title.pk]), fetch_redirect_response=False)
+        event = WatchEvent.objects.get(profile=self.profile, title=self.title)
+        self.assertEqual(event.user_rating, 7)
+
+    def test_rate_with_a_prior_watch_updates_the_most_recent_one(self):
+        from django.utils import timezone
+
+        older = WatchEvent.objects.create(
+            profile=self.profile, title=self.title, watched_at=timezone.now() - timedelta(days=5)
+        )
+        newer = WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=timezone.now())
+        self.client.post(reverse("title_rate", args=[self.title.pk]), {"rating": "9"})
+        older.refresh_from_db()
+        newer.refresh_from_db()
+        self.assertIsNone(older.user_rating)
+        self.assertEqual(newer.user_rating, 9)
+        self.assertEqual(WatchEvent.objects.filter(profile=self.profile, title=self.title).count(), 2)
+
+    def test_rate_rejects_out_of_range_values(self):
+        resp = self.client.post(reverse("title_rate", args=[self.title.pk]), {"rating": "11"})
+        self.assertEqual(resp.status_code, 404)
+        self.assertFalse(WatchEvent.objects.filter(profile=self.profile, title=self.title).exists())
+
+    def test_rate_rejects_non_numeric_values(self):
+        resp = self.client.post(reverse("title_rate", args=[self.title.pk]), {"rating": "great"})
+        self.assertEqual(resp.status_code, 404)
+
+    def test_mark_watched_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("title_mark_watched", args=[self.title.pk]))
+        self.assertNotEqual(resp.status_code, 200)
+
+
 class TitlePreviewViewTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("previewviewer", password="pass12345")
