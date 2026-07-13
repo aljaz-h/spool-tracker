@@ -122,6 +122,33 @@ def quick_stats(profile):
     }
 
 
+# Checked for equality, not >=, so a milestone banner fires the one day
+# it's actually reached rather than persisting on every visit afterward.
+STREAK_MILESTONES = {
+    7: "Seven days straight — that's a habit now.",
+    30: "Thirty days in a row. This isn't a phase.",
+    100: "A hundred days straight. Impressive commitment.",
+    365: "A full year without missing a day. Legendary.",
+}
+MOVIE_COUNT_MILESTONES = {
+    25: "25 movies this year already.",
+    50: "50 movies this year — some people read books.",
+    100: "100 movies this year. That's a full-time hobby.",
+    200: "200 movies this year. At this point it's a lifestyle.",
+}
+
+
+def milestone_message(streak, movies_this_year):
+    """A short celebratory line for the Dashboard when streak or
+    movies_this_year lands exactly on a milestone - streak takes
+    priority if both hit on the same day. None most days."""
+    if streak in STREAK_MILESTONES:
+        return STREAK_MILESTONES[streak]
+    if movies_this_year in MOVIE_COUNT_MILESTONES:
+        return MOVIE_COUNT_MILESTONES[movies_this_year]
+    return None
+
+
 def _visible_watchlist_items(profile, media_types=None):
     qs = WatchListItem.objects.filter(Q(watchlist__profile=profile) | Q(watchlist__is_shared=True))
     if media_types:

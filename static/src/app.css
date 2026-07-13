@@ -139,7 +139,11 @@
    dual_range_slider.html) shows the selected span between the two
    thumbs. pointer-events is left enabled only on the thumb pseudo-
    element so the two inputs' full-width tracks don't fight each other
-   for clicks/drags. */
+   for clicks/drags. Also reused as-is for the title detail page's
+   single-value rating gauge (title_detail.html) - the thumb styling
+   below doesn't assume two inputs, and a lone slider has no click-
+   fighting to guard against, so it just gets normal full-track
+   pointer-events on top of this. */
 .dual-range-thumb {
   -webkit-appearance: none;
   appearance: none;

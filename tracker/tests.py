@@ -1259,6 +1259,35 @@ class StatsOverviewMoviesWatchedTests(TestCase):
         self.assertEqual(overview["movies_plays"], 0)
 
 
+class MilestoneMessageTests(TestCase):
+    def test_streak_milestone_returns_a_message(self):
+        self.assertIsNotNone(selectors.milestone_message(streak=7, movies_this_year=3))
+        self.assertIsNotNone(selectors.milestone_message(streak=30, movies_this_year=0))
+        self.assertIsNotNone(selectors.milestone_message(streak=100, movies_this_year=0))
+        self.assertIsNotNone(selectors.milestone_message(streak=365, movies_this_year=0))
+
+    def test_movie_count_milestone_returns_a_message(self):
+        self.assertIsNotNone(selectors.milestone_message(streak=0, movies_this_year=25))
+        self.assertIsNotNone(selectors.milestone_message(streak=0, movies_this_year=50))
+        self.assertIsNotNone(selectors.milestone_message(streak=0, movies_this_year=100))
+        self.assertIsNotNone(selectors.milestone_message(streak=0, movies_this_year=200))
+
+    def test_non_milestone_values_return_none(self):
+        self.assertIsNone(selectors.milestone_message(streak=1, movies_this_year=1))
+        self.assertIsNone(selectors.milestone_message(streak=8, movies_this_year=26))
+        self.assertIsNone(selectors.milestone_message(streak=0, movies_this_year=0))
+
+    def test_streak_milestone_takes_priority_over_movie_count(self):
+        # both hit on the same day - streak wins
+        message = selectors.milestone_message(streak=7, movies_this_year=25)
+        self.assertEqual(message, selectors.STREAK_MILESTONES[7])
+
+    def test_milestone_only_fires_on_the_exact_day_reached(self):
+        # equality check, not >=, so it doesn't persist on every later visit
+        self.assertIsNone(selectors.milestone_message(streak=8, movies_this_year=0))
+        self.assertIsNone(selectors.milestone_message(streak=31, movies_this_year=0))
+
+
 class WatchTimeBreakdownTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("breakdownwatcher", password="pass12345")
@@ -1946,6 +1975,25 @@ class DashboardWatchingWatchlistTests(TestCase):
         resp = self.client.get(reverse("dashboard"))
         self.assertEqual(len(resp.context["watchlist_items"]), 1)
         self.assertEqual(resp.context["watchlist_items"][0].title, title)
+
+    def test_milestone_banner_shows_on_a_streak_milestone_day(self):
+        from django.utils import timezone
+
+        today = timezone.localdate()
+        for i in range(7):
+            title = Title.objects.create(media_type=MediaType.MOVIE, name=f"Movie {i}", year=2020)
+            WatchEvent.objects.create(
+                profile=self.profile, title=title,
+                watched_at=timezone.make_aware(timezone.datetime.combine(today - timedelta(days=i), timezone.datetime.min.time())),
+            )
+        resp = self.client.get(reverse("dashboard"))
+        self.assertEqual(resp.context["stats"]["streak"], 7)
+        self.assertEqual(resp.context["milestone"], selectors.STREAK_MILESTONES[7])
+        self.assertContains(resp, "Seven days straight")
+
+    def test_no_milestone_banner_on_an_ordinary_day(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertIsNone(resp.context["milestone"])
 
 
 class ActivityFeedGroupingTests(TestCase):

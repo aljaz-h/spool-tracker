@@ -19,6 +19,12 @@
     </div>
   </div>
 
+  {% if milestone %}
+    <div class="flex items-center gap-2.5 bg-primary/10 border border-primary/30 rounded-xl px-4 py-2.5 mb-6 text-sm text-primary font-semibold">
+      <span class="font-display text-lg leading-none">&#9733;</span> {{ milestone }}
+    </div>
+  {% endif %}
+
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
     {% include "tracker/partials/stat_card.html" with value=stats.streak label="Day watch streak" %}
     {% include "tracker/partials/stat_card.html" with value=stats.movies_this_year label="Movies watched this year" %}
@@ -36,7 +42,7 @@
       {% endfor %}
     </div>
   {% else %}
-    <p class="text-ink-faint text-sm">Nothing in progress yet.</p>
+    <p class="text-ink-faint text-sm">Nothing in progress. Pick something and press play.</p>
   {% endif %}
 
   <div class="flex justify-between items-center mt-9 mb-3.5">
@@ -50,7 +56,7 @@
       {% endfor %}
     </div>
   {% else %}
-    <p class="text-ink-faint text-sm">Nothing on your watchlist yet — see Lists to add titles.</p>
+    <p class="text-ink-faint text-sm">Watchlist's empty — future you will thank present you for adding something.</p>
   {% endif %}
 
   <div class="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-5 mt-8 items-start">
@@ -63,7 +69,7 @@
           {% endfor %}
         </div>
       {% else %}
-        <p class="text-ink-faint text-sm">No lists have titles yet — see Lists to create one.</p>
+        <p class="text-ink-faint text-sm">Nothing added to a list yet — that's what Lists is for.</p>
       {% endif %}
     </div>
     <div class="bg-base-200 border border-line rounded-2xl p-5">
@@ -79,7 +85,7 @@
           </div>
         {% endfor %}
       {% else %}
-        <p class="text-ink-faint text-sm">Nothing scheduled yet.</p>
+        <p class="text-ink-faint text-sm">Nothing on the horizon yet.</p>
       {% endif %}
     </div>
   </div>

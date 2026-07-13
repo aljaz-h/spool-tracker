@@ -14,7 +14,7 @@
 
   <div class="bg-base-200 border border-line rounded-2xl p-2">
     {% if not feed %}
-      <div class="py-10 text-center text-ink-faint text-sm">No activity yet.</div>
+      <div class="py-10 text-center text-ink-faint text-sm">Quiet so far — watch something to get this started.</div>
     {% else %}
       {% for item in feed %}
         <div class="px-3.5 py-3.5 {% if not forloop.last %}border-b border-line{% endif %}" {% if item.is_group %}x-data="{ open: false }"{% endif %}>

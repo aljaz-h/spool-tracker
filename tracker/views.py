@@ -60,6 +60,7 @@ def dashboard(request):
     profile = Profile.objects.filter(user=request.user).first()
     context = {"profile": profile}
     if profile is not None:
+        stats = selectors.quick_stats(profile)
         context.update(
             {
                 # No limit - this is now the full Watching list, not just a
@@ -70,7 +71,8 @@ def dashboard(request):
                 "watchlist_items": selectors.library_watchlist(profile, [MediaType.MOVIE, MediaType.TV, MediaType.ANIME]),
                 "up_next": selectors.up_next(profile),
                 "recently_added": selectors.recently_added_to_lists(profile),
-                "stats": selectors.quick_stats(profile),
+                "stats": stats,
+                "milestone": selectors.milestone_message(stats["streak"], stats["movies_this_year"]),
             }
         )
     return render(request, "tracker/dashboard.html", context)
@@ -178,24 +180,6 @@ def _title_display(title, details):
     }
 
 
-def _star_fill(rating):
-    """5 stars representing a 1-10 rating, 2 points each - each entry's
-    "fill" (0/50/100) is precomputed here so the template just renders a
-    clipped overlay instead of doing this arithmetic per star per request."""
-    stars = []
-    for i in range(1, 6):
-        left, right = 2 * i - 1, 2 * i
-        if not rating:
-            fill = 0
-        elif rating >= right:
-            fill = 100
-        elif rating >= left:
-            fill = 50
-        else:
-            fill = 0
-        stars.append({"left": left, "right": right, "fill": fill})
-    return stars
-
 
 @login_required
 def title_detail(request, pk):
@@ -230,7 +214,6 @@ def title_detail(request, pk):
         "is_preview": False,
         "preview_media_type": None,
         "preview_tmdb_id": None,
-        "star_fill": _star_fill(local_context["latest_rating"]),
         **_title_display(title, details),
         **local_context,
     }
@@ -310,7 +293,6 @@ def title_preview(request, media_type, tmdb_id):
         "is_preview": True,
         "preview_media_type": media_type,
         "preview_tmdb_id": tmdb_id,
-        "star_fill": [],
         **_title_display(None, details),
         "progress": None,
         "recent_events": [],

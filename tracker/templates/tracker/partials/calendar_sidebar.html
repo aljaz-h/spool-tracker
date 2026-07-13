@@ -19,7 +19,7 @@
 {% endif %}
 
 {% if not agenda_groups %}
-  <div class="p-4 text-ink-faint text-sm {% if featured %}mt-4{% endif %}">Nothing upcoming matches these filters.</div>
+  <div class="p-4 text-ink-faint text-sm {% if featured %}mt-4{% endif %}">Nothing upcoming matches these filters — try widening them.</div>
 {% else %}
   {% for group in agenda_groups %}
     <div id="agenda-{{ group.date|date:'Y-m-d' }}" class="font-bold text-[13px] mt-4.5 mb-1.5 px-0.5">{{ group.date|date:"M j" }}</div>

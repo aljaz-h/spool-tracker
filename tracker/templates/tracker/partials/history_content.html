@@ -2,7 +2,7 @@
 {% if not profile %}
   <p class="text-ink-faint text-sm">Your account isn't linked to a household profile yet.</p>
 {% elif not day_groups %}
-  <div class="py-10 text-center text-ink-faint text-sm">No watch history matches these filters.</div>
+  <div class="py-10 text-center text-ink-faint text-sm">No history matches these filters — yet.</div>
 {% else %}
   {% for group in day_groups %}
     <div class="flex justify-between items-baseline {% if not forloop.first %}mt-7{% endif %} mb-3 pb-2 border-b border-line">
