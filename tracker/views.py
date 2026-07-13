@@ -157,14 +157,6 @@ def discover(request, media_type, category):
     return render(request, "tracker/discover.html", context)
 
 
-def _tmdb_media_type_for(title):
-    """external_ids["tmdb_kind"] is the authoritative source (set at
-    match time by trakt.py/simkl.py/csv_import.py) since anime is almost
-    always matched against TMDB's tv catalog, not movie - title.media_type
-    alone can't be trusted to pick the right TMDB endpoint."""
-    return title.external_ids.get("tmdb_kind") or ("movie" if title.media_type == MediaType.MOVIE else "tv")
-
-
 def _title_display(title, details):
     """Unifies the tracked (real Title row, TMDB details optional) and
     preview (no Title row, TMDB details required) cases into one flat set
@@ -194,7 +186,7 @@ def title_detail(request, pk):
     details = cast = similar = director = None
     watch_providers = []
     if tmdb_id:
-        tmdb_media_type = _tmdb_media_type_for(title)
+        tmdb_media_type = tmdb.media_type_for(title)
         details = tmdb.get_full_details(tmdb_media_type, tmdb_id)
         cast = tmdb.get_credits(tmdb_media_type, tmdb_id)
         similar = tmdb.get_similar(tmdb_media_type, tmdb_id)

@@ -43,3 +43,25 @@ def ensure_periodic_task(account):
 
 def remove_periodic_task(account):
     PeriodicTask.objects.filter(name=sync_periodic_task_name(account)).delete()
+
+
+RELEASE_SYNC_TASK_NAME = "sync-release-schedules"
+
+
+def ensure_release_sync_task(hour=3, minute=0):
+    """(Re)creates the single, non-per-account PeriodicTask that refreshes
+    ReleaseSchedule from TMDB - unlike ensure_periodic_task above, this
+    isn't tied to a connected ExternalAccount, so there's exactly one of
+    these instance-wide rather than one per account."""
+    schedule, _ = CrontabSchedule.objects.get_or_create(
+        minute=str(minute), hour=str(hour), day_of_week="*", day_of_month="*", month_of_year="*"
+    )
+    PeriodicTask.objects.update_or_create(
+        name=RELEASE_SYNC_TASK_NAME,
+        defaults={
+            "crontab": schedule,
+            "task": "tracker.tasks.sync_release_schedules",
+            "args": "[]",
+            "enabled": True,
+        },
+    )

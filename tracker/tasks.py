@@ -2,7 +2,7 @@ from celery import shared_task
 from celery.utils.log import get_task_logger
 from django.utils import timezone
 
-from . import instance_config
+from . import instance_config, release_sync, selectors
 from .integrations import simkl, trakt
 from .models import ExternalAccount, SyncLog
 
@@ -94,3 +94,18 @@ def sync_all_connected_accounts():
             sync_simkl_history.delay(account.profile_id)
         dispatched += 1
     return dispatched
+
+
+@shared_task
+def sync_release_schedules():
+    """Nightly beat job (see bootstrap_periodic_tasks.py) - refreshes
+    ReleaseSchedule for every title anyone in the household is watching,
+    has planned/completed, or has on a watchlist, so a renewed show or a
+    now-dated movie shows up on Calendar without the user re-visiting its
+    detail page. Instance-wide, not per-account - no SyncLog row (that
+    model is Trakt/Simkl-account-shaped; nothing in the UI surfaces a
+    "last release sync" for this yet), just the usual task logger."""
+    titles = list(selectors.titles_needing_release_sync())
+    touched = sum(release_sync.sync_title_releases(t) for t in titles)
+    logger.info("sync_release_schedules: checked %d title(s), %d release row(s) touched", len(titles), touched)
+    return touched

@@ -7,7 +7,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
-from . import completion, csv_import, instance_config, rewatches, scheduling, selectors, tasks, views
+from . import completion, csv_import, instance_config, release_sync, rewatches, scheduling, selectors, tasks, views
 from .integrations import tmdb, trakt
 from .models import (
     Episode,
@@ -15,6 +15,7 @@ from .models import (
     InstanceConfig,
     MediaType,
     Profile,
+    ReleaseSchedule,
     SyncLog,
     Title,
     WatchEvent,
@@ -612,6 +613,244 @@ class CompletionShowTests(TestCase):
         mock_details.assert_not_called()
 
 
+class ReleaseSyncTests(TestCase):
+    def _tv_details(self, next_episode):
+        return {
+            "name": "Cinder Street", "year": "2022", "overview": "", "tagline": "", "genres": [],
+            "runtime": None, "number_of_seasons": 1, "number_of_episodes": 8,
+            "backdrop_url": None, "poster_url": None, "vote_average": 7.0, "vote_count": 100,
+            "original_language": "en", "status": "Returning Series",
+            "release_date": None, "next_episode_to_air": next_episode,
+        }
+
+    def _movie_details(self, release_date):
+        return {
+            "name": "Fathom", "year": "2026", "overview": "", "tagline": "", "genres": [],
+            "runtime": 100, "number_of_seasons": None, "number_of_episodes": None,
+            "backdrop_url": None, "poster_url": None, "vote_average": 7.0, "vote_count": 100,
+            "original_language": "en", "status": "Planned",
+            "release_date": release_date, "next_episode_to_air": None,
+        }
+
+    def test_tv_next_episode_creates_episode_and_release_row(self):
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Cinder Street", year=2022, external_ids={"tmdb": "99"}
+        )
+        next_ep = {"air_date": "2026-08-01", "season_number": 2, "episode_number": 3, "name": "Return"}
+        with patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(next_ep)):
+            touched = release_sync.sync_title_releases(title)
+        self.assertEqual(touched, 1)
+        episode = Episode.objects.get(title=title, season=2, episode=3)
+        self.assertEqual(episode.name, "Return")
+        row = ReleaseSchedule.objects.get(title=title, episode=episode)
+        self.assertEqual(row.release_type, ReleaseSchedule.ReleaseType.EPISODE)
+
+    def test_tv_next_episode_number_one_is_a_season_premiere(self):
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Cinder Street", year=2022, external_ids={"tmdb": "99"}
+        )
+        next_ep = {"air_date": "2026-08-01", "season_number": 2, "episode_number": 1, "name": "Return"}
+        with patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(next_ep)):
+            release_sync.sync_title_releases(title)
+        row = ReleaseSchedule.objects.get(title=title)
+        self.assertEqual(row.release_type, ReleaseSchedule.ReleaseType.SEASON_PREMIERE)
+
+    def test_tv_with_no_next_episode_touches_nothing(self):
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Cinder Street", year=2022, external_ids={"tmdb": "99"}
+        )
+        with patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(None)):
+            touched = release_sync.sync_title_releases(title)
+        self.assertEqual(touched, 0)
+        self.assertFalse(ReleaseSchedule.objects.filter(title=title).exists())
+
+    def test_movie_future_release_date_creates_one_row(self):
+        from django.utils import timezone
+
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2026, external_ids={"tmdb": "42"}
+        )
+        future = (timezone.now() + timedelta(days=30)).date().isoformat()
+        with patch("tracker.release_sync.tmdb.get_full_details", return_value=self._movie_details(future)):
+            touched = release_sync.sync_title_releases(title)
+        self.assertEqual(touched, 1)
+        self.assertEqual(
+            ReleaseSchedule.objects.filter(title=title, release_type=ReleaseSchedule.ReleaseType.MOVIE_RELEASE).count(),
+            1,
+        )
+
+    def test_rerunning_movie_sync_does_not_duplicate(self):
+        from django.utils import timezone
+
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2026, external_ids={"tmdb": "42"}
+        )
+        future = (timezone.now() + timedelta(days=30)).date().isoformat()
+        with patch("tracker.release_sync.tmdb.get_full_details", return_value=self._movie_details(future)):
+            release_sync.sync_title_releases(title)
+            release_sync.sync_title_releases(title)
+        self.assertEqual(
+            ReleaseSchedule.objects.filter(title=title, release_type=ReleaseSchedule.ReleaseType.MOVIE_RELEASE).count(),
+            1,
+        )
+
+    def test_movie_past_release_date_touches_nothing(self):
+        from django.utils import timezone
+
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42"}
+        )
+        past = (timezone.now() - timedelta(days=30)).date().isoformat()
+        with patch("tracker.release_sync.tmdb.get_full_details", return_value=self._movie_details(past)):
+            touched = release_sync.sync_title_releases(title)
+        self.assertEqual(touched, 0)
+        self.assertFalse(ReleaseSchedule.objects.filter(title=title).exists())
+
+    def test_title_without_tmdb_id_is_skipped(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="No TMDB", year=2020)
+        with patch("tracker.release_sync.tmdb.get_full_details") as mock_details:
+            touched = release_sync.sync_title_releases(title)
+        mock_details.assert_not_called()
+        self.assertEqual(touched, 0)
+
+    def test_none_details_returns_zero_without_crashing(self):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42"}
+        )
+        with patch("tracker.release_sync.tmdb.get_full_details", return_value=None):
+            touched = release_sync.sync_title_releases(title)
+        self.assertEqual(touched, 0)
+
+    def test_rerunning_tv_sync_with_a_delayed_date_updates_in_place(self):
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Cinder Street", year=2022, external_ids={"tmdb": "99"}
+        )
+        premiere = {"air_date": "2026-08-01", "season_number": 2, "episode_number": 1, "name": "Return"}
+        with patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(premiere)):
+            release_sync.sync_title_releases(title)
+
+        delayed = {"air_date": "2026-08-08", "season_number": 2, "episode_number": 1, "name": "Return"}
+        with patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(delayed)):
+            release_sync.sync_title_releases(title)
+
+        episode = Episode.objects.get(title=title, season=2, episode=1)
+        rows = ReleaseSchedule.objects.filter(title=title, episode=episode)
+        self.assertEqual(rows.count(), 1)
+        self.assertEqual(rows.first().release_date.date().isoformat(), "2026-08-08")
+
+
+class TitlesNeedingReleaseSyncTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("syncscope", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="SyncScope")
+
+    def test_includes_a_completed_title(self):
+        title = Title.objects.create(media_type=MediaType.TV, name="Finished", year=2020)
+        WatchProgress.objects.create(profile=self.profile, title=title, status=WatchProgress.Status.COMPLETED)
+        self.assertIn(title, selectors.titles_needing_release_sync())
+
+    def test_includes_a_watchlist_only_title(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Listed", year=2020)
+        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist")
+        WatchListItem.objects.create(watchlist=watchlist, title=title)
+        self.assertIn(title, selectors.titles_needing_release_sync())
+
+    def test_excludes_a_title_with_no_engagement(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Untouched", year=2020)
+        self.assertNotIn(title, selectors.titles_needing_release_sync())
+
+
+class SyncReleaseSchedulesTaskTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("releasetasker", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ReleaseTasker")
+
+    def test_only_syncs_titles_in_scope(self):
+        watched = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Watched", year=2020, external_ids={"tmdb": "1"}
+        )
+        WatchProgress.objects.create(profile=self.profile, title=watched, status=WatchProgress.Status.COMPLETED)
+        Title.objects.create(media_type=MediaType.MOVIE, name="Untouched", year=2020, external_ids={"tmdb": "2"})
+
+        with patch("tracker.tasks.release_sync.sync_title_releases", return_value=1) as mock_sync:
+            touched = tasks.sync_release_schedules()
+        mock_sync.assert_called_once_with(watched)
+        self.assertEqual(touched, 1)
+
+    def test_sums_per_title_results(self):
+        for i in range(3):
+            title = Title.objects.create(
+                media_type=MediaType.MOVIE, name=f"Title {i}", year=2020, external_ids={"tmdb": str(i)}
+            )
+            WatchProgress.objects.create(profile=self.profile, title=title, status=WatchProgress.Status.COMPLETED)
+
+        with patch("tracker.tasks.release_sync.sync_title_releases", return_value=1):
+            touched = tasks.sync_release_schedules()
+        self.assertEqual(touched, 3)
+
+
+class CalendarReleasesBroadeningTests(TestCase):
+    """calendar_releases() used to only surface WATCHING-status or
+    watchlisted titles under its default "all" scope, so a completed show
+    that later gets renewed never showed up. The explicit source="watching"
+    filter's own meaning must stay unchanged, though - it's a deliberate
+    narrower filter, not the bug."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("calscope", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="CalScope")
+        self.title = Title.objects.create(media_type=MediaType.TV, name="Renewed Show", year=2020)
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.COMPLETED)
+        self.release = ReleaseSchedule.objects.create(
+            title=self.title,
+            release_type=ReleaseSchedule.ReleaseType.SEASON_PREMIERE,
+            release_date=timezone.now() + timedelta(days=10),
+        )
+
+    def test_completed_titles_release_surfaces_under_default_scope(self):
+        results = list(selectors.calendar_releases(self.profile))
+        self.assertIn(self.release, results)
+
+    def test_completed_titles_release_does_not_surface_under_watching_filter(self):
+        results = list(selectors.calendar_releases(self.profile, source="watching"))
+        self.assertNotIn(self.release, results)
+
+    def test_actively_watching_still_surfaces_under_watching_filter(self):
+        from django.utils import timezone
+
+        watching_title = Title.objects.create(media_type=MediaType.TV, name="Currently Watching", year=2020)
+        WatchProgress.objects.create(profile=self.profile, title=watching_title, status=WatchProgress.Status.WATCHING)
+        release = ReleaseSchedule.objects.create(
+            title=watching_title,
+            release_type=ReleaseSchedule.ReleaseType.EPISODE,
+            release_date=timezone.now() + timedelta(days=1),
+        )
+        results = list(selectors.calendar_releases(self.profile, source="watching"))
+        self.assertIn(release, results)
+
+
+class UpNextBroadeningTests(TestCase):
+    def setUp(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("upnextscope", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="UpNextScope")
+        self.title = Title.objects.create(media_type=MediaType.TV, name="Renewed Show", year=2020)
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.COMPLETED)
+        ReleaseSchedule.objects.create(
+            title=self.title,
+            release_type=ReleaseSchedule.ReleaseType.SEASON_PREMIERE,
+            release_date=timezone.now() + timedelta(days=10),
+        )
+
+    def test_completed_titles_release_surfaces_in_up_next(self):
+        items = selectors.up_next(self.profile)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["title"], self.title)
+
+
 class InstanceConfigTests(TestCase):
     @override_settings(TRAKT_CLIENT_ID="env-id", TRAKT_CLIENT_SECRET="env-secret")
     def test_falls_back_to_env_when_db_blank(self):
@@ -952,6 +1191,23 @@ class SchedulingTests(TestCase):
         )
 
 
+class EnsureReleaseSyncTaskTests(TestCase):
+    def test_creates_the_single_task_with_defaults(self):
+        scheduling.ensure_release_sync_task()
+        pt = PeriodicTask.objects.get(name=scheduling.RELEASE_SYNC_TASK_NAME)
+        self.assertEqual(pt.task, "tracker.tasks.sync_release_schedules")
+        self.assertEqual(pt.crontab.hour, "3")
+        self.assertEqual(pt.crontab.minute, "0")
+        self.assertTrue(pt.enabled)
+
+    def test_re_running_updates_rather_than_duplicates(self):
+        scheduling.ensure_release_sync_task()
+        scheduling.ensure_release_sync_task(hour=5)
+        self.assertEqual(PeriodicTask.objects.filter(name=scheduling.RELEASE_SYNC_TASK_NAME).count(), 1)
+        pt = PeriodicTask.objects.get(name=scheduling.RELEASE_SYNC_TASK_NAME)
+        self.assertEqual(pt.crontab.hour, "5")
+
+
 class BootstrapPeriodicTasksTests(TestCase):
     def test_creates_task_per_connected_account(self):
         from django.core.management import call_command
@@ -965,6 +1221,12 @@ class BootstrapPeriodicTasksTests(TestCase):
         self.assertTrue(
             PeriodicTask.objects.filter(name=scheduling.sync_periodic_task_name(account)).exists()
         )
+
+    def test_also_registers_the_release_sync_task(self):
+        from django.core.management import call_command
+
+        call_command("bootstrap_periodic_tasks")
+        self.assertTrue(PeriodicTask.objects.filter(name=scheduling.RELEASE_SYNC_TASK_NAME).exists())
 
     def test_removes_old_blanket_job(self):
         from django.core.management import call_command
@@ -1730,6 +1992,61 @@ class TmdbDetailPageTests(TestCase):
         self.assertEqual(details["status"], "Returning Series")
 
     @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_full_details_extracts_next_episode_to_air(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 99, "name": "Cinder Street", "first_air_date": "2022-01-01", "genres": [],
+                "next_episode_to_air": {
+                    "air_date": "2026-08-01", "season_number": 2, "episode_number": 1, "name": "Return",
+                },
+            }
+        )
+        details = tmdb.get_full_details("tv", 99)
+        self.assertEqual(
+            details["next_episode_to_air"],
+            {"air_date": "2026-08-01", "season_number": 2, "episode_number": 1, "name": "Return"},
+        )
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_full_details_next_episode_null_becomes_none(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 99, "name": "Cinder Street", "first_air_date": "2022-01-01", "genres": [],
+                "next_episode_to_air": None,
+            }
+        )
+        details = tmdb.get_full_details("tv", 99)
+        self.assertIsNone(details["next_episode_to_air"])
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_full_details_next_episode_without_air_date_becomes_none(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 99, "name": "Cinder Street", "first_air_date": "2022-01-01", "genres": [],
+                "next_episode_to_air": {"season_number": 2, "episode_number": 1},
+            }
+        )
+        details = tmdb.get_full_details("tv", 99)
+        self.assertIsNone(details["next_episode_to_air"])
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_full_details_movie_release_date_distinct_from_year(self, mock_get):
+        mock_get.return_value = self._response(
+            {"id": 42, "title": "Fathom", "release_date": "2026-12-25", "genres": []}
+        )
+        details = tmdb.get_full_details("movie", 42)
+        self.assertEqual(details["release_date"], "2026-12-25")
+        self.assertEqual(details["year"], "2026")
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_full_details_tv_has_no_release_date(self, mock_get):
+        mock_get.return_value = self._response(
+            {"id": 99, "name": "Cinder Street", "first_air_date": "2022-01-01", "genres": []}
+        )
+        details = tmdb.get_full_details("tv", 99)
+        self.assertIsNone(details["release_date"])
+
+    @patch("tracker.integrations.tmdb.requests.get")
     def test_get_full_details_returns_none_on_missing_id(self, mock_get):
         mock_get.return_value = self._response({})
         self.assertIsNone(tmdb.get_full_details("movie", 1))
@@ -1842,6 +2159,21 @@ class TmdbDetailPageTests(TestCase):
 
         mock_get.side_effect = requests.RequestException("boom")
         self.assertEqual(tmdb.get_watch_providers("movie", 1), [])
+
+
+class TmdbMediaTypeForTests(TestCase):
+    def test_tmdb_kind_is_authoritative_when_present(self):
+        anime = Title.objects.create(
+            media_type=MediaType.ANIME, name="Anime Show", year=2020,
+            external_ids={"tmdb": "1", "tmdb_kind": "tv"},
+        )
+        self.assertEqual(tmdb.media_type_for(anime), "tv")
+
+    def test_falls_back_to_media_type_when_no_tmdb_kind(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="A Movie", year=2020)
+        tv = Title.objects.create(media_type=MediaType.TV, name="A Show", year=2020)
+        self.assertEqual(tmdb.media_type_for(movie), "movie")
+        self.assertEqual(tmdb.media_type_for(tv), "tv")
 
 
 class TmdbStatusBadgeTests(TestCase):

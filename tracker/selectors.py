@@ -8,7 +8,7 @@ from django.db.models import Count, Q, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
-from .models import Episode, MediaType, ReleaseSchedule, WatchEvent, WatchList, WatchListItem, WatchProgress
+from .models import Episode, MediaType, ReleaseSchedule, Title, WatchEvent, WatchList, WatchListItem, WatchProgress
 
 
 def current_streak(profile):
@@ -79,10 +79,13 @@ def _when_label(release_date):
 
 
 def up_next(profile, limit=3):
+    """Dashboard's "Up Next" card. Matches calendar_releases()'s default
+    scope - any WatchProgress status, not just WATCHING, so a completed
+    show that gets renewed still shows its next episode here too, not
+    just on the Calendar page."""
     qs = (
         ReleaseSchedule.objects.filter(
             title__watch_progress__profile=profile,
-            title__watch_progress__status=WatchProgress.Status.WATCHING,
             release_date__gte=timezone.now(),
         )
         .select_related("title", "episode")
@@ -183,10 +186,17 @@ def library_history(profile, media_types, limit=50):
 def calendar_releases(profile, media_type=None, source="all"):
     """Upcoming releases for titles this profile is watching or has on any
     visible watchlist (own + shared, same visibility rule as everywhere
-    else lists show up) — spool-handoff-addendum.md §1."""
+    else lists show up) — spool-handoff-addendum.md §1. The default "all"
+    view also includes titles with ANY WatchProgress status (not just
+    WATCHING) - a finished show that later gets renewed should still
+    surface its new season here, even though completing it moved it out
+    of "watching". The explicit source="watching" filter keeps its
+    narrower, literal meaning on purpose - that's a deliberate user-facing
+    filter choice, not the gap this broadening fixes."""
     watching_q = Q(
         title__watch_progress__profile=profile, title__watch_progress__status=WatchProgress.Status.WATCHING
     )
+    any_progress_q = Q(title__watch_progress__profile=profile)
     watchlist_q = Q(title__watchlist_items__watchlist__profile=profile) | Q(
         title__watchlist_items__watchlist__is_shared=True
     )
@@ -195,7 +205,7 @@ def calendar_releases(profile, media_type=None, source="all"):
     elif source == "watchlist":
         scope_q = watchlist_q
     else:
-        scope_q = watching_q | watchlist_q
+        scope_q = any_progress_q | watchlist_q
 
     qs = (
         ReleaseSchedule.objects.filter(scope_q, release_date__gte=timezone.now())
@@ -206,6 +216,18 @@ def calendar_releases(profile, media_type=None, source="all"):
     if media_type:
         qs = qs.filter(title__media_type=media_type)
     return qs
+
+
+def titles_needing_release_sync():
+    """Titles worth polling TMDB for upcoming releases - anything with a
+    WatchProgress row (any status - watching/planned/completed) or
+    watchlist membership. Instance-wide, not profile-scoped: a release
+    date is a fact about the Title, shared across every household profile
+    that cares about it; calendar_releases()/up_next() do the per-profile
+    filtering at read time. TMDB-id filtering happens per-title in Python
+    inside release_sync.sync_title_releases, not here, matching the
+    title.external_ids.get("tmdb") idiom already used in views.py."""
+    return Title.objects.filter(Q(watch_progress__isnull=False) | Q(watchlist_items__isnull=False)).distinct()
 
 
 def ready_to_watch_queue(profile, queue_size=3):

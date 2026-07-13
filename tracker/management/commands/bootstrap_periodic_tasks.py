@@ -8,10 +8,11 @@ from tracker.models import ExternalAccount
 class Command(BaseCommand):
     help = (
         "Idempotently ensures every connected Trakt/Simkl account has a "
-        "PeriodicTask matching its configured sync schedule (run by the "
-        "scheduler service on start). Superseded the old single "
-        "daily-external-sync job that fired for every account at once - "
-        "each account gets its own schedule now (see tracker/scheduling.py)."
+        "PeriodicTask matching its configured sync schedule, plus the single "
+        "nightly release-schedule sync task (run by the scheduler service on "
+        "start). Superseded the old single daily-external-sync job that fired "
+        "for every account at once - each account gets its own schedule now "
+        "(see tracker/scheduling.py)."
     )
 
     def handle(self, *args, **options):
@@ -27,3 +28,6 @@ class Command(BaseCommand):
             scheduling.ensure_periodic_task(account)
             count += 1
         self.stdout.write(self.style.SUCCESS(f"Confirmed sync schedules for {count} connected account(s)."))
+
+        scheduling.ensure_release_sync_task()
+        self.stdout.write(self.style.SUCCESS("Confirmed the nightly release-schedule sync task."))

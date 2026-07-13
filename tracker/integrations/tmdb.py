@@ -314,12 +314,26 @@ def status_badge(status):
     return STATUS_BADGES.get(status)
 
 
+def media_type_for(title):
+    """external_ids["tmdb_kind"] is the authoritative source (set at match
+    time by trakt.py/simkl.py/csv_import.py) since anime is almost always
+    matched against TMDB's tv catalog, not movie - title.media_type alone
+    can't be trusted to pick the right TMDB endpoint."""
+    from tracker.models import MediaType
+
+    return title.external_ids.get("tmdb_kind") or ("movie" if title.media_type == MediaType.MOVIE else "tv")
+
+
 def get_full_details(media_type, tmdb_id):
     """{"name", "year", "overview", "tagline", "genres": [str,...],
     "runtime": int|None (movie), "number_of_seasons"/"number_of_episodes":
     int|None (tv), "backdrop_url", "poster_url", "vote_average",
-    "vote_count", "original_language", "status": str|None} or None if
-    nothing came back (no api key, bad id, network error)."""
+    "vote_count", "original_language", "status": str|None,
+    "release_date": str|None (movie, raw YYYY-MM-DD, distinct from the
+    truncated "year" above), "next_episode_to_air": dict|None (tv only,
+    {"air_date", "season_number", "episode_number", "name"} - used by
+    release_sync.py to schedule upcoming episodes/season premieres)} or
+    None if nothing came back (no api key, bad id, network error)."""
     data = _list_request(f"{media_type}/{tmdb_id}")
     if not data or data.get("id") is None:
         return None
@@ -327,6 +341,16 @@ def get_full_details(media_type, tmdb_id):
     date = data.get("release_date") if is_movie else data.get("first_air_date")
     backdrop_path = data.get("backdrop_path")
     poster_path = data.get("poster_path")
+    next_episode = None
+    if not is_movie:
+        raw_next = data.get("next_episode_to_air") or {}
+        if raw_next.get("air_date"):
+            next_episode = {
+                "air_date": raw_next["air_date"],
+                "season_number": raw_next.get("season_number"),
+                "episode_number": raw_next.get("episode_number"),
+                "name": raw_next.get("name") or "",
+            }
     return {
         "tmdb_id": tmdb_id,
         "media_type": media_type,
@@ -344,6 +368,8 @@ def get_full_details(media_type, tmdb_id):
         "vote_count": data.get("vote_count"),
         "original_language": data.get("original_language"),
         "status": data.get("status"),
+        "release_date": date if is_movie else None,
+        "next_episode_to_air": next_episode,
     }
 
 
