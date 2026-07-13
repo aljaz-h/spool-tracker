@@ -14,8 +14,12 @@
       </div>
     </div>
     <div class="grid grid-cols-[repeat(auto-fill,minmax(132px,1fr))] gap-4">
-      {% for event in group.items %}
-        {% include "tracker/partials/history_tile.html" with event=event %}
+      {% for item in group.items %}
+        {% if item.is_group %}
+          {% include "tracker/partials/history_group_tile.html" with group=item %}
+        {% else %}
+          {% include "tracker/partials/history_tile.html" with event=item %}
+        {% endif %}
       {% endfor %}
     </div>
   {% endfor %}

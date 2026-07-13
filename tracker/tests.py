@@ -7,7 +7,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
-from . import completion, csv_import, instance_config, rewatches, scheduling, selectors, tasks
+from . import completion, csv_import, instance_config, rewatches, scheduling, selectors, tasks, views
 from .integrations import tmdb, trakt
 from .models import (
     Episode,
@@ -2354,3 +2354,85 @@ class ListActionNextRedirectTests(TestCase):
             {"title_id": self.title.pk, "next": "https://evil.example/"},
         )
         self.assertRedirects(resp, reverse("list_detail", args=[self.watchlist.id]))
+
+
+class HistoryConsecutiveEpisodeGroupingTests(TestCase):
+    """A binge session's episode cards should collapse into one group tile,
+    the same idea as the Activity feed's grouping but shaped for the
+    History page's WatchEvent-object cards instead of that feed's dicts."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("histgrouper", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="HistGrouper")
+        self.show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
+        self.now = timezone.now()
+
+    def _watch(self, episode_num, minutes_ago, season=1, title=None):
+        title = title or self.show
+        ep = Episode.objects.create(title=title, season=season, episode=episode_num)
+        return WatchEvent.objects.create(
+            profile=self.profile, title=title, episode=ep, watched_at=self.now - timedelta(minutes=minutes_ago)
+        )
+
+    def test_consecutive_episodes_collapse_into_one_group(self):
+        events = [self._watch(episode_num=i, minutes_ago=(20 - i)) for i in range(1, 6)]
+        grouped = views._group_consecutive_episodes(events)
+        self.assertEqual(len(grouped), 1)
+        self.assertTrue(grouped[0]["is_group"])
+        self.assertEqual(grouped[0]["count"], 5)
+        self.assertEqual(grouped[0]["range_label"], "S1E1–S1E5")
+
+    def test_single_episode_does_not_get_grouped(self):
+        events = [self._watch(episode_num=1, minutes_ago=10)]
+        grouped = views._group_consecutive_episodes(events)
+        self.assertFalse(isinstance(grouped[0], dict))
+
+    def test_different_titles_break_the_run(self):
+        other_show = Title.objects.create(media_type=MediaType.TV, name="Naruto", year=2002)
+        events = [
+            self._watch(episode_num=1, minutes_ago=30),
+            self._watch(episode_num=2, minutes_ago=20),
+            self._watch(episode_num=1, minutes_ago=10, title=other_show),
+        ]
+        grouped = views._group_consecutive_episodes(events)
+        self.assertEqual(len(grouped), 2)
+        self.assertTrue(grouped[0]["is_group"])
+        self.assertEqual(grouped[0]["count"], 2)
+        self.assertFalse(isinstance(grouped[1], dict))  # the lone Naruto watch, ungrouped
+
+    def test_movies_are_never_grouped(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Movie A", year=2020)
+        e1 = WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now - timedelta(minutes=10))
+        e2 = WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now - timedelta(minutes=5))
+        grouped = views._group_consecutive_episodes([e2, e1])
+        self.assertEqual(len(grouped), 2)
+        self.assertTrue(all(not isinstance(g, dict) for g in grouped))
+
+    def test_range_label_uses_min_max_episode_not_watch_order(self):
+        # watched out of broadcast order - range should still span the full set
+        events = [
+            self._watch(episode_num=19, minutes_ago=30),
+            self._watch(episode_num=3, minutes_ago=20),
+            self._watch(episode_num=11, minutes_ago=10),
+        ]
+        grouped = views._group_consecutive_episodes(events)
+        self.assertEqual(grouped[0]["range_label"], "S1E3–S1E19")
+
+    def test_history_page_renders_group_tile_for_a_binge(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("histviewer", password="pass12345")
+        profile = Profile.objects.create(user=user, display_name="HistViewer")
+        show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
+        for i in range(1, 4):
+            ep = Episode.objects.create(title=show, season=1, episode=i)
+            WatchEvent.objects.create(
+                profile=profile, title=show, episode=ep, watched_at=timezone.now() - timedelta(minutes=i)
+            )
+        self.client.login(username="histviewer", password="pass12345")
+        resp = self.client.get(reverse("history"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "3 episodes")
+        self.assertContains(resp, "S1E1–S1E3")

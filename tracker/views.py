@@ -356,6 +356,46 @@ def title_preview_add_to_watchlist(request, media_type, tmdb_id):
     return redirect("title_detail", pk=title.pk)
 
 
+def _group_consecutive_episodes(events):
+    """Collapses a run of consecutive (adjacent in the day's own order,
+    same title) episode watches into one group card instead of N near-
+    identical poster tiles - same idea as
+    selectors._group_consecutive_watches uses for the Activity feed,
+    just shaped for WatchEvent objects/template cards here instead of
+    that feed's dict items. Movies and single episodes pass through
+    unchanged."""
+    grouped = []
+    i = 0
+    while i < len(events):
+        event = events[i]
+        if event.episode is None:
+            grouped.append(event)
+            i += 1
+            continue
+        run = [event]
+        j = i + 1
+        while j < len(events) and events[j].episode is not None and events[j].title_id == event.title_id:
+            run.append(events[j])
+            j += 1
+        if len(run) > 1:
+            episodes = [e.episode for e in run]
+            first_by_ep = min(episodes, key=lambda e: (e.season, e.episode))
+            last_by_ep = max(episodes, key=lambda e: (e.season, e.episode))
+            grouped.append(
+                {
+                    "is_group": True,
+                    "title": run[0].title,
+                    "count": len(run),
+                    "range_label": f"S{first_by_ep.season}E{first_by_ep.episode}–S{last_by_ep.season}E{last_by_ep.episode}",
+                    "events": run,
+                }
+            )
+        else:
+            grouped.append(event)
+        i = j
+    return grouped
+
+
 def _group_history_by_day(events):
     """Mirrors the mockup's groupHistByDate() — events must already be
     ordered by watched_at (either direction; date only moves monotonically
@@ -365,7 +405,12 @@ def _group_history_by_day(events):
         items = list(items)
         movie_count = sum(1 for e in items if e.title.media_type == MediaType.MOVIE)
         groups.append(
-            {"date": day, "items": items, "movie_count": movie_count, "episode_count": len(items) - movie_count}
+            {
+                "date": day,
+                "items": _group_consecutive_episodes(items),
+                "movie_count": movie_count,
+                "episode_count": len(items) - movie_count,
+            }
         )
     return groups
 

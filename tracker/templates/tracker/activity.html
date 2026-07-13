@@ -1,4 +1,5 @@
 {% extends "tracker/base.html" %}
+{% load icons %}
 {% block title %}Activity · Spool{% endblock %}
 {% block content %}
 
@@ -35,7 +36,7 @@
                       added <b>{{ item.count }}</b> titles to {{ item.watchlist.name }}
                     {% endif %}
                   </div>
-                  <span class="text-ink-faint text-[10px] transition-transform flex-none" :class="open && 'rotate-180'">&#9662;</span>
+                  <span class="text-ink-faint transition-transform flex-none" :class="open && 'rotate-180'">{% icon "chevron-down" "w-3.5 h-3.5" %}</span>
                 </button>
               {% else %}
                 <div class="text-[13.5px]">
@@ -69,11 +70,9 @@
                       </div>
                     {% endfor %}
                   {% elif item.kind == "added_to_list_group" %}
+                    {# no per-item timestamp - a batch add's items share one moment; the group's own timestamp above already covers it #}
                     {% for list_item in item.items %}
-                      <div class="flex justify-between gap-3 text-[12px] text-ink-dim">
-                        <span>{{ list_item.title.name }}</span>
-                        <span class="font-mono text-ink-faint">{{ list_item.timestamp|timesince }} ago</span>
-                      </div>
+                      <div class="text-[12px] text-ink-dim">{{ list_item.title.name }}</div>
                     {% endfor %}
                   {% endif %}
                 </div>

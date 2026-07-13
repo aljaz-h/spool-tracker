@@ -1,18 +1,20 @@
-{% load tracker_extras %}
+{% load tracker_extras icons %}
 <span class="hidden" data-active-month="{{ current_month_param }}"></span>
 
-<div class="flex justify-center items-baseline gap-6 mb-4">
+<div class="flex justify-center items-center gap-4 mb-4">
   <a
     hx-get="{% url 'calendar' %}?month={{ prev_month_param }}&type={{ type_filter }}&source={{ source_filter }}"
     hx-target="#cal-main" hx-push-url="true"
-    class="text-sm text-ink-faint cursor-pointer hover:text-ink-dim select-none"
-  >{{ prev_month_label }}</a>
+    title="{{ prev_month_label }}"
+    class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-sm text-ink-dim cursor-pointer hover:bg-base-300 hover:text-base-content select-none"
+  >{% icon "chevron-left" "w-4 h-4" %} {{ prev_month_label }}</a>
   <h3 class="font-display text-2xl tracking-wide">{{ current_month_label }}</h3>
   <a
     hx-get="{% url 'calendar' %}?month={{ next_month_param }}&type={{ type_filter }}&source={{ source_filter }}"
     hx-target="#cal-main" hx-push-url="true"
-    class="text-sm text-ink-faint cursor-pointer hover:text-ink-dim select-none"
-  >{{ next_month_label }}</a>
+    title="{{ next_month_label }}"
+    class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-sm text-ink-dim cursor-pointer hover:bg-base-300 hover:text-base-content select-none"
+  >{{ next_month_label }} {% icon "chevron-right" "w-4 h-4" %}</a>
 </div>
 
 <div class="grid grid-cols-7 gap-1.5 mb-1.5">
