@@ -755,6 +755,14 @@ class TitlesNeedingReleaseSyncTests(TestCase):
         WatchListItem.objects.create(watchlist=watchlist, title=title)
         self.assertIn(title, selectors.titles_needing_release_sync())
 
+    def test_includes_a_title_with_only_watch_history(self):
+        # the common real-world case: watched via Trakt/Simkl/CSV import,
+        # mid-way through, no WatchProgress row of any kind (nothing in
+        # this app ever sets WATCHING - see calendar_releases()'s docstring).
+        title = Title.objects.create(media_type=MediaType.TV, name="Mid-Watch", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        self.assertIn(title, selectors.titles_needing_release_sync())
+
     def test_excludes_a_title_with_no_engagement(self):
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Untouched", year=2020)
         self.assertNotIn(title, selectors.titles_needing_release_sync())
@@ -830,6 +838,34 @@ class CalendarReleasesBroadeningTests(TestCase):
         results = list(selectors.calendar_releases(self.profile, source="watching"))
         self.assertIn(release, results)
 
+    def test_watch_history_only_title_surfaces_under_default_scope(self):
+        # the common real-world case: mid-way through a show via Trakt/
+        # Simkl/CSV import, no WatchProgress row of any kind.
+        from django.utils import timezone
+
+        mid_watch = Title.objects.create(media_type=MediaType.TV, name="Mid-Watch", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=mid_watch, watched_at="2024-01-01T00:00:00Z")
+        release = ReleaseSchedule.objects.create(
+            title=mid_watch,
+            release_type=ReleaseSchedule.ReleaseType.EPISODE,
+            release_date=timezone.now() + timedelta(days=5),
+        )
+        results = list(selectors.calendar_releases(self.profile))
+        self.assertIn(release, results)
+
+    def test_watch_history_only_title_does_not_surface_under_watching_filter(self):
+        from django.utils import timezone
+
+        mid_watch = Title.objects.create(media_type=MediaType.TV, name="Mid-Watch", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=mid_watch, watched_at="2024-01-01T00:00:00Z")
+        release = ReleaseSchedule.objects.create(
+            title=mid_watch,
+            release_type=ReleaseSchedule.ReleaseType.EPISODE,
+            release_date=timezone.now() + timedelta(days=5),
+        )
+        results = list(selectors.calendar_releases(self.profile, source="watching"))
+        self.assertNotIn(release, results)
+
 
 class UpNextBroadeningTests(TestCase):
     def setUp(self):
@@ -849,6 +885,38 @@ class UpNextBroadeningTests(TestCase):
         items = selectors.up_next(self.profile)
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["title"], self.title)
+
+    def test_watch_history_only_title_surfaces_in_up_next(self):
+        from django.utils import timezone
+
+        mid_watch = Title.objects.create(media_type=MediaType.TV, name="Mid-Watch", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=mid_watch, watched_at="2024-01-01T00:00:00Z")
+        ReleaseSchedule.objects.create(
+            title=mid_watch,
+            release_type=ReleaseSchedule.ReleaseType.EPISODE,
+            release_date=timezone.now() + timedelta(days=1),
+        )
+        titles = [item["title"] for item in selectors.up_next(self.profile, limit=10)]
+        self.assertIn(mid_watch, titles)
+
+    def test_multiple_watch_events_do_not_duplicate_the_release(self):
+        # WatchEvent has no per-title uniqueness constraint (unlike
+        # WatchProgress) - joining through it without .distinct() would
+        # multiply-match the same ReleaseSchedule row once per episode
+        # watched.
+        from django.utils import timezone
+
+        binged = Title.objects.create(media_type=MediaType.TV, name="Binged", year=2020)
+        for i in range(5):
+            WatchEvent.objects.create(profile=self.profile, title=binged, watched_at="2024-01-01T00:00:00Z")
+        ReleaseSchedule.objects.create(
+            title=binged,
+            release_type=ReleaseSchedule.ReleaseType.EPISODE,
+            release_date=timezone.now() + timedelta(days=1),
+        )
+        items = selectors.up_next(self.profile, limit=10)
+        matching = [item for item in items if item["title"] == binged]
+        self.assertEqual(len(matching), 1)
 
 
 class InstanceConfigTests(TestCase):

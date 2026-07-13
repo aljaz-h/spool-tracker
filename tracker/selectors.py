@@ -80,16 +80,21 @@ def _when_label(release_date):
 
 def up_next(profile, limit=3):
     """Dashboard's "Up Next" card. Matches calendar_releases()'s default
-    scope - any WatchProgress status, not just WATCHING, so a completed
-    show that gets renewed still shows its next episode here too, not
-    just on the Calendar page."""
+    scope - any WatchProgress status, or plain watch history, not just
+    WATCHING (see calendar_releases()'s docstring for why WATCHING alone
+    isn't enough in practice). .distinct() is required here, unlike the
+    old WatchProgress-only query: WatchProgress is at most one row per
+    profile+title, but WatchEvent isn't (every episode watched is its own
+    row), so joining through it can multiply-match the same
+    ReleaseSchedule row once per watch event without it."""
     qs = (
         ReleaseSchedule.objects.filter(
-            title__watch_progress__profile=profile,
+            Q(title__watch_progress__profile=profile) | Q(title__watch_events__profile=profile),
             release_date__gte=timezone.now(),
         )
         .select_related("title", "episode")
-        .order_by("release_date")[:limit]
+        .order_by("release_date")
+        .distinct()[:limit]
     )
     items = []
     for rs in qs:
@@ -188,15 +193,20 @@ def calendar_releases(profile, media_type=None, source="all"):
     visible watchlist (own + shared, same visibility rule as everywhere
     else lists show up) — spool-handoff-addendum.md §1. The default "all"
     view also includes titles with ANY WatchProgress status (not just
-    WATCHING) - a finished show that later gets renewed should still
-    surface its new season here, even though completing it moved it out
-    of "watching". The explicit source="watching" filter keeps its
-    narrower, literal meaning on purpose - that's a deliberate user-facing
-    filter choice, not the gap this broadening fixes."""
+    WATCHING - a finished show that later gets renewed should still
+    surface its new season here) and, since nothing in this app actually
+    sets WatchProgress to WATCHING (it's write-only from Django admin;
+    real usage only ever reaches COMPLETED, via completion.py once every
+    episode is watched), also anything with plain watch history at all -
+    otherwise a show you're mid-way through via Trakt/Simkl/CSV import,
+    with no WatchProgress row of any kind, would never qualify. The
+    explicit source="watching" filter keeps its narrower, literal meaning
+    on purpose - that's a deliberate user-facing filter choice, not the
+    gap this broadening fixes."""
     watching_q = Q(
         title__watch_progress__profile=profile, title__watch_progress__status=WatchProgress.Status.WATCHING
     )
-    any_progress_q = Q(title__watch_progress__profile=profile)
+    any_progress_q = Q(title__watch_progress__profile=profile) | Q(title__watch_events__profile=profile)
     watchlist_q = Q(title__watchlist_items__watchlist__profile=profile) | Q(
         title__watchlist_items__watchlist__is_shared=True
     )
@@ -220,14 +230,21 @@ def calendar_releases(profile, media_type=None, source="all"):
 
 def titles_needing_release_sync():
     """Titles worth polling TMDB for upcoming releases - anything with a
-    WatchProgress row (any status - watching/planned/completed) or
-    watchlist membership. Instance-wide, not profile-scoped: a release
-    date is a fact about the Title, shared across every household profile
-    that cares about it; calendar_releases()/up_next() do the per-profile
-    filtering at read time. TMDB-id filtering happens per-title in Python
-    inside release_sync.sync_title_releases, not here, matching the
+    WatchProgress row (any status), watchlist membership, or plain watch
+    history. The watch-history leg matters in practice: nothing in this
+    app ever sets WatchProgress to WATCHING (see calendar_releases()'s
+    docstring), so without it, a show a household is mid-way through via
+    Trakt/Simkl/CSV import - with no WatchProgress row of any kind - would
+    never get its upcoming episodes checked. Instance-wide, not
+    profile-scoped: a release date is a fact about the Title, shared
+    across every household profile that cares about it;
+    calendar_releases()/up_next() do the per-profile filtering at read
+    time. TMDB-id filtering happens per-title in Python inside
+    release_sync.sync_title_releases, not here, matching the
     title.external_ids.get("tmdb") idiom already used in views.py."""
-    return Title.objects.filter(Q(watch_progress__isnull=False) | Q(watchlist_items__isnull=False)).distinct()
+    return Title.objects.filter(
+        Q(watch_progress__isnull=False) | Q(watchlist_items__isnull=False) | Q(watch_events__isnull=False)
+    ).distinct()
 
 
 def ready_to_watch_queue(profile, queue_size=3):
