@@ -13,6 +13,8 @@
        {% if details.backdrop_url %}style="background-image:url('{{ details.backdrop_url }}');background-size:cover;background-position:center 20%"{% endif %}>
     <div class="absolute inset-0 bg-linear-to-t from-base-100 via-base-100/65 to-transparent"></div>
     <div class="absolute inset-0 bg-linear-to-r from-base-100 via-base-100/35 to-transparent"></div>
+    <div class="filmstrip-edge filmstrip-edge--left"></div>
+    <div class="filmstrip-edge filmstrip-edge--right"></div>
 
     {% if director or details.original_language %}
       <div class="absolute z-10 bottom-4 right-6 text-right font-mono text-[11px] text-ink-dim">

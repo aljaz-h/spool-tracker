@@ -15,4 +15,9 @@ def icon(name, css_class="w-4 h-4"):
     # Vendored Lucide source is multi-line ("<svg\n  xmlns=...>"), not the
     # single-line "<svg ...>" the stack addendum's snippet assumed — match
     # bare "<svg" so the class lands right regardless of what follows.
-    return mark_safe(svg.replace("<svg", f'<svg class="{css_class}"', 1))
+    svg = svg.replace("<svg", f'<svg class="{css_class}"', 1)
+    # Bump from Lucide's default stroke-width="2" to a slightly heavier
+    # 2.5 across every vendored icon, to match the bold font-display type
+    # (visual-identity brief, phase 2) - centralized here instead of
+    # repeating a stroke-width override at each of the ~9 call sites.
+    return mark_safe(svg.replace('stroke-width="2"', 'stroke-width="2.5"', 1))
