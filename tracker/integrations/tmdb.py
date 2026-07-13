@@ -289,12 +289,37 @@ BACKDROP_BASE = "https://image.tmdb.org/t/p/w1280"
 PROFILE_BASE = "https://image.tmdb.org/t/p/w185"
 
 
+# TMDB's raw `status` string (both movie and tv share the field, but use
+# different vocabularies) mapped to a short display label + a daisyUI
+# semantic color to badge it with on the title detail hero. "Released" is
+# deliberately omitted - a released movie is the default/expected state
+# and doesn't need a badge, whereas everything else here is worth calling
+# out (spool-product-spec.md has no prior art for this; picked to mirror
+# how Trakt/TMDB's own web UIs label the same statuses).
+STATUS_BADGES = {
+    "Returning Series": {"label": "Ongoing", "color": "success"},
+    "Ended": {"label": "Ended", "color": "ink-dim"},
+    "Canceled": {"label": "Cancelled", "color": "error"},
+    "In Production": {"label": "In Production", "color": "info"},
+    "Planned": {"label": "Upcoming", "color": "info"},
+    "Pilot": {"label": "Pilot", "color": "ink-dim"},
+    "Post Production": {"label": "Post Production", "color": "info"},
+    "Rumored": {"label": "Rumored", "color": "ink-dim"},
+}
+
+
+def status_badge(status):
+    """{"label", "color"} for the title detail hero's status badge, or
+    None if this status isn't worth badging (e.g. a released movie)."""
+    return STATUS_BADGES.get(status)
+
+
 def get_full_details(media_type, tmdb_id):
     """{"name", "year", "overview", "tagline", "genres": [str,...],
     "runtime": int|None (movie), "number_of_seasons"/"number_of_episodes":
     int|None (tv), "backdrop_url", "poster_url", "vote_average",
-    "vote_count", "original_language"} or None if nothing came back
-    (no api key, bad id, network error)."""
+    "vote_count", "original_language", "status": str|None} or None if
+    nothing came back (no api key, bad id, network error)."""
     data = _list_request(f"{media_type}/{tmdb_id}")
     if not data or data.get("id") is None:
         return None
@@ -318,6 +343,7 @@ def get_full_details(media_type, tmdb_id):
         "vote_average": data.get("vote_average"),
         "vote_count": data.get("vote_count"),
         "original_language": data.get("original_language"),
+        "status": data.get("status"),
     }
 
 

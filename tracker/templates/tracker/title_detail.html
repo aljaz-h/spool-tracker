@@ -30,6 +30,13 @@
       <div class="min-w-0 flex-1">
         <h1 class="font-display text-4xl">{{ display_name }}
           <span class="text-ink-dim text-2xl font-body align-middle">{{ display_year }}</span>
+          {% if status_badge %}
+            <span class="align-middle font-mono text-[11px] uppercase tracking-wide px-2 py-0.5 rounded-full border
+              {% if status_badge.color == 'success' %}border-success/30 bg-success/15 text-success
+              {% elif status_badge.color == 'error' %}border-error/30 bg-error/15 text-error
+              {% elif status_badge.color == 'info' %}border-info/30 bg-info/15 text-info
+              {% else %}border-line bg-base-300/60 text-ink-dim{% endif %}">{{ status_badge.label }}</span>
+          {% endif %}
         </h1>
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-dim mt-2 font-mono">
           {% if details.runtime %}<span>{{ details.runtime }} min</span>{% endif %}

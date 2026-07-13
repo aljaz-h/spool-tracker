@@ -1719,6 +1719,17 @@ class TmdbDetailPageTests(TestCase):
         self.assertEqual(details["number_of_episodes"], 24)
 
     @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_full_details_includes_raw_status(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 99, "name": "Cinder Street", "first_air_date": "2022-01-01",
+                "genres": [], "status": "Returning Series",
+            }
+        )
+        details = tmdb.get_full_details("tv", 99)
+        self.assertEqual(details["status"], "Returning Series")
+
+    @patch("tracker.integrations.tmdb.requests.get")
     def test_get_full_details_returns_none_on_missing_id(self, mock_get):
         mock_get.return_value = self._response({})
         self.assertIsNone(tmdb.get_full_details("movie", 1))
@@ -1831,6 +1842,24 @@ class TmdbDetailPageTests(TestCase):
 
         mock_get.side_effect = requests.RequestException("boom")
         self.assertEqual(tmdb.get_watch_providers("movie", 1), [])
+
+
+class TmdbStatusBadgeTests(TestCase):
+    def test_ongoing_show_maps_to_a_success_badge(self):
+        self.assertEqual(tmdb.status_badge("Returning Series"), {"label": "Ongoing", "color": "success"})
+
+    def test_cancelled_show_maps_to_an_error_badge(self):
+        self.assertEqual(tmdb.status_badge("Canceled"), {"label": "Cancelled", "color": "error"})
+
+    def test_ended_show_maps_to_a_neutral_badge(self):
+        self.assertEqual(tmdb.status_badge("Ended"), {"label": "Ended", "color": "ink-dim"})
+
+    def test_a_released_movie_gets_no_badge(self):
+        self.assertIsNone(tmdb.status_badge("Released"))
+
+    def test_unknown_or_missing_status_gets_no_badge(self):
+        self.assertIsNone(tmdb.status_badge("Some Future TMDB Status"))
+        self.assertIsNone(tmdb.status_badge(None))
 
 
 @override_settings(
@@ -2176,7 +2205,7 @@ class TitleDetailViewTests(TestCase):
             "overview": "A movie.", "tagline": "", "genres": ["Drama"], "runtime": 100,
             "number_of_seasons": None, "number_of_episodes": None,
             "backdrop_url": None, "poster_url": None, "vote_average": 7.0,
-            "vote_count": 100, "original_language": "en",
+            "vote_count": 100, "original_language": "en", "status": None,
         }
         base.update(overrides)
         return base
@@ -2232,6 +2261,23 @@ class TitleDetailViewTests(TestCase):
         WatchListItem.objects.create(watchlist=watchlist, title=self.title)
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         self.assertIn(watchlist.id, resp.context["in_list_ids"])
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_shows_a_status_badge_for_an_ended_show(self, mock_details, mock_credits, mock_similar):
+        mock_details.return_value = self._details(status="Ended")
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertEqual(resp.context["status_badge"], {"label": "Ended", "color": "ink-dim"})
+        self.assertContains(resp, "Ended")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_no_status_badge_for_a_released_movie(self, mock_details, mock_credits, mock_similar):
+        mock_details.return_value = self._details(status="Released")
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertIsNone(resp.context["status_badge"])
 
 
 class TitleMarkWatchedAndRateTests(TestCase):
@@ -2311,7 +2357,7 @@ class TitlePreviewViewTests(TestCase):
             "overview": "A movie.", "tagline": "", "genres": ["Drama"], "runtime": 100,
             "number_of_seasons": None, "number_of_episodes": None,
             "backdrop_url": None, "poster_url": None, "vote_average": 7.0,
-            "vote_count": 100, "original_language": "en",
+            "vote_count": 100, "original_language": "en", "status": None,
         }
         base.update(overrides)
         return base
@@ -2335,6 +2381,15 @@ class TitlePreviewViewTests(TestCase):
         self.assertTrue(resp.context["is_preview"])
         self.assertContains(resp, "Fathom")
         self.assertContains(resp, "Add to Watchlist")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_shows_a_status_badge_for_an_upcoming_movie(self, mock_details, mock_credits, mock_similar):
+        mock_details.return_value = self._details(status="Planned")
+        resp = self.client.get(reverse("title_preview", args=["movie", 42]))
+        self.assertEqual(resp.context["status_badge"], {"label": "Upcoming", "color": "info"})
+        self.assertContains(resp, "Upcoming")
 
     def test_redirects_to_real_detail_page_if_already_tracked(self):
         title = Title.objects.create(
