@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-14
+
+### Added
+
+- Three new Stats panels, per a hand-drawn mockup: "Daily breakdown" (a
+  7-day bar chart, today included, peak day labeled with its duration),
+  "Daily average" (average watch time per day over the last 7 days, with
+  a delta vs. the preceding 7-day period), and "Peak hours" (lifetime
+  distribution of watch events across Morning/Afternoon/Evening/Night,
+  bucketed by local time of day).
+
 ## [0.3.4] - 2026-07-14
 
 ### Fixed

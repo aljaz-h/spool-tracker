@@ -128,5 +128,49 @@
     </div>
   </div>
 
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mt-5">
+    <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
+      <h3 class="text-lg mb-4">Daily breakdown</h3>
+      <div class="flex items-end justify-between gap-2 h-[130px]">
+        {% for d in daily_breakdown.days %}
+          <div class="flex flex-col items-center justify-end flex-1 h-full">
+            <div class="font-mono text-[10px] font-bold text-ink-dim mb-1 h-3.5 whitespace-nowrap">
+              {% if daily_breakdown.peak_minutes and d.minutes == daily_breakdown.peak_minutes %}{{ d.duration }}{% endif %}
+            </div>
+            <div
+              class="w-full max-w-[24px] rounded-t-md {% if daily_breakdown.peak_minutes and d.minutes == daily_breakdown.peak_minutes %}bg-primary{% else %}bg-primary/35{% endif %}"
+              style="height:{{ d.height_pct }}%"
+              title="{{ d.label }} · {{ d.duration }}"
+            ></div>
+            <div class="font-mono text-[10px] text-ink-faint mt-1.5">{{ d.label }}</div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
+      <h3 class="text-lg mb-4">Daily average</h3>
+      <div class="font-display text-4xl">{{ daily_average.average_duration }}</div>
+      {% if daily_average.delta_label %}
+        <div class="font-mono text-xs mt-2 {% if daily_average.delta_positive %}text-success{% else %}text-error{% endif %}">{{ daily_average.delta_label }}</div>
+      {% endif %}
+    </div>
+
+    <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
+      <h3 class="text-lg mb-4">Peak hours</h3>
+      <div class="space-y-3">
+        {% for bucket in peak_hours %}
+          <div class="flex items-center gap-3">
+            <span class="text-[13px] text-ink-dim w-[70px] flex-none">{{ bucket.label }}</span>
+            <div class="flex-1 h-2 rounded-full bg-base-300 overflow-hidden">
+              <div class="h-full rounded-full bg-primary" style="width:{{ bucket.pct }}%"></div>
+            </div>
+            <span class="font-mono text-xs text-ink-faint w-6 text-right flex-none">{{ bucket.count }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
   {% endif %}
 {% endblock %}

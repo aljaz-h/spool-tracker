@@ -1624,6 +1624,130 @@ class StatsOverviewMoviesWatchedTests(TestCase):
         self.assertEqual(overview["movies_plays"], 0)
 
 
+class DailyBreakdownTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("dailybreakdownwatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="DailyBreakdownWatcher")
+
+    def _movie(self, name, runtime):
+        return Title.objects.create(media_type=MediaType.MOVIE, name=name, year=2020, runtime_minutes=runtime)
+
+    def test_covers_the_last_seven_days_including_today(self):
+        from django.utils import timezone
+
+        result = selectors.daily_breakdown(self.profile)
+        self.assertEqual(len(result["days"]), 7)
+        self.assertEqual(result["days"][-1]["label"], "Today")
+        self.assertEqual(result["days"][-1]["date"], timezone.localdate())
+
+    def test_sums_minutes_per_day_and_finds_the_peak(self):
+        from django.utils import timezone
+
+        today = timezone.localdate()
+        WatchEvent.objects.create(profile=self.profile, title=self._movie("A", 60), watched_at=timezone.now())
+        two_days_ago = timezone.make_aware(timezone.datetime.combine(today - timedelta(days=2), timezone.datetime.min.time().replace(hour=20)))
+        WatchEvent.objects.create(profile=self.profile, title=self._movie("B", 120), watched_at=two_days_ago)
+        WatchEvent.objects.create(profile=self.profile, title=self._movie("C", 90), watched_at=two_days_ago)
+
+        result = selectors.daily_breakdown(self.profile)
+        by_date = {d["date"]: d for d in result["days"]}
+        self.assertEqual(by_date[today]["minutes"], 60)
+        self.assertEqual(by_date[today - timedelta(days=2)]["minutes"], 210)
+        self.assertEqual(result["peak_minutes"], 210)
+        self.assertEqual(by_date[today - timedelta(days=2)]["height_pct"], 100)
+        self.assertEqual(by_date[today]["height_pct"], round(60 / 210 * 100))
+
+    def test_days_with_nothing_watched_are_zero_not_missing(self):
+        result = selectors.daily_breakdown(self.profile)
+        self.assertTrue(all(d["minutes"] == 0 for d in result["days"]))
+        self.assertEqual(result["peak_minutes"], 0)
+
+    def test_events_outside_the_window_are_excluded(self):
+        from django.utils import timezone
+
+        old = self._movie("Old", 500)
+        WatchEvent.objects.create(profile=self.profile, title=old, watched_at=timezone.now() - timedelta(days=30))
+        result = selectors.daily_breakdown(self.profile)
+        self.assertEqual(result["peak_minutes"], 0)
+
+
+class DailyAverageTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("dailyaveragewatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="DailyAverageWatcher")
+
+    def _movie(self, name, runtime):
+        return Title.objects.create(media_type=MediaType.MOVIE, name=name, year=2020, runtime_minutes=runtime)
+
+    def test_average_is_total_over_seven_days(self):
+        from django.utils import timezone
+
+        WatchEvent.objects.create(profile=self.profile, title=self._movie("A", 700), watched_at=timezone.now())
+        result = selectors.daily_average(self.profile)
+        self.assertEqual(result["average_duration"], selectors._format_duration(700 / 7))
+
+    def test_delta_compares_against_the_preceding_window(self):
+        from django.utils import timezone
+
+        now = timezone.now()
+        WatchEvent.objects.create(profile=self.profile, title=self._movie("This week", 140), watched_at=now)
+        WatchEvent.objects.create(
+            profile=self.profile, title=self._movie("Last week", 70), watched_at=now - timedelta(days=10)
+        )
+        result = selectors.daily_average(self.profile)
+        self.assertTrue(result["delta_positive"])
+        self.assertEqual(result["delta_label"], f"+{selectors._format_duration(round(140 / 7) - round(70 / 7))}")
+
+    def test_no_delta_label_when_nothing_changed(self):
+        result = selectors.daily_average(self.profile)
+        self.assertIsNone(result["delta_label"])
+
+
+class PeakHoursTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("peakhourswatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="PeakHoursWatcher")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+
+    def _watch_at_local_hour(self, hour):
+        from django.utils import timezone
+
+        tz = timezone.get_current_timezone()
+        naive = timezone.datetime.combine(timezone.localdate(), timezone.datetime.min.time().replace(hour=hour))
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=timezone.make_aware(naive, tz))
+
+    def test_buckets_by_local_time_of_day(self):
+        self._watch_at_local_hour(9)  # morning
+        self._watch_at_local_hour(14)  # afternoon
+        self._watch_at_local_hour(18)  # evening
+        self._watch_at_local_hour(23)  # night
+
+        buckets = {b["label"]: b["count"] for b in selectors.peak_hours(self.profile)}
+        self.assertEqual(buckets["Morning"], 1)
+        self.assertEqual(buckets["Afternoon"], 1)
+        self.assertEqual(buckets["Evening"], 1)
+        self.assertEqual(buckets["Night"], 1)
+
+    def test_night_bucket_wraps_past_midnight(self):
+        self._watch_at_local_hour(2)  # 2am - still "Night"
+        buckets = {b["label"]: b["count"] for b in selectors.peak_hours(self.profile)}
+        self.assertEqual(buckets["Night"], 1)
+
+    def test_pct_is_relative_to_the_largest_bucket(self):
+        for _ in range(4):
+            self._watch_at_local_hour(23)  # night x4
+        self._watch_at_local_hour(9)  # morning x1
+
+        buckets = {b["label"]: b for b in selectors.peak_hours(self.profile)}
+        self.assertEqual(buckets["Night"]["pct"], 100)
+        self.assertEqual(buckets["Morning"]["pct"], round(1 / 4 * 100))
+
+    def test_no_events_returns_all_zero_buckets(self):
+        buckets = selectors.peak_hours(self.profile)
+        self.assertEqual(len(buckets), 4)
+        self.assertTrue(all(b["count"] == 0 and b["pct"] == 0 for b in buckets))
+
+
 class MilestoneMessageTests(TestCase):
     def test_streak_milestone_returns_a_message(self):
         self.assertIsNotNone(selectors.milestone_message(streak=7, movies_this_year=3))

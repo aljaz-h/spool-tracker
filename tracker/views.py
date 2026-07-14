@@ -801,6 +801,9 @@ def stats(request):
 
         context["watch_time_breakdown"] = selectors.watch_time_breakdown(profile)
         context["genre_breakdown"] = selectors.genre_breakdown(profile, GENRE_TYPES[genre_type])
+        context["daily_breakdown"] = selectors.daily_breakdown(profile)
+        context["daily_average"] = selectors.daily_average(profile)
+        context["peak_hours"] = selectors.peak_hours(profile)
 
         years = selectors.year_breakdown(profile, GENRE_TYPES[genre_type])
         max_count = max((y["count"] for y in years), default=0)

@@ -5,7 +5,7 @@ the template")."""
 from datetime import timedelta
 
 from django.db.models import Count, Q, Sum
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, ExtractHour
 from django.utils import timezone
 
 from .models import Episode, MediaType, ReleaseSchedule, Title, WatchEvent, WatchList, WatchListItem, WatchProgress
@@ -414,6 +414,113 @@ def heatmap_counts_by_day(profile, year):
         .annotate(count=Count("id"))
     )
     return {row["watched_at__date"]: row["count"] for row in qs}
+
+
+_WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def daily_breakdown(profile, days=7):
+    """Per-day watch duration for the last `days` days (today inclusive) -
+    the Stats page's Daily Breakdown bar chart. Today's own label reads
+    "Today" rather than its weekday name, and each day's height_pct is
+    relative to the window's own peak day (not a fixed scale), matching
+    the mockup's "12h 24m" label floating above the tallest bar."""
+    today = timezone.localdate()
+    start = today - timedelta(days=days - 1)
+    minutes_by_date = {
+        row["watched_at__date"]: row["minutes"] or 0
+        for row in (
+            WatchEvent.objects.filter(profile=profile, watched_at__date__gte=start, watched_at__date__lte=today)
+            .values("watched_at__date")
+            .annotate(minutes=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))
+        )
+    }
+
+    day_rows = []
+    for i in range(days):
+        d = start + timedelta(days=i)
+        minutes = minutes_by_date.get(d, 0)
+        day_rows.append(
+            {
+                "label": "Today" if d == today else _WEEKDAY_LABELS[d.weekday()],
+                "date": d,
+                "minutes": minutes,
+                "duration": _format_duration(minutes),
+            }
+        )
+
+    peak_minutes = max((d["minutes"] for d in day_rows), default=0)
+    for d in day_rows:
+        d["height_pct"] = round(d["minutes"] / peak_minutes * 100) if peak_minutes else 0
+
+    return {"days": day_rows, "peak_minutes": peak_minutes, "peak_duration": _format_duration(peak_minutes)}
+
+
+def daily_average(profile, days=7):
+    """Average per-day watch time over the last `days` days, with a delta
+    vs. the preceding period of the same length (e.g. "+9m" - this
+    window's daily average is 9 minutes higher than last window's)."""
+    today = timezone.localdate()
+
+    def total_minutes(start, end):
+        return (
+            WatchEvent.objects.filter(profile=profile, watched_at__date__gte=start, watched_at__date__lte=end)
+            .aggregate(total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))["total"]
+            or 0
+        )
+
+    current_start = today - timedelta(days=days - 1)
+    previous_end = current_start - timedelta(days=1)
+    previous_start = previous_end - timedelta(days=days - 1)
+
+    current_avg = total_minutes(current_start, today) / days
+    previous_avg = total_minutes(previous_start, previous_end) / days
+    delta = round(current_avg) - round(previous_avg)
+
+    return {
+        "average_duration": _format_duration(current_avg),
+        "delta_positive": delta >= 0,
+        "delta_label": f"{'+' if delta > 0 else '-'}{_format_duration(abs(delta))}" if delta else None,
+    }
+
+
+# (label, start_hour_inclusive, end_hour_exclusive) in the profile's local
+# time - Night wraps past midnight (21:00-05:00), everything else doesn't.
+_TIME_OF_DAY_BUCKETS = [
+    ("Morning", 5, 12),
+    ("Afternoon", 12, 17),
+    ("Evening", 17, 21),
+    ("Night", 21, 5),
+]
+
+
+def peak_hours(profile):
+    """Lifetime distribution of watch events by time of day - which part
+    of the day this household tends to watch in, for the Stats page's
+    Peak Hours bars. Bucketed on watched_at's LOCAL hour (via ExtractHour's
+    tzinfo param), not the UTC hour it's stored as - a single grouped
+    query (at most 24 rows back) rather than fetching every WatchEvent."""
+    counts_by_hour = dict(
+        WatchEvent.objects.filter(profile=profile)
+        .annotate(hour=ExtractHour("watched_at", tzinfo=timezone.get_current_timezone()))
+        .values("hour")
+        .annotate(count=Count("id"))
+        .values_list("hour", "count")
+    )
+
+    counts = {label: 0 for label, _, _ in _TIME_OF_DAY_BUCKETS}
+    for hour, count in counts_by_hour.items():
+        for label, start, end in _TIME_OF_DAY_BUCKETS:
+            in_range = start <= hour < end if start < end else (hour >= start or hour < end)
+            if in_range:
+                counts[label] += count
+                break
+
+    max_count = max(counts.values(), default=0)
+    return [
+        {"label": label, "count": counts[label], "pct": round(counts[label] / max_count * 100) if max_count else 0}
+        for label, _, _ in _TIME_OF_DAY_BUCKETS
+    ]
 
 
 def activity_feed(limit=30):
