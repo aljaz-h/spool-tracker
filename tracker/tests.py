@@ -2741,6 +2741,13 @@ class TitleMarkWatchedAndRateTests(TestCase):
         resp = self.client.get(reverse("title_mark_watched", args=[self.title.pk]))
         self.assertEqual(resp.status_code, 405)
 
+    def test_mark_watched_via_htmx_returns_the_watched_button_fragment_not_a_redirect(self):
+        resp = self.client.post(reverse("title_mark_watched", args=[self.title.pk]), HTTP_HX_REQUEST="true")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, f"watched-btn-{self.title.pk}")
+        self.assertContains(resp, "bg-success")
+        self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title=self.title).exists())
+
     def test_rate_with_no_prior_watch_creates_a_watch_event(self):
         resp = self.client.post(reverse("title_rate", args=[self.title.pk]), {"rating": "7"})
         self.assertRedirects(resp, reverse("title_detail", args=[self.title.pk]), fetch_redirect_response=False)
@@ -2892,6 +2899,118 @@ class ListActionNextRedirectTests(TestCase):
             {"title_id": self.title.pk, "next": "https://evil.example/"},
         )
         self.assertRedirects(resp, reverse("list_detail", args=[self.watchlist.id]))
+
+
+class PosterActionContextSelectorTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("posteractionuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="PosterActionUser")
+
+    def test_watched_title_is_true(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Watched", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        context = selectors.poster_action_context(self.profile, [title])
+        self.assertTrue(context["watched_by_title"][title.pk])
+
+    def test_unwatched_title_is_false_not_missing(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Unwatched", year=2020)
+        context = selectors.poster_action_context(self.profile, [title])
+        self.assertIn(title.pk, context["watched_by_title"])
+        self.assertFalse(context["watched_by_title"][title.pk])
+
+    def test_list_membership_reflects_actual_lists(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Listed", year=2020)
+        watchlist = WatchList.objects.create(profile=self.profile, name="Favorites")
+        WatchListItem.objects.create(watchlist=watchlist, title=title)
+        context = selectors.poster_action_context(self.profile, [title])
+        self.assertEqual(context["list_membership"][title.pk], {watchlist.id})
+
+    def test_title_with_neither_still_has_both_keys_present(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Neither", year=2020)
+        context = selectors.poster_action_context(self.profile, [title])
+        self.assertIn(title.pk, context["watched_by_title"])
+        self.assertIn(title.pk, context["list_membership"])
+        self.assertEqual(context["list_membership"][title.pk], set())
+
+
+class PosterCardListPopoverHtmxBranchTests(TestCase):
+    """add_to_list/remove_from_list are reused by both the Lists detail
+    page (swaps the whole #list-items grid) and the new poster-card list
+    popover (should get back only its own small fragment). This class
+    guards the branch that tells those two apart - the regression that
+    matters most is the *existing* Lists-page behavior staying intact."""
+
+    def setUp(self):
+        user = User.objects.create_user("popoverposter", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="PopoverPoster")
+        self.client.login(username="popoverposter", password="pass12345")
+        self.watchlist = WatchList.objects.create(profile=self.profile, name="Favorites")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+
+    def test_add_to_list_from_the_popover_returns_just_the_popover_fragment(self):
+        resp = self.client.post(
+            reverse("add_to_list", args=[self.watchlist.id]),
+            {"title_id": self.title.pk},
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET=f"list-popover-{self.title.pk}",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, f"list-popover-{self.title.pk}")
+        self.assertNotContains(resp, 'id="list-items"')
+
+    def test_add_to_list_from_the_lists_page_still_returns_the_full_grid(self):
+        resp = self.client.post(
+            reverse("add_to_list", args=[self.watchlist.id]),
+            {"title_id": self.title.pk},
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="list-items"')
+
+    def test_remove_from_list_from_the_popover_returns_just_the_popover_fragment(self):
+        WatchListItem.objects.create(watchlist=self.watchlist, title=self.title)
+        resp = self.client.post(
+            reverse("remove_from_list", args=[self.watchlist.id]),
+            {"title_id": self.title.pk},
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET=f"list-popover-{self.title.pk}",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, f"list-popover-{self.title.pk}")
+        self.assertNotContains(resp, 'id="list-items"')
+        self.assertFalse(WatchListItem.objects.filter(watchlist=self.watchlist, title=self.title).exists())
+
+    def test_remove_from_list_from_the_lists_page_still_returns_the_full_grid(self):
+        WatchListItem.objects.create(watchlist=self.watchlist, title=self.title)
+        resp = self.client.post(
+            reverse("remove_from_list", args=[self.watchlist.id]),
+            {"title_id": self.title.pk},
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="list-items"')
+
+    def test_viewing_a_shared_list_shows_the_viewers_own_state_not_the_owners(self):
+        # add_to_list/remove_from_list are can_edit-gated to a list's own
+        # creator even when shared, so a non-owner can never reach
+        # _render_poster_actions for someone else's list - but a shared
+        # list *is* GET-viewable by other profiles (list_detail), and
+        # their poster cards must reflect the VIEWER's own watched/list
+        # state, not the list owner's.
+        other_user = User.objects.create_user("otherviewer", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="OtherViewer")
+        WatchList.objects.create(profile=other_profile, name="Mine")
+        WatchEvent.objects.create(profile=other_profile, title=self.title, watched_at="2024-01-01T00:00:00Z")
+        self.watchlist.is_shared = True
+        self.watchlist.save()
+        WatchListItem.objects.create(watchlist=self.watchlist, title=self.title)
+
+        self.client.logout()
+        self.client.login(username="otherviewer", password="pass12345")
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]))
+        self.assertIn(self.title.pk, resp.context["watched_by_title"])
+        self.assertTrue(resp.context["watched_by_title"][self.title.pk])
+        self.assertIn("Mine", [wl.name for wl in resp.context["my_lists"]])
 
 
 class HistoryConsecutiveEpisodeGroupingTests(TestCase):

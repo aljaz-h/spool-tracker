@@ -61,18 +61,29 @@ def dashboard(request):
     context = {"profile": profile}
     if profile is not None:
         stats = selectors.quick_stats(profile)
+        # No limit - this is now the full Watching list, not just a
+        # "continue watching" teaser, since Movies & TV / Anime becoming
+        # discovery pages means there's nowhere else for in-progress
+        # tracking to live.
+        continue_watching = selectors.continue_watching(profile, limit=None)
+        watchlist_items = list(
+            selectors.library_watchlist(profile, [MediaType.MOVIE, MediaType.TV, MediaType.ANIME])
+        )
+        recently_added = list(selectors.recently_added_to_lists(profile))
+        all_titles = (
+            [item["title"] for item in continue_watching]
+            + [item.title for item in watchlist_items]
+            + [item.title for item in recently_added]
+        )
         context.update(
             {
-                # No limit - this is now the full Watching list, not just a
-                # "continue watching" teaser, since Movies & TV / Anime
-                # becoming discovery pages means there's nowhere else for
-                # in-progress tracking to live.
-                "continue_watching": selectors.continue_watching(profile, limit=None),
-                "watchlist_items": selectors.library_watchlist(profile, [MediaType.MOVIE, MediaType.TV, MediaType.ANIME]),
+                "continue_watching": continue_watching,
+                "watchlist_items": watchlist_items,
                 "up_next": selectors.up_next(profile),
-                "recently_added": selectors.recently_added_to_lists(profile),
+                "recently_added": recently_added,
                 "stats": stats,
                 "milestone": selectors.milestone_message(stats["streak"], stats["movies_this_year"]),
+                **selectors.poster_action_context(profile, all_titles),
             }
         )
     return render(request, "tracker/dashboard.html", context)
@@ -220,13 +231,19 @@ def title_mark_watched(request, pk):
     episode-less WatchEvent (same shape History/the activity feed already
     render as "watched <title>" with no episode), since there was no
     manual "I watched this" action anywhere in the app before this page -
-    everything else arrives via sync/import/CSV."""
+    everything else arrives via sync/import/CSV. The poster card action
+    bar's watched button hits this same endpoint via HTMX and re-renders
+    just itself in place instead of following the full-page redirect -
+    there's no "unwatch" here (this always creates a new WatchEvent, a
+    second click logs a rewatch), so the fragment is always watched=True."""
     title = get_object_or_404(Title, pk=pk)
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
     WatchEvent.objects.create(profile=profile, title=title, watched_at=timezone.now())
     rewatches.recompute_is_rewatch(profile, title, None)
+    if request.headers.get("HX-Request"):
+        return render(request, "tracker/partials/poster_card_watched_button.html", {"title": title, "watched": True})
     return redirect("title_detail", pk=pk)
 
 
@@ -525,11 +542,13 @@ def _get_visible_list_or_404(profile, list_id):
 def list_detail(request, list_id):
     profile = Profile.objects.filter(user=request.user).first()
     watchlist = _get_visible_list_or_404(profile, list_id)
+    items = list(watchlist.items.select_related("title").prefetch_related("title__ratings"))
     context = {
         "profile": profile,
         "watchlist": watchlist,
         "can_edit": watchlist.can_edit(profile),
-        "items": watchlist.items.select_related("title").prefetch_related("title__ratings"),
+        "items": items,
+        **selectors.poster_action_context(profile, [item.title for item in items]),
     }
     return render(request, "tracker/list_detail.html", context)
 
@@ -560,10 +579,35 @@ def delete_list(request, list_id):
     return redirect("lists")
 
 
-def _render_list_items(request, watchlist):
-    items = watchlist.items.select_related("title").prefetch_related("title__ratings")
+def _render_list_items(request, watchlist, profile):
+    """profile is the acting/viewing profile, not necessarily
+    watchlist.profile - a shared list can be viewed/edited by other
+    household profiles too (see _get_visible_list_or_404), and their own
+    watched/list-membership state (not the list creator's) is what the
+    re-rendered cards' action buttons need to reflect."""
+    items = list(watchlist.items.select_related("title").prefetch_related("title__ratings"))
+    context = {
+        "watchlist": watchlist,
+        "can_edit": True,
+        "items": items,
+        **selectors.poster_action_context(profile, [item.title for item in items]),
+    }
+    return render(request, "tracker/partials/list_detail_items.html", context)
+
+
+def _render_poster_actions(request, profile, title):
+    """The list-picker popover's own HTMX fragment - re-rendered in place
+    after adding/removing title from a list, from any grid the popover
+    lives in (not just the Lists detail page, which _render_list_items
+    already covers)."""
+    my_lists = list(WatchList.objects.filter(profile=profile).order_by("name"))
+    in_list_ids = set(
+        WatchListItem.objects.filter(watchlist__profile=profile, title=title).values_list("watchlist_id", flat=True)
+    )
     return render(
-        request, "tracker/partials/list_detail_items.html", {"watchlist": watchlist, "can_edit": True, "items": items}
+        request,
+        "tracker/partials/poster_card_list_popover.html",
+        {"title": title, "my_lists": my_lists, "in_list_ids": in_list_ids},
     )
 
 
@@ -592,8 +636,11 @@ def add_to_list(request, list_id):
         raise Http404
     title = get_object_or_404(Title, pk=request.POST.get("title_id"))
     WatchListItem.objects.get_or_create(watchlist=watchlist, title=title)
+    hx_target = request.headers.get("HX-Target") or ""
+    if hx_target.startswith("list-popover-"):
+        return _render_poster_actions(request, profile, title)
     if request.headers.get("HX-Request"):
-        return _render_list_items(request, watchlist)
+        return _render_list_items(request, watchlist, profile)
     return _list_action_redirect(request, list_id)
 
 
@@ -604,9 +651,13 @@ def remove_from_list(request, list_id):
     watchlist = get_object_or_404(WatchList, pk=list_id)
     if profile is None or not watchlist.can_edit(profile):
         raise Http404
-    WatchListItem.objects.filter(watchlist=watchlist, title_id=request.POST.get("title_id")).delete()
+    title = get_object_or_404(Title, pk=request.POST.get("title_id"))
+    WatchListItem.objects.filter(watchlist=watchlist, title=title).delete()
+    hx_target = request.headers.get("HX-Target") or ""
+    if hx_target.startswith("list-popover-"):
+        return _render_poster_actions(request, profile, title)
     if request.headers.get("HX-Request"):
-        return _render_list_items(request, watchlist)
+        return _render_list_items(request, watchlist, profile)
     return _list_action_redirect(request, list_id)
 
 

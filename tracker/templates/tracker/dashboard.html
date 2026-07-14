@@ -38,7 +38,7 @@
     <h2 class="font-display text-xl">Watching{% if continue_watching %} <span class="text-ink-faint text-base font-body">({{ continue_watching|length }})</span>{% endif %}</h2>
   </div>
   {% if continue_watching %}
-    <div class="flex gap-5 overflow-x-auto pb-2">
+    <div class="flex gap-4 overflow-x-auto pb-2">
       {% for item in continue_watching %}
         {% include "tracker/partials/poster_card.html" with title=item.title progress=item %}
       {% endfor %}
@@ -52,7 +52,7 @@
     {% if watchlist_items %}<a href="{% url 'lists' %}" class="text-xs text-ink-faint hover:text-ink-dim">See all lists &rarr;</a>{% endif %}
   </div>
   {% if watchlist_items %}
-    <div class="flex gap-5 overflow-x-auto pb-2">
+    <div class="flex gap-4 overflow-x-auto pb-2">
       {% for item in watchlist_items %}
         {% include "tracker/partials/poster_card.html" with title=item.title show_ratings=True %}
       {% endfor %}
@@ -65,7 +65,7 @@
     <div>
       <h2 class="font-display text-xl mb-3.5">Recently added to lists</h2>
       {% if recently_added %}
-        <div class="flex gap-5 overflow-x-auto pb-2">
+        <div class="flex gap-4 overflow-x-auto pb-2">
           {% for item in recently_added %}
             {% include "tracker/partials/poster_card.html" with title=item.title show_ratings=True %}
           {% endfor %}

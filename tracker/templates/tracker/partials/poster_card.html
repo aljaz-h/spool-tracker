@@ -1,15 +1,27 @@
 {% load tracker_extras %}
-{# context: title (Title), progress ({percent,caption}|None), show_ratings (bool), user_rating (int|None), width_class (optional) #}
-<a href="{% url 'title_detail' title.pk %}" class="block {{ width_class|default:"w-[150px] flex-none" }}">
+{# context: title, progress, show_ratings, user_rating, width_class (all as before) plus watched_by_title/my_lists/list_membership from selectors.poster_action_context() #}
+{% comment %}
+Two <a> tags to the same URL (image box + text block below) instead of
+one wrapping anchor, so the action bar can sit as a sibling of the
+image's anchor - never nested inside it - and its buttons don't need
+any click-stop handling to avoid triggering navigation.
+{% endcomment %}
+<div class="{{ width_class|default_if_none:"w-[168px] flex-none" }}">
   <div
-    class="aspect-[2/3] rounded-lg relative overflow-hidden flex items-end p-2.5 border border-white/5 bg-cover bg-center {% if not title.poster_url %}{{ title.pk|gradient_class }}{% endif %}"
+    class="aspect-[2/3] rounded-lg relative overflow-hidden border border-white/5 bg-cover bg-center {% if not title.poster_url %}{{ title.pk|gradient_class }}{% endif %}"
     {% if title.poster_url %}style="background-image:url('{{ title.poster_url }}')"{% endif %}
   >
-    <div class="absolute inset-0 bg-linear-to-t from-black/65 to-transparent"></div>
-    <span class="absolute top-2 right-2 z-10 font-mono text-[9px] bg-black/45 px-1.5 py-0.5 rounded text-white/90 tracking-wide">{{ title.media_type|upper }}</span>
-    <span class="relative z-10 font-display text-[17px] leading-tight text-[#f2f1ea]" style="text-shadow:0 2px 6px rgba(0,0,0,.5)">{{ title.name }}</span>
+    <a href="{% url 'title_detail' title.pk %}" class="absolute inset-0 z-0 flex items-end pt-2.5 px-2.5 pb-9">
+      <div class="absolute inset-0 bg-linear-to-t from-black/65 to-transparent"></div>
+      <span class="absolute top-2 right-2 z-10 font-mono text-[9px] bg-black/45 px-1.5 py-0.5 rounded text-white/90 tracking-wide">{{ title.media_type|upper }}</span>
+      <span class="relative z-10 font-display text-[17px] leading-tight text-[#f2f1ea]" style="text-shadow:0 2px 6px rgba(0,0,0,.5)">{{ title.name }}</span>
+    </a>
+    <div class="absolute bottom-2 left-2 right-2 z-20 flex items-center gap-1.5">
+      {% include "tracker/partials/poster_card_watched_button.html" with title=title watched=watched_by_title|get_item:title.pk %}
+      {% include "tracker/partials/poster_card_list_popover.html" with title=title my_lists=my_lists in_list_ids=list_membership|get_item:title.pk %}
+    </div>
   </div>
-  <div class="mt-2 min-w-0">
+  <a href="{% url 'title_detail' title.pk %}" class="block mt-2 min-w-0">
     <div class="text-[13px] font-semibold mb-1 truncate">{{ title.name }}</div>
     {% if progress %}
       {% include "tracker/partials/sprocket_bar.html" with percent=progress.percent caption=progress.caption %}
@@ -17,5 +29,5 @@
     {% if show_ratings %}
       {% include "tracker/partials/pill_badges.html" with ratings=title.ratings.all user_rating=user_rating %}
     {% endif %}
-  </div>
-</a>
+  </a>
+</div>

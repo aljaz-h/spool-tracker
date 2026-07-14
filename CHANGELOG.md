@@ -8,6 +8,23 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-14
+
+### Added
+
+- Poster cards (Dashboard's carousels, Lists) now have a persistent quick-action
+  bar — mark as watched, or add/remove from any list — without leaving the
+  grid, styled after Trakt's own poster cards. Cards are also a bit bigger
+  and grids a bit denser across Dashboard, Lists, Discover, and "If you
+  like this."
+
+### Fixed
+
+- `list_detail_items.html`'s `width_class=""` override (meant to defer
+  poster card sizing entirely to its grid) never actually worked — Django's
+  `default` filter treats an empty string as falsy too, not just a missing
+  value, so it was silently ignored.
+
 ## [0.1.0] - 2026-07-14
 
 First tracked release — baseline for version tracking itself, covering

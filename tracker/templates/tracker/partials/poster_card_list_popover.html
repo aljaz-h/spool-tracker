@@ -1,0 +1,28 @@
+{% load icons %}
+{# context: title (Title), my_lists (list of WatchList), in_list_ids (set of watchlist pk) #}
+<div class="relative" id="list-popover-{{ title.pk }}" x-data="{ open: false }">
+  <button
+    type="button"
+    @click="open = !open"
+    title="Add to list"
+    class="w-7 h-7 rounded-full flex items-center justify-center border transition-colors
+      {% if in_list_ids %}bg-primary/90 border-primary/60 text-primary-content{% else %}bg-black/55 border-white/15 text-white/85 hover:bg-black/75 hover:border-white/30{% endif %}"
+  >{% icon "list-checks" "w-3.5 h-3.5" %}</button>
+  <div
+    x-show="open" x-cloak x-transition @click.outside="open = false"
+    class="absolute z-30 bottom-full left-0 mb-1.5 w-44 max-h-56 overflow-y-auto bg-base-200 border border-line rounded-lg p-1.5 shadow-xl"
+  >
+    {% for list in my_lists %}
+      <button
+        type="button"
+        hx-post="{% if list.id in in_list_ids %}{% url 'remove_from_list' list.id %}{% else %}{% url 'add_to_list' list.id %}{% endif %}"
+        hx-vals='{"title_id": "{{ title.pk }}"}'
+        hx-target="#list-popover-{{ title.pk }}"
+        hx-swap="outerHTML"
+        class="btn btn-xs w-full justify-between {% if list.id in in_list_ids %}btn-primary{% endif %}"
+      >{{ list.name }} <span>{% if list.id in in_list_ids %}&#10003;{% else %}+{% endif %}</span></button>
+    {% empty %}
+      <div class="text-[11px] text-ink-faint px-2 py-1.5">No lists yet.</div>
+    {% endfor %}
+  </div>
+</div>

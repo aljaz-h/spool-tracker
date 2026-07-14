@@ -556,3 +556,29 @@ def title_local_context(profile, title):
         "my_lists": my_lists,
         "in_list_ids": in_list_ids,
     }
+
+
+def poster_action_context(profile, titles):
+    """Batched version of title_local_context()'s watched/list-membership
+    lookups, for a grid of poster cards (Dashboard's carousels, a list's
+    item grid) - one query each instead of one-per-card, which title_local_context's
+    single-title shape would turn into an N+1 if reused as-is here. Every
+    title's pk is pre-seeded as a key in watched_by_title/list_membership
+    (even with no matches), so poster_card.html's `|get_item:` lookups
+    never hit a missing key."""
+    title_ids = [t.pk for t in titles]
+    watched_ids = set(
+        WatchEvent.objects.filter(profile=profile, title_id__in=title_ids)
+        .values_list("title_id", flat=True)
+        .distinct()
+    )
+    watched_by_title = {tid: tid in watched_ids for tid in title_ids}
+
+    my_lists = list(WatchList.objects.filter(profile=profile).order_by("name"))
+    list_membership = {tid: set() for tid in title_ids}
+    for title_id, list_id in WatchListItem.objects.filter(
+        watchlist__profile=profile, title_id__in=title_ids
+    ).values_list("title_id", "watchlist_id"):
+        list_membership[title_id].add(list_id)
+
+    return {"watched_by_title": watched_by_title, "my_lists": my_lists, "list_membership": list_membership}
