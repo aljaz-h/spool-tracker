@@ -919,6 +919,41 @@ class UpNextBroadeningTests(TestCase):
         self.assertEqual(len(matching), 1)
 
 
+class AppVersionTests(TestCase):
+    def test_version_module_reads_the_version_file(self):
+        from tracker.version import APP_VERSION
+
+        # exact value isn't the point (it changes on every bump) - just
+        # confirm it read something real off disk, not the "no file found"
+        # fallback.
+        self.assertNotEqual(APP_VERSION, "0.0.0")
+        self.assertRegex(APP_VERSION, r"^\d+\.\d+\.\d+$")
+
+    def test_context_processor_exposes_it(self):
+        from django.test import RequestFactory
+
+        from tracker.context_processors import app_version
+
+        context = app_version(RequestFactory().get("/"))
+        self.assertIn("app_version", context)
+
+    def test_settings_page_shows_the_version(self):
+        user = User.objects.create_user("versionchecker", password="pass12345")
+        Profile.objects.create(user=user, display_name="VersionChecker")
+        self.client.login(username="versionchecker", password="pass12345")
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, "Spool v")
+
+    def test_sidebar_shows_the_version_on_any_page(self):
+        user = User.objects.create_user("versionchecker2", password="pass12345")
+        Profile.objects.create(user=user, display_name="VersionChecker2")
+        self.client.login(username="versionchecker2", password="pass12345")
+        resp = self.client.get(reverse("dashboard"))
+        from tracker.version import APP_VERSION
+
+        self.assertContains(resp, f"v{APP_VERSION}")
+
+
 class InstanceConfigTests(TestCase):
     @override_settings(TRAKT_CLIENT_ID="env-id", TRAKT_CLIENT_SECRET="env-secret")
     def test_falls_back_to_env_when_db_blank(self):

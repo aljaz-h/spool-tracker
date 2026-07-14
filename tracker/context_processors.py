@@ -1,4 +1,12 @@
 from .models import Profile
+from .version import APP_VERSION
+
+
+def app_version(request):
+    """Exposes the app's VERSION-file string to every template - see
+    tracker/version.py for why it's a hand-bumped file rather than a git
+    SHA."""
+    return {"app_version": APP_VERSION}
 
 
 def active_profile(request):

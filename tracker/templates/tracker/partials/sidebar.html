@@ -57,6 +57,7 @@
 
   <div x-show="sidebarOpen" class="mt-auto pt-2.5 px-2.5 border-t border-line text-[11px] text-ink-faint leading-relaxed whitespace-nowrap">
     <div>{{ all_profiles|length }} profile{{ all_profiles|length|pluralize }} on this server</div>
+    <div class="font-mono">v{{ app_version }}</div>
   </div>
 </aside>
 {% endwith %}
