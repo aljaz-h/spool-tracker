@@ -14,9 +14,9 @@ click (title_preview_mark_watched/title_preview_add_to_list).
        {% if item.poster_url %}style="background-image:url('{{ item.poster_url }}')"{% endif %}>
     <a href="{% url 'title_preview' item.media_type item.tmdb_id %}" class="absolute inset-0 z-0">
       <div class="absolute inset-0 bg-linear-to-t from-black/85 via-black/35 via-55% to-transparent"></div>
-      <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[8px] bg-black/50 px-1 py-0.5 rounded text-white/90">{{ item.media_type|upper }}</span>
+      <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ item.media_type|upper }}</span>
       {% if item.vote_average %}
-        <span class="absolute top-1.5 right-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-1.5 py-1 rounded-md shadow-[0_1px_4px_rgba(0,0,0,0.7)]"><span class="text-amber-400">&#9733;</span> <span class="text-white">{{ item.vote_average|floatformat:1 }}</span></span>
+        <span class="absolute top-1.5 right-1.5 z-10 font-mono text-[11px] font-bold bg-black/85 px-2 py-1 rounded-md shadow-[0_1px_4px_rgba(0,0,0,0.7)]"><span class="text-amber-400">&#9733;</span> <span class="text-white">{{ item.vote_average|floatformat:1 }}</span></span>
       {% endif %}
     </a>
     <div class="absolute bottom-2 left-2 right-2 z-20 flex items-center gap-1.5">

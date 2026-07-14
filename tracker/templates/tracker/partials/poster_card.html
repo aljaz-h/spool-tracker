@@ -13,7 +13,7 @@ any click-stop handling to avoid triggering navigation.
   >
     <a href="{% url 'title_detail' title.pk %}" class="absolute inset-0 z-0 flex items-end pt-2.5 px-2.5 pb-9">
       <div class="absolute inset-0 bg-linear-to-t from-black/85 via-black/35 via-55% to-transparent"></div>
-      <span class="absolute top-2 right-2 z-10 font-mono text-[9px] bg-black/45 px-1.5 py-0.5 rounded text-white/90 tracking-wide">{{ title.media_type|upper }}</span>
+      <span class="absolute top-2 right-2 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ title.media_type|upper }}</span>
       <span class="relative z-10 font-display text-[17px] leading-tight text-[#f2f1ea]" style="text-shadow:0 2px 6px rgba(0,0,0,.5)">{{ title.name }}</span>
     </a>
     <div class="absolute bottom-2 left-2 right-2 z-20 flex items-center gap-1.5">

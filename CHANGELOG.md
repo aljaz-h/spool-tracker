@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-14
+
+### Fixed
+
+- The MOVIE/TV/ANIME badge on poster cards was a low-contrast, tiny
+  label that blended into the poster art, unlike the rating badge next
+  to it. Restyled to match the rating badge's solid background/shadow/
+  weight, and bumped both badges up slightly in size.
+
 ## [0.3.0] - 2026-07-14
 
 ### Added
