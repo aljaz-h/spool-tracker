@@ -14,7 +14,7 @@ account.
 - Dashboard: continue watching, up next, recently added to lists, quick stats
 - Movies & TV / Anime library views with Watching / Watchlist / History tabs
 - Full watch history with filters, pagination, and per-item removal
-- Calendar of upcoming episodes/releases, synced from Trakt/Simkl
+- Calendar of upcoming episodes/season premieres/movie releases, synced nightly from TMDB for anything you're watching, have watchlisted, or have watch history for
 - Shared and private lists (shared lists are creator-only for edit/delete)
 - Stats: watch streaks, genre breakdown, year breakdown, activity heatmap
 - Activity feed across profiles (only shown once a second profile exists)
