@@ -2440,6 +2440,20 @@ class DashboardWatchingWatchlistTests(TestCase):
         self.assertEqual(len(resp.context["watchlist_items"]), 1)
         self.assertEqual(resp.context["watchlist_items"][0].title, title)
 
+    def test_poster_cards_get_a_fixed_width_not_an_empty_class(self):
+        # regression test: poster_card.html's width_class fallback must
+        # use Django's `default` filter, not `default_if_none` - an
+        # include that never passes width_class at all (every Dashboard
+        # carousel) resolves the variable to an empty string, not None,
+        # so `default_if_none` silently produces class="" and the card
+        # falls back to sizing itself from its own (unconstrained,
+        # variable-length) title text instead of a fixed width.
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Listed Movie", year=2020)
+        watchlist = WatchList.objects.create(profile=self.profile, name="My List")
+        WatchListItem.objects.create(watchlist=watchlist, title=title)
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "w-[168px]")
+
     def test_milestone_banner_shows_on_a_streak_milestone_day(self):
         from django.utils import timezone
 
@@ -2871,6 +2885,64 @@ class TitlePreviewViewTests(TestCase):
     def test_add_to_watchlist_requires_login(self):
         self.client.logout()
         resp = self.client.post(reverse("title_preview_add_to_watchlist", args=["movie", 42]))
+        self.assertNotEqual(resp.status_code, 200)
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_mark_watched_materializes_the_title_and_logs_a_watch(self, mock_details):
+        mock_details.return_value = self._details()
+        resp = self.client.post(reverse("title_preview_mark_watched", args=["movie", 42]))
+        self.assertEqual(resp.status_code, 200)
+        title = Title.objects.get(external_ids__tmdb="42")
+        self.assertEqual(title.name, "Fathom")
+        self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title=title).exists())
+        self.assertContains(resp, f"watched-btn-{title.pk}")
+        self.assertContains(resp, "bg-success")
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_mark_watched_reuses_an_existing_title(self, mock_details):
+        mock_details.return_value = self._details()
+        existing_title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020,
+            external_ids={"tmdb": "42", "tmdb_kind": "movie"},
+        )
+        self.client.post(reverse("title_preview_mark_watched", args=["movie", 42]))
+        mock_details.assert_not_called()
+        self.assertEqual(Title.objects.filter(external_ids__tmdb="42").count(), 1)
+        self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title=existing_title).exists())
+
+    def test_mark_watched_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("title_preview_mark_watched", args=["movie", 42]))
+        self.assertNotEqual(resp.status_code, 200)
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_add_to_list_materializes_the_title_and_adds_it(self, mock_details):
+        mock_details.return_value = self._details()
+        watchlist = WatchList.objects.create(profile=self.profile, name="Favorites")
+        resp = self.client.post(reverse("title_preview_add_to_list", args=["movie", 42, watchlist.id]))
+        self.assertEqual(resp.status_code, 200)
+        title = Title.objects.get(external_ids__tmdb="42")
+        self.assertTrue(WatchListItem.objects.filter(watchlist=watchlist, title=title).exists())
+        # the returned fragment is the standard (real-title) popover, so
+        # any further clicks flow through the ordinary add_to_list/
+        # remove_from_list endpoints, not this preview-only one.
+        self.assertContains(resp, f"list-popover-{title.pk}")
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_add_to_list_rejects_a_list_this_profile_cannot_edit(self, mock_details):
+        mock_details.return_value = self._details()
+        other_user = User.objects.create_user("otherlistowner", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="OtherListOwner")
+        others_list = WatchList.objects.create(profile=other_profile, name="Not Yours")
+        resp = self.client.post(reverse("title_preview_add_to_list", args=["movie", 42, others_list.id]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_add_to_list_requires_login(self):
+        self.client.logout()
+        watchlist_owner = User.objects.create_user("listowner2", password="pass12345")
+        owner_profile = Profile.objects.create(user=watchlist_owner, display_name="ListOwner2")
+        watchlist = WatchList.objects.create(profile=owner_profile, name="Favorites")
+        resp = self.client.post(reverse("title_preview_add_to_list", args=["movie", 42, watchlist.id]))
         self.assertNotEqual(resp.status_code, 200)
 
 

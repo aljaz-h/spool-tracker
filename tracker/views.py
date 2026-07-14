@@ -164,6 +164,7 @@ def discover(request, media_type, category):
         "selected_genres": set(genre_ids),
         "languages": DISCOVER_LANGUAGES,
         "base_query": query_without_page.urlencode(),
+        "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
     }
     return render(request, "tracker/discover.html", context)
 
@@ -328,18 +329,44 @@ def title_preview(request, media_type, tmdb_id):
         "progress": None,
         "recent_events": [],
         "latest_rating": None,
-        "my_lists": [],
+        # Not used by this page's own sidebar (is_preview shows "Add to
+        # Watchlist" instead of the my_lists loop) but IS needed by the
+        # "similar" grid's discover_tile.html includes below, whose own
+        # list-picker popovers are for those (also not-yet-tracked) titles.
+        "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
         "in_list_ids": set(),
     }
     return render(request, "tracker/title_detail.html", context)
 
 
+def _get_or_create_preview_title(media_type, tmdb_id):
+    """get-or-create the local Title for a TMDB preview id (same shape as
+    trakt.py/simkl.py's own get-or-create, just keyed off an id we already
+    have instead of a name+year search) - shared by every action a
+    not-yet-tracked discover/preview card can trigger (watchlist-add,
+    mark watched, add to any list), so a title only ever gets materialized
+    once regardless of which action the user clicks first. Returns None
+    if TMDB has nothing for this id."""
+    title = Title.objects.filter(external_ids__tmdb=str(tmdb_id)).first()
+    if title is not None:
+        return title
+    details = tmdb.get_full_details(media_type, tmdb_id)
+    if details is None:
+        return None
+    media_type_for_title = MediaType.MOVIE if media_type == "movie" else MediaType.TV
+    return Title.objects.create(
+        media_type=media_type_for_title,
+        name=details["name"],
+        year=int(details["year"]) if details["year"] else 0,
+        poster_url=details["poster_url"] or "",
+        external_ids={"tmdb": str(tmdb_id), "tmdb_kind": media_type},
+    )
+
+
 @login_required
 @require_POST
 def title_preview_add_to_watchlist(request, media_type, tmdb_id):
-    """The preview page's one write action - get-or-create the Title from
-    the TMDB id (same shape as trakt.py/simkl.py's own get-or-create, just
-    keyed off an id we already have instead of a name+year search), then
+    """The preview page's one write action - materialize the Title, then
     drop it on the profile's default "Watchlist" list (get-or-created by
     name, since WatchList has no is_default flag to key off instead) and
     hand off to the real detail page, where the fuller add-to-any-list UI
@@ -350,23 +377,59 @@ def title_preview_add_to_watchlist(request, media_type, tmdb_id):
     if profile is None:
         raise Http404
 
-    title = Title.objects.filter(external_ids__tmdb=str(tmdb_id)).first()
+    title = _get_or_create_preview_title(media_type, tmdb_id)
     if title is None:
-        details = tmdb.get_full_details(media_type, tmdb_id)
-        if details is None:
-            raise Http404
-        media_type_for_title = MediaType.MOVIE if media_type == "movie" else MediaType.TV
-        title = Title.objects.create(
-            media_type=media_type_for_title,
-            name=details["name"],
-            year=int(details["year"]) if details["year"] else 0,
-            poster_url=details["poster_url"] or "",
-            external_ids={"tmdb": str(tmdb_id), "tmdb_kind": media_type},
-        )
+        raise Http404
 
     watchlist, _ = WatchList.objects.get_or_create(profile=profile, name="Watchlist")
     WatchListItem.objects.get_or_create(watchlist=watchlist, title=title)
     return redirect("title_detail", pk=title.pk)
+
+
+@login_required
+@require_POST
+def title_preview_mark_watched(request, media_type, tmdb_id):
+    """The Discover grid's watched button, for a title with no local Title
+    row yet - materializes it (see _get_or_create_preview_title), then
+    behaves exactly like title_mark_watched from then on. Always returns
+    the HTMX fragment (never a redirect) - this button only ever appears
+    inside a discover_tile.html card, unlike title_mark_watched which is
+    also a plain page action on the detail page."""
+    if media_type not in ("movie", "tv"):
+        raise Http404
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    title = _get_or_create_preview_title(media_type, tmdb_id)
+    if title is None:
+        raise Http404
+    WatchEvent.objects.create(profile=profile, title=title, watched_at=timezone.now())
+    rewatches.recompute_is_rewatch(profile, title, None)
+    return render(request, "tracker/partials/poster_card_watched_button.html", {"title": title, "watched": True})
+
+
+@login_required
+@require_POST
+def title_preview_add_to_list(request, media_type, tmdb_id, list_id):
+    """The Discover grid's list-picker popover's first click on a
+    not-yet-tracked title - materializes it, adds it to the chosen list,
+    then hands back the *standard* poster_card_list_popover.html fragment
+    (now keyed to a real title.pk). Every subsequent click in that same
+    popover flows through the ordinary add_to_list/remove_from_list
+    endpoints - this one only ever needs to handle "add", never "remove",
+    since a title that didn't exist a moment ago can't already be on any
+    list yet."""
+    if media_type not in ("movie", "tv"):
+        raise Http404
+    profile = Profile.objects.filter(user=request.user).first()
+    watchlist = get_object_or_404(WatchList, pk=list_id)
+    if profile is None or not watchlist.can_edit(profile):
+        raise Http404
+    title = _get_or_create_preview_title(media_type, tmdb_id)
+    if title is None:
+        raise Http404
+    WatchListItem.objects.get_or_create(watchlist=watchlist, title=title)
+    return _render_poster_actions(request, profile, title)
 
 
 def _group_consecutive_episodes(events):

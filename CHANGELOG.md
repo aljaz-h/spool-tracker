@@ -8,6 +8,35 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-14
+
+### Added
+
+- Discover grid (Movies & TV / Anime, and "If you like this") poster
+  tiles now get the same watched/add-to-list quick actions as library
+  poster cards. Since these are TMDB previews with no local Title row
+  yet, the first click materializes the title (get-or-create by TMDB id,
+  same idiom the existing "Add to Watchlist" button already used) before
+  acting - every action after that flows through the normal endpoints.
+
+### Fixed
+
+- Poster cards (Dashboard's carousels especially) could render at wildly
+  inconsistent sizes - a short title like "Bleach" as small as 40px wide,
+  a long one like "Berserk: The Golden Age Arc - Memorial Edition" as
+  wide as 287px. Root cause: `poster_card.html`'s width fallback used
+  Django's `default_if_none` filter (changed in 0.2.0 to accommodate one
+  call site's `width_class=""`), but an *omitted* template variable
+  resolves to an empty string, not `None` - so `default_if_none` never
+  substituted the fallback width, and cards without one fell back to
+  sizing themselves from their own unconstrained overlaid title text.
+  Reverted to `default` (the original, correct filter for this), and
+  the one call site that genuinely wants to defer to its grid's own
+  sizing now passes a real class (`w-full`) instead of an empty string.
+- Strengthened the bottom-of-poster gradient (reaching about halfway up
+  the card instead of a thin sliver at the very bottom) so the action
+  buttons stay legible against bright poster art.
+
 ## [0.2.1] - 2026-07-14
 
 ### Fixed

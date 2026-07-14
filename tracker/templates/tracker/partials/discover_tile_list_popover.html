@@ -1,0 +1,40 @@
+{% load icons %}
+{# context: media_type (str), tmdb_id (int), my_lists (list of WatchList) - a not-yet-tracked preview title, so every list starts unchecked (nothing to remove yet - see title_preview_add_to_list) #}
+<div class="relative" x-data="{
+  open: false,
+  togglePanel(button) {
+    this.open = !this.open;
+    if (!this.open) return;
+    this.$nextTick(() => {
+      const rect = button.getBoundingClientRect();
+      const panel = this.$refs.panel;
+      const width = 176;
+      panel.style.left = Math.min(rect.left, window.innerWidth - width - 8) + 'px';
+      panel.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
+    });
+  },
+}">
+  <button
+    type="button"
+    @click="togglePanel($el)"
+    title="Add to list"
+    class="w-7 h-7 rounded-full flex items-center justify-center border transition-colors bg-black/55 border-white/15 text-white/85 hover:bg-black/75 hover:border-white/30"
+  >{% icon "list-checks" "w-3.5 h-3.5" %}</button>
+  <div
+    x-ref="panel"
+    x-show="open" x-cloak x-transition @click.outside="open = false"
+    class="fixed z-50 w-44 max-h-56 overflow-y-auto bg-base-200 border border-line rounded-lg p-1.5 shadow-xl"
+  >
+    {% for list in my_lists %}
+      <button
+        type="button"
+        hx-post="{% url 'title_preview_add_to_list' media_type tmdb_id list.id %}"
+        hx-target="closest div.relative"
+        hx-swap="outerHTML"
+        class="btn btn-xs w-full justify-between"
+      >{{ list.name }} <span>+</span></button>
+    {% empty %}
+      <div class="text-[11px] text-ink-faint px-2 py-1.5">No lists yet.</div>
+    {% endfor %}
+  </div>
+</div>

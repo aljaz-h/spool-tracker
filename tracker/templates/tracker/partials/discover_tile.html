@@ -1,16 +1,31 @@
 {% load tracker_extras %}
-{# context: item (dict: tmdb_id, media_type, name, year, poster_url, vote_average) #}
-<a href="{% url 'title_preview' item.media_type item.tmdb_id %}" class="group relative block">
+{# context: item (dict: tmdb_id, media_type, name, year, poster_url, vote_average), my_lists (list of WatchList, for the list-picker popover) #}
+{% comment %}
+Same two-anchor structure as poster_card.html (image box + text block,
+each their own <a>, action bar as a sibling of the image anchor) - see
+that template's comment for why. Unlike poster_card.html, there's no
+watched_by_title/list_membership lookup here: these are TMDB preview
+items with no local Title row yet, so the watched/list-picker buttons
+always start in their "off" state and materialize the Title on first
+click (title_preview_mark_watched/title_preview_add_to_list).
+{% endcomment %}
+<div class="relative">
   <div class="aspect-[2/3] rounded-lg relative overflow-hidden border border-white/5 bg-cover bg-center {% if not item.poster_url %}{{ item.tmdb_id|gradient_class }}{% endif %}"
        {% if item.poster_url %}style="background-image:url('{{ item.poster_url }}')"{% endif %}>
-    <div class="absolute inset-0 bg-linear-to-t from-black/50 to-transparent"></div>
-    <span class="absolute bottom-1.5 left-1.5 z-10 font-mono text-[8px] bg-black/50 px-1 py-0.5 rounded text-white/90">{{ item.media_type|upper }}</span>
-    {% if item.vote_average %}
-      <span class="absolute top-1.5 right-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-1.5 py-1 rounded-md shadow-[0_1px_4px_rgba(0,0,0,0.7)]"><span class="text-amber-400">&#9733;</span> <span class="text-white">{{ item.vote_average|floatformat:1 }}</span></span>
-    {% endif %}
+    <a href="{% url 'title_preview' item.media_type item.tmdb_id %}" class="absolute inset-0 z-0">
+      <div class="absolute inset-0 bg-linear-to-t from-black/85 via-black/35 via-55% to-transparent"></div>
+      <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[8px] bg-black/50 px-1 py-0.5 rounded text-white/90">{{ item.media_type|upper }}</span>
+      {% if item.vote_average %}
+        <span class="absolute top-1.5 right-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-1.5 py-1 rounded-md shadow-[0_1px_4px_rgba(0,0,0,0.7)]"><span class="text-amber-400">&#9733;</span> <span class="text-white">{{ item.vote_average|floatformat:1 }}</span></span>
+      {% endif %}
+    </a>
+    <div class="absolute bottom-2 left-2 right-2 z-20 flex items-center gap-1.5">
+      {% include "tracker/partials/discover_tile_watched_button.html" with media_type=item.media_type tmdb_id=item.tmdb_id %}
+      {% include "tracker/partials/discover_tile_list_popover.html" with media_type=item.media_type tmdb_id=item.tmdb_id my_lists=my_lists %}
+    </div>
   </div>
-  <div class="mt-1.5 min-w-0">
+  <a href="{% url 'title_preview' item.media_type item.tmdb_id %}" class="block mt-1.5 min-w-0">
     <div class="text-[12.5px] font-semibold truncate">{{ item.name }}</div>
     <div class="text-[10.5px] font-mono text-ink-dim mt-0.5">{{ item.year|default:"—" }}</div>
-  </div>
-</a>
+  </a>
+</div>

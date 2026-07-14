@@ -6,13 +6,13 @@ one wrapping anchor, so the action bar can sit as a sibling of the
 image's anchor - never nested inside it - and its buttons don't need
 any click-stop handling to avoid triggering navigation.
 {% endcomment %}
-<div class="{{ width_class|default_if_none:"w-[168px] flex-none" }}">
+<div class="{{ width_class|default:"w-[168px] flex-none" }}">
   <div
     class="aspect-[2/3] rounded-lg relative overflow-hidden border border-white/5 bg-cover bg-center {% if not title.poster_url %}{{ title.pk|gradient_class }}{% endif %}"
     {% if title.poster_url %}style="background-image:url('{{ title.poster_url }}')"{% endif %}
   >
     <a href="{% url 'title_detail' title.pk %}" class="absolute inset-0 z-0 flex items-end pt-2.5 px-2.5 pb-9">
-      <div class="absolute inset-0 bg-linear-to-t from-black/65 to-transparent"></div>
+      <div class="absolute inset-0 bg-linear-to-t from-black/85 via-black/35 via-55% to-transparent"></div>
       <span class="absolute top-2 right-2 z-10 font-mono text-[9px] bg-black/45 px-1.5 py-0.5 rounded text-white/90 tracking-wide">{{ title.media_type|upper }}</span>
       <span class="relative z-10 font-display text-[17px] leading-tight text-[#f2f1ea]" style="text-shadow:0 2px 6px rgba(0,0,0,.5)">{{ title.name }}</span>
     </a>

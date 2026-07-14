@@ -1,0 +1,10 @@
+{% load icons %}
+{# context: media_type (str), tmdb_id (int) - a not-yet-tracked preview title, always renders the unwatched state (see title_preview_mark_watched) #}
+<button
+  type="button"
+  hx-post="{% url 'title_preview_mark_watched' media_type tmdb_id %}"
+  hx-target="this"
+  hx-swap="outerHTML"
+  title="Mark as watched"
+  class="w-7 h-7 rounded-full flex items-center justify-center border transition-colors bg-black/55 border-white/15 text-white/85 hover:bg-black/75 hover:border-white/30"
+>{% icon "check" "w-3.5 h-3.5" %}</button>

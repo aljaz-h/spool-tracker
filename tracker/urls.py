@@ -17,6 +17,16 @@ urlpatterns = [
         views.title_preview_add_to_watchlist,
         name="title_preview_add_to_watchlist",
     ),
+    path(
+        "titles/preview/<str:media_type>/<int:tmdb_id>/mark-watched/",
+        views.title_preview_mark_watched,
+        name="title_preview_mark_watched",
+    ),
+    path(
+        "titles/preview/<str:media_type>/<int:tmdb_id>/lists/<int:list_id>/add/",
+        views.title_preview_add_to_list,
+        name="title_preview_add_to_list",
+    ),
     path("history/", views.history, name="history"),
     path("calendar/", views.calendar_view, name="calendar"),
     path("lists/", views.lists, name="lists"),
