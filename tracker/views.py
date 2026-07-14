@@ -173,6 +173,25 @@ def _title_display(title, details):
 
 
 
+def _star_fill(rating):
+    """5 stars representing a 1-10 rating, 2 points each - each entry's
+    "fill" (0/50/100) is precomputed here so the template just renders a
+    clipped overlay instead of doing this arithmetic per star per request."""
+    stars = []
+    for i in range(1, 6):
+        left, right = 2 * i - 1, 2 * i
+        if not rating:
+            fill = 0
+        elif rating >= right:
+            fill = 100
+        elif rating >= left:
+            fill = 50
+        else:
+            fill = 0
+        stars.append({"left": left, "right": right, "fill": fill})
+    return stars
+
+
 @login_required
 def title_detail(request, pk):
     """The click-through page for a title already in the local library -
@@ -210,6 +229,7 @@ def title_detail(request, pk):
         **_title_display(title, details),
         **local_context,
     }
+    context["star_fill"] = _star_fill(context["latest_rating"])
     return render(request, "tracker/title_detail.html", context)
 
 
