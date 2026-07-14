@@ -11,7 +11,7 @@
 <aside
   :class="sidebarOpen ? 'w-60' : 'w-17'"
   class="fixed md:sticky top-0 left-0 h-screen z-50 md:z-auto flex flex-col bg-base-200 border-r border-line p-3.5 transition-all duration-200 overflow-hidden flex-none"
-  :style="!sidebarOpen && window.innerWidth <= 900 ? 'transform:translateX(-100%)' : 'transform:translateX(0)'"
+  :style="!sidebarOpen && window.innerWidth < 768 ? 'transform:translateX(-100%)' : 'transform:translateX(0)'"
 >
   <div class="flex items-baseline gap-2 px-2.5 pb-5 mb-4 border-b border-line whitespace-nowrap">
     <span x-show="sidebarOpen" class="font-display text-[28px] text-marquee tracking-wide">SPOOL</span>

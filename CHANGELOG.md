@@ -8,6 +8,22 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-14
+
+### Fixed
+
+- The poster card list-picker popover (added in 0.2.0) rendered
+  overlapping/inside the poster art in a garbled, hard-to-read way on
+  small cards — it was positioned against its own tiny trigger button,
+  which left it nowhere to go but on top of the ~250px-tall card. Now
+  positioned via the button's actual screen coordinates so it floats
+  freely above the page instead.
+- The sidebar could render fully off-screen (not just collapsed to
+  icon-only) at browser widths between roughly 768–900px, a pre-existing
+  bug from a mismatch between Tailwind's `md:` breakpoint (768px) and a
+  separate hardcoded 900px threshold in the sidebar's own show/hide
+  logic — the two are now consistent.
+
 ## [0.2.0] - 2026-07-14
 
 ### Added
