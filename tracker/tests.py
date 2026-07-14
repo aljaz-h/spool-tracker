@@ -3289,3 +3289,57 @@ class HistoryConsecutiveEpisodeGroupingTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "3 episodes")
         self.assertContains(resp, "S1E1–S1E3")
+
+
+class HistoryBulkDeleteTests(TestCase):
+    """History's multi-select bar posts a mix of plain event ids (single
+    tiles) and comma-joined event ids (a collapsed binge-group tile's one
+    checkbox standing in for all of its underlying WatchEvents)."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.user = User.objects.create_user("bulkdeleter", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="BulkDeleter")
+        self.movie = Title.objects.create(media_type=MediaType.MOVIE, name="Movie A", year=2020)
+        self.now = timezone.now()
+        self.client.login(username="bulkdeleter", password="pass12345")
+
+    def _watch(self, minutes_ago, title=None):
+        return WatchEvent.objects.create(
+            profile=self.profile, title=title or self.movie, watched_at=self.now - timedelta(minutes=minutes_ago)
+        )
+
+    def test_deletes_the_selected_events(self):
+        e1, e2, e3 = self._watch(30), self._watch(20), self._watch(10)
+        resp = self.client.post(
+            reverse("history_bulk_delete"), {"event_ids": [str(e1.pk), str(e2.pk)]}, HTTP_HX_REQUEST="true"
+        )
+        self.assertEqual(resp.status_code, 200)
+        remaining = WatchEvent.objects.filter(profile=self.profile).values_list("pk", flat=True)
+        self.assertEqual(list(remaining), [e3.pk])
+
+    def test_splits_comma_joined_group_checkbox_values(self):
+        e1, e2, e3 = self._watch(30), self._watch(20), self._watch(10)
+        resp = self.client.post(
+            reverse("history_bulk_delete"), {"event_ids": [f"{e1.pk},{e2.pk}"]}, HTTP_HX_REQUEST="true"
+        )
+        self.assertEqual(resp.status_code, 200)
+        remaining = WatchEvent.objects.filter(profile=self.profile).values_list("pk", flat=True)
+        self.assertEqual(list(remaining), [e3.pk])
+
+    def test_only_deletes_events_belonging_to_the_requesting_profile(self):
+        other_user = User.objects.create_user("otherbulk", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="Other")
+        other_event = self._watch(5, title=self.movie)
+        other_event.profile = other_profile
+        other_event.save()
+        resp = self.client.post(
+            reverse("history_bulk_delete"), {"event_ids": [str(other_event.pk)]}, HTTP_HX_REQUEST="true"
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(WatchEvent.objects.filter(pk=other_event.pk).exists())
+
+    def test_get_is_not_allowed(self):
+        resp = self.client.get(reverse("history_bulk_delete"))
+        self.assertEqual(resp.status_code, 405)

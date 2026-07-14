@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-15
+
+### Added
+
+- History's tiles can now be removed in bulk: a "Select" toggle in the
+  filter bar puts every tile into checkbox mode, and a floating bar
+  ("N selected · Delete selected") appears once at least one is checked.
+  A collapsed binge-group tile's single checkbox stands in for every
+  episode it collapses - checking it counts and deletes all of them at
+  once, not just the group card itself.
+
 ## [0.4.0] - 2026-07-14
 
 ### Added

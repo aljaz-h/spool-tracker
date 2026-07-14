@@ -491,9 +491,7 @@ def _group_history_by_day(events):
     return groups
 
 
-@login_required
-def history(request):
-    profile = Profile.objects.filter(user=request.user).first()
+def _history_context(request, profile):
     type_filter = request.GET.get("type", "all")
     period = request.GET.get("period", "all") if request.GET.get("period") in HISTORY_PERIODS else "all"
     sort = "old" if request.GET.get("sort") == "old" else "new"
@@ -516,7 +514,7 @@ def history(request):
         events = events.order_by("-watched_at" if sort == "new" else "watched_at")
         page_obj = Paginator(events, HISTORY_PAGE_SIZE).get_page(request.GET.get("page"))
 
-    context = {
+    return {
         "profile": profile,
         "page_obj": page_obj,
         "day_groups": _group_history_by_day(page_obj.object_list) if page_obj else [],
@@ -525,8 +523,35 @@ def history(request):
         "sort": sort,
         "time_format_str": "H:i" if profile and profile.time_format == Profile.TimeFormat.H24 else "g:i A",
     }
+
+
+@login_required
+def history(request):
+    profile = Profile.objects.filter(user=request.user).first()
+    context = _history_context(request, profile)
     template = "tracker/partials/history_content.html" if request.headers.get("HX-Request") else "tracker/history.html"
     return render(request, template, context)
+
+
+@login_required
+@require_POST
+def history_bulk_delete(request):
+    """Deletes multiple WatchEvents at once from History's multi-select
+    bar. Checkbox values are either a single event id or (for a collapsed
+    binge-group tile) a comma-joined list of every event id in that group,
+    so a plain `request.POST.getlist` needs a further comma-split/flatten
+    before filtering - see history_group_tile.html's checkbox `value`."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is not None:
+        event_ids = {
+            int(part)
+            for raw in request.POST.getlist("event_ids")
+            for part in raw.split(",")
+            if part.strip().isdigit()
+        }
+        WatchEvent.objects.filter(profile=profile, pk__in=event_ids).delete()
+    context = _history_context(request, profile)
+    return render(request, "tracker/partials/history_content.html", context)
 
 
 CALENDAR_TYPES = {"movie": MediaType.MOVIE, "tv": MediaType.TV, "anime": MediaType.ANIME}

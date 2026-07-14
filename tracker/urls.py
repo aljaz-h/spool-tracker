@@ -28,6 +28,7 @@ urlpatterns = [
         name="title_preview_add_to_list",
     ),
     path("history/", views.history, name="history"),
+    path("history/bulk-delete/", views.history_bulk_delete, name="history_bulk_delete"),
     path("calendar/", views.calendar_view, name="calendar"),
     path("lists/", views.lists, name="lists"),
     path("lists/create/", views.create_list, name="create_list"),
