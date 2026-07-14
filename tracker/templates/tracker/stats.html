@@ -29,20 +29,6 @@
     </div>
   </div>
 
-  <div class="bg-base-200 border border-line rounded-2xl p-5 mt-5">
-    <h3 class="text-lg mb-4">Split by type</h3>
-    <div class="flex items-center gap-5.5 flex-wrap">
-      <div class="relative w-[130px] h-[130px] rounded-full flex-none" style="background: conic-gradient(var(--color-primary) 0 {{ split.movie_end }}%, var(--color-accent) {{ split.movie_end }}% {{ split.tv_end }}%, var(--color-secondary) {{ split.tv_end }}% 100%)">
-        <div class="absolute inset-6 rounded-full bg-base-200"></div>
-      </div>
-      <div class="text-[12.5px] text-ink-dim">
-        <div class="flex items-center gap-2 mb-2"><span class="w-2.5 h-2.5 rounded-sm bg-primary"></span>Movies — {{ split.movie_pct }}%</div>
-        <div class="flex items-center gap-2 mb-2"><span class="w-2.5 h-2.5 rounded-sm bg-accent"></span>TV shows — {{ split.tv_pct }}%</div>
-        <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-sm bg-secondary"></span>Anime — {{ split.anime_pct }}%</div>
-      </div>
-    </div>
-  </div>
-
   <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mt-5">
     <div class="bg-base-200 border border-line rounded-2xl p-5">
       <h3 class="text-lg mb-4">Last 30 days</h3>
@@ -85,47 +71,63 @@
     </div>
   </div>
 
-  <div class="bg-base-200 border border-line rounded-2xl p-5 mt-5">
-    <div class="flex justify-between items-center flex-wrap gap-3 mb-4.5">
-      <h3 class="text-lg m-0">Genres &amp; release years</h3>
-      <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
-        <a href="?genre_type=movie" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_type|eq:"movie" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Movies</a>
-        <a href="?genre_type=tv" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_type|eq:"tv" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">TV Shows</a>
-        <a href="?genre_type=anime" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_type|eq:"anime" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Anime</a>
+  <div class="grid grid-cols-1 lg:grid-cols-[1.3fr_0.8fr_1fr] gap-5 mt-5">
+    <div class="bg-base-200 border border-line rounded-2xl p-5">
+      <div class="flex justify-between items-center flex-wrap gap-3 mb-4.5">
+        <h3 class="text-lg m-0">Genres &amp; release years</h3>
+        <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
+          <a href="?genre_type=movie" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_type|eq:"movie" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Movies</a>
+          <a href="?genre_type=tv" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_type|eq:"tv" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">TV Shows</a>
+          <a href="?genre_type=anime" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_type|eq:"anime" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Anime</a>
+        </div>
+      </div>
+
+      <div class="text-[11px] uppercase tracking-wide text-ink-faint mb-2.5">Genres</div>
+      {% if genre_breakdown %}
+        <div class="flex flex-wrap gap-1">
+          {% for g in genre_breakdown %}
+            <div class="min-w-[64px] h-16 p-2 rounded flex flex-col justify-end overflow-hidden" style="flex-grow:{{ g.count }};background:{{ forloop.counter0|color_at_index }}">
+              <div class="font-mono text-[9.5px] font-bold uppercase tracking-wide text-white truncate" style="text-shadow:0 1px 2px rgba(0,0,0,.35)">{{ g.name }}</div>
+              <div class="text-[9px] text-white/85 mt-0.5">{{ g.count }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="text-ink-faint text-sm">No genre data yet for this type.</p>
+      {% endif %}
+
+      <div class="text-[11px] uppercase tracking-wide text-ink-faint mb-2.5 mt-7">Release years</div>
+      {% if year_breakdown %}
+        <div class="flex items-end gap-0.5 h-[130px] overflow-x-auto pb-1">
+          {% for y in year_breakdown %}
+            <div class="flex flex-col items-center justify-end flex-none w-3.5 h-full">
+              <div class="w-2.5 rounded-t-sm {% if forloop.counter0|divisibleby:3 %}bg-primary{% else %}bg-base-300{% endif %}" style="height:{{ y.height_pct }}%" title="{{ y.year }} · {{ y.count }}"></div>
+              {% if forloop.counter0|divisibleby:3 %}<div class="font-mono text-[8px] text-ink-faint mt-1">{{ y.year }}</div>{% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="text-ink-faint text-sm">No release-year data yet for this type.</p>
+      {% endif %}
+    </div>
+
+    <div class="bg-base-200 border border-line rounded-2xl p-5">
+      <h3 class="text-lg mb-4">Split by type</h3>
+      <div class="flex flex-col items-center gap-5.5">
+        <div class="relative w-[130px] h-[130px] rounded-full flex-none" style="background: conic-gradient(var(--color-primary) 0 {{ split.movie_end }}%, var(--color-accent) {{ split.movie_end }}% {{ split.tv_end }}%, var(--color-secondary) {{ split.tv_end }}% 100%)">
+          <div class="absolute inset-6 rounded-full bg-base-200"></div>
+        </div>
+        <div class="text-[12.5px] text-ink-dim self-stretch">
+          <div class="flex items-center gap-2 mb-2"><span class="w-2.5 h-2.5 rounded-sm bg-primary"></span>Movies — {{ split.movie_pct }}%</div>
+          <div class="flex items-center gap-2 mb-2"><span class="w-2.5 h-2.5 rounded-sm bg-accent"></span>TV shows — {{ split.tv_pct }}%</div>
+          <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-sm bg-secondary"></span>Anime — {{ split.anime_pct }}%</div>
+        </div>
       </div>
     </div>
 
-    <div class="text-[11px] uppercase tracking-wide text-ink-faint mb-2.5">Genres</div>
-    {% if genre_breakdown %}
-      <div class="flex flex-wrap gap-1">
-        {% for g in genre_breakdown %}
-          <div class="min-w-[64px] h-16 p-2 rounded flex flex-col justify-end overflow-hidden" style="flex-grow:{{ g.count }};background:{{ forloop.counter0|color_at_index }}">
-            <div class="font-mono text-[9.5px] font-bold uppercase tracking-wide text-white truncate" style="text-shadow:0 1px 2px rgba(0,0,0,.35)">{{ g.name }}</div>
-            <div class="text-[9px] text-white/85 mt-0.5">{{ g.count }}</div>
-          </div>
-        {% endfor %}
-      </div>
-    {% else %}
-      <p class="text-ink-faint text-sm">No genre data yet for this type.</p>
-    {% endif %}
-
-    <div class="text-[11px] uppercase tracking-wide text-ink-faint mb-2.5 mt-7">Release years</div>
-    {% if year_breakdown %}
-      <div class="flex items-end gap-0.5 h-[130px] overflow-x-auto pb-1">
-        {% for y in year_breakdown %}
-          <div class="flex flex-col items-center justify-end flex-none w-3.5 h-full">
-            <div class="w-2.5 rounded-t-sm {% if forloop.counter0|divisibleby:3 %}bg-primary{% else %}bg-base-300{% endif %}" style="height:{{ y.height_pct }}%" title="{{ y.year }} · {{ y.count }}"></div>
-            {% if forloop.counter0|divisibleby:3 %}<div class="font-mono text-[8px] text-ink-faint mt-1">{{ y.year }}</div>{% endif %}
-          </div>
-        {% endfor %}
-      </div>
-    {% else %}
-      <p class="text-ink-faint text-sm">No release-year data yet for this type.</p>
-    {% endif %}
-  </div>
-
-  <div class="bg-base-200 border border-line rounded-2xl p-5 mt-5">
-    {% include "tracker/partials/stats_heatmap.html" %}
+    <div class="bg-base-200 border border-line rounded-2xl p-5">
+      {% include "tracker/partials/stats_heatmap.html" %}
+    </div>
   </div>
 
   {% endif %}

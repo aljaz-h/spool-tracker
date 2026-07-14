@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-07-14
+
+### Changed
+
+- Stats page reorganized to a requested layout: "Genres & release years",
+  "Split by type", and "Watch activity" now sit side by side in one row
+  (in that order) instead of three separate stacked full-width sections,
+  matching the streak/watch-time box and the Last 30 days/All time row
+  above it. "Split by type"'s donut+legend now stacks vertically to fit
+  its narrower column.
+
 ## [0.3.1] - 2026-07-14
 
 ### Fixed
