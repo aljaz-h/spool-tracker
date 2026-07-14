@@ -8,6 +8,27 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-07-14
+
+### Fixed
+
+- Stats page's bottom row ("Genres & release years" / "Split by type" /
+  "Watch activity") wasn't respecting its intended column-width ratio -
+  a classic CSS Grid gotcha where a bare `Nfr` track's implicit minimum
+  is its content's min-content size, not zero, so a box with wide
+  content (the genre pills, the heatmap) could grow past its intended
+  share regardless of the fr ratio. Fixed by giving every grid item
+  `min-w-0` so the ratio actually governs the layout.
+
+### Changed
+
+- Per a hand-drawn layout request: the streak/stats box now sits in the
+  same row as "Last 30 days" and "All time" (previously its own row
+  above them), visibly wider than the other two, which are equal width.
+  "Total watch time" and "Episodes logged" - previously shown standalone
+  in that box - were dropped as redundant now that "All time"'s Combined
+  line sits right next to it showing the same totals.
+
 ## [0.3.3] - 2026-07-14
 
 ### Fixed

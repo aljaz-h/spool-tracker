@@ -12,25 +12,23 @@
     <p class="text-ink-faint text-sm">Your account isn't linked to a household profile yet.</p>
   {% else %}
 
-  <div class="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-8 items-center bg-base-200 border border-line rounded-2xl p-7">
-    <div class="flex justify-center">
-      <div class="relative w-[190px] h-[190px] rounded-full" style="background: conic-gradient(var(--color-primary) calc({{ dial_pct }}*1%), var(--color-base-300) 0)">
-        <div class="absolute inset-4 rounded-full bg-base-200 flex flex-col items-center justify-center">
-          <div class="font-display text-5xl text-primary leading-none">{{ current_streak }}</div>
-          <div class="text-[11px] text-ink-dim uppercase tracking-wide mt-1">day streak</div>
+  <div class="grid grid-cols-1 lg:grid-cols-[1.7fr_1fr_1fr] gap-5">
+    <div class="min-w-0 grid grid-cols-1 md:grid-cols-[190px_1fr] gap-6 items-center bg-base-200 border border-line rounded-2xl p-6">
+      <div class="flex justify-center">
+        <div class="relative w-[150px] h-[150px] rounded-full" style="background: conic-gradient(var(--color-primary) calc({{ dial_pct }}*1%), var(--color-base-300) 0)">
+          <div class="absolute inset-3.5 rounded-full bg-base-200 flex flex-col items-center justify-center">
+            <div class="font-display text-4xl text-primary leading-none">{{ current_streak }}</div>
+            <div class="text-[10px] text-ink-dim uppercase tracking-wide mt-1">day streak</div>
+          </div>
         </div>
       </div>
+      <div class="grid grid-cols-2 gap-4.5">
+        <div><div class="font-display text-3xl text-primary">{{ longest_streak }}</div><div class="text-xs text-ink-dim">Longest streak (days)</div></div>
+        <div><div class="font-display text-3xl text-accent">{{ movies_watched }} / {{ shows_completed }}</div><div class="text-xs text-ink-dim">Movies watched ({{ movies_plays }} plays) / Shows completed</div></div>
+      </div>
     </div>
-    <div class="grid grid-cols-2 gap-4.5">
-      <div><div class="font-display text-3xl text-primary">{{ longest_streak }}</div><div class="text-xs text-ink-dim">Longest streak (days)</div></div>
-      <div><div class="font-display text-3xl">{{ total_watch_hours }}h</div><div class="text-xs text-ink-dim">Total watch time (&asymp; {{ total_watch_days }} days)</div></div>
-      <div><div class="font-display text-3xl text-accent">{{ movies_watched }} / {{ shows_completed }}</div><div class="text-xs text-ink-dim">Movies watched ({{ movies_plays }} plays) / Shows completed</div></div>
-      <div><div class="font-display text-3xl text-secondary">{{ episodes_logged }}</div><div class="text-xs text-ink-dim">Episodes logged</div></div>
-    </div>
-  </div>
 
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mt-5">
-    <div class="bg-base-200 border border-line rounded-2xl p-5">
+    <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
       <h3 class="text-lg mb-4">Last 30 days</h3>
       <div class="space-y-3">
         <div class="flex justify-between items-baseline">
@@ -48,7 +46,7 @@
       </div>
     </div>
 
-    <div class="bg-base-200 border border-line rounded-2xl p-5">
+    <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
       <h3 class="text-lg mb-4">All time</h3>
       <div class="space-y-3">
         <div class="flex justify-between items-baseline">
@@ -72,7 +70,7 @@
   </div>
 
   <div class="grid grid-cols-1 lg:grid-cols-[1.3fr_0.8fr_1fr] gap-5 mt-5">
-    <div class="bg-base-200 border border-line rounded-2xl p-5">
+    <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
       <div class="flex justify-between items-center flex-wrap gap-3 mb-4.5">
         <h3 class="text-lg m-0">Genres &amp; release years</h3>
         <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
@@ -111,7 +109,7 @@
       {% endif %}
     </div>
 
-    <div class="bg-base-200 border border-line rounded-2xl p-5">
+    <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
       <h3 class="text-lg mb-4">Split by type</h3>
       <div class="flex flex-col items-center gap-5.5">
         <div class="relative w-[130px] h-[130px] rounded-full flex-none" style="background: conic-gradient(var(--color-primary) 0 {{ split.movie_end }}%, var(--color-accent) {{ split.movie_end }}% {{ split.tv_end }}%, var(--color-secondary) {{ split.tv_end }}% 100%)">
@@ -125,7 +123,7 @@
       </div>
     </div>
 
-    <div class="bg-base-200 border border-line rounded-2xl p-5">
+    <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
       {% include "tracker/partials/stats_heatmap.html" %}
     </div>
   </div>
