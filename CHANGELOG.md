@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-07-14
+
+### Fixed
+
+- Extended the 0.3.1 badge restyle (solid background, bold text, drop
+  shadow) to History's tiles too - the episode/date-range badge and
+  media-type badge on single-episode and binge-group cards, and the
+  existing episode-count "3×" badge, now all match.
+
 ## [0.3.2] - 2026-07-14
 
 ### Changed

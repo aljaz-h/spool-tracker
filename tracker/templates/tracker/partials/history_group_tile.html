@@ -5,9 +5,9 @@
     <div class="aspect-[2/3] rounded-lg relative overflow-hidden border border-white/5 bg-cover bg-center {% if not group.title.poster_url %}{{ group.title.pk|gradient_class }}{% endif %}"
          {% if group.title.poster_url %}style="background-image:url('{{ group.title.poster_url }}')"{% endif %}>
       <div class="absolute inset-0 bg-linear-to-t from-black/50 to-transparent"></div>
-      <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[8px] bg-black/55 px-1.5 py-0.5 rounded text-white/90">{{ group.range_label }}</span>
-      <span class="absolute bottom-1.5 left-1.5 z-10 font-mono text-[8px] bg-black/50 px-1 py-0.5 rounded text-white/90">{{ group.title.media_type|upper }}</span>
-      <span class="absolute bottom-1.5 right-1.5 z-10 font-mono text-[8px] bg-primary/85 px-1.5 py-0.5 rounded text-primary-content font-bold">{{ group.count }}&times;</span>
+      <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ group.range_label }}</span>
+      <span class="absolute bottom-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ group.title.media_type|upper }}</span>
+      <span class="absolute bottom-1.5 right-1.5 z-10 font-mono text-[10px] font-bold bg-primary/90 px-2 py-1 rounded-md text-primary-content shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ group.count }}&times;</span>
     </div>
     <div class="mt-1.5 min-w-0">
       <div class="text-[11.5px] font-semibold truncate">{{ group.title.name }}</div>

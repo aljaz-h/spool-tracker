@@ -6,9 +6,9 @@
          {% if event.title.poster_url %}style="background-image:url('{{ event.title.poster_url }}')"{% endif %}>
       <div class="absolute inset-0 bg-linear-to-t from-black/50 to-transparent"></div>
       {% if event.episode %}
-        <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[8px] bg-black/55 px-1.5 py-0.5 rounded text-white/90">S{{ event.episode.season }}:E{{ event.episode.episode }}</span>
+        <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 shadow-[0_1px_4px_rgba(0,0,0,0.7)]">S{{ event.episode.season }}:E{{ event.episode.episode }}</span>
       {% endif %}
-      <span class="absolute bottom-1.5 left-1.5 z-10 font-mono text-[8px] bg-black/50 px-1 py-0.5 rounded text-white/90">{{ event.title.media_type|upper }}</span>
+      <span class="absolute bottom-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ event.title.media_type|upper }}</span>
     </div>
     <div class="mt-1.5 min-w-0">
       <div class="text-[11.5px] font-semibold truncate">{{ event.title.name }}</div>
