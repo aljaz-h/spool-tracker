@@ -16,10 +16,9 @@
     <div class="filmstrip-edge filmstrip-edge--left"></div>
     <div class="filmstrip-edge filmstrip-edge--right"></div>
 
-    {% if director or details.original_language %}
+    {% if director %}
       <div class="absolute z-10 bottom-4 right-6 text-right font-mono text-[11px] text-ink-dim">
-        {% if director %}<div>Directed by <span class="text-base-content font-semibold">{{ director }}</span></div>{% endif %}
-        {% if details.original_language %}<div class="mt-0.5">Original language: {{ details.original_language|upper }}</div>{% endif %}
+        <div>Directed by <span class="text-base-content font-semibold">{{ director }}</span></div>
       </div>
     {% endif %}
 
@@ -39,6 +38,7 @@
           {% endif %}
         </h1>
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-dim mt-2 font-mono">
+          {% if details.original_language %}<span class="px-1.5 py-0.5 rounded border border-line bg-base-300/60 text-[10.5px] uppercase tracking-wide">{{ details.original_language }}</span>{% endif %}
           {% if details.runtime %}<span>{{ details.runtime }} min</span>{% endif %}
           {% if details.number_of_seasons %}<span>{{ details.number_of_seasons }} season{{ details.number_of_seasons|pluralize }} · {{ details.number_of_episodes }} episodes</span>{% endif %}
           {% if details.genres %}<span>{{ details.genres|join:", " }}</span>{% endif %}
@@ -50,25 +50,6 @@
             <form method="post" action="{% url 'title_mark_watched' title.pk %}">
               {% csrf_token %}
               <button type="submit" class="btn btn-primary btn-sm">&#10003; Mark as Watched</button>
-            </form>
-            <div class="w-px self-stretch bg-line"></div>
-            <form method="post" action="{% url 'title_rate' title.pk %}" x-data="{ rating: {{ latest_rating|default:0 }} }" class="w-56">
-              {% csrf_token %}
-              <div class="flex items-center justify-between mb-1.5">
-                <div class="text-[10px] text-ink-faint uppercase tracking-wide">Your rating</div>
-                <div class="font-display text-2xl leading-none text-primary" x-text="rating > 0 ? rating + '/10' : '—'"></div>
-              </div>
-              <div class="relative h-6">
-                <div class="absolute top-1/2 inset-x-0 h-2 -translate-y-1/2 rounded-full bg-base-300"></div>
-                <div class="absolute top-1/2 h-2 -translate-y-1/2 rounded-full bg-primary" :style="`left:0; width:calc(${rating} / 10 * (100% - 16px) + 8px)`"></div>
-                <input
-                  type="range" name="rating" min="0" max="10" step="1"
-                  x-model.number="rating"
-                  @change="if (rating > 0) { $el.form.requestSubmit() }"
-                  title="Drag to rate, or click anywhere on the bar"
-                  class="dual-range-thumb absolute inset-x-0 top-1/2 h-6 w-full -translate-y-1/2 cursor-pointer appearance-none bg-transparent"
-                >
-              </div>
             </form>
           </div>
         {% endif %}
@@ -106,6 +87,26 @@
     </div>
 
     <div class="flex flex-col gap-5">
+      {% if not is_preview %}
+        <div class="bg-base-200 border border-line rounded-2xl p-4">
+          <div class="text-[10px] text-ink-faint uppercase tracking-wide mb-1.5">Your rating</div>
+          <form method="post" action="{% url 'title_rate' title.pk %}" class="flex items-center gap-1.5">
+            {% csrf_token %}
+            {% for star in star_fill %}
+              <div class="relative w-7 h-7" title="Rate {{ star.right }}/10">
+                <span class="absolute inset-0 text-3xl leading-none text-ink-faint select-none">&#9733;</span>
+                {% if star.fill %}
+                  <span class="absolute inset-0 text-3xl leading-none text-primary select-none overflow-hidden pointer-events-none" style="width:{{ star.fill }}%">&#9733;</span>
+                {% endif %}
+                <button type="submit" name="rating" value="{{ star.left }}" class="absolute inset-y-0 left-0 w-1/2 cursor-pointer" aria-label="Rate {{ star.left }} out of 10"></button>
+                <button type="submit" name="rating" value="{{ star.right }}" class="absolute inset-y-0 right-0 w-1/2 cursor-pointer" aria-label="Rate {{ star.right }} out of 10"></button>
+              </div>
+            {% endfor %}
+            {% if latest_rating %}<span class="font-mono text-xs text-ink-dim ml-1">{{ latest_rating }}/10</span>{% endif %}
+          </form>
+        </div>
+      {% endif %}
+
       <div class="bg-base-200 border border-line rounded-2xl p-4">
         {% if is_preview %}
           <form method="post" action="{% url 'title_preview_add_to_watchlist' preview_media_type preview_tmdb_id %}">
