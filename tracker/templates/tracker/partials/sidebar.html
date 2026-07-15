@@ -1,4 +1,4 @@
-{% load tracker_extras %}
+{% load static tracker_extras %}
 {% with url_name=request.resolver_match.url_name %}
 <div
   x-show="sidebarOpen"
@@ -15,7 +15,7 @@
 >
   <div class="flex items-baseline gap-2 px-2.5 pb-5 mb-4 border-b border-line whitespace-nowrap">
     <span x-show="sidebarOpen" class="font-display text-[28px] text-marquee tracking-wide">SPOOL</span>
-    <span x-show="!sidebarOpen" x-cloak class="font-display text-[28px] text-marquee tracking-wide">S</span>
+    <img x-show="!sidebarOpen" x-cloak src="{% static 'img/icon.png' %}" alt="Spool" class="w-7 h-7 rounded-md flex-none">
     <span x-show="sidebarOpen" class="text-[10px] text-ink-faint uppercase tracking-widest">self-hosted</span>
   </div>
 

@@ -122,6 +122,7 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [
     ("dist", BASE_DIR / "static" / "dist"),
     ("vendor", BASE_DIR / "static" / "vendor"),
+    ("img", BASE_DIR / "static" / "img"),
 ]
 STORAGES = {
     "staticfiles": {

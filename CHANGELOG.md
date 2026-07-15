@@ -8,6 +8,21 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-07-15
+
+### Added
+
+- A real browser tab icon (favicon.ico + 16/32px PNGs + an apple-touch-
+  icon) - there wasn't one before, so tabs just showed a generic blank
+  page icon.
+
+### Changed
+
+- The collapsed sidebar's brand mark was a bare "S" rendered in the
+  display font, sitting at the same baseline/padding as the full "SPOOL"
+  wordmark it replaces - it looked like stray text, not a logo. It's now
+  the same app icon used for the favicon, sized as a proper small badge.
+
 ## [0.5.1] - 2026-07-15
 
 ### Changed
