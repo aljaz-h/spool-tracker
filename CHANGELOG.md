@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-15
+
+### Changed
+
+- History's binge-group tile no longer expands into a dropdown. Per
+  feedback, the episode list (previously an expand/collapse chevron
+  revealing a chip list) is now a single always-visible segmented
+  timeline bar under the poster - one thin segment per episode, in the
+  order they were actually watched (not the page's own newest/oldest
+  sort), with a hover tooltip on each segment showing that episode's
+  number and watched time. No expand/collapse state at all.
+
 ## [0.5.4] - 2026-07-15
 
 ### Changed

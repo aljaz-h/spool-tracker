@@ -3260,6 +3260,16 @@ class HistoryConsecutiveEpisodeGroupingTests(TestCase):
         grouped = views._group_consecutive_episodes(events)
         self.assertIsNone(grouped[0]["total_duration"])
 
+    def test_timeline_events_are_chronological_regardless_of_input_order(self):
+        # History's default "newest first" sort feeds events into the grouper
+        # newest-to-oldest (ep1 watched most recently, ep5 the longest ago) -
+        # the segmented timeline bar should still read left-to-right in the
+        # order the episodes were actually watched, i.e. oldest first.
+        events = [self._watch(episode_num=i, minutes_ago=i) for i in range(1, 6)]
+        grouped = views._group_consecutive_episodes(events)
+        timeline = grouped[0]["timeline_events"]
+        self.assertEqual([e.episode.episode for e in timeline], [5, 4, 3, 2, 1])
+
     def test_different_titles_break_the_run(self):
         other_show = Title.objects.create(media_type=MediaType.TV, name="Naruto", year=2002)
         events = [

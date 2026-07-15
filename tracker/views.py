@@ -466,6 +466,7 @@ def _group_consecutive_episodes(events):
                     "range_label": f"S{first_by_ep.season}E{first_by_ep.episode}–S{last_by_ep.season}E{last_by_ep.episode}",
                     "total_duration": selectors._format_duration(total_minutes) if total_minutes else None,
                     "events": run,
+                    "timeline_events": sorted(run, key=lambda e: e.watched_at),
                 }
             )
         else:
