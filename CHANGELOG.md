@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-07-15
+
+### Fixed
+
+- The collapsed sidebar's icon (added in 0.5.2) was crammed into the same
+  padded, baseline-aligned row as the expanded "SPOOL" wordmark, leaving
+  it only ~20px of space for a 28px image - it rendered clipped and
+  undersized. It now has its own centered row sized for the collapsed
+  rail, rendering at its full 36px.
+
 ## [0.5.2] - 2026-07-15
 
 ### Added
