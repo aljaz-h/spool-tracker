@@ -3242,6 +3242,24 @@ class HistoryConsecutiveEpisodeGroupingTests(TestCase):
         grouped = views._group_consecutive_episodes(events)
         self.assertFalse(isinstance(grouped[0], dict))
 
+    def test_total_duration_sums_episode_runtimes(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Naruto", year=2002)
+        events = []
+        for i in range(1, 4):
+            ep = Episode.objects.create(title=show, season=1, episode=i, runtime_minutes=24)
+            events.append(
+                WatchEvent.objects.create(
+                    profile=self.profile, title=show, episode=ep, watched_at=self.now - timedelta(minutes=(10 - i))
+                )
+            )
+        grouped = views._group_consecutive_episodes(events)
+        self.assertEqual(grouped[0]["total_duration"], "1h 12m")
+
+    def test_total_duration_is_none_without_runtime_data(self):
+        events = [self._watch(episode_num=i, minutes_ago=(20 - i)) for i in range(1, 4)]
+        grouped = views._group_consecutive_episodes(events)
+        self.assertIsNone(grouped[0]["total_duration"])
+
     def test_different_titles_break_the_run(self):
         other_show = Title.objects.create(media_type=MediaType.TV, name="Naruto", year=2002)
         events = [

@@ -8,6 +8,22 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-15
+
+### Changed
+
+- History's binge-group tile (the collapsed "S1E215–S1E221 · 7×" card)
+  now shows total watch time on the card itself ("7 episodes · 2h 48m"),
+  not just the episode count - previously you'd have to expand it and
+  sum seven rows yourself to know how long a session actually was.
+- The expanded episode list was redesigned from tight table-like rows
+  (an episode number, a runtime-looking time column, and a delete button
+  each in their own column) to wrapping, lighter pill chips ("S1E221 ×").
+  The old time column was actually each episode's watched-at clock time,
+  not its runtime, which read as a confusing, easily-misread duration
+  figure sitting right next to the real per-episode data - it's now a
+  hover tooltip on each chip instead of a persistent column.
+
 ## [0.5.0] - 2026-07-15
 
 ### Added

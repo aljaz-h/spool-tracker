@@ -457,12 +457,14 @@ def _group_consecutive_episodes(events):
             episodes = [e.episode for e in run]
             first_by_ep = min(episodes, key=lambda e: (e.season, e.episode))
             last_by_ep = max(episodes, key=lambda e: (e.season, e.episode))
+            total_minutes = sum((e.episode.runtime_minutes or e.title.runtime_minutes or 0) for e in run)
             grouped.append(
                 {
                     "is_group": True,
                     "title": run[0].title,
                     "count": len(run),
                     "range_label": f"S{first_by_ep.season}E{first_by_ep.episode}–S{last_by_ep.season}E{last_by_ep.episode}",
+                    "total_duration": selectors._format_duration(total_minutes) if total_minutes else None,
                     "events": run,
                 }
             )

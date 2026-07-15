@@ -15,7 +15,7 @@
     </div>
     <div class="mt-1.5 min-w-0">
       <div class="text-[11.5px] font-semibold truncate">{{ group.title.name }}</div>
-      <div class="text-[10px] font-mono text-ink-dim mt-0.5">{{ group.count }} episodes</div>
+      <div class="text-[10px] font-mono text-ink-dim mt-0.5">{{ group.count }} episodes{% if group.total_duration %} · {{ group.total_duration }}{% endif %}</div>
     </div>
   </a>
   <button
@@ -28,21 +28,26 @@
 
   <div
     x-show="open" x-cloak x-transition @click.outside="open = false"
-    class="absolute z-30 top-full left-0 mt-1 w-56 max-h-56 overflow-y-auto bg-base-200 border border-line rounded-lg p-2 shadow-xl"
+    class="absolute z-30 top-full left-0 mt-1 w-56 bg-base-200 border border-line rounded-lg p-2.5 shadow-xl"
   >
-    {% for event in group.events %}
-      <div class="flex justify-between items-center gap-2 text-[11px] text-ink-dim py-1 border-b border-line last:border-b-0" id="hist-item-{{ event.id }}">
-        <span>S{{ event.episode.season }}E{{ event.episode.episode }}</span>
-        <span class="font-mono text-ink-faint">{{ event.watched_at|time:time_format_str }}</span>
-        <button
-          hx-delete="/api/history/{{ event.id }}"
-          hx-confirm="Remove this episode from your watch history? This can't be undone."
-          hx-target="#hist-item-{{ event.id }}"
-          hx-swap="outerHTML swap:150ms"
-          title="Remove"
-          class="text-ink-faint hover:text-error leading-none"
-        >&times;</button>
-      </div>
-    {% endfor %}
+    <div class="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto">
+      {% for event in group.events %}
+        <span
+          id="hist-item-{{ event.id }}"
+          title="Watched {{ event.watched_at|time:time_format_str }}"
+          class="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-full bg-base-300 font-mono text-[11px] text-ink-dim"
+        >
+          S{{ event.episode.season }}E{{ event.episode.episode }}
+          <button
+            hx-delete="/api/history/{{ event.id }}"
+            hx-confirm="Remove this episode from your watch history? This can't be undone."
+            hx-target="#hist-item-{{ event.id }}"
+            hx-swap="outerHTML swap:150ms"
+            title="Remove"
+            class="w-3.5 h-3.5 rounded-full flex items-center justify-center leading-none text-ink-faint hover:text-error hover:bg-base-100"
+          >&times;</button>
+        </span>
+      {% endfor %}
+    </div>
   </div>
 </div>
