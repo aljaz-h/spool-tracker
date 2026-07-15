@@ -1,4 +1,4 @@
-{% load static tracker_extras %}
+{% load tracker_extras %}
 {% with url_name=request.resolver_match.url_name %}
 <div
   x-show="sidebarOpen"
@@ -18,7 +18,7 @@
     <span class="text-[10px] text-ink-faint uppercase tracking-widest">self-hosted</span>
   </div>
   <div x-show="!sidebarOpen" x-cloak class="flex justify-center pb-5 mb-4 border-b border-line">
-    <img src="{% static 'img/icon.png' %}" alt="Spool" class="w-9 h-9 rounded-lg">
+    <span class="font-display text-[28px] text-marquee tracking-wide">S</span>
   </div>
 
   <nav class="flex flex-col gap-0.5">

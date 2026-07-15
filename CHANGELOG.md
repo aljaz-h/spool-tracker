@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-07-15
+
+### Changed
+
+- Reverted the collapsed sidebar's icon image back to a plain "S" letter
+  (per feedback preferring that over the app icon) - still in its own
+  centered row from the 0.5.3 fix, so it no longer suffers the original
+  clipping/placement problem. The browser tab favicon (0.5.2) is
+  unaffected and still uses the app icon.
+
 ## [0.5.3] - 2026-07-15
 
 ### Fixed
