@@ -393,14 +393,44 @@ def watch_time_breakdown(profile):
     }
 
 
-def genre_breakdown(profile, media_type):
-    qs = (
-        WatchEvent.objects.filter(profile=profile, title__media_type=media_type, title__genres__isnull=False)
-        .values("title__genres__name")
-        .annotate(count=Count("id"))
-        .order_by("-count")
-    )
-    return [{"name": row["title__genres__name"], "count": row["count"]} for row in qs]
+def _format_duration_compact(total_minutes):
+    """Single-unit duration for the genre chart's badges - "86d"/"18h"/
+    "45m", picking the largest unit that's still >= 1. Distinct from
+    _format_duration's multi-unit "Xd Xh Xm", which is too long to sit
+    inside a narrow genre-bar segment or a small MOST/LEAST badge."""
+    days = int(total_minutes) // (24 * 60)
+    if days:
+        return f"{days}d"
+    hours = int(total_minutes) // 60
+    if hours:
+        return f"{hours}h"
+    return f"{int(total_minutes)}m"
+
+
+def genre_breakdown(profile, media_type, metric="items"):
+    """Per-genre breakdown for Stats' "Your top genres" panel (styled
+    after Simkl's own genre chart) - by title/event count ("items") or
+    total watch time ("duration"). Sorted descending, each genre's own
+    share of the type's total as a rounded percentage - shares can be a
+    point or two off summing to exactly 100, same rounding trade-off
+    every other percentage breakdown in this app already makes."""
+    qs = WatchEvent.objects.filter(profile=profile, title__media_type=media_type, title__genres__isnull=False)
+    if metric == "duration":
+        qs = (
+            qs.values("title__genres__name")
+            .annotate(value=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))
+            .order_by("-value")
+        )
+    else:
+        qs = qs.values("title__genres__name").annotate(value=Count("id")).order_by("-value")
+
+    unit = "movies" if media_type == MediaType.MOVIE else "episodes"
+    rows = [{"name": row["title__genres__name"], "value": row["value"]} for row in qs if row["value"]]
+    total = sum(r["value"] for r in rows)
+    for r in rows:
+        r["pct"] = round(r["value"] / total * 100) if total else 0
+        r["display"] = _format_duration_compact(r["value"]) if metric == "duration" else f"{r['value']} {unit}"
+    return rows
 
 
 def year_breakdown(profile, media_type):

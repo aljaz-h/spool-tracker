@@ -12,6 +12,7 @@ from .integrations import tmdb, trakt
 from .models import (
     Episode,
     ExternalAccount,
+    Genre,
     InstanceConfig,
     MediaType,
     Profile,
@@ -1716,6 +1717,84 @@ class StatsOverviewMoviesWatchedTests(TestCase):
         overview = selectors.stats_overview(self.profile)
         self.assertEqual(overview["movies_watched"], 0)
         self.assertEqual(overview["movies_plays"], 0)
+
+
+class GenreBreakdownTests(TestCase):
+    """Stats' "Your top genres" panel (styled after Simkl's own genre
+    chart) - selectors.genre_breakdown(profile, media_type, metric),
+    sortable by item count or total watch time."""
+
+    def setUp(self):
+        user = User.objects.create_user("genrewatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="GenreWatcher")
+        self.action = Genre.objects.create(name="Action")
+        self.comedy = Genre.objects.create(name="Comedy")
+
+    def _movie(self, name, genre, runtime=100):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name=name, year=2020, runtime_minutes=runtime)
+        title.genres.add(genre)
+        return title
+
+    def _watch(self, title):
+        from django.utils import timezone
+
+        return WatchEvent.objects.create(profile=self.profile, title=title, watched_at=timezone.now())
+
+    def test_items_metric_counts_and_sorts_by_watch_count(self):
+        self._watch(self._movie("Action A", self.action))
+        self._watch(self._movie("Action B", self.action))
+        self._watch(self._movie("Comedy A", self.comedy))
+
+        rows = selectors.genre_breakdown(self.profile, MediaType.MOVIE, metric="items")
+        self.assertEqual(rows[0]["name"], "Action")
+        self.assertEqual(rows[0]["value"], 2)
+        self.assertEqual(rows[0]["pct"], 67)
+        self.assertEqual(rows[0]["display"], "2 movies")
+        self.assertEqual(rows[1]["name"], "Comedy")
+        self.assertEqual(rows[1]["value"], 1)
+
+    def test_duration_metric_sums_runtime_and_formats_compactly(self):
+        self._watch(self._movie("Action A", self.action, runtime=90))
+        self._watch(self._movie("Action B", self.action, runtime=1500))  # >1 day
+        self._watch(self._movie("Comedy A", self.comedy, runtime=30))
+
+        rows = selectors.genre_breakdown(self.profile, MediaType.MOVIE, metric="duration")
+        self.assertEqual(rows[0]["name"], "Action")
+        self.assertEqual(rows[0]["value"], 1590)
+        self.assertEqual(rows[0]["display"], "1d")  # 1590min = 1 day 2h30m, compact format drops to days
+        self.assertEqual(rows[1]["display"], "30m")
+
+    def test_tv_and_anime_use_episodes_as_the_items_unit(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="A Show", year=2020)
+        show.genres.add(self.action)
+        self._watch(show)
+        rows = selectors.genre_breakdown(self.profile, MediaType.TV, metric="items")
+        self.assertEqual(rows[0]["display"], "1 episodes")
+
+    def test_titles_without_a_genre_are_excluded(self):
+        no_genre = Title.objects.create(media_type=MediaType.MOVIE, name="No Genre", year=2020)
+        self._watch(no_genre)
+        rows = selectors.genre_breakdown(self.profile, MediaType.MOVIE, metric="items")
+        self.assertEqual(rows, [])
+
+    def test_no_watch_history_returns_empty_list(self):
+        rows = selectors.genre_breakdown(self.profile, MediaType.MOVIE, metric="items")
+        self.assertEqual(rows, [])
+
+    def test_stats_view_exposes_most_and_least_genre(self):
+        self._watch(self._movie("Action A", self.action))
+        self._watch(self._movie("Action B", self.action))
+        self._watch(self._movie("Comedy A", self.comedy))
+        self.client.login(username="genrewatcher", password="pass12345")
+        resp = self.client.get(reverse("stats"))
+        self.assertEqual(resp.context["most_genre"]["name"], "Action")
+        self.assertEqual(resp.context["least_genre"]["name"], "Comedy")
+
+    def test_stats_view_most_least_are_none_without_genre_data(self):
+        self.client.login(username="genrewatcher", password="pass12345")
+        resp = self.client.get(reverse("stats"))
+        self.assertIsNone(resp.context["most_genre"])
+        self.assertIsNone(resp.context["least_genre"])
 
 
 class DailyBreakdownTests(TestCase):

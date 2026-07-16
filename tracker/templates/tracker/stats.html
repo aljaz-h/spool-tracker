@@ -69,32 +69,72 @@
     </div>
   </div>
 
-  <div class="grid grid-cols-1 lg:grid-cols-[1fr_0.6fr_1fr] gap-5 mt-5">
-    <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
-      <div class="flex justify-between items-center flex-wrap gap-3 mb-4.5">
-        <h3 class="text-lg m-0">Genres &amp; release years</h3>
-        <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
-          <a href="?genre_type=movie" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_type|eq:"movie" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Movies</a>
-          <a href="?genre_type=tv" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_type|eq:"tv" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">TV Shows</a>
-          <a href="?genre_type=anime" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_type|eq:"anime" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Anime</a>
+  <div class="bg-base-200 border border-line rounded-2xl p-5 mt-5">
+    <div class="flex justify-between items-start flex-wrap gap-3 mb-5">
+      <div>
+        <h2 class="text-2xl">Your top <span class="text-primary">genres</span></h2>
+        <div class="text-ink-faint text-sm mt-1">Sized by titles watched or time spent</div>
+      </div>
+      <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
+        <a href="?genre_type={{ genre_type }}&amp;genre_metric=items" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_metric == "items" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">By items</a>
+        <a href="?genre_type={{ genre_type }}&amp;genre_metric=duration" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_metric == "duration" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">By watch time</a>
+      </div>
+    </div>
+
+    <div class="bg-base-300/30 border border-line rounded-xl p-5">
+      <div class="flex justify-between items-center flex-wrap gap-3 mb-6">
+        <div class="inline-flex bg-base-200 border border-line rounded-lg p-1 gap-0.5">
+          <a href="?genre_type=tv&amp;genre_metric={{ genre_metric }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_type == "tv" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">TV Shows</a>
+          <a href="?genre_type=anime&amp;genre_metric={{ genre_metric }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_type == "anime" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Anime</a>
+          <a href="?genre_type=movie&amp;genre_metric={{ genre_metric }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_type == "movie" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Movies</a>
         </div>
+        {% if most_genre %}
+          <div class="flex items-center gap-4 text-[11.5px] text-ink-dim flex-wrap">
+            <span>MOST <b class="text-primary">{{ most_genre.name }}</b> <span class="font-mono bg-base-200 border border-line rounded px-1.5 py-0.5">{{ most_genre.display }}</span></span>
+            <span>LEAST <b class="text-primary">{{ least_genre.name }}</b> <span class="font-mono bg-base-200 border border-line rounded px-1.5 py-0.5">{{ least_genre.display }}</span></span>
+          </div>
+        {% endif %}
       </div>
 
-      <div class="text-[11px] uppercase tracking-wide text-ink-faint mb-2.5">Genres</div>
       {% if genre_breakdown %}
-        <div class="flex flex-wrap gap-1">
+        <div class="flex w-full gap-0.5 mb-1.5">
           {% for g in genre_breakdown %}
-            <div class="min-w-[64px] h-16 p-2 rounded flex flex-col justify-end overflow-hidden" style="flex-grow:{{ g.count }};background:{{ forloop.counter0|color_at_index }}">
-              <div class="font-mono text-[9.5px] font-bold uppercase tracking-wide text-white truncate" style="text-shadow:0 1px 2px rgba(0,0,0,.35)">{{ g.name }}</div>
-              <div class="text-[9px] text-white/85 mt-0.5">{{ g.count }}</div>
+            <div class="min-w-0" style="flex-grow:{{ g.pct }};flex-basis:0">
+              {% if forloop.counter0|divisibleby:2 %}
+                <div class="text-[10.5px] font-bold uppercase tracking-wide truncate pl-1.5 border-l-2" style="color:{{ forloop.counter0|color_at_index }};border-color:{{ forloop.counter0|color_at_index }}">{{ g.name }}</div>
+                <div class="text-[10px] text-ink-faint truncate pl-1.5">{{ g.display }}</div>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+        <div class="flex w-full h-10 rounded-lg overflow-hidden gap-0.5">
+          {% for g in genre_breakdown %}
+            <div
+              class="h-full flex items-center justify-center text-[11px] font-bold text-white min-w-0"
+              style="flex-grow:{{ g.pct }};flex-basis:0;background:{{ forloop.counter0|color_at_index }}"
+              title="{{ g.name }} · {{ g.display }}"
+            >{% if g.pct >= 6 %}{{ g.pct }}%{% endif %}</div>
+          {% endfor %}
+        </div>
+        <div class="flex w-full gap-0.5 mt-1.5">
+          {% for g in genre_breakdown %}
+            <div class="min-w-0" style="flex-grow:{{ g.pct }};flex-basis:0">
+              {% if not forloop.counter0|divisibleby:2 %}
+                <div class="text-[10.5px] font-bold uppercase tracking-wide truncate pl-1.5 border-l-2" style="color:{{ forloop.counter0|color_at_index }};border-color:{{ forloop.counter0|color_at_index }}">{{ g.name }}</div>
+                <div class="text-[10px] text-ink-faint truncate pl-1.5">{{ g.display }}</div>
+              {% endif %}
             </div>
           {% endfor %}
         </div>
       {% else %}
         <p class="text-ink-faint text-sm">No genre data yet for this type.</p>
       {% endif %}
+    </div>
+  </div>
 
-      <div class="text-[11px] uppercase tracking-wide text-ink-faint mb-2.5 mt-7">Release years</div>
+  <div class="grid grid-cols-1 lg:grid-cols-[1fr_0.6fr_1fr] gap-5 mt-5">
+    <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
+      <h3 class="text-lg mb-4">Release years</h3>
       {% if year_breakdown %}
         <div class="flex items-end gap-0.5 h-[130px] overflow-x-auto pb-1">
           {% for y in year_breakdown %}

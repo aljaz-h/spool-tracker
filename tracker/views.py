@@ -837,7 +837,8 @@ def stats(request):
     profile = Profile.objects.filter(user=request.user).first()
     genre_type = request.GET.get("genre_type")
     genre_type = genre_type if genre_type in GENRE_TYPES else "movie"
-    context = {"profile": profile, "genre_type": genre_type}
+    genre_metric = request.GET.get("genre_metric") if request.GET.get("genre_metric") == "duration" else "items"
+    context = {"profile": profile, "genre_type": genre_type, "genre_metric": genre_metric}
     if profile is not None:
         overview = selectors.stats_overview(profile)
         overview["split"]["movie_end"] = overview["split"]["movie_pct"]
@@ -845,7 +846,10 @@ def stats(request):
         context.update(overview)
 
         context["watch_time_breakdown"] = selectors.watch_time_breakdown(profile)
-        context["genre_breakdown"] = selectors.genre_breakdown(profile, GENRE_TYPES[genre_type])
+        genres = selectors.genre_breakdown(profile, GENRE_TYPES[genre_type], genre_metric)
+        context["genre_breakdown"] = genres
+        context["most_genre"] = genres[0] if genres else None
+        context["least_genre"] = genres[-1] if genres else None
         context["daily_breakdown"] = selectors.daily_breakdown(profile)
         context["daily_average"] = selectors.daily_average(profile)
         context["peak_hours"] = selectors.peak_hours(profile)

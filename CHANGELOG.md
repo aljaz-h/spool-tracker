@@ -8,6 +8,24 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-16
+
+### Added
+
+- Redesigned Stats' genre panel into a new full-width "Your top genres"
+  section, styled after Simkl's own genre chart: a single segmented bar
+  proportioned by each genre's share, with alternating above/below
+  labels so narrow segments still get room for a name, MOST/LEAST
+  callouts, and a toggle between sizing by title/episode count or by
+  total watch time (a new per-genre watch-time aggregation).
+- Release years is now its own tile (previously bundled into the same
+  panel as genres), unchanged in content.
+
+### Changed
+
+- The Movies/TV Shows/Anime genre-type selector moved from plain text
+  tabs to pill buttons inside the new genre panel.
+
 ## [0.7.2] - 2026-07-16
 
 ### Fixed
