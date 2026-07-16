@@ -33,9 +33,12 @@
               <span class="absolute bottom-2 left-2 font-mono text-[9px] font-bold uppercase tracking-wide bg-primary text-primary-content px-2 py-1 rounded-md">Season Finale</span>
             {% endif %}
           </div>
-          <div class="p-2.5">
-            <div class="font-mono text-[10.5px] text-ink-dim">S{{ season|stringformat:"02d" }} E{{ ep.episode_number|stringformat:"02d" }}</div>
-            <div class="text-[12.5px] font-semibold truncate mt-0.5">{{ ep.name }}</div>
+          <div class="p-2.5 flex items-center justify-between gap-2">
+            <div class="min-w-0">
+              <div class="font-mono text-[10.5px] text-ink-dim">S{{ season|stringformat:"02d" }} E{{ ep.episode_number|stringformat:"02d" }}</div>
+              <div class="text-[12.5px] font-semibold truncate mt-0.5">{{ ep.name }}</div>
+            </div>
+            {% include "tracker/partials/episode_watched_button.html" with title=title season=season episode_number=ep.episode_number watched=ep.watched %}
           </div>
         </div>
       {% empty %}

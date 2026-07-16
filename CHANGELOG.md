@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-17
+
+### Added
+
+- A "mark as watched" button on each episode tile in the title detail
+  page's episode browser, in the same style as the round check button
+  used on Movies & TV/Anime poster cards. Logs a `WatchEvent` for that
+  specific episode (materializing a local `Episode` row with its TMDB
+  name if one doesn't exist yet); clicking again logs a rewatch, same
+  no-unwatch behavior as every other watched button in the app.
+
 ## [0.10.1] - 2026-07-16
 
 ### Fixed

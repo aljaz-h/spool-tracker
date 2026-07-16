@@ -3395,6 +3395,57 @@ class TitleMarkWatchedAndRateTests(TestCase):
         self.assertNotEqual(resp.status_code, 200)
 
 
+class EpisodeMarkWatchedTests(TestCase):
+    """The episode browser's per-episode watched button."""
+
+    def setUp(self):
+        user = User.objects.create_user("episodeclicker", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="EpisodeClicker")
+        self.client.login(username="episodeclicker", password="pass12345")
+        self.title = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99", "tmdb_kind": "tv"}
+        )
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_creates_episode_and_watch_event_with_tmdb_name(self, mock_season):
+        mock_season.return_value = {"episodes": [{"episode_number": 1, "name": "Freedom Day"}]}
+        resp = self.client.post(reverse("episode_mark_watched", args=[self.title.pk, 1, 1]), HTTP_HX_REQUEST="true")
+        self.assertEqual(resp.status_code, 200)
+        episode = Episode.objects.get(title=self.title, season=1, episode=1)
+        self.assertEqual(episode.name, "Freedom Day")
+        event = WatchEvent.objects.get(profile=self.profile, title=self.title, episode=episode)
+        self.assertFalse(event.is_rewatch)
+        self.assertContains(resp, f"ep-watched-btn-{self.title.pk}-1-1")
+        self.assertContains(resp, "bg-success")
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_reuses_an_episode_row_created_by_a_prior_sync(self, mock_season):
+        mock_season.return_value = {"episodes": [{"episode_number": 2, "name": "Holston's Pick"}]}
+        existing = Episode.objects.create(title=self.title, season=1, episode=2, name="Holston's Pick")
+        self.client.post(reverse("episode_mark_watched", args=[self.title.pk, 1, 2]))
+        self.assertEqual(Episode.objects.filter(title=self.title, season=1, episode=2).count(), 1)
+        event = WatchEvent.objects.get(profile=self.profile, title=self.title)
+        self.assertEqual(event.episode_id, existing.pk)
+
+    @patch("tracker.integrations.tmdb.get_season_details", return_value=None)
+    def test_a_second_click_logs_a_rewatch(self, mock_season):
+        self.client.post(reverse("episode_mark_watched", args=[self.title.pk, 1, 1]))
+        self.client.post(reverse("episode_mark_watched", args=[self.title.pk, 1, 1]))
+        events = list(WatchEvent.objects.filter(profile=self.profile, title=self.title).order_by("watched_at"))
+        self.assertEqual(len(events), 2)
+        self.assertFalse(events[0].is_rewatch)
+        self.assertTrue(events[1].is_rewatch)
+
+    def test_requires_get_is_rejected(self):
+        resp = self.client.get(reverse("episode_mark_watched", args=[self.title.pk, 1, 1]))
+        self.assertEqual(resp.status_code, 405)
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("episode_mark_watched", args=[self.title.pk, 1, 1]))
+        self.assertNotEqual(resp.status_code, 200)
+
+
 class TitlePreviewViewTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("previewviewer", password="pass12345")

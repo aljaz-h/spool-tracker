@@ -25,6 +25,7 @@ from django.views.decorators.http import require_POST
 from . import csv_import, instance_config, rewatches, scheduling, selectors, tasks
 from .integrations import simkl, tmdb, trakt
 from .models import (
+    Episode,
     ExternalAccount,
     InstanceConfig,
     MediaType,
@@ -319,6 +320,39 @@ def title_mark_watched(request, pk):
     if request.headers.get("HX-Request"):
         return render(request, "tracker/partials/poster_card_watched_button.html", {"title": title, "watched": True})
     return redirect("title_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def episode_mark_watched(request, pk, season, episode_number):
+    """The episode browser's per-episode watched button - materializes the
+    local Episode row (sync/import may already have created one for this
+    exact season/episode) with its TMDB name, then behaves like
+    title_mark_watched: always a new WatchEvent, no "unwatch", a second
+    click logs a rewatch. Always an HTMX fragment - this button only ever
+    appears inside title_episodes.html."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    ep_name = ""
+    tmdb_id = title.external_ids.get("tmdb")
+    if tmdb_id:
+        season_data = tmdb.get_season_details(tmdb_id, season)
+        if season_data:
+            ep_name = next(
+                (e["name"] for e in season_data["episodes"] if e["episode_number"] == episode_number), ""
+            )
+    episode, _ = Episode.objects.get_or_create(
+        title=title, season=season, episode=episode_number, defaults={"name": ep_name}
+    )
+    WatchEvent.objects.create(profile=profile, title=title, episode=episode, watched_at=timezone.now())
+    rewatches.recompute_is_rewatch(profile, title, episode)
+    return render(
+        request,
+        "tracker/partials/episode_watched_button.html",
+        {"title": title, "season": season, "episode_number": episode_number, "watched": True},
+    )
 
 
 @login_required

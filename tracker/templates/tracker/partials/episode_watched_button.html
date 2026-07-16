@@ -1,0 +1,12 @@
+{% load icons %}
+{# context: title, season, episode_number, watched (bool) #}
+<button
+  type="button"
+  id="ep-watched-btn-{{ title.pk }}-{{ season }}-{{ episode_number }}"
+  hx-post="{% url 'episode_mark_watched' title.pk season episode_number %}"
+  hx-target="#ep-watched-btn-{{ title.pk }}-{{ season }}-{{ episode_number }}"
+  hx-swap="outerHTML"
+  title="{% if watched %}Watched — log another watch{% else %}Mark as watched{% endif %}"
+  class="w-7 h-7 rounded-full flex items-center justify-center border transition-colors flex-none
+    {% if watched %}bg-success/90 border-success/60 text-success-content{% else %}bg-black/55 border-white/15 text-white/85 hover:bg-black/75 hover:border-white/30{% endif %}"
+>{% icon "check" "w-3.5 h-3.5" %}</button>
