@@ -6,7 +6,7 @@
     class="absolute top-1.5 right-1.5 z-20 w-5 h-5 rounded-md bg-black/75 border border-white/20 flex items-center justify-center cursor-pointer"
   ><input type="checkbox" name="event_ids" value="{% for event in group.events %}{{ event.id }}{% if not forloop.last %},{% endif %}{% endfor %}" @change="recount()" class="w-3.5 h-3.5 accent-primary"></label>
   <a href="{% url 'title_detail' group.title.pk %}" class="block" @click="if (selecting) $event.preventDefault()">
-    <div class="aspect-[2/3] rounded-lg relative overflow-hidden border border-white/5 bg-cover bg-center {% if not group.title.poster_url %}{{ group.title.pk|gradient_class }}{% endif %}"
+    <div class="aspect-[2/3] rounded-lg relative overflow-hidden bg-cover bg-center {% if not group.title.poster_url %}{{ group.title.pk|gradient_class }}{% endif %}"
          {% if group.title.poster_url %}style="background-image:url('{{ group.title.poster_url }}')"{% endif %}>
       <div class="absolute inset-0 bg-linear-to-t from-black/50 to-transparent"></div>
       <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ group.range_label }}</span>

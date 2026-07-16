@@ -10,7 +10,7 @@ always start in their "off" state and materialize the Title on first
 click (title_preview_mark_watched/title_preview_add_to_list).
 {% endcomment %}
 <div class="relative">
-  <div class="aspect-[2/3] rounded-lg relative overflow-hidden border border-white/5 bg-cover bg-center {% if not item.poster_url %}{{ item.tmdb_id|gradient_class }}{% endif %}"
+  <div class="aspect-[2/3] rounded-lg relative overflow-hidden bg-cover bg-center {% if not item.poster_url %}{{ item.tmdb_id|gradient_class }}{% endif %}"
        {% if item.poster_url %}style="background-image:url('{{ item.poster_url }}')"{% endif %}>
     <a href="{% url 'title_preview' item.media_type item.tmdb_id %}" class="absolute inset-0 z-0">
       <div class="absolute inset-0 bg-linear-to-t from-black/85 via-black/35 via-55% to-transparent"></div>

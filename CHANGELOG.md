@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-07-16
+
+### Fixed
+
+- Poster cards (Dashboard, Discover, History, Calendar) had a faint
+  white border baked into every poster image, meant to be an almost-
+  invisible edge definition - on bright/light-colored posters it showed
+  up as an obvious pale rim around the whole card instead of blending
+  in. Removed it; the rounded-corner clipping alone is enough to define
+  the card's edge.
+
 ## [0.9.2] - 2026-07-16
 
 ### Changed

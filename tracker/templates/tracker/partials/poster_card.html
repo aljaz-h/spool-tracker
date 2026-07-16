@@ -8,7 +8,7 @@ any click-stop handling to avoid triggering navigation.
 {% endcomment %}
 <div class="{{ width_class|default:"w-[168px] flex-none" }}">
   <div
-    class="aspect-[2/3] rounded-lg relative overflow-hidden border border-white/5 bg-cover bg-center {% if not title.poster_url %}{{ title.pk|gradient_class }}{% endif %}"
+    class="aspect-[2/3] rounded-lg relative overflow-hidden bg-cover bg-center {% if not title.poster_url %}{{ title.pk|gradient_class }}{% endif %}"
     {% if title.poster_url %}style="background-image:url('{{ title.poster_url }}')"{% endif %}
   >
     <a href="{% url 'title_detail' title.pk %}" class="absolute inset-0 z-0 flex items-end pt-2.5 px-2.5 pb-9">
