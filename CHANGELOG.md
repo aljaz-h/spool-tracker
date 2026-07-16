@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-07-16
+
+### Fixed
+
+- "Your top genres" showed illegible truncated labels ("R..", "8...")
+  for the long tail of minor genres, whose segments are too narrow to
+  fit a name + count. Labels are now suppressed below a minimum share
+  (~3%) - the segment still renders at its correct proportional width
+  and color, it just doesn't try to cram text into a sliver too thin to
+  hold it.
+
 ## [0.9.0] - 2026-07-16
 
 ### Fixed
