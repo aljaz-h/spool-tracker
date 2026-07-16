@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-07-16
+
+### Changed
+
+- Per a hand-drawn mockup: Stats' top row (streak / Last 30 days / All
+  time) is now one combined bordered card with thin divider lines
+  between its three sections, instead of three separate boxes with gaps
+  between them - the gaps made the row read as misaligned even though
+  each box's own height matched.
+
 ## [0.6.4] - 2026-07-16
 
 ### Added

@@ -12,8 +12,8 @@
     <p class="text-ink-faint text-sm">Your account isn't linked to a household profile yet.</p>
   {% else %}
 
-  <div class="grid grid-cols-1 lg:grid-cols-[1.7fr_1fr_1fr] gap-5">
-    <div class="min-w-0 grid grid-cols-1 md:grid-cols-[190px_1fr] gap-6 items-center bg-base-200 border border-line rounded-2xl p-6">
+  <div class="bg-base-200 border border-line rounded-2xl grid grid-cols-1 lg:grid-cols-[1.7fr_1fr_1fr] divide-y lg:divide-y-0 lg:divide-x divide-line">
+    <div class="min-w-0 grid grid-cols-1 md:grid-cols-[190px_1fr] gap-6 items-center p-6">
       <div class="flex justify-center">
         <div class="relative w-[150px] h-[150px] rounded-full" style="background: conic-gradient(var(--color-primary) calc({{ dial_pct }}*1%), var(--color-base-300) 0)">
           <div class="absolute inset-3.5 rounded-full bg-base-200 flex flex-col items-center justify-center">
@@ -28,7 +28,7 @@
       </div>
     </div>
 
-    <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
+    <div class="min-w-0 p-5">
       <h3 class="text-lg mb-4">Last 30 days</h3>
       <div class="space-y-3">
         <div class="flex justify-between items-baseline">
@@ -46,7 +46,7 @@
       </div>
     </div>
 
-    <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
+    <div class="min-w-0 p-5">
       <h3 class="text-lg mb-4">All time</h3>
       <div class="space-y-3">
         <div class="flex justify-between items-baseline">
