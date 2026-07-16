@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-07-16
+
+### Changed
+
+- Calendar sidebar's date groups (Jul 18, Jul 19, ...) were just bold
+  text the same size as everything else, so the list of upcoming
+  releases read as one undifferentiated block. Restyled each date to
+  match History's own day-group header (font-display, underlined),
+  making each date's releases read as a clearly separated group -
+  today's date header is also now tinted primary, matching the main
+  grid's own "today" highlight.
+
 ## [0.6.1] - 2026-07-16
 
 ### Fixed

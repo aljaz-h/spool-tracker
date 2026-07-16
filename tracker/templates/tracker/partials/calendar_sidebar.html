@@ -22,14 +22,16 @@
   <div class="p-4 text-ink-faint text-sm {% if featured %}mt-4{% endif %}">Nothing upcoming matches these filters — try widening them.</div>
 {% else %}
   {% for group in agenda_groups %}
-    <div id="agenda-{{ group.date|date:'Y-m-d' }}" class="font-bold text-[13px] mt-4.5 mb-1.5 px-0.5">{{ group.date|date:"M j" }}</div>
-    {% for rs in group.items %}
-      <div class="flex justify-between items-center py-1.5 px-0.5 text-[12.5px] text-ink-faint {% if group.date == today %}text-base-content font-semibold{% endif %}">
-        <a href="{% url 'title_detail' rs.title.pk %}" class="hover:underline">{{ rs.title.name }}</a>
-        <span class="font-mono text-[11.5px]">
-          {% if rs.episode %}S{{ rs.episode.season }} E{{ rs.episode.episode }}{% else %}{{ rs.get_release_type_display }}{% endif %}
-        </span>
-      </div>
-    {% endfor %}
+    <div class="{% if not forloop.first %}mt-5{% endif %}">
+      <div id="agenda-{{ group.date|date:'Y-m-d' }}" class="font-display text-lg tracking-wide pb-1.5 mb-1.5 border-b border-line {% if group.date == today %}text-primary{% endif %}">{{ group.date|date:"M j" }}</div>
+      {% for rs in group.items %}
+        <div class="flex justify-between items-center py-1.5 px-0.5 text-[12.5px] text-ink-faint {% if group.date == today %}text-base-content font-semibold{% endif %}">
+          <a href="{% url 'title_detail' rs.title.pk %}" class="hover:underline">{{ rs.title.name }}</a>
+          <span class="font-mono text-[11.5px]">
+            {% if rs.episode %}S{{ rs.episode.season }} E{{ rs.episode.episode }}{% else %}{{ rs.get_release_type_display }}{% endif %}
+          </span>
+        </div>
+      {% endfor %}
+    </div>
   {% endfor %}
 {% endif %}
