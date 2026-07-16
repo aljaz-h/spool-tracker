@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-07-16
+
+### Fixed
+
+- The backdrop's "Directed by X" text (removed in 0.10.0 when the
+  director moved into the Cast row) was supposed to stay - the two
+  aren't mutually exclusive. Restored it alongside the Cast row entry.
+
 ## [0.10.0] - 2026-07-16
 
 ### Added

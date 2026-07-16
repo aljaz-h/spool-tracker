@@ -16,6 +16,12 @@
     <div class="filmstrip-edge filmstrip-edge--left"></div>
     <div class="filmstrip-edge filmstrip-edge--right"></div>
 
+    {% if director %}
+      <div class="absolute z-10 bottom-4 right-6 text-right font-mono text-[11px] text-ink-dim">
+        <div>Directed by <span class="text-base-content font-semibold">{{ director.name }}</span></div>
+      </div>
+    {% endif %}
+
     <div class="relative z-10 h-full flex flex-wrap gap-5 p-6 items-end">
       <div class="w-[130px] aspect-[2/3] flex-none rounded-lg overflow-hidden border border-white/10 bg-cover bg-center {% if not display_poster_url %}{{ poster_seed|gradient_class }}{% endif %}"
            {% if display_poster_url %}style="background-image:url('{{ display_poster_url }}')"{% endif %}>
