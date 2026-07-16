@@ -1798,6 +1798,43 @@ class GenreBreakdownTests(TestCase):
         self.assertIsNone(resp.context["least_genre"])
 
 
+class EpisodeBrowserSelectorTests(TestCase):
+    """selectors.default_season_for_title / watched_episode_numbers, in
+    isolation from the title_detail view that consumes them."""
+
+    def setUp(self):
+        user = User.objects.create_user("epselectorwatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="EpSelectorWatcher")
+        self.show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+
+    def _watch(self, season, episode_num):
+        from django.utils import timezone
+
+        ep = Episode.objects.create(title=self.show, season=season, episode=episode_num)
+        return WatchEvent.objects.create(profile=self.profile, title=self.show, episode=ep, watched_at=timezone.now())
+
+    def test_no_watch_history_returns_none(self):
+        self.assertIsNone(selectors.default_season_for_title(self.profile, self.show))
+
+    def test_picks_the_highest_season_with_any_watched_episode(self):
+        self._watch(season=1, episode_num=5)
+        self._watch(season=3, episode_num=1)
+        self._watch(season=2, episode_num=8)
+        self.assertEqual(selectors.default_season_for_title(self.profile, self.show), 3)
+
+    def test_plain_episode_less_watch_events_are_ignored(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.show, watched_at="2024-01-01T00:00:00Z")
+        self.assertIsNone(selectors.default_season_for_title(self.profile, self.show))
+
+    def test_watched_episode_numbers_scoped_to_the_given_season(self):
+        self._watch(season=1, episode_num=1)
+        self._watch(season=1, episode_num=3)
+        self._watch(season=2, episode_num=1)
+        self.assertEqual(selectors.watched_episode_numbers(self.profile, self.show, season=1), {1, 3})
+        self.assertEqual(selectors.watched_episode_numbers(self.profile, self.show, season=2), {1})
+        self.assertEqual(selectors.watched_episode_numbers(self.profile, self.show, season=99), set())
+
+
 class DailyBreakdownTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("dailybreakdownwatcher", password="pass12345")
@@ -2627,11 +2664,18 @@ class TmdbDetailPageTests(TestCase):
             {
                 "crew": [
                     {"name": "Editor Person", "job": "Editor"},
-                    {"name": "Director Person", "job": "Director"},
+                    {"name": "Director Person", "job": "Director", "profile_path": "/d.jpg"},
                 ]
             }
         )
-        self.assertEqual(tmdb.get_director("movie", 42), "Director Person")
+        director = tmdb.get_director("movie", 42)
+        self.assertEqual(director["name"], "Director Person")
+        self.assertEqual(director["profile_url"], "https://image.tmdb.org/t/p/w185/d.jpg")
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_director_profile_url_is_none_without_a_photo(self, mock_get):
+        mock_get.return_value = self._response({"crew": [{"name": "Director Person", "job": "Director"}]})
+        self.assertIsNone(tmdb.get_director("movie", 42)["profile_url"])
 
     @patch("tracker.integrations.tmdb.requests.get")
     def test_get_director_returns_none_when_no_director_credited(self, mock_get):
@@ -2644,6 +2688,35 @@ class TmdbDetailPageTests(TestCase):
 
         mock_get.side_effect = requests.RequestException("boom")
         self.assertIsNone(tmdb.get_director("movie", 1))
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_season_details_normalizes_episodes(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 99,
+                "episodes": [
+                    {"episode_number": 1, "name": "Pilot", "still_path": "/e1.jpg", "air_date": "2020-01-01"},
+                    {"episode_number": 2, "name": "Second", "still_path": None, "air_date": "2020-01-08"},
+                ],
+            }
+        )
+        season = tmdb.get_season_details(555, 1)
+        self.assertEqual(len(season["episodes"]), 2)
+        self.assertEqual(season["episodes"][0]["still_url"], "https://image.tmdb.org/t/p/w500/e1.jpg")
+        self.assertIsNone(season["episodes"][1]["still_url"])
+        self.assertEqual(season["episodes"][1]["name"], "Second")
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_season_details_returns_none_on_missing_id(self, mock_get):
+        mock_get.return_value = self._response({})
+        self.assertIsNone(tmdb.get_season_details(555, 1))
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_season_details_returns_none_on_request_exception(self, mock_get):
+        import requests
+
+        mock_get.side_effect = requests.RequestException("boom")
+        self.assertIsNone(tmdb.get_season_details(555, 1))
 
     @patch("tracker.integrations.tmdb.requests.get")
     def test_get_watch_providers_flattens_flatrate_free_and_ads(self, mock_get):
@@ -3053,9 +3126,14 @@ class TitleDetailViewTests(TestCase):
             external_ids={"tmdb": "42", "tmdb_kind": "movie"},
         )
         # every test in this class hits title_detail, which now also calls
-        # these two - patched here (not per-method) so adding them didn't
-        # require touching every test's mock signature.
-        for name, default in (("get_director", None), ("get_watch_providers", [])):
+        # these - patched here (not per-method) so adding them didn't
+        # require touching every test's mock signature. get_season_details
+        # is only actually invoked when a test's _details() sets a real
+        # number_of_seasons (default None), but it's patched unconditionally
+        # here too so nothing in this class can attempt a real HTTP call.
+        for name, default in (
+            ("get_director", None), ("get_watch_providers", []), ("get_season_details", None),
+        ):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -3139,6 +3217,114 @@ class TitleDetailViewTests(TestCase):
         mock_details.return_value = self._details(status="Released")
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         self.assertIsNone(resp.context["status_badge"])
+
+
+class TitleEpisodeBrowserTests(TestCase):
+    """The episode browser - season <select>, per-episode watched badges,
+    and the default-season "resume where you left off" logic (the
+    highest season the profile has any watched episode in)."""
+
+    def setUp(self):
+        user = User.objects.create_user("episodewatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="EpisodeWatcher")
+        self.client.login(username="episodewatcher", password="pass12345")
+        self.title = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023,
+            external_ids={"tmdb": "99", "tmdb_kind": "tv"},
+        )
+        for name, default in (("get_director", None), ("get_watch_providers", [])):
+            patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _details(self, number_of_seasons=3):
+        return {
+            "tmdb_id": 99, "media_type": "tv", "name": "Silo", "year": "2023",
+            "overview": "", "tagline": "", "genres": [], "runtime": None,
+            "number_of_seasons": number_of_seasons, "number_of_episodes": 30,
+            "backdrop_url": None, "poster_url": None, "vote_average": 7.0,
+            "vote_count": 100, "original_language": "en", "status": None,
+        }
+
+    def _season(self, episode_names):
+        return {
+            "episodes": [
+                {"episode_number": i + 1, "name": name, "still_url": None, "air_date": None}
+                for i, name in enumerate(episode_names)
+            ]
+        }
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_defaults_to_season_1_with_no_watch_history(self, mock_details, mock_credits, mock_similar, mock_season):
+        mock_details.return_value = self._details()
+        mock_season.return_value = self._season(["Freedom Day", "Holston's Pick"])
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertEqual(resp.context["season"], 1)
+        self.assertEqual(resp.context["seasons"], [1, 2, 3])
+        mock_season.assert_called_once_with("99", 1)
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_defaults_to_the_highest_watched_season(self, mock_details, mock_credits, mock_similar, mock_season):
+        from django.utils import timezone
+
+        mock_details.return_value = self._details()
+        mock_season.return_value = self._season(["Ep"])
+        ep = Episode.objects.create(title=self.title, season=2, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=self.title, episode=ep, watched_at=timezone.now())
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertEqual(resp.context["season"], 2)
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_marks_watched_episodes_and_flags_the_finale(self, mock_details, mock_credits, mock_similar, mock_season):
+        from django.utils import timezone
+
+        mock_details.return_value = self._details()
+        mock_season.return_value = self._season(["Ep1", "Ep2", "Ep3"])
+        ep2 = Episode.objects.create(title=self.title, season=1, episode=2)
+        WatchEvent.objects.create(profile=self.profile, title=self.title, episode=ep2, watched_at=timezone.now())
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        episodes = resp.context["episodes"]
+        self.assertEqual([e["watched"] for e in episodes], [False, True, False])
+        self.assertTrue(episodes[-1]["is_finale"])
+        self.assertNotIn("is_finale", episodes[0])
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    def test_movies_never_show_an_episode_browser(self, mock_details, mock_credits, mock_similar, mock_season):
+        movie = Title.objects.create(
+            media_type=MediaType.MOVIE, name="A Movie", year=2020, external_ids={"tmdb": "1"}
+        )
+        resp = self.client.get(reverse("title_detail", args=[movie.pk]))
+        self.assertEqual(resp.context["seasons"], [])
+        mock_season.assert_not_called()
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_season_select_switches_via_the_episodes_endpoint(self, mock_details, mock_season):
+        mock_details.return_value = self._details()
+        mock_season.return_value = self._season(["S2 Ep1"])
+        resp = self.client.get(reverse("title_episodes", args=[self.title.pk]), {"season": "2"})
+        self.assertEqual(resp.context["season"], 2)
+        mock_season.assert_called_once_with("99", 2)
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_out_of_range_season_falls_back_to_default(self, mock_details, mock_season):
+        mock_details.return_value = self._details(number_of_seasons=2)
+        mock_season.return_value = self._season(["Ep"])
+        resp = self.client.get(reverse("title_episodes", args=[self.title.pk]), {"season": "99"})
+        self.assertEqual(resp.context["season"], 1)
 
 
 class TitleMarkWatchedAndRateTests(TestCase):

@@ -1,0 +1,46 @@
+{% load tracker_extras %}
+{# context: title, seasons, season, episodes #}
+<div id="episodes-panel">
+  {% if seasons %}
+    <div class="flex justify-between items-center flex-wrap gap-3 mb-4">
+      <h2 class="font-display text-xl m-0">Episodes</h2>
+      <select
+        name="season"
+        hx-get="{% url 'title_episodes' title.pk %}" hx-target="#episodes-panel" hx-swap="outerHTML" hx-trigger="change"
+        class="bg-base-200 border border-line rounded-lg text-xs font-semibold px-3 py-1.5 text-base-content cursor-pointer"
+      >
+        {% for s in seasons %}
+          <option value="{{ s }}" {% if s == season %}selected{% endif %}>Season {{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4 mb-8">
+      {% for ep in episodes %}
+        <div class="bg-base-200 border border-line rounded-lg overflow-hidden">
+          <div
+            class="aspect-video relative bg-base-300 bg-cover bg-center {% if not ep.still_url %}{{ title.pk|add:ep.episode_number|gradient_class }}{% endif %}"
+            {% if ep.still_url %}style="background-image:url('{{ ep.still_url }}')"{% endif %}
+          >
+            <div class="absolute inset-0 bg-linear-to-t from-black/60 to-transparent"></div>
+            {% if ep.watched %}
+              <span
+                class="absolute top-2 right-2 w-6 h-6 rounded-full bg-success flex items-center justify-center text-success-content text-xs shadow-[0_1px_4px_rgba(0,0,0,0.5)]"
+                title="Watched"
+              >&#10003;</span>
+            {% endif %}
+            {% if ep.is_finale %}
+              <span class="absolute bottom-2 left-2 font-mono text-[9px] font-bold uppercase tracking-wide bg-primary text-primary-content px-2 py-1 rounded-md">Season Finale</span>
+            {% endif %}
+          </div>
+          <div class="p-2.5">
+            <div class="font-mono text-[10.5px] text-ink-dim">S{{ season|stringformat:"02d" }} E{{ ep.episode_number|stringformat:"02d" }}</div>
+            <div class="text-[12.5px] font-semibold truncate mt-0.5">{{ ep.name }}</div>
+          </div>
+        </div>
+      {% empty %}
+        <p class="text-ink-faint text-sm">No episode data for this season yet.</p>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>

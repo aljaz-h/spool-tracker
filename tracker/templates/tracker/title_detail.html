@@ -16,12 +16,6 @@
     <div class="filmstrip-edge filmstrip-edge--left"></div>
     <div class="filmstrip-edge filmstrip-edge--right"></div>
 
-    {% if director %}
-      <div class="absolute z-10 bottom-4 right-6 text-right font-mono text-[11px] text-ink-dim">
-        <div>Directed by <span class="text-base-content font-semibold">{{ director }}</span></div>
-      </div>
-    {% endif %}
-
     <div class="relative z-10 h-full flex flex-wrap gap-5 p-6 items-end">
       <div class="w-[130px] aspect-[2/3] flex-none rounded-lg overflow-hidden border border-white/10 bg-cover bg-center {% if not display_poster_url %}{{ poster_seed|gradient_class }}{% endif %}"
            {% if display_poster_url %}style="background-image:url('{{ display_poster_url }}')"{% endif %}>
@@ -70,9 +64,18 @@
         </div>
       {% endif %}
 
-      {% if cast %}
+      {% if director or cast %}
         <h2 class="font-display text-xl mb-3">Cast</h2>
         <div class="flex gap-4 overflow-x-auto pb-2 mb-8">
+          {% if director %}
+            <div class="w-[104px] flex-none">
+              <div class="aspect-square rounded-full overflow-hidden bg-base-300 bg-cover bg-center border border-line"
+                   {% if director.profile_url %}style="background-image:url('{{ director.profile_url }}')"{% endif %}></div>
+              <div class="text-[11.5px] font-semibold mt-1.5 text-center leading-tight line-clamp-2">{{ director.name }}</div>
+              <div class="text-[10.5px] text-ink-faint text-center leading-tight line-clamp-2 mt-0.5">Director</div>
+            </div>
+            <div class="w-px flex-none bg-line my-1.5"></div>
+          {% endif %}
           {% for actor in cast %}
             <div class="w-[104px] flex-none">
               <div class="aspect-square rounded-full overflow-hidden bg-base-300 bg-cover bg-center border border-line"
@@ -82,6 +85,10 @@
             </div>
           {% endfor %}
         </div>
+      {% endif %}
+
+      {% if not is_preview %}
+        {% include "tracker/partials/title_episodes.html" %}
       {% endif %}
 
     </div>

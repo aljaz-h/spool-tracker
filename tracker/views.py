@@ -205,6 +205,40 @@ def _star_fill(rating):
     return stars
 
 
+def _episode_panel_context(request, profile, title, details):
+    """Season/episode data for the title detail page's episode browser -
+    shared by title_detail's initial render and title_episodes' htmx
+    season-switch, which each already have (or cheaply fetch) `details`
+    themselves. Empty (no seasons) for movies and any show where TMDB
+    doesn't report a season count."""
+    context = {"seasons": [], "season": None, "episodes": []}
+    number_of_seasons = details["number_of_seasons"] if details else None
+    if not number_of_seasons:
+        return context
+    context["seasons"] = list(range(1, number_of_seasons + 1))
+
+    try:
+        season = int(request.GET.get("season"))
+    except (TypeError, ValueError):
+        season = None
+    if season not in context["seasons"]:
+        season = selectors.default_season_for_title(profile, title) if profile else None
+        if season not in context["seasons"]:
+            season = context["seasons"][0]
+    context["season"] = season
+
+    tmdb_id = title.external_ids.get("tmdb")
+    season_data = tmdb.get_season_details(tmdb_id, season)
+    episodes = season_data["episodes"] if season_data else []
+    watched = selectors.watched_episode_numbers(profile, title, season) if profile else set()
+    for ep in episodes:
+        ep["watched"] = ep["episode_number"] in watched
+    if episodes:
+        episodes[-1]["is_finale"] = True
+    context["episodes"] = episodes
+    return context
+
+
 @login_required
 def title_detail(request, pk):
     """The click-through page for a title already in the local library -
@@ -217,6 +251,7 @@ def title_detail(request, pk):
     tmdb_id = title.external_ids.get("tmdb")
     details = cast = similar = director = None
     watch_providers = []
+    episode_context = {"seasons": [], "season": None, "episodes": []}
     if tmdb_id:
         tmdb_media_type = tmdb.media_type_for(title)
         details = tmdb.get_full_details(tmdb_media_type, tmdb_id)
@@ -224,6 +259,7 @@ def title_detail(request, pk):
         similar = tmdb.get_similar(tmdb_media_type, tmdb_id)
         director = tmdb.get_director(tmdb_media_type, tmdb_id)
         watch_providers = tmdb.get_watch_providers(tmdb_media_type, tmdb_id)
+        episode_context = _episode_panel_context(request, profile, title, details)
 
     local_context = selectors.title_local_context(profile, title)
     context = {
@@ -241,9 +277,25 @@ def title_detail(request, pk):
         "preview_tmdb_id": None,
         **_title_display(title, details),
         **local_context,
+        **episode_context,
     }
     context["star_fill"] = _star_fill(context["latest_rating"])
     return render(request, "tracker/title_detail.html", context)
+
+
+@login_required
+def title_episodes(request, pk):
+    """Re-renders just the episode browser (#episodes-panel) for a season
+    switch - the season <select>'s own hx-get target, mirroring the
+    Stats heatmap's year-select/#heatmap-panel pattern."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    context = {"title": title, "seasons": [], "season": None, "episodes": []}
+    tmdb_id = title.external_ids.get("tmdb")
+    if tmdb_id:
+        details = tmdb.get_full_details(tmdb.media_type_for(title), tmdb_id)
+        context.update(_episode_panel_context(request, profile, title, details))
+    return render(request, "tracker/partials/title_episodes.html", context)
 
 
 @login_required

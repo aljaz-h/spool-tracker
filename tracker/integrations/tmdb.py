@@ -402,13 +402,46 @@ def get_similar(media_type, tmdb_id, limit=12):
 
 
 def get_director(media_type, tmdb_id):
-    """Director's name, or None. Hits the same /credits endpoint as
-    get_credits() - _list_request's cache means calling both for the
-    same title in one request doesn't cost a second real HTTP call, so
-    this doesn't need its own cache-key/network story."""
+    """{"name", "profile_url"} for the credited director, or None - shaped
+    like get_credits()'s cast entries so the title detail page can render
+    the director as the lead entry in the same Cast row, not a separate
+    element. Hits the same /credits endpoint as get_credits() -
+    _list_request's cache means calling both for the same title in one
+    request doesn't cost a second real HTTP call, so this doesn't need
+    its own cache-key/network story."""
     data = _list_request(f"{media_type}/{tmdb_id}/credits")
     crew = (data or {}).get("crew") or []
-    return next((c.get("name") for c in crew if c.get("job") == "Director"), None)
+    director = next((c for c in crew if c.get("job") == "Director"), None)
+    if not director:
+        return None
+    profile_path = director.get("profile_path")
+    return {
+        "name": director.get("name") or "",
+        "profile_url": f"{PROFILE_BASE}{profile_path}" if profile_path else None,
+    }
+
+
+def get_season_details(tmdb_id, season_number):
+    """{"episodes": [{"episode_number", "name", "still_url", "air_date"}, ...]}
+    or None if nothing came back. Always the /tv/ endpoint regardless of
+    the title's own media_type - anime is matched against TMDB's tv
+    catalog same as any other show (see media_type_for()), and seasons
+    only exist there; movies never call this at all."""
+    data = _list_request(f"tv/{tmdb_id}/season/{season_number}")
+    if not data or data.get("id") is None:
+        return None
+    episodes = []
+    for ep in data.get("episodes") or []:
+        still_path = ep.get("still_path")
+        episodes.append(
+            {
+                "episode_number": ep.get("episode_number"),
+                "name": ep.get("name") or "",
+                "still_url": f"{IMAGE_BASE}{still_path}" if still_path else None,
+                "air_date": ep.get("air_date"),
+            }
+        )
+    return {"episodes": episodes}
 
 
 def get_watch_providers(media_type, tmdb_id, region="US"):

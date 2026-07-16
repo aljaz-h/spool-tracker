@@ -707,6 +707,30 @@ def title_local_context(profile, title):
     }
 
 
+def default_season_for_title(profile, title):
+    """Which season the title detail page's episode browser should open
+    on by default - the highest season number the profile has any
+    watched episode in (picking up where they left off), or None if
+    they haven't watched any episode of this show yet, in which case the
+    view falls back to season 1."""
+    return (
+        WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=False)
+        .order_by("-episode__season")
+        .values_list("episode__season", flat=True)
+        .first()
+    )
+
+
+def watched_episode_numbers(profile, title, season):
+    """Episode numbers of the given season the profile has watched - for
+    the episode browser's per-tile watched badge."""
+    return set(
+        WatchEvent.objects.filter(profile=profile, title=title, episode__season=season).values_list(
+            "episode__episode", flat=True
+        )
+    )
+
+
 def poster_action_context(profile, titles):
     """Batched version of title_local_context()'s watched/list-membership
     lookups, for a grid of poster cards (Dashboard's carousels, a list's

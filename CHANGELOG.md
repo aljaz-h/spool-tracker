@@ -8,6 +8,25 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-16
+
+### Added
+
+- Title detail pages for TV shows/anime now have an episode browser: a
+  season dropdown (not every season on one page) and a grid of episode
+  tiles (thumbnail, name, "SEASON FINALE" badge on the last episode of
+  a season) with a green checkmark on episodes you've already watched.
+  Opens on the season you're currently partway through by default (the
+  highest season you have any watched episode in), or Season 1 if
+  you haven't started the show yet.
+
+### Changed
+
+- The director now appears as the first entry in the Cast row (with a
+  divider before the rest of the cast), instead of small text overlaid
+  on the backdrop image - movies only, since TMDB doesn't credit a
+  single director at the series level for TV/anime.
+
 ## [0.9.3] - 2026-07-16
 
 ### Fixed
