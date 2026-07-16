@@ -8,6 +8,21 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-07-16
+
+### Fixed
+
+- Split by type's pie was rendering with its edge visibly flattened/cut
+  off in places - the wedges' radius exactly touched the SVG's own clip
+  boundary, and anti-aliasing right at that edge was clipping it. Pulled
+  the radius in slightly so the circle has margin to render cleanly.
+
+### Changed
+
+- The hover/default readout under the pie now shows just the percentage
+  - dropped the duration ("88d 1h 53m TV"), since that's already shown
+  per-type in the All time panel above and was redundant here.
+
 ## [0.7.1] - 2026-07-16
 
 ### Changed

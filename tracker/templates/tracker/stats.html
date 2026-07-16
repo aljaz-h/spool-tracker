@@ -114,9 +114,9 @@
       x-data="{
         hovered: null,
         segments: {
-          movie: { label: 'Movies', short: 'Movies', pct: {{ split.movie_pct }}, duration: '{{ watch_time_breakdown.all_time.movie.duration }}' },
-          tv: { label: 'TV shows', short: 'TV', pct: {{ split.tv_pct }}, duration: '{{ watch_time_breakdown.all_time.tv.duration }}' },
-          anime: { label: 'Anime', short: 'Anime', pct: {{ split.anime_pct }}, duration: '{{ watch_time_breakdown.all_time.anime.duration }}' },
+          movie: { pct: {{ split.movie_pct }} },
+          tv: { pct: {{ split.tv_pct }} },
+          anime: { pct: {{ split.anime_pct }} },
         },
         get active() {
           return this.hovered || Object.entries(this.segments).sort((a, b) => b[1].pct - a[1].pct)[0][0];
@@ -126,14 +126,17 @@
           return 'transform-origin:18px 18px; transition:transform 150ms; cursor:pointer;' + (this.active === key ? 'transform:scale(1.06)' : '');
         },
         wedgePath(startPct, endPct) {
+          // r=17, not the full 18 the 36x36 viewBox allows, so the path
+          // never touches the SVG's own clip boundary - right at the edge,
+          // anti-aliasing was visibly flattening/cutting off the circle.
           const toXY = (pct) => {
             const angle = (pct / 100) * 2 * Math.PI - Math.PI / 2;
-            return [18 + 18 * Math.cos(angle), 18 + 18 * Math.sin(angle)];
+            return [18 + 17 * Math.cos(angle), 18 + 17 * Math.sin(angle)];
           };
           const [x1, y1] = toXY(startPct);
           const [x2, y2] = toXY(endPct);
           const largeArc = endPct - startPct > 50 ? 1 : 0;
-          return `M18,18 L${x1},${y1} A18,18 0 ${largeArc} 1 ${x2},${y2} Z`;
+          return `M18,18 L${x1},${y1} A17,17 0 ${largeArc} 1 ${x2},${y2} Z`;
         },
       }"
     >
@@ -158,10 +161,7 @@
             ></path>
           </svg>
         </div>
-        <div class="flex flex-col items-center">
-          <div class="font-display text-2xl leading-none" x-text="segments[active].pct + '%'"></div>
-          <div class="text-[11px] text-ink-dim mt-1" x-text="segments[active].duration + ' ' + segments[active].short"></div>
-        </div>
+        <div class="font-display text-2xl leading-none" x-text="segments[active].pct + '%'"></div>
         <div class="flex items-center justify-center flex-wrap gap-x-4 gap-y-1.5 text-[12.5px] text-ink-dim">
           <div
             class="flex items-center gap-1.5 cursor-pointer select-none"
