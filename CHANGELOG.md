@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-07-16
+
+### Fixed
+
+- Clicking a date on the Calendar gave no indication it had been
+  selected. Today's date now stays selected (violet border) until you
+  click a different date, at which point the border moves there instead
+  - today keeps its filled circle number regardless, since that's a
+  fixed "this is today" marker, not the selection state.
+
 ## [0.6.0] - 2026-07-15
 
 ### Changed
