@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.6.7] - 2026-07-16
+
+### Changed
+
+- Refined Stats' row-alignment pass from 0.6.6: row 2's first and third
+  boxes (Genres & release years / Watch activity) are now equal width
+  with a narrower middle box (Split by type, whose donut+legend never
+  needed as much room); row 3's three boxes (Daily breakdown / Daily
+  average / Peak hours) are now a plain equal three-way split. Row 1 is
+  unchanged.
+
 ## [0.6.6] - 2026-07-16
 
 ### Changed
