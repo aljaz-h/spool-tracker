@@ -35,6 +35,7 @@ from .models import (
     WatchList,
     WatchListItem,
     WatchProgress,
+    attach_genres,
 )
 
 MOVIE_TV_TYPES = [MediaType.MOVIE, MediaType.TV]
@@ -354,13 +355,15 @@ def _get_or_create_preview_title(media_type, tmdb_id):
     if details is None:
         return None
     media_type_for_title = MediaType.MOVIE if media_type == "movie" else MediaType.TV
-    return Title.objects.create(
+    title = Title.objects.create(
         media_type=media_type_for_title,
         name=details["name"],
         year=int(details["year"]) if details["year"] else 0,
         poster_url=details["poster_url"] or "",
         external_ids={"tmdb": str(tmdb_id), "tmdb_kind": media_type},
     )
+    attach_genres(title, details["genres"])
+    return title
 
 
 @login_required
@@ -853,12 +856,6 @@ def stats(request):
         context["daily_breakdown"] = selectors.daily_breakdown(profile)
         context["daily_average"] = selectors.daily_average(profile)
         context["peak_hours"] = selectors.peak_hours(profile)
-
-        years = selectors.year_breakdown(profile, GENRE_TYPES[genre_type])
-        max_count = max((y["count"] for y in years), default=0)
-        for y in years:
-            y["height_pct"] = max(6, round(y["count"] / max_count * 100)) if max_count else 6
-        context["year_breakdown"] = years
 
         context["heatmap_years"] = selectors.heatmap_available_years(profile)
         year = context["heatmap_years"][0]

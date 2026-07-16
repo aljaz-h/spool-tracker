@@ -143,16 +143,23 @@ def _get_or_create_title(media_type, name, year):
     if title:
         return title
     from tracker.integrations import tmdb
+    from tracker.models import attach_genres
 
     external_ids = {}
     poster_url = ""
+    genre_names = []
     match = tmdb.find_match(media_type, name, year)
     if match:
         external_ids = {"tmdb": str(match["id"]), "tmdb_kind": match["kind"]}
         poster_url = match["poster_url"] or ""
-    return Title.objects.create(
+        details = tmdb.get_full_details(match["kind"], match["id"])
+        if details:
+            genre_names = details["genres"]
+    title = Title.objects.create(
         media_type=media_type, name=name, year=year or 0, external_ids=external_ids, poster_url=poster_url
     )
+    attach_genres(title, genre_names)
+    return title
 
 
 def commit_rows(profile, rows):

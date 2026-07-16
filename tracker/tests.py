@@ -23,6 +23,7 @@ from .models import (
     WatchList,
     WatchListItem,
     WatchProgress,
+    attach_genres,
 )
 
 
@@ -2035,6 +2036,120 @@ class BackfillPostersCommandTests(TestCase):
         title.refresh_from_db()
         self.assertEqual(title.external_ids.get("tmdb"), "7")
         self.assertTrue(title.poster_url)
+
+
+class AttachGenresTests(TestCase):
+    """attach_genres() - shared by every import path (Trakt/Simkl/CSV,
+    the discover/preview materialize flow, and the backfill_genres
+    command) that discovers genre names via a TMDB match."""
+
+    def test_creates_missing_genres_and_sets_them_on_the_title(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="A Movie", year=2020)
+        attach_genres(title, ["Action", "Comedy"])
+        self.assertEqual(sorted(g.name for g in title.genres.all()), ["Action", "Comedy"])
+        self.assertEqual(Genre.objects.count(), 2)
+
+    def test_reuses_an_existing_genre_by_name_instead_of_duplicating(self):
+        Genre.objects.create(name="Action")
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="A Movie", year=2020)
+        attach_genres(title, ["Action"])
+        self.assertEqual(Genre.objects.filter(name="Action").count(), 1)
+
+    def test_empty_list_does_nothing(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="A Movie", year=2020)
+        attach_genres(title, [])
+        self.assertEqual(title.genres.count(), 0)
+
+
+class ImportPathGenreAttachmentTests(TestCase):
+    """Genre-fetching was never wired into any import path before this -
+    every synced title had zero genres, forever, regardless of source.
+    Each of Trakt/Simkl/CSV's own _get_or_create_title should now attach
+    genres for a newly-matched title, fetched via the same TMDB id its
+    poster lookup already found."""
+
+    def _match(self, tmdb_id=42, kind="movie"):
+        return {"id": tmdb_id, "kind": kind, "poster_url": "https://image.tmdb.org/t/p/w500/x.jpg"}
+
+    def _details(self, genre_names):
+        return {"genres": genre_names}
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.find_match")
+    def test_csv_import_attaches_genres_from_the_tmdb_match(self, mock_find_match, mock_get_full_details):
+        mock_find_match.return_value = self._match()
+        mock_get_full_details.return_value = self._details(["Action", "Thriller"])
+        title = csv_import._get_or_create_title(MediaType.MOVIE, "New Movie", 2020)
+        self.assertEqual(sorted(g.name for g in title.genres.all()), ["Action", "Thriller"])
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.find_match")
+    def test_trakt_import_attaches_genres_from_the_tmdb_match(self, mock_find_match, mock_get_full_details):
+        mock_find_match.return_value = self._match()
+        mock_get_full_details.return_value = self._details(["Drama"])
+        title = trakt._get_or_create_title(MediaType.MOVIE, "New Movie", 2020, trakt_id=99)
+        self.assertEqual([g.name for g in title.genres.all()], ["Drama"])
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.find_match")
+    def test_simkl_import_attaches_genres_from_the_tmdb_match(self, mock_find_match, mock_get_full_details):
+        from tracker.integrations import simkl
+
+        mock_find_match.return_value = self._match()
+        mock_get_full_details.return_value = self._details(["Comedy"])
+        title = simkl._get_or_create_title(MediaType.MOVIE, "New Movie", 2020, simkl_id=99)
+        self.assertEqual([g.name for g in title.genres.all()], ["Comedy"])
+
+    @patch("tracker.integrations.tmdb.find_match", return_value=None)
+    def test_no_tmdb_match_means_no_genres_and_no_extra_api_call(self, mock_find_match):
+        title = csv_import._get_or_create_title(MediaType.MOVIE, "Unmatched Movie", 2020)
+        self.assertEqual(title.genres.count(), 0)
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_discover_preview_materialize_attaches_genres(self, mock_get_full_details):
+        mock_get_full_details.return_value = {
+            "name": "Some Movie",
+            "year": "2020",
+            "poster_url": "https://image.tmdb.org/t/p/w500/x.jpg",
+            "genres": ["Horror", "Mystery"],
+        }
+        title = views._get_or_create_preview_title("movie", 555)
+        self.assertEqual(sorted(g.name for g in title.genres.all()), ["Horror", "Mystery"])
+
+
+class BackfillGenresCommandTests(TestCase):
+    def _details(self, genre_names):
+        return {"genres": genre_names}
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_backfills_genres_for_a_title_with_a_tmdb_id(self, mock_get_full_details):
+        from django.core.management import call_command
+
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Needs Genres", year=2020, external_ids={"tmdb": "10"}
+        )
+        mock_get_full_details.return_value = self._details(["Action"])
+        call_command("backfill_genres")
+        self.assertEqual([g.name for g in title.genres.all()], ["Action"])
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_skips_title_without_a_tmdb_id(self, mock_get_full_details):
+        from django.core.management import call_command
+
+        Title.objects.create(media_type=MediaType.MOVIE, name="No TMDB Id", year=2020)
+        call_command("backfill_genres")
+        mock_get_full_details.assert_not_called()
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_skips_title_that_already_has_genres(self, mock_get_full_details):
+        from django.core.management import call_command
+
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Already Has Genres", year=2020, external_ids={"tmdb": "11"}
+        )
+        title.genres.add(Genre.objects.create(name="Comedy"))
+        call_command("backfill_genres")
+        mock_get_full_details.assert_not_called()
 
 
 class RecomputeIsRewatchTests(TestCase):

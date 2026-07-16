@@ -55,6 +55,16 @@ class Genre(models.Model):
         return self.name
 
 
+def attach_genres(title, genre_names):
+    """Get-or-create each Genre by name and set them on the title - shared
+    by every import path (Trakt/Simkl/CSV, plus the discover/preview
+    materialize flow) that discovers genre names via a TMDB match at
+    title-creation time, and by the backfill_genres management command
+    for titles that predate this existing."""
+    if genre_names:
+        title.genres.set([Genre.objects.get_or_create(name=n)[0] for n in genre_names])
+
+
 class Title(models.Model):
     """A movie, show, or anime. media_type is what routes a title into the
     Movies & TV vs. Anime sections — never genre (spool-product-spec.md §5)."""

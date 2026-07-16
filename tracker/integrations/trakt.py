@@ -112,7 +112,7 @@ def fetch_history(access_token, client_id, limit=200, max_pages=500, start_at=No
 
 def _get_or_create_title(media_type, name, year, trakt_id):
     from tracker.integrations import tmdb
-    from tracker.models import Title
+    from tracker.models import Title, attach_genres
 
     # Manual filter-then-create instead of get_or_create(): a JSONField key
     # lookup like external_ids__trakt=X can't double as a constructor kwarg
@@ -123,14 +123,20 @@ def _get_or_create_title(media_type, name, year, trakt_id):
         return title
     external_ids = {"trakt": str(trakt_id)}
     poster_url = ""
+    genre_names = []
     match = tmdb.find_match(media_type, name, year)
     if match:
         external_ids["tmdb"] = str(match["id"])
         external_ids["tmdb_kind"] = match["kind"]
         poster_url = match["poster_url"] or ""
-    return Title.objects.create(
+        details = tmdb.get_full_details(match["kind"], match["id"])
+        if details:
+            genre_names = details["genres"]
+    title = Title.objects.create(
         media_type=media_type, name=name, year=year or 0, external_ids=external_ids, poster_url=poster_url
     )
+    attach_genres(title, genre_names)
+    return title
 
 
 def upsert_history_items(profile, items):

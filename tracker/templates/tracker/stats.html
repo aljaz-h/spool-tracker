@@ -135,18 +135,10 @@
   <div class="grid grid-cols-1 lg:grid-cols-[1fr_0.6fr_1fr] gap-5 mt-5">
     <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
       <h3 class="text-lg mb-4">Release years</h3>
-      {% if year_breakdown %}
-        <div class="flex items-end gap-0.5 h-[130px] overflow-x-auto pb-1">
-          {% for y in year_breakdown %}
-            <div class="flex flex-col items-center justify-end flex-none w-3.5 h-full">
-              <div class="w-2.5 rounded-t-sm {% if forloop.counter0|divisibleby:3 %}bg-primary{% else %}bg-base-300{% endif %}" style="height:{{ y.height_pct }}%" title="{{ y.year }} · {{ y.count }}"></div>
-              {% if forloop.counter0|divisibleby:3 %}<div class="font-mono text-[8px] text-ink-faint mt-1">{{ y.year }}</div>{% endif %}
-            </div>
-          {% endfor %}
-        </div>
-      {% else %}
-        <p class="text-ink-faint text-sm">No release-year data yet for this type.</p>
-      {% endif %}
+      <div class="h-[130px] flex flex-col items-center justify-center gap-1 text-center">
+        <span class="text-sm text-ink-dim">Coming soon</span>
+        <span class="text-xs text-ink-faint">We're double-checking this data before showing it.</span>
+      </div>
     </div>
 
     <div

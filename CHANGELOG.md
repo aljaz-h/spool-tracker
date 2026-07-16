@@ -8,6 +8,31 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-16
+
+### Fixed
+
+- "Your top genres" always showed "No genre data yet" - it turned out no
+  import path (Trakt, Simkl, CSV) has ever fetched or attached genre
+  data to a title, for anyone, ever, since the feature was first built.
+  Genre-fetching is now wired into all three import paths (and the
+  discover/preview "materialize" flow), via TMDB's title-details
+  endpoint, which already returns genre names alongside the runtime/
+  poster data those paths already fetch.
+
+### Added
+
+- `backfill_genres` management command - a one-time pass over existing
+  titles that already have a TMDB id but no genres yet, fetching and
+  attaching them the same way new imports now do. Run it after
+  upgrading to pick up genre data for your existing library.
+
+### Changed
+
+- Release years is temporarily disabled ("Coming soon") while its
+  underlying data gets double-checked - it's still a reserved tile, not
+  removed.
+
 ## [0.8.0] - 2026-07-16
 
 ### Added
