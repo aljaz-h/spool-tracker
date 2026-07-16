@@ -109,16 +109,69 @@
       {% endif %}
     </div>
 
-    <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
+    <div
+      class="min-w-0 bg-base-200 border border-line rounded-2xl p-5"
+      x-data="{
+        hovered: null,
+        segments: {
+          movie: { label: 'Movies', short: 'Movies', pct: {{ split.movie_pct }}, duration: '{{ watch_time_breakdown.all_time.movie.duration }}' },
+          tv: { label: 'TV shows', short: 'TV', pct: {{ split.tv_pct }}, duration: '{{ watch_time_breakdown.all_time.tv.duration }}' },
+          anime: { label: 'Anime', short: 'Anime', pct: {{ split.anime_pct }}, duration: '{{ watch_time_breakdown.all_time.anime.duration }}' },
+        },
+        get active() {
+          return this.hovered || Object.entries(this.segments).sort((a, b) => b[1].pct - a[1].pct)[0][0];
+        },
+        toggle(key) { this.hovered = this.hovered === key ? null : key; },
+        segStyle(key) {
+          return 'transform-origin:18px 18px; transition:transform 150ms; cursor:pointer;' + (this.active === key ? 'transform:scale(1.06)' : '');
+        },
+      }"
+    >
       <h3 class="text-lg mb-4">Split by type</h3>
       <div class="flex flex-col items-center gap-5.5">
-        <div class="relative w-[130px] h-[130px] rounded-full flex-none" style="background: conic-gradient(var(--color-primary) 0 {{ split.movie_end }}%, var(--color-accent) {{ split.movie_end }}% {{ split.tv_end }}%, var(--color-secondary) {{ split.tv_end }}% 100%)">
-          <div class="absolute inset-6 rounded-full bg-base-200"></div>
+        <div class="relative w-[140px] h-[140px] flex-none">
+          <svg viewBox="0 0 36 36" class="w-full h-full -rotate-90">
+            <circle cx="18" cy="18" r="15.915" fill="none" stroke="var(--color-base-300)" stroke-width="4"></circle>
+            <circle
+              cx="18" cy="18" r="15.915" fill="none" stroke="var(--color-primary)" stroke-width="4" stroke-linecap="butt"
+              stroke-dasharray="{{ split.movie_pct }} 100" stroke-dashoffset="0"
+              :style="segStyle('movie')"
+              @mouseenter="hovered = 'movie'" @mouseleave="hovered = null" @click="toggle('movie')"
+            ></circle>
+            <circle
+              cx="18" cy="18" r="15.915" fill="none" stroke="var(--color-accent)" stroke-width="4" stroke-linecap="butt"
+              stroke-dasharray="{{ split.tv_pct }} 100" stroke-dashoffset="-{{ split.movie_end }}"
+              :style="segStyle('tv')"
+              @mouseenter="hovered = 'tv'" @mouseleave="hovered = null" @click="toggle('tv')"
+            ></circle>
+            <circle
+              cx="18" cy="18" r="15.915" fill="none" stroke="var(--color-secondary)" stroke-width="4" stroke-linecap="butt"
+              stroke-dasharray="{{ split.anime_pct }} 100" stroke-dashoffset="-{{ split.tv_end }}"
+              :style="segStyle('anime')"
+              @mouseenter="hovered = 'anime'" @mouseleave="hovered = null" @click="toggle('anime')"
+            ></circle>
+          </svg>
+          <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <div class="font-display text-2xl leading-none" x-text="segments[active].pct + '%'"></div>
+            <div class="text-[9px] text-ink-dim mt-1 text-center px-3 leading-tight" x-text="segments[active].duration + ' ' + segments[active].short"></div>
+          </div>
         </div>
-        <div class="text-[12.5px] text-ink-dim self-stretch">
-          <div class="flex items-center gap-2 mb-2"><span class="w-2.5 h-2.5 rounded-sm bg-primary"></span>Movies — {{ split.movie_pct }}%</div>
-          <div class="flex items-center gap-2 mb-2"><span class="w-2.5 h-2.5 rounded-sm bg-accent"></span>TV shows — {{ split.tv_pct }}%</div>
-          <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-sm bg-secondary"></span>Anime — {{ split.anime_pct }}%</div>
+        <div class="flex items-center justify-center flex-wrap gap-x-4 gap-y-1.5 text-[12.5px] text-ink-dim">
+          <div
+            class="flex items-center gap-1.5 cursor-pointer select-none"
+            :class="active === 'movie' && 'text-base-content font-semibold'"
+            @mouseenter="hovered = 'movie'" @mouseleave="hovered = null" @click="toggle('movie')"
+          ><span class="w-2.5 h-2.5 rounded-sm bg-primary flex-none"></span>Movies — {{ split.movie_pct }}%</div>
+          <div
+            class="flex items-center gap-1.5 cursor-pointer select-none"
+            :class="active === 'tv' && 'text-base-content font-semibold'"
+            @mouseenter="hovered = 'tv'" @mouseleave="hovered = null" @click="toggle('tv')"
+          ><span class="w-2.5 h-2.5 rounded-sm bg-accent flex-none"></span>TV shows — {{ split.tv_pct }}%</div>
+          <div
+            class="flex items-center gap-1.5 cursor-pointer select-none"
+            :class="active === 'anime' && 'text-base-content font-semibold'"
+            @mouseenter="hovered = 'anime'" @mouseleave="hovered = null" @click="toggle('anime')"
+          ><span class="w-2.5 h-2.5 rounded-sm bg-secondary flex-none"></span>Anime — {{ split.anime_pct }}%</div>
         </div>
       </div>
     </div>

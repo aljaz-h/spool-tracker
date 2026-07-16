@@ -8,6 +8,26 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-16
+
+### Added
+
+- Stats' "Split by type" donut is now interactive: hovering (or tapping)
+  a slice pops it outward slightly, bolds its legend row, and swaps the
+  previously-empty center hole from dead space to that segment's own
+  readout ("73% · 87d 17h TV"). With nothing hovered, the center shows
+  your largest category by default instead of sitting blank.
+
+### Changed
+
+- Rebuilt the donut as three individually-hoverable SVG arcs (replacing
+  the single flat CSS conic-gradient) so each slice can respond on its
+  own - this also meant staying a donut rather than a full pie, since the
+  hole is what gives the hover readout somewhere to live.
+- The legend moved from three stacked rows to one horizontal row
+  (Movies · TV shows · Anime) under the chart, and each entry is now
+  itself hoverable/tappable too, mirroring whichever slice it represents.
+
 ## [0.6.7] - 2026-07-16
 
 ### Changed
