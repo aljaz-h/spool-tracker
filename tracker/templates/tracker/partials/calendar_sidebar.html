@@ -22,8 +22,15 @@
   <div class="p-4 text-ink-faint text-sm {% if featured %}mt-4{% endif %}">Nothing upcoming matches these filters — try widening them.</div>
 {% else %}
   {% for group in agenda_groups %}
-    <div class="{% if not forloop.first %}mt-5{% endif %}">
-      <div id="agenda-{{ group.date|date:'Y-m-d' }}" class="font-display text-lg tracking-wide pb-1.5 mb-1.5 border-b border-line {% if group.date == today %}text-primary{% endif %}">{{ group.date|date:"M j" }}</div>
+    <div
+      class="{% if not forloop.first %}mt-5{% endif %} -mx-2 px-2 py-1 rounded-lg transition-colors"
+      :class="selected === '{{ group.date|date:'Y-m-d' }}' && 'bg-violet/10'"
+    >
+      <div
+        id="agenda-{{ group.date|date:'Y-m-d' }}"
+        class="font-display text-lg tracking-wide pb-1.5 mb-1.5 border-b {% if group.date == today %}text-primary{% endif %}"
+        :class="selected === '{{ group.date|date:'Y-m-d' }}' ? 'border-violet' : 'border-line'"
+      >{{ group.date|date:"M j" }}</div>
       {% for rs in group.items %}
         <div class="flex justify-between items-center py-1.5 px-0.5 text-[12.5px] text-ink-faint {% if group.date == today %}text-base-content font-semibold{% endif %}">
           <a href="{% url 'title_detail' rs.title.pk %}" class="hover:underline">{{ rs.title.name }}</a>

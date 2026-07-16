@@ -558,6 +558,11 @@ def history_bulk_delete(request):
 
 
 CALENDAR_TYPES = {"movie": MediaType.MOVIE, "tv": MediaType.TV, "anime": MediaType.ANIME}
+# How far back the sidebar's agenda list looks for already-passed releases,
+# so a weekly show doesn't just vanish from it the moment its release time
+# ticks by - it stays visible for a while, same idea as History does for
+# anything you've already watched.
+AGENDA_LOOKBACK_DAYS = 30
 
 
 @login_required
@@ -622,10 +627,14 @@ def calendar_view(request):
             grid.append(row)
 
         featured, queue = selectors.ready_to_watch_queue(profile)
-        upcoming_releases = list(selectors.calendar_releases(profile, media_type, source_filter))
+        agenda_releases = list(
+            selectors.calendar_releases(
+                profile, media_type, source_filter, start=timezone.now() - timedelta(days=AGENDA_LOOKBACK_DAYS)
+            )
+        )
         agenda_groups = [
             {"date": day, "items": list(items)}
-            for day, items in groupby(upcoming_releases, key=lambda r: timezone.localtime(r.release_date).date())
+            for day, items in groupby(agenda_releases, key=lambda r: timezone.localtime(r.release_date).date())
         ]
         context.update(
             {"grid": grid, "agenda_groups": agenda_groups, "featured": featured, "queue": queue}

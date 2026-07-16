@@ -1,4 +1,4 @@
-<div class="flex gap-5 items-start flex-col lg:flex-row">
+<div class="flex gap-5 items-start flex-col lg:flex-row" x-data="{ selected: '{{ today|date:'Y-m-d' }}' }">
   <div id="cal-main" class="flex-1 min-w-0">
     {% include "tracker/partials/calendar_main.html" %}
   </div>

@@ -925,6 +925,42 @@ class CalendarViewPastMonthTests(TestCase):
         self.assertEqual(grid_days[0]["items"][0].title.name, "Old Release")
 
 
+class CalendarAgendaLookbackTests(TestCase):
+    """The sidebar's agenda used to only ever show releases from right now
+    onward, so a weekly release effectively vanished from it the instant
+    its time passed. It should keep showing releases from a bit in the
+    past too (views.AGENDA_LOOKBACK_DAYS), not just what's still ahead."""
+
+    def setUp(self):
+        user = User.objects.create_user("agendalookback", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="AgendaLookback")
+        self.client.login(username="agendalookback", password="pass12345")
+
+    def _release(self, name, days_ago):
+        from django.utils import timezone
+
+        title = Title.objects.create(media_type=MediaType.TV, name=name, year=2023)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at=timezone.now() - timedelta(days=200))
+        return ReleaseSchedule.objects.create(
+            title=title,
+            release_type=ReleaseSchedule.ReleaseType.EPISODE,
+            release_date=timezone.now() - timedelta(days=days_ago),
+        )
+
+    def _agenda_titles(self, resp):
+        return {rs.title.name for group in resp.context["agenda_groups"] for rs in group["items"]}
+
+    def test_a_release_from_ten_days_ago_still_appears_in_the_agenda(self):
+        self._release("Recent Weekly Ep", days_ago=10)
+        resp = self.client.get(reverse("calendar"))
+        self.assertIn("Recent Weekly Ep", self._agenda_titles(resp))
+
+    def test_a_release_from_forty_days_ago_has_aged_out_of_the_agenda(self):
+        self._release("Ancient Ep", days_ago=40)
+        resp = self.client.get(reverse("calendar"))
+        self.assertNotIn("Ancient Ep", self._agenda_titles(resp))
+
+
 class UpNextBroadeningTests(TestCase):
     def setUp(self):
         from django.utils import timezone

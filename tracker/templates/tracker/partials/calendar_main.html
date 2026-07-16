@@ -27,7 +27,7 @@
   <span class="font-mono text-[10.5px] text-ink-faint text-center uppercase tracking-wide">Sun</span>
 </div>
 
-<div class="grid grid-cols-7 gap-1.5" x-data="{ selected: '{{ today|date:'Y-m-d' }}' }">
+<div class="grid grid-cols-7 gap-1.5">
   {% for week in grid %}
     {% for day in week %}
       <a

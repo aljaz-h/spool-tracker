@@ -8,6 +8,22 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-07-16
+
+### Added
+
+- Calendar sidebar now keeps showing a release for 30 days after it
+  airs, instead of dropping it from the agenda the instant its release
+  time passes - a weekly show no longer disappears the moment Thursday
+  ticks over.
+
+### Changed
+
+- Clicking a calendar date with releases now also highlights that
+  date's matching entry in the sidebar (violet underline + a subtle
+  tint on the whole block), not just the grid cell you clicked -
+  previously the grid and sidebar had no visual link between them.
+
 ## [0.6.3] - 2026-07-16
 
 ### Fixed
