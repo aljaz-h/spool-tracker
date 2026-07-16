@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-07-16
+
+### Changed
+
+- Stats' three rows each used their own column-width ratio (the top row
+  1.7:1:1, the second 1.3:0.8:1, the third a plain equal three-way
+  split), so box edges didn't line up between rows even though each row
+  was internally fine - the page read as "all over the place" looking
+  down it. All three rows now share the same 1.7:1:1 column template, so
+  every box's left/right edge lines up cleanly with the row above and
+  below it.
+
 ## [0.6.5] - 2026-07-16
 
 ### Changed
