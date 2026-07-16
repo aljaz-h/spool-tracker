@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-07-16
+
+### Changed
+
+- Split by type is a full pie again (no center hole) per feedback -
+  rebuilt as three filled SVG wedges instead of stroked ring arcs. The
+  hover readout (percentage + duration + type) that used to live in the
+  donut's center hole now sits just below the chart instead, with the
+  legend staying put as a horizontal row beneath that. Hover/tap
+  behavior (pop the slice, bold the legend entry) is unchanged.
+
 ## [0.7.0] - 2026-07-16
 
 ### Added

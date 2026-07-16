@@ -125,36 +125,42 @@
         segStyle(key) {
           return 'transform-origin:18px 18px; transition:transform 150ms; cursor:pointer;' + (this.active === key ? 'transform:scale(1.06)' : '');
         },
+        wedgePath(startPct, endPct) {
+          const toXY = (pct) => {
+            const angle = (pct / 100) * 2 * Math.PI - Math.PI / 2;
+            return [18 + 18 * Math.cos(angle), 18 + 18 * Math.sin(angle)];
+          };
+          const [x1, y1] = toXY(startPct);
+          const [x2, y2] = toXY(endPct);
+          const largeArc = endPct - startPct > 50 ? 1 : 0;
+          return `M18,18 L${x1},${y1} A18,18 0 ${largeArc} 1 ${x2},${y2} Z`;
+        },
       }"
     >
       <h3 class="text-lg mb-4">Split by type</h3>
-      <div class="flex flex-col items-center gap-5.5">
+      <div class="flex flex-col items-center gap-4">
         <div class="relative w-[140px] h-[140px] flex-none">
-          <svg viewBox="0 0 36 36" class="w-full h-full -rotate-90">
-            <circle cx="18" cy="18" r="15.915" fill="none" stroke="var(--color-base-300)" stroke-width="4"></circle>
-            <circle
-              cx="18" cy="18" r="15.915" fill="none" stroke="var(--color-primary)" stroke-width="4" stroke-linecap="butt"
-              stroke-dasharray="{{ split.movie_pct }} 100" stroke-dashoffset="0"
+          <svg viewBox="0 0 36 36" class="w-full h-full">
+            <path
+              :d="wedgePath(0, {{ split.movie_end }})" fill="var(--color-primary)"
               :style="segStyle('movie')"
               @mouseenter="hovered = 'movie'" @mouseleave="hovered = null" @click="toggle('movie')"
-            ></circle>
-            <circle
-              cx="18" cy="18" r="15.915" fill="none" stroke="var(--color-accent)" stroke-width="4" stroke-linecap="butt"
-              stroke-dasharray="{{ split.tv_pct }} 100" stroke-dashoffset="-{{ split.movie_end }}"
+            ></path>
+            <path
+              :d="wedgePath({{ split.movie_end }}, {{ split.tv_end }})" fill="var(--color-accent)"
               :style="segStyle('tv')"
               @mouseenter="hovered = 'tv'" @mouseleave="hovered = null" @click="toggle('tv')"
-            ></circle>
-            <circle
-              cx="18" cy="18" r="15.915" fill="none" stroke="var(--color-secondary)" stroke-width="4" stroke-linecap="butt"
-              stroke-dasharray="{{ split.anime_pct }} 100" stroke-dashoffset="-{{ split.tv_end }}"
+            ></path>
+            <path
+              :d="wedgePath({{ split.tv_end }}, 100)" fill="var(--color-secondary)"
               :style="segStyle('anime')"
               @mouseenter="hovered = 'anime'" @mouseleave="hovered = null" @click="toggle('anime')"
-            ></circle>
+            ></path>
           </svg>
-          <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <div class="font-display text-2xl leading-none" x-text="segments[active].pct + '%'"></div>
-            <div class="text-[9px] text-ink-dim mt-1 text-center px-3 leading-tight" x-text="segments[active].duration + ' ' + segments[active].short"></div>
-          </div>
+        </div>
+        <div class="flex flex-col items-center">
+          <div class="font-display text-2xl leading-none" x-text="segments[active].pct + '%'"></div>
+          <div class="text-[11px] text-ink-dim mt-1" x-text="segments[active].duration + ' ' + segments[active].short"></div>
         </div>
         <div class="flex items-center justify-center flex-wrap gap-x-4 gap-y-1.5 text-[12.5px] text-ink-dim">
           <div
