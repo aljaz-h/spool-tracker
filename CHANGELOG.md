@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-07-16
+
+### Changed
+
+- Watch activity's heatmap now fills the full width of its card - it
+  was a fixed-pixel-size grid that left blank space in a wide card and
+  needed horizontal scrolling in a narrow one. Cells now scale
+  fluidly with the container (staying square) instead of a fixed 11px.
+- The year selector next to it is now a dropdown instead of a row of
+  tabs, which used to overflow on smaller screens.
+
 ## [0.9.1] - 2026-07-16
 
 ### Fixed
