@@ -592,9 +592,16 @@ def calendar_view(request):
         "agenda": [],
     }
     if profile is not None:
-        releases = list(selectors.calendar_releases(profile, media_type, source_filter))
+        # The grid is scoped to the specific month being viewed (not just
+        # "upcoming from now") so navigating to a past month still shows
+        # its releases, instead of every past month rendering blank.
+        month_start = timezone.make_aware(timezone.datetime.combine(base_date, timezone.datetime.min.time()))
+        month_end = timezone.make_aware(timezone.datetime.combine(next_month, timezone.datetime.min.time()))
+        month_releases = list(
+            selectors.calendar_releases(profile, media_type, source_filter, start=month_start, end=month_end)
+        )
         by_date = {}
-        for rs in releases:
+        for rs in month_releases:
             by_date.setdefault(timezone.localtime(rs.release_date).date(), []).append(rs)
 
         weeks = calendar_stdlib.Calendar(firstweekday=0).monthdatescalendar(base_date.year, base_date.month)
@@ -615,9 +622,10 @@ def calendar_view(request):
             grid.append(row)
 
         featured, queue = selectors.ready_to_watch_queue(profile)
+        upcoming_releases = list(selectors.calendar_releases(profile, media_type, source_filter))
         agenda_groups = [
             {"date": day, "items": list(items)}
-            for day, items in groupby(releases, key=lambda r: timezone.localtime(r.release_date).date())
+            for day, items in groupby(upcoming_releases, key=lambda r: timezone.localtime(r.release_date).date())
         ]
         context.update(
             {"grid": grid, "agenda_groups": agenda_groups, "featured": featured, "queue": queue}

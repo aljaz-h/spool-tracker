@@ -8,6 +8,21 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-07-16
+
+### Fixed
+
+- Navigating the Calendar to any past month always rendered an empty
+  grid, even for months that genuinely had releases - `calendar_releases()`
+  was hardcoded to `release_date >= now`, a filter meant for the sidebar's
+  "what's upcoming" agenda, but the month grid reused the same query. The
+  grid now queries the specific month being viewed instead, so past
+  months show their own releases again (ReleaseSchedule rows aren't
+  deleted once their date passes - the data was always there, it just
+  wasn't being asked for). The sidebar's agenda is unaffected and still
+  only ever shows what's upcoming from now, regardless of which month the
+  grid is showing.
+
 ## [0.6.2] - 2026-07-16
 
 ### Changed

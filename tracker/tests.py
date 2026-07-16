@@ -866,6 +866,64 @@ class CalendarReleasesBroadeningTests(TestCase):
         results = list(selectors.calendar_releases(self.profile, source="watching"))
         self.assertNotIn(release, results)
 
+    def test_start_param_surfaces_a_past_release(self):
+        # regression test: the calendar grid needs to show a past month's
+        # own releases (release_date before now), which the default
+        # "upcoming from now" scoping used by the sidebar would hide.
+        from django.utils import timezone
+
+        past_release = ReleaseSchedule.objects.create(
+            title=self.title,
+            episode=None,
+            release_type=ReleaseSchedule.ReleaseType.MOVIE_RELEASE,
+            release_date=timezone.now() - timedelta(days=200),
+        )
+        results = list(selectors.calendar_releases(self.profile, start=timezone.now() - timedelta(days=365)))
+        self.assertIn(past_release, results)
+
+    def test_end_param_excludes_releases_outside_the_window(self):
+        from django.utils import timezone
+
+        now = timezone.now()
+        in_window = ReleaseSchedule.objects.create(
+            title=self.title, release_type=ReleaseSchedule.ReleaseType.EPISODE, release_date=now + timedelta(days=1)
+        )
+        results = list(
+            selectors.calendar_releases(self.profile, start=now, end=now + timedelta(days=5))
+        )
+        self.assertIn(in_window, results)
+        self.assertNotIn(self.release, results)  # release_date is +10 days, outside the 5-day window
+
+
+class CalendarViewPastMonthTests(TestCase):
+    """The calendar view's grid used to reuse the sidebar's "upcoming from
+    now" query, so any past month always rendered with zero releases even
+    though ReleaseSchedule rows for past dates are never deleted."""
+
+    def test_a_past_months_release_still_appears_in_the_grid(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("calpast", password="pass12345")
+        profile = Profile.objects.create(user=user, display_name="CalPast")
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Old Release", year=2020)
+        WatchEvent.objects.create(profile=profile, title=title, watched_at=timezone.now() - timedelta(days=100))
+        past_date = (timezone.now() - timedelta(days=90)).date()
+        ReleaseSchedule.objects.create(
+            title=title,
+            release_type=ReleaseSchedule.ReleaseType.MOVIE_RELEASE,
+            release_date=timezone.make_aware(
+                timezone.datetime.combine(past_date, timezone.datetime.min.time().replace(hour=12))
+            ),
+        )
+        self.client.login(username="calpast", password="pass12345")
+        resp = self.client.get(reverse("calendar"), {"month": past_date.strftime("%Y-%m")})
+        self.assertEqual(resp.status_code, 200)
+        # calendar_main.html only renders a poster thumbnail per release, no
+        # title text, so assert against the rendered grid context directly.
+        grid_days = [day for week in resp.context["grid"] for day in week if day["date"] == past_date]
+        self.assertEqual(len(grid_days), 1)
+        self.assertEqual(grid_days[0]["items"][0].title.name, "Old Release")
+
 
 class UpNextBroadeningTests(TestCase):
     def setUp(self):

@@ -188,21 +188,29 @@ def library_history(profile, media_types, limit=50):
     )
 
 
-def calendar_releases(profile, media_type=None, source="all"):
-    """Upcoming releases for titles this profile is watching or has on any
-    visible watchlist (own + shared, same visibility rule as everywhere
-    else lists show up) — spool-handoff-addendum.md §1. The default "all"
-    view also includes titles with ANY WatchProgress status (not just
-    WATCHING - a finished show that later gets renewed should still
-    surface its new season here) and, since nothing in this app actually
-    sets WatchProgress to WATCHING (it's write-only from Django admin;
-    real usage only ever reaches COMPLETED, via completion.py once every
-    episode is watched), also anything with plain watch history at all -
-    otherwise a show you're mid-way through via Trakt/Simkl/CSV import,
-    with no WatchProgress row of any kind, would never qualify. The
-    explicit source="watching" filter keeps its narrower, literal meaning
-    on purpose - that's a deliberate user-facing filter choice, not the
-    gap this broadening fixes."""
+def calendar_releases(profile, media_type=None, source="all", start=None, end=None):
+    """Releases for titles this profile is watching or has on any visible
+    watchlist (own + shared, same visibility rule as everywhere else lists
+    show up) — spool-handoff-addendum.md §1. The default "all" view also
+    includes titles with ANY WatchProgress status (not just WATCHING - a
+    finished show that later gets renewed should still surface its new
+    season here) and, since nothing in this app actually sets WatchProgress
+    to WATCHING (it's write-only from Django admin; real usage only ever
+    reaches COMPLETED, via completion.py once every episode is watched),
+    also anything with plain watch history at all - otherwise a show
+    you're mid-way through via Trakt/Simkl/CSV import, with no
+    WatchProgress row of any kind, would never qualify. The explicit
+    source="watching" filter keeps its narrower, literal meaning on
+    purpose - that's a deliberate user-facing filter choice, not the gap
+    this broadening fixes.
+
+    start/end scope the release_date window as [start, end) - omitted,
+    this defaults to everything from now onward (the Calendar sidebar's
+    "what's upcoming" agenda, which stays relative to the current moment
+    no matter which month the grid is showing). The calendar grid instead
+    passes the specific month being viewed: ReleaseSchedule rows are never
+    pruned once their date passes, so a past month's releases are still in
+    the database, they just weren't being queried for."""
     watching_q = Q(
         title__watch_progress__profile=profile, title__watch_progress__status=WatchProgress.Status.WATCHING
     )
@@ -217,8 +225,12 @@ def calendar_releases(profile, media_type=None, source="all"):
     else:
         scope_q = any_progress_q | watchlist_q
 
+    date_q = Q(release_date__gte=start if start else timezone.now())
+    if end:
+        date_q &= Q(release_date__lt=end)
+
     qs = (
-        ReleaseSchedule.objects.filter(scope_q, release_date__gte=timezone.now())
+        ReleaseSchedule.objects.filter(scope_q, date_q)
         .select_related("title", "episode")
         .order_by("release_date")
         .distinct()
