@@ -1746,6 +1746,95 @@ class ProfilePopupViewTests(TestCase):
         resp = self.client.get(reverse("profile_popup", args=[999999]))
         self.assertEqual(resp.status_code, 404)
 
+    def test_shows_stats_overview_labels_matching_the_main_stats_page(self):
+        resp = self.client.get(reverse("profile_popup", args=[self.target.id]))
+        self.assertContains(resp, "Longest streak (days)")
+        self.assertContains(resp, "Movies watched / Shows completed")
+        self.assertContains(resp, "Total watch time")
+
+    def test_shows_top_genre_chips(self):
+        title = Title.objects.get(name="Watched By Target")
+        attach_genres(title, ["Action"])
+        resp = self.client.get(reverse("profile_popup", args=[self.target.id]))
+        self.assertContains(resp, "Action")
+
+    def test_links_to_the_targets_full_stats_page(self):
+        resp = self.client.get(reverse("profile_popup", args=[self.target.id]))
+        self.assertContains(resp, reverse("member_stats", args=[self.target.id]))
+
+
+class MemberScopedViewsTests(TestCase):
+    """Deep-linking into another household profile's Stats/History from
+    the profile popup's "View full stats" link - read-only, same no-
+    extra-restriction convention as the popup itself (any logged-in
+    profile can view any other profile's stats/history)."""
+
+    def setUp(self):
+        viewer_user = User.objects.create_user("statsviewer", password="pass12345")
+        self.viewer = Profile.objects.create(user=viewer_user, display_name="StatsViewer")
+        target_user = User.objects.create_user("statstarget", password="pass12345")
+        self.target = Profile.objects.create(user=target_user, display_name="StatsTarget")
+        self.client.login(username="statsviewer", password="pass12345")
+
+    def test_member_stats_is_not_own_and_scoped_to_target(self):
+        resp = self.client.get(reverse("member_stats", args=[self.target.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.context["is_own_stats"])
+        self.assertEqual(resp.context["profile"], self.target)
+        self.assertContains(resp, "StatsTarget")
+
+    def test_member_stats_links_history_to_member_history(self):
+        resp = self.client.get(reverse("member_stats", args=[self.target.id]))
+        self.assertEqual(resp.context["history_url"], reverse("member_history", args=[self.target.id]))
+
+    def test_own_stats_is_own_and_links_to_plain_history(self):
+        resp = self.client.get(reverse("stats"))
+        self.assertTrue(resp.context["is_own_stats"])
+        self.assertEqual(resp.context["history_url"], reverse("history"))
+
+    def test_member_stats_404s_for_a_nonexistent_profile(self):
+        resp = self.client.get(reverse("member_stats", args=[999999]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_member_stats_requires_login(self):
+        self.client.logout()
+        resp = self.client.get(reverse("member_stats", args=[self.target.id]))
+        self.assertNotEqual(resp.status_code, 200)
+
+    def test_member_stats_heatmap_self_links_stay_scoped_to_the_member(self):
+        resp = self.client.get(reverse("member_stats_heatmap", args=[self.target.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context["heatmap_base_url"], reverse("member_stats_heatmap", args=[self.target.id]))
+
+    def test_own_stats_heatmap_self_links_stay_on_the_plain_url(self):
+        resp = self.client.get(reverse("stats_heatmap"))
+        self.assertEqual(resp.context["heatmap_base_url"], reverse("stats_heatmap"))
+
+    def test_member_history_is_flagged_read_only_and_hides_bulk_delete(self):
+        resp = self.client.get(reverse("member_history", args=[self.target.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.context["is_own_history"])
+        self.assertNotContains(resp, "selecting = !selecting")
+        self.assertNotContains(resp, reverse("history_bulk_delete"))
+
+    def test_own_history_has_the_select_control(self):
+        resp = self.client.get(reverse("history"))
+        self.assertTrue(resp.context["is_own_history"])
+        self.assertContains(resp, "selecting = !selecting")
+
+    def test_member_history_shows_the_targets_events_not_the_viewers(self):
+        target_title = Title.objects.create(media_type=MediaType.MOVIE, name="Target's Movie", year=2021)
+        WatchEvent.objects.create(profile=self.target, title=target_title, watched_at="2024-01-01T00:00:00Z")
+        viewer_title = Title.objects.create(media_type=MediaType.MOVIE, name="Viewer's Movie", year=2021)
+        WatchEvent.objects.create(profile=self.viewer, title=viewer_title, watched_at="2024-01-01T00:00:00Z")
+        resp = self.client.get(reverse("member_history", args=[self.target.id]))
+        self.assertContains(resp, "Target&#x27;s Movie")
+        self.assertNotContains(resp, "Viewer&#x27;s Movie")
+
+    def test_member_history_404s_for_a_nonexistent_profile(self):
+        resp = self.client.get(reverse("member_history", args=[999999]))
+        self.assertEqual(resp.status_code, 404)
+
 
 class FormatDurationTests(TestCase):
     def test_minutes_only_under_an_hour(self):
@@ -1870,6 +1959,48 @@ class GenreBreakdownTests(TestCase):
         resp = self.client.get(reverse("stats"))
         self.assertIsNone(resp.context["most_genre"])
         self.assertIsNone(resp.context["least_genre"])
+
+
+class TopGenresSelectorTests(TestCase):
+    """selectors.top_genres - the profile popup's compact, all-media-types
+    genre ranking, distinct from genre_breakdown's single-media-type,
+    full-Stats-page breakdown."""
+
+    def setUp(self):
+        user = User.objects.create_user("topgenrewatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="TopGenreWatcher")
+        self.action = Genre.objects.create(name="Action")
+        self.comedy = Genre.objects.create(name="Comedy")
+        self.drama = Genre.objects.create(name="Drama")
+
+    def _watch(self, title):
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+
+    def test_combines_every_media_type_into_one_ranking(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="A Movie", year=2020)
+        movie.genres.add(self.action)
+        show = Title.objects.create(media_type=MediaType.TV, name="A Show", year=2021)
+        show.genres.add(self.action)
+        anime = Title.objects.create(media_type=MediaType.ANIME, name="An Anime", year=2022)
+        anime.genres.add(self.comedy)
+        self._watch(movie)
+        self._watch(show)
+        self._watch(anime)
+        rows = selectors.top_genres(self.profile)
+        self.assertEqual(rows[0]["name"], "Action")
+        self.assertEqual(rows[0]["value"], 2)
+        self.assertEqual(rows[1]["name"], "Comedy")
+
+    def test_respects_the_limit(self):
+        for genre, name in [(self.action, "M1"), (self.comedy, "M2"), (self.drama, "M3")]:
+            movie = Title.objects.create(media_type=MediaType.MOVIE, name=name, year=2020)
+            movie.genres.add(genre)
+            self._watch(movie)
+        rows = selectors.top_genres(self.profile, limit=2)
+        self.assertEqual(len(rows), 2)
+
+    def test_no_watch_history_returns_empty_list(self):
+        self.assertEqual(selectors.top_genres(self.profile), [])
 
 
 class EpisodeBrowserSelectorTests(TestCase):

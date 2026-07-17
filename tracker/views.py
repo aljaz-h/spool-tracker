@@ -97,9 +97,13 @@ def profile_popup(request, profile_id):
     if viewer is None:
         raise Http404
     target = get_object_or_404(Profile, pk=profile_id)
+    overview = selectors.stats_overview(target)
+    overview["split"]["movie_end"] = overview["split"]["movie_pct"]
+    overview["split"]["tv_end"] = overview["split"]["movie_pct"] + overview["split"]["tv_pct"]
     context = {
         "target": target,
-        "stats": selectors.quick_stats(target),
+        **overview,
+        "top_genres": selectors.top_genres(target, limit=3),
         "recent_events": selectors.library_history(
             target, [MediaType.MOVIE, MediaType.TV, MediaType.ANIME], limit=8
         ),
@@ -625,9 +629,16 @@ def _history_context(request, profile):
 
 
 @login_required
-def history(request):
-    profile = Profile.objects.filter(user=request.user).first()
-    context = _history_context(request, profile)
+def history(request, profile_id=None):
+    """profile_id is only present on member_history's URL - viewing
+    another household profile's history read-only (no bulk-select/delete,
+    see history.html's is_own_history gate). history_bulk_delete always
+    operates on the request's own profile regardless, so it's harmless
+    even if that gate were somehow bypassed."""
+    target, is_own = _resolve_stats_profile(request, profile_id)
+    context = _history_context(request, target)
+    context["is_own_history"] = is_own
+    context["history_base_url"] = reverse("history") if is_own or target is None else reverse("member_history", args=[target.pk])
     template = "tracker/partials/history_content.html" if request.headers.get("HX-Request") else "tracker/history.html"
     return render(request, template, context)
 
@@ -928,13 +939,39 @@ def _build_heatmap_grid(counts, year):
     return weeks, month_labels
 
 
+def _resolve_stats_profile(request, profile_id):
+    """Shared by stats/stats_heatmap/history's optional profile_id kwarg
+    (only present on the member_* URLs) - any other household profile is
+    viewable read-only, same no-extra-restriction convention as the
+    profile popup this deep-links from. profile_id=None (the plain, own-
+    profile URLs) preserves the pre-existing "not linked to a profile yet"
+    friendly message instead of a 404, unlike the member_* URLs, which
+    404 outright if the viewer themselves has no profile."""
+    viewer = Profile.objects.filter(user=request.user).first()
+    if profile_id is not None:
+        if viewer is None:
+            raise Http404
+        target = get_object_or_404(Profile, pk=profile_id)
+    else:
+        target = viewer
+    is_own = target is not None and viewer is not None and target.id == viewer.id
+    return target, is_own
+
+
 @login_required
-def stats(request):
-    profile = Profile.objects.filter(user=request.user).first()
+def stats(request, profile_id=None):
+    profile, is_own_stats = _resolve_stats_profile(request, profile_id)
     genre_type = request.GET.get("genre_type")
     genre_type = genre_type if genre_type in GENRE_TYPES else "movie"
     genre_metric = request.GET.get("genre_metric") if request.GET.get("genre_metric") == "duration" else "items"
-    context = {"profile": profile, "genre_type": genre_type, "genre_metric": genre_metric}
+    context = {
+        "profile": profile,
+        "is_own_stats": is_own_stats,
+        "genre_type": genre_type,
+        "genre_metric": genre_metric,
+        "heatmap_base_url": reverse("stats_heatmap") if is_own_stats or profile is None else reverse("member_stats_heatmap", args=[profile.pk]),
+        "history_url": reverse("history") if is_own_stats or profile is None else reverse("member_history", args=[profile.pk]),
+    }
     if profile is not None:
         overview = selectors.stats_overview(profile)
         overview["split"]["movie_end"] = overview["split"]["movie_pct"]
@@ -963,14 +1000,20 @@ def stats(request):
 
 
 @login_required
-def stats_heatmap(request):
-    profile = Profile.objects.filter(user=request.user).first()
+def stats_heatmap(request, profile_id=None):
+    profile, is_own_stats = _resolve_stats_profile(request, profile_id)
     try:
         year = int(request.GET.get("year"))
     except (TypeError, ValueError):
         year = timezone.localdate().year
 
-    context = {"heatmap_year": year, "heatmap_years": [], "heatmap_weeks": [], "heatmap_months": []}
+    context = {
+        "heatmap_year": year,
+        "heatmap_years": [],
+        "heatmap_weeks": [],
+        "heatmap_months": [],
+        "heatmap_base_url": reverse("stats_heatmap") if is_own_stats or profile is None else reverse("member_stats_heatmap", args=[profile.pk]),
+    }
     if profile is not None:
         context["heatmap_years"] = selectors.heatmap_available_years(profile)
         context["heatmap_weeks"], context["heatmap_months"] = _build_heatmap_grid(

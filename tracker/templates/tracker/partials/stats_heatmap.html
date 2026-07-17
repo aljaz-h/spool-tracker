@@ -4,7 +4,7 @@
     <h3 class="text-lg m-0">Watch activity — <span class="font-mono text-ink-dim text-sm font-normal">{{ heatmap_active_days }} day{{ heatmap_active_days|pluralize }} watched something in {{ heatmap_year }}</span></h3>
     <select
       name="year"
-      hx-get="{% url 'stats_heatmap' %}" hx-target="#heatmap-panel" hx-swap="outerHTML" hx-trigger="change"
+      hx-get="{{ heatmap_base_url }}" hx-target="#heatmap-panel" hx-swap="outerHTML" hx-trigger="change"
       class="bg-base-300 border border-line rounded-lg text-xs font-semibold px-3 py-1.5 text-base-content cursor-pointer"
     >
       {% for y in heatmap_years %}

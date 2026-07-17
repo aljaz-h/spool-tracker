@@ -87,13 +87,13 @@
   </div>
 
   <dialog id="profile_popup_modal" class="modal">
-    <div class="modal-box bg-base-200 border border-line">
+    <div class="modal-box bg-base-200 border border-line rounded-2xl p-5">
       <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
       <div id="profile-popup-content">
         <div class="py-10 text-center text-ink-faint text-sm">Loading…</div>
       </div>
     </div>
-    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    <form method="dialog" class="modal-backdrop bg-black/60 backdrop-blur-sm"><button>close</button></form>
   </dialog>
 </header>
 {% endwith %}

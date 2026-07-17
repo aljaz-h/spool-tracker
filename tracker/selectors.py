@@ -433,6 +433,21 @@ def genre_breakdown(profile, media_type, metric="items"):
     return rows
 
 
+def top_genres(profile, limit=3):
+    """Top N genres by watch count across every media type combined - the
+    profile popup's compact chip row. Unlike genre_breakdown, which the
+    full Stats page deliberately scopes to one media type at a time (with
+    its own TV/Anime/Movies selector), the popup has no room for that
+    selector, so this just combines everything into one ranking."""
+    qs = (
+        WatchEvent.objects.filter(profile=profile, title__genres__isnull=False)
+        .values("title__genres__name")
+        .annotate(value=Count("id"))
+        .order_by("-value")[:limit]
+    )
+    return [{"name": row["title__genres__name"], "value": row["value"]} for row in qs if row["value"]]
+
+
 def year_breakdown(profile, media_type):
     qs = (
         WatchEvent.objects.filter(profile=profile, title__media_type=media_type)

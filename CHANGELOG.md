@@ -8,7 +8,21 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
-## [0.13.0] - 2026-07-17
+## [0.14.0] - 2026-07-17
+
+### Added
+
+- The member-profile popup (clicking another household profile's avatar
+  in the header) now shows real stats instead of a handful of plain
+  boxes: the same circular streak ring, split-by-type pie chart, and
+  genre chips the main Stats page uses, plus a dimmed/blurred backdrop
+  so the popup reads as focused. A "View full stats →" link deep-links
+  to that member's own full Stats page.
+- The Stats and History pages can now be viewed scoped to any household
+  profile, not just your own (`/profile/<id>/stats/`,
+  `/profile/<id>/history/`) - read-only when viewing someone else (no
+  bulk-select/delete on their History). The Stats page also gained a
+  "View History" link through to the matching History view.
 
 ### Added
 

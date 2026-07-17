@@ -3,13 +3,13 @@
 {% block content %}
 
   <div class="mb-6">
-    <h1 class="font-display text-4xl">History</h1>
+    <h1 class="font-display text-4xl">{% if is_own_history or not profile %}History{% else %}{{ profile.display_name }}&rsquo;s History{% endif %}</h1>
     <div class="text-ink-dim text-sm mt-1">Every movie, episode and rewatch, across Movies, TV &amp; Anime</div>
   </div>
 
   <div x-data="{ selecting: false, selectedCount: 0, recount() { this.selectedCount = [...document.querySelectorAll('[name=event_ids]:checked')].reduce((sum, cb) => sum + cb.value.split(',').length, 0) } }">
     <form
-      hx-get="{% url 'history' %}"
+      hx-get="{{ history_base_url }}"
       hx-target="#history-content"
       hx-trigger="change"
       hx-push-url="true"
@@ -47,12 +47,14 @@
           <option value="new" {% if sort == "new" %}selected{% endif %}>Newest first</option>
           <option value="old" {% if sort == "old" %}selected{% endif %}>Oldest first</option>
         </select>
-        <button
-          type="button"
-          @click="selecting = !selecting; selectedCount = 0"
-          class="px-3.5 py-2 rounded-lg text-xs font-semibold border border-line"
-          :class="selecting ? 'bg-primary text-primary-content border-primary' : 'bg-base-200 text-ink-dim'"
-        ><span x-text="selecting ? 'Cancel' : 'Select'"></span></button>
+        {% if is_own_history %}
+          <button
+            type="button"
+            @click="selecting = !selecting; selectedCount = 0"
+            class="px-3.5 py-2 rounded-lg text-xs font-semibold border border-line"
+            :class="selecting ? 'bg-primary text-primary-content border-primary' : 'bg-base-200 text-ink-dim'"
+          ><span x-text="selecting ? 'Cancel' : 'Select'"></span></button>
+        {% endif %}
       </div>
     </form>
 
@@ -60,21 +62,23 @@
       {% include "tracker/partials/history_content.html" %}
     </div>
 
-    <div
-      x-show="selecting && selectedCount > 0" x-cloak x-transition
-      class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 bg-base-200 border border-line rounded-full pl-5 pr-2 py-2 shadow-xl"
-    >
-      <span class="text-xs font-mono text-ink-dim"><span x-text="selectedCount"></span> selected</span>
-      <button
-        type="button"
-        hx-post="{% url 'history_bulk_delete' %}?type={{ type_filter }}&period={{ period }}&sort={{ sort }}&page={{ page_obj.number }}"
-        hx-include="[name='event_ids']:checked"
-        hx-target="#history-content"
-        hx-confirm="Remove the selected items from your watch history? This can't be undone."
-        @htmx:after-request.camel="if ($event.detail.successful) { selecting = false; selectedCount = 0 }"
-        class="px-4 py-2 rounded-full bg-error text-error-content text-xs font-semibold"
-      >Delete selected</button>
-    </div>
+    {% if is_own_history %}
+      <div
+        x-show="selecting && selectedCount > 0" x-cloak x-transition
+        class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 bg-base-200 border border-line rounded-full pl-5 pr-2 py-2 shadow-xl"
+      >
+        <span class="text-xs font-mono text-ink-dim"><span x-text="selectedCount"></span> selected</span>
+        <button
+          type="button"
+          hx-post="{% url 'history_bulk_delete' %}?type={{ type_filter }}&period={{ period }}&sort={{ sort }}&page={{ page_obj.number }}"
+          hx-include="[name='event_ids']:checked"
+          hx-target="#history-content"
+          hx-confirm="Remove the selected items from your watch history? This can't be undone."
+          @htmx:after-request.camel="if ($event.detail.successful) { selecting = false; selectedCount = 0 }"
+          class="px-4 py-2 rounded-full bg-error text-error-content text-xs font-semibold"
+        >Delete selected</button>
+      </div>
+    {% endif %}
   </div>
 
 {% endblock %}

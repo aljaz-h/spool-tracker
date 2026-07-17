@@ -3,9 +3,14 @@
 {% block title %}Stats · Spool{% endblock %}
 {% block content %}
 
-  <div class="mb-6">
-    <h1 class="font-display text-4xl">Stats</h1>
-    <div class="text-ink-dim text-sm mt-1">Lifetime totals across Movies, TV &amp; Anime</div>
+  <div class="mb-6 flex items-start justify-between flex-wrap gap-3">
+    <div>
+      <h1 class="font-display text-4xl">{% if is_own_stats or not profile %}Stats{% else %}{{ profile.display_name }}&rsquo;s Stats{% endif %}</h1>
+      <div class="text-ink-dim text-sm mt-1">Lifetime totals across Movies, TV &amp; Anime</div>
+    </div>
+    {% if profile %}
+      <a href="{{ history_url }}" class="btn btn-sm bg-base-200 border border-line">View History</a>
+    {% endif %}
   </div>
 
   {% if not profile %}

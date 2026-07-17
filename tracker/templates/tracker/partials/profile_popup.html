@@ -7,24 +7,98 @@
   </div>
 </div>
 
-<div class="grid grid-cols-2 gap-3 mb-5">
-  <div class="bg-base-100 border border-line rounded-xl p-3.5">
-    <div class="text-2xl font-display text-primary">{{ stats.streak }}</div>
-    <div class="text-[11px] text-ink-dim">Day streak</div>
+<div class="bg-base-100 border border-line rounded-2xl grid grid-cols-[auto_1fr] gap-5 items-center p-4 mb-4">
+  <div class="relative w-[92px] h-[92px] rounded-full flex-none" style="background: conic-gradient(var(--color-primary) calc({{ dial_pct }}*1%), var(--color-base-300) 0)">
+    <div class="absolute inset-2 rounded-full bg-base-100 flex flex-col items-center justify-center">
+      <div class="font-display text-2xl text-primary leading-none">{{ current_streak }}</div>
+      <div class="text-[9px] text-ink-dim uppercase tracking-wide mt-0.5">day streak</div>
+    </div>
   </div>
-  <div class="bg-base-100 border border-line rounded-xl p-3.5">
-    <div class="text-2xl font-display">{{ stats.movies_this_year }}</div>
-    <div class="text-[11px] text-ink-dim">Movies this year</div>
-  </div>
-  <div class="bg-base-100 border border-line rounded-xl p-3.5">
-    <div class="text-2xl font-display text-secondary">{{ stats.shows_completed }}</div>
-    <div class="text-[11px] text-ink-dim">Shows completed</div>
-  </div>
-  <div class="bg-base-100 border border-line rounded-xl p-3.5">
-    <div class="text-2xl font-display">{{ stats.total_watch_hours }}h</div>
-    <div class="text-[11px] text-ink-dim">Total watch time</div>
+  <div class="grid grid-cols-2 gap-x-3 gap-y-2.5">
+    <div>
+      <div class="font-display text-xl text-primary leading-none">{{ longest_streak }}</div>
+      <div class="text-[10px] text-ink-dim mt-1">Longest streak (days)</div>
+    </div>
+    <div>
+      <div class="font-display text-xl text-accent leading-none">{{ movies_watched }} / {{ shows_completed }}</div>
+      <div class="text-[10px] text-ink-dim mt-1">Movies watched / Shows completed</div>
+    </div>
+    <div class="col-span-2">
+      <div class="font-display text-xl leading-none">{{ total_watch_hours }}h</div>
+      <div class="text-[10px] text-ink-dim mt-1">Total watch time</div>
+    </div>
   </div>
 </div>
+
+<div
+  class="bg-base-100 border border-line rounded-2xl p-4 mb-4"
+  x-data="{
+    hovered: null,
+    segments: {
+      movie: { pct: {{ split.movie_pct }} },
+      tv: { pct: {{ split.tv_pct }} },
+      anime: { pct: {{ split.anime_pct }} },
+    },
+    get active() {
+      return this.hovered || Object.entries(this.segments).sort((a, b) => b[1].pct - a[1].pct)[0][0];
+    },
+    toggle(key) { this.hovered = this.hovered === key ? null : key; },
+    segStyle(key) {
+      return 'transform-origin:18px 18px; transition:transform 150ms; cursor:pointer;' + (this.active === key ? 'transform:scale(1.06)' : '');
+    },
+    wedgePath(startPct, endPct) {
+      const toXY = (pct) => {
+        const angle = (pct / 100) * 2 * Math.PI - Math.PI / 2;
+        return [18 + 17 * Math.cos(angle), 18 + 17 * Math.sin(angle)];
+      };
+      const [x1, y1] = toXY(startPct);
+      const [x2, y2] = toXY(endPct);
+      const largeArc = endPct - startPct > 50 ? 1 : 0;
+      return `M18,18 L${x1},${y1} A17,17 0 ${largeArc} 1 ${x2},${y2} Z`;
+    },
+  }"
+>
+  <div class="flex items-center gap-4">
+    <div class="relative w-[76px] h-[76px] flex-none">
+      <svg viewBox="0 0 36 36" class="w-full h-full">
+        <path
+          :d="wedgePath(0, {{ split.movie_end }})" fill="var(--color-primary)"
+          :style="segStyle('movie')"
+          @mouseenter="hovered = 'movie'" @mouseleave="hovered = null" @click="toggle('movie')"
+        ></path>
+        <path
+          :d="wedgePath({{ split.movie_end }}, {{ split.tv_end }})" fill="var(--color-accent)"
+          :style="segStyle('tv')"
+          @mouseenter="hovered = 'tv'" @mouseleave="hovered = null" @click="toggle('tv')"
+        ></path>
+        <path
+          :d="wedgePath({{ split.tv_end }}, 100)" fill="var(--color-secondary)"
+          :style="segStyle('anime')"
+          @mouseenter="hovered = 'anime'" @mouseleave="hovered = null" @click="toggle('anime')"
+        ></path>
+      </svg>
+    </div>
+    <div class="min-w-0">
+      <div class="text-[10px] text-ink-dim uppercase tracking-wide mb-1.5">Split by type</div>
+      <div class="flex flex-col gap-1 text-[11.5px] text-ink-dim">
+        <div class="flex items-center gap-1.5 cursor-pointer select-none" :class="active === 'movie' && 'text-base-content font-semibold'" @mouseenter="hovered = 'movie'" @mouseleave="hovered = null" @click="toggle('movie')"><span class="w-2 h-2 rounded-sm bg-primary flex-none"></span>Movies — {{ split.movie_pct }}%</div>
+        <div class="flex items-center gap-1.5 cursor-pointer select-none" :class="active === 'tv' && 'text-base-content font-semibold'" @mouseenter="hovered = 'tv'" @mouseleave="hovered = null" @click="toggle('tv')"><span class="w-2 h-2 rounded-sm bg-accent flex-none"></span>TV shows — {{ split.tv_pct }}%</div>
+        <div class="flex items-center gap-1.5 cursor-pointer select-none" :class="active === 'anime' && 'text-base-content font-semibold'" @mouseenter="hovered = 'anime'" @mouseleave="hovered = null" @click="toggle('anime')"><span class="w-2 h-2 rounded-sm bg-secondary flex-none"></span>Anime — {{ split.anime_pct }}%</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if top_genres %}
+  <div class="mb-4">
+    <div class="text-[10px] text-ink-dim uppercase tracking-wide mb-2">Top genres</div>
+    <div class="flex flex-wrap gap-1.5">
+      {% for g in top_genres %}
+        <span class="px-2.5 py-1 rounded-full bg-base-100 border border-line text-[11px] font-semibold">{{ g.name }}</span>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
 
 <div class="text-xs text-ink-dim mb-2">Recently watched</div>
 {% if not recent_events %}
@@ -43,3 +117,5 @@
     {% endfor %}
   </div>
 {% endif %}
+
+<a href="{% url 'member_stats' target.pk %}" class="mt-5 flex items-center justify-center gap-1.5 text-xs font-semibold text-primary hover:underline">View full stats →</a>
