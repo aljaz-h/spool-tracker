@@ -22,7 +22,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from . import csv_import, instance_config, rewatches, scheduling, selectors, tasks
+from . import completion, csv_import, instance_config, rewatches, scheduling, selectors, tasks
 from .integrations import simkl, tmdb, trakt
 from .models import (
     Episode,
@@ -317,6 +317,7 @@ def title_mark_watched(request, pk):
         raise Http404
     WatchEvent.objects.create(profile=profile, title=title, watched_at=timezone.now())
     rewatches.recompute_is_rewatch(profile, title, None)
+    completion.sync_watchlist_removal(profile, title)
     if request.headers.get("HX-Request"):
         return render(request, "tracker/partials/poster_card_watched_button.html", {"title": title, "watched": True})
     return redirect("title_detail", pk=pk)
@@ -348,6 +349,8 @@ def episode_mark_watched(request, pk, season, episode_number):
     )
     WatchEvent.objects.create(profile=profile, title=title, episode=episode, watched_at=timezone.now())
     rewatches.recompute_is_rewatch(profile, title, episode)
+    completion.sync_show_completion(profile, title)
+    completion.sync_watchlist_removal(profile, title)
     return render(
         request,
         "tracker/partials/episode_watched_button.html",
@@ -376,6 +379,7 @@ def title_rate(request, pk):
     else:
         WatchEvent.objects.create(profile=profile, title=title, watched_at=timezone.now(), user_rating=rating)
         rewatches.recompute_is_rewatch(profile, title, None)
+    completion.sync_watchlist_removal(profile, title)
     return redirect("title_detail", pk=pk)
 
 
@@ -456,10 +460,10 @@ def _get_or_create_preview_title(media_type, tmdb_id):
 @require_POST
 def title_preview_add_to_watchlist(request, media_type, tmdb_id):
     """The preview page's one write action - materialize the Title, then
-    drop it on the profile's default "Watchlist" list (get-or-created by
-    name, since WatchList has no is_default flag to key off instead) and
-    hand off to the real detail page, where the fuller add-to-any-list UI
-    lives."""
+    drop it on the profile's auto-managed Watchlist (get-or-created by
+    name, flagged is_watchlist=True on creation so completion.py's
+    sync_watchlist_removal can find it later) and hand off to the real
+    detail page, where the fuller add-to-any-list UI lives."""
     if media_type not in ("movie", "tv"):
         raise Http404
     profile = Profile.objects.filter(user=request.user).first()
@@ -470,7 +474,9 @@ def title_preview_add_to_watchlist(request, media_type, tmdb_id):
     if title is None:
         raise Http404
 
-    watchlist, _ = WatchList.objects.get_or_create(profile=profile, name="Watchlist")
+    watchlist, _ = WatchList.objects.get_or_create(
+        profile=profile, name="Watchlist", defaults={"is_watchlist": True}
+    )
     WatchListItem.objects.get_or_create(watchlist=watchlist, title=title)
     return redirect("title_detail", pk=title.pk)
 
@@ -494,6 +500,7 @@ def title_preview_mark_watched(request, media_type, tmdb_id):
         raise Http404
     WatchEvent.objects.create(profile=profile, title=title, watched_at=timezone.now())
     rewatches.recompute_is_rewatch(profile, title, None)
+    completion.sync_watchlist_removal(profile, title)
     return render(request, "tracker/partials/poster_card_watched_button.html", {"title": title, "watched": True})
 
 

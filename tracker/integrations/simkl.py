@@ -144,7 +144,9 @@ def upsert_history_items(profile, items):
 
     for title in Title.objects.filter(id__in=touched_movies):
         completion.update_movie_runtime(title)
+        completion.sync_watchlist_removal(profile, title)
     for title in Title.objects.filter(id__in=touched_shows):
         completion.sync_show_completion(profile, title)
+        completion.sync_watchlist_removal(profile, title)
 
     return created

@@ -29,13 +29,16 @@ class Command(BaseCommand):
         self.stdout.write(f"Checking {total} titles against TMDB...")
         movies_done = shows_done = 0
         for i, title in enumerate(titles, start=1):
+            profile_ids = WatchEvent.objects.filter(title=title).values_list("profile_id", flat=True).distinct()
             if title.media_type == MediaType.MOVIE:
                 completion.update_movie_runtime(title)
+                for profile in Profile.objects.filter(id__in=profile_ids):
+                    completion.sync_watchlist_removal(profile, title)
                 movies_done += 1
             else:
-                profile_ids = WatchEvent.objects.filter(title=title).values_list("profile_id", flat=True).distinct()
                 for profile in Profile.objects.filter(id__in=profile_ids):
                     completion.sync_show_completion(profile, title)
+                    completion.sync_watchlist_removal(profile, title)
                 shows_done += 1
             if i % 50 == 0:
                 self.stdout.write(f"...{i}/{total} checked")

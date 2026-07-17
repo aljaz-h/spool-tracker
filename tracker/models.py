@@ -190,6 +190,12 @@ class WatchList(models.Model):
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="watchlists")
     name = models.CharField(max_length=100)
     is_shared = models.BooleanField(default=False)
+    # True for exactly one list per profile - the auto-managed Watchlist
+    # (as opposed to a custom list a profile created themselves). Titles
+    # come off this list automatically once finished (completion.py's
+    # sync_watchlist_removal) - custom lists are never touched by that,
+    # regardless of what they're named.
+    is_watchlist = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

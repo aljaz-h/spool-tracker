@@ -10,7 +10,7 @@ stats were never wrong, there was just never any data behind them.
 """
 
 from .integrations import tmdb
-from .models import Episode, WatchEvent, WatchProgress
+from .models import Episode, MediaType, WatchEvent, WatchListItem, WatchProgress
 
 
 def _tmdb_id(title):
@@ -56,3 +56,20 @@ def sync_show_completion(profile, title):
         WatchProgress.objects.update_or_create(
             profile=profile, title=title, defaults={"status": WatchProgress.Status.COMPLETED}
         )
+
+
+def sync_watchlist_removal(profile, title):
+    """Trakt/Simkl-style behavior: once a title is finished - a movie
+    watched at least once, or a show/anime fully watched per
+    sync_show_completion's WatchProgress.COMPLETED - it comes off the
+    profile's auto-managed Watchlist automatically. Only ever touches the
+    WatchList flagged is_watchlist=True; custom lists (whatever they're
+    named) are untouched, since this filters on the flag, not on name."""
+    if title.media_type == MediaType.MOVIE:
+        finished = WatchEvent.objects.filter(profile=profile, title=title).exists()
+    else:
+        finished = WatchProgress.objects.filter(
+            profile=profile, title=title, status=WatchProgress.Status.COMPLETED
+        ).exists()
+    if finished:
+        WatchListItem.objects.filter(watchlist__profile=profile, watchlist__is_watchlist=True, title=title).delete()

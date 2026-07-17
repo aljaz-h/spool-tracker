@@ -241,9 +241,12 @@ class TraktUpsertCompletionWiringTests(TestCase):
         self.profile = Profile.objects.create(user=user, display_name="WiringWatcher")
 
     @patch("tracker.integrations.tmdb.find_match", return_value=None)
+    @patch("tracker.completion.sync_watchlist_removal")
     @patch("tracker.completion.sync_show_completion")
     @patch("tracker.completion.update_movie_runtime")
-    def test_calls_completion_once_per_unique_title(self, mock_movie_runtime, mock_show_completion, mock_find_match):
+    def test_calls_completion_once_per_unique_title(
+        self, mock_movie_runtime, mock_show_completion, mock_watchlist_removal, mock_find_match
+    ):
         items = [
             {
                 "type": "movie",
@@ -268,6 +271,7 @@ class TraktUpsertCompletionWiringTests(TestCase):
         self.assertEqual(mock_show_completion.call_count, 1)
         show_title = mock_show_completion.call_args.args[1]
         self.assertEqual(show_title.name, "Cinder Street")
+        self.assertEqual(mock_watchlist_removal.call_count, 2)
 
 
 class TraktFetchListsTests(TestCase):
@@ -326,7 +330,18 @@ class TraktUpsertListsTests(TestCase):
         added = trakt.upsert_lists(self.profile, lists_data)
         self.assertEqual(added, 2)
         watchlist = WatchList.objects.get(profile=self.profile, name="Watchlist")
+        self.assertTrue(watchlist.is_watchlist)
         self.assertEqual(WatchListItem.objects.filter(watchlist=watchlist).count(), 2)
+
+    def test_a_custom_named_list_is_not_flagged_as_the_watchlist(self):
+        from tracker.models import WatchList
+
+        lists_data = [
+            {"name": "Best of 2024", "items": [{"type": "movie", "movie": {"title": "Fathom", "ids": {"trakt": 1}}}]}
+        ]
+        trakt.upsert_lists(self.profile, lists_data)
+        custom_list = WatchList.objects.get(profile=self.profile, name="Best of 2024")
+        self.assertFalse(custom_list.is_watchlist)
 
     def test_reimport_does_not_duplicate_items_or_lists(self):
         from tracker.models import WatchList
@@ -613,6 +628,65 @@ class CompletionShowTests(TestCase):
         with patch("tracker.completion.tmdb.get_tv_details") as mock_details:
             completion.sync_show_completion(self.profile, title)
         mock_details.assert_not_called()
+
+
+class CompletionWatchlistRemovalTests(TestCase):
+    """completion.sync_watchlist_removal - the Trakt/Simkl-style behavior
+    of a finished title coming off the profile's auto-managed Watchlist
+    on its own, without touching any custom list."""
+
+    def setUp(self):
+        user = User.objects.create_user("watchlistwatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="WatchlistWatcher")
+        self.watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        self.custom_list = WatchList.objects.create(profile=self.profile, name="Favorites")
+
+    def test_removes_a_watched_movie_from_the_watchlist(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchListItem.objects.create(watchlist=self.watchlist, title=movie)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at="2024-01-01T00:00:00Z")
+        completion.sync_watchlist_removal(self.profile, movie)
+        self.assertFalse(WatchListItem.objects.filter(watchlist=self.watchlist, title=movie).exists())
+
+    def test_leaves_an_unwatched_movie_on_the_watchlist(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchListItem.objects.create(watchlist=self.watchlist, title=movie)
+        completion.sync_watchlist_removal(self.profile, movie)
+        self.assertTrue(WatchListItem.objects.filter(watchlist=self.watchlist, title=movie).exists())
+
+    def test_removes_a_completed_show_from_the_watchlist(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+        WatchListItem.objects.create(watchlist=self.watchlist, title=show)
+        WatchProgress.objects.create(profile=self.profile, title=show, status=WatchProgress.Status.COMPLETED)
+        completion.sync_watchlist_removal(self.profile, show)
+        self.assertFalse(WatchListItem.objects.filter(watchlist=self.watchlist, title=show).exists())
+
+    def test_leaves_a_partially_watched_show_on_the_watchlist(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+        WatchListItem.objects.create(watchlist=self.watchlist, title=show)
+        WatchProgress.objects.create(profile=self.profile, title=show, status=WatchProgress.Status.WATCHING)
+        completion.sync_watchlist_removal(self.profile, show)
+        self.assertTrue(WatchListItem.objects.filter(watchlist=self.watchlist, title=show).exists())
+
+    def test_never_touches_a_custom_list(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchListItem.objects.create(watchlist=self.watchlist, title=movie)
+        WatchListItem.objects.create(watchlist=self.custom_list, title=movie)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at="2024-01-01T00:00:00Z")
+        completion.sync_watchlist_removal(self.profile, movie)
+        self.assertFalse(WatchListItem.objects.filter(watchlist=self.watchlist, title=movie).exists())
+        self.assertTrue(WatchListItem.objects.filter(watchlist=self.custom_list, title=movie).exists())
+
+    def test_a_plain_list_merely_named_watchlist_is_not_touched(self):
+        """The flag, not the name, is what makes a list the watchlist -
+        an unflagged list a user happened to also name "Watchlist" is
+        just a regular custom list."""
+        lookalike = WatchList.objects.create(profile=self.profile, name="Watchlist")
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchListItem.objects.create(watchlist=lookalike, title=movie)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at="2024-01-01T00:00:00Z")
+        completion.sync_watchlist_removal(self.profile, movie)
+        self.assertTrue(WatchListItem.objects.filter(watchlist=lookalike, title=movie).exists())
 
 
 class ReleaseSyncTests(TestCase):
@@ -3446,6 +3520,70 @@ class EpisodeMarkWatchedTests(TestCase):
         self.assertNotEqual(resp.status_code, 200)
 
 
+class WatchlistAutoRemovalIntegrationTests(TestCase):
+    """End-to-end: the views that log a watch (title_mark_watched,
+    episode_mark_watched, title_rate) actually trigger
+    completion.sync_watchlist_removal, and a custom list survives it."""
+
+    def setUp(self):
+        user = User.objects.create_user("watchlistclicker", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="WatchlistClicker")
+        self.client.login(username="watchlistclicker", password="pass12345")
+        self.watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        self.custom_list = WatchList.objects.create(profile=self.profile, name="Favorites")
+
+    def test_marking_a_movie_watched_removes_it_from_the_watchlist_not_custom_lists(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchListItem.objects.create(watchlist=self.watchlist, title=movie)
+        WatchListItem.objects.create(watchlist=self.custom_list, title=movie)
+        self.client.post(reverse("title_mark_watched", args=[movie.pk]))
+        self.assertFalse(WatchListItem.objects.filter(watchlist=self.watchlist, title=movie).exists())
+        self.assertTrue(WatchListItem.objects.filter(watchlist=self.custom_list, title=movie).exists())
+
+    def test_rating_a_movie_for_the_first_time_removes_it_from_the_watchlist(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchListItem.objects.create(watchlist=self.watchlist, title=movie)
+        self.client.post(reverse("title_rate", args=[movie.pk]), {"rating": "8"})
+        self.assertFalse(WatchListItem.objects.filter(watchlist=self.watchlist, title=movie).exists())
+
+    @patch("tracker.integrations.tmdb.get_tv_details")
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_watching_the_final_episode_removes_the_show_from_the_watchlist(self, mock_season, mock_tv_details):
+        show = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99", "tmdb_kind": "tv"}
+        )
+        WatchListItem.objects.create(watchlist=self.watchlist, title=show)
+        WatchListItem.objects.create(watchlist=self.custom_list, title=show)
+        first_ep = Episode.objects.create(title=show, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=show, episode=first_ep, watched_at="2024-01-01T00:00:00Z")
+        mock_season.return_value = {"episodes": [{"episode_number": 2, "name": "Ep2"}]}
+        mock_tv_details.return_value = {"number_of_episodes": 2, "episode_run_time": 24, "seasons": []}
+
+        self.client.post(reverse("episode_mark_watched", args=[show.pk, 1, 2]))
+
+        self.assertTrue(
+            WatchProgress.objects.filter(
+                profile=self.profile, title=show, status=WatchProgress.Status.COMPLETED
+            ).exists()
+        )
+        self.assertFalse(WatchListItem.objects.filter(watchlist=self.watchlist, title=show).exists())
+        self.assertTrue(WatchListItem.objects.filter(watchlist=self.custom_list, title=show).exists())
+
+    @patch("tracker.integrations.tmdb.get_tv_details")
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_watching_one_of_several_episodes_leaves_the_show_on_the_watchlist(self, mock_season, mock_tv_details):
+        show = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99", "tmdb_kind": "tv"}
+        )
+        WatchListItem.objects.create(watchlist=self.watchlist, title=show)
+        mock_season.return_value = {"episodes": [{"episode_number": 1, "name": "Ep1"}]}
+        mock_tv_details.return_value = {"number_of_episodes": 5, "episode_run_time": 24, "seasons": []}
+
+        self.client.post(reverse("episode_mark_watched", args=[show.pk, 1, 1]))
+
+        self.assertTrue(WatchListItem.objects.filter(watchlist=self.watchlist, title=show).exists())
+
+
 class TitlePreviewViewTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("previewviewer", password="pass12345")
@@ -3515,6 +3653,7 @@ class TitlePreviewViewTests(TestCase):
         self.assertEqual(title.name, "Fathom")
         self.assertRedirects(resp, reverse("title_detail", args=[title.pk]), fetch_redirect_response=False)
         watchlist = WatchList.objects.get(profile=self.profile, name="Watchlist")
+        self.assertTrue(watchlist.is_watchlist)
         self.assertTrue(WatchListItem.objects.filter(watchlist=watchlist, title=title).exists())
 
     @patch("tracker.integrations.tmdb.get_full_details")
@@ -3593,6 +3732,28 @@ class TitlePreviewViewTests(TestCase):
         watchlist = WatchList.objects.create(profile=owner_profile, name="Favorites")
         resp = self.client.post(reverse("title_preview_add_to_list", args=["movie", 42, watchlist.id]))
         self.assertNotEqual(resp.status_code, 200)
+
+
+class CreateListNeverFlagsAsWatchlistTests(TestCase):
+    """create_list is the only entry point for a profile's own custom
+    lists - it must never set is_watchlist, even if a user names their
+    custom list "Watchlist" themselves (see completion.sync_watchlist_removal,
+    which keys off the flag, not the name)."""
+
+    def setUp(self):
+        user = User.objects.create_user("listcreator", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ListCreator")
+        self.client.login(username="listcreator", password="pass12345")
+
+    def test_a_new_custom_list_is_not_flagged_as_the_watchlist(self):
+        self.client.post(reverse("create_list"), {"name": "Favorites"})
+        watchlist = WatchList.objects.get(profile=self.profile, name="Favorites")
+        self.assertFalse(watchlist.is_watchlist)
+
+    def test_a_custom_list_named_watchlist_is_still_not_flagged(self):
+        self.client.post(reverse("create_list"), {"name": "Watchlist"})
+        watchlist = WatchList.objects.get(profile=self.profile, name="Watchlist")
+        self.assertFalse(watchlist.is_watchlist)
 
 
 class ListActionNextRedirectTests(TestCase):

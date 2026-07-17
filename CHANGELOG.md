@@ -8,7 +8,26 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
-## [0.12.1] - 2026-07-17
+## [0.13.0] - 2026-07-17
+
+### Added
+
+- The Watchlist is now a real, auto-managed watchlist instead of just a
+  regular list that happened to be named "Watchlist": a title comes off
+  it automatically once it's finished - a movie watched at least once,
+  or every episode of a show/anime watched - the same behavior Trakt
+  and Simkl's own watchlists have. This only ever affects the one list
+  flagged as the Watchlist; custom lists are never touched, even if a
+  movie on one gets watched, and even if a custom list happens to be
+  named "Watchlist" too. Existing installs get their current "Watchlist"
+  list flagged automatically via a data migration.
+
+### Fixed
+
+- Watching every episode of a show manually via the episode browser
+  (added in 0.10.0) never updated its "completed" status - only
+  Trakt/Simkl sync and CSV import did. The per-episode watched button
+  now runs the same completion check they do.
 
 ### Changed
 

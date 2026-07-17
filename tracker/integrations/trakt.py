@@ -201,8 +201,10 @@ def upsert_history_items(profile, items):
     # successfully wrote the watch history itself.
     for title in Title.objects.filter(id__in=touched_movies):
         completion.update_movie_runtime(title)
+        completion.sync_watchlist_removal(profile, title)
     for title in Title.objects.filter(id__in=touched_shows):
         completion.sync_show_completion(profile, title)
+        completion.sync_watchlist_removal(profile, title)
 
     return created
 
@@ -251,7 +253,9 @@ def upsert_lists(profile, lists_data):
 
     added = 0
     for entry in lists_data:
-        watchlist, _ = WatchList.objects.get_or_create(profile=profile, name=entry["name"])
+        watchlist, _ = WatchList.objects.get_or_create(
+            profile=profile, name=entry["name"], defaults={"is_watchlist": entry["name"] == "Watchlist"}
+        )
         for item in entry["items"]:
             if item.get("type") == "movie":
                 m = item.get("movie") or {}
