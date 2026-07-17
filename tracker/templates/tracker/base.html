@@ -23,10 +23,11 @@
   </script>
 </head>
 <body class="bg-base-100 text-base-content min-h-screen">
-  <div class="flex min-h-screen" x-data="{ sidebarOpen: window.innerWidth > 768 }">
+  <div x-data="{ sidebarOpen: false }">
     {% include "tracker/partials/sidebar.html" %}
-    <div class="flex-1 min-w-0 flex flex-col">
+    <div class="min-h-screen flex flex-col">
       {% include "tracker/partials/topbar.html" %}
+      {% include "tracker/partials/navbar.html" %}
       <main class="p-8 pb-16">
         {% block content %}{% endblock %}
       </main>

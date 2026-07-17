@@ -3,13 +3,17 @@
   <div class="flex items-center gap-3.5 flex-1 min-w-0">
     <button
       @click="sidebarOpen = !sidebarOpen"
-      aria-label="Toggle sidebar"
-      class="w-9 h-9 flex-none rounded-lg border border-line bg-base-200 flex items-center justify-center text-ink-dim hover:text-base-content hover:border-primary"
+      aria-label="Toggle menu"
+      class="w-9 h-9 flex-none rounded-lg border border-line bg-base-200 flex items-center justify-center text-ink-dim hover:text-base-content hover:border-primary md:hidden"
     >
       {% icon "menu" "w-[18px] h-[18px]" %}
     </button>
+    <a href="{% url 'dashboard' %}" class="flex items-baseline gap-2 flex-none" title="Dashboard">
+      <span class="font-display text-[24px] text-marquee tracking-wide leading-none">SPOOL</span>
+      <span class="hidden lg:inline text-[10px] text-ink-faint uppercase tracking-widest">self-hosted</span>
+    </a>
     <input
-      class="bg-base-200 border border-line rounded-lg px-3.5 py-2 text-[13px] text-ink-dim max-w-[380px] w-full"
+      class="hidden sm:block bg-base-200 border border-line rounded-lg px-3.5 py-2 text-[13px] text-ink-dim max-w-[380px] w-full"
       placeholder="Search your library…"
     >
   </div>
@@ -39,10 +43,14 @@
           style="background:{{ active_profile.avatar_color }};color:#fff;"
           title="{{ active_profile.display_name }}"
         >{{ active_profile.display_name|first|upper }}</button>
-        <div x-show="open" x-cloak class="absolute right-0 mt-2 w-44 bg-base-200 border border-line rounded-lg shadow-lg z-40 py-1">
+        <div x-show="open" x-cloak class="absolute right-0 mt-2 w-52 bg-base-200 border border-line rounded-lg shadow-lg z-40 py-1">
           <div class="px-3 py-2 text-xs text-ink-dim border-b border-line truncate">{{ active_profile.display_name }}</div>
           <a href="{% url 'my_profile' %}" class="block px-3 py-2 text-sm hover:bg-base-300">My Profile</a>
-          <form method="post" action="{% url 'logout' %}">
+          <a href="{% url 'settings' %}" class="block px-3 py-2 text-sm hover:bg-base-300">Settings & Import</a>
+          {% if active_profile.is_owner %}
+            <a href="{% url 'admin_dashboard' %}" class="block px-3 py-2 text-sm hover:bg-base-300">Admin Dashboard</a>
+          {% endif %}
+          <form method="post" action="{% url 'logout' %}" class="border-t border-line mt-1 pt-1">
             {% csrf_token %}
             <button type="submit" class="w-full text-left px-3 py-2 text-sm hover:bg-base-300">Log out</button>
           </form>

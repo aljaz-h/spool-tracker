@@ -1,8 +1,8 @@
 {% load icons %}
-<a href="{{ href }}"
+<a href="{{ href }}" @click="sidebarOpen = false"
    class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium border-l-[3px] transition-colors whitespace-nowrap
      {% if is_active %}bg-base-300 text-base-content {{ active_border }}{% else %}border-transparent text-ink-dim hover:bg-base-300 hover:text-base-content{% endif %}"
 >
   {% icon icon_name "w-[17px] h-[17px] flex-none opacity-85" %}
-  <span x-show="sidebarOpen" x-transition.opacity.duration.100ms>{{ label }}</span>
+  <span>{{ label }}</span>
 </a>

@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-17
+
+### Changed
+
+- Reworked the app's primary navigation: the collapsible left sidebar is
+  now a mobile-only drawer (opened via the header's hamburger button),
+  and desktop/tablet screens get a horizontal navbar under the header
+  instead. The "Dashboard" nav item is gone - the SPOOL logo in the
+  header is now itself a link back to the dashboard, on every screen
+  size. "Settings & Import" and "Admin Dashboard" moved out of the main
+  nav (they no longer need their own always-visible slot) and into the
+  profile dropdown menu, alongside "My Profile" and "Log out".
+
 ## [0.11.0] - 2026-07-17
 
 ### Added

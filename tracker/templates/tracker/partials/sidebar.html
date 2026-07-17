@@ -1,4 +1,4 @@
-{% load tracker_extras %}
+{% load tracker_extras icons %}
 {% with url_name=request.resolver_match.url_name %}
 <div
   x-show="sidebarOpen"
@@ -9,22 +9,27 @@
 ></div>
 
 <aside
-  :class="sidebarOpen ? 'w-60' : 'w-17'"
-  class="fixed md:sticky top-0 left-0 h-screen z-50 md:z-auto flex flex-col bg-base-200 border-r border-line p-3.5 transition-all duration-200 overflow-hidden flex-none"
-  :style="!sidebarOpen && window.innerWidth < 768 ? 'transform:translateX(-100%)' : 'transform:translateX(0)'"
+  x-show="sidebarOpen"
+  x-cloak
+  x-transition:enter="transition ease-out duration-200"
+  x-transition:enter-start="-translate-x-full"
+  x-transition:enter-end="translate-x-0"
+  x-transition:leave="transition ease-in duration-150"
+  x-transition:leave-start="translate-x-0"
+  x-transition:leave-end="-translate-x-full"
+  class="fixed md:hidden top-0 left-0 h-screen w-64 z-50 flex flex-col bg-base-200 border-r border-line p-3.5 overflow-y-auto"
 >
-  <div x-show="sidebarOpen" class="flex items-baseline gap-2 px-2.5 pb-5 mb-4 border-b border-line whitespace-nowrap">
-    <span class="font-display text-[28px] text-marquee tracking-wide">SPOOL</span>
-    <span class="text-[10px] text-ink-faint uppercase tracking-widest">self-hosted</span>
-  </div>
-  <div x-show="!sidebarOpen" x-cloak class="flex justify-center pb-5 mb-4 border-b border-line">
-    <span class="font-display text-[28px] text-marquee tracking-wide">S</span>
+  <div class="flex items-center justify-between gap-2 pb-5 mb-4 border-b border-line">
+    <a href="{% url 'dashboard' %}" class="flex items-baseline gap-2" @click="sidebarOpen = false">
+      <span class="font-display text-[28px] text-marquee tracking-wide">SPOOL</span>
+      <span class="text-[10px] text-ink-faint uppercase tracking-widest">self-hosted</span>
+    </a>
+    <button @click="sidebarOpen = false" aria-label="Close menu" class="w-8 h-8 flex-none flex items-center justify-center rounded-lg text-ink-dim hover:text-base-content">
+      {% icon "x" "w-4 h-4" %}
+    </button>
   </div>
 
   <nav class="flex flex-col gap-0.5">
-    {% url 'dashboard' as dashboard_url %}
-    {% include "tracker/partials/nav_item.html" with href=dashboard_url icon_name="layout-dashboard" label="Dashboard" is_active=url_name|eq:"dashboard" active_border="border-primary" %}
-
     {% url 'movies_tv' category="trending" as movies_tv_url %}
     {% include "tracker/partials/nav_item.html" with href=movies_tv_url icon_name="clapperboard" label="Movies & TV" is_active=url_name|eq:"movies_tv" active_border="border-primary" %}
 
@@ -47,17 +52,9 @@
       {% url 'activity' as activity_url %}
       {% include "tracker/partials/nav_item.html" with href=activity_url icon_name="users" label="Activity" is_active=url_name|eq:"activity" active_border="border-primary" %}
     {% endif %}
-
-    {% url 'settings' as settings_url %}
-    {% include "tracker/partials/nav_item.html" with href=settings_url icon_name="settings" label="Settings & Import" is_active=url_name|eq:"settings" active_border="border-primary" %}
-
-    {% if active_profile.is_owner %}
-      {% url 'admin_dashboard' as admin_dashboard_url %}
-      {% include "tracker/partials/nav_item.html" with href=admin_dashboard_url icon_name="shield" label="Admin Dashboard" is_active=url_name|eq:"admin_dashboard" active_border="border-primary" %}
-    {% endif %}
   </nav>
 
-  <div x-show="sidebarOpen" class="mt-auto pt-2.5 px-2.5 border-t border-line text-[11px] text-ink-faint leading-relaxed whitespace-nowrap">
+  <div class="mt-auto pt-2.5 px-2.5 border-t border-line text-[11px] text-ink-faint leading-relaxed">
     <div>{{ all_profiles|length }} profile{{ all_profiles|length|pluralize }} on this server</div>
     <div class="font-mono">v{{ app_version }}</div>
   </div>
