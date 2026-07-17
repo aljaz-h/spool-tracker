@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-07-17
+
+### Changed
+
+- Added proportional breathing room to the main content area on
+  desktop/tablet (`lg:` and up) - an extra 10% of the viewport width on
+  each side, on top of the existing base padding, so wide pages don't
+  stretch page content edge-to-edge. The header/navbar itself stays
+  full-width and is unaffected; mobile is unaffected too.
+
 ## [0.12.0] - 2026-07-17
 
 ### Changed
