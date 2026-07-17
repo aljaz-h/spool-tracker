@@ -98,11 +98,10 @@ def profile_popup(request, profile_id):
         raise Http404
     target = get_object_or_404(Profile, pk=profile_id)
     overview = selectors.stats_overview(target)
-    overview["split"]["movie_end"] = overview["split"]["movie_pct"]
-    overview["split"]["tv_end"] = overview["split"]["movie_pct"] + overview["split"]["tv_pct"]
     context = {
         "target": target,
         **overview,
+        "watch_time_breakdown": selectors.watch_time_breakdown(target),
         "top_genres": selectors.top_genres(target, limit=3),
         "recent_events": selectors.library_history(
             target, [MediaType.MOVIE, MediaType.TV, MediaType.ANIME], limit=8

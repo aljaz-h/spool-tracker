@@ -14,10 +14,10 @@ migration/env step or breaking an existing workflow.
 
 - The member-profile popup (clicking another household profile's avatar
   in the header) now shows real stats instead of a handful of plain
-  boxes: the same circular streak ring, split-by-type pie chart, and
-  genre chips the main Stats page uses, plus a dimmed/blurred backdrop
-  so the popup reads as focused. A "View full stats →" link deep-links
-  to that member's own full Stats page.
+  boxes: the same circular streak ring, a Last 30 Days/All Time watch-
+  time breakdown, and genre chips the main Stats page uses, plus a
+  dimmed/blurred backdrop so the popup reads as focused. A "View full
+  stats →" link deep-links to that member's own full Stats page.
 - The Stats and History pages can now be viewed scoped to any household
   profile, not just your own (`/profile/<id>/stats/`,
   `/profile/<id>/history/`) - read-only when viewing someone else (no

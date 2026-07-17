@@ -1762,6 +1762,13 @@ class ProfilePopupViewTests(TestCase):
         resp = self.client.get(reverse("profile_popup", args=[self.target.id]))
         self.assertContains(resp, reverse("member_stats", args=[self.target.id]))
 
+    def test_shows_last_30_days_and_all_time_instead_of_a_pie_chart(self):
+        resp = self.client.get(reverse("profile_popup", args=[self.target.id]))
+        self.assertContains(resp, "Last 30 days")
+        self.assertContains(resp, "All time")
+        self.assertContains(resp, "Combined")
+        self.assertNotContains(resp, "Split by type")
+
 
 class MemberScopedViewsTests(TestCase):
     """Deep-linking into another household profile's Stats/History from

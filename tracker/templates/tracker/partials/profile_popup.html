@@ -30,60 +30,42 @@
   </div>
 </div>
 
-<div
-  class="bg-base-100 border border-line rounded-2xl p-4 mb-4"
-  x-data="{
-    hovered: null,
-    segments: {
-      movie: { pct: {{ split.movie_pct }} },
-      tv: { pct: {{ split.tv_pct }} },
-      anime: { pct: {{ split.anime_pct }} },
-    },
-    get active() {
-      return this.hovered || Object.entries(this.segments).sort((a, b) => b[1].pct - a[1].pct)[0][0];
-    },
-    toggle(key) { this.hovered = this.hovered === key ? null : key; },
-    segStyle(key) {
-      return 'transform-origin:18px 18px; transition:transform 150ms; cursor:pointer;' + (this.active === key ? 'transform:scale(1.06)' : '');
-    },
-    wedgePath(startPct, endPct) {
-      const toXY = (pct) => {
-        const angle = (pct / 100) * 2 * Math.PI - Math.PI / 2;
-        return [18 + 17 * Math.cos(angle), 18 + 17 * Math.sin(angle)];
-      };
-      const [x1, y1] = toXY(startPct);
-      const [x2, y2] = toXY(endPct);
-      const largeArc = endPct - startPct > 50 ? 1 : 0;
-      return `M18,18 L${x1},${y1} A17,17 0 ${largeArc} 1 ${x2},${y2} Z`;
-    },
-  }"
->
-  <div class="flex items-center gap-4">
-    <div class="relative w-[76px] h-[76px] flex-none">
-      <svg viewBox="0 0 36 36" class="w-full h-full">
-        <path
-          :d="wedgePath(0, {{ split.movie_end }})" fill="var(--color-primary)"
-          :style="segStyle('movie')"
-          @mouseenter="hovered = 'movie'" @mouseleave="hovered = null" @click="toggle('movie')"
-        ></path>
-        <path
-          :d="wedgePath({{ split.movie_end }}, {{ split.tv_end }})" fill="var(--color-accent)"
-          :style="segStyle('tv')"
-          @mouseenter="hovered = 'tv'" @mouseleave="hovered = null" @click="toggle('tv')"
-        ></path>
-        <path
-          :d="wedgePath({{ split.tv_end }}, 100)" fill="var(--color-secondary)"
-          :style="segStyle('anime')"
-          @mouseenter="hovered = 'anime'" @mouseleave="hovered = null" @click="toggle('anime')"
-        ></path>
-      </svg>
+<div class="bg-base-100 border border-line rounded-2xl grid grid-cols-2 divide-x divide-line mb-4">
+  <div class="min-w-0 p-4">
+    <h3 class="text-xs font-semibold mb-3">Last 30 days</h3>
+    <div class="space-y-2.5">
+      <div class="flex justify-between items-baseline gap-2">
+        <span class="text-[11px] text-ink-dim">Movies</span>
+        <span class="font-mono text-[11px] text-right"><b>{{ watch_time_breakdown.last_30_days.movie.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.last_30_days.movie.count }})</span></span>
+      </div>
+      <div class="flex justify-between items-baseline gap-2">
+        <span class="text-[11px] text-ink-dim">TV</span>
+        <span class="font-mono text-[11px] text-right"><b>{{ watch_time_breakdown.last_30_days.tv.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.last_30_days.tv.count }})</span></span>
+      </div>
+      <div class="flex justify-between items-baseline gap-2">
+        <span class="text-[11px] text-ink-dim">Anime</span>
+        <span class="font-mono text-[11px] text-right"><b>{{ watch_time_breakdown.last_30_days.anime.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.last_30_days.anime.count }})</span></span>
+      </div>
     </div>
-    <div class="min-w-0">
-      <div class="text-[10px] text-ink-dim uppercase tracking-wide mb-1.5">Split by type</div>
-      <div class="flex flex-col gap-1 text-[11.5px] text-ink-dim">
-        <div class="flex items-center gap-1.5 cursor-pointer select-none" :class="active === 'movie' && 'text-base-content font-semibold'" @mouseenter="hovered = 'movie'" @mouseleave="hovered = null" @click="toggle('movie')"><span class="w-2 h-2 rounded-sm bg-primary flex-none"></span>Movies — {{ split.movie_pct }}%</div>
-        <div class="flex items-center gap-1.5 cursor-pointer select-none" :class="active === 'tv' && 'text-base-content font-semibold'" @mouseenter="hovered = 'tv'" @mouseleave="hovered = null" @click="toggle('tv')"><span class="w-2 h-2 rounded-sm bg-accent flex-none"></span>TV shows — {{ split.tv_pct }}%</div>
-        <div class="flex items-center gap-1.5 cursor-pointer select-none" :class="active === 'anime' && 'text-base-content font-semibold'" @mouseenter="hovered = 'anime'" @mouseleave="hovered = null" @click="toggle('anime')"><span class="w-2 h-2 rounded-sm bg-secondary flex-none"></span>Anime — {{ split.anime_pct }}%</div>
+  </div>
+  <div class="min-w-0 p-4">
+    <h3 class="text-xs font-semibold mb-3">All time</h3>
+    <div class="space-y-2.5">
+      <div class="flex justify-between items-baseline gap-2">
+        <span class="text-[11px] text-ink-dim">Movies</span>
+        <span class="font-mono text-[11px] text-right"><b>{{ watch_time_breakdown.all_time.movie.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.all_time.movie.count }})</span></span>
+      </div>
+      <div class="flex justify-between items-baseline gap-2">
+        <span class="text-[11px] text-ink-dim">TV</span>
+        <span class="font-mono text-[11px] text-right"><b>{{ watch_time_breakdown.all_time.tv.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.all_time.tv.count }})</span></span>
+      </div>
+      <div class="flex justify-between items-baseline gap-2">
+        <span class="text-[11px] text-ink-dim">Anime</span>
+        <span class="font-mono text-[11px] text-right"><b>{{ watch_time_breakdown.all_time.anime.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.all_time.anime.count }})</span></span>
+      </div>
+      <div class="flex justify-between items-baseline gap-2 pt-2.5 border-t border-line">
+        <span class="text-[11px] text-ink-dim">Combined</span>
+        <span class="font-mono text-[11px] text-right"><b>{{ total_watch_hours }}h</b> <span class="text-ink-faint">(&asymp; {{ total_watch_days }}d)</span></span>
       </div>
     </div>
   </div>
