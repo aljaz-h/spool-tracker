@@ -3238,6 +3238,17 @@ class DiscoverCollectionsViewTests(TestCase):
         resp = self.client.get(reverse("movies_tv", args=["collections"]))
         self.assertNotEqual(resp.status_code, 200)
 
+    @patch("tracker.integrations.tmdb.collections", return_value=[])
+    def test_movies_tv_toggle_stays_visible_but_links_back_to_trending(self, mock_collections):
+        resp = self.client.get(reverse("movies_tv", args=["collections"]))
+        trending_movie = reverse("movies_tv", args=["trending"]) + "?type=movie"
+        trending_tv = reverse("movies_tv", args=["trending"]) + "?type=tv"
+        self.assertContains(resp, f'href="{trending_movie}"')
+        self.assertContains(resp, f'href="{trending_tv}"')
+        # neither Movies nor TV reads as "active" while viewing collections
+        self.assertNotContains(resp, f'href="?type=movie"')
+        self.assertNotContains(resp, f'href="?type=tv"')
+
 
 class CollectionDetailViewTests(TestCase):
     def setUp(self):

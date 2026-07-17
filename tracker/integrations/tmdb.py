@@ -289,7 +289,7 @@ def discover(media_type, category="popular", page=1, genre_ids=None, year_from=N
 # _list_request's own 6h cache, so this is only ever slow (up to
 # movies_to_scan real requests) on a cold cache; every load after that
 # is free until the cache expires.
-def collections(limit=20, movies_to_scan=60):
+def collections(limit=40, movies_to_scan=300):
     seen = {}
     page = 1
     while len(seen) < limit and (page - 1) * 20 < movies_to_scan:

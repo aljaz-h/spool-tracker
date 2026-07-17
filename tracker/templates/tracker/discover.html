@@ -14,14 +14,21 @@
 
       <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div class="flex flex-wrap items-center gap-3">
-          {% if not is_anime and not is_collections %}
+          {% url library_url_name category="trending" as trending_url %}
+          {% if not is_anime %}
+            {% comment %}
+              Kept visible on the Collections tab too (not hidden) - but
+              collections aren't movie/tv-typed, so clicking either one
+              here isn't a filter on the current view, it's a shortcut
+              back to the default Trending category for that type - same
+              place the sidebar/topbar's own "Movies & TV" link lands.
+            {% endcomment %}
             <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
-              <a href="?type=movie" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if media_type == "movie" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Movies</a>
-              <a href="?type=tv" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if media_type == "tv" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">TV</a>
+              <a href="{% if is_collections %}{{ trending_url }}?type=movie{% else %}?type=movie{% endif %}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if media_type == "movie" and not is_collections %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Movies</a>
+              <a href="{% if is_collections %}{{ trending_url }}?type=tv{% else %}?type=tv{% endif %}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if media_type == "tv" and not is_collections %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">TV</a>
             </div>
           {% endif %}
           <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
-            {% url library_url_name category="trending" as trending_url %}
             {% url library_url_name category="popular" as popular_url %}
             {% url library_url_name category="upcoming" as upcoming_url %}
             {% url library_url_name category="top_rated" as top_rated_url %}
