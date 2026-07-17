@@ -5,7 +5,7 @@
 
   <div class="mb-6">
     <h1 class="font-display text-4xl">{{ page_title }}</h1>
-    <div class="text-ink-dim text-sm mt-1">Browse what's trending, popular, upcoming, and top rated on TMDB</div>
+    <div class="text-ink-dim text-sm mt-1">Browse what's trending, popular, upcoming, and top rated on TMDB{% if not is_anime %}, or browse by collection{% endif %}</div>
   </div>
 
   <div class="drawer drawer-end">
@@ -14,7 +14,7 @@
 
       <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div class="flex flex-wrap items-center gap-3">
-          {% if not is_anime %}
+          {% if not is_anime and not is_collections %}
             <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
               <a href="?type=movie" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if media_type == "movie" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Movies</a>
               <a href="?type=tv" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if media_type == "tv" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">TV</a>
@@ -29,43 +29,56 @@
             <a href="{{ popular_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "popular" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Popular</a>
             <a href="{{ upcoming_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "upcoming" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Upcoming</a>
             <a href="{{ top_rated_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "top_rated" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Top Rated</a>
+            {% if not is_anime %}
+              {% url library_url_name category="collections" as collections_url %}
+              <a href="{{ collections_url }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if is_collections %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Collections</a>
+            {% endif %}
           </div>
         </div>
-        <label for="filters-drawer" class="btn btn-sm bg-base-300 border-line gap-1.5 cursor-pointer">
-          {% icon "filter" "w-3.5 h-3.5" %}
-          Filters
-          {% if selected_genres or request.GET.year_from or request.GET.year_to or request.GET.runtime_from or request.GET.runtime_to or request.GET.rating_from or request.GET.rating_to or request.GET.language %}
-            <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
-          {% endif %}
-        </label>
+        {% if not is_collections %}
+          <label for="filters-drawer" class="btn btn-sm bg-base-300 border-line gap-1.5 cursor-pointer">
+            {% icon "filter" "w-3.5 h-3.5" %}
+            Filters
+            {% if selected_genres or request.GET.year_from or request.GET.year_to or request.GET.runtime_from or request.GET.runtime_to or request.GET.rating_from or request.GET.rating_to or request.GET.language %}
+              <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+            {% endif %}
+          </label>
+        {% endif %}
       </div>
 
       {% if not results %}
         <div class="py-16 text-center text-ink-faint text-sm">
-          {% if not profile %}Your account isn't linked to a household profile yet.{% else %}Nothing found — try widening your filters, or check that a TMDB API key is configured in Settings.{% endif %}
+          {% if not profile %}Your account isn't linked to a household profile yet.{% elif is_collections %}Nothing found — check that a TMDB API key is configured in Settings.{% else %}Nothing found — try widening your filters, or check that a TMDB API key is configured in Settings.{% endif %}
         </div>
       {% else %}
         <div class="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
           {% for item in results %}
-            {% include "tracker/partials/discover_tile.html" with item=item %}
+            {% if is_collections %}
+              {% include "tracker/partials/collection_tile.html" with item=item %}
+            {% else %}
+              {% include "tracker/partials/discover_tile.html" with item=item %}
+            {% endif %}
           {% endfor %}
         </div>
 
-        <div class="flex justify-between items-center flex-wrap gap-3 mt-7">
-          <span class="font-mono text-xs text-ink-faint">Page {{ current_page }} of {{ total_pages }}</span>
-          <div class="flex gap-1.5">
-            {% if current_page > 1 %}
-              <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"-1" }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim">‹ Prev</a>
-            {% endif %}
-            {% if current_page < total_pages %}
-              <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"1" }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim">Next ›</a>
-            {% endif %}
+        {% if not is_collections %}
+          <div class="flex justify-between items-center flex-wrap gap-3 mt-7">
+            <span class="font-mono text-xs text-ink-faint">Page {{ current_page }} of {{ total_pages }}</span>
+            <div class="flex gap-1.5">
+              {% if current_page > 1 %}
+                <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"-1" }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim">‹ Prev</a>
+              {% endif %}
+              {% if current_page < total_pages %}
+                <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"1" }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim">Next ›</a>
+              {% endif %}
+            </div>
           </div>
-        </div>
+        {% endif %}
       {% endif %}
 
     </div>
 
+    {% if not is_collections %}
     <div class="drawer-side z-50">
       <label for="filters-drawer" aria-label="close filters" class="drawer-overlay bg-black/60"></label>
       <div class="w-full max-w-xs min-h-full overflow-y-auto bg-base-300 border-l border-line shadow-2xl p-5 flex flex-col gap-5">
@@ -134,6 +147,7 @@
         {% endwith %}
       </div>
     </div>
+    {% endif %}
   </div>
 
 {% endblock %}

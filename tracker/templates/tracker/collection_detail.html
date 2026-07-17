@@ -1,0 +1,34 @@
+{% extends "tracker/base.html" %}
+{% load tracker_extras %}
+{% block title %}{{ collection.name }} · Spool{% endblock %}
+{% block content %}
+
+  <a href="{% url 'movies_tv' category='collections' %}" class="text-ink-dim text-sm hover:text-base-content mb-4 inline-block">&larr; Collections</a>
+
+  <div class="rounded-2xl overflow-hidden relative mb-6 border border-line h-[220px] md:h-[260px] {% if not collection.backdrop_url %}{{ collection.id|gradient_class }}{% endif %}"
+       {% if collection.backdrop_url %}style="background-image:url('{{ collection.backdrop_url }}');background-size:cover;background-position:center 20%"{% endif %}>
+    <div class="absolute inset-0 bg-linear-to-t from-base-100 via-base-100/65 to-transparent"></div>
+    <div class="absolute inset-0 bg-linear-to-r from-base-100 via-base-100/35 to-transparent"></div>
+    <div class="relative z-10 h-full flex flex-wrap gap-5 p-6 items-end">
+      <div class="w-[110px] aspect-[2/3] flex-none rounded-lg overflow-hidden border border-white/10 bg-cover bg-center {% if not collection.poster_url %}{{ collection.id|gradient_class }}{% endif %}"
+           {% if collection.poster_url %}style="background-image:url('{{ collection.poster_url }}')"{% endif %}>
+      </div>
+      <div class="min-w-0 flex-1">
+        <h1 class="font-display text-3xl md:text-4xl">{{ collection.name }}</h1>
+        <div class="text-ink-dim text-xs font-mono mt-1">{{ collection.parts|length }} movie{{ collection.parts|length|pluralize }}</div>
+        {% if collection.overview %}<p class="max-w-2xl text-[13.5px] leading-relaxed text-ink-dim mt-3 line-clamp-3">{{ collection.overview }}</p>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  {% if not results %}
+    <div class="py-16 text-center text-ink-faint text-sm">No movies found for this collection.</div>
+  {% else %}
+    <div class="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
+      {% for item in results %}
+        {% include "tracker/partials/discover_tile.html" with item=item %}
+      {% endfor %}
+    </div>
+  {% endif %}
+
+{% endblock %}

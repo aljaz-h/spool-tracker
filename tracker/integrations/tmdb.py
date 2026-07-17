@@ -276,6 +276,65 @@ def discover(media_type, category="popular", page=1, genre_ids=None, year_from=N
     }
 
 
+# Movie franchises (John Wick, Indiana Jones, ...) for the Movies & TV
+# page's "Collections" tab - TMDB, unlike trending/popular/upcoming/top
+# rated above, has no /discover-style endpoint for these at all: no
+# "popular collections" or "trending collections" list exists, and
+# belongs_to_collection is only present on a movie's own full /movie/{id}
+# details, never on the compact /movie/popular list-result shape. So
+# there's no way to build this without per-movie detail lookups - this
+# scans currently-popular movies (already how "Popular" itself is
+# approximated) and collects whichever collections they belong to, in
+# roughly popularity order. Every one of those lookups goes through
+# _list_request's own 6h cache, so this is only ever slow (up to
+# movies_to_scan real requests) on a cold cache; every load after that
+# is free until the cache expires.
+def collections(limit=20, movies_to_scan=60):
+    seen = {}
+    page = 1
+    while len(seen) < limit and (page - 1) * 20 < movies_to_scan:
+        data = _list_request("movie/popular", {"page": page})
+        results = (data or {}).get("results") or []
+        if not results:
+            break
+        for movie in results:
+            details = _list_request(f"movie/{movie['id']}")
+            collection = (details or {}).get("belongs_to_collection")
+            if collection and collection["id"] not in seen:
+                poster_path = collection.get("poster_path")
+                seen[collection["id"]] = {
+                    "id": collection["id"],
+                    "name": collection.get("name") or "Untitled Collection",
+                    "poster_url": f"{IMAGE_BASE}{poster_path}" if poster_path else None,
+                }
+                if len(seen) >= limit:
+                    break
+        page += 1
+    return list(seen.values())
+
+
+def get_collection_details(collection_id):
+    """{"id", "name", "overview", "poster_url", "backdrop_url", "parts":
+    [...normalized movies, same shape discover()/get_similar() use...]}
+    or None if TMDB has nothing for this id (also covers "no API key
+    configured", since _list_request returns {} in that case too)."""
+    data = _list_request(f"collection/{collection_id}")
+    if not data or data.get("id") is None:
+        return None
+    poster_path = data.get("poster_path")
+    backdrop_path = data.get("backdrop_path")
+    parts = [_normalize_result(p, "movie") for p in data.get("parts") or []]
+    parts.sort(key=lambda p: p["year"] or "")
+    return {
+        "id": data["id"],
+        "name": data.get("name") or "Untitled Collection",
+        "overview": data.get("overview", ""),
+        "poster_url": f"{IMAGE_BASE}{poster_path}" if poster_path else None,
+        "backdrop_url": f"{BACKDROP_BASE}{backdrop_path}" if backdrop_path else None,
+        "parts": parts,
+    }
+
+
 # --- Title detail page (tracker/views.title_detail / title_preview) -----
 #
 # Unlike find_match/get_movie_details/get_tv_details above (each narrowly

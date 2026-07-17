@@ -2683,6 +2683,94 @@ class TmdbDiscoverTests(TestCase):
     TMDB_API_KEY="test-key",
     CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
 )
+class TmdbCollectionsTests(TestCase):
+    """tmdb.collections()/get_collection_details() - the Movies & TV page's
+    Collections tab. collections() has no dedicated TMDB endpoint to call
+    (see its own docstring), so it scans popular movies' individual detail
+    responses for belongs_to_collection."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    def _response(self, json_data):
+        resp = Mock()
+        resp.json.return_value = json_data
+        resp.raise_for_status = Mock()
+        return resp
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_dedupes_and_normalizes_collections_found_on_popular_movies(self, mock_get):
+        mock_get.side_effect = [
+            self._response({"results": [{"id": 1}, {"id": 2}, {"id": 3}]}),
+            self._response({"id": 1, "belongs_to_collection": {"id": 100, "name": "John Wick Collection", "poster_path": "/jw.jpg"}}),
+            self._response({"id": 2, "belongs_to_collection": {"id": 100, "name": "John Wick Collection", "poster_path": "/jw.jpg"}}),
+            self._response({"id": 3, "belongs_to_collection": None}),
+        ]
+        rows = tmdb.collections(limit=20, movies_to_scan=3)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0], {"id": 100, "name": "John Wick Collection", "poster_url": "https://image.tmdb.org/t/p/w500/jw.jpg"})
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_stops_once_the_limit_is_reached(self, mock_get):
+        mock_get.side_effect = [
+            self._response({"results": [{"id": 1}, {"id": 2}, {"id": 3}]}),
+            self._response({"id": 1, "belongs_to_collection": {"id": 100, "name": "Collection A"}}),
+            self._response({"id": 2, "belongs_to_collection": {"id": 200, "name": "Collection B"}}),
+        ]
+        rows = tmdb.collections(limit=2, movies_to_scan=3)
+        self.assertEqual(len(rows), 2)
+        # the 3rd movie's detail was never fetched once the limit was hit
+        self.assertEqual(mock_get.call_count, 3)
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_movies_with_no_collection_are_skipped(self, mock_get):
+        mock_get.side_effect = [
+            self._response({"results": [{"id": 1}]}),
+            self._response({"id": 1, "belongs_to_collection": None}),
+        ]
+        self.assertEqual(tmdb.collections(movies_to_scan=1), [])
+
+    @override_settings(TMDB_API_KEY="")
+    def test_returns_empty_without_an_api_key(self):
+        self.assertEqual(tmdb.collections(), [])
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_returns_collection_details_with_parts_sorted_by_year(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 100,
+                "name": "John Wick Collection",
+                "overview": "An assassin.",
+                "poster_path": "/p.jpg",
+                "backdrop_path": "/b.jpg",
+                "parts": [
+                    {"id": 2, "title": "John Wick: Chapter 2", "release_date": "2017-02-10", "poster_path": "/2.jpg"},
+                    {"id": 1, "title": "John Wick", "release_date": "2014-10-24", "poster_path": "/1.jpg"},
+                ],
+            }
+        )
+        collection = tmdb.get_collection_details(100)
+        self.assertEqual(collection["name"], "John Wick Collection")
+        self.assertEqual(collection["poster_url"], "https://image.tmdb.org/t/p/w500/p.jpg")
+        self.assertEqual(collection["backdrop_url"], "https://image.tmdb.org/t/p/w1280/b.jpg")
+        self.assertEqual([p["name"] for p in collection["parts"]], ["John Wick", "John Wick: Chapter 2"])
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_returns_none_for_an_unknown_collection(self, mock_get):
+        mock_get.return_value = self._response({"success": False, "status_code": 34})
+        self.assertIsNone(tmdb.get_collection_details(999999))
+
+    @override_settings(TMDB_API_KEY="")
+    def test_get_collection_details_returns_none_without_an_api_key(self):
+        self.assertIsNone(tmdb.get_collection_details(100))
+
+
+@override_settings(
+    TMDB_API_KEY="test-key",
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
+)
 class TmdbDetailPageTests(TestCase):
     """Class-level LocMemCache override for the same reason as
     TmdbDiscoverTests - these don't test caching itself, just avoid
@@ -3114,6 +3202,78 @@ class DiscoverViewTests(TestCase):
         resp = self.client.get(reverse("movies_tv", args=["popular"]))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Fathom")
+
+
+class DiscoverCollectionsViewTests(TestCase):
+    """Movies & TV's "Collections" tab - a distinct code path from the
+    other categories (no filter panel/pagination, a different tile
+    partial), movie-only."""
+
+    def setUp(self):
+        user = User.objects.create_user("collectionsviewer", password="pass12345")
+        Profile.objects.create(user=user, display_name="CollectionsViewer")
+        self.client.login(username="collectionsviewer", password="pass12345")
+
+    @patch("tracker.integrations.tmdb.collections")
+    def test_renders_collection_tiles(self, mock_collections):
+        mock_collections.return_value = [{"id": 100, "name": "John Wick Collection", "poster_url": None}]
+        resp = self.client.get(reverse("movies_tv", args=["collections"]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.context["is_collections"])
+        self.assertContains(resp, "John Wick Collection")
+        self.assertContains(resp, reverse("collection_detail", args=[100]))
+
+    def test_anime_collections_404s(self):
+        resp = self.client.get(reverse("anime", args=["collections"]))
+        self.assertEqual(resp.status_code, 404)
+
+    @patch("tracker.integrations.tmdb.collections", return_value=[])
+    def test_no_filters_button_or_pagination_shown(self, mock_collections):
+        resp = self.client.get(reverse("movies_tv", args=["collections"]))
+        self.assertNotContains(resp, "Filters")
+
+    @patch("tracker.integrations.tmdb.collections", return_value=[])
+    def test_requires_login(self, mock_collections):
+        self.client.logout()
+        resp = self.client.get(reverse("movies_tv", args=["collections"]))
+        self.assertNotEqual(resp.status_code, 200)
+
+
+class CollectionDetailViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("collectiondetailviewer", password="pass12345")
+        Profile.objects.create(user=user, display_name="CollectionDetailViewer")
+        self.client.login(username="collectiondetailviewer", password="pass12345")
+
+    @patch("tracker.integrations.tmdb.get_collection_details")
+    def test_renders_the_collections_movies(self, mock_details):
+        mock_details.return_value = {
+            "id": 100,
+            "name": "John Wick Collection",
+            "overview": "An assassin.",
+            "poster_url": None,
+            "backdrop_url": None,
+            "parts": [
+                {"tmdb_id": 1, "media_type": "movie", "name": "John Wick", "year": "2014",
+                 "poster_url": None, "vote_average": 7.4},
+            ],
+        }
+        resp = self.client.get(reverse("collection_detail", args=[100]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "John Wick Collection")
+        self.assertContains(resp, "John Wick")
+        mock_details.assert_called_once_with(100)
+
+    @patch("tracker.integrations.tmdb.get_collection_details", return_value=None)
+    def test_unknown_collection_404s(self, mock_details):
+        resp = self.client.get(reverse("collection_detail", args=[999999]))
+        self.assertEqual(resp.status_code, 404)
+
+    @patch("tracker.integrations.tmdb.get_collection_details")
+    def test_requires_login(self, mock_details):
+        self.client.logout()
+        resp = self.client.get(reverse("collection_detail", args=[100]))
+        self.assertNotEqual(resp.status_code, 200)
 
 
 class DashboardWatchingWatchlistTests(TestCase):

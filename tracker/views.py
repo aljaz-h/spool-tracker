@@ -43,6 +43,11 @@ MOVIE_TV_TYPES = [MediaType.MOVIE, MediaType.TV]
 HISTORY_PAGE_SIZE = 150
 HISTORY_PERIODS = {"today", "yesterday", "7", "30", "365"}
 DISCOVER_CATEGORIES = {"trending", "popular", "upcoming", "top_rated"}
+# Movie-only, and deliberately not composable with the filter panel (see
+# tmdb.collections()'s own docstring for why) - excluded from Anime's own
+# category set in discover() below rather than living in DISCOVER_CATEGORIES
+# itself, so it's still one shared "is this a valid category" set to check.
+COLLECTIONS_CATEGORY = "collections"
 # ISO 639-1 codes TMDB's with_original_language accepts - not exhaustive,
 # just the languages common enough in a movie/TV catalog to be worth a
 # dedicated dropdown entry instead of making everyone type a code.
@@ -115,6 +120,29 @@ def _discover_int_param(request, name):
     return int(value) if value and value.lstrip("-").isdigit() else None
 
 
+def _collections_view(request):
+    """Movies & TV's "Collections" tab - movie franchises (John Wick,
+    Indiana Jones, ...), movie-only and not composable with the filter
+    panel/pagination the other categories share (see tmdb.collections()'s
+    own docstring for why: there's nothing in TMDB's API to filter or
+    paginate here, just a single best-effort derived list)."""
+    profile = Profile.objects.filter(user=request.user).first()
+    context = {
+        "profile": profile,
+        "page_title": "Movies & TV",
+        "is_anime": False,
+        "library_url_name": "movies_tv",
+        "category": COLLECTIONS_CATEGORY,
+        "is_collections": True,
+        "media_type": "movie",
+        "results": tmdb.collections(),
+        "current_page": 1,
+        "total_pages": 1,
+        "my_lists": [],
+    }
+    return render(request, "tracker/discover.html", context)
+
+
 @login_required
 def discover(request, media_type, category):
     """Movies & TV / Anime pages - browsing what's trending/popular/
@@ -122,10 +150,14 @@ def discover(request, media_type, category):
     panel. Replaced the old Watching/Watchlist/History tabs (moved to the
     Dashboard) once this page became a discovery surface instead of a
     library view."""
+    is_anime = media_type == "anime"
+    if category == COLLECTIONS_CATEGORY:
+        if is_anime:
+            raise Http404
+        return _collections_view(request)
     if category not in DISCOVER_CATEGORIES:
         raise Http404
 
-    is_anime = media_type == "anime"
     tmdb_media_type = "tv" if is_anime else request.GET.get("type", "movie")
     if tmdb_media_type not in ("movie", "tv"):
         tmdb_media_type = "movie"
@@ -172,6 +204,26 @@ def discover(request, media_type, category):
         "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
     }
     return render(request, "tracker/discover.html", context)
+
+
+@login_required
+def collection_detail(request, collection_id):
+    """A single franchise's movies (John Wick 1-4, ...) - reached by
+    clicking a tile on the Collections tab. Read-only against TMDB, same
+    as title_preview; the movies within it are themselves ordinary
+    discover_tile.html previews, so watching/listing one works exactly
+    like it does everywhere else that renders that partial."""
+    collection = tmdb.get_collection_details(collection_id)
+    if collection is None:
+        raise Http404
+    profile = Profile.objects.filter(user=request.user).first()
+    context = {
+        "profile": profile,
+        "collection": collection,
+        "results": collection["parts"],
+        "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
+    }
+    return render(request, "tracker/collection_detail.html", context)
 
 
 def _title_display(title, details):

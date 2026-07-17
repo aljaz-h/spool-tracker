@@ -8,7 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
-## [0.14.0] - 2026-07-17
+## [0.15.0] - 2026-07-17
+
+### Added
+
+- A "Collections" tab on the Movies & TV page, alongside Trending/
+  Popular/Upcoming/Top Rated - browse movie franchises (John Wick,
+  Toy Story, Indiana Jones, ...) and click into one to see every movie
+  in it. TMDB has no dedicated endpoint for this, so the list is
+  derived from what's currently popular on TMDB rather than a
+  hand-maintained list, and refreshes naturally as that does. Movie-
+  only for now (not shown on the Anime page); studio/network browsing
+  (Marvel Studios, A24, Pixar, ...) is a separate, not-yet-built
+  feature.
 
 ### Added
 
