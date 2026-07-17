@@ -14,9 +14,11 @@ migration/env step or breaking an existing workflow.
 
 - Reworked the app's primary navigation: the collapsible left sidebar is
   now a mobile-only drawer (opened via the header's hamburger button),
-  and desktop/tablet screens get a horizontal navbar under the header
-  instead. The "Dashboard" nav item is gone - the SPOOL logo in the
-  header is now itself a link back to the dashboard, on every screen
+  and desktop/tablet screens get the nav links folded directly into the
+  header as a single row instead - logo, search, nav links, and the
+  add-title/profile controls all in one bar, rather than a separate
+  strip underneath. The "Dashboard" nav item is gone - the SPOOL logo in
+  the header is now itself a link back to the dashboard, on every screen
   size. "Settings & Import" and "Admin Dashboard" moved out of the main
   nav (they no longer need their own always-visible slot) and into the
   profile dropdown menu, alongside "My Profile" and "Log out".

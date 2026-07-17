@@ -1,6 +1,7 @@
-{% load icons %}
-<header class="h-16 flex-none border-b border-line flex items-center justify-between px-7 bg-base-100 sticky top-0 z-30">
-  <div class="flex items-center gap-3.5 flex-1 min-w-0">
+{% load icons tracker_extras %}
+{% with url_name=request.resolver_match.url_name %}
+<header class="h-16 flex-none border-b border-line flex items-center gap-4 px-7 bg-base-100 sticky top-0 z-30">
+  <div class="flex items-center gap-3.5 flex-none">
     <button
       @click="sidebarOpen = !sidebarOpen"
       aria-label="Toggle menu"
@@ -13,10 +14,36 @@
       <span class="hidden lg:inline text-[10px] text-ink-faint uppercase tracking-widest">self-hosted</span>
     </a>
     <input
-      class="hidden sm:block bg-base-200 border border-line rounded-lg px-3.5 py-2 text-[13px] text-ink-dim max-w-[380px] w-full"
+      class="hidden xl:block flex-none xl:w-56 bg-base-200 border border-line rounded-lg px-3.5 py-2 text-[13px] text-ink-dim"
       placeholder="Search your library…"
     >
   </div>
+
+  <nav class="hidden md:flex items-center gap-0.5 h-full flex-1 min-w-0 overflow-x-auto">
+    {% url 'movies_tv' category="trending" as movies_tv_url %}
+    {% include "tracker/partials/nav_item_horizontal.html" with href=movies_tv_url icon_name="clapperboard" label="Movies & TV" is_active=url_name|eq:"movies_tv" active_border="border-primary" %}
+
+    {% url 'anime' category="trending" as anime_url %}
+    {% include "tracker/partials/nav_item_horizontal.html" with href=anime_url icon_name="sparkles" label="Anime" is_active=url_name|eq:"anime" active_border="border-secondary" %}
+
+    {% url 'history' as history_url %}
+    {% include "tracker/partials/nav_item_horizontal.html" with href=history_url icon_name="history" label="History" is_active=url_name|eq:"history" active_border="border-primary" %}
+
+    {% url 'calendar' as calendar_url %}
+    {% include "tracker/partials/nav_item_horizontal.html" with href=calendar_url icon_name="calendar-days" label="Calendar" is_active=url_name|eq:"calendar" active_border="border-primary" %}
+
+    {% url 'lists' as lists_url %}
+    {% include "tracker/partials/nav_item_horizontal.html" with href=lists_url icon_name="list-checks" label="Lists" is_active=url_name|eq:"lists" active_border="border-primary" %}
+
+    {% url 'stats' as stats_url %}
+    {% include "tracker/partials/nav_item_horizontal.html" with href=stats_url icon_name="bar-chart-3" label="Stats" is_active=url_name|eq:"stats" active_border="border-primary" %}
+
+    {% if show_activity_nav %}
+      {% url 'activity' as activity_url %}
+      {% include "tracker/partials/nav_item_horizontal.html" with href=activity_url icon_name="users" label="Activity" is_active=url_name|eq:"activity" active_border="border-primary" %}
+    {% endif %}
+  </nav>
+
   <div class="flex items-center gap-3.5 flex-none">
     <button class="btn btn-primary btn-sm">+ Add title</button>
     <div class="flex">
@@ -69,3 +96,4 @@
     <form method="dialog" class="modal-backdrop"><button>close</button></form>
   </dialog>
 </header>
+{% endwith %}
