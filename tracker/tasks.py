@@ -1,3 +1,6 @@
+from datetime import timedelta
+
+import requests
 from celery import shared_task
 from celery.utils.log import get_task_logger
 from django.utils import timezone
@@ -7,6 +10,39 @@ from .integrations import simkl, trakt
 from .models import ExternalAccount, SyncLog
 
 logger = get_task_logger(__name__)
+
+
+def _refresh_account_token(account, provider_module, client_id, client_secret):
+    """Attempts one token refresh via the stored refresh_token, saving the
+    new tokens on success. Returns False (does nothing) rather than
+    raising when refresh isn't possible - no refresh_token stored, or no
+    redirect_uri captured (accounts connected before that field existed,
+    see models.py) - so the caller falls through to the original 401."""
+    if not account.refresh_token or not account.redirect_uri:
+        return False
+    token_data = provider_module.refresh_access_token(
+        account.refresh_token, client_id, client_secret, account.redirect_uri
+    )
+    expires_in = token_data.get("expires_in")
+    account.access_token = token_data.get("access_token", "")
+    account.refresh_token = token_data.get("refresh_token") or account.refresh_token
+    account.token_expires_at = timezone.now() + timedelta(seconds=expires_in) if expires_in else None
+    account.save(update_fields=["access_token", "refresh_token", "token_expires_at"])
+    return True
+
+
+def _call_with_refresh(account, provider_module, client_id, client_secret, call):
+    """Runs call() once; on a 401 (expired/revoked access token), refreshes
+    the token and retries call() exactly once more. Any other error, or a
+    401 that can't be refreshed away, propagates as-is."""
+    try:
+        return call()
+    except requests.HTTPError as e:
+        if e.response is None or e.response.status_code != 401:
+            raise
+        if not _refresh_account_token(account, provider_module, client_id, client_secret):
+            raise
+        return call()
 
 
 def _run_sync(profile, provider, fetch_and_upsert):
@@ -46,14 +82,18 @@ def sync_trakt_history(profile_id):
     # picked up by the *next* sync rather than falling in a gap.
     sync_start = timezone.now()
 
-    def do_sync():
-        client_id, _ = instance_config.get_trakt_credentials()
+    client_id, client_secret = instance_config.get_trakt_credentials()
+
+    def fetch_and_upsert():
         items = trakt.fetch_history(account.access_token, client_id, start_at=account.last_synced_at)
         created = trakt.upsert_history_items(account.profile, items)
         if account.import_lists:
             lists_data = trakt.fetch_lists(account.access_token, client_id)
             created += trakt.upsert_lists(account.profile, lists_data)
         return created
+
+    def do_sync():
+        return _call_with_refresh(account, trakt, client_id, client_secret, fetch_and_upsert)
 
     created = _run_sync(account.profile, ExternalAccount.Provider.TRAKT, do_sync)
     account.last_synced_at = sync_start
@@ -72,10 +112,14 @@ def sync_simkl_history(profile_id):
         logger.info("sync_simkl_history: profile %s has no Simkl account connected", profile_id)
         return 0
 
-    def do_sync():
-        client_id, _ = instance_config.get_simkl_credentials()
+    client_id, client_secret = instance_config.get_simkl_credentials()
+
+    def fetch_and_upsert():
         items = simkl.fetch_history(account.access_token, client_id)
         return simkl.upsert_history_items(account.profile, items)
+
+    def do_sync():
+        return _call_with_refresh(account, simkl, client_id, client_secret, fetch_and_upsert)
 
     created = _run_sync(account.profile, ExternalAccount.Provider.SIMKL, do_sync)
     logger.info("sync_simkl_history: profile %s, %d new watch events", profile_id, created)
@@ -120,4 +164,4 @@ def generate_release_notifications():
     tracker/notifications.py for the actual eligibility/dedupe logic."""
     created = notifications.generate_release_notifications()
     logger.info("generate_release_notifications: %d notification(s) created", created)
-    return touched
+    return created

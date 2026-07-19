@@ -50,6 +50,26 @@ def exchange_code(code, redirect_uri, client_id, client_secret):
     return resp.json()
 
 
+def refresh_access_token(refresh_token, client_id, client_secret, redirect_uri):
+    """Trakt's refresh grant, mirroring exchange_code() - per Trakt's docs
+    the redirect_uri must match the one the original authorization-code
+    exchange used, which is why ExternalAccount.redirect_uri exists to
+    capture it (see models.py)."""
+    resp = requests.post(
+        TOKEN_URL,
+        json={
+            "refresh_token": refresh_token,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "redirect_uri": redirect_uri,
+            "grant_type": "refresh_token",
+        },
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 def _headers(access_token, client_id):
     return {
         "Content-Type": "application/json",

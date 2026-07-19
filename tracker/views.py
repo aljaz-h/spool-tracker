@@ -1574,6 +1574,7 @@ def oauth_callback(request, provider):
             "access_token": token_data.get("access_token", ""),
             "refresh_token": token_data.get("refresh_token", ""),
             "token_expires_at": timezone.now() + timedelta(seconds=expires_in) if expires_in else None,
+            "redirect_uri": redirect_uri,
         },
     )
     scheduling.ensure_periodic_task(account)

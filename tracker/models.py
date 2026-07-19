@@ -343,6 +343,14 @@ class ExternalAccount(models.Model):
     access_token = models.TextField(blank=True)
     refresh_token = models.TextField(blank=True)
     token_expires_at = models.DateTimeField(null=True, blank=True)
+    # The exact redirect_uri used for the authorization-code exchange that
+    # produced the tokens above - Trakt's refresh grant requires the same
+    # redirect_uri be echoed back, and there's no request object available
+    # to rebuild it from inside a Celery task, so it's captured once here
+    # at connect time instead. Blank on accounts connected before this
+    # field existed - those just fall back to the old "reconnect manually"
+    # behavior until they reconnect once.
+    redirect_uri = models.CharField(max_length=255, blank=True)
     connected_at = models.DateTimeField(auto_now_add=True)
     # High-water mark for incremental sync (Trakt only - see trakt.py's
     # fetch_history start_at param). Set to the sync's own start time on

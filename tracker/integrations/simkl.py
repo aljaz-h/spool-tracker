@@ -46,6 +46,27 @@ def exchange_code(code, redirect_uri, client_id, client_secret):
     return resp.json()
 
 
+def refresh_access_token(refresh_token, client_id, client_secret, redirect_uri):
+    """Structurally mirrors trakt.refresh_access_token() - same caveat as
+    the rest of this module (see docstring): Simkl access tokens are
+    documented as long-lived/non-expiring, so this is unverified against
+    a real 401, but costs nothing to have wired up the same way as Trakt
+    in case that's ever wrong."""
+    resp = requests.post(
+        TOKEN_URL,
+        json={
+            "refresh_token": refresh_token,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "redirect_uri": redirect_uri,
+            "grant_type": "refresh_token",
+        },
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 def _headers(access_token, client_id):
     return {
         "Content-Type": "application/json",

@@ -2,6 +2,7 @@ import io
 from datetime import timedelta
 from unittest.mock import Mock, patch
 
+import requests
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -1789,6 +1790,131 @@ class SyncLogTests(TestCase):
         with self.assertRaises(requests.RequestException):
             tasks.sync_trakt_history(self.profile.id)
         self.assertFalse(Notification.objects.exists())
+
+
+def _http_401():
+    import requests
+
+    resp = requests.Response()
+    resp.status_code = 401
+    return requests.HTTPError(response=resp)
+
+
+class TraktRefreshAccessTokenTests(TestCase):
+    @patch("tracker.integrations.trakt.requests.post")
+    def test_posts_refresh_grant_with_stored_redirect_uri(self, mock_post):
+        mock_post.return_value = Mock(
+            status_code=200,
+            json=lambda: {"access_token": "new-tok", "refresh_token": "new-refresh", "expires_in": 7776000},
+        )
+        mock_post.return_value.raise_for_status = lambda: None
+        result = trakt.refresh_access_token("old-refresh", "cid", "csecret", "https://spool.example.com/import/trakt/callback/")
+        sent = mock_post.call_args.kwargs["json"]
+        self.assertEqual(sent["grant_type"], "refresh_token")
+        self.assertEqual(sent["refresh_token"], "old-refresh")
+        self.assertEqual(sent["redirect_uri"], "https://spool.example.com/import/trakt/callback/")
+        self.assertEqual(result["access_token"], "new-tok")
+
+
+class SyncTokenRefreshTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("refresher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Refresher")
+        self.account = ExternalAccount.objects.create(
+            profile=self.profile,
+            provider=ExternalAccount.Provider.TRAKT,
+            access_token="stale-tok",
+            refresh_token="my-refresh",
+            redirect_uri="https://spool.example.com/import/trakt/callback/",
+        )
+
+    @patch("tracker.integrations.trakt.refresh_access_token")
+    @patch("tracker.integrations.trakt.upsert_history_items")
+    @patch("tracker.integrations.trakt.fetch_history")
+    def test_401_triggers_refresh_and_retry(self, mock_fetch, mock_upsert, mock_refresh):
+        mock_fetch.side_effect = [_http_401(), [{"id": 1}]]
+        mock_upsert.return_value = 3
+        mock_refresh.return_value = {"access_token": "fresh-tok", "refresh_token": "fresh-refresh", "expires_in": 7776000}
+
+        created = tasks.sync_trakt_history(self.profile.id)
+
+        self.assertEqual(created, 3)
+        mock_refresh.assert_called_once_with("my-refresh", *instance_config.get_trakt_credentials(), "https://spool.example.com/import/trakt/callback/")
+        self.assertEqual(mock_fetch.call_count, 2)
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.access_token, "fresh-tok")
+        self.assertEqual(self.account.refresh_token, "fresh-refresh")
+        log = SyncLog.objects.get(profile=self.profile)
+        self.assertEqual(log.status, SyncLog.Status.SUCCESS)
+
+    @patch("tracker.integrations.trakt.fetch_history")
+    def test_401_without_refresh_token_propagates_and_fails_log(self, mock_fetch):
+        self.account.refresh_token = ""
+        self.account.save(update_fields=["refresh_token"])
+        mock_fetch.side_effect = _http_401()
+
+        with self.assertRaises(requests.HTTPError):
+            tasks.sync_trakt_history(self.profile.id)
+
+        log = SyncLog.objects.get(profile=self.profile)
+        self.assertEqual(log.status, SyncLog.Status.FAILED)
+
+    @patch("tracker.integrations.trakt.fetch_history")
+    def test_401_without_stored_redirect_uri_propagates(self, mock_fetch):
+        self.account.redirect_uri = ""
+        self.account.save(update_fields=["redirect_uri"])
+        mock_fetch.side_effect = _http_401()
+
+        with self.assertRaises(requests.HTTPError):
+            tasks.sync_trakt_history(self.profile.id)
+
+    @patch("tracker.integrations.trakt.refresh_access_token")
+    @patch("tracker.integrations.trakt.fetch_history")
+    def test_second_401_after_refresh_is_not_retried_again(self, mock_fetch, mock_refresh):
+        mock_fetch.side_effect = _http_401()
+        mock_refresh.return_value = {"access_token": "fresh-tok", "expires_in": 7776000}
+
+        with self.assertRaises(requests.HTTPError):
+            tasks.sync_trakt_history(self.profile.id)
+
+        mock_refresh.assert_called_once()
+        self.assertEqual(mock_fetch.call_count, 2)
+
+    @patch("tracker.integrations.trakt.fetch_history")
+    def test_non_401_http_error_is_not_treated_as_refreshable(self, mock_fetch):
+        import requests as requests_module
+
+        resp = requests_module.Response()
+        resp.status_code = 500
+        mock_fetch.side_effect = requests_module.HTTPError(response=resp)
+
+        with self.assertRaises(requests.HTTPError):
+            tasks.sync_trakt_history(self.profile.id)
+        self.assertEqual(mock_fetch.call_count, 1)
+
+
+class OAuthCallbackRedirectUriTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("connector", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Connector")
+        InstanceConfig.objects.update_or_create(
+            pk=1, defaults={"trakt_client_id": "cid", "trakt_client_secret": "csecret"}
+        )
+        self.client.login(username="connector", password="pass12345")
+
+    @patch("tracker.integrations.trakt.exchange_code")
+    def test_stores_the_redirect_uri_used_for_the_exchange(self, mock_exchange):
+        mock_exchange.return_value = {"access_token": "tok", "refresh_token": "rtok", "expires_in": 7776000}
+        session = self.client.session
+        session["trakt_oauth_state"] = "abc123"
+        session.save()
+
+        self.client.get(reverse("trakt_callback"), {"code": "authcode", "state": "abc123"})
+
+        account = ExternalAccount.objects.get(profile=self.profile, provider="trakt")
+        expected_uri = mock_exchange.call_args[0][1]
+        self.assertTrue(expected_uri.endswith(reverse("trakt_callback")))
+        self.assertEqual(account.redirect_uri, expected_uri)
 
 
 class IncrementalSyncTests(TestCase):

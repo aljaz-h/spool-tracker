@@ -8,6 +8,27 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-07-19
+
+### Fixed
+
+- Trakt/Simkl syncs now recover from an expired or revoked access token
+  instead of failing every run forever. Previously the `refresh_token`
+  captured at connect time was stored but never actually used anywhere -
+  once an access token stopped working, every sync 401'd indefinitely
+  until the user manually disconnected and reconnected. A sync that hits
+  a 401 now refreshes the token via the stored refresh_token and retries
+  once before giving up; the new tokens are saved back to the account.
+  Requires the exact `redirect_uri` used at connect time (Trakt's refresh
+  grant requires it match), so a new `ExternalAccount.redirect_uri` field
+  captures that at connect time - accounts connected before this ships
+  won't have one yet and fall back to the old behavior (manual reconnect)
+  until they reconnect once.
+- `generate_release_notifications`'s nightly Celery task referenced an
+  undefined variable in its return statement, meaning it crashed after
+  every run (its actual work still happened and got logged - the crash
+  was purely in the return value).
+
 ## [0.18.0] - 2026-07-19
 
 ### Added
