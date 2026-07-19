@@ -683,6 +683,27 @@ def title_preview_add_to_list(request, media_type, tmdb_id, list_id):
     return _render_poster_actions(request, profile, title)
 
 
+def _build_episode_group(title, run):
+    """The group-card dict shape shared by _group_consecutive_episodes
+    (a fresh grouping of a day's events) and history_delete_episode
+    (rebuilding one group after removing a single episode from it) -
+    only min/max-by-episode and a sum, neither of which cares about
+    run's own ordering."""
+    episodes = [e.episode for e in run]
+    first_by_ep = min(episodes, key=lambda e: (e.season, e.episode))
+    last_by_ep = max(episodes, key=lambda e: (e.season, e.episode))
+    total_minutes = sum((e.episode.runtime_minutes or e.title.runtime_minutes or 0) for e in run)
+    return {
+        "is_group": True,
+        "title": title,
+        "count": len(run),
+        "range_label": f"S{first_by_ep.season}E{first_by_ep.episode}–S{last_by_ep.season}E{last_by_ep.episode}",
+        "total_duration": selectors._format_duration(total_minutes) if total_minutes else None,
+        "events": run,
+        "timeline_events": sorted(run, key=lambda e: e.watched_at),
+    }
+
+
 def _group_consecutive_episodes(events):
     """Collapses a run of consecutive (adjacent in the day's own order,
     same title) episode watches into one group card instead of N near-
@@ -704,24 +725,7 @@ def _group_consecutive_episodes(events):
         while j < len(events) and events[j].episode is not None and events[j].title_id == event.title_id:
             run.append(events[j])
             j += 1
-        if len(run) > 1:
-            episodes = [e.episode for e in run]
-            first_by_ep = min(episodes, key=lambda e: (e.season, e.episode))
-            last_by_ep = max(episodes, key=lambda e: (e.season, e.episode))
-            total_minutes = sum((e.episode.runtime_minutes or e.title.runtime_minutes or 0) for e in run)
-            grouped.append(
-                {
-                    "is_group": True,
-                    "title": run[0].title,
-                    "count": len(run),
-                    "range_label": f"S{first_by_ep.season}E{first_by_ep.episode}–S{last_by_ep.season}E{last_by_ep.episode}",
-                    "total_duration": selectors._format_duration(total_minutes) if total_minutes else None,
-                    "events": run,
-                    "timeline_events": sorted(run, key=lambda e: e.watched_at),
-                }
-            )
-        else:
-            grouped.append(event)
+        grouped.append(_build_episode_group(run[0].title, run) if len(run) > 1 else event)
         i = j
     return grouped
 
@@ -743,6 +747,10 @@ def _group_history_by_day(events):
             }
         )
     return groups
+
+
+def _time_format_str(profile):
+    return "H:i" if profile and profile.time_format == Profile.TimeFormat.H24 else "g:i A"
 
 
 def _history_context(request, profile):
@@ -775,7 +783,7 @@ def _history_context(request, profile):
         "type_filter": type_filter,
         "period": period,
         "sort": sort,
-        "time_format_str": "H:i" if profile and profile.time_format == Profile.TimeFormat.H24 else "g:i A",
+        "time_format_str": _time_format_str(profile),
     }
 
 
@@ -813,6 +821,41 @@ def history_bulk_delete(request):
         WatchEvent.objects.filter(profile=profile, pk__in=event_ids).delete()
     context = _history_context(request, profile)
     return render(request, "tracker/partials/history_content.html", context)
+
+
+@login_required
+@require_POST
+def history_delete_episode(request, event_id):
+    """The binge-group tile's per-episode delete dropdown - removes one
+    episode from an existing group and re-renders just that group
+    (shrunk, degraded to a single tile if only one episode is left, or
+    removed entirely if none are), rather than recomputing the whole
+    day's grouping from scratch. remaining_ids (the group's other event
+    ids, from the tile's own last render - see history_group_tile.html)
+    is enough to do that: deleting from the middle of an already-
+    contiguous run can only ever shrink it, never re-merge it with a
+    different title's run, so there's nothing else to recompute."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    event = get_object_or_404(WatchEvent, pk=event_id, profile=profile)
+    title = event.title
+    event.delete()
+
+    remaining_ids = {int(part) for part in request.POST.get("remaining_ids", "").split(",") if part.strip().isdigit()}
+    remaining = list(
+        WatchEvent.objects.filter(pk__in=remaining_ids, profile=profile)
+        .select_related("title", "episode")
+        .order_by("watched_at")
+    )
+    if not remaining:
+        return HttpResponse(status=200)
+    context = {"time_format_str": _time_format_str(profile)}
+    if len(remaining) == 1:
+        context["event"] = remaining[0]
+        return render(request, "tracker/partials/history_tile.html", context)
+    context["group"] = _build_episode_group(title, remaining)
+    return render(request, "tracker/partials/history_group_tile.html", context)
 
 
 CALENDAR_TYPES = {"movie": MediaType.MOVIE, "tv": MediaType.TV, "anime": MediaType.ANIME}

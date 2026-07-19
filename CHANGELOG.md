@@ -8,6 +8,22 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-07-19
+
+### Added
+
+- History's binge-group tiles (the "10×" badge) now open a dropdown
+  listing every episode in the group, each with its own delete action -
+  no need to nuke the whole binge just to remove one episode marked by
+  mistake. Deleting shrinks the group in place (recomputed range/count/
+  duration), degrades to a plain tile once only one episode is left, or
+  removes the tile outright once none are.
+
+### Changed
+
+- History's poster tiles are slightly bigger (132px → 150px minimum
+  width).
+
 ## [0.24.1] - 2026-07-19
 
 ### Fixed

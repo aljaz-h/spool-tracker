@@ -1,35 +1,89 @@
 {% load tracker_extras %}
-{# context: group (dict: title, count, range_label, events, timeline_events - same-title/same-day episode watches) #}
-<div class="group relative">
+{# context: group (dict: title, count, range_label, total_duration, events, timeline_events - same-title/same-day episode watches) #}
+<div class="group relative" data-history-tile>
   <label
     x-show="selecting" x-cloak
     class="absolute top-1.5 right-1.5 z-20 w-5 h-5 rounded-md bg-black/75 border border-white/20 flex items-center justify-center cursor-pointer"
   ><input type="checkbox" name="event_ids" value="{% for event in group.events %}{{ event.id }}{% if not forloop.last %},{% endif %}{% endfor %}" @change="recount()" class="w-3.5 h-3.5 accent-primary"></label>
-  <a href="{% url 'title_detail' group.title.pk %}" class="block" @click="if (selecting) $event.preventDefault()">
-    <div class="aspect-[2/3] rounded-lg relative overflow-hidden bg-cover bg-center {% if not group.title.poster_url %}{{ group.title.pk|gradient_class }}{% endif %}"
-         {% if group.title.poster_url %}style="background-image:url('{{ group.title.poster_url }}')"{% endif %}>
+
+  <div class="aspect-[2/3] rounded-lg relative overflow-hidden bg-cover bg-center {% if not group.title.poster_url %}{{ group.title.pk|gradient_class }}{% endif %}"
+       {% if group.title.poster_url %}style="background-image:url('{{ group.title.poster_url }}')"{% endif %}>
+    <a href="{% url 'title_detail' group.title.pk %}" class="absolute inset-0 z-0" @click="if (selecting) $event.preventDefault()">
       <div class="absolute inset-0 bg-linear-to-t from-black/50 to-transparent"></div>
       <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ group.range_label }}</span>
       <span class="absolute bottom-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ group.title.media_type|upper }}</span>
-      <span class="absolute bottom-1.5 right-1.5 z-10 font-mono text-[10px] font-bold bg-primary/90 px-2 py-1 rounded-md text-primary-content shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ group.count }}&times;</span>
-    </div>
+    </a>
     {% comment %}
-      One thin segment per episode, in the order they were actually
-      watched (group.timeline_events, not the page's own newest/oldest
-      sort) - reads as a single filmstrip-like session bar rather than
-      a list. No click/expand behavior, just a hover tooltip per segment.
+      The count badge is a sibling of the poster anchor, not nested
+      inside it (same reasoning as poster_card.html's own action bar) -
+      so opening this dropdown never triggers the title_detail
+      navigation underneath it.
     {% endcomment %}
-    <div class="flex gap-px h-[6px] rounded-full overflow-hidden mt-1.5 bg-base-300">
-      {% for event in group.timeline_events %}
-        <div
-          class="flex-1 bg-primary/55 hover:bg-primary transition-colors"
-          title="S{{ event.episode.season }}E{{ event.episode.episode }} · {{ event.watched_at|time:time_format_str }}"
-        ></div>
-      {% endfor %}
+    <div
+      x-show="!selecting" x-cloak
+      class="absolute bottom-1.5 right-1.5 z-20"
+      x-data="{
+        open: false,
+        togglePanel(button) {
+          this.open = !this.open;
+          if (!this.open) return;
+          this.$nextTick(() => {
+            const rect = button.getBoundingClientRect();
+            const panel = this.$refs.panel;
+            const width = 180;
+            panel.style.left = Math.min(rect.left, window.innerWidth - width - 8) + 'px';
+            panel.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
+          });
+        },
+      }"
+    >
+      <button
+        type="button"
+        @click="togglePanel($el)"
+        title="{{ group.count }} episodes - click to remove one"
+        class="font-mono text-[10px] font-bold bg-primary/90 px-2 py-1 rounded-md text-primary-content shadow-[0_1px_4px_rgba(0,0,0,0.7)] hover:bg-primary"
+      >{{ group.count }}&times;</button>
+      <div
+        x-ref="panel"
+        x-show="open" x-cloak x-transition @click.outside="open = false"
+        class="fixed z-50 w-[180px] max-h-56 overflow-y-auto bg-base-200 border border-line rounded-lg p-1.5 shadow-xl flex flex-col gap-0.5"
+      >
+        <div class="text-[10px] text-ink-faint px-2 py-1">Remove an episode</div>
+        {% for event in group.timeline_events %}
+          <div class="flex items-center justify-between gap-2 px-2 py-1 rounded-md hover:bg-base-300">
+            <span class="text-[11px] font-mono text-ink-dim">S{{ event.episode.season }}E{{ event.episode.episode }} <span class="text-ink-faint">· {{ event.watched_at|time:time_format_str }}</span></span>
+            <button
+              type="button"
+              hx-post="{% url 'history_delete_episode' event.id %}"
+              hx-vals='{"remaining_ids": "{% for e in group.events %}{% if e.id != event.id %}{{ e.id }}{% if not forloop.last %},{% endif %}{% endif %}{% endfor %}"}'
+              hx-target="closest [data-history-tile]"
+              hx-swap="outerHTML swap:150ms"
+              hx-confirm="Remove S{{ event.episode.season }}E{{ event.episode.episode }} from your watch history?"
+              title="Remove this episode"
+              class="text-ink-faint hover:text-error flex-none"
+            >&times;</button>
+          </div>
+        {% endfor %}
+      </div>
     </div>
-    <div class="mt-1.5 min-w-0">
-      <div class="text-[11.5px] font-semibold truncate">{{ group.title.name }}</div>
-      <div class="text-[10px] font-mono text-ink-dim mt-0.5">{{ group.count }} episodes{% if group.total_duration %} · {{ group.total_duration }}{% endif %}</div>
-    </div>
+  </div>
+
+  {% comment %}
+    One thin segment per episode, in the order they were actually
+    watched (group.timeline_events, not the page's own newest/oldest
+    sort) - reads as a single filmstrip-like session bar rather than
+    a list. No click/expand behavior, just a hover tooltip per segment.
+  {% endcomment %}
+  <div class="flex gap-px h-[6px] rounded-full overflow-hidden mt-1.5 bg-base-300">
+    {% for event in group.timeline_events %}
+      <div
+        class="flex-1 bg-primary/55 hover:bg-primary transition-colors"
+        title="S{{ event.episode.season }}E{{ event.episode.episode }} · {{ event.watched_at|time:time_format_str }}"
+      ></div>
+    {% endfor %}
+  </div>
+  <a href="{% url 'title_detail' group.title.pk %}" class="block mt-1.5 min-w-0" @click="if (selecting) $event.preventDefault()">
+    <div class="text-[11.5px] font-semibold truncate">{{ group.title.name }}</div>
+    <div class="text-[10px] font-mono text-ink-dim mt-0.5">{{ group.count }} episodes{% if group.total_duration %} · {{ group.total_duration }}{% endif %}</div>
   </a>
 </div>

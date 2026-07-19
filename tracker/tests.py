@@ -5969,3 +5969,131 @@ class HistoryBulkDeleteTests(TestCase):
     def test_get_is_not_allowed(self):
         resp = self.client.get(reverse("history_bulk_delete"))
         self.assertEqual(resp.status_code, 405)
+
+
+class HistoryDeleteEpisodeTests(TestCase):
+    """The binge-group tile's per-episode delete dropdown - removes one
+    episode and re-renders just that group, shrunk (or degraded to a
+    single tile, or removed outright once nothing's left)."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.user = User.objects.create_user("episodedeleter", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="EpisodeDeleter")
+        self.show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
+        self.now = timezone.now()
+        self.client.login(username="episodedeleter", password="pass12345")
+
+    def _watch(self, episode_num, minutes_ago):
+        ep = Episode.objects.create(title=self.show, season=1, episode=episode_num)
+        return WatchEvent.objects.create(
+            profile=self.profile, title=self.show, episode=ep, watched_at=self.now - timedelta(minutes=minutes_ago)
+        )
+
+    def test_deletes_the_event(self):
+        e1, e2, e3 = self._watch(1, 30), self._watch(2, 20), self._watch(3, 10)
+        self.client.post(
+            reverse("history_delete_episode", args=[e2.pk]), {"remaining_ids": f"{e1.pk},{e3.pk}"}
+        )
+        self.assertFalse(WatchEvent.objects.filter(pk=e2.pk).exists())
+
+    def test_shrunk_group_of_two_or_more_re_renders_as_a_group(self):
+        e1, e2, e3 = self._watch(1, 30), self._watch(2, 20), self._watch(3, 10)
+        resp = self.client.post(
+            reverse("history_delete_episode", args=[e2.pk]), {"remaining_ids": f"{e1.pk},{e3.pk}"}
+        )
+        self.assertContains(resp, "2 episodes")
+        self.assertContains(resp, "S1E1")
+        self.assertContains(resp, "S1E3")
+
+    def test_group_shrunk_to_one_degrades_to_a_single_tile(self):
+        e1, e2 = self._watch(1, 20), self._watch(2, 10)
+        resp = self.client.post(
+            reverse("history_delete_episode", args=[e2.pk]), {"remaining_ids": str(e1.pk)}
+        )
+        self.assertContains(resp, "S1:E1")
+        self.assertNotContains(resp, "episodes")
+
+    def test_last_episode_removed_returns_empty(self):
+        e1 = self._watch(1, 10)
+        resp = self.client.post(reverse("history_delete_episode", args=[e1.pk]), {"remaining_ids": ""})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.content, b"")
+
+    def test_requires_login(self):
+        self.client.logout()
+        e1 = self._watch(1, 10)
+        resp = self.client.post(reverse("history_delete_episode", args=[e1.pk]), {"remaining_ids": ""})
+        self.assertEqual(resp.status_code, 302)
+
+    def test_get_is_not_allowed(self):
+        e1 = self._watch(1, 10)
+        resp = self.client.get(reverse("history_delete_episode", args=[e1.pk]))
+        self.assertEqual(resp.status_code, 405)
+
+    def test_404s_for_another_profiles_event(self):
+        other_user = User.objects.create_user("otherepisode", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="Other")
+        other_event = WatchEvent.objects.create(profile=other_profile, title=self.show, watched_at=self.now)
+        resp = self.client.post(reverse("history_delete_episode", args=[other_event.pk]), {"remaining_ids": ""})
+        self.assertEqual(resp.status_code, 404)
+        self.assertTrue(WatchEvent.objects.filter(pk=other_event.pk).exists())
+
+    def test_remaining_ids_belonging_to_another_profile_are_not_pulled_in(self):
+        # Defensive: even if remaining_ids somehow named another
+        # profile's event, it must never end up rendered into this
+        # profile's own group tile.
+        other_user = User.objects.create_user("otherepisode2", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="Other2")
+        other_event = WatchEvent.objects.create(profile=other_profile, title=self.show, watched_at=self.now)
+        e1 = self._watch(1, 10)
+        resp = self.client.post(
+            reverse("history_delete_episode", args=[e1.pk]), {"remaining_ids": str(other_event.pk)}
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.content, b"")
+
+
+class HistoryGroupTileDropdownTests(TestCase):
+    """The binge-group tile itself (as rendered on the real History page) -
+    a per-episode dropdown wired to history_delete_episode, not the old
+    plain count badge."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("tiledropdown", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="TileDropdown")
+        self.show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
+        now = timezone.now()
+        self.events = []
+        for i, epnum in enumerate([1, 2, 3]):
+            ep = Episode.objects.create(title=self.show, season=1, episode=epnum)
+            self.events.append(
+                WatchEvent.objects.create(profile=self.profile, title=self.show, episode=ep, watched_at=now - timedelta(minutes=30 - i * 10))
+            )
+        self.client.login(username="tiledropdown", password="pass12345")
+
+    def test_lists_every_episode_with_its_own_delete_action(self):
+        resp = self.client.get(reverse("history"))
+        for event in self.events:
+            self.assertContains(resp, reverse("history_delete_episode", args=[event.pk]))
+
+    def test_remaining_ids_exclude_the_events_own_id(self):
+        import re
+
+        resp = self.client.get(reverse("history"))
+        body = resp.content.decode()
+        e1, e2, e3 = self.events
+        # e2's own delete button should list e1 and e3 as remaining, not itself.
+        marker = f'history/delete-episode/{e2.pk}/'
+        chunk_start = body.index(marker)
+        chunk = body[chunk_start:chunk_start + 400]
+        match = re.search(r'"remaining_ids":\s*"([^"]*)"', chunk)
+        remaining = {int(part) for part in match.group(1).split(",") if part.strip().isdigit()}
+        self.assertEqual(remaining, {e1.pk, e3.pk})
+
+    def test_grid_uses_the_bumped_tile_size(self):
+        resp = self.client.get(reverse("history"))
+        self.assertContains(resp, "minmax(150px,1fr)")
