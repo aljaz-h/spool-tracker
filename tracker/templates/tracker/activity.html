@@ -16,10 +16,12 @@
       <div class="py-10 text-center text-ink-faint text-sm">Quiet so far — watch something to get this started.</div>
     {% else %}
       {% for item in feed %}
-        {# A collapsed summary line only, deliberately - full episode-level
-           detail for a binge is History's job, not a quick household
-           glance. The left-border color is a type-at-a-glance cue:
-           watched vs. added vs. rated. #}
+        {% comment %}
+          A collapsed summary line only, deliberately - full episode-level
+          detail for a binge is History's job, not a quick household
+          glance. The left-border color is a type-at-a-glance cue:
+          watched vs. added vs. rated.
+        {% endcomment %}
         <div
           class="flex gap-3 pl-3 pr-3.5 py-3.5 border-l-[3px] {% if not forloop.last %}border-b border-b-line{% endif %}
             {% if item.kind == "rated" %}border-l-warning{% elif item.kind == "added_to_list" or item.kind == "added_to_list_group" %}border-l-secondary{% else %}border-l-primary{% endif %}"

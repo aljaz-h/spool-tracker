@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.24.1] - 2026-07-19
+
+### Fixed
+
+- Activity's per-row explanatory comment was leaking onto the page as
+  literal text above every entry. Django's `{# ... #}` comment tag is
+  single-line only - a multi-line one silently isn't recognized as a
+  comment at all and renders as-is instead of being stripped. Swapped
+  it for the `{% comment %}...{% endcomment %}` block tag, which does
+  support multiple lines, and added a regression test asserting no
+  stray `{#`/`{%` text ever appears in the rendered page.
+
 ## [0.24.0] - 2026-07-19
 
 ### Changed

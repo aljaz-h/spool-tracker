@@ -5070,6 +5070,18 @@ class ActivityViewTemplateTests(TestCase):
         self.assertNotIn("x-data", feed_html)
         self.assertNotIn("x-show", feed_html)
 
+    def test_no_leaked_template_comment_text(self):
+        # Regression test: a multi-line {# ... #} comment isn't valid
+        # Django template syntax (that tag is single-line only) and
+        # silently renders as literal page text per feed row instead of
+        # being stripped - shipped exactly that way once already.
+        for i, minutes_ago in enumerate([30, 20, 10]):
+            ep = Episode.objects.create(title=self.show, season=1, episode=1 + i)
+            WatchEvent.objects.create(profile=self.profile, title=self.show, episode=ep, watched_at=self.now - timedelta(minutes=minutes_ago))
+        resp = self.client.get(reverse("activity"))
+        self.assertNotContains(resp, "{#")
+        self.assertNotContains(resp, "{%")
+
     def test_watched_group_gets_the_primary_accent(self):
         for i, minutes_ago in enumerate([30, 20]):
             ep = Episode.objects.create(title=self.show, season=1, episode=1 + i)
