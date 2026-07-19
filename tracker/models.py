@@ -55,6 +55,12 @@ class Profile(models.Model):
     notify_new_releases = models.BooleanField(default=True)
     notify_upcoming_releases = models.BooleanField(default=True)
     notify_sync_failures = models.BooleanField(default=True)
+    # Settings - bring-your-own free Gemini API key, optional and per
+    # profile (not instance-wide like Trakt/Simkl/TMDB in InstanceConfig -
+    # this powers a personal "what should I watch" ask, not a shared
+    # sync). Stored in cleartext, same as every other integration
+    # credential this app already stores.
+    gemini_api_key = models.CharField(max_length=255, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     # Set on the account bootstrap_admin creates from ADMIN_USERNAME/
     # ADMIN_PASSWORD (see management/commands/bootstrap_admin.py) so its

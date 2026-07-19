@@ -1,0 +1,55 @@
+{% extends "tracker/base.html" %}
+{% load tracker_extras icons %}
+{% block title %}{% if query %}"{{ query }}" · Search{% else %}Search{% endif %} · Spool{% endblock %}
+{% block content %}
+
+  <div class="mb-6">
+    <h1 class="font-display text-4xl">Search</h1>
+    <div class="text-ink-dim text-sm mt-1">
+      {% if query %}Results for "{{ query }}"{% else %}Search your library and TMDB{% endif %}
+    </div>
+  </div>
+
+  <form method="get" action="{% url 'search' %}" class="mb-8 max-w-md">
+    <input
+      type="text" name="q" value="{{ query }}" autofocus
+      placeholder="Search movies, TV, anime…"
+      class="w-full bg-base-200 border border-line rounded-lg px-3.5 py-2.5 text-sm focus:outline-primary"
+    >
+  </form>
+
+  {% if not query %}
+    <div class="py-16 text-center text-ink-faint text-sm">Type something above to search your library and TMDB.</div>
+  {% else %}
+    <div class="flex flex-col gap-8">
+
+      <div>
+        <h2 class="text-lg mb-3.5">In your library{% if library_results %} <span class="text-ink-faint text-sm font-mono">({{ library_results|length }})</span>{% endif %}</h2>
+        {% if library_results %}
+          <div class="grid grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-4">
+            {% for title in library_results %}
+              {% include "tracker/partials/poster_card.html" with title=title %}
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="text-ink-faint text-sm">Nothing in your library matches "{{ query }}".</div>
+        {% endif %}
+      </div>
+
+      <div>
+        <h2 class="text-lg mb-3.5">Discover more on TMDB</h2>
+        {% if tmdb_results %}
+          <div class="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
+            {% for item in tmdb_results %}
+              {% include "tracker/partials/discover_tile.html" with item=item %}
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="text-ink-faint text-sm">Nothing new found on TMDB for "{{ query }}" — check that a TMDB API key is configured in Settings.</div>
+        {% endif %}
+      </div>
+
+    </div>
+  {% endif %}
+
+{% endblock %}

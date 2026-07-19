@@ -1,0 +1,6 @@
+{# context: error (str) or reply (str), never both #}
+{% if error %}
+  <div class="text-sm text-error bg-error/10 border border-error/20 rounded-lg px-3.5 py-2.5">{{ error }}</div>
+{% elif reply %}
+  <div class="text-sm whitespace-pre-wrap bg-base-100 border border-line rounded-lg px-3.5 py-3 leading-relaxed">{{ reply }}</div>
+{% endif %}

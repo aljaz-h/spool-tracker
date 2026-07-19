@@ -13,10 +13,13 @@
       <span class="font-display text-[24px] text-marquee tracking-wide leading-none">SPOOL</span>
       <span class="hidden lg:inline text-[10px] text-ink-faint uppercase tracking-widest">self-hosted</span>
     </a>
-    <input
-      class="hidden xl:block flex-none xl:w-56 bg-base-200 border border-line rounded-lg px-3.5 py-2 text-[13px] text-ink-dim"
-      placeholder="Search your library…"
-    >
+    <form method="get" action="{% url 'search' %}" class="hidden xl:block flex-none">
+      <input
+        type="text" name="q" value="{{ request.GET.q }}"
+        class="xl:w-56 bg-base-200 border border-line rounded-lg px-3.5 py-2 text-[13px] text-ink-dim"
+        placeholder="Search movies, TV, anime…"
+      >
+    </form>
   </div>
 
   <nav class="hidden md:flex items-center gap-0.5 h-full flex-1 min-w-0 overflow-x-auto">

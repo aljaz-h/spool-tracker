@@ -9,7 +9,7 @@ from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
 from . import completion, csv_import, instance_config, notifications, release_sync, rewatches, scheduling, selectors, tasks, views
-from .integrations import tmdb, trakt
+from .integrations import gemini, tmdb, trakt
 from .models import (
     Episode,
     ExternalAccount,
@@ -1347,6 +1347,18 @@ class SaveAppearanceViewTests(TestCase):
         self.client.logout()
         resp = self.client.post(reverse("save_appearance"), {"time_format": "24h"})
         self.assertNotEqual(resp.status_code, 200)
+
+    def test_saves_gemini_api_key(self):
+        self.client.post(reverse("save_appearance"), {"gemini_api_key": "AIzaSyTest123"})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.gemini_api_key, "AIzaSyTest123")
+
+    def test_gemini_api_key_can_be_cleared(self):
+        self.profile.gemini_api_key = "AIzaSyTest123"
+        self.profile.save(update_fields=["gemini_api_key"])
+        self.client.post(reverse("save_appearance"), {"gemini_api_key": ""})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.gemini_api_key, "")
 
 
 class SavePrivacyViewTests(TestCase):
@@ -3529,6 +3541,143 @@ class TmdbDiscoverTests(TestCase):
         self.assertEqual(params["primary_release_date.gte"], "2030-01-01")
 
 
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class TmdbSearchTests(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    def _response(self, results, total_pages=1):
+        resp = Mock()
+        resp.json.return_value = {"results": results, "total_pages": total_pages}
+        resp.raise_for_status = Mock()
+        return resp
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_calls_search_multi_with_the_query(self, mock_get):
+        mock_get.return_value = self._response([])
+        tmdb.search("dune")
+        self.assertIn("search/multi", mock_get.call_args.args[0])
+        self.assertEqual(mock_get.call_args.kwargs["params"]["query"], "dune")
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_normalizes_movie_and_tv_results_using_their_own_media_type(self, mock_get):
+        mock_get.return_value = self._response(
+            [
+                {"id": 1, "media_type": "movie", "title": "Fathom", "release_date": "2020-05-01", "poster_path": "/x.jpg"},
+                {"id": 2, "media_type": "tv", "name": "Cinder Street", "first_air_date": "2022-01-01", "poster_path": None},
+            ]
+        )
+        results = tmdb.search("x")["results"]
+        self.assertEqual(results[0]["media_type"], "movie")
+        self.assertEqual(results[0]["name"], "Fathom")
+        self.assertEqual(results[1]["media_type"], "tv")
+        self.assertEqual(results[1]["name"], "Cinder Street")
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_person_results_are_dropped(self, mock_get):
+        mock_get.return_value = self._response(
+            [{"id": 3, "media_type": "person", "name": "Some Actor"}]
+        )
+        self.assertEqual(tmdb.search("x")["results"], [])
+
+    @override_settings(TMDB_API_KEY="")
+    def test_no_api_key_returns_empty_results(self):
+        self.assertEqual(tmdb.search("x")["results"], [])
+
+
+class GeminiGenerateTests(TestCase):
+    def test_no_key_returns_none_without_a_request(self):
+        with patch("tracker.integrations.gemini.requests.post") as mock_post:
+            self.assertIsNone(gemini.generate("", "hello"))
+        mock_post.assert_not_called()
+
+    @patch("tracker.integrations.gemini.requests.post")
+    def test_returns_the_reply_text(self, mock_post):
+        resp = Mock()
+        resp.json.return_value = {"candidates": [{"content": {"parts": [{"text": "Try Groundhog Day."}]}}]}
+        resp.raise_for_status = Mock()
+        mock_post.return_value = resp
+        self.assertEqual(gemini.generate("test-key", "what should I watch"), "Try Groundhog Day.")
+        self.assertEqual(mock_post.call_args.kwargs["params"], {"key": "test-key"})
+
+    @patch("tracker.integrations.gemini.requests.post")
+    def test_network_failure_returns_none(self, mock_post):
+        mock_post.side_effect = requests.RequestException("boom")
+        self.assertIsNone(gemini.generate("test-key", "hi"))
+
+    @patch("tracker.integrations.gemini.requests.post")
+    def test_unexpected_response_shape_returns_none(self, mock_post):
+        resp = Mock()
+        resp.json.return_value = {"unexpected": "shape"}
+        resp.raise_for_status = Mock()
+        mock_post.return_value = resp
+        self.assertIsNone(gemini.generate("test-key", "hi"))
+
+
+class GeminiPromptTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("promptuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="PromptUser")
+
+    def test_includes_the_mood(self):
+        prompt = gemini.build_recommendation_prompt(self.profile, "something light and funny")
+        self.assertIn("something light and funny", prompt)
+
+    def test_includes_recent_watch_history(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Paddington", year=2014)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        prompt = gemini.build_recommendation_prompt(self.profile, "something cozy")
+        self.assertIn("Paddington", prompt)
+
+    def test_no_history_still_produces_a_prompt(self):
+        prompt = gemini.build_recommendation_prompt(self.profile, "a thriller")
+        self.assertIn("a thriller", prompt)
+
+
+class RecommendViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("recommenduser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="RecommendUser", gemini_api_key="test-key")
+        self.client.login(username="recommenduser", password="pass12345")
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("recommend"), {"mood": "something fun"})
+        self.assertEqual(resp.status_code, 302)
+
+    def test_get_not_allowed(self):
+        resp = self.client.get(reverse("recommend"))
+        self.assertEqual(resp.status_code, 405)
+
+    def test_empty_mood_shows_a_prompt_error(self):
+        resp = self.client.post(reverse("recommend"), {"mood": ""})
+        self.assertContains(resp, "Type what you")
+
+    def test_no_api_key_shows_a_setup_error(self):
+        self.profile.gemini_api_key = ""
+        self.profile.save(update_fields=["gemini_api_key"])
+        resp = self.client.post(reverse("recommend"), {"mood": "something fun"})
+        self.assertContains(resp, "Add a free Gemini API key")
+
+    @patch("tracker.integrations.gemini.generate")
+    def test_success_renders_the_reply(self, mock_generate):
+        mock_generate.return_value = "Try Paddington."
+        resp = self.client.post(reverse("recommend"), {"mood": "something cozy"})
+        self.assertContains(resp, "Try Paddington.")
+        self.assertEqual(mock_generate.call_args.args[0], "test-key")
+
+    @patch("tracker.integrations.gemini.generate")
+    def test_gemini_failure_shows_a_friendly_error(self, mock_generate):
+        mock_generate.return_value = None
+        resp = self.client.post(reverse("recommend"), {"mood": "something cozy"})
+        self.assertContains(resp, "reach Gemini")
+
+
 @override_settings(
     TMDB_API_KEY="test-key",
     CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
@@ -4083,6 +4232,69 @@ class DiscoverViewTests(TestCase):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
         self.client.get(reverse("movies_tv", args=["trending"]), {"language": ""})
         self.assertIsNone(mock_discover.call_args.kwargs["original_language"])
+
+
+class SearchViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("searcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Searcher")
+        self.client.login(username="searcher", password="pass12345")
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.get(reverse("search"), {"q": "dune"})
+        self.assertEqual(resp.status_code, 302)
+
+    def test_no_query_shows_prompt_and_does_not_call_tmdb(self):
+        with patch("tracker.integrations.tmdb.search") as mock_search:
+            resp = self.client.get(reverse("search"))
+        mock_search.assert_not_called()
+        self.assertContains(resp, "Type something above")
+
+    @patch("tracker.integrations.tmdb.search")
+    def test_matches_a_title_already_in_the_library(self, mock_search):
+        mock_search.return_value = {"results": []}
+        Title.objects.create(media_type=MediaType.MOVIE, name="Dune Part Two", year=2024)
+        resp = self.client.get(reverse("search"), {"q": "dune"})
+        self.assertContains(resp, "Dune Part Two")
+        self.assertContains(resp, "In your library")
+
+    @patch("tracker.integrations.tmdb.search")
+    def test_library_search_is_case_insensitive_and_partial(self, mock_search):
+        mock_search.return_value = {"results": []}
+        Title.objects.create(media_type=MediaType.MOVIE, name="The Matrix", year=1999)
+        resp = self.client.get(reverse("search"), {"q": "MATR"})
+        self.assertContains(resp, "The Matrix")
+
+    @patch("tracker.integrations.tmdb.search")
+    def test_tmdb_results_shown_for_titles_not_yet_tracked(self, mock_search):
+        mock_search.return_value = {
+            "results": [{"tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020", "poster_url": None, "vote_average": 7.5, "overview": ""}]
+        }
+        resp = self.client.get(reverse("search"), {"q": "fathom"})
+        self.assertContains(resp, "Fathom")
+
+    @patch("tracker.integrations.tmdb.search")
+    def test_tmdb_results_already_tracked_are_excluded(self, mock_search):
+        Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42"}
+        )
+        mock_search.return_value = {
+            "results": [{"tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020", "poster_url": None, "vote_average": 7.5, "overview": ""}]
+        }
+        resp = self.client.get(reverse("search"), {"q": "fathom"})
+        self.assertContains(resp, "Fathom")
+        # The library card is present (asserted above), but no *TMDB preview*
+        # card for the same tmdb_id - that's the discover_tile link this
+        # title would render if it weren't excluded as already-tracked.
+        self.assertNotContains(resp, reverse("title_preview", args=["movie", 42]))
+
+    @patch("tracker.integrations.tmdb.search")
+    def test_no_matches_shows_empty_state_messages(self, mock_search):
+        mock_search.return_value = {"results": []}
+        resp = self.client.get(reverse("search"), {"q": "zzzznomatch"})
+        self.assertContains(resp, "Nothing in your library matches")
+        self.assertContains(resp, "Nothing new found on TMDB")
 
 
 @patch("tracker.views.COLLECTIONS_ENABLED", True)

@@ -25,7 +25,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from . import completion, csv_import, instance_config, rewatches, scheduling, selectors, tasks
-from .integrations import simkl, tmdb, trakt
+from .integrations import gemini, simkl, tmdb, trakt
 from .models import (
     Episode,
     ExternalAccount,
@@ -103,6 +103,39 @@ def dashboard(request):
             }
         )
     return render(request, "tracker/dashboard.html", context)
+
+
+@login_required
+@require_POST
+def recommend(request):
+    """Dashboard's "What should I watch?" box - a free-text mood plus
+    this profile's own watch history/genre taste, handed to Gemini.
+    Bring-your-own-key (Settings), optional and per profile - every
+    failure mode (no key, bad key, Gemini unreachable) renders the same
+    partial with a plain-language error instead of a 500, since this is
+    a nice-to-have add-on to the Dashboard, not something that should be
+    able to break it."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    mood = request.POST.get("mood", "").strip()
+    if not mood:
+        return render(request, "tracker/partials/recommendation_result.html", {"error": "Type what you're in the mood for first."})
+    if not profile.gemini_api_key:
+        return render(
+            request,
+            "tracker/partials/recommendation_result.html",
+            {"error": "Add a free Gemini API key in Settings to turn this on."},
+        )
+    prompt = gemini.build_recommendation_prompt(profile, mood)
+    reply = gemini.generate(profile.gemini_api_key, prompt)
+    if reply is None:
+        return render(
+            request,
+            "tracker/partials/recommendation_result.html",
+            {"error": "Couldn't reach Gemini - check your API key in Settings, or try again in a moment."},
+        )
+    return render(request, "tracker/partials/recommendation_result.html", {"reply": reply})
 
 
 @login_required
@@ -242,6 +275,53 @@ def collection_detail(request, collection_id):
         "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
     }
     return render(request, "tracker/collection_detail.html", context)
+
+
+SEARCH_LIBRARY_LIMIT = 24
+
+
+@login_required
+def search(request):
+    """The topbar search box's results page - two sections: titles already
+    in the library (rendered as ordinary poster_card.html cards, full
+    watched/list-picker actions) and everything else TMDB has for the
+    query that isn't tracked yet (rendered as discover_tile.html preview
+    cards, same as Movies & TV/Anime's own discovery grid). Library
+    matching is a plain name__icontains scan - no ranking, no fuzzy
+    matching - which is fine at personal-library scale."""
+    profile = Profile.objects.filter(user=request.user).first()
+    query = request.GET.get("q", "").strip()
+    library_results = []
+    tmdb_results = []
+    context = {
+        "profile": profile,
+        "query": query,
+        "library_results": library_results,
+        "tmdb_results": tmdb_results,
+        "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
+    }
+    if query:
+        library_results = list(Title.objects.filter(name__icontains=query).order_by("name")[:SEARCH_LIBRARY_LIMIT])
+        if profile is not None and library_results:
+            context.update(selectors.poster_action_context(profile, library_results))
+        raw_results = tmdb.search(query)["results"]
+        # A title already in the library shouldn't also show up as a
+        # "not tracked yet" TMDB preview card - same per-id
+        # already-exists check title_preview itself does
+        # (Title.objects.filter(external_ids__tmdb=str(tmdb_id))). One
+        # query per result rather than a single __in lookup deliberately -
+        # a JSONField key-transform's value round-trips through SQLite's
+        # json_extract typed (a stored JSON string like "42" comes back
+        # as the Python int 42, not "42"), which silently breaks a
+        # str-vs-set-of-ids membership check after the fact. Equality
+        # comparison against a str RHS, as used here and everywhere else
+        # this pattern appears, doesn't hit that.
+        tmdb_results = [
+            r for r in raw_results if not Title.objects.filter(external_ids__tmdb=str(r["tmdb_id"])).exists()
+        ]
+        context["library_results"] = library_results
+        context["tmdb_results"] = tmdb_results
+    return render(request, "tracker/search.html", context)
 
 
 def _title_display(title, details):
@@ -1362,6 +1442,9 @@ def save_appearance(request):
         if language == "" or language in dict(DISCOVER_LANGUAGES):
             profile.preferred_language = language
             update_fields.append("preferred_language")
+    if "gemini_api_key" in request.POST:
+        profile.gemini_api_key = request.POST.get("gemini_api_key", "").strip()
+        update_fields.append("gemini_api_key")
     if update_fields:
         profile.save(update_fields=update_fields)
     return HttpResponse(status=204)

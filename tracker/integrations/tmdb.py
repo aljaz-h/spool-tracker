@@ -196,6 +196,25 @@ def _normalize_result(item, media_type):
     }
 
 
+def search(query, page=1):
+    """The navbar search box's TMDB half - /search/multi covers movies and
+    TV in one call (a search box has no natural "which section" context
+    the way Discover's per-page tabs do), person results dropped since
+    this only ever backs a title-cards grid. Normalized to the exact
+    shape discover() returns, so results render with the same
+    discover_tile.html card. Unlike discover(), only TMDB's own first
+    page (up to 20 results) is fetched - a search box doesn't need
+    discover()'s multi-page merge, and callers wanting more can pass a
+    higher page number themselves."""
+    data = _list_request("search/multi", {"query": query, "page": page})
+    results = [
+        _normalize_result(item, item["media_type"])
+        for item in (data.get("results") or [])
+        if item.get("media_type") in ("movie", "tv")
+    ]
+    return {"results": results, "total_pages": data.get("total_pages") or 0}
+
+
 def genres(media_type):
     """[{"id": 16, "name": "Animation"}, ...] - populates the filter
     panel's genre picker (TMDB's with_genres param takes ids, not names)."""

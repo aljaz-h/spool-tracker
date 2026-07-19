@@ -8,6 +8,26 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-07-19
+
+### Added
+
+- The navbar search box actually does something now - it was pure
+  decoration before. Type anything and press Enter to jump to a results
+  page with two sections: matches already in your library (full
+  watched/list-picker actions, same as everywhere else) and everything
+  else TMDB has for that query that isn't tracked yet (the same preview
+  cards Movies & TV/Anime's own discovery grid uses, so you can add it
+  straight from search).
+- A "What should I watch?" box on the Dashboard - describe your mood in
+  plain language and get a few specific picks back, grounded in your
+  own recent watch history and favorite genres. Powered by Gemini,
+  optional and bring-your-own-key per profile (Settings → AI
+  Recommendations, with a link to get a free key) - nothing here is
+  required or instance-wide, and every failure mode (no key, bad key,
+  Gemini unreachable) degrades to a plain-language inline message
+  instead of breaking the Dashboard.
+
 ## [0.20.0] - 2026-07-19
 
 ### Added
