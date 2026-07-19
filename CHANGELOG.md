@@ -8,7 +8,28 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
-## [0.15.0] - 2026-07-17
+## [0.16.0] - 2026-07-19
+
+### Added
+
+- Settings & Import: the "Import your history" card is now "Import &
+  Export" - export your full watch history as CSV (round-trips with the
+  existing CSV import) or as Trakt-compatible JSON.
+- A new Privacy card (only shown with more than one profile on the
+  server): a "Show my activity to other profiles on this server"
+  toggle. Off, a profile's watches/ratings/list-adds are entirely
+  absent from the household Activity feed, not just unlabeled.
+- Appearance gained two more preferences: a default landing page (where
+  logging in takes you - Dashboard, Movies & TV, Anime, History,
+  Calendar, Lists, or Stats), and a preferred language, which pre-fills
+  Movies & TV/Anime's own language filter instead of "Any language"
+  (not full TMDB response localization - titles/overviews stay in
+  TMDB's own language).
+
+This is the first of a few Settings rounds - Notifications (in-app,
+no email/push planned yet) and a Danger Zone (destructive data/account
+actions) are deliberately left for follow-up rounds rather than
+bundled into this one.
 
 ### Added
 

@@ -584,10 +584,14 @@ def activity_feed(limit=30):
     """What your household has been watching — merges two real, directly-
     derivable action types (watched/rated, added-to-list) across every
     profile. Only meaningful with >1 profile, which is exactly when the
-    Activity page exists at all (spool-product-spec.md §5)."""
+    Activity page exists at all (spool-product-spec.md §5). Excludes any
+    profile with share_activity=False (Settings → Privacy) entirely -
+    not just muted, actually absent from the merged feed."""
     items = []
     for event in (
-        WatchEvent.objects.select_related("profile", "title", "episode").order_by("-watched_at")[:limit]
+        WatchEvent.objects.filter(profile__share_activity=True)
+        .select_related("profile", "title", "episode")
+        .order_by("-watched_at")[:limit]
     ):
         items.append(
             {
@@ -600,7 +604,9 @@ def activity_feed(limit=30):
             }
         )
     for wli in (
-        WatchListItem.objects.select_related("watchlist__profile", "title").order_by("-added_at")[:limit]
+        WatchListItem.objects.filter(watchlist__profile__share_activity=True)
+        .select_related("watchlist__profile", "title")
+        .order_by("-added_at")[:limit]
     ):
         items.append(
             {

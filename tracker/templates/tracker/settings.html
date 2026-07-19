@@ -18,7 +18,7 @@
   <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
 
     <div class="bg-base-200 border border-line rounded-2xl p-5">
-      <h3 class="text-lg mb-3.5">Import your history</h3>
+      <h3 class="text-lg mb-3.5">Import &amp; Export</h3>
 
       <div class="py-3.5 border-b border-line">
         <div class="flex justify-between items-center">
@@ -48,7 +48,7 @@
         {% endif %}
       </div>
 
-      <div class="flex justify-between items-center py-3.5">
+      <div class="flex justify-between items-center py-3.5 border-b border-line">
         <div><div class="font-semibold text-[13.5px]">CSV file</div><div class="text-xs text-ink-dim">Upload an export from any tracker</div></div>
         <form method="post" action="{% url 'import_csv' %}" enctype="multipart/form-data" class="flex items-center gap-2">
           {% csrf_token %}
@@ -56,34 +56,80 @@
           <button type="submit" class="btn btn-sm">Upload</button>
         </form>
       </div>
-    </div>
 
-    <div class="bg-base-200 border border-line rounded-2xl p-5">
-      <h3 class="text-lg mb-1">Appearance</h3>
-      <div class="text-ink-dim text-xs mb-3">Dark is the default; a light mode preview isn't built yet.</div>
-      <div class="flex gap-4">
-        <div class="flex flex-col items-center gap-1.5">
-          <div class="w-13 h-9 rounded-md border-2 border-primary" style="background:#14161c;"></div>
-          <span class="text-[10px] text-ink-dim">Dark</span>
-        </div>
-        <div class="flex flex-col items-center gap-1.5 opacity-40 cursor-not-allowed" title="Light mode isn't available yet">
-          <div class="w-13 h-9 rounded-md border-2 border-transparent" style="background:#f4f2ec;"></div>
-          <span class="text-[10px] text-ink-dim">Coming soon</span>
+      <div class="pt-3.5">
+        <div class="font-semibold text-[13.5px] mb-0.5">Export your data</div>
+        <div class="text-xs text-ink-dim mb-3">Download everything you've watched, rated, or added to a list</div>
+        <div class="flex gap-2">
+          <a href="{% url 'export_csv' %}" class="btn btn-sm bg-base-300 border-line">Export as CSV</a>
+          <a href="{% url 'export_trakt_json' %}" class="btn btn-sm bg-base-300 border-line">Export as Trakt JSON</a>
         </div>
       </div>
+    </div>
 
-      <div class="text-ink-dim text-xs mt-4 mb-2">Time format</div>
-      <form
-        hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none"
-        class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5"
-      >
-        <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-100 has-checked:text-base-content">
-          <input type="radio" name="time_format" value="12h" class="hidden" {% if profile.time_format == "12h" %}checked{% endif %}>12-hour (AM/PM)
-        </label>
-        <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-100 has-checked:text-base-content">
-          <input type="radio" name="time_format" value="24h" class="hidden" {% if profile.time_format == "24h" %}checked{% endif %}>24-hour
-        </label>
-      </form>
+    <div class="flex flex-col gap-5">
+
+      <div class="bg-base-200 border border-line rounded-2xl p-5">
+        <h3 class="text-lg mb-1">Appearance</h3>
+        <div class="text-ink-dim text-xs mb-3">Dark is the default; a light mode preview isn't built yet.</div>
+        <div class="flex gap-4">
+          <div class="flex flex-col items-center gap-1.5">
+            <div class="w-13 h-9 rounded-md border-2 border-primary" style="background:#14161c;"></div>
+            <span class="text-[10px] text-ink-dim">Dark</span>
+          </div>
+          <div class="flex flex-col items-center gap-1.5 opacity-40 cursor-not-allowed" title="Light mode isn't available yet">
+            <div class="w-13 h-9 rounded-md border-2 border-transparent" style="background:#f4f2ec;"></div>
+            <span class="text-[10px] text-ink-dim">Coming soon</span>
+          </div>
+        </div>
+
+        <div class="text-ink-dim text-xs mt-4 mb-2">Time format</div>
+        <form
+          hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none"
+          class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5"
+        >
+          <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-100 has-checked:text-base-content">
+            <input type="radio" name="time_format" value="12h" class="hidden" {% if profile.time_format == "12h" %}checked{% endif %}>12-hour (AM/PM)
+          </label>
+          <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-100 has-checked:text-base-content">
+            <input type="radio" name="time_format" value="24h" class="hidden" {% if profile.time_format == "24h" %}checked{% endif %}>24-hour
+          </label>
+        </form>
+
+        <div class="text-ink-dim text-xs mt-4 mb-2">Default landing page</div>
+        <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
+          <select name="default_landing_page" class="select select-sm w-full bg-base-100 focus:outline-primary">
+            {% for value, label in landing_pages %}
+              <option value="{{ value }}" {% if profile.default_landing_page == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </form>
+
+        <div class="text-ink-dim text-xs mt-4 mb-2">Preferred language</div>
+        <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
+          <select name="preferred_language" class="select select-sm w-full bg-base-100 focus:outline-primary">
+            <option value="">Any language</option>
+            {% for code, name in languages %}
+              <option value="{{ code }}" {% if profile.preferred_language == code %}selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+          </select>
+          <div class="text-[10.5px] text-ink-faint mt-1.5">Pre-fills the language filter on Movies &amp; TV and Anime.</div>
+        </form>
+      </div>
+
+      {% if show_activity_nav %}
+        <div class="bg-base-200 border border-line rounded-2xl p-5">
+          <h3 class="text-lg mb-1">Privacy</h3>
+          <div class="text-ink-dim text-xs mb-3">Controls what other profiles on this server can see about you.</div>
+          <form hx-post="{% url 'save_privacy' %}" hx-trigger="change" hx-swap="none">
+            <label class="flex items-center justify-between gap-3 cursor-pointer">
+              <span class="text-[13.5px]">Show my activity to other profiles on this server</span>
+              <input type="checkbox" name="share_activity" class="checkbox checkbox-sm" {% if profile.share_activity %}checked{% endif %}>
+            </label>
+          </form>
+        </div>
+      {% endif %}
+
     </div>
 
   </div>

@@ -17,6 +17,19 @@ class Profile(models.Model):
         H12 = "12h", "12-hour (AM/PM)"
         H24 = "24h", "24-hour"
 
+    class LandingPage(models.TextChoices):
+        """Values are the URL name to redirect to after login (see
+        views.SpoolLoginView) - movies_tv/anime always land on their
+        trending category, the same place their own nav link goes."""
+
+        DASHBOARD = "dashboard", "Dashboard"
+        MOVIES_TV = "movies_tv", "Movies & TV"
+        ANIME = "anime", "Anime"
+        HISTORY = "history", "History"
+        CALENDAR = "calendar", "Calendar"
+        LISTS = "lists", "Lists"
+        STATS = "stats", "Stats"
+
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     display_name = models.CharField(max_length=50)
     avatar_color = models.CharField(max_length=7, default="#3a2a1c")
@@ -24,6 +37,18 @@ class Profile(models.Model):
     # downstream behavior (History's time column) — the mockup's dark/light
     # theme swatch has no second theme built, so it stays decorative.
     time_format = models.CharField(max_length=3, choices=TimeFormat.choices, default=TimeFormat.H12)
+    # Settings → Appearance - where login lands you (views.SpoolLoginView).
+    default_landing_page = models.CharField(max_length=20, choices=LandingPage.choices, default=LandingPage.DASHBOARD)
+    # Settings → Appearance - pre-fills Movies & TV/Anime's own language
+    # filter (views.DISCOVER_LANGUAGES) instead of "Any language"; blank
+    # means no default. Not TMDB response localization (titles/overviews
+    # stay in TMDB's own language) - just a starting filter value.
+    preferred_language = models.CharField(max_length=5, blank=True, default="")
+    # Settings → Privacy - whether this profile's watches/ratings/list-adds
+    # appear in the household-wide Activity feed for other profiles
+    # (selectors.activity_feed). Only ever shown/relevant with >1 profile
+    # on the instance, same gating Activity itself already uses.
+    share_activity = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     # Set on the account bootstrap_admin creates from ADMIN_USERNAME/
     # ADMIN_PASSWORD (see management/commands/bootstrap_admin.py) so its

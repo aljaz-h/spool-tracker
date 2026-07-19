@@ -1179,6 +1179,199 @@ class SaveInstanceConfigViewTests(TestCase):
         self.assertEqual(cfg.simkl_client_id, "new-simkl")
 
 
+class SaveAppearanceViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("appearanceuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="AppearanceUser")
+        self.client.login(username="appearanceuser", password="pass12345")
+
+    def test_saves_time_format(self):
+        self.client.post(reverse("save_appearance"), {"time_format": "24h"})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.time_format, "24h")
+
+    def test_invalid_time_format_is_ignored(self):
+        self.client.post(reverse("save_appearance"), {"time_format": "bogus"})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.time_format, Profile.TimeFormat.H12)
+
+    def test_saves_default_landing_page(self):
+        self.client.post(reverse("save_appearance"), {"default_landing_page": "stats"})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.default_landing_page, "stats")
+
+    def test_invalid_landing_page_is_ignored(self):
+        self.client.post(reverse("save_appearance"), {"default_landing_page": "not-a-real-page"})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.default_landing_page, Profile.LandingPage.DASHBOARD)
+
+    def test_saves_preferred_language(self):
+        self.client.post(reverse("save_appearance"), {"preferred_language": "ja"})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.preferred_language, "ja")
+
+    def test_preferred_language_can_be_cleared_back_to_any(self):
+        self.profile.preferred_language = "ja"
+        self.profile.save(update_fields=["preferred_language"])
+        self.client.post(reverse("save_appearance"), {"preferred_language": ""})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.preferred_language, "")
+
+    def test_unrecognized_language_code_is_ignored(self):
+        self.client.post(reverse("save_appearance"), {"preferred_language": "xx-not-real"})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.preferred_language, "")
+
+    def test_get_is_rejected(self):
+        resp = self.client.get(reverse("save_appearance"))
+        self.assertEqual(resp.status_code, 405)
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("save_appearance"), {"time_format": "24h"})
+        self.assertNotEqual(resp.status_code, 200)
+
+
+class SavePrivacyViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("privacyuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="PrivacyUser")
+        self.client.login(username="privacyuser", password="pass12345")
+
+    def test_checked_box_enables_sharing(self):
+        self.profile.share_activity = False
+        self.profile.save(update_fields=["share_activity"])
+        self.client.post(reverse("save_privacy"), {"share_activity": "on"})
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.share_activity)
+
+    def test_omitted_box_disables_sharing(self):
+        # A real browser never sends an unchecked checkbox's field at all.
+        self.client.post(reverse("save_privacy"), {})
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.share_activity)
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("save_privacy"), {"share_activity": "on"})
+        self.assertNotEqual(resp.status_code, 200)
+
+
+class SpoolLoginRedirectTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("loginredirectuser", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="LoginRedirectUser")
+
+    def _login(self):
+        return self.client.post(reverse("login"), {"username": "loginredirectuser", "password": "pass12345"})
+
+    def test_defaults_to_dashboard(self):
+        resp = self._login()
+        self.assertRedirects(resp, reverse("dashboard"))
+
+    def test_redirects_to_the_profiles_configured_landing_page(self):
+        self.profile.default_landing_page = "stats"
+        self.profile.save(update_fields=["default_landing_page"])
+        resp = self._login()
+        self.assertRedirects(resp, reverse("stats"))
+
+    def test_movies_tv_landing_page_goes_to_its_trending_category(self):
+        self.profile.default_landing_page = "movies_tv"
+        self.profile.save(update_fields=["default_landing_page"])
+        resp = self._login()
+        self.assertRedirects(resp, reverse("movies_tv", args=["trending"]))
+
+    def test_an_explicit_next_param_still_wins_over_the_landing_page(self):
+        self.profile.default_landing_page = "stats"
+        self.profile.save(update_fields=["default_landing_page"])
+        resp = self.client.post(
+            reverse("login") + "?next=" + reverse("history"),
+            {"username": "loginredirectuser", "password": "pass12345"},
+        )
+        self.assertRedirects(resp, reverse("history"))
+
+
+class ExportCsvViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("csvexporter", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="CsvExporter")
+        self.client.login(username="csvexporter", password="pass12345")
+
+    def test_exports_a_movie_and_an_episode_watch(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchEvent.objects.create(
+            profile=self.profile, title=movie, watched_at="2024-01-01T00:00:00Z", user_rating=8
+        )
+        show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+        ep = Episode.objects.create(title=show, season=1, episode=2)
+        WatchEvent.objects.create(profile=self.profile, title=show, episode=ep, watched_at="2024-01-02T00:00:00Z")
+
+        resp = self.client.get(reverse("export_csv"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["Content-Type"], "text/csv")
+        self.assertIn("attachment", resp["Content-Disposition"])
+        body = resp.content.decode()
+        self.assertIn("title,media_type,year,season,episode,watched_at,rating", body)
+        self.assertIn("Fathom,movie,2020,,,", body)
+        self.assertIn(",8\r\n", body)
+        self.assertIn("Silo,tv,2023,1,2,", body)
+
+    def test_only_exports_the_requesting_profiles_events(self):
+        other_user = User.objects.create_user("otherexporter", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="OtherExporter")
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Not Mine", year=2020)
+        WatchEvent.objects.create(profile=other_profile, title=movie, watched_at="2024-01-01T00:00:00Z")
+        resp = self.client.get(reverse("export_csv"))
+        self.assertNotIn("Not Mine", resp.content.decode())
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.get(reverse("export_csv"))
+        self.assertNotEqual(resp.status_code, 200)
+
+
+class ExportTraktJsonViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("jsonexporter", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="JsonExporter")
+        self.client.login(username="jsonexporter", password="pass12345")
+
+    def test_exports_a_movie_with_ids_when_known(self):
+        movie = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"trakt": "5", "tmdb": "42"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at="2024-01-01T00:00:00Z")
+        resp = self.client.get(reverse("export_trakt_json"))
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["type"], "movie")
+        self.assertEqual(data[0]["movie"]["title"], "Fathom")
+        self.assertEqual(data[0]["movie"]["ids"], {"trakt": "5", "tmdb": 42})
+
+    def test_exports_an_episode_with_show_and_episode_shape(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+        ep = Episode.objects.create(title=show, season=1, episode=2, name="Holston's Pick")
+        WatchEvent.objects.create(profile=self.profile, title=show, episode=ep, watched_at="2024-01-02T00:00:00Z")
+        resp = self.client.get(reverse("export_trakt_json"))
+        data = resp.json()
+        self.assertEqual(data[0]["type"], "episode")
+        self.assertEqual(data[0]["show"]["title"], "Silo")
+        self.assertEqual(data[0]["episode"], {"season": 1, "number": 2, "title": "Holston's Pick"})
+
+    def test_titles_without_external_ids_export_empty_ids(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="CSV Only", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at="2024-01-01T00:00:00Z")
+        resp = self.client.get(reverse("export_trakt_json"))
+        data = resp.json()
+        self.assertEqual(data[0]["movie"]["ids"], {})
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.get(reverse("export_trakt_json"))
+        self.assertNotEqual(resp.status_code, 200)
+
+
 class AdminDashboardVisibilityTests(TestCase):
     def setUp(self):
         owner_user = User.objects.create_user("owner2", password="pass12345", is_superuser=True)
@@ -3203,6 +3396,37 @@ class DiscoverViewTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Fathom")
 
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_preferred_language_prefills_the_filter_when_unset_in_the_url(self, mock_discover, mock_genres):
+        profile = Profile.objects.get(display_name="DiscoverViewer")
+        profile.preferred_language = "ja"
+        profile.save(update_fields=["preferred_language"])
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies_tv", args=["trending"]))
+        self.assertEqual(mock_discover.call_args.kwargs["original_language"], "ja")
+        self.assertEqual(resp.context["selected_language"], "ja")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_an_explicit_language_param_overrides_the_preference(self, mock_discover, mock_genres):
+        profile = Profile.objects.get(display_name="DiscoverViewer")
+        profile.preferred_language = "ja"
+        profile.save(update_fields=["preferred_language"])
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        self.client.get(reverse("movies_tv", args=["trending"]), {"language": "fr"})
+        self.assertEqual(mock_discover.call_args.kwargs["original_language"], "fr")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_explicit_empty_language_means_any_even_with_a_preference_set(self, mock_discover, mock_genres):
+        profile = Profile.objects.get(display_name="DiscoverViewer")
+        profile.preferred_language = "ja"
+        profile.save(update_fields=["preferred_language"])
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        self.client.get(reverse("movies_tv", args=["trending"]), {"language": ""})
+        self.assertIsNone(mock_discover.call_args.kwargs["original_language"])
+
 
 @patch("tracker.views.COLLECTIONS_ENABLED", True)
 class DiscoverCollectionsViewTests(TestCase):
@@ -3534,6 +3758,37 @@ class ActivityFeedGroupingTests(TestCase):
         self._watch(episode_num=1, minutes_ago=10)
         feed = selectors.activity_feed()
         self.assertNotIn("is_group", feed[0])
+
+
+class ActivityFeedPrivacyTests(TestCase):
+    """Settings → Privacy's share_activity toggle - a profile with it off
+    is entirely absent from the merged feed, not just unlabeled."""
+
+    def setUp(self):
+        user = User.objects.create_user("privatewatcher", password="pass12345")
+        self.private_profile = Profile.objects.create(
+            user=user, display_name="PrivateWatcher", share_activity=False
+        )
+        public_user = User.objects.create_user("publicwatcher", password="pass12345")
+        self.public_profile = Profile.objects.create(user=public_user, display_name="PublicWatcher")
+
+    def test_watch_events_from_a_private_profile_are_excluded(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchEvent.objects.create(profile=self.private_profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        WatchEvent.objects.create(profile=self.public_profile, title=title, watched_at="2024-01-02T00:00:00Z")
+        feed = selectors.activity_feed()
+        self.assertEqual(len(feed), 1)
+        self.assertEqual(feed[0]["profile"], self.public_profile)
+
+    def test_list_adds_from_a_private_profile_are_excluded(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        private_list = WatchList.objects.create(profile=self.private_profile, name="Watchlist")
+        public_list = WatchList.objects.create(profile=self.public_profile, name="Watchlist")
+        WatchListItem.objects.create(watchlist=private_list, title=title)
+        WatchListItem.objects.create(watchlist=public_list, title=title)
+        feed = selectors.activity_feed()
+        self.assertEqual(len(feed), 1)
+        self.assertEqual(feed[0]["profile"], self.public_profile)
 
 
 class TitleDetailViewTests(TestCase):

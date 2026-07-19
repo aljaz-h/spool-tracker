@@ -1,4 +1,5 @@
 import calendar as calendar_stdlib
+import csv
 import logging
 import os
 import secrets
@@ -12,11 +13,12 @@ import requests
 from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth import views as auth_views
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
 from django.db import IntegrityError
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -172,6 +174,12 @@ def discover(request, media_type, category):
     if is_anime:
         genre_ids = list({*genre_ids, tmdb.ANIMATION_GENRE_ID})
 
+    profile = Profile.objects.filter(user=request.user).first()
+    # request.GET.get's own default only kicks in when the key is missing
+    # entirely - an explicit ?language= (including "" for "Any language",
+    # deliberately chosen after landing here with a preferred_language
+    # default already applied) always wins over the profile's preference.
+    default_language = profile.preferred_language if profile else ""
     filters = {
         "genre_ids": genre_ids,
         "year_from": _discover_int_param(request, "year_from"),
@@ -180,7 +188,7 @@ def discover(request, media_type, category):
         "runtime_to": _discover_int_param(request, "runtime_to"),
         "rating_from": _discover_int_param(request, "rating_from"),
         "rating_to": _discover_int_param(request, "rating_to"),
-        "original_language": request.GET.get("language") or None,
+        "original_language": request.GET.get("language", default_language) or None,
     }
     if is_anime:
         filters["origin_country"] = "JP"
@@ -192,7 +200,6 @@ def discover(request, media_type, category):
     query_without_page = request.GET.copy()
     query_without_page.pop("page", None)
 
-    profile = Profile.objects.filter(user=request.user).first()
     context = {
         "profile": profile,
         "page_title": "Anime" if is_anime else "Movies & TV",
@@ -206,6 +213,7 @@ def discover(request, media_type, category):
         "genres": tmdb.genres(tmdb_media_type),
         "selected_genres": set(genre_ids),
         "languages": DISCOVER_LANGUAGES,
+        "selected_language": filters["original_language"] or "",
         "base_query": query_without_page.urlencode(),
         "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
         "collections_enabled": COLLECTIONS_ENABLED,
@@ -1094,6 +1102,36 @@ def activity(request):
     return render(request, "tracker/activity.html", {"feed": selectors.activity_feed()})
 
 
+def _landing_page_url(page):
+    """Resolves a Profile.LandingPage value to a real URL -
+    movies_tv/anime need a category kwarg reverse() alone can't supply,
+    so they're special-cased to the same trending category their own nav
+    link points to; anything else reverses directly by name."""
+    if page == Profile.LandingPage.MOVIES_TV:
+        return reverse("movies_tv", args=["trending"])
+    if page == Profile.LandingPage.ANIME:
+        return reverse("anime", args=["trending"])
+    if page in Profile.LandingPage.values:
+        return reverse(page)
+    return reverse("dashboard")
+
+
+class SpoolLoginView(auth_views.LoginView):
+    """Same as Django's own LoginView, just honors the signed-in profile's
+    default_landing_page (Settings → Appearance) instead of always
+    dashboard - only when no explicit ?next= was given/POSTed, same
+    precedence Django's own LoginView already gives that a priority over
+    its own default redirect."""
+
+    template_name = "tracker/login.html"
+
+    def get_default_redirect_url(self):
+        profile = Profile.objects.filter(user=self.request.user).first()
+        if profile is not None:
+            return _landing_page_url(profile.default_landing_page)
+        return super().get_default_redirect_url()
+
+
 @login_required
 def settings_view(request):
     profile = Profile.objects.filter(user=request.user).first()
@@ -1104,6 +1142,8 @@ def settings_view(request):
         "profile": profile,
         "connected_providers": external_accounts.keys(),
         "external_accounts": external_accounts,
+        "languages": DISCOVER_LANGUAGES,
+        "landing_pages": Profile.LandingPage.choices,
     }
     return render(request, "tracker/settings.html", context)
 
@@ -1297,14 +1337,126 @@ def delete_profile(request, profile_id):
 @login_required
 @require_POST
 def save_appearance(request):
+    """One endpoint for every Appearance control (time format, default
+    landing page, preferred language) - each field only touches update_fields
+    it actually received, so any single control's htmx submit (they each
+    post independently, on change) leaves the others untouched."""
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
+    update_fields = []
     time_format = request.POST.get("time_format")
     if time_format in Profile.TimeFormat.values:
         profile.time_format = time_format
-        profile.save(update_fields=["time_format"])
+        update_fields.append("time_format")
+    landing_page = request.POST.get("default_landing_page")
+    if landing_page in Profile.LandingPage.values:
+        profile.default_landing_page = landing_page
+        update_fields.append("default_landing_page")
+    if "preferred_language" in request.POST:
+        language = request.POST.get("preferred_language", "")
+        if language == "" or language in dict(DISCOVER_LANGUAGES):
+            profile.preferred_language = language
+            update_fields.append("preferred_language")
+    if update_fields:
+        profile.save(update_fields=update_fields)
     return HttpResponse(status=204)
+
+
+@login_required
+@require_POST
+def save_privacy(request):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    # Absent entirely from POST when unchecked - a plain HTML checkbox,
+    # same convention as import_lists/is_shared elsewhere in this app.
+    profile.share_activity = bool(request.POST.get("share_activity"))
+    profile.save(update_fields=["share_activity"])
+    return HttpResponse(status=204)
+
+
+@login_required
+def export_csv(request):
+    """Same column names csv_import.py's own COLUMN_ALIASES canonical
+    keys use (title/media_type/year/season/episode/watched_at/rating), so
+    a re-import of this exact file round-trips cleanly."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = f'attachment; filename="spool-export-{timezone.localdate().isoformat()}.csv"'
+    writer = csv.writer(response)
+    writer.writerow(["title", "media_type", "year", "season", "episode", "watched_at", "rating"])
+    events = (
+        WatchEvent.objects.filter(profile=profile)
+        .select_related("title", "episode")
+        .order_by("watched_at")
+    )
+    for event in events:
+        writer.writerow(
+            [
+                event.title.name,
+                event.title.media_type,
+                event.title.year or "",
+                event.episode.season if event.episode else "",
+                event.episode.episode if event.episode else "",
+                event.watched_at.isoformat(),
+                event.user_rating or "",
+            ]
+        )
+    return response
+
+
+@login_required
+def export_trakt_json(request):
+    """Trakt's own /sync/history shape (see integrations/trakt.py's
+    fetch_history/upsert_history_items, which consume exactly this shape
+    the other direction) - movie/show ids are only included when this
+    Title actually carries a trakt/tmdb id in external_ids, which won't
+    be true for anything that only ever came in via CSV import."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    events = (
+        WatchEvent.objects.filter(profile=profile)
+        .select_related("title", "episode")
+        .order_by("watched_at")
+    )
+    items = []
+    for event in events:
+        ids = {}
+        trakt_id = event.title.external_ids.get("trakt")
+        if trakt_id:
+            ids["trakt"] = trakt_id
+        tmdb_id = event.title.external_ids.get("tmdb")
+        if tmdb_id:
+            ids["tmdb"] = int(tmdb_id) if str(tmdb_id).isdigit() else tmdb_id
+        if event.episode:
+            items.append(
+                {
+                    "type": "episode",
+                    "watched_at": event.watched_at.isoformat(),
+                    "show": {"title": event.title.name, "year": event.title.year, "ids": ids},
+                    "episode": {
+                        "season": event.episode.season,
+                        "number": event.episode.episode,
+                        "title": event.episode.name,
+                    },
+                }
+            )
+        else:
+            items.append(
+                {
+                    "type": "movie",
+                    "watched_at": event.watched_at.isoformat(),
+                    "movie": {"title": event.title.name, "year": event.title.year, "ids": ids},
+                }
+            )
+    response = JsonResponse(items, safe=False, json_dumps_params={"indent": 2})
+    filename = f"spool-trakt-export-{timezone.localdate().isoformat()}.json"
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
 
 
 PROVIDER_MODULES = {"trakt": trakt, "simkl": simkl}

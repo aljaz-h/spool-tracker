@@ -55,8 +55,11 @@ urlpatterns = [
     path("settings/profile/create/", views.create_profile, name="create_profile"),
     path("settings/profile/<int:profile_id>/delete/", views.delete_profile, name="delete_profile"),
     path("settings/appearance/", views.save_appearance, name="save_appearance"),
+    path("settings/privacy/", views.save_privacy, name="save_privacy"),
     path("settings/integrations/", views.save_instance_config, name="save_instance_config"),
     path("settings/sync-log/", views.sync_log, name="sync_log"),
+    path("export/csv/", views.export_csv, name="export_csv"),
+    path("export/trakt-json/", views.export_trakt_json, name="export_trakt_json"),
     path("change-credentials/", views.change_credentials, name="change_credentials"),
     path("profile/", views.my_profile, name="my_profile"),
     path("import/trakt/connect/", views.oauth_connect, {"provider": "trakt"}, name="trakt_connect"),
@@ -71,10 +74,6 @@ urlpatterns = [
     path("import/csv/cancel/", views.import_csv_cancel, name="import_csv_cancel"),
     path("import/csv/commit/", views.import_csv_commit, name="import_csv_commit"),
     path("import/csv/result/", views.import_csv_result, name="import_csv_result"),
-    path(
-        "accounts/login/",
-        auth_views.LoginView.as_view(template_name="tracker/login.html"),
-        name="login",
-    ),
+    path("accounts/login/", views.SpoolLoginView.as_view(), name="login"),
     path("accounts/logout/", auth_views.LogoutView.as_view(next_page="login"), name="logout"),
 ]

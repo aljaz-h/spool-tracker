@@ -46,7 +46,7 @@
           <label for="filters-drawer" class="btn btn-sm bg-base-300 border-line gap-1.5 cursor-pointer">
             {% icon "filter" "w-3.5 h-3.5" %}
             Filters
-            {% if selected_genres or request.GET.year_from or request.GET.year_to or request.GET.runtime_from or request.GET.runtime_to or request.GET.rating_from or request.GET.rating_to or request.GET.language %}
+            {% if selected_genres or request.GET.year_from or request.GET.year_to or request.GET.runtime_from or request.GET.runtime_to or request.GET.rating_from or request.GET.rating_to or selected_language %}
               <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
             {% endif %}
           </label>
@@ -141,7 +141,7 @@
             <select name="language" class="select select-sm w-full bg-base-100 focus:outline-primary">
               <option value="">Any language</option>
               {% for code, name in languages %}
-                <option value="{{ code }}" {% if request.GET.language == code %}selected{% endif %}>{{ name }}</option>
+                <option value="{{ code }}" {% if selected_language == code %}selected{% endif %}>{{ name }}</option>
               {% endfor %}
             </select>
           </div>
