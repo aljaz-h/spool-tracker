@@ -5,7 +5,7 @@
 
   <div class="mb-6">
     <h1 class="font-display text-4xl">{{ page_title }}</h1>
-    <div class="text-ink-dim text-sm mt-1">Browse what's trending, popular, upcoming, and top rated on TMDB{% if not is_anime %}, or browse by collection{% endif %}</div>
+    <div class="text-ink-dim text-sm mt-1">Browse what's trending, popular, upcoming, and top rated on TMDB{% if not is_anime and collections_enabled %}, or browse by collection{% endif %}</div>
   </div>
 
   <div class="drawer drawer-end">
@@ -36,7 +36,7 @@
             <a href="{{ popular_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "popular" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Popular</a>
             <a href="{{ upcoming_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "upcoming" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Upcoming</a>
             <a href="{{ top_rated_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "top_rated" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Top Rated</a>
-            {% if not is_anime %}
+            {% if not is_anime and collections_enabled %}
               {% url library_url_name category="collections" as collections_url %}
               <a href="{{ collections_url }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if is_collections %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Collections</a>
             {% endif %}

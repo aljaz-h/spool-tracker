@@ -20,7 +20,9 @@ migration/env step or breaking an existing workflow.
   hand-maintained list, and refreshes naturally as that does. Movie-
   only for now (not shown on the Anime page); studio/network browsing
   (Marvel Studios, A24, Pixar, ...) is a separate, not-yet-built
-  feature.
+  feature. Turned off by default for now (not enough distinct
+  collections surfacing yet to feel worth a permanent nav tab) - the
+  feature itself is fully built and one flag away from coming back.
 
 ### Added
 

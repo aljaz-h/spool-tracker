@@ -48,6 +48,12 @@ DISCOVER_CATEGORIES = {"trending", "popular", "upcoming", "top_rated"}
 # category set in discover() below rather than living in DISCOVER_CATEGORIES
 # itself, so it's still one shared "is this a valid category" set to check.
 COLLECTIONS_CATEGORY = "collections"
+# Turned off for now (not enough distinct collections surfaced yet to feel
+# worth a permanent nav tab) without ripping out the feature - flip back to
+# True to restore the tab and re-enable the category/detail routes. Every
+# other piece (tmdb.collections()/get_collection_details(), the view
+# branches, the templates, the tests) is untouched and ready to go.
+COLLECTIONS_ENABLED = False
 # ISO 639-1 codes TMDB's with_original_language accepts - not exhaustive,
 # just the languages common enough in a movie/TV catalog to be worth a
 # dedicated dropdown entry instead of making everyone type a code.
@@ -152,7 +158,7 @@ def discover(request, media_type, category):
     library view."""
     is_anime = media_type == "anime"
     if category == COLLECTIONS_CATEGORY:
-        if is_anime:
+        if is_anime or not COLLECTIONS_ENABLED:
             raise Http404
         return _collections_view(request)
     if category not in DISCOVER_CATEGORIES:
@@ -202,6 +208,7 @@ def discover(request, media_type, category):
         "languages": DISCOVER_LANGUAGES,
         "base_query": query_without_page.urlencode(),
         "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
+        "collections_enabled": COLLECTIONS_ENABLED,
     }
     return render(request, "tracker/discover.html", context)
 
@@ -213,6 +220,8 @@ def collection_detail(request, collection_id):
     as title_preview; the movies within it are themselves ordinary
     discover_tile.html previews, so watching/listing one works exactly
     like it does everywhere else that renders that partial."""
+    if not COLLECTIONS_ENABLED:
+        raise Http404
     collection = tmdb.get_collection_details(collection_id)
     if collection is None:
         raise Http404

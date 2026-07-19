@@ -3204,10 +3204,14 @@ class DiscoverViewTests(TestCase):
         self.assertContains(resp, "Fathom")
 
 
+@patch("tracker.views.COLLECTIONS_ENABLED", True)
 class DiscoverCollectionsViewTests(TestCase):
     """Movies & TV's "Collections" tab - a distinct code path from the
     other categories (no filter panel/pagination, a different tile
-    partial), movie-only."""
+    partial), movie-only. Force-enabled at the class level since the
+    feature itself defaults off (see CollectionsDisabledTests) - these
+    tests are about the underlying view logic staying correct and ready
+    to go, not today's default-off UI state."""
 
     def setUp(self):
         user = User.objects.create_user("collectionsviewer", password="pass12345")
@@ -3250,7 +3254,11 @@ class DiscoverCollectionsViewTests(TestCase):
         self.assertNotContains(resp, f'href="?type=tv"')
 
 
+@patch("tracker.views.COLLECTIONS_ENABLED", True)
 class CollectionDetailViewTests(TestCase):
+    """Force-enabled at the class level - see CollectionsDisabledTests for
+    today's default-off behavior."""
+
     def setUp(self):
         user = User.objects.create_user("collectiondetailviewer", password="pass12345")
         Profile.objects.create(user=user, display_name="CollectionDetailViewer")
@@ -3285,6 +3293,35 @@ class CollectionDetailViewTests(TestCase):
         self.client.logout()
         resp = self.client.get(reverse("collection_detail", args=[100]))
         self.assertNotEqual(resp.status_code, 200)
+
+
+class CollectionsDisabledTests(TestCase):
+    """The Collections feature is fully built (see DiscoverCollectionsViewTests/
+    CollectionDetailViewTests/TmdbCollectionsTests) but turned off by
+    default via views.COLLECTIONS_ENABLED - not enough distinct
+    collections surfaced yet to feel worth a permanent nav tab. These
+    confirm that default-off state without touching the underlying
+    logic: flipping the flag back on is the only thing re-enabling it."""
+
+    def setUp(self):
+        user = User.objects.create_user("collectionsdisableduser", password="pass12345")
+        Profile.objects.create(user=user, display_name="CollectionsDisabledUser")
+        self.client.login(username="collectionsdisableduser", password="pass12345")
+
+    def test_collections_category_404s_by_default(self):
+        resp = self.client.get(reverse("movies_tv", args=["collections"]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_collection_detail_404s_by_default(self):
+        resp = self.client.get(reverse("collection_detail", args=[100]))
+        self.assertEqual(resp.status_code, 404)
+
+    @patch("tracker.integrations.tmdb.discover", return_value={"results": [], "page": 1, "total_pages": 1})
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    def test_collections_tab_not_shown_on_the_trending_page(self, mock_genres, mock_discover):
+        resp = self.client.get(reverse("movies_tv", args=["trending"]))
+        self.assertNotContains(resp, "Collections</a>")
+        self.assertNotContains(resp, reverse("movies_tv", args=["collections"]))
 
 
 class DashboardWatchingWatchlistTests(TestCase):
