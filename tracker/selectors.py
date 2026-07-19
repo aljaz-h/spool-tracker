@@ -739,11 +739,23 @@ def _group_key(item):
     return None
 
 
+MAX_GROUP_GAP = timedelta(hours=6)
+
+
 def _group_consecutive_watches(items):
     """Collapses a run of consecutive (adjacent in the already-sorted feed,
-    same _group_key) events into one summary entry, so e.g. a 15-episode
-    binge or a 13-title bulk list-add doesn't bury every other profile's
-    activity under a wall of near-identical rows."""
+    same _group_key, and no more than MAX_GROUP_GAP apart) events into one
+    summary entry, so e.g. a 15-episode binge or a 13-title bulk list-add
+    doesn't bury every other profile's activity under a wall of near-
+    identical rows. The gap check matters as much as the key match: two
+    real, hours-apart viewing sessions of the same show share the same
+    _group_key (profile, title) but aren't the same sitting - without a
+    cutoff they'd silently merge into one group whose single displayed
+    timestamp is only honest for *some* of the episodes it claims to
+    cover. Checked against the previous item in the run (a chain, not a
+    span-from-the-start cap), so a long-but-continuous binge still stays
+    one group as long as no single gap between consecutive episodes
+    exceeds it."""
     grouped = []
     i = 0
     while i < len(items):
@@ -755,7 +767,11 @@ def _group_consecutive_watches(items):
             continue
         run = [item]
         j = i + 1
-        while j < len(items) and _group_key(items[j]) == key:
+        while (
+            j < len(items)
+            and _group_key(items[j]) == key
+            and run[-1]["timestamp"] - items[j]["timestamp"] <= MAX_GROUP_GAP
+        ):
             run.append(items[j])
             j += 1
         grouped.append(_build_group(key[0], run) if len(run) > 1 else item)

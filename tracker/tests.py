@@ -4935,6 +4935,78 @@ class ActivityFeedGroupingTests(TestCase):
         feed = selectors.activity_feed()
         self.assertNotIn("is_group", feed[0])
 
+    def test_two_sessions_far_apart_do_not_merge_into_one_group(self):
+        # Same profile, same show, but ~19 hours apart - two real
+        # sittings, not one binge. Without the max-gap check these would
+        # falsely collapse into a single group whose one timestamp is
+        # only honest for half the episodes it claims to cover.
+        for i, minutes_ago in enumerate([1550, 1540, 1530, 1520, 1510]):  # ~1 day 2h ago, 5 episodes
+            self._watch(episode_num=1 + i, minutes_ago=minutes_ago)
+        for i, minutes_ago in enumerate([30, 20, 10]):  # recent, 3 episodes
+            self._watch(episode_num=100 + i, minutes_ago=minutes_ago)
+        feed = selectors.activity_feed()
+        self.assertEqual(len(feed), 2)
+        self.assertEqual(feed[0]["count"], 3)
+        self.assertEqual(feed[1]["count"], 5)
+
+    def test_a_gap_just_under_the_cutoff_still_merges(self):
+        self._watch(episode_num=1, minutes_ago=359)  # just under 6h
+        self._watch(episode_num=2, minutes_ago=0)
+        feed = selectors.activity_feed()
+        self.assertEqual(len(feed), 1)
+        self.assertEqual(feed[0]["count"], 2)
+
+    def test_a_gap_just_over_the_cutoff_splits(self):
+        self._watch(episode_num=1, minutes_ago=361)  # just over 6h
+        self._watch(episode_num=2, minutes_ago=0)
+        feed = selectors.activity_feed()
+        self.assertEqual(len(feed), 2)
+
+    def test_gap_is_checked_against_the_chain_not_the_first_item(self):
+        # A long-but-continuous binge (each episode ~just under the cutoff
+        # apart from the previous one) should stay one group even though
+        # the total span from first to last exceeds the cutoff.
+        for i, minutes_ago in enumerate([700, 340, 0]):
+            self._watch(episode_num=1 + i, minutes_ago=minutes_ago)
+        feed = selectors.activity_feed()
+        self.assertEqual(len(feed), 1)
+        self.assertEqual(feed[0]["count"], 3)
+
+
+class MultiProfileActivityInterleavingTests(TestCase):
+    """Activity is a merged household feed, not grouped/filtered by user -
+    whoever did something most recently should lead, regardless of who
+    they are."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        alice_user = User.objects.create_user("alice", password="pass12345")
+        self.alice = Profile.objects.create(user=alice_user, display_name="Alice")
+        bob_user = User.objects.create_user("bob", password="pass12345")
+        self.bob = Profile.objects.create(user=bob_user, display_name="Bob")
+        self.now = timezone.now()
+
+    def test_feed_interleaves_by_timestamp_regardless_of_profile(self):
+        movie_a = Title.objects.create(media_type=MediaType.MOVIE, name="Movie A", year=2020)
+        movie_b = Title.objects.create(media_type=MediaType.MOVIE, name="Movie B", year=2020)
+        movie_c = Title.objects.create(media_type=MediaType.MOVIE, name="Movie C", year=2020)
+        WatchEvent.objects.create(profile=self.alice, title=movie_a, watched_at=self.now - timedelta(minutes=30))
+        WatchEvent.objects.create(profile=self.bob, title=movie_b, watched_at=self.now - timedelta(minutes=20))
+        WatchEvent.objects.create(profile=self.alice, title=movie_c, watched_at=self.now - timedelta(minutes=10))
+        feed = selectors.activity_feed()
+        self.assertEqual([item["profile"] for item in feed], [self.alice, self.bob, self.alice])
+
+    def test_view_shows_activity_from_every_profile(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Shared Movie", year=2020)
+        WatchEvent.objects.create(profile=self.alice, title=title, watched_at=self.now - timedelta(minutes=20))
+        other_title = Title.objects.create(media_type=MediaType.MOVIE, name="Another Movie", year=2020)
+        WatchEvent.objects.create(profile=self.bob, title=other_title, watched_at=self.now - timedelta(minutes=10))
+        self.client.login(username="alice", password="pass12345")
+        resp = self.client.get(reverse("activity"))
+        self.assertContains(resp, "Alice")
+        self.assertContains(resp, "Bob")
+
 
 class ActivityFeedPrivacyTests(TestCase):
     """Settings → Privacy's share_activity toggle - a profile with it off
@@ -4965,6 +5037,57 @@ class ActivityFeedPrivacyTests(TestCase):
         feed = selectors.activity_feed()
         self.assertEqual(len(feed), 1)
         self.assertEqual(feed[0]["profile"], self.public_profile)
+
+
+class ActivityViewTemplateTests(TestCase):
+    """The collapsed-summary-only redesign - no per-episode expand/chevron
+    interaction (that's History's job), just a type-coded summary line."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("activityviewer", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ActivityViewer")
+        other_user = User.objects.create_user("activityother", password="pass12345")
+        Profile.objects.create(user=other_user, display_name="ActivityOther")
+        self.show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
+        self.now = timezone.now()
+        self.client.login(username="activityviewer", password="pass12345")
+
+    def test_no_expand_chevron_or_alpine_state_on_a_group(self):
+        for i, minutes_ago in enumerate([30, 20, 10]):
+            ep = Episode.objects.create(title=self.show, season=1, episode=1 + i)
+            WatchEvent.objects.create(profile=self.profile, title=self.show, episode=ep, watched_at=self.now - timedelta(minutes=minutes_ago))
+        resp = self.client.get(reverse("activity"))
+        body = resp.content.decode()
+        self.assertContains(resp, "<b>3</b> episodes")
+        self.assertContains(resp, "S1E1")
+        self.assertNotIn("chevron-down", body)
+        # Scoped to the feed container itself - the page's own sidebar/
+        # topbar chrome legitimately uses x-data/x-show elsewhere
+        # (sidebar toggle, notification bell), unrelated to this feature.
+        feed_html = body.split('rounded-2xl p-2">', 1)[1].split("</main>", 1)[0]
+        self.assertNotIn("x-data", feed_html)
+        self.assertNotIn("x-show", feed_html)
+
+    def test_watched_group_gets_the_primary_accent(self):
+        for i, minutes_ago in enumerate([30, 20]):
+            ep = Episode.objects.create(title=self.show, season=1, episode=1 + i)
+            WatchEvent.objects.create(profile=self.profile, title=self.show, episode=ep, watched_at=self.now - timedelta(minutes=minutes_ago))
+        resp = self.client.get(reverse("activity"))
+        self.assertContains(resp, "border-l-primary")
+
+    def test_rated_watch_gets_the_warning_accent(self):
+        ep = Episode.objects.create(title=self.show, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=self.show, episode=ep, watched_at=self.now, user_rating=9)
+        resp = self.client.get(reverse("activity"))
+        self.assertContains(resp, "border-l-warning")
+
+    def test_added_to_list_gets_the_secondary_accent(self):
+        watchlist = WatchList.objects.create(profile=self.profile, name="Anime")
+        WatchListItem.objects.create(watchlist=watchlist, title=self.show)
+        resp = self.client.get(reverse("activity"))
+        self.assertContains(resp, "border-l-secondary")
 
 
 class TitleDetailViewTests(TestCase):

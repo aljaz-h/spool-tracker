@@ -8,6 +8,36 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-07-19
+
+### Changed
+
+- Activity is back to being a lightweight household glance, not a
+  second History page. Dropped the expand-to-full-episode-list/chevron
+  interaction on grouped entries entirely - a group now shows only its
+  collapsed summary line (count, episode range, one relative time).
+  Full episode-level detail for a binge is what History is for.
+- Each row now carries a left-border color by activity type (watched,
+  added to a list, rated) so the feed can be scanned for "what kind of
+  thing happened" without reading every line.
+
+### Fixed
+
+- A binge summary could silently merge two real, hours-apart viewing
+  sessions of the same show into one group (same profile+title, and
+  nothing else happened in between across the whole household feed to
+  break the run) - the exact cause of a "14 episodes... 7 hours ago"
+  entry where 5 of those episodes were actually watched the day before.
+  Consecutive watches/list-adds now also need to be within 6 hours of
+  each other to stay in the same group; a real, hours-long continuous
+  binge still stays one group since the check is chain-based (each
+  episode vs. the previous one), not a hard cap from the first episode.
+
+Also confirmed (no changes needed): the feed already interleaves every
+profile's activity by timestamp rather than grouping by user - a quiet
+household member's activity from days ago just naturally sorts below a
+more recently active one's.
+
 ## [0.23.0] - 2026-07-19
 
 ### Added

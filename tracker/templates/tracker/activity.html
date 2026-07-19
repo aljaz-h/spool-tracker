@@ -1,5 +1,4 @@
 {% extends "tracker/base.html" %}
-{% load icons %}
 {% block title %}Activity · Spool{% endblock %}
 {% block content %}
 
@@ -17,67 +16,38 @@
       <div class="py-10 text-center text-ink-faint text-sm">Quiet so far — watch something to get this started.</div>
     {% else %}
       {% for item in feed %}
-        <div class="px-3.5 py-3.5 {% if not forloop.last %}border-b border-line{% endif %}" {% if item.is_group %}x-data="{ open: false }"{% endif %}>
-          <div class="flex gap-3">
-            <div class="w-[34px] h-[34px] rounded-full flex-none flex items-center justify-center font-mono text-[13px] font-bold" style="background:{{ item.profile.avatar_color }};color:#fff;">
-              {{ item.profile.display_name|first|upper }}
-            </div>
-            <div class="min-w-0 flex-1">
-              {% if item.is_group %}
-                <button type="button" @click="open = !open" class="flex items-center gap-1.5 text-left">
-                  <div class="text-[13.5px]">
-                    <b>{{ item.profile.display_name }}</b>
-                    {% if item.kind == "watched_group" %}
-                      watched <b>{{ item.count }}</b> episodes of <b>{{ item.title.name }}</b>
-                      <span class="font-mono text-ink-dim">({{ item.range_label }})</span>
-                    {% elif item.kind == "watched_movies_group" %}
-                      watched <b>{{ item.count }}</b> movies
-                    {% elif item.kind == "added_to_list_group" %}
-                      added <b>{{ item.count }}</b> titles to {{ item.watchlist.name }}
-                    {% endif %}
-                  </div>
-                  <span class="text-ink-faint transition-transform flex-none" :class="open && 'rotate-180'">{% icon "chevron-down" "w-3.5 h-3.5" %}</span>
-                </button>
+        {# A collapsed summary line only, deliberately - full episode-level
+           detail for a binge is History's job, not a quick household
+           glance. The left-border color is a type-at-a-glance cue:
+           watched vs. added vs. rated. #}
+        <div
+          class="flex gap-3 pl-3 pr-3.5 py-3.5 border-l-[3px] {% if not forloop.last %}border-b border-b-line{% endif %}
+            {% if item.kind == "rated" %}border-l-warning{% elif item.kind == "added_to_list" or item.kind == "added_to_list_group" %}border-l-secondary{% else %}border-l-primary{% endif %}"
+        >
+          <div class="w-[34px] h-[34px] rounded-full flex-none flex items-center justify-center font-mono text-[13px] font-bold" style="background:{{ item.profile.avatar_color }};color:#fff;">
+            {{ item.profile.display_name|first|upper }}
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="text-[13.5px]">
+              <b>{{ item.profile.display_name }}</b>
+              {% if item.kind == "watched_group" %}
+                watched <b>{{ item.count }}</b> episodes of <b>{{ item.title.name }}</b>
+                <span class="font-mono text-ink-dim">({{ item.range_label }})</span>
+              {% elif item.kind == "watched_movies_group" %}
+                watched <b>{{ item.count }}</b> movies
+              {% elif item.kind == "added_to_list_group" %}
+                added <b>{{ item.count }}</b> titles to {{ item.watchlist.name }}
+              {% elif item.kind == "rated" %}
+                rated <b>{{ item.title.name }}</b> — {{ item.rating }}/10
+              {% elif item.kind == "added_to_list" %}
+                added <b>{{ item.title.name }}</b> to {{ item.watchlist.name }}
+              {% elif item.episode %}
+                watched <b>{{ item.title.name }}</b> — S{{ item.episode.season }}E{{ item.episode.episode }}
               {% else %}
-                <div class="text-[13.5px]">
-                  <b>{{ item.profile.display_name }}</b>
-                  {% if item.kind == "rated" %}
-                    rated <b>{{ item.title.name }}</b> — {{ item.rating }}/10
-                  {% elif item.kind == "added_to_list" %}
-                    added <b>{{ item.title.name }}</b> to {{ item.watchlist.name }}
-                  {% elif item.episode %}
-                    watched <b>{{ item.title.name }}</b> — S{{ item.episode.season }}E{{ item.episode.episode }}
-                  {% else %}
-                    watched <b>{{ item.title.name }}</b>
-                  {% endif %}
-                </div>
-              {% endif %}
-              <div class="font-mono text-[11px] text-ink-faint mt-0.5">{{ item.timestamp|timesince }} ago</div>
-              {% if item.is_group %}
-                <div x-show="open" x-transition x-cloak class="mt-2.5 pl-3 border-l border-line flex flex-col gap-1.5">
-                  {% if item.kind == "watched_group" %}
-                    {% for ep_item in item.episodes %}
-                      <div class="flex justify-between gap-3 text-[12px] text-ink-dim">
-                        <span>S{{ ep_item.episode.season }}E{{ ep_item.episode.episode }}</span>
-                        <span class="font-mono text-ink-faint">{{ ep_item.timestamp|timesince }} ago</span>
-                      </div>
-                    {% endfor %}
-                  {% elif item.kind == "watched_movies_group" %}
-                    {% for movie_item in item.movies %}
-                      <div class="flex justify-between gap-3 text-[12px] text-ink-dim">
-                        <span>{{ movie_item.title.name }}</span>
-                        <span class="font-mono text-ink-faint">{{ movie_item.timestamp|timesince }} ago</span>
-                      </div>
-                    {% endfor %}
-                  {% elif item.kind == "added_to_list_group" %}
-                    {# no per-item timestamp - a batch add's items share one moment; the group's own timestamp above already covers it #}
-                    {% for list_item in item.items %}
-                      <div class="text-[12px] text-ink-dim">{{ list_item.title.name }}</div>
-                    {% endfor %}
-                  {% endif %}
-                </div>
+                watched <b>{{ item.title.name }}</b>
               {% endif %}
             </div>
+            <div class="font-mono text-[11px] text-ink-faint mt-0.5">{{ item.timestamp|timesince }} ago</div>
           </div>
         </div>
       {% endfor %}
