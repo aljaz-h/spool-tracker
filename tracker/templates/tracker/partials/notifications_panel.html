@@ -21,6 +21,8 @@
           <div class="min-w-0 flex-1">
             {% if n.title %}
               <a href="{% url 'title_detail' n.title.pk %}" class="text-[12.5px] {% if not n.read %}font-semibold{% endif %} block truncate hover:underline">{{ n.message }}</a>
+            {% elif n.kind == "system_update" %}
+              <a href="{{ changelog_url }}" target="_blank" rel="noopener" class="text-[12.5px] {% if not n.read %}font-semibold{% endif %} block truncate hover:underline">{{ n.message }}</a>
             {% else %}
               <div class="text-[12.5px] {% if not n.read %}font-semibold{% endif %} truncate">{{ n.message }}</div>
             {% endif %}

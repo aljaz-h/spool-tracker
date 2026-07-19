@@ -34,3 +34,6 @@ class Command(BaseCommand):
 
         scheduling.ensure_release_notifications_task()
         self.stdout.write(self.style.SUCCESS("Confirmed the nightly release-notifications task."))
+
+        scheduling.ensure_update_check_task()
+        self.stdout.write(self.style.SUCCESS("Confirmed the nightly update-check task."))

@@ -8,7 +8,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
-from . import completion, csv_import, instance_config, notifications, release_sync, rewatches, scheduling, selectors, tasks, views
+from . import completion, csv_import, instance_config, notifications, release_sync, rewatches, scheduling, selectors, tasks, update_check, views
 from .integrations import gemini, tmdb, trakt
 from .models import (
     Episode,
@@ -988,6 +988,157 @@ class NotifySyncFailureTests(TestCase):
         result = notifications.notify_sync_failure(self.profile, "trakt", "boom")
         self.assertIsNone(result)
         self.assertFalse(Notification.objects.exists())
+
+
+def _version_response(text):
+    resp = Mock()
+    resp.text = text
+    resp.raise_for_status = Mock()
+    return resp
+
+
+class RefreshLatestVersionTests(TestCase):
+    @patch("tracker.update_check.APP_VERSION", "1.0.0")
+    @patch("tracker.update_check.requests.get")
+    def test_newer_remote_version_is_saved_and_returned(self, mock_get):
+        mock_get.return_value = _version_response("1.1.0")
+        result = update_check.refresh_latest_version()
+        self.assertEqual(result, "1.1.0")
+        self.assertEqual(InstanceConfig.load().latest_known_version, "1.1.0")
+
+    @patch("tracker.update_check.APP_VERSION", "1.0.0")
+    @patch("tracker.update_check.requests.get")
+    def test_same_version_returns_none_and_does_not_save(self, mock_get):
+        mock_get.return_value = _version_response("1.0.0")
+        self.assertIsNone(update_check.refresh_latest_version())
+        self.assertEqual(InstanceConfig.load().latest_known_version, "")
+
+    @patch("tracker.update_check.APP_VERSION", "1.0.0")
+    @patch("tracker.update_check.requests.get")
+    def test_older_remote_version_returns_none(self, mock_get):
+        mock_get.return_value = _version_response("0.9.0")
+        self.assertIsNone(update_check.refresh_latest_version())
+
+    @patch("tracker.update_check.requests.get")
+    def test_network_failure_returns_none(self, mock_get):
+        mock_get.side_effect = requests.RequestException("boom")
+        self.assertIsNone(update_check.refresh_latest_version())
+
+    @patch("tracker.update_check.requests.get")
+    def test_empty_response_returns_none(self, mock_get):
+        mock_get.return_value = _version_response("")
+        self.assertIsNone(update_check.refresh_latest_version())
+
+
+class AvailableVersionTests(TestCase):
+    @patch("tracker.update_check.APP_VERSION", "1.0.0")
+    def test_no_stored_version_returns_none(self):
+        self.assertIsNone(update_check.available_version())
+
+    @patch("tracker.update_check.APP_VERSION", "1.0.0")
+    def test_stored_newer_version_is_returned(self):
+        InstanceConfig.objects.update_or_create(pk=1, defaults={"latest_known_version": "1.2.0"})
+        self.assertEqual(update_check.available_version(), "1.2.0")
+
+    @patch("tracker.update_check.APP_VERSION", "1.2.0")
+    def test_stale_stored_version_is_self_corrected_after_an_upgrade(self):
+        # Stored from before an upgrade to 1.2.0 actually landed - should
+        # no longer read as "available" now that it's caught up.
+        InstanceConfig.objects.update_or_create(pk=1, defaults={"latest_known_version": "1.1.0"})
+        self.assertIsNone(update_check.available_version())
+
+
+class CheckForNewVersionTaskTests(TestCase):
+    def setUp(self):
+        owner_user = User.objects.create_user("updateowner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=owner_user, display_name="UpdateOwner")
+        member_user = User.objects.create_user("updatemember", password="pass12345")
+        self.member = Profile.objects.create(user=member_user, display_name="UpdateMember")
+
+    @patch("tracker.update_check.refresh_latest_version")
+    def test_notifies_owner_profiles_only(self, mock_refresh):
+        mock_refresh.return_value = "9.9.9"
+        created = tasks.check_for_new_version()
+        self.assertEqual(created, 1)
+        self.assertTrue(Notification.objects.filter(profile=self.owner, kind=Notification.Kind.SYSTEM_UPDATE).exists())
+        self.assertFalse(Notification.objects.filter(profile=self.member).exists())
+
+    @patch("tracker.update_check.refresh_latest_version")
+    def test_message_mentions_both_versions(self, mock_refresh):
+        mock_refresh.return_value = "9.9.9"
+        tasks.check_for_new_version()
+        n = Notification.objects.get(profile=self.owner)
+        self.assertIn("9.9.9", n.message)
+
+    @patch("tracker.update_check.refresh_latest_version")
+    def test_no_available_update_creates_nothing(self, mock_refresh):
+        mock_refresh.return_value = None
+        created = tasks.check_for_new_version()
+        self.assertEqual(created, 0)
+        self.assertFalse(Notification.objects.exists())
+
+    @patch("tracker.update_check.refresh_latest_version")
+    def test_rerunning_for_the_same_version_does_not_duplicate(self, mock_refresh):
+        mock_refresh.return_value = "9.9.9"
+        tasks.check_for_new_version()
+        tasks.check_for_new_version()
+        self.assertEqual(Notification.objects.filter(profile=self.owner).count(), 1)
+
+
+class UpdateAvailableContextProcessorTests(TestCase):
+    def setUp(self):
+        owner_user = User.objects.create_user("ctxowner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=owner_user, display_name="CtxOwner")
+        member_user = User.objects.create_user("ctxmember", password="pass12345")
+        Profile.objects.create(user=member_user, display_name="CtxMember")
+        InstanceConfig.objects.update_or_create(pk=1, defaults={"latest_known_version": "99.0.0"})
+
+    def test_owner_sees_latest_available_version(self):
+        self.client.login(username="ctxowner", password="pass12345")
+        resp = self.client.get(reverse("dashboard"))
+        self.assertEqual(resp.context["latest_available_version"], "99.0.0")
+
+    def test_member_does_not_see_it(self):
+        self.client.login(username="ctxmember", password="pass12345")
+        resp = self.client.get(reverse("dashboard"))
+        self.assertIsNone(resp.context["latest_available_version"])
+
+    def test_changelog_url_always_present(self):
+        self.client.login(username="ctxmember", password="pass12345")
+        resp = self.client.get(reverse("dashboard"))
+        self.assertEqual(resp.context["changelog_url"], update_check.CHANGELOG_URL)
+
+
+class SettingsUpdateBannerTests(TestCase):
+    def setUp(self):
+        owner_user = User.objects.create_user("bannerowner", password="pass12345", is_superuser=True)
+        Profile.objects.create(user=owner_user, display_name="BannerOwner")
+        self.client.login(username="bannerowner", password="pass12345")
+
+    def test_banner_shown_when_update_available(self):
+        InstanceConfig.objects.update_or_create(pk=1, defaults={"latest_known_version": "99.0.0"})
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, "v99.0.0 is available")
+        self.assertContains(resp, update_check.CHANGELOG_URL)
+
+    def test_no_banner_when_already_up_to_date(self):
+        resp = self.client.get(reverse("settings"))
+        self.assertNotContains(resp, "is available")
+
+
+class NotificationsPanelSystemUpdateTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("panelowner", password="pass12345", is_superuser=True)
+        self.profile = Profile.objects.create(user=user, display_name="PanelOwner")
+        self.client.login(username="panelowner", password="pass12345")
+
+    def test_system_update_notification_links_to_changelog(self):
+        Notification.objects.create(
+            profile=self.profile, kind=Notification.Kind.SYSTEM_UPDATE, message="Spool v9.9.9 is available."
+        )
+        resp = self.client.get(reverse("notifications_panel"))
+        self.assertContains(resp, update_check.CHANGELOG_URL)
+        self.assertContains(resp, "Spool v9.9.9 is available")
 
 
 class CalendarReleasesBroadeningTests(TestCase):
@@ -2247,6 +2398,23 @@ class EnsureReleaseNotificationsTaskTests(TestCase):
         self.assertEqual(pt.crontab.hour, "5")
 
 
+class EnsureUpdateCheckTaskTests(TestCase):
+    def test_creates_the_single_task_with_defaults(self):
+        scheduling.ensure_update_check_task()
+        pt = PeriodicTask.objects.get(name=scheduling.UPDATE_CHECK_TASK_NAME)
+        self.assertEqual(pt.task, "tracker.tasks.check_for_new_version")
+        self.assertEqual(pt.crontab.hour, "3")
+        self.assertEqual(pt.crontab.minute, "45")
+        self.assertTrue(pt.enabled)
+
+    def test_re_running_updates_rather_than_duplicates(self):
+        scheduling.ensure_update_check_task()
+        scheduling.ensure_update_check_task(hour=5)
+        self.assertEqual(PeriodicTask.objects.filter(name=scheduling.UPDATE_CHECK_TASK_NAME).count(), 1)
+        pt = PeriodicTask.objects.get(name=scheduling.UPDATE_CHECK_TASK_NAME)
+        self.assertEqual(pt.crontab.hour, "5")
+
+
 class BootstrapPeriodicTasksTests(TestCase):
     def test_creates_task_per_connected_account(self):
         from django.core.management import call_command
@@ -2272,6 +2440,12 @@ class BootstrapPeriodicTasksTests(TestCase):
 
         call_command("bootstrap_periodic_tasks")
         self.assertTrue(PeriodicTask.objects.filter(name=scheduling.RELEASE_NOTIFICATIONS_TASK_NAME).exists())
+
+    def test_also_registers_the_update_check_task(self):
+        from django.core.management import call_command
+
+        call_command("bootstrap_periodic_tasks")
+        self.assertTrue(PeriodicTask.objects.filter(name=scheduling.UPDATE_CHECK_TASK_NAME).exists())
 
     def test_removes_old_blanket_job(self):
         from django.core.management import call_command

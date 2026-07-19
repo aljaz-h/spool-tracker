@@ -15,6 +15,16 @@
     <div class="text-ink-dim text-sm mt-1">Bring in your own watch history, personal preferences</div>
   </div>
 
+  {% if latest_available_version %}
+    <a
+      href="{{ changelog_url }}" target="_blank" rel="noopener"
+      class="flex items-center justify-between gap-3 bg-info/10 border border-info/30 rounded-xl px-4 py-2.5 mb-6 text-sm text-info hover:bg-info/15"
+    >
+      <span>Spool v{{ latest_available_version }} is available (you're on v{{ app_version }}).</span>
+      <span class="font-semibold whitespace-nowrap">View changelog &rarr;</span>
+    </a>
+  {% endif %}
+
   <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
 
     <div class="flex flex-col gap-5">

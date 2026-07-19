@@ -297,13 +297,16 @@ class ReleaseSchedule(models.Model):
 class Notification(models.Model):
     """In-app only (see tracker/notifications.py) - no email/push. Kind
     determines what title/release_schedule mean: release-based kinds
-    always carry both; sync_failed carries neither (title is
-    unavailable/irrelevant, there's no ReleaseSchedule to dedupe on)."""
+    always carry both; sync_failed and system_update carry neither (title
+    is unavailable/irrelevant, there's no ReleaseSchedule to dedupe on -
+    system_update dedupes on its own message text instead, see
+    tracker/tasks.check_for_new_version)."""
 
     class Kind(models.TextChoices):
         NEW_RELEASE = "new_release", "New release"
         UPCOMING_RELEASE = "upcoming_release", "Upcoming release"
         SYNC_FAILED = "sync_failed", "Sync failed"
+        SYSTEM_UPDATE = "system_update", "System update"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="notifications")
     kind = models.CharField(max_length=20, choices=Kind.choices)
@@ -400,6 +403,13 @@ class InstanceConfig(models.Model):
     simkl_client_id = models.CharField(max_length=255, blank=True)
     simkl_client_secret = models.CharField(max_length=255, blank=True)
     tmdb_api_key = models.CharField(max_length=255, blank=True)
+    # Set by tasks.check_for_new_version (see tracker/update_check.py) -
+    # the newest VERSION seen on the repo as of the last nightly check.
+    # Read back through update_check.available_version(), which only
+    # ever surfaces it while it's still actually newer than APP_VERSION -
+    # self-correcting after an upgrade rather than needing this cleared
+    # on deploy.
+    latest_known_version = models.CharField(max_length=20, blank=True)
 
     @classmethod
     def load(cls):

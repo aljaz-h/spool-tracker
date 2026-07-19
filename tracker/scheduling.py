@@ -47,6 +47,7 @@ def remove_periodic_task(account):
 
 RELEASE_SYNC_TASK_NAME = "sync-release-schedules"
 RELEASE_NOTIFICATIONS_TASK_NAME = "generate-release-notifications"
+UPDATE_CHECK_TASK_NAME = "check-for-new-version"
 
 
 def ensure_release_sync_task(hour=3, minute=0):
@@ -81,6 +82,24 @@ def ensure_release_notifications_task(hour=3, minute=30):
         defaults={
             "crontab": schedule,
             "task": "tracker.tasks.generate_release_notifications",
+            "args": "[]",
+            "enabled": True,
+        },
+    )
+
+
+def ensure_update_check_task(hour=3, minute=45):
+    """(Re)creates the nightly PeriodicTask that checks for a newer Spool
+    release (see tracker/update_check.py) - instance-wide, not tied to
+    any account, same as the two release-schedule tasks above."""
+    schedule, _ = CrontabSchedule.objects.get_or_create(
+        minute=str(minute), hour=str(hour), day_of_week="*", day_of_month="*", month_of_year="*"
+    )
+    PeriodicTask.objects.update_or_create(
+        name=UPDATE_CHECK_TASK_NAME,
+        defaults={
+            "crontab": schedule,
+            "task": "tracker.tasks.check_for_new_version",
             "args": "[]",
             "enabled": True,
         },

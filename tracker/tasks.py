@@ -5,9 +5,9 @@ from celery import shared_task
 from celery.utils.log import get_task_logger
 from django.utils import timezone
 
-from . import instance_config, notifications, release_sync, selectors
+from . import instance_config, notifications, release_sync, selectors, update_check, version
 from .integrations import simkl, trakt
-from .models import ExternalAccount, SyncLog
+from .models import ExternalAccount, Notification, Profile, SyncLog
 
 logger = get_task_logger(__name__)
 
@@ -164,4 +164,28 @@ def generate_release_notifications():
     tracker/notifications.py for the actual eligibility/dedupe logic."""
     created = notifications.generate_release_notifications()
     logger.info("generate_release_notifications: %d notification(s) created", created)
+    return created
+
+
+@shared_task
+def check_for_new_version():
+    """Nightly beat job (see bootstrap_periodic_tasks.py) - see
+    tracker/update_check.py for the actual fetch/compare logic. Only
+    owner profiles get notified (Profile.is_owner / user.is_superuser) -
+    a household member has no way to actually perform an upgrade, so
+    telling them about one is just noise they can't act on. Notification
+    dedupes on its own message text (which embeds the version), so
+    re-running this every night while the same newer version remains
+    unactioned doesn't spam a fresh row each time."""
+    latest = update_check.refresh_latest_version()
+    if latest is None:
+        return 0
+    message = f"Spool v{latest} is available (you're on v{version.APP_VERSION})."
+    created = 0
+    for profile in Profile.objects.filter(user__is_superuser=True):
+        _, made = Notification.objects.get_or_create(
+            profile=profile, kind=Notification.Kind.SYSTEM_UPDATE, message=message
+        )
+        created += made
+    logger.info("check_for_new_version: v%s available, %d notification(s) created", latest, created)
     return created

@@ -1,3 +1,4 @@
+from . import update_check
 from .models import Notification, Profile
 from .version import APP_VERSION
 
@@ -13,16 +14,25 @@ def active_profile(request):
     """Exposes the signed-in user's Profile and household size to every
     template — drives the topbar avatar/name and the Activity nav item's
     visibility (spool-product-spec.md §5: hidden entirely, not just empty,
-    on single-profile instances), plus the header bell's unread badge."""
+    on single-profile instances), plus the header bell's unread badge and
+    the "new version available" banner (Settings & Import + the bell) -
+    the latter only computed for owner profiles, same gating the
+    Notification itself uses (tasks.check_for_new_version), since a
+    household member has no way to act on an upgrade."""
     profile = None
     unread_notification_count = 0
+    latest_available_version = None
     if request.user.is_authenticated:
         profile = Profile.objects.select_related("user").filter(user=request.user).first()
         if profile is not None:
             unread_notification_count = Notification.objects.filter(profile=profile, read=False).count()
+            if profile.is_owner:
+                latest_available_version = update_check.available_version()
     return {
         "active_profile": profile,
         "all_profiles": Profile.objects.all(),
         "show_activity_nav": Profile.objects.count() > 1,
         "unread_notification_count": unread_notification_count,
+        "latest_available_version": latest_available_version,
+        "changelog_url": update_check.CHANGELOG_URL,
     }

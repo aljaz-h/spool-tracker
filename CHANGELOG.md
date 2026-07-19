@@ -8,6 +8,22 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-07-19
+
+### Added
+
+- Spool now tells you when a newer version is out, instead of you having
+  to remember to check. A nightly job compares the running version
+  against the VERSION file on the repo's master branch (this project
+  doesn't cut GitHub Releases, so that file is already the versioning
+  source of truth) and, if there's a newer one, surfaces it two ways:
+  a notification in the header bell, and a banner at the top of
+  Settings & Import. Both link straight to the GitHub changelog so you
+  can see what's new before deciding to upgrade. Owner-only (a
+  household member has no way to actually perform an upgrade), and
+  self-correcting - once you actually upgrade, both alerts clear on
+  their own without needing anything reset.
+
 ## [0.22.0] - 2026-07-19
 
 ### Added
