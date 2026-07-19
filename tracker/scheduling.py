@@ -46,6 +46,7 @@ def remove_periodic_task(account):
 
 
 RELEASE_SYNC_TASK_NAME = "sync-release-schedules"
+RELEASE_NOTIFICATIONS_TASK_NAME = "generate-release-notifications"
 
 
 def ensure_release_sync_task(hour=3, minute=0):
@@ -61,6 +62,25 @@ def ensure_release_sync_task(hour=3, minute=0):
         defaults={
             "crontab": schedule,
             "task": "tracker.tasks.sync_release_schedules",
+            "args": "[]",
+            "enabled": True,
+        },
+    )
+
+
+def ensure_release_notifications_task(hour=3, minute=30):
+    """(Re)creates the nightly PeriodicTask that turns near-term
+    ReleaseSchedule rows into Notification rows - 30 minutes after
+    ensure_release_sync_task's own default, so a title's release schedule
+    is already refreshed by the time this scans it."""
+    schedule, _ = CrontabSchedule.objects.get_or_create(
+        minute=str(minute), hour=str(hour), day_of_week="*", day_of_month="*", month_of_year="*"
+    )
+    PeriodicTask.objects.update_or_create(
+        name=RELEASE_NOTIFICATIONS_TASK_NAME,
+        defaults={
+            "crontab": schedule,
+            "task": "tracker.tasks.generate_release_notifications",
             "args": "[]",
             "enabled": True,
         },

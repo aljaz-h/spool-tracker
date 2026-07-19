@@ -49,6 +49,12 @@ class Profile(models.Model):
     # (selectors.activity_feed). Only ever shown/relevant with >1 profile
     # on the instance, same gating Activity itself already uses.
     share_activity = models.BooleanField(default=True)
+    # Settings → Notifications - each in-app notification source
+    # (tracker/notifications.py) checks its own flag before creating a
+    # Notification row for this profile.
+    notify_new_releases = models.BooleanField(default=True)
+    notify_upcoming_releases = models.BooleanField(default=True)
+    notify_sync_failures = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     # Set on the account bootstrap_admin creates from ADMIN_USERNAME/
     # ADMIN_PASSWORD (see management/commands/bootstrap_admin.py) so its
@@ -280,6 +286,46 @@ class ReleaseSchedule(models.Model):
 
     def __str__(self):
         return f"{self.title} · {self.get_release_type_display()} @ {self.release_date:%Y-%m-%d}"
+
+
+class Notification(models.Model):
+    """In-app only (see tracker/notifications.py) - no email/push. Kind
+    determines what title/release_schedule mean: release-based kinds
+    always carry both; sync_failed carries neither (title is
+    unavailable/irrelevant, there's no ReleaseSchedule to dedupe on)."""
+
+    class Kind(models.TextChoices):
+        NEW_RELEASE = "new_release", "New release"
+        UPCOMING_RELEASE = "upcoming_release", "Upcoming release"
+        SYNC_FAILED = "sync_failed", "Sync failed"
+
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="notifications")
+    kind = models.CharField(max_length=20, choices=Kind.choices)
+    title = models.ForeignKey(
+        Title, null=True, blank=True, on_delete=models.CASCADE, related_name="notifications"
+    )
+    release_schedule = models.ForeignKey(
+        ReleaseSchedule, null=True, blank=True, on_delete=models.CASCADE, related_name="notifications"
+    )
+    message = models.CharField(max_length=255)
+    read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            # Only guards release-based kinds - sync_failed rows always
+            # have release_schedule=NULL, and NULL is never equal to NULL
+            # in a unique constraint, so they're untouched by this.
+            models.UniqueConstraint(
+                fields=["profile", "kind", "release_schedule"],
+                condition=models.Q(release_schedule__isnull=False),
+                name="unique_notification_per_profile_kind_release",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.profile}: {self.message}"
 
 
 class ExternalAccount(models.Model):

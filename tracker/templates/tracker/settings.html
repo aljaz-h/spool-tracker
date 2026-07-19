@@ -17,6 +17,8 @@
 
   <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
 
+    <div class="flex flex-col gap-5">
+
     <div class="bg-base-200 border border-line rounded-2xl p-5">
       <h3 class="text-lg mb-3.5">Import &amp; Export</h3>
 
@@ -65,6 +67,27 @@
           <a href="{% url 'export_trakt_json' %}" class="btn btn-sm bg-base-300 border-line">Export as Trakt JSON</a>
         </div>
       </div>
+    </div>
+
+    <div class="bg-base-200 border border-line rounded-2xl p-5">
+      <h3 class="text-lg mb-1">Notifications</h3>
+      <div class="text-ink-dim text-xs mb-3">In-app only for now - no email or push.</div>
+      <form hx-post="{% url 'save_notifications' %}" hx-trigger="change" hx-swap="none" class="flex flex-col gap-3">
+        <label class="flex items-center justify-between gap-3 cursor-pointer">
+          <span class="text-[13.5px]">New episode/season alerts for what you're watching</span>
+          <input type="checkbox" name="notify_new_releases" class="checkbox checkbox-sm" {% if profile.notify_new_releases %}checked{% endif %}>
+        </label>
+        <label class="flex items-center justify-between gap-3 cursor-pointer">
+          <span class="text-[13.5px]">Calendar reminders for upcoming releases</span>
+          <input type="checkbox" name="notify_upcoming_releases" class="checkbox checkbox-sm" {% if profile.notify_upcoming_releases %}checked{% endif %}>
+        </label>
+        <label class="flex items-center justify-between gap-3 cursor-pointer">
+          <span class="text-[13.5px]">Trakt/Simkl sync failures</span>
+          <input type="checkbox" name="notify_sync_failures" class="checkbox checkbox-sm" {% if profile.notify_sync_failures %}checked{% endif %}>
+        </label>
+      </form>
+    </div>
+
     </div>
 
     <div class="flex flex-col gap-5">

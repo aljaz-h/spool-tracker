@@ -31,6 +31,7 @@ from .models import (
     ExternalAccount,
     InstanceConfig,
     MediaType,
+    Notification,
     Profile,
     SyncLog,
     Title,
@@ -1374,6 +1375,63 @@ def save_privacy(request):
     profile.share_activity = bool(request.POST.get("share_activity"))
     profile.save(update_fields=["share_activity"])
     return HttpResponse(status=204)
+
+
+@login_required
+@require_POST
+def save_notifications(request):
+    """All three toggles submit together (one form, hx-trigger=change) -
+    same reasoning as save_appearance bundling its own fields, except
+    here every field really is a plain checkbox so there's no per-field
+    "was this key present at all" branching to do."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    profile.notify_new_releases = bool(request.POST.get("notify_new_releases"))
+    profile.notify_upcoming_releases = bool(request.POST.get("notify_upcoming_releases"))
+    profile.notify_sync_failures = bool(request.POST.get("notify_sync_failures"))
+    profile.save(update_fields=["notify_new_releases", "notify_upcoming_releases", "notify_sync_failures"])
+    return HttpResponse(status=204)
+
+
+def _render_notifications_panel(request, profile):
+    items = list(Notification.objects.filter(profile=profile).select_related("title")[:20])
+    return render(request, "tracker/partials/notifications_panel.html", {"notifications": items})
+
+
+@login_required
+def notifications_panel(request):
+    """The header bell's dropdown content - also included directly on
+    first page load in base.html, same self-swapping-partial pattern as
+    the Stats heatmap/episode browser (an hx-get back to this same view
+    re-renders it after mark-as-read)."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    return _render_notifications_panel(request, profile)
+
+
+@login_required
+@require_POST
+def mark_notification_read(request, pk):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    notification = get_object_or_404(Notification, pk=pk, profile=profile)
+    if not notification.read:
+        notification.read = True
+        notification.save(update_fields=["read"])
+    return _render_notifications_panel(request, profile)
+
+
+@login_required
+@require_POST
+def mark_all_notifications_read(request):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    Notification.objects.filter(profile=profile, read=False).update(read=True)
+    return _render_notifications_panel(request, profile)
 
 
 @login_required

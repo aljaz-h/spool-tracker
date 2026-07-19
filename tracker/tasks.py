@@ -2,7 +2,7 @@ from celery import shared_task
 from celery.utils.log import get_task_logger
 from django.utils import timezone
 
-from . import instance_config, release_sync, selectors
+from . import instance_config, notifications, release_sync, selectors
 from .integrations import simkl, trakt
 from .models import ExternalAccount, SyncLog
 
@@ -22,6 +22,7 @@ def _run_sync(profile, provider, fetch_and_upsert):
         log.error_message = str(e)[:500]
         log.finished_at = timezone.now()
         log.save(update_fields=["status", "error_message", "finished_at"])
+        notifications.notify_sync_failure(profile, provider, log.error_message)
         raise
     log.status = SyncLog.Status.SUCCESS
     log.item_count = created
@@ -108,4 +109,15 @@ def sync_release_schedules():
     titles = list(selectors.titles_needing_release_sync())
     touched = sum(release_sync.sync_title_releases(t) for t in titles)
     logger.info("sync_release_schedules: checked %d title(s), %d release row(s) touched", len(titles), touched)
+    return touched
+
+
+@shared_task
+def generate_release_notifications():
+    """Nightly beat job (see bootstrap_periodic_tasks.py), scheduled right
+    after sync_release_schedules so a freshly-synced release is already
+    in ReleaseSchedule by the time this scans it - see
+    tracker/notifications.py for the actual eligibility/dedupe logic."""
+    created = notifications.generate_release_notifications()
+    logger.info("generate_release_notifications: %d notification(s) created", created)
     return touched

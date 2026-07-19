@@ -8,7 +8,23 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
-## [0.16.0] - 2026-07-19
+## [0.17.0] - 2026-07-19
+
+### Added
+
+- In-app notifications: a bell in the header with an unread badge and a
+  dropdown feed. No email or push - purely in-app for now. Three
+  sources, each its own toggle on Settings → Notifications: new
+  episode/season alerts for what you're actively watching, calendar
+  reminders for anything you're watching or have watchlisted (including
+  shared lists), and Trakt/Simkl sync failure alerts. The two release-
+  based sources run as a nightly background job right after the
+  existing release-schedule sync; sync failures notify immediately,
+  the moment a sync actually fails.
+
+This is the second of the planned Settings rounds - a Danger Zone
+(destructive account/data actions) is still deliberately left for a
+follow-up round.
 
 ### Added
 

@@ -7,7 +7,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
-from . import completion, csv_import, instance_config, release_sync, rewatches, scheduling, selectors, tasks, views
+from . import completion, csv_import, instance_config, notifications, release_sync, rewatches, scheduling, selectors, tasks, views
 from .integrations import tmdb, trakt
 from .models import (
     Episode,
@@ -15,6 +15,7 @@ from .models import (
     Genre,
     InstanceConfig,
     MediaType,
+    Notification,
     Profile,
     ReleaseSchedule,
     SyncLog,
@@ -873,6 +874,121 @@ class SyncReleaseSchedulesTaskTests(TestCase):
         self.assertEqual(touched, 3)
 
 
+class GenerateReleaseNotificationsTests(TestCase):
+    """tracker/notifications.py's generate_release_notifications() -
+    NEW_RELEASE only for profiles actively watching, UPCOMING_RELEASE for
+    the broader "tracking" set (watching or watchlisted, or anyone at all
+    if it's on a shared list)."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("notifwatcher", password="pass12345")
+        self.watcher = Profile.objects.create(user=user, display_name="NotifWatcher")
+        other_user = User.objects.create_user("notifother", password="pass12345")
+        self.other = Profile.objects.create(user=other_user, display_name="NotifOther")
+        self.title = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+        self.episode = Episode.objects.create(title=self.title, season=2, episode=1)
+        self.now = timezone.now()
+
+    def _release(self, delta, release_type=ReleaseSchedule.ReleaseType.EPISODE):
+        return ReleaseSchedule.objects.create(
+            title=self.title, episode=self.episode, release_type=release_type, release_date=self.now + delta
+        )
+
+    def test_watching_profile_gets_a_new_release_notification(self):
+        WatchProgress.objects.create(profile=self.watcher, title=self.title, status=WatchProgress.Status.WATCHING)
+        release = self._release(timedelta(hours=-2))
+        created = notifications.generate_release_notifications(now=self.now)
+        self.assertEqual(created, 1)
+        n = Notification.objects.get(profile=self.watcher)
+        self.assertEqual(n.kind, Notification.Kind.NEW_RELEASE)
+        self.assertEqual(n.title, self.title)
+        self.assertEqual(n.release_schedule, release)
+        self.assertIn("Silo", n.message)
+
+    def test_watchlist_only_profile_does_not_get_a_new_release_notification(self):
+        watchlist = WatchList.objects.create(profile=self.watcher, name="Watchlist")
+        WatchListItem.objects.create(watchlist=watchlist, title=self.title)
+        self._release(timedelta(hours=-2))
+        notifications.generate_release_notifications(now=self.now)
+        self.assertFalse(Notification.objects.filter(kind=Notification.Kind.NEW_RELEASE).exists())
+
+    def test_watching_profile_with_the_source_disabled_gets_nothing(self):
+        self.watcher.notify_new_releases = False
+        self.watcher.save(update_fields=["notify_new_releases"])
+        WatchProgress.objects.create(profile=self.watcher, title=self.title, status=WatchProgress.Status.WATCHING)
+        self._release(timedelta(hours=-2))
+        notifications.generate_release_notifications(now=self.now)
+        self.assertFalse(Notification.objects.exists())
+
+    def test_watchlisted_profile_gets_an_upcoming_release_notification(self):
+        watchlist = WatchList.objects.create(profile=self.watcher, name="Watchlist")
+        WatchListItem.objects.create(watchlist=watchlist, title=self.title)
+        release = self._release(timedelta(days=2))
+        created = notifications.generate_release_notifications(now=self.now)
+        self.assertEqual(created, 1)
+        n = Notification.objects.get(profile=self.watcher)
+        self.assertEqual(n.kind, Notification.Kind.UPCOMING_RELEASE)
+        self.assertEqual(n.release_schedule, release)
+
+    def test_shared_watchlist_makes_every_profile_eligible_for_the_reminder(self):
+        watchlist = WatchList.objects.create(profile=self.watcher, name="Household", is_shared=True)
+        WatchListItem.objects.create(watchlist=watchlist, title=self.title)
+        self._release(timedelta(days=2))
+        notifications.generate_release_notifications(now=self.now)
+        self.assertTrue(Notification.objects.filter(profile=self.watcher).exists())
+        self.assertTrue(Notification.objects.filter(profile=self.other).exists())
+
+    def test_release_outside_either_window_is_ignored(self):
+        WatchProgress.objects.create(profile=self.watcher, title=self.title, status=WatchProgress.Status.WATCHING)
+        self._release(timedelta(days=-10))
+        # A distinct episode - the same one twice would trip
+        # ReleaseSchedule's own (title, episode, release_type) uniqueness.
+        later_episode = Episode.objects.create(title=self.title, season=2, episode=2)
+        ReleaseSchedule.objects.create(
+            title=self.title,
+            episode=later_episode,
+            release_type=ReleaseSchedule.ReleaseType.EPISODE,
+            release_date=self.now + timedelta(days=10),
+        )
+        notifications.generate_release_notifications(now=self.now)
+        self.assertFalse(Notification.objects.exists())
+
+    def test_rerunning_does_not_duplicate(self):
+        WatchProgress.objects.create(profile=self.watcher, title=self.title, status=WatchProgress.Status.WATCHING)
+        self._release(timedelta(hours=-2))
+        notifications.generate_release_notifications(now=self.now)
+        second_run_created = notifications.generate_release_notifications(now=self.now)
+        self.assertEqual(second_run_created, 0)
+        self.assertEqual(Notification.objects.count(), 1)
+
+
+class NotifySyncFailureTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("syncfailwatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="SyncFailWatcher")
+
+    def test_creates_a_sync_failed_notification(self):
+        notifications.notify_sync_failure(self.profile, "trakt", "connection timed out")
+        n = Notification.objects.get(profile=self.profile)
+        self.assertEqual(n.kind, Notification.Kind.SYNC_FAILED)
+        self.assertIn("Trakt", n.message)
+        self.assertIn("connection timed out", n.message)
+
+    def test_long_error_messages_are_truncated(self):
+        notifications.notify_sync_failure(self.profile, "trakt", "x" * 1000)
+        n = Notification.objects.get(profile=self.profile)
+        self.assertLessEqual(len(n.message), 255)
+
+    def test_disabled_source_creates_nothing(self):
+        self.profile.notify_sync_failures = False
+        self.profile.save(update_fields=["notify_sync_failures"])
+        result = notifications.notify_sync_failure(self.profile, "trakt", "boom")
+        self.assertIsNone(result)
+        self.assertFalse(Notification.objects.exists())
+
+
 class CalendarReleasesBroadeningTests(TestCase):
     """calendar_releases() used to only surface WATCHING-status or
     watchlisted titles under its default "all" scope, so a completed show
@@ -1257,6 +1373,126 @@ class SavePrivacyViewTests(TestCase):
         self.assertNotEqual(resp.status_code, 200)
 
 
+class SaveNotificationsViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("notifsettingsuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="NotifSettingsUser")
+        self.client.login(username="notifsettingsuser", password="pass12345")
+
+    def test_all_three_toggles_save_together(self):
+        self.client.post(
+            reverse("save_notifications"),
+            {"notify_new_releases": "on", "notify_sync_failures": "on"},  # upcoming omitted = unchecked
+        )
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.notify_new_releases)
+        self.assertFalse(self.profile.notify_upcoming_releases)
+        self.assertTrue(self.profile.notify_sync_failures)
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("save_notifications"), {"notify_new_releases": "on"})
+        self.assertNotEqual(resp.status_code, 200)
+
+
+class NotificationsPanelViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("panelviewer", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="PanelViewer")
+        self.client.login(username="panelviewer", password="pass12345")
+
+    def test_renders_the_profiles_own_notifications(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        Notification.objects.create(
+            profile=self.profile, kind=Notification.Kind.NEW_RELEASE, title=title, message="Now available: Fathom"
+        )
+        resp = self.client.get(reverse("notifications_panel"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Now available: Fathom")
+
+    def test_does_not_show_another_profiles_notifications(self):
+        other_user = User.objects.create_user("panelother", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="PanelOther")
+        Notification.objects.create(profile=other_profile, kind=Notification.Kind.SYNC_FAILED, message="Not mine")
+        resp = self.client.get(reverse("notifications_panel"))
+        self.assertNotContains(resp, "Not mine")
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.get(reverse("notifications_panel"))
+        self.assertNotEqual(resp.status_code, 200)
+
+
+class MarkNotificationReadViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("markreaduser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="MarkReadUser")
+        self.client.login(username="markreaduser", password="pass12345")
+        self.notification = Notification.objects.create(
+            profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="Sync failed"
+        )
+
+    def test_marks_a_single_notification_read(self):
+        self.client.post(reverse("mark_notification_read", args=[self.notification.pk]))
+        self.notification.refresh_from_db()
+        self.assertTrue(self.notification.read)
+
+    def test_cannot_mark_another_profiles_notification_read(self):
+        other_user = User.objects.create_user("markreadother", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="MarkReadOther")
+        others_notification = Notification.objects.create(
+            profile=other_profile, kind=Notification.Kind.SYNC_FAILED, message="Not yours"
+        )
+        resp = self.client.post(reverse("mark_notification_read", args=[others_notification.pk]))
+        self.assertEqual(resp.status_code, 404)
+        others_notification.refresh_from_db()
+        self.assertFalse(others_notification.read)
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("mark_notification_read", args=[self.notification.pk]))
+        self.assertNotEqual(resp.status_code, 200)
+
+
+class MarkAllNotificationsReadViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("markalluser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="MarkAllUser")
+        self.client.login(username="markalluser", password="pass12345")
+
+    def test_marks_every_unread_notification_read(self):
+        Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="One")
+        Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="Two")
+        self.client.post(reverse("mark_all_notifications_read"))
+        self.assertEqual(Notification.objects.filter(profile=self.profile, read=False).count(), 0)
+
+    def test_does_not_touch_another_profiles_notifications(self):
+        other_user = User.objects.create_user("markallother", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="MarkAllOther")
+        others = Notification.objects.create(profile=other_profile, kind=Notification.Kind.SYNC_FAILED, message="Not yours")
+        self.client.post(reverse("mark_all_notifications_read"))
+        others.refresh_from_db()
+        self.assertFalse(others.read)
+
+
+class UnreadNotificationCountContextTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("badgeuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="BadgeUser")
+        self.client.login(username="badgeuser", password="pass12345")
+
+    def test_unread_count_reflects_unread_notifications(self):
+        Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="One")
+        Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="Two", read=True)
+        resp = self.client.get(reverse("dashboard"))
+        self.assertEqual(resp.context["unread_notification_count"], 1)
+
+    def test_zero_when_unauthenticated(self):
+        self.client.logout()
+        resp = self.client.get(reverse("login"))
+        self.assertEqual(resp.context["unread_notification_count"], 0)
+
+
 class SpoolLoginRedirectTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user("loginredirectuser", password="pass12345")
@@ -1532,6 +1768,28 @@ class SyncLogTests(TestCase):
         tasks.sync_trakt_history(self.profile.id)
         self.assertEqual(SyncLog.objects.count(), 0)
 
+    @patch("tracker.integrations.trakt.fetch_history")
+    def test_failed_sync_creates_a_notification(self, mock_fetch):
+        import requests
+
+        mock_fetch.side_effect = requests.RequestException("network broke")
+        with self.assertRaises(requests.RequestException):
+            tasks.sync_trakt_history(self.profile.id)
+        n = Notification.objects.get(profile=self.profile)
+        self.assertEqual(n.kind, Notification.Kind.SYNC_FAILED)
+        self.assertIn("network broke", n.message)
+
+    @patch("tracker.integrations.trakt.fetch_history")
+    def test_failed_sync_creates_no_notification_when_disabled(self, mock_fetch):
+        import requests
+
+        self.profile.notify_sync_failures = False
+        self.profile.save(update_fields=["notify_sync_failures"])
+        mock_fetch.side_effect = requests.RequestException("network broke")
+        with self.assertRaises(requests.RequestException):
+            tasks.sync_trakt_history(self.profile.id)
+        self.assertFalse(Notification.objects.exists())
+
 
 class IncrementalSyncTests(TestCase):
     def setUp(self):
@@ -1674,6 +1932,23 @@ class EnsureReleaseSyncTaskTests(TestCase):
         self.assertEqual(pt.crontab.hour, "5")
 
 
+class EnsureReleaseNotificationsTaskTests(TestCase):
+    def test_creates_the_single_task_with_defaults(self):
+        scheduling.ensure_release_notifications_task()
+        pt = PeriodicTask.objects.get(name=scheduling.RELEASE_NOTIFICATIONS_TASK_NAME)
+        self.assertEqual(pt.task, "tracker.tasks.generate_release_notifications")
+        self.assertEqual(pt.crontab.hour, "3")
+        self.assertEqual(pt.crontab.minute, "30")
+        self.assertTrue(pt.enabled)
+
+    def test_re_running_updates_rather_than_duplicates(self):
+        scheduling.ensure_release_notifications_task()
+        scheduling.ensure_release_notifications_task(hour=5)
+        self.assertEqual(PeriodicTask.objects.filter(name=scheduling.RELEASE_NOTIFICATIONS_TASK_NAME).count(), 1)
+        pt = PeriodicTask.objects.get(name=scheduling.RELEASE_NOTIFICATIONS_TASK_NAME)
+        self.assertEqual(pt.crontab.hour, "5")
+
+
 class BootstrapPeriodicTasksTests(TestCase):
     def test_creates_task_per_connected_account(self):
         from django.core.management import call_command
@@ -1693,6 +1968,12 @@ class BootstrapPeriodicTasksTests(TestCase):
 
         call_command("bootstrap_periodic_tasks")
         self.assertTrue(PeriodicTask.objects.filter(name=scheduling.RELEASE_SYNC_TASK_NAME).exists())
+
+    def test_also_registers_the_release_notifications_task(self):
+        from django.core.management import call_command
+
+        call_command("bootstrap_periodic_tasks")
+        self.assertTrue(PeriodicTask.objects.filter(name=scheduling.RELEASE_NOTIFICATIONS_TASK_NAME).exists())
 
     def test_removes_old_blanket_job(self):
         from django.core.management import call_command

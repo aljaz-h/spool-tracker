@@ -46,6 +46,28 @@
 
   <div class="flex items-center gap-3.5 flex-none">
     <button class="btn btn-primary btn-sm">+ Add title</button>
+    {% if active_profile %}
+      <div class="relative" x-data="{ open: false }">
+        <button
+          @click="open = !open" @click.outside="open = false"
+          hx-get="{% url 'notifications_panel' %}"
+          hx-target="#notifications-dropdown-content"
+          hx-swap="innerHTML"
+          aria-label="Notifications"
+          class="relative w-9 h-9 flex-none rounded-lg border border-line bg-base-200 flex items-center justify-center text-ink-dim hover:text-base-content hover:border-primary"
+        >
+          {% icon "bell" "w-[17px] h-[17px]" %}
+          {% if unread_notification_count %}
+            <span class="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-primary text-primary-content text-[10px] font-bold flex items-center justify-center">{{ unread_notification_count }}</span>
+          {% endif %}
+        </button>
+        <div x-show="open" x-cloak class="absolute right-0 mt-2 w-72 bg-base-200 border border-line rounded-lg shadow-lg z-40">
+          <div id="notifications-dropdown-content">
+            <div class="px-3 py-8 text-center text-ink-faint text-xs">Loading…</div>
+          </div>
+        </div>
+      </div>
+    {% endif %}
     <div class="flex">
       {% for p in all_profiles %}
         {% if not active_profile or p.id != active_profile.id %}
