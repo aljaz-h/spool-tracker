@@ -4417,11 +4417,144 @@ class CollectionsDisabledTests(TestCase):
         self.assertNotContains(resp, reverse("movies_tv", args=["collections"]))
 
 
+class RecentlyAddedToListsSelectorTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("recentlyaddeduser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="RecentlyAddedUser")
+
+    def test_excludes_watchlist_items(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Watchlisted Movie", year=2020)
+        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        WatchListItem.objects.create(watchlist=watchlist, title=title)
+        self.assertEqual(list(selectors.recently_added_to_lists(self.profile)), [])
+
+    def test_includes_custom_list_items(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Favorited Movie", year=2020)
+        custom_list = WatchList.objects.create(profile=self.profile, name="Favorites", is_watchlist=False)
+        item = WatchListItem.objects.create(watchlist=custom_list, title=title)
+        self.assertEqual(list(selectors.recently_added_to_lists(self.profile)), [item])
+
+
+class BecauseYouWatchedTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("byw", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="BYW")
+
+    def test_no_watch_history_returns_none(self):
+        self.assertIsNone(selectors.because_you_watched(self.profile))
+
+    def test_watch_history_without_tmdb_ids_returns_none(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="No TMDB Id", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        self.assertIsNone(selectors.because_you_watched(self.profile))
+
+    @patch("tracker.integrations.tmdb.get_similar")
+    def test_uses_most_recently_watched_title_with_a_tmdb_id(self, mock_get_similar):
+        older = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Older Movie", year=2019, external_ids={"tmdb": "1"}
+        )
+        newer = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Newer Movie", year=2020, external_ids={"tmdb": "2"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=older, watched_at="2024-01-01T00:00:00Z")
+        WatchEvent.objects.create(profile=self.profile, title=newer, watched_at="2024-02-01T00:00:00Z")
+        mock_get_similar.return_value = [{"tmdb_id": 99, "media_type": "movie", "name": "Similar"}]
+
+        result = selectors.because_you_watched(self.profile)
+
+        self.assertEqual(result["anchor_title"], newer)
+        mock_get_similar.assert_called_once_with("movie", "2", limit=12)
+
+    @patch("tracker.integrations.tmdb.get_similar")
+    def test_falls_through_to_an_older_candidate_when_the_newest_has_no_recommendations(self, mock_get_similar):
+        older = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Older Movie", year=2019, external_ids={"tmdb": "1"}
+        )
+        newer = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Newer Movie", year=2020, external_ids={"tmdb": "2"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=older, watched_at="2024-01-01T00:00:00Z")
+        WatchEvent.objects.create(profile=self.profile, title=newer, watched_at="2024-02-01T00:00:00Z")
+        mock_get_similar.side_effect = [[], [{"tmdb_id": 99, "media_type": "movie", "name": "Similar"}]]
+
+        result = selectors.because_you_watched(self.profile)
+
+        self.assertEqual(result["anchor_title"], older)
+        self.assertEqual(mock_get_similar.call_count, 2)
+
+    @patch("tracker.integrations.tmdb.get_similar")
+    def test_gives_up_after_the_candidate_pool_is_exhausted(self, mock_get_similar):
+        for i in range(5):
+            title = Title.objects.create(
+                media_type=MediaType.MOVIE, name=f"Movie {i}", year=2020, external_ids={"tmdb": str(i)}
+            )
+            WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        mock_get_similar.return_value = []
+
+        result = selectors.because_you_watched(self.profile, candidate_pool=3)
+
+        self.assertIsNone(result)
+        self.assertEqual(mock_get_similar.call_count, 3)
+
+    @patch("tracker.integrations.tmdb.get_similar")
+    def test_a_title_watched_multiple_times_only_counts_as_one_candidate(self, mock_get_similar):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Rewatched", year=2020, external_ids={"tmdb": "1"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-02-01T00:00:00Z")
+        mock_get_similar.return_value = [{"tmdb_id": 99, "media_type": "movie", "name": "Similar"}]
+
+        selectors.because_you_watched(self.profile)
+
+        mock_get_similar.assert_called_once()
+
+
+class QuickStatsFormatTests(TestCase):
+    def test_total_watch_time_uses_the_stats_pages_duration_format(self):
+        user = User.objects.create_user("statsformat", password="pass12345")
+        profile = Profile.objects.create(user=user, display_name="StatsFormat")
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Long Movie", year=2020, runtime_minutes=130)
+        WatchEvent.objects.create(profile=profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        stats = selectors.quick_stats(profile)
+        self.assertEqual(stats["total_watch_time"], "2h 10m")
+
+
 class DashboardWatchingWatchlistTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("dashboardwatcher", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="DashboardWatcher")
         self.client.login(username="dashboardwatcher", password="pass12345")
+
+    def test_recently_added_excludes_watchlist_items(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Watchlisted Movie", year=2020)
+        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        WatchListItem.objects.create(watchlist=watchlist, title=title)
+        resp = self.client.get(reverse("dashboard"))
+        self.assertEqual(list(resp.context["recently_added"]), [])
+
+    def test_total_watch_time_rendered_in_breakdown_format(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Timed Movie", year=2020, runtime_minutes=130)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "2h 10m")
+
+    @patch("tracker.integrations.tmdb.get_similar")
+    def test_because_you_watched_row_rendered_when_present(self, mock_get_similar):
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Bleach", year=2004, external_ids={"tmdb": "1", "tmdb_kind": "tv"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        mock_get_similar.return_value = [
+            {"tmdb_id": 42, "media_type": "tv", "name": "Naruto", "year": "2002", "poster_url": None, "vote_average": 8.0}
+        ]
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "Because you watched Bleach")
+        self.assertContains(resp, "Naruto")
+
+    def test_no_because_you_watched_row_without_qualifying_history(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertNotContains(resp, "Because you watched")
 
     def test_shows_all_watching_items_not_just_a_teaser(self):
         for i in range(10):

@@ -126,7 +126,11 @@ def quick_stats(profile):
         "streak": current_streak(profile),
         "movies_this_year": movies_this_year,
         "shows_completed": shows_completed,
-        "total_watch_hours": round(total_minutes / 60),
+        # "217d 4h 3m" style, matching the Stats page's own watch-time
+        # breakdown format (_format_duration) instead of a flat "7342h" -
+        # the two pages showing the same kind of stat differently read as
+        # inconsistent.
+        "total_watch_time": _format_duration(total_minutes),
     }
 
 
@@ -165,7 +169,51 @@ def _visible_watchlist_items(profile, media_types=None):
 
 
 def recently_added_to_lists(profile, limit=3):
-    return _visible_watchlist_items(profile)[:limit]
+    """Dashboard's "Recently added to lists" row - custom lists only
+    (is_watchlist=False). The Watchlist carousel right above it on
+    Dashboard already shows the newest Watchlist adds, so including
+    Watchlist items here too just echoed the same few titles a second
+    time in a shorter row instead of adding new information."""
+    return _visible_watchlist_items(profile).exclude(watchlist__is_watchlist=True)[:limit]
+
+
+def because_you_watched(profile, candidate_pool=3, limit=12):
+    """Dashboard's personalized discovery row - TMDB's own
+    "recommendations" for the most recently watched title that has a
+    TMDB id (most watch history does, via Trakt/Simkl/CSV import's own
+    TMDB matching, or a title added through a discover/preview/search
+    card). Tries up to candidate_pool recent titles, newest first,
+    stopping at the first one TMDB actually has recommendations for -
+    an obscure title can have none, and one retry or two is worth it,
+    but this deliberately doesn't keep trying indefinitely (each attempt
+    is a real TMDB call) just to fill a Dashboard row. None if nothing
+    qualifies (no TMDB-linked watch history yet, no TMDB_API_KEY
+    configured, or every candidate came back empty) - the Dashboard
+    just skips the row rather than showing an empty one."""
+    from tracker.integrations import tmdb as tmdb_integration
+
+    recent_titles = []
+    seen_title_ids = set()
+    for event in (
+        WatchEvent.objects.filter(profile=profile, title__external_ids__tmdb__isnull=False)
+        .select_related("title")
+        .order_by("-watched_at")
+    ):
+        if event.title_id not in seen_title_ids:
+            seen_title_ids.add(event.title_id)
+            recent_titles.append(event.title)
+        if len(recent_titles) >= candidate_pool:
+            break
+
+    for title in recent_titles:
+        tmdb_id = title.external_ids.get("tmdb")
+        if not tmdb_id:
+            continue
+        media_type = tmdb_integration.media_type_for(title)
+        results = tmdb_integration.get_similar(media_type, tmdb_id, limit=limit)
+        if results:
+            return {"anchor_title": title, "results": results}
+    return None
 
 
 def library_watchlist(profile, media_types):

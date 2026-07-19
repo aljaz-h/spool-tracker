@@ -31,7 +31,7 @@
     {% include "tracker/partials/stat_card.html" with value=stats.streak label="Day watch streak" %}
     {% include "tracker/partials/stat_card.html" with value=stats.movies_this_year label="Movies watched this year" %}
     {% include "tracker/partials/stat_card.html" with value=stats.shows_completed label="Shows completed" color_class="text-secondary" %}
-    {% include "tracker/partials/stat_card.html" with value=stats.total_watch_hours|stringformat:"s"|add:"h" label="Total watch time" %}
+    {% include "tracker/partials/stat_card.html" with value=stats.total_watch_time label="Total watch time" value_size_class="text-2xl" %}
   </div>
 
   <div class="bg-base-200 border border-line rounded-2xl p-5 mt-6" x-data="{ loading: false }">
@@ -111,6 +111,17 @@
       {% endif %}
     </div>
   </div>
+
+  {% if because_you_watched %}
+    <div class="flex justify-between items-center mt-9 mb-3.5">
+      <h2 class="font-display text-xl">Because you watched {{ because_you_watched.anchor_title.name }}</h2>
+    </div>
+    <div class="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
+      {% for item in because_you_watched.results %}
+        {% include "tracker/partials/discover_tile.html" with item=item %}
+      {% endfor %}
+    </div>
+  {% endif %}
 {% endif %}
 
 {% endblock %}

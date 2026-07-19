@@ -99,6 +99,8 @@ def dashboard(request):
                 "recently_added": recently_added,
                 "stats": stats,
                 "milestone": selectors.milestone_message(stats["streak"], stats["movies_this_year"]),
+                "because_you_watched": selectors.because_you_watched(profile),
+                "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")),
                 **selectors.poster_action_context(profile, all_titles),
             }
         )

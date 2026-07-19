@@ -8,6 +8,30 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-07-19
+
+### Added
+
+- A "Because you watched X" discovery row on the Dashboard - TMDB's own
+  recommendations for the most recently watched title that has a TMDB
+  id, rendered as the same preview cards Movies & TV/Anime's discovery
+  grid uses. This was one of the original Dashboard carousel ideas that
+  had quietly dropped out somewhere along the way in favor of just
+  Watchlist - the Dashboard was otherwise 100% "things you already
+  have," with nothing suggesting what to watch next. Also fills the
+  dead space that used to sit below "Up next" on a lighter day.
+
+### Fixed
+
+- "Recently added to lists" was showing the same handful of titles as
+  the Watchlist carousel directly above it (Watchlist adds counted as
+  "added to a list" too), so the two rows usually looked like
+  duplicates. It now only shows adds to actual custom lists, so it
+  carries information the Watchlist row doesn't.
+- Dashboard's "Total watch time" stat now reads "217d 4h 3m" style,
+  matching the Stats page's own watch-time breakdown format, instead of
+  a flat "7342H" that read inconsistently next to it.
+
 ## [0.21.0] - 2026-07-19
 
 ### Added
