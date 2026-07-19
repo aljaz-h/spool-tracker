@@ -240,6 +240,58 @@ def calendar_releases(profile, media_type=None, source="all", start=None, end=No
     return qs
 
 
+def sync_failure_streaks():
+    """Sync Log's alert banner - flags each (profile, provider) whose most
+    recent syncs are consecutively failed, so a dead integration reads as
+    "here's what's wrong" instead of a wall of red rows someone has to
+    notice and count themselves. Only looks at the newest 200 log rows
+    total (not per-pair) - Sync Log is a low-volume household admin tool,
+    not something that needs unbounded history scanned on every page
+    load. RUNNING rows are excluded entirely (neither extend nor break a
+    streak) since they're transient and say nothing about outcome yet.
+    Returns dicts sorted oldest-streak-first (the most overdue problem
+    first), each with the profile, provider, how many failures in a row,
+    when the streak started, and whether the errors in it look
+    auth-shaped (contain "401" or "Unauthorized") - the template uses
+    that to decide whether a reconnect link actually makes sense, versus
+    a generic "syncs are failing" note for e.g. a network blip."""
+    from .models import SyncLog
+
+    recent = (
+        SyncLog.objects.select_related("profile")
+        .exclude(status=SyncLog.Status.RUNNING)
+        .order_by("-started_at")[:200]
+    )
+
+    by_pair = {}
+    for log in recent:
+        by_pair.setdefault((log.profile_id, log.provider), []).append(log)
+
+    streaks = []
+    for (profile_id, provider), logs in by_pair.items():
+        streak = []
+        for log in logs:
+            if log.status != SyncLog.Status.FAILED:
+                break
+            streak.append(log)
+        if len(streak) < 2:
+            continue
+        streaks.append(
+            {
+                "profile": streak[0].profile,
+                "profile_id": profile_id,
+                "provider": provider,
+                "count": len(streak),
+                "since": streak[-1].started_at,
+                "looks_like_auth_failure": any(
+                    "401" in log.error_message or "Unauthorized" in log.error_message for log in streak
+                ),
+            }
+        )
+    streaks.sort(key=lambda s: s["since"])
+    return streaks
+
+
 def titles_needing_release_sync():
     """Titles worth polling TMDB for upcoming releases - anything with a
     WatchProgress row (any status), watchlist membership, or plain watch

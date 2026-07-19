@@ -8,6 +8,29 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-07-19
+
+### Added
+
+- Sync Log now surfaces problems instead of just listing them. When a
+  provider's most recent syncs are consecutively failing (an unresolved
+  streak, not a blip that already recovered), a banner appears above the
+  table - e.g. "Trakt sync has failed 4 times in a row since Jul 17 -
+  the access token may have expired or been revoked", with a direct
+  Reconnect link when it's your own account and the errors look
+  auth-shaped (a 401/Unauthorized). Other profiles' broken syncs get the
+  same banner without a reconnect link, since only the account owner can
+  reconnect their own integration.
+- Error messages are no longer stuck truncated with only a native hover
+  tooltip - click one to expand the full text in a monospace, selectable
+  block with a Copy button.
+- Status now pairs a check/x icon with the existing success/failed
+  color, instead of relying on color alone.
+- Failures under a second get a small "fast fail" badge on the Duration
+  column - a sub-second failure almost always means the request was
+  rejected before reaching Trakt/Simkl at all (an auth problem), not a
+  timeout, and that distinction isn't obvious from the number alone.
+
 ## [0.19.0] - 2026-07-19
 
 ### Fixed

@@ -1206,7 +1206,10 @@ def sync_log(request):
     logs = SyncLog.objects.select_related("profile").all()
     paginator = Paginator(logs, SYNC_LOG_PAGE_SIZE)
     page = paginator.get_page(request.GET.get("page"))
-    return render(request, "tracker/sync_log.html", {"profile": profile, "page": page})
+    failure_streaks = selectors.sync_failure_streaks()
+    return render(
+        request, "tracker/sync_log.html", {"profile": profile, "page": page, "failure_streaks": failure_streaks}
+    )
 
 
 @login_required

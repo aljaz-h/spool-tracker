@@ -1968,18 +1968,112 @@ class IncrementalSyncTests(TestCase):
         self.assertIsNone(self.account.last_synced_at)
 
 
+class SyncFailureStreaksTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("streakowner", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="StreakOwner")
+
+    def _log(self, status, provider=ExternalAccount.Provider.TRAKT, error="", profile=None, age_days=0):
+        from django.utils import timezone
+
+        log = SyncLog.objects.create(
+            profile=profile or self.profile, provider=provider, status=status, error_message=error
+        )
+        started = timezone.now() - timedelta(days=age_days)
+        SyncLog.objects.filter(pk=log.pk).update(started_at=started, finished_at=started)
+        return log
+
+    def test_no_logs_means_no_streaks(self):
+        self.assertEqual(selectors.sync_failure_streaks(), [])
+
+    def test_all_successes_means_no_streak(self):
+        self._log(SyncLog.Status.SUCCESS, age_days=2)
+        self._log(SyncLog.Status.SUCCESS, age_days=1)
+        self.assertEqual(selectors.sync_failure_streaks(), [])
+
+    def test_single_failure_at_head_is_not_a_streak(self):
+        self._log(SyncLog.Status.SUCCESS, age_days=1)
+        self._log(SyncLog.Status.FAILED, age_days=0)
+        self.assertEqual(selectors.sync_failure_streaks(), [])
+
+    def test_two_consecutive_failures_at_head_counted(self):
+        self._log(SyncLog.Status.SUCCESS, age_days=2)
+        self._log(SyncLog.Status.FAILED, age_days=1)
+        self._log(SyncLog.Status.FAILED, age_days=0)
+        streaks = selectors.sync_failure_streaks()
+        self.assertEqual(len(streaks), 1)
+        self.assertEqual(streaks[0]["count"], 2)
+        self.assertEqual(streaks[0]["profile"], self.profile)
+        self.assertEqual(streaks[0]["provider"], ExternalAccount.Provider.TRAKT)
+
+    def test_success_at_head_means_no_streak_even_with_older_failures(self):
+        self._log(SyncLog.Status.FAILED, age_days=2)
+        self._log(SyncLog.Status.FAILED, age_days=1)
+        self._log(SyncLog.Status.SUCCESS, age_days=0)
+        self.assertEqual(selectors.sync_failure_streaks(), [])
+
+    def test_running_excluded_and_does_not_break_a_streak(self):
+        self._log(SyncLog.Status.FAILED, age_days=2)
+        self._log(SyncLog.Status.FAILED, age_days=1)
+        self._log(SyncLog.Status.RUNNING, age_days=0)
+        streaks = selectors.sync_failure_streaks()
+        self.assertEqual(len(streaks), 1)
+        self.assertEqual(streaks[0]["count"], 2)
+
+    def test_401_error_flagged_as_auth_failure(self):
+        self._log(SyncLog.Status.FAILED, error="401 Client Error: Unauthorized for url: ...", age_days=1)
+        self._log(SyncLog.Status.FAILED, error="401 Client Error: Unauthorized for url: ...", age_days=0)
+        streaks = selectors.sync_failure_streaks()
+        self.assertTrue(streaks[0]["looks_like_auth_failure"])
+
+    def test_non_auth_error_not_flagged(self):
+        self._log(SyncLog.Status.FAILED, error="Connection timed out", age_days=1)
+        self._log(SyncLog.Status.FAILED, error="Connection timed out", age_days=0)
+        streaks = selectors.sync_failure_streaks()
+        self.assertFalse(streaks[0]["looks_like_auth_failure"])
+
+    def test_pairs_handled_independently(self):
+        self._log(SyncLog.Status.FAILED, provider=ExternalAccount.Provider.TRAKT, age_days=1)
+        self._log(SyncLog.Status.FAILED, provider=ExternalAccount.Provider.TRAKT, age_days=0)
+        self._log(SyncLog.Status.SUCCESS, provider=ExternalAccount.Provider.SIMKL, age_days=0)
+        streaks = selectors.sync_failure_streaks()
+        self.assertEqual(len(streaks), 1)
+        self.assertEqual(streaks[0]["provider"], ExternalAccount.Provider.TRAKT)
+
+    def test_sorted_oldest_streak_first(self):
+        other_user = User.objects.create_user("otherstreak", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="OtherStreak")
+        self._log(SyncLog.Status.FAILED, age_days=1)
+        self._log(SyncLog.Status.FAILED, age_days=0)
+        self._log(SyncLog.Status.FAILED, profile=other_profile, age_days=6)
+        self._log(SyncLog.Status.FAILED, profile=other_profile, age_days=5)
+        streaks = selectors.sync_failure_streaks()
+        self.assertEqual(len(streaks), 2)
+        self.assertEqual(streaks[0]["profile"], other_profile)
+        self.assertEqual(streaks[1]["profile"], self.profile)
+
+
 class SyncLogViewTests(TestCase):
     def setUp(self):
+        from django.utils import timezone
+
         owner_user = User.objects.create_user("logowner", password="pass12345", is_superuser=True)
         self.owner = Profile.objects.create(user=owner_user, display_name="LogOwner")
         member_user = User.objects.create_user("logmember", password="pass12345")
-        Profile.objects.create(user=member_user, display_name="LogMember")
-        SyncLog.objects.create(
+        self.member = Profile.objects.create(user=member_user, display_name="LogMember")
+        log = SyncLog.objects.create(
             profile=self.owner,
             provider=ExternalAccount.Provider.TRAKT,
             status=SyncLog.Status.SUCCESS,
             item_count=3,
         )
+        # Pinned safely in the past (rather than "now", set by auto_now_add)
+        # so tests that add their own failures at age_days=0/1 land after
+        # it - this log staying the oldest, not landing in between two
+        # synthetic failures and silently breaking the streak they're
+        # testing for.
+        old = timezone.now() - timedelta(days=30)
+        SyncLog.objects.filter(pk=log.pk).update(started_at=old, finished_at=old)
 
     def test_non_owner_gets_404(self):
         self.client.login(username="logmember", password="pass12345")
@@ -1991,6 +2085,72 @@ class SyncLogViewTests(TestCase):
         resp = self.client.get(reverse("sync_log"))
         self.assertContains(resp, "LogOwner")
         self.assertContains(resp, "success")
+
+    def test_no_banner_for_a_lone_success(self):
+        self.client.login(username="logowner", password="pass12345")
+        resp = self.client.get(reverse("sync_log"))
+        self.assertNotContains(resp, "has failed")
+
+    def _fail_twice(self, profile, error="401 Client Error: Unauthorized for url: https://api.trakt.tv/x"):
+        from django.utils import timezone
+
+        for age in (1, 0):
+            log = SyncLog.objects.create(
+                profile=profile, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.FAILED,
+                error_message=error,
+            )
+            started = timezone.now() - timedelta(days=age)
+            SyncLog.objects.filter(pk=log.pk).update(started_at=started, finished_at=started + timedelta(seconds=0.2))
+
+    def test_banner_and_reconnect_link_shown_for_own_consecutive_failures(self):
+        self._fail_twice(self.owner)
+        self.client.login(username="logowner", password="pass12345")
+        resp = self.client.get(reverse("sync_log"))
+        self.assertContains(resp, "has failed 2 times in a row")
+        self.assertContains(resp, "Reconnect Trakt")
+        self.assertContains(resp, reverse("trakt_connect"))
+
+    def test_banner_shown_without_reconnect_link_for_other_profiles_failures(self):
+        self._fail_twice(self.member)
+        self.client.login(username="logowner", password="pass12345")
+        resp = self.client.get(reverse("sync_log"))
+        self.assertContains(resp, "has failed 2 times in a row")
+        self.assertContains(resp, "LogMember")
+        self.assertNotContains(resp, "Reconnect Trakt")
+
+    def test_full_error_text_present_for_copy_expand(self):
+        from django.utils.html import escape
+
+        long_error = "401 Client Error: Unauthorized for url: https://api.trakt.tv/sync/history?limit=200&start_at=2026-07-16T13%3A30%3A00.028Z&page=1"
+        self._fail_twice(self.owner, error=long_error)
+        self.client.login(username="logowner", password="pass12345")
+        resp = self.client.get(reverse("sync_log"))
+        self.assertContains(resp, escape(long_error))
+
+    def test_status_icons_rendered_for_success_and_failure(self):
+        self._fail_twice(self.owner)
+        self.client.login(username="logowner", password="pass12345")
+        resp = self.client.get(reverse("sync_log"))
+        self.assertGreaterEqual(resp.content.decode().count("<svg"), 3)
+
+    def test_fast_fail_badge_shown_for_subsecond_failure(self):
+        self._fail_twice(self.owner)
+        self.client.login(username="logowner", password="pass12345")
+        resp = self.client.get(reverse("sync_log"))
+        self.assertContains(resp, "fast fail")
+
+    def test_fast_fail_badge_not_shown_for_slow_failure(self):
+        from django.utils import timezone
+
+        log = SyncLog.objects.create(
+            profile=self.owner, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.FAILED,
+            error_message="timed out",
+        )
+        started = timezone.now()
+        SyncLog.objects.filter(pk=log.pk).update(started_at=started, finished_at=started + timedelta(seconds=12))
+        self.client.login(username="logowner", password="pass12345")
+        resp = self.client.get(reverse("sync_log"))
+        self.assertNotContains(resp, "fast fail")
 
 
 class SchedulingTests(TestCase):
