@@ -157,6 +157,48 @@
 
   </div>
 
+  <div class="bg-error/5 border border-error/30 rounded-2xl p-5 mt-5">
+    <h3 class="text-lg text-error mb-1">Danger Zone</h3>
+    <div class="text-ink-dim text-xs mb-3.5">These actions are permanent and can't be undone.</div>
+
+    <div class="flex justify-between items-center py-3.5 border-b border-error/20 last:border-b-0">
+      <div>
+        <div class="font-semibold text-[13.5px]">Clear watch history</div>
+        <div class="text-xs text-ink-dim">Deletes every watch event and rating. Your lists and watchlist are untouched.</div>
+      </div>
+      <form method="post" action="{% url 'clear_watch_history' %}" onsubmit="return confirm('Clear your entire watch history? This deletes every watch event and rating - permanently. Your lists and watchlist stay as they are.');">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content">Clear history</button>
+      </form>
+    </div>
+
+    {% if "trakt" in connected_providers %}
+      <div class="flex justify-between items-center py-3.5 border-b border-error/20 last:border-b-0">
+        <div>
+          <div class="font-semibold text-[13.5px]">Disconnect &amp; wipe Trakt</div>
+          <div class="text-xs text-ink-dim">Disconnects Trakt and removes watch history for titles matched via Trakt.</div>
+        </div>
+        <form method="post" action="{% url 'disconnect_and_wipe_provider' 'trakt' %}" onsubmit="return confirm('Disconnect Trakt and remove watch history for titles matched via Trakt? This is permanent.');">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content">Disconnect &amp; wipe</button>
+        </form>
+      </div>
+    {% endif %}
+
+    {% if "simkl" in connected_providers %}
+      <div class="flex justify-between items-center py-3.5 border-b border-error/20 last:border-b-0">
+        <div>
+          <div class="font-semibold text-[13.5px]">Disconnect &amp; wipe Simkl</div>
+          <div class="text-xs text-ink-dim">Disconnects Simkl and removes watch history for titles matched via Simkl.</div>
+        </div>
+        <form method="post" action="{% url 'disconnect_and_wipe_provider' 'simkl' %}" onsubmit="return confirm('Disconnect Simkl and remove watch history for titles matched via Simkl? This is permanent.');">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content">Disconnect &amp; wipe</button>
+        </form>
+      </div>
+    {% endif %}
+  </div>
+
   <div class="text-[11px] text-ink-faint font-mono mt-6">Spool v{{ app_version }}</div>
 </div>
 {% endblock %}

@@ -2196,6 +2196,96 @@ class DisconnectProviderTests(TestCase):
         self.assertEqual(resp.status_code, 404)
 
 
+class ClearWatchHistoryViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("clearer", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Clearer")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Cleared Movie", year=2020)
+        self.client.login(username="clearer", password="pass12345")
+
+    def test_deletes_watch_events_and_progress(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at="2024-01-01T00:00:00Z")
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.WATCHING)
+        self.client.post(reverse("clear_watch_history"))
+        self.assertFalse(WatchEvent.objects.filter(profile=self.profile).exists())
+        self.assertFalse(WatchProgress.objects.filter(profile=self.profile).exists())
+
+    def test_does_not_touch_lists_or_watchlist(self):
+        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        WatchListItem.objects.create(watchlist=watchlist, title=self.title)
+        custom_list = WatchList.objects.create(profile=self.profile, name="Favorites")
+        WatchListItem.objects.create(watchlist=custom_list, title=self.title)
+        self.client.post(reverse("clear_watch_history"))
+        self.assertTrue(WatchListItem.objects.filter(watchlist=watchlist, title=self.title).exists())
+        self.assertTrue(WatchListItem.objects.filter(watchlist=custom_list, title=self.title).exists())
+
+    def test_does_not_touch_other_profiles_history(self):
+        other_user = User.objects.create_user("otherclearer", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="OtherClearer")
+        WatchEvent.objects.create(profile=other_profile, title=self.title, watched_at="2024-01-01T00:00:00Z")
+        self.client.post(reverse("clear_watch_history"))
+        self.assertTrue(WatchEvent.objects.filter(profile=other_profile).exists())
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("clear_watch_history"))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_get_not_allowed(self):
+        resp = self.client.get(reverse("clear_watch_history"))
+        self.assertEqual(resp.status_code, 405)
+
+
+class DisconnectAndWipeProviderViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("wiper", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Wiper")
+        self.account = ExternalAccount.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok"
+        )
+        scheduling.ensure_periodic_task(self.account)
+        self.matched_title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Trakt Matched", year=2020, external_ids={"trakt": "123"}
+        )
+        self.unmatched_title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="No Trakt Id", year=2020, external_ids={"simkl": "456"}
+        )
+        self.client.login(username="wiper", password="pass12345")
+
+    def test_removes_account_and_periodic_task(self):
+        task_name = scheduling.sync_periodic_task_name(self.account)
+        self.client.post(reverse("disconnect_and_wipe_provider", args=["trakt"]))
+        self.assertFalse(ExternalAccount.objects.filter(pk=self.account.pk).exists())
+        self.assertFalse(PeriodicTask.objects.filter(name=task_name).exists())
+
+    def test_deletes_only_watch_events_for_titles_matched_via_provider(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.matched_title, watched_at="2024-01-01T00:00:00Z")
+        WatchEvent.objects.create(profile=self.profile, title=self.unmatched_title, watched_at="2024-01-01T00:00:00Z")
+        self.client.post(reverse("disconnect_and_wipe_provider", args=["trakt"]))
+        self.assertFalse(WatchEvent.objects.filter(profile=self.profile, title=self.matched_title).exists())
+        self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title=self.unmatched_title).exists())
+
+    def test_does_not_touch_other_profiles_history(self):
+        other_user = User.objects.create_user("otherwiper", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="OtherWiper")
+        WatchEvent.objects.create(profile=other_profile, title=self.matched_title, watched_at="2024-01-01T00:00:00Z")
+        self.client.post(reverse("disconnect_and_wipe_provider", args=["trakt"]))
+        self.assertTrue(WatchEvent.objects.filter(profile=other_profile, title=self.matched_title).exists())
+
+    def test_disconnecting_unconnected_provider_404s(self):
+        resp = self.client.post(reverse("disconnect_and_wipe_provider", args=["simkl"]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("disconnect_and_wipe_provider", args=["trakt"]))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_get_not_allowed(self):
+        resp = self.client.get(reverse("disconnect_and_wipe_provider", args=["trakt"]))
+        self.assertEqual(resp.status_code, 405)
+
+
 class ProfilePopupViewTests(TestCase):
     def setUp(self):
         viewer_user = User.objects.create_user("popupviewer", password="pass12345")

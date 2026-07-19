@@ -8,6 +8,31 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-07-19
+
+### Added
+
+- Settings → Danger Zone: a red-treatment card at the bottom of the
+  page for permanent, destructive data actions. "Clear watch history"
+  wipes every watch event and rating (and in-progress "watching" state)
+  for your profile in one go - your lists and watchlist are untouched,
+  since history and curation are kept conceptually separate everywhere
+  else in this app. Each connected provider (Trakt/Simkl) also gets a
+  "Disconnect & wipe" action alongside the existing plain "Disconnect" -
+  it removes the integration the same way, plus your own watch history
+  for titles that provider matched. That match is approximated by
+  "this title carries that provider's external id" (per-watch-event
+  provenance isn't tracked), so a title also tracked another way keeps
+  losing its full history here, not just the provider-specific slice -
+  documented as a known limitation rather than silently glossed over.
+  Both actions only ever touch your own profile's watch data; shared
+  library rows (Titles/Episodes) and other profiles' history are never
+  touched.
+
+This is the third of the planned Settings rounds. Account deletion
+itself was deliberately left out - it's a better fit for My Profile
+than here, and wasn't part of this round's scope.
+
 ## [0.17.0] - 2026-07-19
 
 ### Added

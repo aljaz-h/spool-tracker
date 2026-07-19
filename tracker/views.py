@@ -1605,6 +1605,54 @@ def disconnect_provider(request, provider):
     return redirect("settings")
 
 
+@login_required
+@require_POST
+def clear_watch_history(request):
+    """Settings → Danger Zone. Deletes every WatchEvent (so every rating
+    too, since those live on the event) and WatchProgress row for this
+    profile - a full reset back to "never watched anything". Deliberately
+    doesn't touch Titles/Episodes themselves (shared library data other
+    profiles' own history may still reference) or this profile's own
+    lists/watchlist - "history" and "what I've curated" are kept
+    conceptually separate everywhere else in this app, and this is no
+    exception."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    deleted, _ = WatchEvent.objects.filter(profile=profile).delete()
+    WatchProgress.objects.filter(profile=profile).delete()
+    messages.success(request, f"Cleared your watch history ({deleted} event{'s' if deleted != 1 else ''} removed).")
+    return redirect("settings")
+
+
+@login_required
+@require_POST
+def disconnect_and_wipe_provider(request, provider):
+    """Same as disconnect_provider, plus actually removes this profile's
+    own watch history for titles that provider is known to have matched -
+    approximated by "has an external id for that provider" (external_ids
+    has no per-WatchEvent provenance to key off instead), so a title also
+    tracked another way loses its history here too if it happens to
+    carry that provider's id. Only ever this profile's own WatchEvents -
+    the Title/Episode rows, and any other profile's history against
+    them, are untouched."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    account = get_object_or_404(ExternalAccount, profile=profile, provider=provider)
+    scheduling.remove_periodic_task(account)
+    account.delete()
+    deleted, _ = WatchEvent.objects.filter(
+        profile=profile, **{f"title__external_ids__{provider}__isnull": False}
+    ).delete()
+    messages.success(
+        request,
+        f"Disconnected {provider.title()} and removed {deleted} watch event{'s' if deleted != 1 else ''} "
+        f"for titles matched via {provider.title()}.",
+    )
+    return redirect("settings")
+
+
 def _dispatch_sync_task_safely(task, profile_id, timeout=2.0):
     def _dispatch():
         try:

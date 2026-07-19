@@ -72,6 +72,12 @@ urlpatterns = [
     path("import/simkl/callback/", views.oauth_callback, {"provider": "simkl"}, name="simkl_callback"),
     path("settings/sync-schedule/<str:provider>/", views.save_sync_schedule, name="save_sync_schedule"),
     path("settings/disconnect/<str:provider>/", views.disconnect_provider, name="disconnect_provider"),
+    path(
+        "settings/disconnect-and-wipe/<str:provider>/",
+        views.disconnect_and_wipe_provider,
+        name="disconnect_and_wipe_provider",
+    ),
+    path("settings/clear-watch-history/", views.clear_watch_history, name="clear_watch_history"),
     path("import/csv/", views.import_csv_upload, name="import_csv"),
     path("import/csv/preview/", views.import_csv_preview, name="import_csv_preview"),
     path("import/csv/remap/", views.import_csv_remap, name="import_csv_remap"),
