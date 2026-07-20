@@ -20,6 +20,34 @@
     document.addEventListener('htmx:configRequest', (e) => {
       e.detail.headers['X-CSRFToken'] = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
     });
+    // Shared styled-<dialog> replacement for the browser's own native
+    // confirm() popup - resolves true/false once the dialog closes,
+    // whichever way (Confirm click, Cancel click, backdrop click, Esc).
+    // Used by the htmx:confirm handler below (covers every hx-confirm in
+    // the app: history delete, bulk delete, the watched button's rewatch
+    // guard, ...) and directly by the odd plain (non-htmx) form that
+    // needs the same guard, like title_detail's own "Mark as Watched".
+    window.confirmModal = (question) => {
+      return new Promise((resolve) => {
+        const modal = document.getElementById('confirm_modal');
+        document.getElementById('confirm-modal-message').textContent = question;
+        const confirmBtn = document.getElementById('confirm-modal-confirm-btn');
+        let confirmed = false;
+        const onConfirm = () => { confirmed = true; modal.close(); };
+        const onClose = () => { confirmBtn.removeEventListener('click', onConfirm); resolve(confirmed); };
+        confirmBtn.addEventListener('click', onConfirm, { once: true });
+        modal.addEventListener('close', onClose, { once: true });
+        modal.showModal();
+      });
+    };
+    // htmx's documented custom-confirm recipe: intercept the cancelable
+    // htmx:confirm event and only call issueRequest(true) (proceeding
+    // with the original request) once the dialog above resolves true.
+    document.addEventListener('htmx:confirm', (e) => {
+      if (!e.detail.question) return;
+      e.preventDefault();
+      window.confirmModal(e.detail.question).then((ok) => { if (ok) e.detail.issueRequest(true); });
+    });
   </script>
 </head>
 <body class="bg-base-100 text-base-content min-h-screen">
@@ -32,5 +60,16 @@
       </main>
     </div>
   </div>
+
+  <dialog id="confirm_modal" class="modal">
+    <div class="modal-box bg-base-200 border border-line rounded-2xl p-5 max-w-sm">
+      <div id="confirm-modal-message" class="text-sm leading-relaxed mb-5"></div>
+      <div class="flex gap-2.5 justify-end">
+        <form method="dialog"><button type="submit" class="btn btn-sm bg-base-300 border-line">Cancel</button></form>
+        <button type="button" id="confirm-modal-confirm-btn" class="btn btn-sm btn-error">Confirm</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop bg-black/60 backdrop-blur-sm"><button>close</button></form>
+  </dialog>
 </body>
 </html>

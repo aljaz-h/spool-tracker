@@ -88,6 +88,7 @@ def dashboard(request):
             selectors.library_watchlist(profile, [MediaType.MOVIE, MediaType.TV, MediaType.ANIME])
         )
         recently_added = list(selectors.recently_added_to_lists(profile))
+        because_you_watched = selectors.because_you_watched(profile)
         all_titles = (
             [item["title"] for item in continue_watching]
             + [item.title for item in watchlist_items]
@@ -101,10 +102,13 @@ def dashboard(request):
                 "recently_added": recently_added,
                 "stats": stats,
                 "milestone": selectors.milestone_message(stats["streak"], stats["movies_this_year"]),
-                "because_you_watched": selectors.because_you_watched(profile),
+                "because_you_watched": because_you_watched,
                 "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")),
                 "received_recommendations": _received_recommendations(profile),
                 **selectors.poster_action_context(profile, all_titles),
+                **selectors.discover_action_context(
+                    profile, because_you_watched["results"] if because_you_watched else []
+                ),
             }
         )
     return render(request, "tracker/dashboard.html", context)
@@ -257,6 +261,8 @@ def discover(request, media_type, category):
         "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
         "collections_enabled": COLLECTIONS_ENABLED,
     }
+    if profile is not None:
+        context.update(selectors.discover_action_context(profile, page["results"]))
     return render(request, "tracker/discover.html", context)
 
 
@@ -279,6 +285,8 @@ def collection_detail(request, collection_id):
         "results": collection["parts"],
         "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
     }
+    if profile is not None:
+        context.update(selectors.discover_action_context(profile, collection["parts"]))
     return render(request, "tracker/collection_detail.html", context)
 
 
@@ -439,17 +447,20 @@ def title_detail(request, pk):
         **episode_context,
         **_recommend_context(profile, title),
     }
+    if profile is not None and similar:
+        context.update(selectors.discover_action_context(profile, similar))
     context["star_fill"] = _star_fill(context["latest_rating"])
     return render(request, "tracker/title_detail.html", context)
 
 
 def _recommend_context(profile, title):
-    """The sidebar "Recommend to" card's context - shared by title_detail's
-    own render and send_recommendation's re-render of just that card.
-    Sorts every other profile into exactly one of: already watched it,
-    already has a pending recommendation from this profile, or is a real
-    candidate - so the card can show why a button isn't live instead of
-    just hiding it."""
+    """The sidebar "Recommend to" card's context for a real (already
+    materialized) title - shared by title_detail's own render and
+    send_recommendation/title_preview_send_recommendation's re-render of
+    just that card. Sorts every other profile into exactly one of:
+    already watched it, already has a pending recommendation from this
+    profile, or is a real candidate - so the card can show why a button
+    isn't live instead of just hiding it."""
     if profile is None:
         return {"other_profiles": [], "already_watched_profile_ids": set(), "recommended_profile_ids": set()}
     other_profiles = list(Profile.objects.exclude(pk=profile.pk).order_by("display_name"))
@@ -468,13 +479,29 @@ def _recommend_context(profile, title):
     }
 
 
+def _preview_recommend_context(profile):
+    """The sidebar "Recommend to" card's context for a not-yet-tracked
+    preview title - with no local Title row yet, there's no possible
+    WatchEvent/Recommendation history against it, so every other profile
+    is always a live candidate. Recommending materializes the Title (see
+    title_preview_send_recommendation), same as every other preview
+    action (mark watched, add to list/watchlist)."""
+    if profile is None:
+        return {"other_profiles": [], "already_watched_profile_ids": set(), "recommended_profile_ids": set()}
+    return {
+        "other_profiles": list(Profile.objects.exclude(pk=profile.pk).order_by("display_name")),
+        "already_watched_profile_ids": set(),
+        "recommended_profile_ids": set(),
+    }
+
+
 @login_required
 @require_POST
 def send_recommendation(request, pk):
     """The sidebar "Recommend to" card's one action - one click sends, no
     confirmation or message field (deliberately kept simple). No-ops
-    (doesn't create a row) rather than erroring when the target has
-    already watched it or already has one pending from this same
+    (doesn't create a row or notify) rather than erroring when the target
+    has already watched it or already has one pending from this same
     profile - the re-rendered card just reflects that state instead of
     a dead-end button."""
     title = get_object_or_404(Title, pk=pk)
@@ -484,13 +511,39 @@ def send_recommendation(request, pk):
     to_profile = get_object_or_404(Profile, pk=request.POST.get("to_profile_id"))
     if to_profile.pk == profile.pk:
         raise Http404
-    already_watched = WatchEvent.objects.filter(profile=to_profile, title=title).exists()
-    if not already_watched:
-        Recommendation.objects.get_or_create(
-            from_profile=profile, to_profile=to_profile, title=title, status=Recommendation.Status.PENDING
-        )
+    recommendations.send(profile, to_profile, title)
     return render(
         request, "tracker/partials/recommend_card.html", {"title": title, **_recommend_context(profile, title)}
+    )
+
+
+@login_required
+@require_POST
+def title_preview_send_recommendation(request, media_type, tmdb_id):
+    """The preview page's "Recommend to" card - previously the only way
+    to recommend a title was to first add it to a watchlist (which
+    materializes the Title), even though recommending has nothing to do
+    with your own watchlist. Materializes the Title itself (same as every
+    other preview action) then behaves exactly like send_recommendation
+    from then on, including notifying the recipient - the re-rendered
+    card points any further clicks at the real endpoint via the now-
+    materialized title.pk (see recommend_card.html)."""
+    if media_type not in ("movie", "tv"):
+        raise Http404
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    to_profile = get_object_or_404(Profile, pk=request.POST.get("to_profile_id"))
+    if to_profile.pk == profile.pk:
+        raise Http404
+    title = _get_or_create_preview_title(media_type, tmdb_id)
+    if title is None:
+        raise Http404
+    recommendations.send(profile, to_profile, title)
+    return render(
+        request,
+        "tracker/partials/recommend_card.html",
+        {"title": title, "is_preview": False, **_recommend_context(profile, title)},
     )
 
 
@@ -666,7 +719,10 @@ def title_preview(request, media_type, tmdb_id):
         # list-picker popovers are for those (also not-yet-tracked) titles.
         "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
         "in_list_ids": set(),
+        **_preview_recommend_context(profile),
     }
+    if profile is not None and context["similar"]:
+        context.update(selectors.discover_action_context(profile, context["similar"]))
     return render(request, "tracker/title_detail.html", context)
 
 

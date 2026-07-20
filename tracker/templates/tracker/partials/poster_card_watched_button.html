@@ -1,11 +1,19 @@
 {% load icons %}
 {# context: title (Title), watched (bool) #}
+{% comment %}
+No "unwatch" here - a click always logs a new WatchEvent (see
+title_mark_watched). Once already watched, that makes a second,
+unintentional click on the same green checkmark log a silent duplicate
+rewatch - hx-confirm guards only that case, so the very first "mark
+watched" stays a single uninterrupted click.
+{% endcomment %}
 <button
   type="button"
   id="watched-btn-{{ title.pk }}"
   hx-post="{% url 'title_mark_watched' title.pk %}"
   hx-target="#watched-btn-{{ title.pk }}"
   hx-swap="outerHTML"
+  {% if watched %}hx-confirm="Log another watch of “{{ title.name }}”?"{% endif %}
   title="{% if watched %}Watched — log another watch{% else %}Mark as watched{% endif %}"
   class="w-7 h-7 rounded-full flex items-center justify-center border transition-colors
     {% if watched %}bg-success/90 border-success/60 text-success-content{% else %}bg-black/55 border-white/15 text-white/85 hover:bg-black/75 hover:border-white/30{% endif %}"

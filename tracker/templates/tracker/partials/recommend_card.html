@@ -1,4 +1,4 @@
-{# context: title, other_profiles, already_watched_profile_ids, recommended_profile_ids #}
+{# context: title (Title|None), is_preview (bool), preview_media_type/preview_tmdb_id (when is_preview), other_profiles, already_watched_profile_ids, recommended_profile_ids #}
 {% if other_profiles %}
   <div class="bg-base-200 border border-line rounded-2xl p-4">
     <h2 class="font-display text-lg mb-2.5">Recommend to</h2>
@@ -15,7 +15,17 @@
             <span>&#10003; Sent</span>
           </button>
         {% else %}
-          <form hx-post="{% url 'send_recommendation' title.pk %}" hx-target="closest div.bg-base-200" hx-swap="outerHTML">
+          {% comment %}
+            A not-yet-tracked preview title has no pk to post to yet -
+            title_preview_send_recommendation materializes it (same as
+            every other preview action) and hands back this same card,
+            now pointed at the real send_recommendation URL for any
+            further clicks.
+          {% endcomment %}
+          <form
+            hx-post="{% if is_preview %}{% url 'title_preview_send_recommendation' preview_media_type preview_tmdb_id %}{% else %}{% url 'send_recommendation' title.pk %}{% endif %}"
+            hx-target="closest div.bg-base-200" hx-swap="outerHTML"
+          >
             {% csrf_token %}
             <input type="hidden" name="to_profile_id" value="{{ op.id }}">
             <button type="submit" class="btn btn-sm w-full justify-between">

@@ -327,7 +327,7 @@ class ReleaseSchedule(models.Model):
 class Notification(models.Model):
     """In-app only (see tracker/notifications.py) - no email/push. Kind
     determines what title/release_schedule mean: release-based kinds and
-    recommendation_watched always carry title; sync_failed and
+    both recommendation kinds always carry title; sync_failed and
     system_update carry neither (title is unavailable/irrelevant, there's
     no ReleaseSchedule to dedupe on - system_update dedupes on its own
     message text instead, see tracker/tasks.check_for_new_version)."""
@@ -337,6 +337,7 @@ class Notification(models.Model):
         UPCOMING_RELEASE = "upcoming_release", "Upcoming release"
         SYNC_FAILED = "sync_failed", "Sync failed"
         SYSTEM_UPDATE = "system_update", "System update"
+        RECOMMENDATION_RECEIVED = "recommendation_received", "Recommendation received"
         RECOMMENDATION_WATCHED = "recommendation_watched", "Recommendation watched"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="notifications")

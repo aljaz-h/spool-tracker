@@ -49,8 +49,22 @@ def color_at_index(index):
 @register.filter
 def get_item(d, key):
     """Dict lookup by a variable key — Django's `.` lookup only accepts
-    literal attribute/key names, not a template variable holding the key."""
+    literal attribute/key names, not a template variable holding the key.
+    Tolerates a missing/non-dict `d` (returns None) rather than raising -
+    discover_tile.html is included from several views, and a context
+    var that's merely absent (vs. an empty dict) shouldn't be a hard
+    template error."""
+    if not isinstance(d, dict):
+        return None
     return d.get(key)
+
+
+@register.filter
+def tmdb_key(item):
+    """discover_action_context()'s lookup key for a discover_tile.html
+    item dict - "media_type:tmdb_id", matching how that selector builds
+    discover_watched/discover_list_membership/discover_title_by_key."""
+    return f"{item['media_type']}:{item['tmdb_id']}"
 
 
 @register.filter

@@ -1246,6 +1246,24 @@ class SendRecommendationViewTests(TestCase):
         self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
         self.assertFalse(Recommendation.objects.exists())
 
+    def test_recipient_gets_notified(self):
+        self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
+        n = Notification.objects.get(profile=self.recipient)
+        self.assertEqual(n.kind, Notification.Kind.RECOMMENDATION_RECEIVED)
+        self.assertEqual(n.title, self.title)
+        self.assertIn("SendSender", n.message)
+        self.assertIn("Fathom", n.message)
+
+    def test_already_watched_target_is_not_notified(self):
+        WatchEvent.objects.create(profile=self.recipient, title=self.title, watched_at="2024-01-01T00:00:00Z")
+        self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
+        self.assertFalse(Notification.objects.exists())
+
+    def test_duplicate_send_does_not_notify_twice(self):
+        self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
+        self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
+        self.assertEqual(Notification.objects.filter(profile=self.recipient).count(), 1)
+
     def test_response_reflects_already_watched_state(self):
         WatchEvent.objects.create(profile=self.recipient, title=self.title, watched_at="2024-01-01T00:00:00Z")
         resp = self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
@@ -1267,6 +1285,137 @@ class SendRecommendationViewTests(TestCase):
     def test_get_not_allowed(self):
         resp = self.client.get(reverse("send_recommendation", args=[self.title.pk]))
         self.assertEqual(resp.status_code, 405)
+
+
+class TitlePreviewSendRecommendationViewTests(TestCase):
+    """Recommending a not-yet-tracked preview title (title_preview_send_recommendation) -
+    previously the only way to recommend anything was to first add it to
+    a watchlist, which had nothing to do with recommending. Materializes
+    the Title (same as every other preview action) then behaves exactly
+    like send_recommendation, including notifying the recipient."""
+
+    def setUp(self):
+        sender_user = User.objects.create_user("previewrecsender", password="pass12345")
+        self.sender = Profile.objects.create(user=sender_user, display_name="PreviewRecSender")
+        recipient_user = User.objects.create_user("previewrecrecipient", password="pass12345")
+        self.recipient = Profile.objects.create(user=recipient_user, display_name="PreviewRecRecipient")
+        self.client.login(username="previewrecsender", password="pass12345")
+
+    def _mock_details(self):
+        patcher = patch("tracker.integrations.tmdb.get_full_details")
+        mock_details = patcher.start()
+        self.addCleanup(patcher.stop)
+        mock_details.return_value = {"name": "Fathom", "year": "2020", "poster_url": None, "genres": []}
+        return mock_details
+
+    def test_materializes_the_title_and_creates_a_pending_recommendation(self):
+        self._mock_details()
+        self.client.post(
+            reverse("title_preview_send_recommendation", args=["movie", 42]), {"to_profile_id": self.recipient.pk}
+        )
+        title = Title.objects.get(external_ids__tmdb="42")
+        self.assertEqual(title.name, "Fathom")
+        self.assertTrue(
+            Recommendation.objects.filter(
+                from_profile=self.sender, to_profile=self.recipient, title=title, status=Recommendation.Status.PENDING
+            ).exists()
+        )
+
+    def test_recipient_gets_notified(self):
+        self._mock_details()
+        self.client.post(
+            reverse("title_preview_send_recommendation", args=["movie", 42]), {"to_profile_id": self.recipient.pk}
+        )
+        title = Title.objects.get(external_ids__tmdb="42")
+        n = Notification.objects.get(profile=self.recipient)
+        self.assertEqual(n.kind, Notification.Kind.RECOMMENDATION_RECEIVED)
+        self.assertEqual(n.title, title)
+
+    def test_reuses_an_existing_title_instead_of_duplicating_it(self):
+        mock_details = self._mock_details()
+        existing_title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        self.client.post(
+            reverse("title_preview_send_recommendation", args=["movie", 42]), {"to_profile_id": self.recipient.pk}
+        )
+        mock_details.assert_not_called()
+        self.assertEqual(Title.objects.filter(external_ids__tmdb="42").count(), 1)
+        self.assertTrue(Recommendation.objects.filter(to_profile=self.recipient, title=existing_title).exists())
+
+    def test_response_points_further_clicks_at_the_real_endpoint(self):
+        # A third profile, still a live "Recommend" candidate after this
+        # click (unlike self.recipient, who's now "Sent" - a disabled
+        # button with no URL at all) - its form should point at the real,
+        # now-materialized-title endpoint, not the preview one again.
+        self._mock_details()
+        third_user = User.objects.create_user("previewrecthird", password="pass12345")
+        Profile.objects.create(user=third_user, display_name="PreviewRecThird")
+        resp = self.client.post(
+            reverse("title_preview_send_recommendation", args=["movie", 42]), {"to_profile_id": self.recipient.pk}
+        )
+        title = Title.objects.get(external_ids__tmdb="42")
+        self.assertContains(resp, reverse("send_recommendation", args=[title.pk]))
+        self.assertNotContains(resp, reverse("title_preview_send_recommendation", args=["movie", 42]))
+
+    def test_sending_to_self_404s(self):
+        resp = self.client.post(
+            reverse("title_preview_send_recommendation", args=["movie", 42]), {"to_profile_id": self.sender.pk}
+        )
+        self.assertEqual(resp.status_code, 404)
+        self.assertFalse(Recommendation.objects.exists())
+
+    def test_invalid_media_type_404s(self):
+        resp = self.client.post(
+            reverse("title_preview_send_recommendation", args=["book", 42]), {"to_profile_id": self.recipient.pk}
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(
+            reverse("title_preview_send_recommendation", args=["movie", 42]), {"to_profile_id": self.recipient.pk}
+        )
+        self.assertEqual(resp.status_code, 302)
+
+    def test_get_not_allowed(self):
+        resp = self.client.get(reverse("title_preview_send_recommendation", args=["movie", 42]))
+        self.assertEqual(resp.status_code, 405)
+
+
+class RecommendationsSendUnitTests(TestCase):
+    """recommendations.send() directly - the shared helper behind both
+    send_recommendation and title_preview_send_recommendation."""
+
+    def setUp(self):
+        sender_user = User.objects.create_user("sendunitsender", password="pass12345")
+        self.sender = Profile.objects.create(user=sender_user, display_name="SendUnitSender")
+        recipient_user = User.objects.create_user("sendunitrecipient", password="pass12345")
+        self.recipient = Profile.objects.create(user=recipient_user, display_name="SendUnitRecipient")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+
+    def test_creates_a_pending_recommendation_and_notifies(self):
+        recommendations.send(self.sender, self.recipient, self.title)
+        self.assertTrue(
+            Recommendation.objects.filter(
+                from_profile=self.sender, to_profile=self.recipient, title=self.title, status=Recommendation.Status.PENDING
+            ).exists()
+        )
+        n = Notification.objects.get(profile=self.recipient)
+        self.assertEqual(n.kind, Notification.Kind.RECOMMENDATION_RECEIVED)
+        self.assertIn("SendUnitSender", n.message)
+        self.assertIn("Fathom", n.message)
+
+    def test_already_watched_target_gets_neither_a_row_nor_a_notification(self):
+        WatchEvent.objects.create(profile=self.recipient, title=self.title, watched_at="2024-01-01T00:00:00Z")
+        recommendations.send(self.sender, self.recipient, self.title)
+        self.assertFalse(Recommendation.objects.exists())
+        self.assertFalse(Notification.objects.exists())
+
+    def test_second_call_while_pending_does_not_duplicate_the_notification(self):
+        recommendations.send(self.sender, self.recipient, self.title)
+        recommendations.send(self.sender, self.recipient, self.title)
+        self.assertEqual(Notification.objects.filter(profile=self.recipient).count(), 1)
 
 
 class DismissRecommendationViewTests(TestCase):
@@ -1320,7 +1469,10 @@ class TitleDetailRecommendCardTests(TestCase):
         self.assertContains(resp, "Recommend to")
         self.assertContains(resp, "CardOther")
 
-    def test_no_card_on_a_preview_page(self):
+    def test_card_also_shows_on_a_preview_page(self):
+        # Recommending shouldn't require adding the title to a watchlist
+        # first - the card (and its live "Recommend" buttons) shows on a
+        # not-yet-tracked preview page too, same as the real detail page.
         other_user = User.objects.create_user("cardother2", password="pass12345")
         Profile.objects.create(user=other_user, display_name="CardOther2")
         with patch("tracker.integrations.tmdb.get_full_details") as mock_details:
@@ -1328,7 +1480,9 @@ class TitleDetailRecommendCardTests(TestCase):
                 "name": "Preview Movie", "year": "2020", "genres": [], "status": "Released", "poster_url": None,
             }
             resp = self.client.get(reverse("title_preview", args=["movie", 999]))
-        self.assertNotContains(resp, "Recommend to")
+        self.assertContains(resp, "Recommend to")
+        self.assertContains(resp, "CardOther2")
+        self.assertContains(resp, reverse("title_preview_send_recommendation", args=["movie", 999]))
 
 
 class DashboardRecommendationsTests(TestCase):
@@ -5051,6 +5205,40 @@ class DiscoverViewTests(TestCase):
         self.client.get(reverse("movies_tv", args=["trending"]), {"language": ""})
         self.assertIsNone(mock_discover.call_args.kwargs["original_language"])
 
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_a_previously_watched_title_reappearing_shows_the_green_checkmark(self, mock_discover, mock_genres):
+        profile = Profile.objects.get(display_name="DiscoverViewer")
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        WatchEvent.objects.create(profile=profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        mock_discover.return_value = {
+            "results": [{"tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020",
+                         "poster_url": None, "vote_average": 7.1}],
+            "page": 1,
+            "total_pages": 1,
+        }
+        resp = self.client.get(reverse("movies_tv", args=["popular"]))
+        self.assertContains(resp, "bg-success")
+        self.assertContains(resp, f"watched-btn-{title.pk}")
+        # Already watched -> a further click is guarded by a confirm.
+        self.assertContains(resp, 'hx-confirm="')
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_an_untracked_title_still_shows_the_unwatched_state(self, mock_discover, mock_genres):
+        mock_discover.return_value = {
+            "results": [{"tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020",
+                         "poster_url": None, "vote_average": 7.1}],
+            "page": 1,
+            "total_pages": 1,
+        }
+        resp = self.client.get(reverse("movies_tv", args=["popular"]))
+        self.assertNotContains(resp, "bg-success")
+        self.assertNotContains(resp, 'hx-confirm="')
+        self.assertContains(resp, reverse("title_preview_mark_watched", args=["movie", 42]))
+
 
 class SearchViewTests(TestCase):
     def setUp(self):
@@ -5809,6 +5997,22 @@ class TitleDetailViewTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         mock_details.assert_not_called()
 
+    def test_mark_watched_button_has_no_confirm_guard_before_any_watch(self):
+        # window.confirmModal itself is defined globally (base.html, every
+        # page) - what should be absent here is the form's onsubmit call
+        # to it, not the mere word.
+        never_watched = Title.objects.create(media_type=MediaType.MOVIE, name="Never Watched", year=2021)
+        resp = self.client.get(reverse("title_detail", args=[never_watched.pk]))
+        self.assertNotContains(resp, "Log another watch of")
+
+    def test_mark_watched_button_gets_a_confirm_guard_once_already_watched(self):
+        from django.utils import timezone
+
+        already_watched = Title.objects.create(media_type=MediaType.MOVIE, name="Already Watched", year=2021)
+        WatchEvent.objects.create(profile=self.profile, title=already_watched, watched_at=timezone.now())
+        resp = self.client.get(reverse("title_detail", args=[already_watched.pk]))
+        self.assertContains(resp, "Log another watch of")
+
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
     @patch("tracker.integrations.tmdb.get_full_details")
@@ -5990,6 +6194,13 @@ class TitleMarkWatchedAndRateTests(TestCase):
         self.assertContains(resp, "bg-success")
         self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title=self.title).exists())
 
+    def test_returned_fragment_guards_further_clicks_with_a_confirm(self):
+        # The fragment handed back after marking watched is itself already
+        # in the "watched" state - a second, likely-accidental click on it
+        # shouldn't silently log another rewatch, so it carries hx-confirm.
+        resp = self.client.post(reverse("title_mark_watched", args=[self.title.pk]), HTTP_HX_REQUEST="true")
+        self.assertContains(resp, "hx-confirm")
+
     def test_rate_with_no_prior_watch_creates_a_watch_event(self):
         resp = self.client.post(reverse("title_rate", args=[self.title.pk]), {"rating": "7"})
         self.assertRedirects(resp, reverse("title_detail", args=[self.title.pk]), fetch_redirect_response=False)
@@ -6047,6 +6258,7 @@ class EpisodeMarkWatchedTests(TestCase):
         self.assertFalse(event.is_rewatch)
         self.assertContains(resp, f"ep-watched-btn-{self.title.pk}-1-1")
         self.assertContains(resp, "bg-success")
+        self.assertContains(resp, "hx-confirm")
 
     @patch("tracker.integrations.tmdb.get_season_details")
     def test_reuses_an_episode_row_created_by_a_prior_sync(self, mock_season):
@@ -6371,6 +6583,65 @@ class PosterActionContextSelectorTests(TestCase):
         self.assertEqual(context["list_membership"][title.pk], set())
 
 
+class DiscoverActionContextSelectorTests(TestCase):
+    """discover_action_context - poster_action_context's counterpart for
+    TMDB preview tiles (Movies & TV/Anime's grid, "Because you watched",
+    a title's "similar" grid, ...). Without this, a title already
+    watched/listed (tracked previously, now reappearing on a Trending
+    page or as a suggestion) always rendered as untracked."""
+
+    def setUp(self):
+        user = User.objects.create_user("discoveractionuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="DiscoverActionUser")
+
+    def _item(self, tmdb_id=42, media_type="movie"):
+        return {"tmdb_id": tmdb_id, "media_type": media_type, "name": "Fathom", "year": "2020", "poster_url": None, "vote_average": 7.0}
+
+    def test_no_local_title_yet_is_unwatched_and_unlisted(self):
+        context = selectors.discover_action_context(self.profile, [self._item()])
+        key = "movie:42"
+        self.assertIsNone(context["discover_title_by_key"][key])
+        self.assertFalse(context["discover_watched"][key])
+        self.assertEqual(context["discover_list_membership"][key], set())
+
+    def test_a_previously_watched_title_reappearing_shows_as_watched(self):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        context = selectors.discover_action_context(self.profile, [self._item()])
+        key = "movie:42"
+        self.assertEqual(context["discover_title_by_key"][key], title)
+        self.assertTrue(context["discover_watched"][key])
+
+    def test_a_previously_listed_title_reappearing_shows_its_list_membership(self):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        watchlist = WatchList.objects.create(profile=self.profile, name="Favorites")
+        WatchListItem.objects.create(watchlist=watchlist, title=title)
+        context = selectors.discover_action_context(self.profile, [self._item()])
+        key = "movie:42"
+        self.assertEqual(context["discover_list_membership"][key], {watchlist.id})
+        self.assertFalse(context["discover_watched"][key])
+
+    def test_another_profiles_watch_history_does_not_leak_in(self):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        other_user = User.objects.create_user("discoveractionother", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="DiscoverActionOther")
+        WatchEvent.objects.create(profile=other_profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        context = selectors.discover_action_context(self.profile, [self._item()])
+        self.assertFalse(context["discover_watched"]["movie:42"])
+
+    def test_empty_items_list_returns_empty_dicts(self):
+        context = selectors.discover_action_context(self.profile, [])
+        self.assertEqual(context["discover_title_by_key"], {})
+        self.assertEqual(context["discover_watched"], {})
+        self.assertEqual(context["discover_list_membership"], {})
+
+
 class PosterCardListPopoverHtmxBranchTests(TestCase):
     """add_to_list/remove_from_list are reused by both the Lists detail
     page (swaps the whole #list-items grid) and the new poster-card list
@@ -6613,6 +6884,40 @@ class HistoryBulkDeleteTests(TestCase):
     def test_get_is_not_allowed(self):
         resp = self.client.get(reverse("history_bulk_delete"))
         self.assertEqual(resp.status_code, 405)
+
+
+class CustomConfirmModalTests(TestCase):
+    """base.html's styled <dialog> replacement for the browser's own
+    native confirm() popup - a global htmx:confirm listener intercepts
+    every hx-confirm in the app (no per-template changes needed at each
+    call site) and shows this instead. Covers History's three delete
+    confirms (single tile, per-episode group dropdown, bulk-select bar)
+    among others."""
+
+    def setUp(self):
+        user = User.objects.create_user("confirmmodaluser", password="pass12345")
+        Profile.objects.create(user=user, display_name="ConfirmModalUser")
+        self.client.login(username="confirmmodaluser", password="pass12345")
+
+    def test_dialog_and_handler_present_on_every_page(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, 'id="confirm_modal"')
+        self.assertContains(resp, 'id="confirm-modal-message"')
+        self.assertContains(resp, 'id="confirm-modal-confirm-btn"')
+        self.assertContains(resp, "htmx:confirm")
+
+    def test_history_delete_buttons_still_use_hx_confirm_not_a_native_js_confirm(self):
+        from django.utils import timezone
+
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchEvent.objects.create(profile=Profile.objects.get(display_name="ConfirmModalUser"), title=movie, watched_at=timezone.now())
+        resp = self.client.get(reverse("history"))
+        self.assertContains(resp, "hx-confirm=")
+        self.assertNotContains(resp, "onclick=\"return confirm(")
+
+    def test_bulk_delete_bar_still_uses_hx_confirm(self):
+        resp = self.client.get(reverse("history"))
+        self.assertContains(resp, "Remove the selected items from your watch history")
 
 
 class HistoryDeleteEpisodeTests(TestCase):

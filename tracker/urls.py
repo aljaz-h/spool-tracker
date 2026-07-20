@@ -38,6 +38,11 @@ urlpatterns = [
         views.title_preview_add_to_list,
         name="title_preview_add_to_list",
     ),
+    path(
+        "titles/preview/<str:media_type>/<int:tmdb_id>/recommend/",
+        views.title_preview_send_recommendation,
+        name="title_preview_send_recommendation",
+    ),
     path("history/", views.history, name="history"),
     path("profile/<int:profile_id>/history/", views.history, name="member_history"),
     path("history/bulk-delete/", views.history_bulk_delete, name="history_bulk_delete"),

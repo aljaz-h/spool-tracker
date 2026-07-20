@@ -902,3 +902,54 @@ def poster_action_context(profile, titles):
         list_membership[title_id].add(list_id)
 
     return {"watched_by_title": watched_by_title, "my_lists": my_lists, "list_membership": list_membership}
+
+
+def discover_action_context(profile, items):
+    """poster_action_context's counterpart for TMDB preview tiles
+    (discover_tile.html - Movies & TV/Anime's grid, Dashboard's "Because
+    you watched" row, title_detail's "similar" grid, search's TMDB-results
+    section, a collection's movies) - these have no Title pk to key off,
+    only a (media_type, tmdb_id) pair, and may or may not have a matching
+    local Title row yet. Without this, a title already watched or listed
+    (tracked previously, now reappearing on a Trending/Popular page or as
+    a "similar" suggestion) always rendered as untracked - the whole
+    reason this exists.
+
+    One .filter(...).first() per item to find its local Title, not a
+    batched __in - see views.search's own per-result TMDB dedupe check
+    for why: a JSONField key-transform's value round-trips through
+    SQLite's json_extract typed, silently breaking a str-vs-id membership
+    check under __in. Bounded to a page's worth of items (~20-24), same
+    as that existing per-result check.
+
+    Returns matched_title_by_key (Title or None - lets the template reuse
+    poster_card_watched_button.html/poster_card_list_popover.html, the
+    same partials a tracked title's own poster card uses, whenever a
+    match exists) alongside the usual watched/list-membership dicts.
+    """
+    matched_title_by_key = {}
+    for item in items:
+        key = f"{item['media_type']}:{item['tmdb_id']}"
+        matched_title_by_key[key] = Title.objects.filter(external_ids__tmdb=str(item["tmdb_id"])).first()
+
+    title_ids = [t.pk for t in matched_title_by_key.values() if t is not None]
+    watched_title_ids = set(
+        WatchEvent.objects.filter(profile=profile, title_id__in=title_ids).values_list("title_id", flat=True).distinct()
+    )
+    list_membership_by_title = {}
+    for title_id, list_id in WatchListItem.objects.filter(
+        watchlist__profile=profile, title_id__in=title_ids
+    ).values_list("title_id", "watchlist_id"):
+        list_membership_by_title.setdefault(title_id, set()).add(list_id)
+
+    discover_watched = {}
+    discover_list_membership = {}
+    for key, title in matched_title_by_key.items():
+        discover_watched[key] = bool(title and title.pk in watched_title_ids)
+        discover_list_membership[key] = list_membership_by_title.get(title.pk, set()) if title else set()
+
+    return {
+        "discover_title_by_key": matched_title_by_key,
+        "discover_watched": discover_watched,
+        "discover_list_membership": discover_list_membership,
+    }

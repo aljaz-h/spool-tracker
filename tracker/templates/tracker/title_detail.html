@@ -47,7 +47,17 @@
 
         {% if not is_preview %}
           <div class="flex flex-wrap items-center gap-5 mt-4 p-3 rounded-xl bg-base-100/50 border border-line/70 w-fit">
-            <form method="post" action="{% url 'title_mark_watched' title.pk %}">
+            {% comment %}
+              No "unwatch" here either (see title_mark_watched) - guard
+              a second, likely-accidental click the same way the poster
+              card's own watched button does, just via the shared
+              confirmModal() helper since this is a plain form post, not
+              an htmx one.
+            {% endcomment %}
+            <form
+              method="post" action="{% url 'title_mark_watched' title.pk %}"
+              {% if recent_events %}onsubmit="event.preventDefault(); window.confirmModal('Log another watch of “{{ title.name|escapejs }}”?').then((ok) => { if (ok) this.submit(); }); return false;"{% endif %}
+            >
               {% csrf_token %}
               <button type="submit" class="btn btn-primary btn-sm">&#10003; Mark as Watched</button>
             </form>
@@ -146,9 +156,7 @@
         {% endif %}
       </div>
 
-      {% if not is_preview %}
-        {% include "tracker/partials/recommend_card.html" %}
-      {% endif %}
+      {% include "tracker/partials/recommend_card.html" %}
 
       {% if watch_providers %}
         <div class="bg-base-200 border border-line rounded-2xl p-4">

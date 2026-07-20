@@ -8,6 +8,34 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-07-20
+
+### Fixed
+
+- Recommending a title no longer requires adding it to a watchlist
+  first - the "Recommend to" card now also shows on a not-yet-tracked
+  preview page (TMDB search/discover results you haven't watched or
+  listed yet), and materializes the title itself when you actually
+  click Recommend, same as every other preview action.
+- Sending a recommendation now actually notifies the recipient (header
+  bell) - it previously only ever showed up passively on their
+  Dashboard, with nothing pointing them at it.
+- Movies & TV / Anime's discovery grid (and Dashboard's "Because you
+  watched" row, a title's "similar" grid, ...) now correctly shows the
+  green watched checkmark and list membership for a title you've
+  already watched or listed elsewhere, reappearing there on a
+  Trending/Popular page or as a suggestion - it previously always
+  rendered as untracked, regardless of your real history.
+- Marking a title (or episode) watched again once it's already green
+  now asks for confirmation first, instead of silently logging another
+  rewatch on a stray double-click - the first "mark watched" stays a
+  single uninterrupted click.
+- Replaced the browser's own native confirm() popup with a styled
+  in-app dialog everywhere the app asks for confirmation before an
+  action (History's single/per-episode/bulk delete, the new rewatch
+  guard above) - one global handler, no per-template changes needed at
+  each call site.
+
 ## [0.27.1] - 2026-07-20
 
 ### Removed
