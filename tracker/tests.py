@@ -5997,21 +5997,40 @@ class TitleDetailViewTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         mock_details.assert_not_called()
 
-    def test_mark_watched_button_has_no_confirm_guard_before_any_watch(self):
-        # window.confirmModal itself is defined globally (base.html, every
-        # page) - what should be absent here is the form's onsubmit call
-        # to it, not the mere word.
+    def test_header_shows_mark_as_watched_before_any_plain_watch(self):
         never_watched = Title.objects.create(media_type=MediaType.MOVIE, name="Never Watched", year=2021)
         resp = self.client.get(reverse("title_detail", args=[never_watched.pk]))
-        self.assertNotContains(resp, "Log another watch of")
+        self.assertFalse(resp.context["is_watched"])
+        self.assertContains(resp, "+ Mark as Watched")
+        self.assertContains(resp, reverse("title_mark_watched", args=[never_watched.pk]))
+        self.assertNotContains(resp, "Remove your watched mark for")
 
-    def test_mark_watched_button_gets_a_confirm_guard_once_already_watched(self):
+    def test_header_shows_watched_toggle_once_a_plain_watch_exists(self):
         from django.utils import timezone
 
         already_watched = Title.objects.create(media_type=MediaType.MOVIE, name="Already Watched", year=2021)
         WatchEvent.objects.create(profile=self.profile, title=already_watched, watched_at=timezone.now())
         resp = self.client.get(reverse("title_detail", args=[already_watched.pk]))
-        self.assertContains(resp, "Log another watch of")
+        self.assertTrue(resp.context["is_watched"])
+        self.assertContains(resp, "&#10003; Watched")
+        self.assertContains(resp, reverse("title_unmark_watched", args=[already_watched.pk]))
+        self.assertContains(resp, "Remove your watched mark for")
+
+    def test_header_stays_unwatched_when_only_episode_level_history_exists(self):
+        # A show watched only via the episode browser (no whole-title
+        # header click yet) shouldn't falsely claim to be fully done.
+        from django.utils import timezone
+
+        show = Title.objects.create(
+            media_type=MediaType.TV, name="Partly Watched Show", year=2021,
+            external_ids={"tmdb": "77", "tmdb_kind": "tv"},
+        )
+        episode = Episode.objects.create(title=show, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=show, episode=episode, watched_at=timezone.now())
+        with patch("tracker.integrations.tmdb.get_full_details", return_value=None):
+            resp = self.client.get(reverse("title_detail", args=[show.pk]))
+        self.assertFalse(resp.context["is_watched"])
+        self.assertContains(resp, "+ Mark as Watched")
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -6236,6 +6255,64 @@ class TitleMarkWatchedAndRateTests(TestCase):
         self.assertNotEqual(resp.status_code, 200)
 
 
+class TitleUnmarkWatchedTests(TestCase):
+    """The detail page's header 'Watched' toggle, once already watched -
+    unlike title_mark_watched's other callers (poster card, episode
+    browser), this is a genuine unmark, not another rewatch log."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.timezone = timezone
+        user = User.objects.create_user("unmarkuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="UnmarkUser")
+        self.client.login(username="unmarkuser", password="pass12345")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+
+    def test_removes_the_plain_watch_mark(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
+        resp = self.client.post(reverse("title_unmark_watched", args=[self.title.pk]))
+        self.assertRedirects(resp, reverse("title_detail", args=[self.title.pk]), fetch_redirect_response=False)
+        self.assertFalse(WatchEvent.objects.filter(profile=self.profile, title=self.title).exists())
+
+    def test_removes_every_plain_rewatch_too(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now() - timedelta(days=1))
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
+        self.client.post(reverse("title_unmark_watched", args=[self.title.pk]))
+        self.assertEqual(WatchEvent.objects.filter(profile=self.profile, title=self.title).count(), 0)
+
+    def test_leaves_episode_level_history_untouched(self):
+        show = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99", "tmdb_kind": "tv"}
+        )
+        episode = Episode.objects.create(title=show, season=1, episode=1)
+        episode_event = WatchEvent.objects.create(profile=self.profile, title=show, episode=episode, watched_at=self.timezone.now())
+        WatchEvent.objects.create(profile=self.profile, title=show, watched_at=self.timezone.now())
+        self.client.post(reverse("title_unmark_watched", args=[show.pk]))
+        self.assertTrue(WatchEvent.objects.filter(pk=episode_event.pk).exists())
+        self.assertFalse(WatchEvent.objects.filter(profile=self.profile, title=show, episode__isnull=True).exists())
+
+    def test_leaves_another_profiles_watch_marks_untouched(self):
+        other_user = User.objects.create_user("unmarkother", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="UnmarkOther")
+        other_event = WatchEvent.objects.create(profile=other_profile, title=self.title, watched_at=self.timezone.now())
+        self.client.post(reverse("title_unmark_watched", args=[self.title.pk]))
+        self.assertTrue(WatchEvent.objects.filter(pk=other_event.pk).exists())
+
+    def test_no_op_when_nothing_to_unmark(self):
+        resp = self.client.post(reverse("title_unmark_watched", args=[self.title.pk]))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_requires_get_is_rejected(self):
+        resp = self.client.get(reverse("title_unmark_watched", args=[self.title.pk]))
+        self.assertEqual(resp.status_code, 405)
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("title_unmark_watched", args=[self.title.pk]))
+        self.assertNotEqual(resp.status_code, 200)
+
+
 class EpisodeMarkWatchedTests(TestCase):
     """The episode browser's per-episode watched button."""
 
@@ -6396,6 +6473,19 @@ class TitlePreviewViewTests(TestCase):
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
     @patch("tracker.integrations.tmdb.get_full_details")
+    def test_mark_watched_and_add_to_watchlist_are_both_independently_available(self, mock_details, mock_credits, mock_similar):
+        # Neither action should require or imply the other - watched and
+        # watchlisted are two separate facts about a title.
+        mock_details.return_value = self._details()
+        resp = self.client.get(reverse("title_preview", args=["movie", 42]))
+        self.assertContains(resp, "+ Mark as Watched")
+        self.assertContains(resp, reverse("title_preview_mark_watched", args=["movie", 42]))
+        self.assertContains(resp, "+ Add to Watchlist")
+        self.assertContains(resp, reverse("title_preview_add_to_watchlist", args=["movie", 42]))
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
     def test_shows_a_status_badge_for_an_upcoming_movie(self, mock_details, mock_credits, mock_similar):
         mock_details.return_value = self._details(status="Planned")
         resp = self.client.get(reverse("title_preview", args=["movie", 42]))
@@ -6444,9 +6534,9 @@ class TitlePreviewViewTests(TestCase):
         self.assertNotEqual(resp.status_code, 200)
 
     @patch("tracker.integrations.tmdb.get_full_details")
-    def test_mark_watched_materializes_the_title_and_logs_a_watch(self, mock_details):
+    def test_mark_watched_via_htmx_materializes_the_title_and_returns_the_fragment(self, mock_details):
         mock_details.return_value = self._details()
-        resp = self.client.post(reverse("title_preview_mark_watched", args=["movie", 42]))
+        resp = self.client.post(reverse("title_preview_mark_watched", args=["movie", 42]), HTTP_HX_REQUEST="true")
         self.assertEqual(resp.status_code, 200)
         title = Title.objects.get(external_ids__tmdb="42")
         self.assertEqual(title.name, "Fathom")
@@ -6455,13 +6545,24 @@ class TitlePreviewViewTests(TestCase):
         self.assertContains(resp, "bg-success")
 
     @patch("tracker.integrations.tmdb.get_full_details")
+    def test_mark_watched_as_a_plain_post_materializes_and_redirects_to_the_real_page(self, mock_details):
+        # The preview page's own header "Mark as Watched" button - a
+        # plain form post (no HX-Request), unlike the Discover grid's
+        # quick-action version of this same endpoint.
+        mock_details.return_value = self._details()
+        resp = self.client.post(reverse("title_preview_mark_watched", args=["movie", 42]))
+        title = Title.objects.get(external_ids__tmdb="42")
+        self.assertRedirects(resp, reverse("title_detail", args=[title.pk]), fetch_redirect_response=False)
+        self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title=title).exists())
+
+    @patch("tracker.integrations.tmdb.get_full_details")
     def test_mark_watched_reuses_an_existing_title(self, mock_details):
         mock_details.return_value = self._details()
         existing_title = Title.objects.create(
             media_type=MediaType.MOVIE, name="Fathom", year=2020,
             external_ids={"tmdb": "42", "tmdb_kind": "movie"},
         )
-        self.client.post(reverse("title_preview_mark_watched", args=["movie", 42]))
+        self.client.post(reverse("title_preview_mark_watched", args=["movie", 42]), HTTP_HX_REQUEST="true")
         mock_details.assert_not_called()
         self.assertEqual(Title.objects.filter(external_ids__tmdb="42").count(), 1)
         self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title=existing_title).exists())

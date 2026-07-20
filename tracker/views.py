@@ -592,15 +592,20 @@ def title_episodes(request, pk):
 @login_required
 @require_POST
 def title_mark_watched(request, pk):
-    """The detail page's quick "mark as watched" action - a plain,
+    """The quick "mark as watched" action, used by both the detail page's
+    own header button (unwatched state) and the poster card action bar's
+    watched button (HTMX, everywhere a poster card renders) - a plain,
     episode-less WatchEvent (same shape History/the activity feed already
-    render as "watched <title>" with no episode), since there was no
-    manual "I watched this" action anywhere in the app before this page -
-    everything else arrives via sync/import/CSV. The poster card action
-    bar's watched button hits this same endpoint via HTMX and re-renders
-    just itself in place instead of following the full-page redirect -
-    there's no "unwatch" here (this always creates a new WatchEvent, a
-    second click logs a rewatch), so the fragment is always watched=True."""
+    render as "watched <title>" with no episode). Always creates a new
+    WatchEvent, a second click logs a rewatch - there's still no
+    "unwatch" *here*; that's title_unmark_watched, a deliberately
+    separate endpoint the header button switches to once already watched
+    (see title_local_context's is_watched), not a toggle baked into this
+    one. The poster card's own watched button keeps this exact
+    always-append behavior even once a title is watched (rewatch
+    logging, guarded by its own confirm - see poster_card_watched_button.html) -
+    only the detail page's dedicated header control gained real
+    watched/unwatched toggle semantics."""
     title = get_object_or_404(Title, pk=pk)
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
@@ -611,6 +616,25 @@ def title_mark_watched(request, pk):
     recommendations.mark_title_watched(profile, title)
     if request.headers.get("HX-Request"):
         return render(request, "tracker/partials/poster_card_watched_button.html", {"title": title, "watched": True})
+    return redirect("title_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def title_unmark_watched(request, pk):
+    """The detail page's own header "Watched" control, once already
+    watched - a genuine toggle, unlike title_mark_watched's other
+    callers (the poster card action bar, the episode browser), which
+    always log a fresh rewatch and never unmark. Removes only the plain
+    (episode-less) watch marks that same header button creates - a
+    show's per-episode history from the episode browser is a separate,
+    untouched concern. The header form confirms client-side first (see
+    confirmModal() in title_detail.html) since this is destructive."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=True).delete()
     return redirect("title_detail", pk=pk)
 
 
@@ -780,12 +804,15 @@ def title_preview_add_to_watchlist(request, media_type, tmdb_id):
 @login_required
 @require_POST
 def title_preview_mark_watched(request, media_type, tmdb_id):
-    """The Discover grid's watched button, for a title with no local Title
-    row yet - materializes it (see _get_or_create_preview_title), then
-    behaves exactly like title_mark_watched from then on. Always returns
-    the HTMX fragment (never a redirect) - this button only ever appears
-    inside a discover_tile.html card, unlike title_mark_watched which is
-    also a plain page action on the detail page."""
+    """The Discover grid's watched button (HTMX, no local Title row yet)
+    AND the preview page's own header "Mark as Watched" button (a plain
+    form post - previously the preview page only offered "Add to
+    Watchlist", with no independent way to log a watch for something
+    you'd already seen elsewhere) - materializes the title (see
+    _get_or_create_preview_title), then behaves exactly like
+    title_mark_watched from then on. HTMX gets the fragment back in
+    place; a plain post redirects to the real detail page, same as
+    title_preview_add_to_watchlist."""
     if media_type not in ("movie", "tv"):
         raise Http404
     profile = Profile.objects.filter(user=request.user).first()
@@ -798,7 +825,9 @@ def title_preview_mark_watched(request, media_type, tmdb_id):
     rewatches.recompute_is_rewatch(profile, title, None)
     completion.sync_watchlist_removal(profile, title)
     recommendations.mark_title_watched(profile, title)
-    return render(request, "tracker/partials/poster_card_watched_button.html", {"title": title, "watched": True})
+    if request.headers.get("HX-Request"):
+        return render(request, "tracker/partials/poster_card_watched_button.html", {"title": title, "watched": True})
+    return redirect("title_detail", pk=title.pk)
 
 
 @login_required

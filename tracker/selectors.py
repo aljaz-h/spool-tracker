@@ -845,12 +845,20 @@ def title_local_context(profile, title):
     in_list_ids = set(
         WatchListItem.objects.filter(watchlist__profile=profile, title=title).values_list("watchlist_id", flat=True)
     )
+    # Deliberately narrower than "has any recent_events" - a show with
+    # only individual episodes watched (no whole-title mark) shouldn't
+    # flip the header's primary Watched toggle green, which would falsely
+    # claim the whole thing is done. Scoped to the plain (episode-less)
+    # events that toggle itself owns (title_mark_watched/title_unmark_watched),
+    # not the episode browser's own separate, always-append rewatch log.
+    is_watched = WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=True).exists()
     return {
         "progress": progress,
         "recent_events": recent_events,
         "latest_rating": latest_rating,
         "my_lists": my_lists,
         "in_list_ids": in_list_ids,
+        "is_watched": is_watched,
     }
 
 

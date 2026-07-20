@@ -5,7 +5,7 @@
 
   {% if is_preview %}
     <div class="bg-base-200 border border-dashed border-line rounded-lg px-4 py-3 text-[12.5px] text-ink-dim mb-5">
-      Not in your library yet — this is a live preview from TMDB. Add it to your watchlist to start tracking it.
+      Not in your library yet — this is a live preview from TMDB. Mark it as watched or add it to your watchlist to start tracking it.
     </div>
   {% endif %}
 
@@ -45,24 +45,36 @@
         </div>
         {% if details.tagline %}<div class="text-ink-dim italic text-sm mt-3">{{ details.tagline }}</div>{% endif %}
 
-        {% if not is_preview %}
-          <div class="flex flex-wrap items-center gap-5 mt-4 p-3 rounded-xl bg-base-100/50 border border-line/70 w-fit">
-            {% comment %}
-              No "unwatch" here either (see title_mark_watched) - guard
-              a second, likely-accidental click the same way the poster
-              card's own watched button does, just via the shared
-              confirmModal() helper since this is a plain form post, not
-              an htmx one.
-            {% endcomment %}
+        <div class="flex flex-wrap items-center gap-5 mt-4 p-3 rounded-xl bg-base-100/50 border border-line/70 w-fit">
+          {% comment %}
+            A real watched/unwatched status toggle (like Follow/Following),
+            not a static call-to-action label that never changes once
+            clicked - is_watched (see selectors.title_local_context) drives
+            both which label/color shows and which endpoint the form posts
+            to. Unmarking is destructive (removes the plain watch mark this
+            button owns), so it's confirmed client-side first via the
+            shared confirmModal() helper, same as History's delete actions.
+          {% endcomment %}
+          {% if is_preview %}
+            <form method="post" action="{% url 'title_preview_mark_watched' preview_media_type preview_tmdb_id %}">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-primary btn-sm">+ Mark as Watched</button>
+            </form>
+          {% elif is_watched %}
             <form
-              method="post" action="{% url 'title_mark_watched' title.pk %}"
-              {% if recent_events %}onsubmit="event.preventDefault(); window.confirmModal('Log another watch of “{{ title.name|escapejs }}”?').then((ok) => { if (ok) this.submit(); }); return false;"{% endif %}
+              method="post" action="{% url 'title_unmark_watched' title.pk %}"
+              onsubmit="event.preventDefault(); window.confirmModal('Remove your watched mark for “{{ title.name|escapejs }}”?').then((ok) => { if (ok) this.submit(); }); return false;"
             >
               {% csrf_token %}
-              <button type="submit" class="btn btn-primary btn-sm">&#10003; Mark as Watched</button>
+              <button type="submit" class="btn btn-sm bg-success/90 hover:bg-success border-success/60 text-success-content">&#10003; Watched</button>
             </form>
-          </div>
-        {% endif %}
+          {% else %}
+            <form method="post" action="{% url 'title_mark_watched' title.pk %}">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-primary btn-sm">+ Mark as Watched</button>
+            </form>
+          {% endif %}
+        </div>
       </div>
     </div>
   </div>

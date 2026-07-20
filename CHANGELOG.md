@@ -8,6 +8,26 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-07-20
+
+### Added
+
+- The detail page's "Mark as Watched" header button is now a real
+  watched/unwatched status toggle (like a Follow/Following button),
+  not a static call-to-action that never changed once clicked. Once
+  watched it turns into a green "✓ Watched" indicator, and clicking it
+  again removes the watch mark (confirmed first, since undoing a watch
+  is a meaningful action) - a new title_unmark_watched action, separate
+  from the poster card/episode browser's own quick-action buttons,
+  which keep their existing "always log a fresh rewatch, never unmark"
+  behavior.
+- A not-yet-tracked preview page (a TMDB search/discovery result you
+  haven't watched or listed yet) now offers "Mark as Watched"
+  independently of "Add to Watchlist" - previously the only way to log
+  a watch for something you'd already seen was to add it to a
+  watchlist first, which isn't the same fact about a title and
+  shouldn't have been a prerequisite.
+
 ## [0.28.1] - 2026-07-20
 
 ### Changed
