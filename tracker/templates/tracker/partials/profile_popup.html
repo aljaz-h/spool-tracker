@@ -46,6 +46,10 @@
         <span class="text-[11px] text-ink-dim">Anime</span>
         <span class="font-mono text-[11px] text-right"><b>{{ watch_time_breakdown.last_30_days.anime.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.last_30_days.anime.count }})</span></span>
       </div>
+      <div class="flex justify-between items-baseline gap-2 pt-2.5 border-t border-line">
+        <span class="text-[11px] text-ink-dim">Combined</span>
+        <span class="font-mono text-[11px] text-right"><b>{{ watch_time_breakdown.last_30_days.combined.hours }}h</b> <span class="text-ink-faint">(&asymp; {{ watch_time_breakdown.last_30_days.combined.days }}d)</span></span>
+      </div>
     </div>
   </div>
   <div class="min-w-0 p-4">

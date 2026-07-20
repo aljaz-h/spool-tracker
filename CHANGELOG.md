@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-07-20
+
+### Added
+
+- "Last 30 days" now gets its own Combined row (Movies + TV + Anime
+  summed), matching the Combined row "All time" already had - on both
+  the Stats page and the profile popup (click a household avatar), the
+  two places this watch-time breakdown is shown.
+
 ## [0.26.0] - 2026-07-20
 
 ### Added

@@ -471,10 +471,17 @@ def watch_time_breakdown(profile):
     """Per-type (Movies/TV/Anime) watch time + count, split into last-30-
     days and all-time buckets - the single combined "Total watch time"
     figure in stats_overview() doesn't break down by type or time window
-    the way Trakt/Simkl's own stats pages do."""
+    the way Trakt/Simkl's own stats pages do. Each bucket also carries
+    its own "combined" total (hours/days, same shape and rounding as
+    stats_overview()'s own all-time total_watch_hours/total_watch_days)
+    so a "Combined" row can sit under Last 30 days the same way one
+    already does under All time - the all-time template row still reads
+    from stats_overview() directly rather than this one, to avoid two
+    call sites computing what should be the identical lifetime figure."""
 
     def bucket(events):
         result = {}
+        combined_minutes = 0
         for media_type in [MediaType.MOVIE, MediaType.TV, MediaType.ANIME]:
             type_events = events.filter(title__media_type=media_type)
             minutes = (
@@ -484,6 +491,9 @@ def watch_time_breakdown(profile):
                 or 0
             )
             result[media_type] = {"duration": _format_duration(minutes), "count": type_events.count()}
+            combined_minutes += minutes
+        combined_hours = round(combined_minutes / 60)
+        result["combined"] = {"hours": combined_hours, "days": round(combined_hours / 24, 1)}
         return result
 
     events = WatchEvent.objects.filter(profile=profile)

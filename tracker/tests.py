@@ -3197,6 +3197,16 @@ class ProfilePopupViewTests(TestCase):
         self.assertContains(resp, "Last 30 days")
         self.assertContains(resp, "All time")
         self.assertContains(resp, "Combined")
+
+    def test_last_30_days_also_gets_its_own_combined_row(self):
+        from django.utils import timezone
+
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fresh Movie", year=2024, runtime_minutes=120)
+        WatchEvent.objects.create(profile=self.target, title=movie, watched_at=timezone.now())
+        resp = self.client.get(reverse("profile_popup", args=[self.target.id]))
+        # One "Combined" row under Last 30 days, one under All time.
+        self.assertEqual(resp.content.decode().count("Combined"), 2)
+        self.assertEqual(resp.context["watch_time_breakdown"]["last_30_days"]["combined"]["hours"], 2)
         self.assertNotContains(resp, "Split by type")
 
 
@@ -3666,6 +3676,56 @@ class WatchTimeBreakdownTests(TestCase):
             for media_type in (MediaType.MOVIE, MediaType.TV, MediaType.ANIME):
                 self.assertEqual(breakdown[window][media_type]["duration"], "0m")
                 self.assertEqual(breakdown[window][media_type]["count"], 0)
+
+    def test_combined_sums_across_types_within_each_window(self):
+        from django.utils import timezone
+
+        now = timezone.now()
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Recent Movie", year=2020, runtime_minutes=120)
+        show = Title.objects.create(media_type=MediaType.TV, name="A Show", year=2020)
+        ep = Episode.objects.create(title=show, season=1, episode=1, runtime_minutes=60)
+        old_movie = Title.objects.create(media_type=MediaType.MOVIE, name="Old Movie", year=2010, runtime_minutes=90)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=now - timedelta(days=1))
+        WatchEvent.objects.create(profile=self.profile, title=show, episode=ep, watched_at=now - timedelta(days=1))
+        WatchEvent.objects.create(profile=self.profile, title=old_movie, watched_at=now - timedelta(days=60))
+
+        breakdown = selectors.watch_time_breakdown(self.profile)
+        # last_30_days: 120 + 60 = 180min = 3h; all_time: 120+60+90 = 270min = 4.5h -> rounds to 5h
+        self.assertEqual(breakdown["last_30_days"]["combined"]["hours"], 3)
+        self.assertEqual(breakdown["last_30_days"]["combined"]["days"], round(3 / 24, 1))
+        self.assertEqual(breakdown["all_time"]["combined"]["hours"], round(270 / 60))
+
+    def test_empty_profile_combined_is_zero(self):
+        breakdown = selectors.watch_time_breakdown(self.profile)
+        self.assertEqual(breakdown["last_30_days"]["combined"], {"hours": 0, "days": 0.0})
+        self.assertEqual(breakdown["all_time"]["combined"], {"hours": 0, "days": 0.0})
+
+
+class StatsPageLast30DaysCombinedTests(TestCase):
+    """The Stats page's own "Last 30 days" column gets a Combined row too,
+    matching the one "All time" already had."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        # Deliberately not named anything containing "Combined" - the
+        # topbar renders the profile's own display name (avatar title
+        # attribute, dropdown), and a name like "StatsCombinedUser"
+        # would produce false-positive matches against the row label
+        # this test is actually counting.
+        user = User.objects.create_user("statswatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="StatsWatcher")
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fresh Movie", year=2024, runtime_minutes=120)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=timezone.now())
+        self.client.login(username="statswatcher", password="pass12345")
+
+    def test_both_columns_show_a_combined_row(self):
+        resp = self.client.get(reverse("stats"))
+        self.assertEqual(resp.content.decode().count("Combined"), 2)
+
+    def test_last_30_days_combined_reflects_the_right_total(self):
+        resp = self.client.get(reverse("stats"))
+        self.assertEqual(resp.context["watch_time_breakdown"]["last_30_days"]["combined"]["hours"], 2)
 
 
 class BackfillPostersCommandTests(TestCase):
