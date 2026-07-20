@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.28.1] - 2026-07-20
+
+### Changed
+
+- Redesigned the title detail page's Lists and Recommend To cards.
+  Lists now uses filled/outlined chip toggles (matching the Filters
+  drawer's genre-chip language) so membership is obvious at a glance,
+  with "+ New list" as its own clearly separate, dashed-outline action
+  instead of another same-looking "+". Recommend To now shows each
+  profile's real avatar (color circle or photo, same as everywhere
+  else in the app) with a compact icon-only send button, instead of a
+  full-width text button and no avatars at all.
+
 ## [0.28.0] - 2026-07-20
 
 ### Fixed

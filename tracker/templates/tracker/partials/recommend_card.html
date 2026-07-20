@@ -1,39 +1,46 @@
+{% load icons %}
 {# context: title (Title|None), is_preview (bool), preview_media_type/preview_tmdb_id (when is_preview), other_profiles, already_watched_profile_ids, recommended_profile_ids #}
 {% if other_profiles %}
   <div class="bg-base-200 border border-line rounded-2xl p-4">
     <h2 class="font-display text-lg mb-2.5">Recommend to</h2>
-    <div class="flex flex-col gap-2">
+    <div class="flex flex-col gap-2.5">
       {% for op in other_profiles %}
-        {% if op.id in already_watched_profile_ids %}
-          <button type="button" disabled class="btn btn-sm w-full justify-between opacity-50 cursor-default">
-            {{ op.display_name }}
-            <span class="text-[10.5px] font-normal">Already watched</span>
-          </button>
-        {% elif op.id in recommended_profile_ids %}
-          <button type="button" disabled class="btn btn-sm w-full justify-between btn-primary opacity-70 cursor-default">
-            {{ op.display_name }}
-            <span>&#10003; Sent</span>
-          </button>
-        {% else %}
-          {% comment %}
-            A not-yet-tracked preview title has no pk to post to yet -
-            title_preview_send_recommendation materializes it (same as
-            every other preview action) and hands back this same card,
-            now pointed at the real send_recommendation URL for any
-            further clicks.
-          {% endcomment %}
-          <form
-            hx-post="{% if is_preview %}{% url 'title_preview_send_recommendation' preview_media_type preview_tmdb_id %}{% else %}{% url 'send_recommendation' title.pk %}{% endif %}"
-            hx-target="closest div.bg-base-200" hx-swap="outerHTML"
-          >
-            {% csrf_token %}
-            <input type="hidden" name="to_profile_id" value="{{ op.id }}">
-            <button type="submit" class="btn btn-sm w-full justify-between">
-              {{ op.display_name }}
-              <span>Recommend</span>
-            </button>
-          </form>
-        {% endif %}
+        <div class="flex items-center gap-2.5">
+          {% if op.avatar_image %}
+            <div class="w-8 h-8 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ op.avatar_image.url }}')"></div>
+          {% else %}
+            <div class="w-8 h-8 rounded-full flex items-center justify-center font-mono text-xs font-semibold flex-none" style="background:{{ op.avatar_color }};color:#fff;">{{ op.display_name|first|upper }}</div>
+          {% endif %}
+          <div class="flex-1 min-w-0 text-[13px] font-medium truncate">{{ op.display_name }}</div>
+          {% if op.id in already_watched_profile_ids %}
+            <span class="text-[10.5px] text-ink-faint flex-none">Already watched</span>
+          {% elif op.id in recommended_profile_ids %}
+            <span class="w-7 h-7 rounded-full flex items-center justify-center flex-none bg-success/15 text-success" title="Sent">{% icon "check" "w-3.5 h-3.5" %}</span>
+          {% else %}
+            {% comment %}
+              A not-yet-tracked preview title has no pk to post to yet -
+              title_preview_send_recommendation materializes it (same as
+              every other preview action) and hands back this same card,
+              now pointed at the real send_recommendation URL for any
+              further clicks. The re-render (hx-swap="outerHTML" on this
+              whole card) is itself the "sent" feedback - this button
+              becomes the check-badge state above once it lands.
+            {% endcomment %}
+            <form
+              hx-post="{% if is_preview %}{% url 'title_preview_send_recommendation' preview_media_type preview_tmdb_id %}{% else %}{% url 'send_recommendation' title.pk %}{% endif %}"
+              hx-target="closest div.bg-base-200" hx-swap="outerHTML"
+              class="flex-none"
+            >
+              {% csrf_token %}
+              <input type="hidden" name="to_profile_id" value="{{ op.id }}">
+              <button
+                type="submit"
+                title="Recommend to {{ op.display_name }}"
+                class="w-7 h-7 rounded-full flex items-center justify-center border border-line text-ink-dim hover:border-primary hover:text-primary transition-colors"
+              >{% icon "send" "w-3.5 h-3.5" %}</button>
+            </form>
+          {% endif %}
+        </div>
       {% endfor %}
     </div>
   </div>

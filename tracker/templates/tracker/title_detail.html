@@ -138,21 +138,34 @@
           </form>
         {% else %}
           <h2 class="font-display text-lg mb-2.5">Lists</h2>
-          <div class="flex flex-col gap-2">
-            {% for list in my_lists %}
-              <form method="post" action="{% if list.id in in_list_ids %}{% url 'remove_from_list' list.id %}{% else %}{% url 'add_to_list' list.id %}{% endif %}">
-                {% csrf_token %}
-                <input type="hidden" name="title_id" value="{{ title.pk }}">
-                <input type="hidden" name="next" value="{{ request.path }}">
-                <button type="submit" class="btn btn-sm w-full justify-between {% if list.id in in_list_ids %}btn-primary{% endif %}">
-                  {{ list.name }}
-                  <span>{% if list.id in in_list_ids %}✓{% else %}+{% endif %}</span>
-                </button>
-              </form>
-            {% empty %}
-              <div class="text-xs text-ink-faint">No lists yet — create one from <a href="{% url 'lists' %}" class="underline">Lists</a>.</div>
-            {% endfor %}
-          </div>
+          {% comment %}
+            Chip toggles - same filled/outlined visual grammar as the
+            Filters drawer's genre chips, so "already a member" reads at
+            a glance instead of every row showing the same "+" regardless
+            of state. "+ New list" is deliberately its own separate,
+            dashed-outline action below the membership chips, not another
+            same-looking "+" chip that could be mistaken for a list.
+          {% endcomment %}
+          {% if my_lists %}
+            <div class="flex flex-wrap gap-2 mb-3">
+              {% for list in my_lists %}
+                <form method="post" action="{% if list.id in in_list_ids %}{% url 'remove_from_list' list.id %}{% else %}{% url 'add_to_list' list.id %}{% endif %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="title_id" value="{{ title.pk }}">
+                  <input type="hidden" name="next" value="{{ request.path }}">
+                  <button
+                    type="submit"
+                    class="px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-colors
+                      {% if list.id in in_list_ids %}bg-primary text-primary-content border-primary{% else %}bg-base-100 text-ink-dim border-line hover:border-primary hover:text-base-content{% endif %}"
+                  >{{ list.name }}</button>
+                </form>
+              {% endfor %}
+            </div>
+          {% endif %}
+          <a
+            href="{% url 'lists' %}"
+            class="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-full text-xs font-semibold border border-dashed border-line text-ink-faint hover:border-primary hover:text-primary transition-colors"
+          >+ New list</a>
         {% endif %}
       </div>
 
