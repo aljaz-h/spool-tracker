@@ -17,17 +17,30 @@
 
     <div class="bg-base-200 border border-line rounded-2xl p-5" x-data="{ color: '{{ profile.avatar_color }}' }">
       <h3 class="text-lg mb-3.5">Profile</h3>
-      <form method="post">
+      <form method="post" enctype="multipart/form-data">
         {% csrf_token %}
         <input type="hidden" name="action" value="update_profile">
 
         <div class="flex items-center gap-3 mb-4">
-          <div class="w-12 h-12 rounded-full flex items-center justify-center font-mono text-base font-semibold flex-none" :style="`background:${color};color:#fff;`">{{ profile.display_name|first|upper }}</div>
+          {% if profile.avatar_image %}
+            <div class="w-12 h-12 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ profile.avatar_image.url }}')"></div>
+          {% else %}
+            <div class="w-12 h-12 rounded-full flex items-center justify-center font-mono text-base font-semibold flex-none" :style="`background:${color};color:#fff;`">{{ profile.display_name|first|upper }}</div>
+          {% endif %}
           <div class="flex-1 min-w-0">
             <label class="block text-xs text-ink-dim mb-1">Display name</label>
             <input type="text" name="display_name" value="{{ profile.display_name }}" required class="input w-full bg-base-100">
           </div>
         </div>
+
+        <label class="block text-xs text-ink-dim mb-2">Photo</label>
+        <div class="flex items-center gap-2 mb-1.5">
+          <input type="file" name="avatar_image" accept="image/png,image/jpeg,image/webp" class="file-input file-input-sm flex-1 bg-base-100">
+          {% if profile.avatar_image %}
+            <button type="submit" name="remove_photo" value="1" class="btn btn-sm bg-base-300 border-line flex-none">Remove</button>
+          {% endif %}
+        </div>
+        <div class="text-[10.5px] text-ink-faint mb-5">JPG, PNG, or WEBP, up to 5MB. Falls back to your avatar color below when removed.</div>
 
         <label class="block text-xs text-ink-dim mb-2">Avatar color</label>
         <div class="flex flex-wrap gap-2 mb-5">

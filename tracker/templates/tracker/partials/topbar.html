@@ -80,10 +80,10 @@
             hx-get="{% url 'profile_popup' p.id %}"
             hx-target="#profile-popup-content"
             hx-swap="innerHTML"
-            class="w-[30px] h-[30px] rounded-full flex items-center justify-center font-mono text-xs font-semibold border-2 border-base-100 -ml-2 first:ml-0 cursor-pointer"
-            style="background:{{ p.avatar_color }};color:#fff;"
+            class="w-9 h-9 rounded-full flex items-center justify-center font-mono text-[13px] font-semibold border-2 border-base-100 -ml-2 first:ml-0 cursor-pointer {% if p.avatar_image %}bg-cover bg-center{% endif %}"
+            style="{% if p.avatar_image %}background-image:url('{{ p.avatar_image.url }}'){% else %}background:{{ p.avatar_color }};color:#fff;{% endif %}"
             title="{{ p.display_name }}"
-          >{{ p.display_name|first|upper }}</button>
+          >{% if not p.avatar_image %}{{ p.display_name|first|upper }}{% endif %}</button>
         {% endif %}
       {% endfor %}
     </div>
@@ -91,10 +91,10 @@
       <div class="relative -ml-2" x-data="{ open: false }">
         <button
           @click="open = !open" @click.outside="open = false"
-          class="w-[30px] h-[30px] rounded-full flex items-center justify-center font-mono text-xs font-semibold border-2 border-primary"
-          style="background:{{ active_profile.avatar_color }};color:#fff;"
+          class="w-9 h-9 rounded-full flex items-center justify-center font-mono text-[13px] font-semibold border-2 border-primary {% if active_profile.avatar_image %}bg-cover bg-center{% endif %}"
+          style="{% if active_profile.avatar_image %}background-image:url('{{ active_profile.avatar_image.url }}'){% else %}background:{{ active_profile.avatar_color }};color:#fff;{% endif %}"
           title="{{ active_profile.display_name }}"
-        >{{ active_profile.display_name|first|upper }}</button>
+        >{% if not active_profile.avatar_image %}{{ active_profile.display_name|first|upper }}{% endif %}</button>
         <div x-show="open" x-cloak class="absolute right-0 mt-2 w-52 bg-base-200 border border-line rounded-lg shadow-lg z-40 py-1">
           <div class="px-3 py-2 text-xs text-ink-dim border-b border-line truncate">{{ active_profile.display_name }}</div>
           <a href="{% url 'my_profile' %}" class="block px-3 py-2 text-sm hover:bg-base-300">My Profile</a>

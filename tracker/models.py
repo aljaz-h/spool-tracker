@@ -1,3 +1,5 @@
+import random
+
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
@@ -7,6 +9,28 @@ class MediaType(models.TextChoices):
     MOVIE = "movie", "Movie"
     TV = "tv", "TV"
     ANIME = "anime", "Anime"
+
+
+# Same 14-color palette used to color Stats' genre legend, and the source
+# both my_profile.html's own color picker and a new profile's random
+# starting color draw from - proven to look good against the dark theme,
+# rather than an open color picker.
+AVATAR_COLOR_CHOICES = [
+    "#e8a63c", "#3fa9a0", "#8b85d6", "#c0473a", "#5b8fd6", "#d67ab1", "#7fae5b",
+    "#d6c14c", "#a67ac9", "#e08a4c", "#4ca6c9", "#9a9fb0", "#c9574c", "#5bc9a0",
+]
+
+
+def random_avatar_color():
+    """A new profile's starting avatar color - every profile getting the
+    same fixed default read as a bug more than a feature. Prefers a color
+    no *existing* profile is already using, so a small household doesn't
+    end up with two coincidentally-matching avatars; once every palette
+    color is already taken (more profiles than colors), falls back to a
+    plain random pick from the full palette."""
+    used = set(Profile.objects.values_list("avatar_color", flat=True))
+    available = [c for c in AVATAR_COLOR_CHOICES if c not in used]
+    return random.choice(available or AVATAR_COLOR_CHOICES)
 
 
 class Profile(models.Model):
@@ -32,7 +56,13 @@ class Profile(models.Model):
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     display_name = models.CharField(max_length=50)
-    avatar_color = models.CharField(max_length=7, default="#3a2a1c")
+    avatar_color = models.CharField(max_length=7, default=random_avatar_color)
+    # My Profile's optional uploaded photo - takes priority over
+    # avatar_color/initial everywhere an avatar renders when set; falls
+    # back to the color circle when blank (never uploaded, or removed).
+    # No server-side resizing yet - stored at whatever resolution was
+    # uploaded, capped at MAX_AVATAR_IMAGE_SIZE (see views.my_profile).
+    avatar_image = models.ImageField(upload_to="avatars/", blank=True, null=True)
     # Settings → Appearance. The only persisted preference with real
     # downstream behavior (History's time column) — the mockup's dark/light
     # theme swatch has no second theme built, so it stays decorative.

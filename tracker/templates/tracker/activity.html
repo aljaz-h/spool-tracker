@@ -26,9 +26,13 @@
           class="flex gap-3 pl-3 pr-3.5 py-3.5 border-l-[3px] {% if not forloop.last %}border-b border-b-line{% endif %}
             {% if item.kind == "rated" %}border-l-warning{% elif item.kind == "added_to_list" or item.kind == "added_to_list_group" %}border-l-secondary{% else %}border-l-primary{% endif %}"
         >
-          <div class="w-[34px] h-[34px] rounded-full flex-none flex items-center justify-center font-mono text-[13px] font-bold" style="background:{{ item.profile.avatar_color }};color:#fff;">
-            {{ item.profile.display_name|first|upper }}
-          </div>
+          {% if item.profile.avatar_image %}
+            <div class="w-[34px] h-[34px] rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ item.profile.avatar_image.url }}')"></div>
+          {% else %}
+            <div class="w-[34px] h-[34px] rounded-full flex-none flex items-center justify-center font-mono text-[13px] font-bold" style="background:{{ item.profile.avatar_color }};color:#fff;">
+              {{ item.profile.display_name|first|upper }}
+            </div>
+          {% endif %}
           <div class="min-w-0 flex-1">
             <div class="text-[13.5px]">
               <b>{{ item.profile.display_name }}</b>

@@ -1,9 +1,13 @@
 import io
+import os
+import shutil
+import tempfile
 from datetime import timedelta
 from unittest.mock import Mock, patch
 
 import requests
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
@@ -11,6 +15,7 @@ from django_celery_beat.models import PeriodicTask
 from . import completion, csv_import, instance_config, notifications, recommendations, release_sync, rewatches, scheduling, selectors, tasks, update_check, views
 from .integrations import gemini, tmdb, trakt
 from .models import (
+    AVATAR_COLOR_CHOICES,
     Episode,
     ExternalAccount,
     Genre,
@@ -27,7 +32,18 @@ from .models import (
     WatchListItem,
     WatchProgress,
     attach_genres,
+    random_avatar_color,
 )
+
+
+def _tiny_gif_bytes():
+    """A minimal valid 1x1 GIF - Pillow decodes it without needing to
+    depend on Pillow itself here to build a PNG/JPEG. Used to exercise
+    real image-upload validation without a binary fixture file."""
+    return (
+        b"GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00"
+        b"!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+    )
 
 
 class CsvImportMappingTests(TestCase):
@@ -2893,6 +2909,51 @@ class CreateProfileOwnerGateTests(TestCase):
         self.assertRedirects(resp, reverse("admin_dashboard"))
         self.assertTrue(User.objects.filter(username="newperson").exists())
 
+    def test_omitting_avatar_color_gets_a_palette_color_not_a_fixed_default(self):
+        self.client.login(username="createowner", password="pass12345")
+        self.client.post(
+            reverse("create_profile"),
+            {"display_name": "No Color Chosen", "username": "nocolorchosen", "password": "pass12345"},
+        )
+        profile = Profile.objects.get(user__username="nocolorchosen")
+        self.assertIn(profile.avatar_color, AVATAR_COLOR_CHOICES)
+
+    def test_explicit_avatar_color_choice_is_respected(self):
+        self.client.login(username="createowner", password="pass12345")
+        self.client.post(
+            reverse("create_profile"),
+            {
+                "display_name": "Chose A Color",
+                "username": "choseacolor",
+                "password": "pass12345",
+                "avatar_color": "#d67ab1",
+            },
+        )
+        profile = Profile.objects.get(user__username="choseacolor")
+        self.assertEqual(profile.avatar_color, "#d67ab1")
+
+
+class RandomAvatarColorTests(TestCase):
+    """Every new profile previously got the same hardcoded avatar_color -
+    random_avatar_color() is the model-level default fixing that."""
+
+    def test_prefers_a_color_no_existing_profile_is_using(self):
+        used_user = User.objects.create_user("colorused", password="pass12345")
+        Profile.objects.create(user=used_user, display_name="ColorUsed", avatar_color=AVATAR_COLOR_CHOICES[0])
+        for _ in range(20):
+            self.assertNotEqual(random_avatar_color(), AVATAR_COLOR_CHOICES[0])
+
+    def test_falls_back_to_full_palette_once_every_color_is_taken(self):
+        for i, color in enumerate(AVATAR_COLOR_CHOICES):
+            user = User.objects.create_user(f"colortaken{i}", password="pass12345")
+            Profile.objects.create(user=user, display_name=f"ColorTaken{i}", avatar_color=color)
+        self.assertIn(random_avatar_color(), AVATAR_COLOR_CHOICES)
+
+    def test_profile_created_without_avatar_color_gets_a_palette_color(self):
+        user = User.objects.create_user("nodefaultcolor", password="pass12345")
+        profile = Profile.objects.create(user=user, display_name="NoDefaultColor")
+        self.assertIn(profile.avatar_color, AVATAR_COLOR_CHOICES)
+
 
 class SaveSyncScheduleViewTests(TestCase):
     def setUp(self):
@@ -3011,6 +3072,135 @@ class MyProfileViewTests(TestCase):
         )
         self.profile.user.refresh_from_db()
         self.assertTrue(self.profile.user.check_password("original-pass-123"))
+
+
+class MyProfileAvatarImageTests(TestCase):
+    """Uploading/removing a photo on My Profile - stored under a temp
+    MEDIA_ROOT for the duration of each test so nothing lands in (or gets
+    deleted from) the real dev media directory."""
+
+    def setUp(self):
+        self._media_root = tempfile.mkdtemp()
+        self._override = override_settings(MEDIA_ROOT=self._media_root)
+        self._override.enable()
+        self.addCleanup(self._override.disable)
+        self.addCleanup(shutil.rmtree, self._media_root, True)
+
+        user = User.objects.create_user("avatarimageuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Avatar Image User", avatar_color="#e8a63c")
+        self.client.login(username="avatarimageuser", password="pass12345")
+
+    def test_valid_image_upload_is_saved(self):
+        upload = SimpleUploadedFile("avatar.gif", _tiny_gif_bytes(), content_type="image/gif")
+        self.client.post(
+            reverse("my_profile"),
+            {"action": "update_profile", "display_name": "Avatar Image User", "avatar_image": upload},
+        )
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.avatar_image)
+
+    def test_non_image_upload_is_rejected(self):
+        upload = SimpleUploadedFile("avatar.jpg", b"this is not actually an image", content_type="image/jpeg")
+        resp = self.client.post(
+            reverse("my_profile"),
+            {"action": "update_profile", "display_name": "Avatar Image User", "avatar_image": upload},
+            follow=True,
+        )
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.avatar_image)
+        self.assertContains(resp, "doesn&#x27;t look like a valid image")
+
+    def test_oversized_upload_is_rejected(self):
+        oversized = b"\x00" * (views.MAX_AVATAR_IMAGE_SIZE + 1)
+        upload = SimpleUploadedFile("avatar.gif", oversized, content_type="image/gif")
+        resp = self.client.post(
+            reverse("my_profile"),
+            {"action": "update_profile", "display_name": "Avatar Image User", "avatar_image": upload},
+            follow=True,
+        )
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.avatar_image)
+        self.assertContains(resp, "too large")
+
+    def test_remove_photo_clears_the_field_and_deletes_the_file(self):
+        upload = SimpleUploadedFile("avatar.gif", _tiny_gif_bytes(), content_type="image/gif")
+        self.client.post(
+            reverse("my_profile"),
+            {"action": "update_profile", "display_name": "Avatar Image User", "avatar_image": upload},
+        )
+        self.profile.refresh_from_db()
+        stored_path = self.profile.avatar_image.path
+        self.assertTrue(os.path.exists(stored_path))
+
+        self.client.post(
+            reverse("my_profile"),
+            {"action": "update_profile", "display_name": "Avatar Image User", "remove_photo": "1"},
+        )
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.avatar_image)
+        self.assertFalse(os.path.exists(stored_path))
+
+    def test_display_name_and_color_only_update_still_works_unaffected(self):
+        self.client.post(
+            reverse("my_profile"),
+            {"action": "update_profile", "display_name": "Renamed", "avatar_color": "#3fa9a0"},
+        )
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.display_name, "Renamed")
+        self.assertEqual(self.profile.avatar_color, "#3fa9a0")
+        self.assertFalse(self.profile.avatar_image)
+
+
+class AvatarImageRenderingTests(TestCase):
+    """When a profile has an uploaded avatar_image, templates should show
+    it (background-image + no initial letter) instead of the color/initial
+    fallback - spot-checked on My Profile and the topbar, the two most
+    directly touched by this feature."""
+
+    def setUp(self):
+        self._media_root = tempfile.mkdtemp()
+        self._override = override_settings(MEDIA_ROOT=self._media_root)
+        self._override.enable()
+        self.addCleanup(self._override.disable)
+        self.addCleanup(shutil.rmtree, self._media_root, True)
+
+        user = User.objects.create_user("renderavataruser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Render Avatar User", avatar_color="#e8a63c")
+        self.profile.avatar_image.save("avatar.gif", io.BytesIO(_tiny_gif_bytes()), save=True)
+        self.client.login(username="renderavataruser", password="pass12345")
+
+    def test_my_profile_renders_image_not_initial_fallback(self):
+        resp = self.client.get(reverse("my_profile"))
+        self.assertContains(resp, "background-image:url(")
+        self.assertNotContains(resp, ':style="`background:${color}')
+
+    def test_topbar_active_profile_renders_image_not_initial(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "background-image:url(")
+        # The initial-letter fallback text node for the active-profile button
+        # is absent when an image is set.
+        initial = self.profile.display_name[0].upper()
+        self.assertNotContains(resp, f">{initial}</button>")
+
+
+class MediaServingTests(TestCase):
+    """Confirms the actual /media/<path> route (urls.py's re_path, wired to
+    django.views.static.serve) works end-to-end. Deliberately does NOT
+    override_settings(MEDIA_ROOT=...) here - urls.py bakes settings.MEDIA_ROOT
+    into the urlpattern's document_root kwarg once at URL-conf import time,
+    so a later override wouldn't be picked up by routing. Writes into the
+    real configured MEDIA_ROOT instead and cleans up the file afterward."""
+
+    def setUp(self):
+        user = User.objects.create_user("mediaserveuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Media Serve User")
+        self.profile.avatar_image.save("avatar.gif", io.BytesIO(_tiny_gif_bytes()), save=True)
+        self.addCleanup(self.profile.avatar_image.delete, False)
+
+    def test_uploaded_avatar_is_servable_over_http(self):
+        resp = self.client.get(self.profile.avatar_image.url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(b"".join(resp.streaming_content), _tiny_gif_bytes())
 
 
 class TopbarAvatarDedupeTests(TestCase):

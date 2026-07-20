@@ -1,6 +1,10 @@
 {% load tracker_extras %}
 <div class="flex items-center gap-3 mb-5">
-  <div class="w-12 h-12 rounded-full flex items-center justify-center font-mono text-base font-semibold flex-none" style="background:{{ target.avatar_color }};color:#fff;">{{ target.display_name|first|upper }}</div>
+  {% if target.avatar_image %}
+    <div class="w-12 h-12 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ target.avatar_image.url }}')"></div>
+  {% else %}
+    <div class="w-12 h-12 rounded-full flex items-center justify-center font-mono text-base font-semibold flex-none" style="background:{{ target.avatar_color }};color:#fff;">{{ target.display_name|first|upper }}</div>
+  {% endif %}
   <div>
     <div class="text-lg font-semibold">{{ target.display_name }}</div>
     <div class="text-xs text-ink-dim font-mono">{% if target.is_owner %}Owner{% else %}Member{% endif %}</div>

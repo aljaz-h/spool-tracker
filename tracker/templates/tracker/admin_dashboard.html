@@ -21,7 +21,11 @@
       <h3 class="text-lg mb-3.5">Profiles</h3>
       {% for p in profiles %}
         <div class="flex items-center gap-3 py-3 border-b border-line last:border-b-0">
-          <div class="w-8 h-8 rounded-full flex items-center justify-center font-mono text-xs font-semibold" style="background:{{ p.avatar_color }};color:#fff;">{{ p.display_name|first|upper }}</div>
+          {% if p.avatar_image %}
+            <div class="w-8 h-8 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ p.avatar_image.url }}')"></div>
+          {% else %}
+            <div class="w-8 h-8 rounded-full flex items-center justify-center font-mono text-xs font-semibold" style="background:{{ p.avatar_color }};color:#fff;">{{ p.display_name|first|upper }}</div>
+          {% endif %}
           <div class="flex-1 min-w-0">
             <div class="font-semibold text-[13.5px]">{{ p.display_name }}</div>
             <div class="text-[11.5px] text-ink-dim font-mono">{% if p.is_owner %}Owner{% else %}Member{% endif %}</div>

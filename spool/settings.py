@@ -125,6 +125,12 @@ STATICFILES_DIRS = [
     ("img", BASE_DIR / "static" / "img"),
 ]
 STORAGES = {
+    # Explicit because setting STORAGES at all replaces Django's whole
+    # default dict, not just the keys listed - without this, user-uploaded
+    # files (e.g. avatar_image) have no "default" backend to resolve to.
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },

@@ -27,6 +27,7 @@ from django.views.decorators.http import require_POST
 from . import completion, csv_import, instance_config, recommendations, rewatches, scheduling, selectors, tasks
 from .integrations import gemini, simkl, tmdb, trakt
 from .models import (
+    AVATAR_COLOR_CHOICES,
     Episode,
     ExternalAccount,
     InstanceConfig,
@@ -1456,13 +1457,22 @@ def change_credentials(request):
     return render(request, "tracker/change_credentials.html", {"profile": profile})
 
 
-# Same 14-color palette used to color Stats' genre legend - reused here so
-# an avatar's color always comes from a set that's already proven to look
-# good against the dark theme, rather than an open color picker.
-AVATAR_COLOR_CHOICES = [
-    "#e8a63c", "#3fa9a0", "#8b85d6", "#c0473a", "#5b8fd6", "#d67ab1", "#7fae5b",
-    "#d6c14c", "#a67ac9", "#e08a4c", "#4ca6c9", "#9a9fb0", "#c9574c", "#5bc9a0",
-]
+MAX_AVATAR_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB - a profile picture, not a photo album
+
+
+def _is_valid_image_upload(uploaded_file):
+    """Confirms the uploaded bytes actually decode as an image (Pillow),
+    rather than trusting the browser-supplied filename/content-type -
+    those are just client-side hints, not a security boundary. verify()
+    consumes the file, so the caller needs to seek(0) before actually
+    using it (for a save, a second read, etc.)."""
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        Image.open(uploaded_file).verify()
+    except (UnidentifiedImageError, OSError):
+        return False
+    return True
 
 
 @login_required
@@ -1476,12 +1486,30 @@ def my_profile(request):
         avatar_color = request.POST.get("avatar_color", "").strip()
         if not display_name:
             messages.error(request, "Display name is required.")
-        else:
-            profile.display_name = display_name
-            if avatar_color in AVATAR_COLOR_CHOICES:
-                profile.avatar_color = avatar_color
-            profile.save(update_fields=["display_name", "avatar_color"])
-            messages.success(request, "Profile updated.")
+            return redirect("my_profile")
+
+        profile.display_name = display_name
+        if avatar_color in AVATAR_COLOR_CHOICES:
+            profile.avatar_color = avatar_color
+        update_fields = ["display_name", "avatar_color"]
+
+        if request.POST.get("remove_photo"):
+            profile.avatar_image.delete(save=False)
+            update_fields.append("avatar_image")
+        elif request.FILES.get("avatar_image"):
+            uploaded = request.FILES["avatar_image"]
+            if uploaded.size > MAX_AVATAR_IMAGE_SIZE:
+                messages.error(request, "That image is too large — please use one under 5MB.")
+                return redirect("my_profile")
+            if not _is_valid_image_upload(uploaded):
+                messages.error(request, "That file doesn't look like a valid image.")
+                return redirect("my_profile")
+            uploaded.seek(0)
+            profile.avatar_image = uploaded
+            update_fields.append("avatar_image")
+
+        profile.save(update_fields=update_fields)
+        messages.success(request, "Profile updated.")
         return redirect("my_profile")
 
     if request.method == "POST" and request.POST.get("action") == "change_password":
@@ -1519,7 +1547,7 @@ def create_profile(request):
     username = request.POST.get("username", "").strip()
     password = request.POST.get("password", "")
     display_name = request.POST.get("display_name", "").strip()
-    avatar_color = request.POST.get("avatar_color") or "#3a2a1c"
+    avatar_color = request.POST.get("avatar_color", "").strip()
     if not username or not password or not display_name:
         messages.error(request, "Username, password, and display name are all required.")
         return redirect("admin_dashboard")
@@ -1528,7 +1556,14 @@ def create_profile(request):
     except IntegrityError:
         messages.error(request, f'Username "{username}" is already taken.')
         return redirect("admin_dashboard")
-    Profile.objects.create(user=user, display_name=display_name, avatar_color=avatar_color)
+    # No avatar_color kwarg unless one was actually chosen - letting the
+    # model's own default (a random, not-already-taken palette color)
+    # apply is better than a hardcoded fallback every new profile would
+    # otherwise share.
+    create_kwargs = {"user": user, "display_name": display_name}
+    if avatar_color in AVATAR_COLOR_CHOICES:
+        create_kwargs["avatar_color"] = avatar_color
+    Profile.objects.create(**create_kwargs)
     messages.success(request, f"Added profile for {display_name}.")
     return redirect("admin_dashboard")
 

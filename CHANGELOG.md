@@ -8,6 +8,35 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-07-20
+
+### Added
+
+- Profile pictures: My Profile now has a Photo uploader (JPG/PNG/WEBP,
+  up to 5MB) that takes priority over the color-circle avatar everywhere
+  one is shown - topbar, Activity feed, Admin Dashboard's profile list,
+  and the household profile popup. "Remove" reverts to the color
+  circle. Uploads are validated server-side (Pillow decodes the actual
+  bytes, not just the filename/content-type) before being saved.
+  Uploaded files are served at `/media/...` by Django itself - this
+  self-hosted stack has no reverse proxy of its own to delegate to, and
+  whitenoise (already in use) is static-asset-only.
+- New profiles now get a random starting avatar color instead of every
+  profile sharing the same hardcoded default - prefers a color no
+  existing profile is already using, so a small household doesn't end
+  up with two coincidentally-matching avatars.
+- The navbar avatar circles (both the active-profile dropdown and the
+  household stack) are a bit bigger - 36px, up from 30px.
+
+### Fixed
+
+- `STORAGES` in settings.py only defined a `staticfiles` backend;
+  Django 4.2+ replaces its *entire* default STORAGES dict when you set
+  it at all, so there was no `default` file-storage backend for any
+  `FileField`/`ImageField` to resolve to. Discovered while adding the
+  avatar-upload feature above - added the missing `default` entry
+  (`FileSystemStorage`).
+
 ## [0.26.1] - 2026-07-20
 
 ### Added

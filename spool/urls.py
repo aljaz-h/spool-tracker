@@ -3,7 +3,8 @@ from django.contrib import admin
 from django.db import connection
 from django.db.utils import OperationalError
 from django.http import HttpResponse
-from django.urls import include, path
+from django.urls import include, path, re_path
+from django.views.static import serve as serve_static
 
 from api.main import api
 
@@ -38,5 +39,14 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("healthz", healthz, name="healthz"),
     path("api/", api.urls),
+    # User-uploaded media (currently just profile avatars) - served by
+    # Django itself rather than whitenoise (that's collectstatic/versioned-
+    # asset-only, wrong tool for content that changes at runtime) or an
+    # external reverse proxy (this self-hosted stack has none of its own -
+    # see docker-compose.yml - and can't assume one exists in front of it).
+    # Not the most scalable way to serve files, but this app serves a
+    # handful of small avatar images for a household, not public traffic
+    # at scale - a reasonable trade-off over requiring extra infra.
+    re_path(r"^media/(?P<path>.*)$", serve_static, {"document_root": settings.MEDIA_ROOT}),
     path("", include("tracker.urls")),
 ]
