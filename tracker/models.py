@@ -296,20 +296,21 @@ class ReleaseSchedule(models.Model):
 
 class Notification(models.Model):
     """In-app only (see tracker/notifications.py) - no email/push. Kind
-    determines what title/release_schedule mean: release-based kinds
-    always carry both; sync_failed and system_update carry neither (title
-    is unavailable/irrelevant, there's no ReleaseSchedule to dedupe on -
-    system_update dedupes on its own message text instead, see
-    tracker/tasks.check_for_new_version)."""
+    determines what title/release_schedule mean: release-based kinds and
+    recommendation_watched always carry title; sync_failed and
+    system_update carry neither (title is unavailable/irrelevant, there's
+    no ReleaseSchedule to dedupe on - system_update dedupes on its own
+    message text instead, see tracker/tasks.check_for_new_version)."""
 
     class Kind(models.TextChoices):
         NEW_RELEASE = "new_release", "New release"
         UPCOMING_RELEASE = "upcoming_release", "Upcoming release"
         SYNC_FAILED = "sync_failed", "Sync failed"
         SYSTEM_UPDATE = "system_update", "System update"
+        RECOMMENDATION_WATCHED = "recommendation_watched", "Recommendation watched"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="notifications")
-    kind = models.CharField(max_length=20, choices=Kind.choices)
+    kind = models.CharField(max_length=25, choices=Kind.choices)
     title = models.ForeignKey(
         Title, null=True, blank=True, on_delete=models.CASCADE, related_name="notifications"
     )
@@ -335,6 +336,48 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"{self.profile}: {self.message}"
+
+
+class Recommendation(models.Model):
+    """One profile pointing another at a title worth watching - a
+    lightweight nudge, distinct from WatchList (a standing list) and
+    Notification (one-way, system-generated). Fulfillment is resolved
+    explicitly wherever a WatchEvent gets created (tracker/recommendations.py's
+    mark_title_watched) - the same pattern rewatches.recompute_is_rewatch/
+    completion.sync_watchlist_removal already use for their own "something
+    else needs to happen on every watch" concerns, not a Django signal
+    (used nowhere else in this codebase) - a missed explicit call sitting
+    right next to already-established ones is easy to catch in review and
+    in tests; a missed signal connection is a quieter failure mode."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        WATCHED = "watched", "Watched"
+        DISMISSED = "dismissed", "Dismissed"
+
+    from_profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="sent_recommendations")
+    to_profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="received_recommendations")
+    title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="recommendations")
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            # Only one *pending* recommendation per (sender, recipient,
+            # title) at a time - re-recommending something already
+            # watched or dismissed is fine and creates a fresh row: the
+            # condition means a past dismissed/watched row (status !=
+            # pending) never blocks a new one.
+            models.UniqueConstraint(
+                fields=["from_profile", "to_profile", "title"],
+                condition=models.Q(status="pending"),
+                name="unique_pending_recommendation",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.from_profile} recommended {self.title} to {self.to_profile}"
 
 
 class ExternalAccount(models.Model):

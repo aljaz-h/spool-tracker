@@ -8,6 +8,29 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-07-20
+
+### Added
+
+- Send a household member a movie/TV/anime recommendation. A "Recommend
+  to" card on a title's own page lets you point any other profile at
+  it in one click - no message field, deliberately kept simple. It
+  shows up on their Dashboard under "Recommended to you" until they
+  either watch it or dismiss it. The moment they watch any part of it
+  (a movie, or a single episode of a show - finishing a whole series
+  isn't required), you get a notification in the header bell linking
+  straight to the title. Recommending something they've already
+  watched, or recommending the same title to the same person twice
+  while one's still pending, is caught and reflected in the card
+  instead of silently doing nothing.
+- Fulfillment is resolved by an explicit call
+  (recommendations.mark_title_watched) at every place a watch event
+  gets created - the manual mark-watched/rate actions, CSV import, and
+  Trakt/Simkl sync - the same pattern this codebase already uses for
+  rewatch detection and watchlist auto-removal, not a signal (used
+  nowhere else here), so a missed call site is a visible test gap
+  rather than a quiet one.
+
 ## [0.25.0] - 2026-07-19
 
 ### Added

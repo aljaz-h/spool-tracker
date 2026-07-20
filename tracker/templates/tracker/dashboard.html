@@ -54,6 +54,8 @@
     <div id="recommendation-result" class="mt-3"></div>
   </div>
 
+  {% include "tracker/partials/dashboard_recommendations.html" %}
+
   <div class="flex justify-between items-center mt-9 mb-3.5">
     <h2 class="font-display text-xl">Watching{% if continue_watching %} <span class="text-ink-faint text-base font-body">({{ continue_watching|length }})</span>{% endif %}</h2>
   </div>

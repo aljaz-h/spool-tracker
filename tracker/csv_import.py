@@ -166,7 +166,7 @@ def commit_rows(profile, rows):
     """rows: parsed dicts from parse_rows(). Returns (imported_count,
     skipped) where skipped is [(csv_row_number, reason), ...] for rows that
     passed parsing but were rejected at the database step."""
-    from . import completion, rewatches
+    from . import completion, recommendations, rewatches
 
     imported = 0
     skipped = []
@@ -207,8 +207,10 @@ def commit_rows(profile, rows):
     for title in Title.objects.filter(id__in=touched_movies):
         completion.update_movie_runtime(title)
         completion.sync_watchlist_removal(profile, title)
+        recommendations.mark_title_watched(profile, title)
     for title in Title.objects.filter(id__in=touched_shows):
         completion.sync_show_completion(profile, title)
         completion.sync_watchlist_removal(profile, title)
+        recommendations.mark_title_watched(profile, title)
 
     return imported, skipped

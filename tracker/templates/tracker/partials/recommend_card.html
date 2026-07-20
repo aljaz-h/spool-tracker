@@ -1,0 +1,30 @@
+{# context: title, other_profiles, already_watched_profile_ids, recommended_profile_ids #}
+{% if other_profiles %}
+  <div class="bg-base-200 border border-line rounded-2xl p-4">
+    <h2 class="font-display text-lg mb-2.5">Recommend to</h2>
+    <div class="flex flex-col gap-2">
+      {% for op in other_profiles %}
+        {% if op.id in already_watched_profile_ids %}
+          <button type="button" disabled class="btn btn-sm w-full justify-between opacity-50 cursor-default">
+            {{ op.display_name }}
+            <span class="text-[10.5px] font-normal">Already watched</span>
+          </button>
+        {% elif op.id in recommended_profile_ids %}
+          <button type="button" disabled class="btn btn-sm w-full justify-between btn-primary opacity-70 cursor-default">
+            {{ op.display_name }}
+            <span>&#10003; Sent</span>
+          </button>
+        {% else %}
+          <form hx-post="{% url 'send_recommendation' title.pk %}" hx-target="closest div.bg-base-200" hx-swap="outerHTML">
+            {% csrf_token %}
+            <input type="hidden" name="to_profile_id" value="{{ op.id }}">
+            <button type="submit" class="btn btn-sm w-full justify-between">
+              {{ op.display_name }}
+              <span>Recommend</span>
+            </button>
+          </form>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}

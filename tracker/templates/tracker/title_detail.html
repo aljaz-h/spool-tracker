@@ -146,6 +146,10 @@
         {% endif %}
       </div>
 
+      {% if not is_preview %}
+        {% include "tracker/partials/recommend_card.html" %}
+      {% endif %}
+
       {% if watch_providers %}
         <div class="bg-base-200 border border-line rounded-2xl p-4">
           <h2 class="font-display text-lg mb-2.5">Where to Watch</h2>

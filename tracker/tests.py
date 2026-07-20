@@ -8,7 +8,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
-from . import completion, csv_import, instance_config, notifications, release_sync, rewatches, scheduling, selectors, tasks, update_check, views
+from . import completion, csv_import, instance_config, notifications, recommendations, release_sync, rewatches, scheduling, selectors, tasks, update_check, views
 from .integrations import gemini, tmdb, trakt
 from .models import (
     Episode,
@@ -18,6 +18,7 @@ from .models import (
     MediaType,
     Notification,
     Profile,
+    Recommendation,
     ReleaseSchedule,
     SyncLog,
     Title,
@@ -988,6 +989,399 @@ class NotifySyncFailureTests(TestCase):
         result = notifications.notify_sync_failure(self.profile, "trakt", "boom")
         self.assertIsNone(result)
         self.assertFalse(Notification.objects.exists())
+
+
+class RecommendationModelTests(TestCase):
+    def setUp(self):
+        sender_user = User.objects.create_user("recmodelsender", password="pass12345")
+        self.sender = Profile.objects.create(user=sender_user, display_name="RecModelSender")
+        recipient_user = User.objects.create_user("recmodelrecipient", password="pass12345")
+        self.recipient = Profile.objects.create(user=recipient_user, display_name="RecModelRecipient")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+
+    def test_duplicate_pending_recommendation_is_rejected(self):
+        Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        with self.assertRaises(Exception):
+            Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+
+    def test_a_new_pending_recommendation_is_allowed_after_the_old_one_resolved(self):
+        first = Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        first.status = Recommendation.Status.WATCHED
+        first.save(update_fields=["status"])
+        # Should not raise - only *pending* rows are guarded by the constraint.
+        Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        self.assertEqual(Recommendation.objects.filter(to_profile=self.recipient, title=self.title).count(), 2)
+
+    def test_different_senders_can_each_have_a_pending_recommendation(self):
+        other_sender_user = User.objects.create_user("recmodelsender2", password="pass12345")
+        other_sender = Profile.objects.create(user=other_sender_user, display_name="RecModelSender2")
+        Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        Recommendation.objects.create(from_profile=other_sender, to_profile=self.recipient, title=self.title)
+        self.assertEqual(Recommendation.objects.filter(to_profile=self.recipient, title=self.title).count(), 2)
+
+
+class MarkTitleWatchedTests(TestCase):
+    def setUp(self):
+        sender_user = User.objects.create_user("marksender", password="pass12345")
+        self.sender = Profile.objects.create(user=sender_user, display_name="MarkSender")
+        recipient_user = User.objects.create_user("markrecipient", password="pass12345")
+        self.recipient = Profile.objects.create(user=recipient_user, display_name="MarkRecipient")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+
+    def test_pending_recommendation_is_marked_watched(self):
+        rec = Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        recommendations.mark_title_watched(self.recipient, self.title)
+        rec.refresh_from_db()
+        self.assertEqual(rec.status, Recommendation.Status.WATCHED)
+
+    def test_sender_gets_a_notification(self):
+        Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        recommendations.mark_title_watched(self.recipient, self.title)
+        n = Notification.objects.get(profile=self.sender)
+        self.assertEqual(n.kind, Notification.Kind.RECOMMENDATION_WATCHED)
+        self.assertEqual(n.title, self.title)
+        self.assertIn("MarkRecipient", n.message)
+        self.assertIn("Fathom", n.message)
+
+    def test_no_pending_recommendation_creates_nothing(self):
+        recommendations.mark_title_watched(self.recipient, self.title)
+        self.assertFalse(Notification.objects.exists())
+
+    def test_already_watched_or_dismissed_recommendations_are_untouched(self):
+        watched = Recommendation.objects.create(
+            from_profile=self.sender, to_profile=self.recipient, title=self.title, status=Recommendation.Status.WATCHED
+        )
+        other_title = Title.objects.create(media_type=MediaType.MOVIE, name="Other Movie", year=2020)
+        dismissed = Recommendation.objects.create(
+            from_profile=self.sender, to_profile=self.recipient, title=other_title, status=Recommendation.Status.DISMISSED
+        )
+        recommendations.mark_title_watched(self.recipient, self.title)
+        recommendations.mark_title_watched(self.recipient, other_title)
+        watched.refresh_from_db()
+        dismissed.refresh_from_db()
+        self.assertEqual(watched.status, Recommendation.Status.WATCHED)
+        self.assertEqual(dismissed.status, Recommendation.Status.DISMISSED)
+        self.assertFalse(Notification.objects.exists())
+
+    def test_only_the_matching_profile_and_title_are_resolved(self):
+        other_title = Title.objects.create(media_type=MediaType.MOVIE, name="Other Movie", year=2020)
+        other_user = User.objects.create_user("markother", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="MarkOther")
+        rec_wrong_title = Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=other_title)
+        rec_wrong_profile = Recommendation.objects.create(from_profile=self.sender, to_profile=other_profile, title=self.title)
+        recommendations.mark_title_watched(self.recipient, self.title)
+        rec_wrong_title.refresh_from_db()
+        rec_wrong_profile.refresh_from_db()
+        self.assertEqual(rec_wrong_title.status, Recommendation.Status.PENDING)
+        self.assertEqual(rec_wrong_profile.status, Recommendation.Status.PENDING)
+
+    def test_multiple_senders_recommending_the_same_title_are_all_resolved(self):
+        other_sender_user = User.objects.create_user("marksender2", password="pass12345")
+        other_sender = Profile.objects.create(user=other_sender_user, display_name="MarkSender2")
+        Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        Recommendation.objects.create(from_profile=other_sender, to_profile=self.recipient, title=self.title)
+        recommendations.mark_title_watched(self.recipient, self.title)
+        self.assertEqual(
+            Recommendation.objects.filter(to_profile=self.recipient, title=self.title, status=Recommendation.Status.WATCHED).count(),
+            2,
+        )
+        self.assertEqual(Notification.objects.count(), 2)
+
+
+class RecommendationWiringTests(TestCase):
+    """Every place a WatchEvent gets created also calls
+    recommendations.mark_title_watched - confirmed here per call site
+    rather than trusting a signal would have caught them all."""
+
+    def setUp(self):
+        sender_user = User.objects.create_user("wiresender", password="pass12345")
+        self.sender = Profile.objects.create(user=sender_user, display_name="WireSender")
+        recipient_user = User.objects.create_user("wirerecipient", password="pass12345")
+        self.recipient = Profile.objects.create(user=recipient_user, display_name="WireRecipient")
+        self.client.login(username="wirerecipient", password="pass12345")
+
+    def _recommend(self, title):
+        return Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=title)
+
+    def test_title_mark_watched_resolves_a_pending_recommendation(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        rec = self._recommend(title)
+        self.client.post(reverse("title_mark_watched", args=[title.pk]))
+        rec.refresh_from_db()
+        self.assertEqual(rec.status, Recommendation.Status.WATCHED)
+
+    def test_episode_mark_watched_resolves_a_pending_recommendation(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
+        rec = self._recommend(show)
+        self.client.post(reverse("episode_mark_watched", args=[show.pk, 1, 1]))
+        rec.refresh_from_db()
+        self.assertEqual(rec.status, Recommendation.Status.WATCHED)
+
+    def test_title_rate_resolves_a_pending_recommendation(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        rec = self._recommend(title)
+        self.client.post(reverse("title_rate", args=[title.pk]), {"rating": "8"})
+        rec.refresh_from_db()
+        self.assertEqual(rec.status, Recommendation.Status.WATCHED)
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_title_preview_mark_watched_resolves_a_pending_recommendation(self, mock_details):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        rec = self._recommend(title)
+        self.client.post(reverse("title_preview_mark_watched", args=["movie", 42]))
+        rec.refresh_from_db()
+        self.assertEqual(rec.status, Recommendation.Status.WATCHED)
+
+    def test_csv_import_resolves_pending_recommendations_for_movies_and_shows(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
+        movie_rec = self._recommend(movie)
+        show_rec = self._recommend(show)
+        rows = [
+            {
+                "row": 1, "title": "Fathom", "year": 2020, "media_type": MediaType.MOVIE,
+                "season": None, "episode": None, "watched_at": "2024-01-01T00:00:00Z", "rating": None,
+            },
+            {
+                "row": 2, "title": "Bleach", "year": 2004, "media_type": MediaType.TV,
+                "season": 1, "episode": 1, "watched_at": "2024-01-01T00:00:00Z", "rating": None,
+            },
+        ]
+        csv_import.commit_rows(self.recipient, rows)
+        movie_rec.refresh_from_db()
+        show_rec.refresh_from_db()
+        self.assertEqual(movie_rec.status, Recommendation.Status.WATCHED)
+        self.assertEqual(show_rec.status, Recommendation.Status.WATCHED)
+
+    @patch("tracker.integrations.tmdb.find_match", return_value=None)
+    def test_trakt_sync_resolves_pending_recommendations_for_movies_and_shows(self, mock_find_match):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"trakt": "1"})
+        show = Title.objects.create(media_type=MediaType.TV, name="Cinder Street", year=2022, external_ids={"trakt": "2"})
+        movie_rec = self._recommend(movie)
+        show_rec = self._recommend(show)
+        items = [
+            {"type": "movie", "watched_at": "2024-01-01T00:00:00.000Z", "movie": {"title": "Fathom", "year": 2020, "ids": {"trakt": 1}}},
+            {
+                "type": "episode", "watched_at": "2024-01-02T00:00:00.000Z",
+                "show": {"title": "Cinder Street", "year": 2022, "ids": {"trakt": 2}},
+                "episode": {"season": 1, "number": 1},
+            },
+        ]
+        trakt.upsert_history_items(self.recipient, items)
+        movie_rec.refresh_from_db()
+        show_rec.refresh_from_db()
+        self.assertEqual(movie_rec.status, Recommendation.Status.WATCHED)
+        self.assertEqual(show_rec.status, Recommendation.Status.WATCHED)
+
+    @patch("tracker.integrations.tmdb.find_match", return_value=None)
+    def test_simkl_sync_resolves_pending_recommendations_for_movies_and_shows(self, mock_find_match):
+        from tracker.integrations import simkl
+
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"simkl": "1"})
+        anime = Title.objects.create(media_type=MediaType.ANIME, name="Bleach", year=2004, external_ids={"simkl": "2"})
+        movie_rec = self._recommend(movie)
+        anime_rec = self._recommend(anime)
+        items = [
+            {"type": "movie", "watched_at": "2024-01-01T00:00:00.000Z", "movie": {"title": "Fathom", "year": 2020, "ids": {"simkl": 1}}},
+            {
+                "type": "episode", "watched_at": "2024-01-02T00:00:00.000Z",
+                "show": {"title": "Bleach", "year": 2004, "ids": {"simkl": 2}},
+                "episode": {"season": 1, "number": 1},
+            },
+        ]
+        simkl.upsert_history_items(self.recipient, items)
+        movie_rec.refresh_from_db()
+        anime_rec.refresh_from_db()
+        self.assertEqual(movie_rec.status, Recommendation.Status.WATCHED)
+        self.assertEqual(anime_rec.status, Recommendation.Status.WATCHED)
+
+
+class SendRecommendationViewTests(TestCase):
+    def setUp(self):
+        sender_user = User.objects.create_user("sendsender", password="pass12345")
+        self.sender = Profile.objects.create(user=sender_user, display_name="SendSender")
+        recipient_user = User.objects.create_user("sendrecipient", password="pass12345")
+        self.recipient = Profile.objects.create(user=recipient_user, display_name="SendRecipient")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        self.client.login(username="sendsender", password="pass12345")
+
+    def test_creates_a_pending_recommendation(self):
+        self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
+        self.assertTrue(
+            Recommendation.objects.filter(
+                from_profile=self.sender, to_profile=self.recipient, title=self.title, status=Recommendation.Status.PENDING
+            ).exists()
+        )
+
+    def test_sending_to_self_404s(self):
+        resp = self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.sender.pk})
+        self.assertEqual(resp.status_code, 404)
+        self.assertFalse(Recommendation.objects.exists())
+
+    def test_duplicate_send_does_not_create_a_second_pending_row(self):
+        self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
+        self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
+        self.assertEqual(Recommendation.objects.filter(from_profile=self.sender, to_profile=self.recipient, title=self.title).count(), 1)
+
+    def test_already_watched_target_does_not_get_a_recommendation(self):
+        WatchEvent.objects.create(profile=self.recipient, title=self.title, watched_at="2024-01-01T00:00:00Z")
+        self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
+        self.assertFalse(Recommendation.objects.exists())
+
+    def test_response_reflects_already_watched_state(self):
+        WatchEvent.objects.create(profile=self.recipient, title=self.title, watched_at="2024-01-01T00:00:00Z")
+        resp = self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
+        self.assertContains(resp, "Already watched")
+
+    def test_response_reflects_sent_state(self):
+        resp = self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
+        self.assertContains(resp, "Sent")
+
+    def test_invalid_to_profile_404s(self):
+        resp = self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": 999999})
+        self.assertEqual(resp.status_code, 404)
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
+        self.assertEqual(resp.status_code, 302)
+
+    def test_get_not_allowed(self):
+        resp = self.client.get(reverse("send_recommendation", args=[self.title.pk]))
+        self.assertEqual(resp.status_code, 405)
+
+
+class DismissRecommendationViewTests(TestCase):
+    def setUp(self):
+        sender_user = User.objects.create_user("dismisssender", password="pass12345")
+        self.sender = Profile.objects.create(user=sender_user, display_name="DismissSender")
+        recipient_user = User.objects.create_user("dismissrecipient", password="pass12345")
+        self.recipient = Profile.objects.create(user=recipient_user, display_name="DismissRecipient")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        self.rec = Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        self.client.login(username="dismissrecipient", password="pass12345")
+
+    def test_marks_dismissed(self):
+        self.client.post(reverse("dismiss_recommendation", args=[self.rec.pk]))
+        self.rec.refresh_from_db()
+        self.assertEqual(self.rec.status, Recommendation.Status.DISMISSED)
+
+    def test_only_the_recipient_can_dismiss(self):
+        self.client.logout()
+        self.client.login(username="dismisssender", password="pass12345")
+        resp = self.client.post(reverse("dismiss_recommendation", args=[self.rec.pk]))
+        self.assertEqual(resp.status_code, 404)
+        self.rec.refresh_from_db()
+        self.assertEqual(self.rec.status, Recommendation.Status.PENDING)
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("dismiss_recommendation", args=[self.rec.pk]))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_get_not_allowed(self):
+        resp = self.client.get(reverse("dismiss_recommendation", args=[self.rec.pk]))
+        self.assertEqual(resp.status_code, 405)
+
+
+class TitleDetailRecommendCardTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("carduser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="CardUser")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        self.client.login(username="carduser", password="pass12345")
+
+    def test_no_card_on_a_single_profile_instance(self):
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertNotContains(resp, "Recommend to")
+
+    def test_card_lists_other_profiles(self):
+        other_user = User.objects.create_user("cardother", password="pass12345")
+        Profile.objects.create(user=other_user, display_name="CardOther")
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, "Recommend to")
+        self.assertContains(resp, "CardOther")
+
+    def test_no_card_on_a_preview_page(self):
+        other_user = User.objects.create_user("cardother2", password="pass12345")
+        Profile.objects.create(user=other_user, display_name="CardOther2")
+        with patch("tracker.integrations.tmdb.get_full_details") as mock_details:
+            mock_details.return_value = {
+                "name": "Preview Movie", "year": "2020", "genres": [], "status": "Released", "poster_url": None,
+            }
+            resp = self.client.get(reverse("title_preview", args=["movie", 999]))
+        self.assertNotContains(resp, "Recommend to")
+
+
+class DashboardRecommendationsTests(TestCase):
+    def setUp(self):
+        sender_user = User.objects.create_user("dashsender", password="pass12345")
+        self.sender = Profile.objects.create(user=sender_user, display_name="DashSender")
+        recipient_user = User.objects.create_user("dashrecipient", password="pass12345")
+        self.recipient = Profile.objects.create(user=recipient_user, display_name="DashRecipient")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        self.client.login(username="dashrecipient", password="pass12345")
+
+    def test_no_card_without_pending_recommendations(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertNotContains(resp, "Recommended to you")
+
+    def test_card_shows_a_pending_recommendation(self):
+        Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "Recommended to you")
+        self.assertContains(resp, "DashSender")
+        self.assertContains(resp, "Fathom")
+
+    def test_dismissed_recommendations_are_not_shown(self):
+        Recommendation.objects.create(
+            from_profile=self.sender, to_profile=self.recipient, title=self.title, status=Recommendation.Status.DISMISSED
+        )
+        resp = self.client.get(reverse("dashboard"))
+        self.assertNotContains(resp, "Recommended to you")
+
+    def test_other_profiles_recommendations_are_not_shown(self):
+        other_user = User.objects.create_user("dashother", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="DashOther")
+        Recommendation.objects.create(from_profile=self.sender, to_profile=other_profile, title=self.title)
+        resp = self.client.get(reverse("dashboard"))
+        self.assertNotContains(resp, "Recommended to you")
+
+
+class RecommendationEndToEndTests(TestCase):
+    """No mocks - a real send, a real watch, a real notification with a
+    working link, driven entirely through the app's own HTTP endpoints."""
+
+    def test_full_flow(self):
+        sender_user = User.objects.create_user("e2esender", password="pass12345")
+        sender = Profile.objects.create(user=sender_user, display_name="E2ESender")
+        recipient_user = User.objects.create_user("e2erecipient", password="pass12345")
+        recipient = Profile.objects.create(user=recipient_user, display_name="E2ERecipient")
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+
+        self.client.login(username="e2esender", password="pass12345")
+        self.client.post(reverse("send_recommendation", args=[title.pk]), {"to_profile_id": recipient.pk})
+        rec = Recommendation.objects.get(from_profile=sender, to_profile=recipient, title=title)
+        self.assertEqual(rec.status, Recommendation.Status.PENDING)
+
+        self.client.logout()
+        self.client.login(username="e2erecipient", password="pass12345")
+        self.client.post(reverse("title_mark_watched", args=[title.pk]))
+
+        rec.refresh_from_db()
+        self.assertEqual(rec.status, Recommendation.Status.WATCHED)
+
+        n = Notification.objects.get(profile=sender)
+        self.assertEqual(n.kind, Notification.Kind.RECOMMENDATION_WATCHED)
+        self.assertIn("E2ERecipient watched your recommendation", n.message)
+
+        self.client.logout()
+        self.client.login(username="e2esender", password="pass12345")
+        resp = self.client.get(reverse("notifications_panel"))
+        self.assertContains(resp, reverse("title_detail", args=[title.pk]))
+        self.assertContains(resp, "watched your recommendation")
 
 
 def _version_response(text):

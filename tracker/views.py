@@ -24,7 +24,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from . import completion, csv_import, instance_config, rewatches, scheduling, selectors, tasks
+from . import completion, csv_import, instance_config, recommendations, rewatches, scheduling, selectors, tasks
 from .integrations import gemini, simkl, tmdb, trakt
 from .models import (
     Episode,
@@ -33,6 +33,7 @@ from .models import (
     MediaType,
     Notification,
     Profile,
+    Recommendation,
     SyncLog,
     Title,
     WatchEvent,
@@ -101,6 +102,7 @@ def dashboard(request):
                 "milestone": selectors.milestone_message(stats["streak"], stats["movies_this_year"]),
                 "because_you_watched": selectors.because_you_watched(profile),
                 "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")),
+                "received_recommendations": _received_recommendations(profile),
                 **selectors.poster_action_context(profile, all_titles),
             }
         )
@@ -434,9 +436,88 @@ def title_detail(request, pk):
         **_title_display(title, details),
         **local_context,
         **episode_context,
+        **_recommend_context(profile, title),
     }
     context["star_fill"] = _star_fill(context["latest_rating"])
     return render(request, "tracker/title_detail.html", context)
+
+
+def _recommend_context(profile, title):
+    """The sidebar "Recommend to" card's context - shared by title_detail's
+    own render and send_recommendation's re-render of just that card.
+    Sorts every other profile into exactly one of: already watched it,
+    already has a pending recommendation from this profile, or is a real
+    candidate - so the card can show why a button isn't live instead of
+    just hiding it."""
+    if profile is None:
+        return {"other_profiles": [], "already_watched_profile_ids": set(), "recommended_profile_ids": set()}
+    other_profiles = list(Profile.objects.exclude(pk=profile.pk).order_by("display_name"))
+    already_watched_profile_ids = set(
+        WatchEvent.objects.filter(profile__in=other_profiles, title=title).values_list("profile_id", flat=True)
+    )
+    recommended_profile_ids = set(
+        Recommendation.objects.filter(
+            from_profile=profile, title=title, status=Recommendation.Status.PENDING
+        ).values_list("to_profile_id", flat=True)
+    )
+    return {
+        "other_profiles": other_profiles,
+        "already_watched_profile_ids": already_watched_profile_ids,
+        "recommended_profile_ids": recommended_profile_ids,
+    }
+
+
+@login_required
+@require_POST
+def send_recommendation(request, pk):
+    """The sidebar "Recommend to" card's one action - one click sends, no
+    confirmation or message field (deliberately kept simple). No-ops
+    (doesn't create a row) rather than erroring when the target has
+    already watched it or already has one pending from this same
+    profile - the re-rendered card just reflects that state instead of
+    a dead-end button."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    to_profile = get_object_or_404(Profile, pk=request.POST.get("to_profile_id"))
+    if to_profile.pk == profile.pk:
+        raise Http404
+    already_watched = WatchEvent.objects.filter(profile=to_profile, title=title).exists()
+    if not already_watched:
+        Recommendation.objects.get_or_create(
+            from_profile=profile, to_profile=to_profile, title=title, status=Recommendation.Status.PENDING
+        )
+    return render(
+        request, "tracker/partials/recommend_card.html", {"title": title, **_recommend_context(profile, title)}
+    )
+
+
+def _received_recommendations(profile):
+    return list(
+        Recommendation.objects.filter(to_profile=profile, status=Recommendation.Status.PENDING)
+        .select_related("from_profile", "title")
+        .order_by("-created_at")
+    )
+
+
+@login_required
+@require_POST
+def dismiss_recommendation(request, pk):
+    """Removes a recommendation from the Dashboard's "Recommended to you"
+    card without it counting as watched - re-recommending it later still
+    works (the unique constraint only guards *pending* rows)."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    rec = get_object_or_404(Recommendation, pk=pk, to_profile=profile)
+    rec.status = Recommendation.Status.DISMISSED
+    rec.save(update_fields=["status"])
+    return render(
+        request,
+        "tracker/partials/dashboard_recommendations.html",
+        {"received_recommendations": _received_recommendations(profile)},
+    )
 
 
 @login_required
@@ -473,6 +554,7 @@ def title_mark_watched(request, pk):
     WatchEvent.objects.create(profile=profile, title=title, watched_at=timezone.now())
     rewatches.recompute_is_rewatch(profile, title, None)
     completion.sync_watchlist_removal(profile, title)
+    recommendations.mark_title_watched(profile, title)
     if request.headers.get("HX-Request"):
         return render(request, "tracker/partials/poster_card_watched_button.html", {"title": title, "watched": True})
     return redirect("title_detail", pk=pk)
@@ -506,6 +588,7 @@ def episode_mark_watched(request, pk, season, episode_number):
     rewatches.recompute_is_rewatch(profile, title, episode)
     completion.sync_show_completion(profile, title)
     completion.sync_watchlist_removal(profile, title)
+    recommendations.mark_title_watched(profile, title)
     return render(
         request,
         "tracker/partials/episode_watched_button.html",
@@ -534,6 +617,7 @@ def title_rate(request, pk):
     else:
         WatchEvent.objects.create(profile=profile, title=title, watched_at=timezone.now(), user_rating=rating)
         rewatches.recompute_is_rewatch(profile, title, None)
+        recommendations.mark_title_watched(profile, title)
     completion.sync_watchlist_removal(profile, title)
     return redirect("title_detail", pk=pk)
 
@@ -656,6 +740,7 @@ def title_preview_mark_watched(request, media_type, tmdb_id):
     WatchEvent.objects.create(profile=profile, title=title, watched_at=timezone.now())
     rewatches.recompute_is_rewatch(profile, title, None)
     completion.sync_watchlist_removal(profile, title)
+    recommendations.mark_title_watched(profile, title)
     return render(request, "tracker/partials/poster_card_watched_button.html", {"title": title, "watched": True})
 
 

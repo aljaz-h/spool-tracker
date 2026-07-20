@@ -20,6 +20,8 @@ urlpatterns = [
         name="episode_mark_watched",
     ),
     path("titles/<int:pk>/rate/", views.title_rate, name="title_rate"),
+    path("titles/<int:pk>/recommend/", views.send_recommendation, name="send_recommendation"),
+    path("recommendations/<int:pk>/dismiss/", views.dismiss_recommendation, name="dismiss_recommendation"),
     path("titles/preview/<str:media_type>/<int:tmdb_id>/", views.title_preview, name="title_preview"),
     path(
         "titles/preview/<str:media_type>/<int:tmdb_id>/add-to-watchlist/",

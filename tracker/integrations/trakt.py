@@ -170,7 +170,7 @@ def upsert_history_items(profile, items):
     tracker/rewatches.py)."""
     from django.utils.dateparse import parse_datetime
 
-    from tracker import completion, rewatches
+    from tracker import completion, recommendations, rewatches
     from tracker.models import Episode, MediaType, Title, WatchEvent
 
     created = 0
@@ -222,9 +222,11 @@ def upsert_history_items(profile, items):
     for title in Title.objects.filter(id__in=touched_movies):
         completion.update_movie_runtime(title)
         completion.sync_watchlist_removal(profile, title)
+        recommendations.mark_title_watched(profile, title)
     for title in Title.objects.filter(id__in=touched_shows):
         completion.sync_show_completion(profile, title)
         completion.sync_watchlist_removal(profile, title)
+        recommendations.mark_title_watched(profile, title)
 
     return created
 
