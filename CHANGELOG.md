@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.27.1] - 2026-07-20
+
+### Removed
+
+- The topbar's "+ Add title" button - it never had any click handler
+  wired up, so it did nothing. With the search bar now able to find
+  and add any title, a dead button offering the same job was just
+  confusing. (The Lists detail page's own "+ Add title" button, which
+  toggles that page's inline search and does work, is unrelated and
+  unchanged.)
+
 ## [0.27.0] - 2026-07-20
 
 ### Added
