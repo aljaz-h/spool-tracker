@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.29.8] - 2026-07-21
+
+### Changed
+
+- Moved the desktop topbar's search bar back next to the logo (it had
+  briefly moved next to the icon cluster) and widened it slightly
+  (`w-56` → `w-72`).
+
 ## [0.29.7] - 2026-07-21
 
 ### Changed

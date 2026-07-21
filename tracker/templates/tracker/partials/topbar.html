@@ -13,6 +13,15 @@
       <span class="font-display text-[24px] text-marquee tracking-wide leading-none">SPOOL</span>
       <span class="hidden lg:inline text-[10px] text-ink-faint uppercase tracking-widest">self-hosted</span>
     </a>
+    <form method="get" action="{% url 'search' %}" class="hidden xl:flex items-center gap-2 flex-none xl:w-72 bg-base-200 border border-line rounded-lg px-3 py-2">
+      {% icon "search" "w-4 h-4 text-ink-faint flex-none" %}
+      <span class="w-px h-4 bg-line flex-none"></span>
+      <input
+        type="text" name="q" value="{{ request.GET.q }}"
+        class="min-w-0 flex-1 bg-transparent text-[13px] text-ink-dim placeholder:text-ink-faint focus:outline-none"
+        placeholder="Search movies, TV, anime…"
+      >
+    </form>
   </div>
 
   <div class="hidden md:block w-px h-8 bg-line flex-none"></div>
@@ -41,16 +50,6 @@
       {% include "tracker/partials/nav_item_horizontal.html" with href=activity_url icon_name="users" label="Activity" is_active=url_name|eq:"activity" active_border="border-primary" %}
     {% endif %}
   </nav>
-
-  <form method="get" action="{% url 'search' %}" class="hidden xl:flex items-center gap-2 flex-none xl:w-56 bg-base-200 border border-line rounded-lg px-3 py-2">
-    {% icon "search" "w-4 h-4 text-ink-faint flex-none" %}
-    <span class="w-px h-4 bg-line flex-none"></span>
-    <input
-      type="text" name="q" value="{{ request.GET.q }}"
-      class="min-w-0 flex-1 bg-transparent text-[13px] text-ink-dim placeholder:text-ink-faint focus:outline-none"
-      placeholder="Search movies, TV, anime…"
-    >
-  </form>
 
   <div class="flex items-center gap-3.5 flex-none ml-auto md:ml-0">
     {% comment %}
