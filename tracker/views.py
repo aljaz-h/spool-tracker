@@ -909,12 +909,17 @@ def _group_history_by_day(events):
     for day, items in groupby(events, key=lambda e: timezone.localtime(e.watched_at).date()):
         items = list(items)
         movie_count = sum(1 for e in items if e.title.media_type == MediaType.MOVIE)
+        # Same episode-then-title runtime fallback _build_episode_group
+        # already uses for a single group's own total - here summed
+        # across the whole day (movies included) instead of one run.
+        total_minutes = sum((e.episode.runtime_minutes if e.episode else None) or e.title.runtime_minutes or 0 for e in items)
         groups.append(
             {
                 "date": day,
                 "items": _group_consecutive_episodes(items),
                 "movie_count": movie_count,
                 "episode_count": len(items) - movie_count,
+                "total_duration": selectors._format_duration(total_minutes) if total_minutes else None,
             }
         )
     return groups

@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.29.2] - 2026-07-21
+
+### Added
+
+- History's day-group headers now show total watch time next to the
+  "1 movie · 4 episodes" count - in minutes, hours, or days depending
+  on how much was watched that day (e.g. "45m", "5h 0m", "2d 17h"),
+  matching Trakt/Simkl's own watch-time formatting.
+
 ## [0.29.1] - 2026-07-21
 
 ### Changed

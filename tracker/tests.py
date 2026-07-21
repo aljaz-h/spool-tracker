@@ -6988,6 +6988,68 @@ class HistoryConsecutiveEpisodeGroupingTests(TestCase):
         self.assertContains(resp, "S1E1–S1E3")
 
 
+class HistoryDayGroupTotalDurationTests(TestCase):
+    """Each day-group header's own total watch time - next to the
+    "1 movie · 4 episodes" count, shown in whichever unit
+    (minutes/hours/days) selectors._format_duration picks for the
+    total, matching Trakt/Simkl's own watch-time formatting."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("daydurationuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="DayDurationUser")
+        self.now = timezone.now()
+
+    def test_sums_movie_and_episode_runtimes_for_the_day(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020, runtime_minutes=100)
+        show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+        ep = Episode.objects.create(title=show, season=1, episode=1, runtime_minutes=50)
+        events = [
+            WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now),
+            WatchEvent.objects.create(profile=self.profile, title=show, episode=ep, watched_at=self.now - timedelta(minutes=5)),
+        ]
+        groups = views._group_history_by_day(events)
+        self.assertEqual(groups[0]["total_duration"], "2h 30m")
+
+    def test_shows_minutes_only_for_a_short_total(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Short Film", year=2020, runtime_minutes=20)
+        events = [WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now)]
+        groups = views._group_history_by_day(events)
+        self.assertEqual(groups[0]["total_duration"], "20m")
+
+    def test_falls_back_to_episode_runtime_over_title_runtime(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023, runtime_minutes=999)
+        ep = Episode.objects.create(title=show, season=1, episode=1, runtime_minutes=45)
+        events = [WatchEvent.objects.create(profile=self.profile, title=show, episode=ep, watched_at=self.now)]
+        groups = views._group_history_by_day(events)
+        self.assertEqual(groups[0]["total_duration"], "45m")
+
+    def test_none_without_any_runtime_data(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="No Runtime", year=2020)
+        events = [WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now)]
+        groups = views._group_history_by_day(events)
+        self.assertIsNone(groups[0]["total_duration"])
+
+    def test_each_day_gets_its_own_total_not_a_running_sum(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020, runtime_minutes=100)
+        events = [
+            WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now),
+            WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now - timedelta(days=1)),
+        ]
+        groups = views._group_history_by_day(events)
+        self.assertEqual(len(groups), 2)
+        self.assertEqual(groups[0]["total_duration"], "1h 40m")
+        self.assertEqual(groups[1]["total_duration"], "1h 40m")
+
+    def test_history_page_renders_the_total_next_to_the_counts(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020, runtime_minutes=100)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now)
+        self.client.login(username="daydurationuser", password="pass12345")
+        resp = self.client.get(reverse("history"))
+        self.assertContains(resp, "1h 40m")
+
+
 class HistoryBulkDeleteTests(TestCase):
     """History's multi-select bar posts a mix of plain event ids (single
     tiles) and comma-joined event ids (a collapsed binge-group tile's one

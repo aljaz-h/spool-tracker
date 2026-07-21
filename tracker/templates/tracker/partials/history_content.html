@@ -11,6 +11,7 @@
         {% if group.movie_count %}{{ group.movie_count }} movie{{ group.movie_count|pluralize }}{% endif %}
         {% if group.movie_count and group.episode_count %}·{% endif %}
         {% if group.episode_count %}{{ group.episode_count }} episode{{ group.episode_count|pluralize }}{% endif %}
+        {% if group.total_duration %}· {{ group.total_duration }}{% endif %}
       </div>
     </div>
     <div class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-4">
