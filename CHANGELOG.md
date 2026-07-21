@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.29.5] - 2026-07-21
+
+### Fixed
+
+- Topbar's Notifications/Friends/avatar icon cluster sat left-of-center
+  on mobile instead of hugging the right edge - it's a `flex-none`
+  sibling of the middle `<nav>`, which is `display:none` below `md:`
+  and so isn't there to push it over as it does on desktop. Added
+  `ml-auto` (with an explicit `md:ml-0` reset) so the cluster is pushed
+  to the header's right edge on mobile without affecting desktop, where
+  the nav's own flex-grow already claims that space.
+
 ## [0.29.4] - 2026-07-21
 
 ### Fixed

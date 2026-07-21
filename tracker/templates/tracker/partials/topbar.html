@@ -47,8 +47,14 @@
     {% endif %}
   </nav>
 
-  <div class="flex items-center gap-3.5 flex-none">
+  <div class="flex items-center gap-3.5 flex-none ml-auto md:ml-0">
     {% comment %}
+      `ml-auto` pushes this group to the header's right edge on mobile,
+      where the middle `<nav>` is `display:none` and so isn't there to
+      soak up the free space as it does from md: up (there, the nav's
+      flex-grow already consumes all the free space, leaving nothing
+      for this auto margin to claim - `md:ml-0` just keeps that explicit
+      instead of relying on that coincidence).
       Every header dropdown below positions itself via JS (togglePanel),
       not a plain `absolute right-0` - on a narrow phone, the trigger
       button often sits well left of the true right edge (the middle nav
