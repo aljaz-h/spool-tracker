@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.29.7] - 2026-07-21
+
+### Changed
+
+- The desktop topbar's search bar now shows a search icon and a slight
+  vertical divider before the input text, instead of being a bare
+  text field.
+
 ## [0.29.6] - 2026-07-21
 
 ### Changed

@@ -42,10 +42,12 @@
     {% endif %}
   </nav>
 
-  <form method="get" action="{% url 'search' %}" class="hidden xl:block flex-none">
+  <form method="get" action="{% url 'search' %}" class="hidden xl:flex items-center gap-2 flex-none xl:w-56 bg-base-200 border border-line rounded-lg px-3 py-2">
+    {% icon "search" "w-4 h-4 text-ink-faint flex-none" %}
+    <span class="w-px h-4 bg-line flex-none"></span>
     <input
       type="text" name="q" value="{{ request.GET.q }}"
-      class="xl:w-56 bg-base-200 border border-line rounded-lg px-3.5 py-2 text-[13px] text-ink-dim"
+      class="min-w-0 flex-1 bg-transparent text-[13px] text-ink-dim placeholder:text-ink-faint focus:outline-none"
       placeholder="Search movies, TV, anime…"
     >
   </form>
