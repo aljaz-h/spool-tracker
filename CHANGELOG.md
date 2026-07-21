@@ -8,6 +8,36 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-07-21
+
+### Added
+
+- Settings & Import: a personal Timezone dropdown under Appearance -
+  household members in a different timezone than the server now see
+  their own local times, activated per-request by a new
+  `ProfileTimezoneMiddleware`. Blank (the default) keeps using the
+  server's own `TIME_ZONE`.
+- Admin Dashboard: an Activity Log card recording who created, removed,
+  or promoted a profile, and when.
+- Admin Dashboard: a "Promote" control letting the owner hand another
+  profile owner-level access.
+- My Profile: a Danger Zone with self-service account deletion for
+  Members - previously the only way to leave was asking the owner to
+  remove you. An owner can only delete their own account once another
+  owner exists to take over.
+
+### Changed
+
+- Settings & Import's "Import & Export" card is renamed to "Connected
+  Apps".
+- Trakt/Simkl's "Connect" button is disabled with an explanatory note
+  when the server owner hasn't configured credentials for that
+  provider yet, instead of linking through to an error.
+- Moved the "Spool vX.Y.Z" footer from Settings & Import to Admin
+  Dashboard's Server card, next to the Django version/database/debug
+  info - it's server metadata, not a personal preference.
+
+
 ## [0.30.0] - 2026-07-21
 
 ### Added

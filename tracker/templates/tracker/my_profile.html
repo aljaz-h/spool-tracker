@@ -134,4 +134,26 @@
     </div>
 
   </div>
+
+  <div class="bg-error/5 border border-error/30 rounded-2xl p-5 mt-5 max-w-3xl">
+    <h3 class="text-lg text-error mb-1">Danger Zone</h3>
+    <div class="text-ink-dim text-xs mb-3.5">This action is permanent and can't be undone.</div>
+    <div class="flex justify-between items-center">
+      <div>
+        <div class="font-semibold text-[13.5px]">Delete my account</div>
+        <div class="text-xs text-ink-dim">Permanently deletes your profile, watch history, lists, and login.</div>
+        {% if not can_delete_own_account %}
+          <div class="text-xs text-warning mt-1">You're the only owner - promote another profile to owner first.</div>
+        {% endif %}
+      </div>
+      {% if can_delete_own_account %}
+        <form method="post" action="{% url 'delete_own_account' %}" onsubmit="return confirm('Permanently delete your account? This deletes your entire watch history, lists, and login - this cannot be undone.');">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content">Delete my account</button>
+        </form>
+      {% else %}
+        <button type="button" disabled class="btn btn-sm btn-outline border-error/30 text-error/40 cursor-not-allowed">Delete my account</button>
+      {% endif %}
+    </div>
+  </div>
 {% endblock %}

@@ -30,19 +30,23 @@
     <div class="flex flex-col gap-5">
 
     <div class="bg-base-200 border border-line rounded-2xl p-5">
-      <h3 class="text-lg mb-3.5">Import &amp; Export</h3>
+      <h3 class="text-lg mb-3.5">Connected Apps</h3>
 
       <div class="py-3.5 border-b border-line">
         <div class="flex justify-between items-center">
           <div><div class="font-semibold text-[13.5px]">Trakt</div><div class="text-xs text-ink-dim">Sync watched history, ratings &amp; lists</div></div>
           {% if "trakt" in connected_providers %}
             <span class="font-mono text-xs text-success">&#10003; Connected</span>
-          {% else %}
+          {% elif trakt_configured %}
             <a href="{% url 'trakt_connect' %}" class="btn btn-sm">Connect</a>
+          {% else %}
+            <button type="button" disabled title="Ask your server owner to set this up first" class="btn btn-sm btn-disabled">Connect</button>
           {% endif %}
         </div>
         {% if "trakt" in connected_providers %}
           {% include "tracker/partials/sync_schedule_form.html" with provider="trakt" account=external_accounts.trakt %}
+        {% elif not trakt_configured %}
+          <div class="text-[10.5px] text-ink-faint mt-1">Not available yet - ask your server owner to set up Trakt first.</div>
         {% endif %}
       </div>
 
@@ -51,12 +55,16 @@
           <div><div class="font-semibold text-[13.5px]">Simkl</div><div class="text-xs text-ink-dim">Import history &amp; anime progress</div></div>
           {% if "simkl" in connected_providers %}
             <span class="font-mono text-xs text-success">&#10003; Connected</span>
-          {% else %}
+          {% elif simkl_configured %}
             <a href="{% url 'simkl_connect' %}" class="btn btn-sm">Connect</a>
+          {% else %}
+            <button type="button" disabled title="Ask your server owner to set this up first" class="btn btn-sm btn-disabled">Connect</button>
           {% endif %}
         </div>
         {% if "simkl" in connected_providers %}
           {% include "tracker/partials/sync_schedule_form.html" with provider="simkl" account=external_accounts.simkl %}
+        {% elif not simkl_configured %}
+          <div class="text-[10.5px] text-ink-faint mt-1">Not available yet - ask your server owner to set up Simkl first.</div>
         {% endif %}
       </div>
 
@@ -162,6 +170,17 @@
           </select>
           <div class="text-[10.5px] text-ink-faint mt-1.5">Pre-fills the language filter on Movies &amp; TV and Anime.</div>
         </form>
+
+        <div class="text-ink-dim text-xs mt-4 mb-2">Timezone</div>
+        <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
+          <select name="timezone" class="select select-sm w-full bg-base-100 focus:outline-primary">
+            <option value="">Server default ({{ server_time_zone }})</option>
+            {% for tz in timezones %}
+              <option value="{{ tz }}" {% if profile.timezone == tz %}selected{% endif %}>{{ tz }}</option>
+            {% endfor %}
+          </select>
+          <div class="text-[10.5px] text-ink-faint mt-1.5">Your own timezone for times shown across the app - useful if you're not in the same timezone as the server.</div>
+        </form>
       </div>
 
       {% if show_activity_nav %}
@@ -222,7 +241,5 @@
       </div>
     {% endif %}
   </div>
-
-  <div class="text-[11px] text-ink-faint font-mono mt-6">Spool v{{ app_version }}</div>
 </div>
 {% endblock %}

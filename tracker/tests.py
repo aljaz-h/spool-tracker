@@ -6,6 +6,7 @@ from datetime import timedelta
 from unittest.mock import Mock, patch
 
 import requests
+from django.conf import settings as django_settings
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
@@ -16,6 +17,7 @@ from . import completion, csv_import, instance_config, notifications, recommenda
 from .integrations import gemini, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
+    AdminAuditLogEntry,
     Episode,
     ExternalAccount,
     Genre,
@@ -1939,12 +1941,18 @@ class AppVersionTests(TestCase):
         context = app_version(RequestFactory().get("/"))
         self.assertIn("app_version", context)
 
-    def test_settings_page_shows_the_version(self):
-        user = User.objects.create_user("versionchecker", password="pass12345")
+    def test_admin_dashboard_shows_the_version(self):
+        # Moved here from Settings & Import - it's server metadata, so it
+        # belongs in the Server card next to Django version/DB/debug, not
+        # a personal-preferences page every profile can see.
+        user = User.objects.create_user("versionchecker", password="pass12345", is_superuser=True)
         Profile.objects.create(user=user, display_name="VersionChecker")
         self.client.login(username="versionchecker", password="pass12345")
-        resp = self.client.get(reverse("settings"))
-        self.assertContains(resp, "Spool v")
+        resp = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(resp, "v")
+        from tracker.version import APP_VERSION
+
+        self.assertContains(resp, APP_VERSION)
 
     def test_sidebar_shows_the_version_on_any_page(self):
         user = User.objects.create_user("versionchecker2", password="pass12345")
@@ -2368,6 +2376,231 @@ class AdminDashboardVisibilityTests(TestCase):
         self.client.login(username="owner2", password="pass12345")
         resp = self.client.get(reverse("admin_dashboard"))
         self.assertNotContains(resp, "super-secret-value")
+
+    def test_server_card_shows_app_version(self):
+        self.client.login(username="owner2", password="pass12345")
+        resp = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(resp, f"v{update_check.APP_VERSION}")
+
+
+class SettingsConnectedAppsTests(TestCase):
+    """Settings & Import's Trakt/Simkl card - renamed to "Connected Apps",
+    and its Connect button now accounts for whether the server owner has
+    configured credentials at all (previously it always linked to
+    oauth_connect, which redirected back with an error if not)."""
+
+    def setUp(self):
+        user = User.objects.create_user("connectedappsuser", password="pass12345")
+        Profile.objects.create(user=user, display_name="ConnectedAppsUser")
+        self.client.login(username="connectedappsuser", password="pass12345")
+
+    def test_section_is_renamed(self):
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, "Connected Apps")
+        self.assertNotContains(resp, "Import &amp; Export")
+
+    def test_connect_button_disabled_when_trakt_not_configured(self):
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, "Ask your server owner to set this up first")
+
+    @override_settings(TRAKT_CLIENT_ID="configured-id", TRAKT_CLIENT_SECRET="configured-secret")
+    def test_connect_button_enabled_when_trakt_configured(self):
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, reverse("trakt_connect"))
+
+    def test_version_footer_no_longer_on_settings_page(self):
+        resp = self.client.get(reverse("settings"))
+        self.assertNotContains(resp, f"Spool v{update_check.APP_VERSION}")
+
+
+class SettingsTimezoneTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("tzuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="TzUser")
+        self.client.login(username="tzuser", password="pass12345")
+
+    def test_renders_timezone_dropdown_with_server_default_option(self):
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, "Timezone")
+        self.assertContains(resp, "Server default")
+
+    def test_saves_a_valid_timezone(self):
+        self.client.post(reverse("save_appearance"), {"timezone": "America/New_York"})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, "America/New_York")
+
+    def test_rejects_an_invalid_timezone(self):
+        self.profile.timezone = "America/New_York"
+        self.profile.save(update_fields=["timezone"])
+        self.client.post(reverse("save_appearance"), {"timezone": "Not/A_Real_Zone"})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, "America/New_York")
+
+    def test_blank_timezone_clears_back_to_server_default(self):
+        self.profile.timezone = "America/New_York"
+        self.profile.save(update_fields=["timezone"])
+        self.client.post(reverse("save_appearance"), {"timezone": ""})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, "")
+
+
+class ProfileTimezoneMiddlewareTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("tzmiddlewareuser", password="pass12345")
+        self.profile = Profile.objects.create(
+            user=user, display_name="TzMiddlewareUser", timezone="America/New_York"
+        )
+        self.client.login(username="tzmiddlewareuser", password="pass12345")
+
+    def test_activates_the_profiles_own_timezone_during_a_request(self):
+        from django.utils import timezone as django_timezone
+
+        seen = {}
+
+        def _capture(request):
+            seen["tzname"] = django_timezone.get_current_timezone_name()
+            from django.http import HttpResponse
+
+            return HttpResponse()
+
+        from .middleware import ProfileTimezoneMiddleware
+
+        middleware = ProfileTimezoneMiddleware(_capture)
+        factory_request = self.client.get(reverse("dashboard")).wsgi_request
+        middleware(factory_request)
+        self.assertEqual(seen["tzname"], "America/New_York")
+
+    def test_blank_profile_timezone_deactivates_to_server_default(self):
+        self.profile.timezone = ""
+        self.profile.save(update_fields=["timezone"])
+        from django.utils import timezone as django_timezone
+
+        from .middleware import ProfileTimezoneMiddleware
+
+        def _capture(request):
+            from django.http import HttpResponse
+
+            self.assertEqual(django_timezone.get_current_timezone_name(), django_settings.TIME_ZONE)
+            return HttpResponse()
+
+        middleware = ProfileTimezoneMiddleware(_capture)
+        factory_request = self.client.get(reverse("dashboard")).wsgi_request
+        middleware(factory_request)
+
+
+class PromoteToOwnerTests(TestCase):
+    def setUp(self):
+        owner_user = User.objects.create_user("promoteowner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=owner_user, display_name="PromoteOwner")
+        member_user = User.objects.create_user("promotemember", password="pass12345")
+        self.member = Profile.objects.create(user=member_user, display_name="PromoteMember")
+
+    def test_owner_can_promote_a_member(self):
+        self.client.login(username="promoteowner", password="pass12345")
+        self.client.post(reverse("promote_to_owner", args=[self.member.id]))
+        self.member.user.refresh_from_db()
+        self.assertTrue(self.member.user.is_superuser)
+
+    def test_member_cannot_promote_anyone(self):
+        self.client.login(username="promotemember", password="pass12345")
+        other_user = User.objects.create_user("promoteother", password="pass12345")
+        other = Profile.objects.create(user=other_user, display_name="PromoteOther")
+        self.client.post(reverse("promote_to_owner", args=[other.id]))
+        other.user.refresh_from_db()
+        self.assertFalse(other.user.is_superuser)
+
+    def test_promoting_logs_an_audit_entry(self):
+        self.client.login(username="promoteowner", password="pass12345")
+        self.client.post(reverse("promote_to_owner", args=[self.member.id]))
+        entry = AdminAuditLogEntry.objects.get(action=AdminAuditLogEntry.Action.PROFILE_PROMOTED)
+        self.assertEqual(entry.actor, self.owner)
+        self.assertEqual(entry.target_display_name, "PromoteMember")
+
+
+class DeleteOwnAccountTests(TestCase):
+    def setUp(self):
+        self.owner_user = User.objects.create_user("selfowner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=self.owner_user, display_name="SelfOwner")
+        self.member_user = User.objects.create_user("selfmember", password="pass12345")
+        self.member = Profile.objects.create(user=self.member_user, display_name="SelfMember")
+
+    def test_member_can_delete_own_account(self):
+        self.client.login(username="selfmember", password="pass12345")
+        self.client.post(reverse("delete_own_account"))
+        self.assertFalse(User.objects.filter(username="selfmember").exists())
+
+    def test_deleting_own_account_logs_out(self):
+        self.client.login(username="selfmember", password="pass12345")
+        self.client.post(reverse("delete_own_account"))
+        resp = self.client.get(reverse("dashboard"))
+        self.assertRedirects(resp, f"{reverse('login')}?next={reverse('dashboard')}")
+
+    def test_sole_owner_cannot_delete_own_account(self):
+        self.client.login(username="selfowner", password="pass12345")
+        self.client.post(reverse("delete_own_account"))
+        self.assertTrue(User.objects.filter(username="selfowner").exists())
+
+    def test_owner_can_delete_own_account_once_another_owner_exists(self):
+        self.member_user.is_superuser = True
+        self.member_user.save(update_fields=["is_superuser"])
+        self.client.login(username="selfowner", password="pass12345")
+        self.client.post(reverse("delete_own_account"))
+        self.assertFalse(User.objects.filter(username="selfowner").exists())
+
+    def test_self_deletion_logs_an_audit_entry_with_actor_nulled_out(self):
+        self.client.login(username="selfmember", password="pass12345")
+        self.client.post(reverse("delete_own_account"))
+        entry = AdminAuditLogEntry.objects.get(action=AdminAuditLogEntry.Action.PROFILE_SELF_DELETED)
+        self.assertIsNone(entry.actor)
+        self.assertEqual(entry.target_display_name, "SelfMember")
+
+
+class MyProfileDangerZoneTests(TestCase):
+    def setUp(self):
+        self.owner_user = User.objects.create_user("dangerowner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=self.owner_user, display_name="DangerOwner")
+        member_user = User.objects.create_user("dangermember", password="pass12345")
+        Profile.objects.create(user=member_user, display_name="DangerMember")
+
+    def test_member_sees_enabled_delete_button(self):
+        self.client.login(username="dangermember", password="pass12345")
+        resp = self.client.get(reverse("my_profile"))
+        self.assertContains(resp, reverse("delete_own_account"))
+
+    def test_sole_owner_sees_disabled_button_and_explanation(self):
+        self.client.login(username="dangerowner", password="pass12345")
+        resp = self.client.get(reverse("my_profile"))
+        self.assertContains(resp, "only owner")
+        self.assertNotContains(resp, f'action="{reverse("delete_own_account")}"')
+
+
+class AdminAuditLogDisplayTests(TestCase):
+    def setUp(self):
+        owner_user = User.objects.create_user("auditowner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=owner_user, display_name="AuditOwner")
+        self.client.login(username="auditowner", password="pass12345")
+
+    def test_create_profile_logs_an_entry_shown_on_the_dashboard(self):
+        self.client.post(
+            reverse("create_profile"),
+            {"display_name": "Fresh Person", "username": "freshperson", "password": "pass12345"},
+        )
+        resp = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(resp, "Fresh Person")
+        self.assertContains(resp, "profile created")
+
+    def test_remove_profile_logs_an_entry(self):
+        member_user = User.objects.create_user("auditmember", password="pass12345")
+        member = Profile.objects.create(user=member_user, display_name="AuditMember")
+        self.client.post(reverse("delete_profile", args=[member.id]))
+        entry = AdminAuditLogEntry.objects.get(action=AdminAuditLogEntry.Action.PROFILE_REMOVED)
+        self.assertEqual(entry.target_display_name, "AuditMember")
+        resp = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(resp, "AuditMember")
+
+    def test_no_activity_yet_message_when_log_is_empty(self):
+        resp = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(resp, "No activity yet.")
 
 
 class ForceCredentialChangeTests(TestCase):

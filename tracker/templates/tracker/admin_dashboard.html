@@ -31,10 +31,18 @@
             <div class="text-[11.5px] text-ink-dim font-mono">{% if p.is_owner %}Owner{% else %}Member{% endif %}</div>
           </div>
           {% if p.id != profile.id %}
-            <form method="post" action="{% url 'delete_profile' p.id %}" onsubmit="return confirm('Remove {{ p.display_name|escapejs }}? This deletes their entire watch history.');">
-              {% csrf_token %}
-              <button type="submit" class="text-xs text-ink-faint hover:text-error">Remove</button>
-            </form>
+            <div class="flex items-center gap-3 flex-none">
+              {% if not p.is_owner %}
+                <form method="post" action="{% url 'promote_to_owner' p.id %}" onsubmit="return confirm('Make {{ p.display_name|escapejs }} an owner? Owners can manage profiles, integrations, and server settings.');">
+                  {% csrf_token %}
+                  <button type="submit" class="text-xs text-ink-faint hover:text-primary">Promote</button>
+                </form>
+              {% endif %}
+              <form method="post" action="{% url 'delete_profile' p.id %}" onsubmit="return confirm('Remove {{ p.display_name|escapejs }}? This deletes their entire watch history.');">
+                {% csrf_token %}
+                <button type="submit" class="text-xs text-ink-faint hover:text-error">Remove</button>
+              </form>
+            </div>
           {% endif %}
         </div>
       {% endfor %}
@@ -87,12 +95,34 @@
     <div class="bg-base-200 border border-line rounded-2xl p-5">
       <h3 class="text-lg mb-3">Server</h3>
       <div class="font-mono text-[11.5px] text-ink-faint leading-loose">
+        spool&nbsp;&nbsp;&nbsp;&nbsp;v{{ app_version }}<br>
         django&nbsp;&nbsp;&nbsp;{{ django_version }}<br>
         database&nbsp;{{ db_engine }}<br>
         debug&nbsp;&nbsp;&nbsp;&nbsp;{{ debug }}<br>
         timezone&nbsp;{{ time_zone }}<br>
         profiles&nbsp;{{ profiles|length }}
       </div>
+    </div>
+
+    <div class="bg-base-200 border border-line rounded-2xl p-5">
+      <h3 class="text-lg mb-1">Activity Log</h3>
+      <div class="text-ink-dim text-xs mb-3.5">Who added, removed, or promoted a profile - most recent first.</div>
+      {% if audit_log %}
+        <div class="space-y-2.5">
+          {% for entry in audit_log %}
+            <div class="flex justify-between items-baseline gap-3 text-[12.5px] py-1.5 border-b border-line last:border-b-0">
+              <div class="min-w-0">
+                <span class="font-semibold">{{ entry.actor.display_name|default:"(deleted account)" }}</span>
+                <span class="text-ink-dim">{{ entry.get_action_display|lower }}</span>
+                <span class="font-semibold">{{ entry.target_display_name }}</span>
+              </div>
+              <span class="text-ink-faint font-mono text-[10.5px] flex-none">{{ entry.created_at|timesince }} ago</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="text-ink-faint text-sm py-4 text-center">No activity yet.</div>
+      {% endif %}
     </div>
 
   </div>

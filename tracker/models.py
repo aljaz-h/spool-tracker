@@ -77,6 +77,12 @@ class Profile(models.Model):
     # means no default. Not TMDB response localization (titles/overviews
     # stay in TMDB's own language) - just a starting filter value.
     preferred_language = models.CharField(max_length=5, blank=True, default="")
+    # Settings → Appearance - an IANA zone name (e.g. "America/New_York"),
+    # activated per-request by middleware.ProfileTimezoneMiddleware. Blank
+    # means "use the server's own TIME_ZONE" - the only option before this
+    # field existed, and still the common case for a single-household,
+    # single-timezone instance.
+    timezone = models.CharField(max_length=50, blank=True, default="")
     # Settings → Privacy - whether this profile's watches/ratings/list-adds
     # appear in the household-wide Activity feed for other profiles
     # (selectors.activity_feed). Only ever shown/relevant with >1 profile
@@ -531,3 +537,33 @@ class SyncLog(models.Model):
         if self.finished_at is None:
             return None
         return (self.finished_at - self.started_at).total_seconds()
+
+
+class AdminAuditLogEntry(models.Model):
+    """Who added/removed/promoted which profile, and when - Admin
+    Dashboard's own audit trail, separate from SyncLog (which is about
+    Trakt/Simkl sync runs, not account administration). target_display_name
+    is a plain string snapshot, not a FK, because the target Profile is
+    often gone by the time this is read back (removed, or self-deleted)."""
+
+    class Action(models.TextChoices):
+        PROFILE_CREATED = "profile_created", "Profile created"
+        PROFILE_REMOVED = "profile_removed", "Profile removed"
+        PROFILE_PROMOTED = "profile_promoted", "Promoted to owner"
+        PROFILE_SELF_DELETED = "profile_self_deleted", "Deleted own account"
+
+    # Null once the actor's own Profile is gone (e.g. they deleted their
+    # own account - see views.delete_own_account) rather than losing the
+    # log entry entirely.
+    actor = models.ForeignKey(
+        Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name="audit_log_entries_as_actor"
+    )
+    action = models.CharField(max_length=30, choices=Action.choices)
+    target_display_name = models.CharField(max_length=50)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.get_action_display()} · {self.target_display_name} @ {self.created_at:%Y-%m-%d %H:%M}"

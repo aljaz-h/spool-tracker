@@ -1,5 +1,6 @@
 from django.shortcuts import redirect
 from django.urls import Resolver404, resolve
+from django.utils import timezone as django_timezone
 
 from .models import Profile
 
@@ -27,4 +28,29 @@ class ForceCredentialChangeMiddleware:
                     url_name = None
                 if url_name not in EXEMPT_URL_NAMES:
                     return redirect("change_credentials")
+        return self.get_response(request)
+
+
+class ProfileTimezoneMiddleware:
+    """Activates the logged-in profile's own Settings → Appearance
+    timezone (Profile.timezone) for this request, so every naive `{{ dt }}`
+    template render and `date`/`time` filter converts to it instead of the
+    server's TIME_ZONE - lets household members in different timezones see
+    their own local times without changing anything server-wide. Blank
+    Profile.timezone (the default) deactivates back to settings.TIME_ZONE,
+    same as if this middleware weren't installed at all."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        tzname = None
+        if request.user.is_authenticated:
+            profile = Profile.objects.filter(user=request.user).only("timezone").first()
+            if profile is not None:
+                tzname = profile.timezone
+        if tzname:
+            django_timezone.activate(tzname)
+        else:
+            django_timezone.deactivate()
         return self.get_response(request)

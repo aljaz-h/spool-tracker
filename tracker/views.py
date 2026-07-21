@@ -5,6 +5,7 @@ import os
 import secrets
 import threading
 import uuid
+import zoneinfo
 from datetime import date, timedelta
 from itertools import groupby
 
@@ -12,7 +13,7 @@ import django
 import requests
 from django.conf import settings as django_settings
 from django.contrib import messages
-from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth import logout, update_session_auth_hash
 from django.contrib.auth import views as auth_views
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
@@ -28,6 +29,7 @@ from . import completion, csv_import, instance_config, recommendations, rewatche
 from .integrations import gemini, simkl, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
+    AdminAuditLogEntry,
     Episode,
     ExternalAccount,
     InstanceConfig,
@@ -71,6 +73,16 @@ DISCOVER_LANGUAGES = [
     ("cs", "Czech"), ("el", "Greek"), ("he", "Hebrew"), ("id", "Indonesian"),
     ("vi", "Vietnamese"), ("uk", "Ukrainian"), ("ro", "Romanian"), ("hu", "Hungarian"),
 ]
+
+# Settings → Appearance's personal Timezone dropdown (Profile.timezone,
+# activated per-request by middleware.ProfileTimezoneMiddleware). Sourced
+# from the stdlib rather than a hand-maintained list - filtered to
+# region/city zones only (excludes bare "UTC" and the fixed-offset
+# "Etc/GMT+N" entries), which is what every other app's timezone picker
+# shows.
+PROFILE_TIMEZONES = sorted(
+    tz for tz in zoneinfo.available_timezones() if "/" in tz and not tz.startswith("Etc/")
+)
 
 
 @login_required
@@ -1446,6 +1458,10 @@ def settings_view(request):
         "external_accounts": external_accounts,
         "languages": DISCOVER_LANGUAGES,
         "landing_pages": Profile.LandingPage.choices,
+        "trakt_configured": bool(instance_config.get_trakt_credentials()[0]),
+        "simkl_configured": bool(instance_config.get_simkl_credentials()[0]),
+        "timezones": PROFILE_TIMEZONES,
+        "server_time_zone": django_settings.TIME_ZONE,
     }
     return render(request, "tracker/settings.html", context)
 
@@ -1467,6 +1483,7 @@ def admin_dashboard(request):
         "db_engine": db_engine,
         "debug": django_settings.DEBUG,
         "time_zone": django_settings.TIME_ZONE,
+        "audit_log": AdminAuditLogEntry.objects.select_related("actor")[:15],
     }
     return render(request, "tracker/admin_dashboard.html", context)
 
@@ -1628,6 +1645,11 @@ def my_profile(request):
     connected_providers = set(
         ExternalAccount.objects.filter(profile=profile).values_list("provider", flat=True)
     )
+    # An owner can only self-delete once another owner exists to take over -
+    # otherwise the server would be left with no owner at all. Members have
+    # no such restriction.
+    other_owner_exists = Profile.objects.filter(user__is_superuser=True).exclude(pk=profile.pk).exists()
+    can_delete_own_account = not profile.is_owner or other_owner_exists
     return render(
         request,
         "tracker/my_profile.html",
@@ -1635,8 +1657,30 @@ def my_profile(request):
             "profile": profile,
             "avatar_colors": AVATAR_COLOR_CHOICES,
             "connected_providers": connected_providers,
+            "can_delete_own_account": can_delete_own_account,
         },
     )
+
+
+@login_required
+@require_POST
+def delete_own_account(request):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    other_owner_exists = Profile.objects.filter(user__is_superuser=True).exclude(pk=profile.pk).exists()
+    if profile.is_owner and not other_owner_exists:
+        messages.error(request, "You're the only owner — promote another profile to owner first.")
+        return redirect("my_profile")
+
+    display_name = profile.display_name
+    AdminAuditLogEntry.objects.create(
+        actor=profile, action=AdminAuditLogEntry.Action.PROFILE_SELF_DELETED, target_display_name=display_name
+    )
+    user = request.user
+    logout(request)
+    user.delete()  # cascades to the Profile via the OneToOne FK
+    return redirect("login")
 
 
 @login_required
@@ -1665,6 +1709,9 @@ def create_profile(request):
     if avatar_color in AVATAR_COLOR_CHOICES:
         create_kwargs["avatar_color"] = avatar_color
     Profile.objects.create(**create_kwargs)
+    AdminAuditLogEntry.objects.create(
+        actor=profile, action=AdminAuditLogEntry.Action.PROFILE_CREATED, target_display_name=display_name
+    )
     messages.success(request, f"Added profile for {display_name}.")
     return redirect("admin_dashboard")
 
@@ -1679,8 +1726,31 @@ def delete_profile(request, profile_id):
     elif target.id == profile.id:
         messages.error(request, "You can't remove your own profile.")
     else:
+        target_display_name = target.display_name
         target.user.delete()  # cascades to the Profile via the OneToOne FK
-        messages.success(request, f"Removed {target.display_name}.")
+        AdminAuditLogEntry.objects.create(
+            actor=profile, action=AdminAuditLogEntry.Action.PROFILE_REMOVED, target_display_name=target_display_name
+        )
+        messages.success(request, f"Removed {target_display_name}.")
+    return redirect("admin_dashboard")
+
+
+@login_required
+@require_POST
+def promote_to_owner(request, profile_id):
+    profile = Profile.objects.filter(user=request.user).first()
+    target = get_object_or_404(Profile, pk=profile_id)
+    if profile is None or not profile.is_owner:
+        messages.error(request, "Only the server owner can promote profiles.")
+    elif target.is_owner:
+        messages.error(request, f"{target.display_name} is already an owner.")
+    else:
+        target.user.is_superuser = True
+        target.user.save(update_fields=["is_superuser"])
+        AdminAuditLogEntry.objects.create(
+            actor=profile, action=AdminAuditLogEntry.Action.PROFILE_PROMOTED, target_display_name=target.display_name
+        )
+        messages.success(request, f"{target.display_name} is now an owner.")
     return redirect("admin_dashboard")
 
 
@@ -1708,6 +1778,11 @@ def save_appearance(request):
         if language == "" or language in dict(DISCOVER_LANGUAGES):
             profile.preferred_language = language
             update_fields.append("preferred_language")
+    if "timezone" in request.POST:
+        tzname = request.POST.get("timezone", "")
+        if tzname == "" or tzname in PROFILE_TIMEZONES:
+            profile.timezone = tzname
+            update_fields.append("timezone")
     if "gemini_api_key" in request.POST:
         profile.gemini_api_key = request.POST.get("gemini_api_key", "").strip()
         update_fields.append("gemini_api_key")
