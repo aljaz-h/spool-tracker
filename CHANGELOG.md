@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.29.1] - 2026-07-21
+
+### Changed
+
+- The topbar's household-member avatar circles are now a single
+  Friends icon that opens a dropdown - each row shows the person's
+  avatar, name, and when they were last active (time since their most
+  recent watch, or "No activity yet"), then opens the same stats
+  popup as before. A growing household no longer crowds the header
+  with an ever-longer row of circles.
+
 ## [0.29.0] - 2026-07-20
 
 ### Added

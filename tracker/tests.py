@@ -3363,8 +3363,9 @@ class TopbarAvatarDedupeTests(TestCase):
         Profile.objects.create(user=user, display_name="Solo", avatar_color="#e8a63c")
         self.client.login(username="soloprofile", password="pass12345")
         resp = self.client.get(reverse("dashboard"))
-        # One from the household stack loop (filtered out) + one from the
-        # dropdown trigger - should only ever render once now.
+        # A single-profile household has no "other_profiles" - the Friends
+        # dropdown doesn't render at all, so "Solo" only ever appears once,
+        # via the active-profile dropdown trigger's own title.
         self.assertEqual(resp.content.decode().count('title="Solo"'), 1)
 
     def test_multi_profile_shows_others_plus_self(self):
@@ -3377,6 +3378,60 @@ class TopbarAvatarDedupeTests(TestCase):
         content = resp.content.decode()
         self.assertEqual(content.count('title="Self"'), 1)
         self.assertEqual(content.count('title="Other"'), 1)
+
+
+class TopbarFriendsDropdownTests(TestCase):
+    """The topbar's household-member circles were replaced by a single
+    Friends icon that opens a dropdown listing everyone else, each row
+    showing when they were last active (their most recent WatchEvent)."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.timezone = timezone
+        user = User.objects.create_user("friendsviewer", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="FriendsViewer")
+        self.client.login(username="friendsviewer", password="pass12345")
+
+    def test_no_dropdown_on_a_single_profile_instance(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertNotContains(resp, 'aria-label="Friends"')
+
+    def test_dropdown_lists_other_profiles_not_the_viewer(self):
+        other_user = User.objects.create_user("frienddropother", password="pass12345")
+        Profile.objects.create(user=other_user, display_name="FriendDropOther")
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, 'aria-label="Friends"')
+        self.assertContains(resp, "FriendDropOther")
+        self.assertEqual(resp.context["other_profiles"].count(), 1)
+        self.assertNotIn(self.profile, list(resp.context["other_profiles"]))
+
+    def test_shows_time_since_last_watch_for_an_active_friend(self):
+        other_user = User.objects.create_user("frienddropactive", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="FriendDropActive")
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchEvent.objects.create(profile=other_profile, title=title, watched_at=self.timezone.now() - timedelta(days=2))
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "Active")
+        self.assertContains(resp, "ago")
+        self.assertIsNotNone(resp.context["other_profiles"].get(pk=other_profile.pk).last_active_at)
+
+    def test_shows_no_activity_yet_for_a_friend_with_no_watch_history(self):
+        other_user = User.objects.create_user("frienddropquiet", password="pass12345")
+        Profile.objects.create(user=other_user, display_name="FriendDropQuiet")
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "No activity yet")
+
+    def test_last_active_reflects_the_most_recent_watch_not_the_oldest(self):
+        other_user = User.objects.create_user("frienddroprecent", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="FriendDropRecent")
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchEvent.objects.create(profile=other_profile, title=title, watched_at=self.timezone.now() - timedelta(days=30))
+        recent_time = self.timezone.now() - timedelta(hours=1)
+        WatchEvent.objects.create(profile=other_profile, title=title, watched_at=recent_time)
+        resp = self.client.get(reverse("dashboard"))
+        last_active = resp.context["other_profiles"].get(pk=other_profile.pk).last_active_at
+        self.assertAlmostEqual(last_active, recent_time, delta=timedelta(seconds=1))
 
 
 class DisconnectProviderTests(TestCase):

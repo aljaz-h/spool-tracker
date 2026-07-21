@@ -70,22 +70,41 @@
         </div>
       </div>
     {% endif %}
-    <div class="flex">
-      {% for p in all_profiles %}
-        {% if not active_profile or p.id != active_profile.id %}
-          <button
-            type="button"
-            onclick="profile_popup_modal.showModal()"
-            hx-get="{% url 'profile_popup' p.id %}"
-            hx-target="#profile-popup-content"
-            hx-swap="innerHTML"
-            class="w-9 h-9 rounded-full flex items-center justify-center font-mono text-[13px] font-semibold border-2 border-base-100 -ml-2 first:ml-0 cursor-pointer {% if p.avatar_image %}bg-cover bg-center{% endif %}"
-            style="{% if p.avatar_image %}background-image:url('{{ p.avatar_image.url }}'){% else %}background:{{ p.avatar_color }};color:#fff;{% endif %}"
-            title="{{ p.display_name }}"
-          >{% if not p.avatar_image %}{{ p.display_name|first|upper }}{% endif %}</button>
-        {% endif %}
-      {% endfor %}
-    </div>
+    {% if other_profiles %}
+      <div class="relative" x-data="{ open: false }">
+        <button
+          @click="open = !open" @click.outside="open = false"
+          aria-label="Friends"
+          class="w-9 h-9 flex-none rounded-lg border border-line bg-base-200 flex items-center justify-center text-ink-dim hover:text-base-content hover:border-primary"
+        >
+          {% icon "users" "w-[17px] h-[17px]" %}
+        </button>
+        <div x-show="open" x-cloak class="absolute right-0 mt-2 w-64 bg-base-200 border border-line rounded-lg shadow-lg z-40 py-1">
+          <div class="px-3 py-2 text-[11px] font-semibold text-ink-dim uppercase tracking-wide border-b border-line">Friends</div>
+          {% for p in other_profiles %}
+            <button
+              type="button"
+              @click="open = false"
+              onclick="profile_popup_modal.showModal()"
+              hx-get="{% url 'profile_popup' p.id %}"
+              hx-target="#profile-popup-content"
+              hx-swap="innerHTML"
+              title="{{ p.display_name }}"
+              class="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-base-300 text-left cursor-pointer"
+            >
+              <div
+                class="w-8 h-8 rounded-full flex-none flex items-center justify-center font-mono text-xs font-semibold {% if p.avatar_image %}bg-cover bg-center{% endif %}"
+                style="{% if p.avatar_image %}background-image:url('{{ p.avatar_image.url }}'){% else %}background:{{ p.avatar_color }};color:#fff;{% endif %}"
+              >{% if not p.avatar_image %}{{ p.display_name|first|upper }}{% endif %}</div>
+              <div class="min-w-0 flex-1">
+                <div class="text-sm font-medium truncate">{{ p.display_name }}</div>
+                <div class="text-[10.5px] text-ink-faint font-mono">{% if p.last_active_at %}Active {{ p.last_active_at|timesince }} ago{% else %}No activity yet{% endif %}</div>
+              </div>
+            </button>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
     {% if active_profile %}
       <div class="relative -ml-2" x-data="{ open: false }">
         <button
