@@ -26,9 +26,9 @@
       <div>
         <h2 class="text-lg mb-3.5">In your library{% if library_results %} <span class="text-ink-faint text-sm font-mono">({{ library_results|length }})</span>{% endif %}</h2>
         {% if library_results %}
-          <div class="grid grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-4">
+          <div class="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-4">
             {% for title in library_results %}
-              {% include "tracker/partials/poster_card.html" with title=title %}
+              {% include "tracker/partials/poster_card.html" with title=title width_class="w-full" %}
             {% endfor %}
           </div>
         {% else %}
@@ -39,7 +39,7 @@
       <div>
         <h2 class="text-lg mb-3.5">Discover more on TMDB</h2>
         {% if tmdb_results %}
-          <div class="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
+          <div class="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
             {% for item in tmdb_results %}
               {% include "tracker/partials/discover_tile.html" with item=item %}
             {% endfor %}

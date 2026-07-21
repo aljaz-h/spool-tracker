@@ -58,7 +58,7 @@
           {% if not profile %}Your account isn't linked to a household profile yet.{% elif is_collections %}Nothing found — check that a TMDB API key is configured in Settings.{% else %}Nothing found — try widening your filters, or check that a TMDB API key is configured in Settings.{% endif %}
         </div>
       {% else %}
-        <div class="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
+        <div class="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
           {% for item in results %}
             {% if is_collections %}
               {% include "tracker/partials/collection_tile.html" with item=item %}

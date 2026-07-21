@@ -48,10 +48,34 @@
   </nav>
 
   <div class="flex items-center gap-3.5 flex-none">
+    {% comment %}
+      Every header dropdown below positions itself via JS (togglePanel),
+      not a plain `absolute right-0` - on a narrow phone, the trigger
+      button often sits well left of the true right edge (the middle nav
+      is display:none below md:, so it doesn't push this group all the
+      way right), and a fixed-width panel anchored purely to the
+      button's own right edge would extend past the screen's left edge.
+      Clamping left to a min-8px inset (same idea as the poster card's
+      own list-picker popover) keeps every panel fully on-screen
+      regardless of viewport width or where the trigger lands.
+    {% endcomment %}
     {% if active_profile %}
-      <div class="relative" x-data="{ open: false }">
+      <div class="relative" x-data="{
+        open: false,
+        togglePanel(button) {
+          this.open = !this.open;
+          if (!this.open) return;
+          this.$nextTick(() => {
+            const rect = button.getBoundingClientRect();
+            const panel = this.$refs.panel;
+            const width = 288;
+            panel.style.left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)) + 'px';
+            panel.style.top = (rect.bottom + 8) + 'px';
+          });
+        },
+      }">
         <button
-          @click="open = !open" @click.outside="open = false"
+          @click="togglePanel($el)" @click.outside="open = false"
           hx-get="{% url 'notifications_panel' %}"
           hx-target="#notifications-dropdown-content"
           hx-swap="innerHTML"
@@ -63,7 +87,7 @@
             <span class="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-primary text-primary-content text-[10px] font-bold flex items-center justify-center">{{ unread_notification_count }}</span>
           {% endif %}
         </button>
-        <div x-show="open" x-cloak class="absolute right-0 mt-2 w-72 bg-base-200 border border-line rounded-lg shadow-lg z-40">
+        <div x-ref="panel" x-show="open" x-cloak class="fixed w-72 bg-base-200 border border-line rounded-lg shadow-lg z-40">
           <div id="notifications-dropdown-content">
             <div class="px-3 py-8 text-center text-ink-faint text-xs">Loading…</div>
           </div>
@@ -71,15 +95,28 @@
       </div>
     {% endif %}
     {% if other_profiles %}
-      <div class="relative" x-data="{ open: false }">
+      <div class="relative" x-data="{
+        open: false,
+        togglePanel(button) {
+          this.open = !this.open;
+          if (!this.open) return;
+          this.$nextTick(() => {
+            const rect = button.getBoundingClientRect();
+            const panel = this.$refs.panel;
+            const width = 256;
+            panel.style.left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)) + 'px';
+            panel.style.top = (rect.bottom + 8) + 'px';
+          });
+        },
+      }">
         <button
-          @click="open = !open" @click.outside="open = false"
+          @click="togglePanel($el)" @click.outside="open = false"
           aria-label="Friends"
           class="w-9 h-9 flex-none rounded-lg border border-line bg-base-200 flex items-center justify-center text-ink-dim hover:text-base-content hover:border-primary"
         >
           {% icon "users" "w-[17px] h-[17px]" %}
         </button>
-        <div x-show="open" x-cloak class="absolute right-0 mt-2 w-64 bg-base-200 border border-line rounded-lg shadow-lg z-40 py-1">
+        <div x-ref="panel" x-show="open" x-cloak class="fixed w-64 bg-base-200 border border-line rounded-lg shadow-lg z-40 py-1">
           <div class="px-3 py-2 text-[11px] font-semibold text-ink-dim uppercase tracking-wide border-b border-line">Friends</div>
           {% for p in other_profiles %}
             <button
@@ -106,14 +143,27 @@
       </div>
     {% endif %}
     {% if active_profile %}
-      <div class="relative" x-data="{ open: false }">
+      <div class="relative" x-data="{
+        open: false,
+        togglePanel(button) {
+          this.open = !this.open;
+          if (!this.open) return;
+          this.$nextTick(() => {
+            const rect = button.getBoundingClientRect();
+            const panel = this.$refs.panel;
+            const width = 208;
+            panel.style.left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)) + 'px';
+            panel.style.top = (rect.bottom + 8) + 'px';
+          });
+        },
+      }">
         <button
-          @click="open = !open" @click.outside="open = false"
+          @click="togglePanel($el)" @click.outside="open = false"
           class="w-9 h-9 rounded-full flex items-center justify-center font-mono text-[13px] font-semibold border-2 border-primary {% if active_profile.avatar_image %}bg-cover bg-center{% endif %}"
           style="{% if active_profile.avatar_image %}background-image:url('{{ active_profile.avatar_image.url }}'){% else %}background:{{ active_profile.avatar_color }};color:#fff;{% endif %}"
           title="{{ active_profile.display_name }}"
         >{% if not active_profile.avatar_image %}{{ active_profile.display_name|first|upper }}{% endif %}</button>
-        <div x-show="open" x-cloak class="absolute right-0 mt-2 w-52 bg-base-200 border border-line rounded-lg shadow-lg z-40 py-1">
+        <div x-ref="panel" x-show="open" x-cloak class="fixed w-52 bg-base-200 border border-line rounded-lg shadow-lg z-40 py-1">
           <div class="px-3 py-2 text-xs text-ink-dim border-b border-line truncate">{{ active_profile.display_name }}</div>
           <a href="{% url 'my_profile' %}" class="block px-3 py-2 text-sm hover:bg-base-300">My Profile</a>
           <a href="{% url 'settings' %}" class="block px-3 py-2 text-sm hover:bg-base-300">Settings & Import</a>

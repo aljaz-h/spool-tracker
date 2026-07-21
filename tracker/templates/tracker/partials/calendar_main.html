@@ -33,11 +33,19 @@
       <a
         {% if day.items %}href="#agenda-{{ day.date|date:'Y-m-d' }}"{% endif %}
         @click="selected = '{{ day.date|date:'Y-m-d' }}'"
-        class="bg-base-200 border rounded-md p-1.5 flex flex-col min-h-[100px] {% if not day.in_month %}opacity-35{% endif %}"
+        class="bg-base-200 border rounded-md p-1 sm:p-1.5 flex flex-col min-h-[44px] sm:min-h-[100px] {% if not day.in_month %}opacity-35{% endif %}"
         :class="selected === '{{ day.date|date:'Y-m-d' }}' ? 'border-violet' : 'border-line hover:border-ink-faint'"
       >
-        <span class="font-mono text-[11.5px] {% if day.is_today %}inline-flex items-center justify-center w-5 h-5 rounded-full bg-violet text-white font-bold{% else %}text-ink-dim{% endif %}">{{ day.date.day }}</span>
-        <div class="flex gap-1 mt-1.5">
+        <span class="font-mono text-[10px] sm:text-[11.5px] {% if day.is_today %}inline-flex items-center justify-center w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-violet text-white font-bold{% else %}text-ink-dim{% endif %}">{{ day.date.day }}</span>
+        {% comment %}
+          Full poster thumbnails only from sm: up - a 7-column month grid
+          on a ~370-400px phone leaves each cell only ~40-50px wide, far
+          too narrow for a legible poster sliver. Below sm:, a single
+          presence dot stands in for "something's on this day", with the
+          cell's own tap-through to the agenda sidebar (already the only
+          way to see full detail) doing the rest.
+        {% endcomment %}
+        <div class="hidden sm:flex gap-1 mt-1.5">
           {% for rs in day.items %}
             <div
               class="w-1/3 aspect-[2/3] rounded-sm bg-cover bg-center {% if not rs.title.poster_url %}{{ rs.title.pk|gradient_class }}{% endif %}"
@@ -45,7 +53,12 @@
             ></div>
           {% endfor %}
         </div>
-        {% if day.more_count %}<div class="font-mono text-[8.5px] text-ink-faint mt-1">+{{ day.more_count }} more</div>{% endif %}
+        {% if day.items %}
+          <div class="sm:hidden flex justify-center mt-auto mb-0.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-violet"></span>
+          </div>
+        {% endif %}
+        {% if day.more_count %}<div class="hidden sm:block font-mono text-[8.5px] text-ink-faint mt-1">+{{ day.more_count }} more</div>{% endif %}
       </a>
     {% endfor %}
   {% endfor %}

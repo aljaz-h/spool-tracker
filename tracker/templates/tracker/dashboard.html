@@ -118,7 +118,7 @@
     <div class="flex justify-between items-center mt-9 mb-3.5">
       <h2 class="font-display text-xl">Because you watched {{ because_you_watched.anchor_title.name }}</h2>
     </div>
-    <div class="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
+    <div class="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
       {% for item in because_you_watched.results %}
         {% include "tracker/partials/discover_tile.html" with item=item %}
       {% endfor %}

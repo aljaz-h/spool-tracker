@@ -8,6 +8,34 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.29.4] - 2026-07-21
+
+### Fixed
+
+- Topbar's Notifications and Friends dropdowns ran off the left edge of
+  the screen on mobile - they were positioned with `absolute right-0`
+  off their trigger button, but on a narrow phone the icon cluster
+  isn't pushed all the way to the true right edge (the middle nav is
+  hidden below `md:`), so a fixed-width panel anchored that way
+  overflowed. Switched all three header dropdowns (bell, Friends,
+  avatar) to `fixed` positioning with JS-computed, viewport-clamped
+  coordinates - the same idiom already used by the poster card and
+  history group popovers - so every panel stays fully on-screen
+  regardless of button position or viewport width.
+- Movies & TV, Anime, Collections, Dashboard's "Because you watched",
+  Search, and title detail's "If you like this" grids showed only a
+  single oversized card per row on mobile - their `minmax()` floor was
+  wide enough to force the grid down to one column on a phone-width
+  screen. Added a smaller mobile-first floor with a `sm:` override
+  restoring the original desktop size. Also fixed a latent bug in
+  Search's library-results grid where the poster card's own hardcoded
+  width was silently overriding the grid's track sizing entirely.
+- Calendar's month grid was cramped and illegible on mobile - full
+  poster thumbnails packed into ~40-50px-wide day cells. Below the
+  `sm:` breakpoint, cells are now shorter and show a single presence
+  dot instead of thumbnails, relying on the existing tap-through to the
+  agenda sidebar for full detail.
+
 ## [0.29.3] - 2026-07-21
 
 ### Fixed
