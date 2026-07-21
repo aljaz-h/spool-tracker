@@ -3227,6 +3227,49 @@ class MyProfileViewTests(TestCase):
         self.profile.user.refresh_from_db()
         self.assertTrue(self.profile.user.check_password("original-pass-123"))
 
+    def test_updates_bio(self):
+        self.client.post(
+            reverse("my_profile"),
+            {"action": "update_profile", "display_name": "Original Name", "bio": "Watching anything with dragons."},
+        )
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.bio, "Watching anything with dragons.")
+
+    def test_bio_is_optional_and_clearable(self):
+        self.profile.bio = "Old bio"
+        self.profile.save(update_fields=["bio"])
+        self.client.post(
+            reverse("my_profile"),
+            {"action": "update_profile", "display_name": "Original Name", "bio": ""},
+        )
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.bio, "")
+
+
+class MyProfilePageContextTests(TestCase):
+    """Member-since date and Trakt/Simkl connected-status badges - the
+    account-context strip added under the page heading."""
+
+    def setUp(self):
+        user = User.objects.create_user("contextuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Context User", avatar_color="#e8a63c")
+        self.client.login(username="contextuser", password="pass12345")
+
+    def test_shows_member_since_date(self):
+        resp = self.client.get(reverse("my_profile"))
+        self.assertContains(resp, f"Member since {self.profile.created_at:%B %Y}")
+
+    def test_shows_not_connected_when_no_external_accounts(self):
+        resp = self.client.get(reverse("my_profile"))
+        self.assertContains(resp, "Trakt not connected")
+        self.assertContains(resp, "Simkl not connected")
+
+    def test_shows_connected_badge_for_a_linked_provider(self):
+        ExternalAccount.objects.create(profile=self.profile, provider="trakt")
+        resp = self.client.get(reverse("my_profile"))
+        self.assertContains(resp, "Trakt connected")
+        self.assertContains(resp, "Simkl not connected")
+
 
 class MyProfileAvatarImageTests(TestCase):
     """Uploading/removing a photo on My Profile - stored under a temp
@@ -3293,6 +3336,17 @@ class MyProfileAvatarImageTests(TestCase):
         self.profile.refresh_from_db()
         self.assertFalse(self.profile.avatar_image)
         self.assertFalse(os.path.exists(stored_path))
+
+    def test_remove_photo_button_is_an_icon_not_text(self):
+        upload = SimpleUploadedFile("avatar.gif", _tiny_gif_bytes(), content_type="image/gif")
+        self.client.post(
+            reverse("my_profile"),
+            {"action": "update_profile", "display_name": "Avatar Image User", "avatar_image": upload},
+        )
+        resp = self.client.get(reverse("my_profile"))
+        self.assertContains(resp, 'name="remove_photo"')
+        self.assertContains(resp, 'd="M3 6h18"')  # trash-2 icon glyph
+        self.assertNotContains(resp, ">Remove<")
 
     def test_display_name_and_color_only_update_still_works_unaffected(self):
         self.client.post(

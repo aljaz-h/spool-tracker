@@ -8,6 +8,25 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-07-21
+
+### Added
+
+- My Profile: an optional one-line bio field, a "Member since" date, and
+  read-only Trakt/Simkl connected-status badges next to the page
+  heading.
+- My Profile: a live thumbnail preview of a chosen photo before saving,
+  instead of just the filename text.
+- Change password: a show/hide (eye icon) toggle on all three password
+  fields, and an "at least 8 characters" hint under New password.
+
+### Changed
+
+- My Profile's "Remove" photo button is now a red trash-can icon
+  instead of a text button.
+
+
+
 ## [0.29.8] - 2026-07-21
 
 ### Changed

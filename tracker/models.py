@@ -63,6 +63,9 @@ class Profile(models.Model):
     # No server-side resizing yet - stored at whatever resolution was
     # uploaded, capped at MAX_AVATAR_IMAGE_SIZE (see views.my_profile).
     avatar_image = models.ImageField(upload_to="avatars/", blank=True, null=True)
+    # My Profile's optional one-line status, shown next to the display
+    # name - purely decorative flavor text, nothing else reads it.
+    bio = models.CharField(max_length=160, blank=True, default="")
     # Settings → Appearance. The only persisted preference with real
     # downstream behavior (History's time column) — the mockup's dark/light
     # theme swatch has no second theme built, so it stays decorative.

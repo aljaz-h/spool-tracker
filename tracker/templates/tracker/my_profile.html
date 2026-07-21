@@ -1,4 +1,5 @@
 {% extends "tracker/base.html" %}
+{% load icons %}
 {% block title %}My Profile · Spool{% endblock %}
 {% block content %}
 
@@ -11,21 +12,54 @@
   <div class="mb-6">
     <h1 class="font-display text-4xl">My Profile</h1>
     <div class="text-ink-dim text-sm mt-1">Your display name, avatar color, and password</div>
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3 text-xs">
+      <span class="text-ink-faint">Member since {{ profile.created_at|date:"F Y" }}</span>
+      <span class="text-line">&middot;</span>
+      {% if "trakt" in connected_providers %}
+        <span class="font-mono text-success">&#10003; Trakt connected</span>
+      {% else %}
+        <span class="font-mono text-ink-faint">Trakt not connected</span>
+      {% endif %}
+      <span class="text-line">&middot;</span>
+      {% if "simkl" in connected_providers %}
+        <span class="font-mono text-success">&#10003; Simkl connected</span>
+      {% else %}
+        <span class="font-mono text-ink-faint">Simkl not connected</span>
+      {% endif %}
+    </div>
   </div>
 
   <div class="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-3xl">
 
-    <div class="bg-base-200 border border-line rounded-2xl p-5" x-data="{ color: '{{ profile.avatar_color }}' }">
+    <div
+      class="bg-base-200 border border-line rounded-2xl p-5"
+      x-data="{
+        color: '{{ profile.avatar_color }}',
+        photoPreview: null,
+        onFileChange(e) {
+          const file = e.target.files[0];
+          if (!file) { this.photoPreview = null; return; }
+          const reader = new FileReader();
+          reader.onload = () => { this.photoPreview = reader.result; };
+          reader.readAsDataURL(file);
+        },
+      }"
+    >
       <h3 class="text-lg mb-3.5">Profile</h3>
       <form method="post" enctype="multipart/form-data">
         {% csrf_token %}
         <input type="hidden" name="action" value="update_profile">
 
         <div class="flex items-center gap-3 mb-4">
+          <div
+            x-show="photoPreview" x-cloak
+            class="w-12 h-12 rounded-full flex-none bg-cover bg-center"
+            :style="`background-image:url(${photoPreview})`"
+          ></div>
           {% if profile.avatar_image %}
-            <div class="w-12 h-12 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ profile.avatar_image.url }}')"></div>
+            <div x-show="!photoPreview" class="w-12 h-12 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ profile.avatar_image.url }}')"></div>
           {% else %}
-            <div class="w-12 h-12 rounded-full flex items-center justify-center font-mono text-base font-semibold flex-none" :style="`background:${color};color:#fff;`">{{ profile.display_name|first|upper }}</div>
+            <div x-show="!photoPreview" class="w-12 h-12 rounded-full flex items-center justify-center font-mono text-base font-semibold flex-none" :style="`background:${color};color:#fff;`">{{ profile.display_name|first|upper }}</div>
           {% endif %}
           <div class="flex-1 min-w-0">
             <label class="block text-xs text-ink-dim mb-1">Display name</label>
@@ -33,11 +67,16 @@
           </div>
         </div>
 
+        <label class="block text-xs text-ink-dim mb-1">Bio <span class="font-normal text-ink-faint">(optional)</span></label>
+        <input type="text" name="bio" value="{{ profile.bio }}" maxlength="160" placeholder="A short status or bio" class="input w-full bg-base-100 mb-4">
+
         <label class="block text-xs text-ink-dim mb-2">Photo</label>
         <div class="flex items-center gap-2 mb-1.5">
-          <input type="file" name="avatar_image" accept="image/png,image/jpeg,image/webp" class="file-input file-input-sm flex-1 bg-base-100">
+          <input type="file" name="avatar_image" accept="image/png,image/jpeg,image/webp" @change="onFileChange($event)" class="file-input file-input-sm flex-1 bg-base-100">
           {% if profile.avatar_image %}
-            <button type="submit" name="remove_photo" value="1" class="btn btn-sm bg-base-300 border-line flex-none">Remove</button>
+            <button type="submit" name="remove_photo" value="1" title="Remove photo" class="btn btn-sm btn-square bg-base-300 border-line text-error hover:bg-error hover:text-error-content hover:border-error flex-none">
+              {% icon "trash-2" "w-4 h-4" %}
+            </button>
           {% endif %}
         </div>
         <div class="text-[10.5px] text-ink-faint mb-5">JPG, PNG, or WEBP, up to 5MB. Falls back to your avatar color below when removed.</div>
@@ -56,17 +95,40 @@
       </form>
     </div>
 
-    <div class="bg-base-200 border border-line rounded-2xl p-5">
+    <div class="bg-base-200 border border-line rounded-2xl p-5" x-data="{ showCurrent: false, showNew: false, showConfirm: false }">
       <h3 class="text-lg mb-3.5">Change password</h3>
       <form method="post">
         {% csrf_token %}
         <input type="hidden" name="action" value="change_password">
+
         <label class="block text-xs text-ink-dim mb-1">Current password</label>
-        <input type="password" name="current_password" required class="input w-full mb-3 bg-base-100">
+        <div class="relative mb-3">
+          <input :type="showCurrent ? 'text' : 'password'" name="current_password" required class="input w-full bg-base-100 pr-10">
+          <button type="button" @click="showCurrent = !showCurrent" tabindex="-1" title="Show/hide password" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+            <span x-show="!showCurrent">{% icon "eye" "w-4 h-4" %}</span>
+            <span x-show="showCurrent" x-cloak>{% icon "eye-off" "w-4 h-4" %}</span>
+          </button>
+        </div>
+
         <label class="block text-xs text-ink-dim mb-1">New password</label>
-        <input type="password" name="new_password" required minlength="8" class="input w-full mb-3 bg-base-100">
+        <div class="relative mb-1">
+          <input :type="showNew ? 'text' : 'password'" name="new_password" required minlength="8" class="input w-full bg-base-100 pr-10">
+          <button type="button" @click="showNew = !showNew" tabindex="-1" title="Show/hide password" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+            <span x-show="!showNew">{% icon "eye" "w-4 h-4" %}</span>
+            <span x-show="showNew" x-cloak>{% icon "eye-off" "w-4 h-4" %}</span>
+          </button>
+        </div>
+        <div class="text-[10.5px] text-ink-faint mb-3">Must be at least 8 characters.</div>
+
         <label class="block text-xs text-ink-dim mb-1">Confirm new password</label>
-        <input type="password" name="confirm_password" required minlength="8" class="input w-full mb-4 bg-base-100">
+        <div class="relative mb-4">
+          <input :type="showConfirm ? 'text' : 'password'" name="confirm_password" required minlength="8" class="input w-full bg-base-100 pr-10">
+          <button type="button" @click="showConfirm = !showConfirm" tabindex="-1" title="Show/hide password" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+            <span x-show="!showConfirm">{% icon "eye" "w-4 h-4" %}</span>
+            <span x-show="showConfirm" x-cloak>{% icon "eye-off" "w-4 h-4" %}</span>
+          </button>
+        </div>
+
         <button type="submit" class="btn w-full">Change password</button>
       </form>
     </div>

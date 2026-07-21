@@ -1574,14 +1574,16 @@ def my_profile(request):
     if request.method == "POST" and request.POST.get("action") == "update_profile":
         display_name = request.POST.get("display_name", "").strip()
         avatar_color = request.POST.get("avatar_color", "").strip()
+        bio = request.POST.get("bio", "").strip()
         if not display_name:
             messages.error(request, "Display name is required.")
             return redirect("my_profile")
 
         profile.display_name = display_name
+        profile.bio = bio[:160]
         if avatar_color in AVATAR_COLOR_CHOICES:
             profile.avatar_color = avatar_color
-        update_fields = ["display_name", "avatar_color"]
+        update_fields = ["display_name", "avatar_color", "bio"]
 
         if request.POST.get("remove_photo"):
             profile.avatar_image.delete(save=False)
@@ -1623,8 +1625,17 @@ def my_profile(request):
             messages.success(request, "Password changed.")
         return redirect("my_profile")
 
+    connected_providers = set(
+        ExternalAccount.objects.filter(profile=profile).values_list("provider", flat=True)
+    )
     return render(
-        request, "tracker/my_profile.html", {"profile": profile, "avatar_colors": AVATAR_COLOR_CHOICES}
+        request,
+        "tracker/my_profile.html",
+        {
+            "profile": profile,
+            "avatar_colors": AVATAR_COLOR_CHOICES,
+            "connected_providers": connected_providers,
+        },
     )
 
 
