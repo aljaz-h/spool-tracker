@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.29.6] - 2026-07-21
+
+### Changed
+
+- Reordered the desktop topbar: the search bar now sits between the
+  nav links and the notifications/friends/avatar cluster instead of
+  next to the logo, and a vertical divider separates the logo from
+  the rest of the header.
+
 ## [0.29.5] - 2026-07-21
 
 ### Fixed

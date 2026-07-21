@@ -13,14 +13,9 @@
       <span class="font-display text-[24px] text-marquee tracking-wide leading-none">SPOOL</span>
       <span class="hidden lg:inline text-[10px] text-ink-faint uppercase tracking-widest">self-hosted</span>
     </a>
-    <form method="get" action="{% url 'search' %}" class="hidden xl:block flex-none">
-      <input
-        type="text" name="q" value="{{ request.GET.q }}"
-        class="xl:w-56 bg-base-200 border border-line rounded-lg px-3.5 py-2 text-[13px] text-ink-dim"
-        placeholder="Search movies, TV, anime…"
-      >
-    </form>
   </div>
+
+  <div class="hidden md:block w-px h-8 bg-line flex-none"></div>
 
   <nav class="hidden md:flex items-center gap-0.5 h-full flex-1 min-w-0 overflow-x-auto">
     {% url 'movies_tv' category="trending" as movies_tv_url %}
@@ -46,6 +41,14 @@
       {% include "tracker/partials/nav_item_horizontal.html" with href=activity_url icon_name="users" label="Activity" is_active=url_name|eq:"activity" active_border="border-primary" %}
     {% endif %}
   </nav>
+
+  <form method="get" action="{% url 'search' %}" class="hidden xl:block flex-none">
+    <input
+      type="text" name="q" value="{{ request.GET.q }}"
+      class="xl:w-56 bg-base-200 border border-line rounded-lg px-3.5 py-2 text-[13px] text-ink-dim"
+      placeholder="Search movies, TV, anime…"
+    >
+  </form>
 
   <div class="flex items-center gap-3.5 flex-none ml-auto md:ml-0">
     {% comment %}
