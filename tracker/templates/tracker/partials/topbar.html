@@ -106,7 +106,7 @@
       </div>
     {% endif %}
     {% if active_profile %}
-      <div class="relative -ml-2" x-data="{ open: false }">
+      <div class="relative" x-data="{ open: false }">
         <button
           @click="open = !open" @click.outside="open = false"
           class="w-9 h-9 rounded-full flex items-center justify-center font-mono text-[13px] font-semibold border-2 border-primary {% if active_profile.avatar_image %}bg-cover bg-center{% endif %}"

@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.29.3] - 2026-07-21
+
+### Fixed
+
+- Uneven spacing between the topbar's bell/Friends/avatar icons - the
+  avatar button still carried a `-ml-2` left over from the old design,
+  where household avatars sat in a tightly-overlapped stack. Removed
+  now that the Friends dropdown replaced that stack, so the parent's
+  own gap spaces all three evenly.
+
 ## [0.29.2] - 2026-07-21
 
 ### Added
