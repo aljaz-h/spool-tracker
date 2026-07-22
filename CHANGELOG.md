@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.31.2] - 2026-07-22
+
+### Changed
+
+- Moved Notifications and Privacy from Settings & Import to My Profile
+  - they're personal preferences, not import/integration setup. The
+  underlying save endpoints are unchanged.
+
+
 ## [0.31.1] - 2026-07-22
 
 ### Added

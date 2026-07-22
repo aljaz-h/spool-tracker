@@ -3634,6 +3634,46 @@ class MyProfilePageContextTests(TestCase):
         self.assertContains(resp, "Simkl not connected")
 
 
+class NotificationsAndPrivacyMovedToMyProfileTests(TestCase):
+    """Notifications and Privacy moved from Settings & Import to My
+    Profile - the underlying save_notifications/save_privacy endpoints
+    are untouched, only which page renders the forms."""
+
+    def setUp(self):
+        user = User.objects.create_user("movedcarduser", password="pass12345")
+        Profile.objects.create(user=user, display_name="MovedCardUser")
+        self.client.login(username="movedcarduser", password="pass12345")
+
+    def test_notifications_card_on_my_profile(self):
+        resp = self.client.get(reverse("my_profile"))
+        self.assertContains(resp, ">Notifications<")
+        self.assertContains(resp, reverse("save_notifications"))
+
+    def test_notifications_card_not_on_settings(self):
+        # The topbar's bell button (present on every page) carries
+        # aria-label="Notifications" - checking for the card heading's
+        # exact tag boundaries avoids a false positive on that.
+        resp = self.client.get(reverse("settings"))
+        self.assertNotContains(resp, ">Notifications<")
+
+    def test_privacy_card_on_my_profile_with_multiple_profiles(self):
+        other_user = User.objects.create_user("movedcardother", password="pass12345")
+        Profile.objects.create(user=other_user, display_name="MovedCardOther")
+        resp = self.client.get(reverse("my_profile"))
+        self.assertContains(resp, ">Privacy<")
+        self.assertContains(resp, reverse("save_privacy"))
+
+    def test_privacy_card_not_on_settings(self):
+        other_user = User.objects.create_user("movedcardother2", password="pass12345")
+        Profile.objects.create(user=other_user, display_name="MovedCardOther2")
+        resp = self.client.get(reverse("settings"))
+        self.assertNotContains(resp, ">Privacy<")
+
+    def test_privacy_card_hidden_on_single_profile_instance(self):
+        resp = self.client.get(reverse("my_profile"))
+        self.assertNotContains(resp, ">Privacy<")
+
+
 class MyProfileAvatarImageTests(TestCase):
     """Uploading/removing a photo on My Profile - stored under a temp
     MEDIA_ROOT for the duration of each test so nothing lands in (or gets

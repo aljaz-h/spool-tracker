@@ -11,7 +11,7 @@
 
   <div class="mb-6">
     <h1 class="font-display text-4xl">My Profile</h1>
-    <div class="text-ink-dim text-sm mt-1">Your display name, avatar color, and password</div>
+    <div class="text-ink-dim text-sm mt-1">Your display name, avatar color, password, notifications, and privacy</div>
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3 text-xs">
       <span class="text-ink-faint">Member since {{ profile.created_at|date:"F Y" }}</span>
       <span class="text-line">&middot;</span>
@@ -132,6 +132,38 @@
         <button type="submit" class="btn w-full">Change password</button>
       </form>
     </div>
+
+    <div class="bg-base-200 border border-line rounded-2xl p-5">
+      <h3 class="text-lg mb-1">Notifications</h3>
+      <div class="text-ink-dim text-xs mb-3">In-app only for now - no email or push.</div>
+      <form hx-post="{% url 'save_notifications' %}" hx-trigger="change" hx-swap="none" class="flex flex-col gap-3">
+        <label class="flex items-center justify-between gap-3 cursor-pointer">
+          <span class="text-[13.5px]">New episode/season alerts for what you're watching</span>
+          <input type="checkbox" name="notify_new_releases" class="checkbox checkbox-sm" {% if profile.notify_new_releases %}checked{% endif %}>
+        </label>
+        <label class="flex items-center justify-between gap-3 cursor-pointer">
+          <span class="text-[13.5px]">Calendar reminders for upcoming releases</span>
+          <input type="checkbox" name="notify_upcoming_releases" class="checkbox checkbox-sm" {% if profile.notify_upcoming_releases %}checked{% endif %}>
+        </label>
+        <label class="flex items-center justify-between gap-3 cursor-pointer">
+          <span class="text-[13.5px]">Trakt/Simkl sync failures</span>
+          <input type="checkbox" name="notify_sync_failures" class="checkbox checkbox-sm" {% if profile.notify_sync_failures %}checked{% endif %}>
+        </label>
+      </form>
+    </div>
+
+    {% if show_activity_nav %}
+      <div class="bg-base-200 border border-line rounded-2xl p-5">
+        <h3 class="text-lg mb-1">Privacy</h3>
+        <div class="text-ink-dim text-xs mb-3">Controls what other profiles on this server can see about you.</div>
+        <form hx-post="{% url 'save_privacy' %}" hx-trigger="change" hx-swap="none">
+          <label class="flex items-center justify-between gap-3 cursor-pointer">
+            <span class="text-[13.5px]">Show my activity to other profiles on this server</span>
+            <input type="checkbox" name="share_activity" class="checkbox checkbox-sm" {% if profile.share_activity %}checked{% endif %}>
+          </label>
+        </form>
+      </div>
+    {% endif %}
 
   </div>
 
