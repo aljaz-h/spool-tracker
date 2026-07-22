@@ -550,6 +550,7 @@ class AdminAuditLogEntry(models.Model):
         PROFILE_CREATED = "profile_created", "Profile created"
         PROFILE_REMOVED = "profile_removed", "Profile removed"
         PROFILE_PROMOTED = "profile_promoted", "Promoted to owner"
+        PROFILE_DEMOTED = "profile_demoted", "Demoted to member"
         PROFILE_SELF_DELETED = "profile_self_deleted", "Deleted own account"
 
     # Null once the actor's own Profile is gone (e.g. they deleted their

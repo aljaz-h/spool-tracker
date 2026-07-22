@@ -66,6 +66,7 @@ urlpatterns = [
     path("settings/profile/create/", views.create_profile, name="create_profile"),
     path("settings/profile/<int:profile_id>/delete/", views.delete_profile, name="delete_profile"),
     path("settings/profile/<int:profile_id>/promote/", views.promote_to_owner, name="promote_to_owner"),
+    path("settings/profile/<int:profile_id>/demote/", views.demote_from_owner, name="demote_from_owner"),
     path("settings/appearance/", views.save_appearance, name="save_appearance"),
     path("settings/privacy/", views.save_privacy, name="save_privacy"),
     path("settings/notifications/", views.save_notifications, name="save_notifications"),
@@ -84,6 +85,7 @@ urlpatterns = [
     path("import/simkl/connect/", views.oauth_connect, {"provider": "simkl"}, name="simkl_connect"),
     path("import/simkl/callback/", views.oauth_callback, {"provider": "simkl"}, name="simkl_callback"),
     path("settings/sync-schedule/<str:provider>/", views.save_sync_schedule, name="save_sync_schedule"),
+    path("settings/sync-now/<str:provider>/", views.trigger_manual_sync, name="trigger_manual_sync"),
     path("settings/disconnect/<str:provider>/", views.disconnect_provider, name="disconnect_provider"),
     path(
         "settings/disconnect-and-wipe/<str:provider>/",

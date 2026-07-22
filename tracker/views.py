@@ -1756,6 +1756,27 @@ def promote_to_owner(request, profile_id):
 
 @login_required
 @require_POST
+def demote_from_owner(request, profile_id):
+    profile = Profile.objects.filter(user=request.user).first()
+    target = get_object_or_404(Profile, pk=profile_id)
+    if profile is None or not profile.is_owner:
+        messages.error(request, "Only the server owner can demote profiles.")
+    elif target.id == profile.id:
+        messages.error(request, "You can't demote yourself - have another owner do it instead.")
+    elif not target.is_owner:
+        messages.error(request, f"{target.display_name} is already a member.")
+    else:
+        target.user.is_superuser = False
+        target.user.save(update_fields=["is_superuser"])
+        AdminAuditLogEntry.objects.create(
+            actor=profile, action=AdminAuditLogEntry.Action.PROFILE_DEMOTED, target_display_name=target.display_name
+        )
+        messages.success(request, f"{target.display_name} is now a member.")
+    return redirect("admin_dashboard")
+
+
+@login_required
+@require_POST
 def save_appearance(request):
     """One endpoint for every Appearance control (time format, default
     landing page, preferred language) - each field only touches update_fields
@@ -2128,6 +2149,25 @@ def save_sync_schedule(request, provider):
     account.save(update_fields=update_fields)
     scheduling.ensure_periodic_task(account)
     messages.success(request, f"Updated the {provider.title()} sync schedule.")
+    return redirect("settings")
+
+
+@login_required
+@require_POST
+def trigger_manual_sync(request, provider):
+    """Settings & Import's "Sync now" button - dispatches the same Celery
+    task the scheduled sync uses (see tasks.sync_all_connected_accounts),
+    just for this one profile's account, right away instead of waiting
+    for its next scheduled run. Doesn't touch sync_interval_days/hour/
+    minute at all - the schedule keeps running independently of this.
+    Uses the same broker-hiccup-safe dispatch as oauth_callback's own
+    first-sync-on-connect, for the same reason (see its comment)."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    get_object_or_404(ExternalAccount, profile=profile, provider=provider)
+    _dispatch_sync_task_safely(SYNC_TASKS[provider], profile.id)
+    messages.success(request, f"{provider.title()} sync started - check back in a moment.")
     return redirect("settings")
 
 

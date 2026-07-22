@@ -1,5 +1,5 @@
 {% extends "tracker/base.html" %}
-{% load tracker_extras %}
+{% load tracker_extras icons %}
 {% block title %}Admin Dashboard · Spool{% endblock %}
 {% block content %}
 <div x-data="{ showAddProfile: false }">
@@ -31,16 +31,30 @@
             <div class="text-[11.5px] text-ink-dim font-mono">{% if p.is_owner %}Owner{% else %}Member{% endif %}</div>
           </div>
           {% if p.id != profile.id %}
-            <div class="flex items-center gap-3 flex-none">
-              {% if not p.is_owner %}
+            <div class="flex items-center gap-1.5 flex-none">
+              {% if p.is_owner %}
+                <form method="post" action="{% url 'demote_from_owner' p.id %}" onsubmit="return confirm('Demote {{ p.display_name|escapejs }} to member? They will lose access to profiles, integrations, and server settings.');">
+                  {% csrf_token %}
+                  <button
+                    type="submit" title="Demote to member - removes access to profiles, integrations, and server settings"
+                    class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-base-content hover:bg-base-300"
+                  >{% icon "circle" "w-4 h-4" %}</button>
+                </form>
+              {% else %}
                 <form method="post" action="{% url 'promote_to_owner' p.id %}" onsubmit="return confirm('Make {{ p.display_name|escapejs }} an owner? Owners can manage profiles, integrations, and server settings.');">
                   {% csrf_token %}
-                  <button type="submit" class="text-xs text-ink-faint hover:text-primary">Promote</button>
+                  <button
+                    type="submit" title="Promote to owner - grants full access to profiles, integrations, and server settings"
+                    class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-primary hover:bg-base-300"
+                  >{% icon "crown" "w-4 h-4" %}</button>
                 </form>
               {% endif %}
               <form method="post" action="{% url 'delete_profile' p.id %}" onsubmit="return confirm('Remove {{ p.display_name|escapejs }}? This deletes their entire watch history.');">
                 {% csrf_token %}
-                <button type="submit" class="text-xs text-ink-faint hover:text-error">Remove</button>
+                <button
+                  type="submit" title="Remove - permanently deletes this profile and its entire watch history"
+                  class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-error hover:bg-base-300"
+                >{% icon "trash-2" "w-4 h-4" %}</button>
               </form>
             </div>
           {% endif %}
@@ -106,7 +120,7 @@
 
     <div class="bg-base-200 border border-line rounded-2xl p-5">
       <h3 class="text-lg mb-1">Activity Log</h3>
-      <div class="text-ink-dim text-xs mb-3.5">Who added, removed, or promoted a profile - most recent first.</div>
+      <div class="text-ink-dim text-xs mb-3.5">Who added, removed, promoted, or demoted a profile - most recent first.</div>
       {% if audit_log %}
         <div class="space-y-2.5">
           {% for entry in audit_log %}

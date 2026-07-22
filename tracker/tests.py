@@ -2412,6 +2412,17 @@ class SettingsConnectedAppsTests(TestCase):
         resp = self.client.get(reverse("settings"))
         self.assertNotContains(resp, f"Spool v{update_check.APP_VERSION}")
 
+    def test_sync_now_button_shown_for_a_connected_provider(self):
+        profile = Profile.objects.get(display_name="ConnectedAppsUser")
+        ExternalAccount.objects.create(profile=profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok")
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, reverse("trigger_manual_sync", args=["trakt"]))
+        self.assertContains(resp, "Sync now")
+
+    def test_sync_now_button_absent_when_not_connected(self):
+        resp = self.client.get(reverse("settings"))
+        self.assertNotContains(resp, "Sync now")
+
 
 class SettingsTimezoneTests(TestCase):
     def setUp(self):
@@ -2515,6 +2526,81 @@ class PromoteToOwnerTests(TestCase):
         entry = AdminAuditLogEntry.objects.get(action=AdminAuditLogEntry.Action.PROFILE_PROMOTED)
         self.assertEqual(entry.actor, self.owner)
         self.assertEqual(entry.target_display_name, "PromoteMember")
+
+
+class DemoteFromOwnerTests(TestCase):
+    def setUp(self):
+        owner_user = User.objects.create_user("demoteowner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=owner_user, display_name="DemoteOwner")
+        other_owner_user = User.objects.create_user("demoteotherowner", password="pass12345", is_superuser=True)
+        self.other_owner = Profile.objects.create(user=other_owner_user, display_name="DemoteOtherOwner")
+        member_user = User.objects.create_user("demotemember", password="pass12345")
+        self.member = Profile.objects.create(user=member_user, display_name="DemoteMember")
+
+    def test_owner_can_demote_another_owner(self):
+        self.client.login(username="demoteowner", password="pass12345")
+        self.client.post(reverse("demote_from_owner", args=[self.other_owner.id]))
+        self.other_owner.user.refresh_from_db()
+        self.assertFalse(self.other_owner.user.is_superuser)
+
+    def test_member_cannot_demote_anyone(self):
+        self.client.login(username="demotemember", password="pass12345")
+        self.client.post(reverse("demote_from_owner", args=[self.other_owner.id]))
+        self.other_owner.user.refresh_from_db()
+        self.assertTrue(self.other_owner.user.is_superuser)
+
+    def test_cannot_demote_self(self):
+        self.client.login(username="demoteowner", password="pass12345")
+        self.client.post(reverse("demote_from_owner", args=[self.owner.id]))
+        self.owner.user.refresh_from_db()
+        self.assertTrue(self.owner.user.is_superuser)
+
+    def test_cannot_demote_a_plain_member(self):
+        self.client.login(username="demoteowner", password="pass12345")
+        resp = self.client.post(reverse("demote_from_owner", args=[self.member.id]), follow=True)
+        self.assertContains(resp, "already a member")
+
+    def test_demoting_logs_an_audit_entry(self):
+        self.client.login(username="demoteowner", password="pass12345")
+        self.client.post(reverse("demote_from_owner", args=[self.other_owner.id]))
+        entry = AdminAuditLogEntry.objects.get(action=AdminAuditLogEntry.Action.PROFILE_DEMOTED)
+        self.assertEqual(entry.actor, self.owner)
+        self.assertEqual(entry.target_display_name, "DemoteOtherOwner")
+
+
+class AdminDashboardProfileControlsTests(TestCase):
+    """Promote/demote/remove render as icon buttons (with tooltips), not
+    text links - a crown for promote, a plain ring/circle for demote,
+    a trash can for remove."""
+
+    def setUp(self):
+        owner_user = User.objects.create_user("iconsowner", password="pass12345", is_superuser=True)
+        Profile.objects.create(user=owner_user, display_name="IconsOwner")
+        other_owner_user = User.objects.create_user("iconsotherowner", password="pass12345", is_superuser=True)
+        Profile.objects.create(user=other_owner_user, display_name="IconsOtherOwner")
+        member_user = User.objects.create_user("iconsmember", password="pass12345")
+        Profile.objects.create(user=member_user, display_name="IconsMember")
+        self.client.login(username="iconsowner", password="pass12345")
+
+    def test_member_row_shows_crown_promote_icon(self):
+        resp = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(resp, 'title="Promote to owner')
+        # crown icon glyph
+        self.assertContains(resp, 'd="M11.562 3.266a.5.5 0 0 1 .876 0')
+
+    def test_owner_row_shows_circle_demote_icon(self):
+        resp = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(resp, 'title="Demote to member')
+
+    def test_every_row_shows_trash_remove_icon(self):
+        resp = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(resp, 'title="Remove - permanently deletes')
+        self.assertContains(resp, 'd="M3 6h18"')  # trash-2 glyph
+
+    def test_no_bare_text_buttons_remain(self):
+        resp = self.client.get(reverse("admin_dashboard"))
+        self.assertNotContains(resp, ">Promote<")
+        self.assertNotContains(resp, ">Remove<")
 
 
 class DeleteOwnAccountTests(TestCase):
@@ -3383,6 +3469,50 @@ class SaveSyncScheduleViewTests(TestCase):
             reverse("save_sync_schedule", args=["trakt"]),
             {"sync_interval_days": "2", "sync_time": "13:45"},
         )
+        self.assertEqual(resp.status_code, 404)
+
+
+class TriggerManualSyncViewTests(TestCase):
+    """Settings & Import's "Sync now" button - dispatches the same task a
+    scheduled sync would, immediately, without touching the schedule
+    itself. _dispatch_sync_task_safely is mocked out (rather than left to
+    run for real, like OAuthCallbackRedirectUriTests accepts elsewhere)
+    since this class only needs to confirm the view calls it correctly,
+    not re-prove the broker-hiccup-safety behavior that already has its
+    own dedicated coverage."""
+
+    def setUp(self):
+        user = User.objects.create_user("manualsyncuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ManualSyncUser")
+        self.account = ExternalAccount.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok"
+        )
+        self.client.login(username="manualsyncuser", password="pass12345")
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_dispatches_the_right_task_for_the_provider(self, mock_dispatch):
+        self.client.post(reverse("trigger_manual_sync", args=["trakt"]))
+        mock_dispatch.assert_called_once_with(views.tasks.sync_trakt_history, self.profile.id)
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_does_not_change_the_sync_schedule(self, mock_dispatch):
+        self.account.sync_interval_days = 3
+        self.account.save(update_fields=["sync_interval_days"])
+        self.client.post(reverse("trigger_manual_sync", args=["trakt"]))
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.sync_interval_days, 3)
+
+    def test_404s_for_a_provider_with_no_connected_account(self):
+        resp = self.client.post(reverse("trigger_manual_sync", args=["simkl"]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_other_profiles_account_cannot_be_triggered(self):
+        other_user = User.objects.create_user("othermanualsync", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="OtherManualSync")
+        ExternalAccount.objects.create(profile=other_profile, provider=ExternalAccount.Provider.SIMKL, access_token="x")
+        self.client.logout()
+        self.client.login(username="othermanualsync", password="pass12345")
+        resp = self.client.post(reverse("trigger_manual_sync", args=["trakt"]))
         self.assertEqual(resp.status_code, 404)
 
 

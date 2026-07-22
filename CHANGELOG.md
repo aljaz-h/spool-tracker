@@ -8,6 +8,23 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.31.1] - 2026-07-22
+
+### Added
+
+- Settings & Import: a "Sync now" button on Trakt/Simkl for an immediate
+  one-off sync, alongside the existing scheduled sync - doesn't change
+  the schedule itself.
+- Admin Dashboard: profiles can now be demoted back from owner to
+  member, not just promoted.
+
+### Changed
+
+- Admin Dashboard's Profiles card: the Promote/Remove text links are
+  now icon buttons (crown/ring/trash) with a tooltip on hover
+  explaining what each does.
+
+
 ## [0.31.0] - 2026-07-21
 
 ### Added

@@ -1,7 +1,13 @@
 {# context: provider (str), account (ExternalAccount) #}
 <div class="mt-2 pt-2 border-t border-line">
-  <div class="text-[11px] text-ink-faint mb-1.5">
-    Last synced: {% if account.last_synced_at %}{{ account.last_synced_at|timesince }} ago{% else %}never{% endif %}
+  <div class="flex items-center justify-between gap-2 mb-1.5">
+    <div class="text-[11px] text-ink-faint">
+      Last synced: {% if account.last_synced_at %}{{ account.last_synced_at|timesince }} ago{% else %}never{% endif %}
+    </div>
+    <form method="post" action="{% url 'trigger_manual_sync' provider %}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-xs">Sync now</button>
+    </form>
   </div>
   <form method="post" action="{% url 'save_sync_schedule' provider %}" class="flex items-center gap-1.5 flex-wrap">
     {% csrf_token %}
