@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.31.3] - 2026-07-22
+
+### Changed
+
+- Neutral secondary buttons (Sync now, Save, Change password, Cancel,
+  Connect, and others) switched from a bordered/outlined look to
+  daisyUI's `btn-soft` style - a faint tinted background with no
+  border, which doesn't read as a disproportionately thick outline on
+  small buttons with short labels the way a fixed-width border does.
+  Destructive (red-outlined) and already-solid/filled buttons are
+  unchanged.
+
+
 ## [0.31.2] - 2026-07-22
 
 ### Changed

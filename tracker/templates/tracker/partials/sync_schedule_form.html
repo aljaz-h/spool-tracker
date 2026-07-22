@@ -6,7 +6,7 @@
     </div>
     <form method="post" action="{% url 'trigger_manual_sync' provider %}">
       {% csrf_token %}
-      <button type="submit" class="btn btn-xs">Sync now</button>
+      <button type="submit" class="btn btn-xs btn-soft">Sync now</button>
     </form>
   </div>
   <form method="post" action="{% url 'save_sync_schedule' provider %}" class="flex items-center gap-1.5 flex-wrap">
@@ -15,7 +15,7 @@
     <input type="number" name="sync_interval_days" min="1" max="30" value="{{ account.sync_interval_days }}" class="input input-xs w-12 bg-base-100 px-1.5">
     <span class="text-[11px] text-ink-dim">day(s) at</span>
     <input type="time" name="sync_time" value="{{ account.sync_hour|stringformat:'02d' }}:{{ account.sync_minute|stringformat:'02d' }}" class="input input-xs bg-base-100 px-1.5">
-    <button type="submit" class="btn btn-xs">Save</button>
+    <button type="submit" class="btn btn-xs btn-soft">Save</button>
     {% if provider == "trakt" %}
       <label class="flex items-center gap-1.5 text-[11px] text-ink-dim cursor-pointer w-full mt-1">
         <input type="checkbox" name="import_lists" class="checkbox checkbox-xs" {% if account.import_lists %}checked{% endif %}>

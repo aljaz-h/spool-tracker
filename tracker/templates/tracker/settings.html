@@ -38,7 +38,7 @@
           {% if "trakt" in connected_providers %}
             <span class="font-mono text-xs text-success">&#10003; Connected</span>
           {% elif trakt_configured %}
-            <a href="{% url 'trakt_connect' %}" class="btn btn-sm">Connect</a>
+            <a href="{% url 'trakt_connect' %}" class="btn btn-sm btn-soft">Connect</a>
           {% else %}
             <button type="button" disabled title="Ask your server owner to set this up first" class="btn btn-sm btn-disabled">Connect</button>
           {% endif %}
@@ -56,7 +56,7 @@
           {% if "simkl" in connected_providers %}
             <span class="font-mono text-xs text-success">&#10003; Connected</span>
           {% elif simkl_configured %}
-            <a href="{% url 'simkl_connect' %}" class="btn btn-sm">Connect</a>
+            <a href="{% url 'simkl_connect' %}" class="btn btn-sm btn-soft">Connect</a>
           {% else %}
             <button type="button" disabled title="Ask your server owner to set this up first" class="btn btn-sm btn-disabled">Connect</button>
           {% endif %}
@@ -73,7 +73,7 @@
         <form method="post" action="{% url 'import_csv' %}" enctype="multipart/form-data" class="flex items-center gap-2">
           {% csrf_token %}
           <input type="file" name="csv_file" accept=".csv,text/csv" required class="file-input file-input-sm w-64">
-          <button type="submit" class="btn btn-sm">Upload</button>
+          <button type="submit" class="btn btn-sm btn-soft">Upload</button>
         </form>
       </div>
 
@@ -81,8 +81,8 @@
         <div class="font-semibold text-[13.5px] mb-0.5">Export your data</div>
         <div class="text-xs text-ink-dim mb-3">Download everything you've watched, rated, or added to a list</div>
         <div class="flex gap-2">
-          <a href="{% url 'export_csv' %}" class="btn btn-sm bg-base-300 border-line">Export as CSV</a>
-          <a href="{% url 'export_trakt_json' %}" class="btn btn-sm bg-base-300 border-line">Export as Trakt JSON</a>
+          <a href="{% url 'export_csv' %}" class="btn btn-sm btn-soft">Export as CSV</a>
+          <a href="{% url 'export_trakt_json' %}" class="btn btn-sm btn-soft">Export as Trakt JSON</a>
         </div>
       </div>
     </div>

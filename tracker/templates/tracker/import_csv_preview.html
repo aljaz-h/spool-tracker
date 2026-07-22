@@ -39,7 +39,7 @@
         </div>
       {% endfor %}
       <div class="col-span-2 md:col-span-4 flex justify-end">
-        <button type="submit" class="btn btn-sm">Refresh preview</button>
+        <button type="submit" class="btn btn-sm btn-soft">Refresh preview</button>
       </div>
     </form>
   </div>
@@ -97,7 +97,7 @@
     </form>
     <form method="post" action="{% url 'import_csv_cancel' %}">
       {% csrf_token %}
-      <button type="submit" class="btn">Cancel</button>
+      <button type="submit" class="btn btn-soft">Cancel</button>
     </form>
   </div>
 

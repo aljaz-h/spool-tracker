@@ -22,7 +22,7 @@
         <button @click="showSearch = !showSearch" class="btn btn-primary btn-sm">+ Add title</button>
         <form method="post" action="{% url 'delete_list' watchlist.id %}" onsubmit="return confirm('Delete \'{{ watchlist.name|escapejs }}\'? This can\'t be undone.');">
           {% csrf_token %}
-          <button type="submit" class="btn btn-sm">Delete list</button>
+          <button type="submit" class="btn btn-sm btn-soft">Delete list</button>
         </form>
       </div>
     {% endif %}

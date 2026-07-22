@@ -60,7 +60,7 @@
           {% endif %}
         </div>
       {% endfor %}
-      <button @click="showAddProfile = !showAddProfile" class="btn mt-3 w-full">+ Add profile</button>
+      <button @click="showAddProfile = !showAddProfile" class="btn btn-soft mt-3 w-full">+ Add profile</button>
 
       <div x-show="showAddProfile" x-cloak class="mt-4 pt-4 border-t border-line">
         <form method="post" action="{% url 'create_profile' %}">
@@ -101,7 +101,7 @@
           <label class="block text-xs text-ink-dim mb-1">TMDB API Key {% if tmdb_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
           <input type="password" name="tmdb_api_key" placeholder="{% if tmdb_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
         </div>
-        <button type="submit" class="btn btn-sm w-full">Save</button>
+        <button type="submit" class="btn btn-sm btn-soft w-full">Save</button>
       </form>
       <a href="{% url 'sync_log' %}" class="block text-center text-xs text-ink-dim hover:text-base-content mt-3.5 pt-3.5 border-t border-line">View sync log →</a>
     </div>

@@ -43,7 +43,7 @@
           </div>
         </div>
         {% if not is_collections %}
-          <label for="filters-drawer" class="btn btn-sm bg-base-300 border-line gap-1.5 cursor-pointer">
+          <label for="filters-drawer" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
             {% icon "filter" "w-3.5 h-3.5" %}
             Filters
             {% if selected_genres or request.GET.year_from or request.GET.year_to or request.GET.runtime_from or request.GET.runtime_to or request.GET.rating_from or request.GET.rating_to or selected_language %}

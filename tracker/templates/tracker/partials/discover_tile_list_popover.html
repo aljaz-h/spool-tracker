@@ -31,7 +31,7 @@
         hx-post="{% url 'title_preview_add_to_list' media_type tmdb_id list.id %}"
         hx-target="closest div.relative"
         hx-swap="outerHTML"
-        class="btn btn-xs w-full justify-between"
+        class="btn btn-xs btn-soft w-full justify-between"
       >{{ list.name }} <span>+</span></button>
     {% empty %}
       <div class="text-[11px] text-ink-faint px-2 py-1.5">No lists yet.</div>
