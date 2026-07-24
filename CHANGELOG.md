@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-07-24
+
+### Changed
+
+- Redesigned the desktop topbar's nav into a centered pill/segmented
+  control - each link is now a rounded pill with icon and label, and
+  the active page's pill fills solid instead of an underline. The
+  search bar is now a plain rounded pill instead of a bordered box,
+  and a live clock (date + time, respecting the 12h/24h preference)
+  now sits under the SPOOL logo. Notifications, Friends, and the
+  profile avatar are unchanged.
+
+
 ## [0.31.3] - 2026-07-22
 
 ### Changed

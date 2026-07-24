@@ -9,46 +9,61 @@
     >
       {% icon "menu" "w-[18px] h-[18px]" %}
     </button>
-    <a href="{% url 'dashboard' %}" class="flex items-baseline gap-2 flex-none" title="Dashboard">
+    <a
+      href="{% url 'dashboard' %}" class="flex flex-col flex-none" title="Dashboard"
+      x-data="{ clock: '' }"
+      x-init="
+        const use24h = {% if active_profile.time_format == '24h' %}true{% else %}false{% endif %};
+        const tick = () => {
+          const now = new Date();
+          clock = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+            + ' · ' + now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: !use24h });
+        };
+        tick();
+        setInterval(tick, 30000);
+      "
+    >
       <span class="font-display text-[24px] text-marquee tracking-wide leading-none">SPOOL</span>
-      <span class="hidden lg:inline text-[10px] text-ink-faint uppercase tracking-widest">self-hosted</span>
+      <span class="hidden lg:block text-[9.5px] text-ink-faint uppercase tracking-widest leading-tight mt-0.5">self-hosted</span>
+      <span class="hidden lg:block text-[9.5px] text-ink-faint font-mono leading-tight" x-text="clock"></span>
     </a>
-    <form method="get" action="{% url 'search' %}" class="hidden xl:flex items-center gap-2 flex-none xl:w-72 bg-base-200 border border-line rounded-lg px-3 py-2">
+    <form method="get" action="{% url 'search' %}" class="hidden xl:flex items-center gap-2 flex-none xl:w-64 bg-base-200 rounded-full px-4 py-2">
       {% icon "search" "w-4 h-4 text-ink-faint flex-none" %}
-      <span class="w-px h-4 bg-line flex-none"></span>
       <input
         type="text" name="q" value="{{ request.GET.q }}"
         class="min-w-0 flex-1 bg-transparent text-[13px] text-ink-dim placeholder:text-ink-faint focus:outline-none"
-        placeholder="Search movies, TV, anime…"
+        placeholder="Search…"
       >
     </form>
   </div>
 
   <div class="hidden md:block w-px h-8 bg-line flex-none"></div>
 
-  <nav class="hidden md:flex items-center gap-0.5 h-full flex-1 min-w-0 overflow-x-auto">
-    {% url 'movies_tv' category="trending" as movies_tv_url %}
-    {% include "tracker/partials/nav_item_horizontal.html" with href=movies_tv_url icon_name="clapperboard" label="Movies & TV" is_active=url_name|eq:"movies_tv" active_border="border-primary" %}
+  <nav class="hidden md:flex items-center justify-center flex-1 min-w-0 overflow-x-auto">
+    <div class="flex items-center gap-1 bg-base-200 rounded-full p-1">
+      {% url 'movies_tv' category="trending" as movies_tv_url %}
+      {% include "tracker/partials/nav_item_horizontal.html" with href=movies_tv_url icon_name="clapperboard" label="Movies & TV" is_active=url_name|eq:"movies_tv" %}
 
-    {% url 'anime' category="trending" as anime_url %}
-    {% include "tracker/partials/nav_item_horizontal.html" with href=anime_url icon_name="sparkles" label="Anime" is_active=url_name|eq:"anime" active_border="border-secondary" %}
+      {% url 'anime' category="trending" as anime_url %}
+      {% include "tracker/partials/nav_item_horizontal.html" with href=anime_url icon_name="sparkles" label="Anime" is_active=url_name|eq:"anime" %}
 
-    {% url 'history' as history_url %}
-    {% include "tracker/partials/nav_item_horizontal.html" with href=history_url icon_name="history" label="History" is_active=url_name|eq:"history" active_border="border-primary" %}
+      {% url 'history' as history_url %}
+      {% include "tracker/partials/nav_item_horizontal.html" with href=history_url icon_name="history" label="History" is_active=url_name|eq:"history" %}
 
-    {% url 'calendar' as calendar_url %}
-    {% include "tracker/partials/nav_item_horizontal.html" with href=calendar_url icon_name="calendar-days" label="Calendar" is_active=url_name|eq:"calendar" active_border="border-primary" %}
+      {% url 'calendar' as calendar_url %}
+      {% include "tracker/partials/nav_item_horizontal.html" with href=calendar_url icon_name="calendar-days" label="Calendar" is_active=url_name|eq:"calendar" %}
 
-    {% url 'lists' as lists_url %}
-    {% include "tracker/partials/nav_item_horizontal.html" with href=lists_url icon_name="list-checks" label="Lists" is_active=url_name|eq:"lists" active_border="border-primary" %}
+      {% url 'lists' as lists_url %}
+      {% include "tracker/partials/nav_item_horizontal.html" with href=lists_url icon_name="list-checks" label="Lists" is_active=url_name|eq:"lists" %}
 
-    {% url 'stats' as stats_url %}
-    {% include "tracker/partials/nav_item_horizontal.html" with href=stats_url icon_name="bar-chart-3" label="Stats" is_active=url_name|eq:"stats" active_border="border-primary" %}
+      {% url 'stats' as stats_url %}
+      {% include "tracker/partials/nav_item_horizontal.html" with href=stats_url icon_name="bar-chart-3" label="Stats" is_active=url_name|eq:"stats" %}
 
-    {% if show_activity_nav %}
-      {% url 'activity' as activity_url %}
-      {% include "tracker/partials/nav_item_horizontal.html" with href=activity_url icon_name="users" label="Activity" is_active=url_name|eq:"activity" active_border="border-primary" %}
-    {% endif %}
+      {% if show_activity_nav %}
+        {% url 'activity' as activity_url %}
+        {% include "tracker/partials/nav_item_horizontal.html" with href=activity_url icon_name="users" label="Activity" is_active=url_name|eq:"activity" %}
+      {% endif %}
+    </div>
   </nav>
 
   <div class="flex items-center gap-3.5 flex-none ml-auto md:ml-0">
