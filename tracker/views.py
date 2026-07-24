@@ -99,19 +99,13 @@ def dashboard(request):
         watchlist_items = list(
             selectors.library_watchlist(profile, [MediaType.MOVIE, MediaType.TV, MediaType.ANIME])
         )
-        recently_added = list(selectors.recently_added_to_lists(profile))
         because_you_watched = selectors.because_you_watched(profile)
-        all_titles = (
-            [item["title"] for item in continue_watching]
-            + [item.title for item in watchlist_items]
-            + [item.title for item in recently_added]
-        )
+        all_titles = [item["title"] for item in continue_watching] + [item.title for item in watchlist_items]
         context.update(
             {
                 "continue_watching": continue_watching,
                 "watchlist_items": watchlist_items,
                 "up_next": selectors.up_next(profile),
-                "recently_added": recently_added,
                 "stats": stats,
                 "milestone": selectors.milestone_message(stats["streak"], stats["movies_this_year"]),
                 "because_you_watched": because_you_watched,

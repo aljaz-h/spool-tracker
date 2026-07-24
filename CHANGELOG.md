@@ -8,6 +8,28 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-07-24
+
+### Changed
+
+- Reorganized the Dashboard into clear purpose-driven sections instead
+  of a flat stack of same-weight boxes: "your numbers" (stat cards),
+  "pick something" (AI Pick), and "your queue" (Watching/Watchlist/Up
+  Next), each separated by a visible film-strip divider instead of
+  uniform spacing.
+- Merged "What should I watch?" and "Recommended to you" into a single
+  AI Pick module - the ask box and the recommendations it's produced
+  now live in one card instead of two visually unrelated ones stacked
+  on top of each other.
+- Removed "Recently added to lists" - it was showing the same items as
+  the Watchlist row directly above it, adding visual repetition with
+  no new information.
+- The "Watching" section (continue-watching carousel) now disappears
+  entirely when nothing's in progress, instead of showing an empty
+  header with placeholder text.
+- "Up next" now sits docked beside the Watchlist carousel rather than
+  floating below it next to the now-removed "Recently added" section.
+
 ## [0.32.7] - 2026-07-24
 
 ### Changed

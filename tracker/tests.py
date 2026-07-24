@@ -6129,13 +6129,6 @@ class DashboardWatchingWatchlistTests(TestCase):
         self.profile = Profile.objects.create(user=user, display_name="DashboardWatcher")
         self.client.login(username="dashboardwatcher", password="pass12345")
 
-    def test_recently_added_excludes_watchlist_items(self):
-        title = Title.objects.create(media_type=MediaType.MOVIE, name="Watchlisted Movie", year=2020)
-        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
-        WatchListItem.objects.create(watchlist=watchlist, title=title)
-        resp = self.client.get(reverse("dashboard"))
-        self.assertEqual(list(resp.context["recently_added"]), [])
-
     def test_total_watch_time_rendered_in_breakdown_format(self):
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Timed Movie", year=2020, runtime_minutes=130)
         WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
