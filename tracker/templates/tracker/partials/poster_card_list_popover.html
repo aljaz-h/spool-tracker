@@ -27,7 +27,7 @@ overflow-x-auto scroll clipping) entirely and floats above the page.
     @click="togglePanel($el)"
     title="Add to list"
     class="w-full h-9 flex items-center justify-center transition-colors
-      {% if in_list_ids %}text-primary hover:bg-white/10{% else %}text-white/75 hover:text-white hover:bg-white/10{% endif %}"
+      {% if in_list_ids %}bg-primary/20 text-primary hover:bg-primary/30{% else %}text-white/75 hover:text-white hover:bg-white/10{% endif %}"
   >{% icon "list-checks" "w-4 h-4" %}</button>
   <div
     x-ref="panel"

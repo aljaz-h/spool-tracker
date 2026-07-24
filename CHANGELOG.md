@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.32.7] - 2026-07-24
+
+### Changed
+
+- The poster card action bar's "marked" state (watched checkmark,
+  on-a-list icon) only changed the icon's color against the same dark
+  gray background, which was hard to notice at a glance. Added a
+  tinted background pill behind the icon when active (green for
+  watched, amber for on-a-list) so the marked state pops instead of
+  blending in.
+
 ## [0.32.6] - 2026-07-24
 
 ### Changed

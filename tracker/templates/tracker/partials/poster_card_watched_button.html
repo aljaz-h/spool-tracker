@@ -16,5 +16,5 @@ watched" stays a single uninterrupted click.
   {% if watched %}hx-confirm="Log another watch of “{{ title.name }}”?"{% endif %}
   title="{% if watched %}Watched — log another watch{% else %}Mark as watched{% endif %}"
   class="flex-1 h-9 flex items-center justify-center transition-colors
-    {% if watched %}text-success hover:bg-white/10{% else %}text-white/75 hover:text-white hover:bg-white/10{% endif %}"
+    {% if watched %}bg-success/20 text-success hover:bg-success/30{% else %}text-white/75 hover:text-white hover:bg-white/10{% endif %}"
 >{% icon "check" "w-4 h-4" %}</button>
