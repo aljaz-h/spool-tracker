@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.33.1] - 2026-07-24
+
+### Fixed
+
+- Docking "Up next" beside the Watchlist carousel (0.33.0) broke
+  horizontal scrolling for large watchlists - a grid item's width
+  defaults to fitting its content, so the Watchlist column stretched
+  to fit every poster instead of scrolling within its own space,
+  pushing the whole row (Up Next included) off the right edge of the
+  page. Constrained the column so the carousel scrolls in place again.
+
 ## [0.33.0] - 2026-07-24
 
 ### Changed
