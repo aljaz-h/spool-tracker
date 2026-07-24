@@ -1,7 +1,19 @@
 {% load icons tracker_extras %}
 {% with url_name=request.resolver_match.url_name %}
-<header class="h-16 flex-none border-b border-line flex items-center gap-4 px-7 bg-base-100 sticky top-0 z-30">
-  <div class="flex items-center gap-3.5 flex-none">
+<header class="h-16 flex-none border-b border-line grid grid-cols-[1fr_auto_1fr] items-center gap-4 px-7 bg-base-100 sticky top-0 z-30">
+  {% comment %}
+    A three-column grid (1fr / auto / 1fr), not flexbox, on purpose:
+    the left block (logo+search) and right block (bell/friends/avatar)
+    are never the same width, so centering the middle nav within
+    "whatever space is left between them" (the old flex-1 +
+    justify-center approach) visibly drags it toward whichever side is
+    narrower. Two equal 1fr columns anchor the middle column at the
+    header's true center regardless of how wide either side's own
+    content is - `justify-self-start`/`-end` then pins each side's
+    content to the correct edge of its own (possibly much wider than
+    its content) column.
+  {% endcomment %}
+  <div class="flex items-center gap-3.5 min-w-0 justify-self-start">
     <button
       @click="sidebarOpen = !sidebarOpen"
       aria-label="Toggle menu"
@@ -9,24 +21,11 @@
     >
       {% icon "menu" "w-[18px] h-[18px]" %}
     </button>
-    <a
-      href="{% url 'dashboard' %}" class="flex flex-col flex-none" title="Dashboard"
-      x-data="{ clock: '' }"
-      x-init="
-        const use24h = {% if active_profile.time_format == '24h' %}true{% else %}false{% endif %};
-        const tick = () => {
-          const now = new Date();
-          clock = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-            + ' · ' + now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: !use24h });
-        };
-        tick();
-        setInterval(tick, 30000);
-      "
-    >
+    <a href="{% url 'dashboard' %}" class="flex items-baseline gap-2 flex-none" title="Dashboard">
       <span class="font-display text-[24px] text-marquee tracking-wide leading-none">SPOOL</span>
-      <span class="hidden lg:block text-[9.5px] text-ink-faint uppercase tracking-widest leading-tight mt-0.5">self-hosted</span>
-      <span class="hidden lg:block text-[9.5px] text-ink-faint font-mono leading-tight" x-text="clock"></span>
+      <span class="hidden lg:inline text-[10px] text-ink-faint uppercase tracking-widest">self-hosted</span>
     </a>
+    <div class="hidden md:block w-px h-8 bg-line flex-none"></div>
     <form method="get" action="{% url 'search' %}" class="hidden xl:flex items-center gap-2 flex-none xl:w-64 bg-base-200 rounded-full px-4 py-2">
       {% icon "search" "w-4 h-4 text-ink-faint flex-none" %}
       <input
@@ -37,9 +36,7 @@
     </form>
   </div>
 
-  <div class="hidden md:block w-px h-8 bg-line flex-none"></div>
-
-  <nav class="hidden md:flex items-center justify-center flex-1 min-w-0 overflow-x-auto">
+  <nav class="hidden md:flex items-center justify-self-center min-w-0 overflow-x-auto">
     <div class="flex items-center gap-1 bg-base-200 rounded-full p-1">
       {% url 'movies_tv' category="trending" as movies_tv_url %}
       {% include "tracker/partials/nav_item_horizontal.html" with href=movies_tv_url icon_name="clapperboard" label="Movies & TV" is_active=url_name|eq:"movies_tv" %}
@@ -66,14 +63,14 @@
     </div>
   </nav>
 
-  <div class="flex items-center gap-3.5 flex-none ml-auto md:ml-0">
+  <div class="flex items-center gap-3.5 flex-none justify-self-end">
     {% comment %}
-      `ml-auto` pushes this group to the header's right edge on mobile,
-      where the middle `<nav>` is `display:none` and so isn't there to
-      soak up the free space as it does from md: up (there, the nav's
-      flex-grow already consumes all the free space, leaving nothing
-      for this auto margin to claim - `md:ml-0` just keeps that explicit
-      instead of relying on that coincidence).
+      `justify-self-end` pins this group to the header's right edge
+      regardless of how wide its own content is or isn't (see the grid
+      comment up top) - on mobile, where the middle nav is display:none,
+      the grid's middle column collapses to 0 and the two 1fr side
+      columns butt up against each other, so this still lands at the
+      true right edge without needing a separate mobile-only rule.
       Every header dropdown below positions itself via JS (togglePanel),
       not a plain `absolute right-0` - on a narrow phone, the trigger
       button often sits well left of the true right edge (the middle nav

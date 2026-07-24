@@ -8,6 +8,25 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.32.2] - 2026-07-24
+
+### Fixed
+
+- Topbar's center nav pills were visibly off-center (dragged right)
+  because they were centered within the leftover flex space between
+  two unequal-width siblings (logo+search vs. the icon cluster), not
+  the header's true center. Rebuilt the header as a 3-column grid
+  (1fr / auto / 1fr) so the center column is genuinely centered
+  regardless of how wide either side is.
+
+### Changed
+
+- Reverted the SPOOL logo back to its single-line "SPOOL · self-hosted"
+  layout, removing the live clock added last round.
+- Moved the topbar's vertical divider to sit between the logo and the
+  search bar, instead of between the search bar and the nav.
+
+
 ## [0.32.1] - 2026-07-24
 
 ### Changed
