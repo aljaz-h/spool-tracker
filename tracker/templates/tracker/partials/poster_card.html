@@ -2,24 +2,23 @@
 {# context: title, progress, show_ratings, user_rating, width_class (all as before) plus watched_by_title/my_lists/list_membership from selectors.poster_action_context() #}
 {% comment %}
 Two <a> tags to the same URL (image box + text block below) instead of
-one wrapping anchor, so the action bar can sit as a sibling of the
-image's anchor - never nested inside it - and its buttons don't need
-any click-stop handling to avoid triggering navigation.
+one wrapping anchor, so the action bar can sit below the image as a
+normal-flow sibling - not overlaid on top of it, so the full poster
+art stays visible - and its buttons don't need any click-stop handling
+to avoid triggering navigation.
 {% endcomment %}
 <div class="{{ width_class|default:"w-[168px] flex-none" }}">
   <div
-    class="aspect-[2/3] rounded-lg relative overflow-hidden bg-cover bg-center {% if not title.poster_url %}{{ title.pk|gradient_class }}{% endif %}"
+    class="aspect-[2/3] rounded-t-lg relative overflow-hidden bg-cover bg-center {% if not title.poster_url %}{{ title.pk|gradient_class }}{% endif %}"
     {% if title.poster_url %}style="background-image:url('{{ title.poster_url }}')"{% endif %}
   >
-    <a href="{% url 'title_detail' title.pk %}" class="absolute inset-0 z-0 flex items-end pt-2.5 px-2.5 pb-9">
-      <div class="absolute inset-0 bg-linear-to-t from-black/85 via-black/35 via-55% to-transparent"></div>
+    <a href="{% url 'title_detail' title.pk %}" class="absolute inset-0 z-0">
       <span class="absolute top-2 right-2 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ title.media_type|upper }}</span>
-      <span class="relative z-10 font-display text-[17px] leading-tight text-[#f2f1ea]" style="text-shadow:0 2px 6px rgba(0,0,0,.5)">{{ title.name }}</span>
     </a>
-    <div class="absolute bottom-0 left-0 right-0 z-20 flex items-stretch bg-black/70 backdrop-blur-sm rounded-b-lg overflow-hidden">
-      {% include "tracker/partials/poster_card_watched_button.html" with title=title watched=watched_by_title|get_item:title.pk %}
-      {% include "tracker/partials/poster_card_list_popover.html" with title=title my_lists=my_lists in_list_ids=list_membership|get_item:title.pk %}
-    </div>
+  </div>
+  <div class="flex items-stretch bg-base-300 rounded-b-lg overflow-hidden">
+    {% include "tracker/partials/poster_card_watched_button.html" with title=title watched=watched_by_title|get_item:title.pk %}
+    {% include "tracker/partials/poster_card_list_popover.html" with title=title my_lists=my_lists in_list_ids=list_membership|get_item:title.pk %}
   </div>
   <a href="{% url 'title_detail' title.pk %}" class="block mt-2 min-w-0">
     <div class="text-[13px] font-semibold mb-1 truncate">{{ title.name }}</div>

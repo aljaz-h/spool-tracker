@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.32.6] - 2026-07-24
+
+### Changed
+
+- Poster card action bar was semi-transparent black over the poster
+  art, with a dark gradient fading up from the bottom to keep the
+  overlaid title readable. Made the bar opaque dark gray instead of
+  translucent black, dropped the gradient, and moved the bar below the
+  poster (flush against it) instead of floating on top of it, so the
+  full poster art is visible. The redundant title caption that used to
+  sit on the poster (readable only because of that gradient) is gone
+  too - the title below the poster already shows it.
+
 ## [0.32.5] - 2026-07-24
 
 ### Changed
