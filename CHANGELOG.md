@@ -8,6 +8,31 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-07-24
+
+### Changed
+
+- Removed the "AI Pick" Gemini mood-search box from the Dashboard - it
+  needs a configured API key to do anything, so it was dead weight for
+  most profiles, and it was crowding out "Recommended to you" (which
+  is more interesting anyway, since it's from a real person, not a
+  bot). The Gemini integration itself is untouched and still
+  configurable in Settings; only its Dashboard entry point is gone for
+  now.
+- "Recommended to you" is now its own standalone, richer section
+  instead of a plain list of text rows sharing a card with the ask
+  box: each recommendation is a small card with the title's poster,
+  the sender's actual avatar (not just their name), a relative
+  timestamp ("2 days ago"), and - new - a one-click "+ Add to
+  Watchlist" action alongside the existing dismiss (×). Previously the
+  only thing you could do with a recommendation was dismiss it; there
+  was no way to act on it. The section also now shows a count badge
+  ("2 new") once there's more than one pending.
+- Adding a recommended title to the Watchlist doesn't dismiss the
+  recommendation - it stays pending (showing "Added") until the title
+  is actually watched, so it keeps nudging you until you've seen it,
+  not just queued it.
+
 ## [0.33.1] - 2026-07-24
 
 ### Fixed

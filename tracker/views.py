@@ -110,7 +110,7 @@ def dashboard(request):
                 "milestone": selectors.milestone_message(stats["streak"], stats["movies_this_year"]),
                 "because_you_watched": because_you_watched,
                 "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")),
-                "received_recommendations": _received_recommendations(profile),
+                **_recommendations_context(profile),
                 **selectors.poster_action_context(profile, all_titles),
                 **selectors.discover_action_context(
                     profile, because_you_watched["results"] if because_you_watched else []
@@ -123,13 +123,12 @@ def dashboard(request):
 @login_required
 @require_POST
 def recommend(request):
-    """Dashboard's "What should I watch?" box - a free-text mood plus
-    this profile's own watch history/genre taste, handed to Gemini.
-    Bring-your-own-key (Settings), optional and per profile - every
-    failure mode (no key, bad key, Gemini unreachable) renders the same
-    partial with a plain-language error instead of a 500, since this is
-    a nice-to-have add-on to the Dashboard, not something that should be
-    able to break it."""
+    """A free-text mood plus this profile's own watch history/genre taste,
+    handed to Gemini. Bring-your-own-key (Settings), optional and per
+    profile - every failure mode (no key, bad key, Gemini unreachable)
+    renders the same partial with a plain-language error instead of a
+    500, since this is a nice-to-have, not something that should be able
+    to break whatever page embeds it."""
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
@@ -561,6 +560,23 @@ def _received_recommendations(profile):
     )
 
 
+def _recommendations_context(profile):
+    """Dashboard's "Recommended to you" card and its two HTMX actions
+    (dismiss, add-to-watchlist) all re-render the same partial off this -
+    watchlisted_title_ids lets the card show "Added" instead of the
+    add-to-watchlist button for a title already queued, without a second
+    round trip per row."""
+    received = _received_recommendations(profile)
+    watchlisted_title_ids = set(
+        WatchListItem.objects.filter(
+            watchlist__profile=profile,
+            watchlist__is_watchlist=True,
+            title_id__in=[rec.title_id for rec in received],
+        ).values_list("title_id", flat=True)
+    )
+    return {"received_recommendations": received, "watchlisted_title_ids": watchlisted_title_ids}
+
+
 @login_required
 @require_POST
 def dismiss_recommendation(request, pk):
@@ -573,11 +589,26 @@ def dismiss_recommendation(request, pk):
     rec = get_object_or_404(Recommendation, pk=pk, to_profile=profile)
     rec.status = Recommendation.Status.DISMISSED
     rec.save(update_fields=["status"])
-    return render(
-        request,
-        "tracker/partials/dashboard_recommendations.html",
-        {"received_recommendations": _received_recommendations(profile)},
-    )
+    return render(request, "tracker/partials/dashboard_recommendations.html", _recommendations_context(profile))
+
+
+@login_required
+@require_POST
+def add_recommendation_to_watchlist(request, pk):
+    """The "Recommended to you" card's quick-add - queues the title without
+    resolving the recommendation itself, same as recommendations.py's
+    docstring describes for any other route onto the Watchlist. It only
+    leaves the pending feed once actually watched
+    (recommendations.mark_title_watched, triggered from every "mark
+    watched" path), so it keeps nudging until the title's actually seen,
+    not just queued."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    rec = get_object_or_404(Recommendation, pk=pk, to_profile=profile)
+    watchlist, _ = WatchList.objects.get_or_create(profile=profile, name="Watchlist", defaults={"is_watchlist": True})
+    WatchListItem.objects.get_or_create(watchlist=watchlist, title=rec.title)
+    return render(request, "tracker/partials/dashboard_recommendations.html", _recommendations_context(profile))
 
 
 @login_required

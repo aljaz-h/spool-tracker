@@ -1,24 +1,52 @@
-{# context: received_recommendations (list of Recommendation, pending, newest first) #}
+{% load tracker_extras %}
+{# context: received_recommendations (list of Recommendation, pending, newest first), watchlisted_title_ids (set of Title pk already on the profile's Watchlist) #}
 {% comment %}
-Nested inside the AI Pick card (dashboard.html) alongside the ask box,
-so this can't target "closest div.bg-base-200" the way it used to as a
-standalone card - that would now match the whole AI Pick card, wiping
-the ask box out along with the dismissed recommendation. Targets its
-own id instead.
+Standalone dashboard section (not nested in anything else), so the
+dismiss/add-to-watchlist HTMX actions can target this card's own id
+directly - when the last recommendation resolves, the fragment renders
+empty and the whole card (including its own bottom margin) disappears
+along with it, no orphaned divider left behind.
 {% endcomment %}
 {% if received_recommendations %}
-  <div id="recommendations-block" class="border-t border-line mt-4 pt-4">
-    <h3 class="text-sm font-semibold text-ink-dim mb-2">Recommended to you</h3>
+  <div id="recommendations-block" class="bg-base-200 border border-line rounded-2xl p-5 mb-9">
+    <h2 class="text-lg mb-3">
+      Recommended to you
+      {% if received_recommendations|length > 1 %}<span class="text-ink-faint text-sm font-body">({{ received_recommendations|length }} new)</span>{% endif %}
+    </h2>
     <div class="flex flex-col gap-1">
       {% for rec in received_recommendations %}
-        <div class="flex items-center justify-between gap-3 py-2 {% if not forloop.last %}border-b border-line{% endif %}">
-          <a href="{% url 'title_detail' rec.title.pk %}" class="text-[13px] min-w-0 truncate hover:underline">
-            <b>{{ rec.from_profile.display_name }}</b> recommended <b>{{ rec.title.name }}</b>
-          </a>
-          <form hx-post="{% url 'dismiss_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="outerHTML" class="flex-none">
-            {% csrf_token %}
-            <button type="submit" class="text-ink-faint hover:text-error text-sm leading-none px-1" title="Dismiss">&times;</button>
-          </form>
+        <div class="flex items-center gap-3 py-2.5 {% if not forloop.last %}border-b border-line{% endif %}">
+          <a
+            href="{% url 'title_detail' rec.title.pk %}"
+            class="flex-none w-16 aspect-[2/3] rounded-md overflow-hidden bg-cover bg-center {% if not rec.title.poster_url %}{{ rec.title.pk|gradient_class }}{% endif %}"
+            {% if rec.title.poster_url %}style="background-image:url('{{ rec.title.poster_url }}')"{% endif %}
+          ></a>
+          <div class="min-w-0 flex-1">
+            <a href="{% url 'title_detail' rec.title.pk %}" class="text-[13px] font-semibold truncate block hover:underline">{{ rec.title.name }}</a>
+            <div class="flex items-center gap-1.5 mt-1 text-xs text-ink-dim">
+              {% if rec.from_profile.avatar_image %}
+                <div class="w-5 h-5 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ rec.from_profile.avatar_image.url }}')"></div>
+              {% else %}
+                <div class="w-5 h-5 rounded-full flex items-center justify-center font-mono text-[10px] font-semibold flex-none" style="background:{{ rec.from_profile.avatar_color }};color:#fff;">{{ rec.from_profile.display_name|first|upper }}</div>
+              {% endif %}
+              Recommended by <b>{{ rec.from_profile.display_name }}</b>
+            </div>
+            <div class="font-mono text-[10.5px] text-ink-faint mt-1">{{ rec.created_at|timesince }} ago</div>
+          </div>
+          <div class="flex-none flex items-center gap-2">
+            <form hx-post="{% url 'add_recommendation_to_watchlist' rec.pk %}" hx-target="#recommendations-block" hx-swap="outerHTML">
+              {% csrf_token %}
+              {% if rec.title.pk in watchlisted_title_ids %}
+                <button type="button" disabled class="btn btn-xs btn-soft text-success">&#10003; Added</button>
+              {% else %}
+                <button type="submit" class="btn btn-xs btn-soft">+ Add to Watchlist</button>
+              {% endif %}
+            </form>
+            <form hx-post="{% url 'dismiss_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="outerHTML">
+              {% csrf_token %}
+              <button type="submit" class="text-ink-faint hover:text-error text-sm leading-none px-1" title="Dismiss">&times;</button>
+            </form>
+          </div>
         </div>
       {% endfor %}
     </div>

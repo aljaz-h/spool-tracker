@@ -1512,6 +1512,50 @@ class DismissRecommendationViewTests(TestCase):
         self.assertEqual(resp.status_code, 405)
 
 
+class AddRecommendationToWatchlistViewTests(TestCase):
+    def setUp(self):
+        sender_user = User.objects.create_user("addwlsender", password="pass12345")
+        self.sender = Profile.objects.create(user=sender_user, display_name="AddWlSender")
+        recipient_user = User.objects.create_user("addwlrecipient", password="pass12345")
+        self.recipient = Profile.objects.create(user=recipient_user, display_name="AddWlRecipient")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        self.rec = Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        self.client.login(username="addwlrecipient", password="pass12345")
+
+    def test_adds_the_title_to_the_watchlist(self):
+        self.client.post(reverse("add_recommendation_to_watchlist", args=[self.rec.pk]))
+        watchlist = WatchList.objects.get(profile=self.recipient, is_watchlist=True)
+        self.assertTrue(WatchListItem.objects.filter(watchlist=watchlist, title=self.title).exists())
+
+    def test_recommendation_stays_pending_until_actually_watched(self):
+        # Queuing isn't watching - the recommendation keeps nudging until
+        # a real WatchEvent resolves it via recommendations.mark_title_watched.
+        self.client.post(reverse("add_recommendation_to_watchlist", args=[self.rec.pk]))
+        self.rec.refresh_from_db()
+        self.assertEqual(self.rec.status, Recommendation.Status.PENDING)
+
+    def test_calling_it_twice_does_not_duplicate_the_watchlist_item(self):
+        self.client.post(reverse("add_recommendation_to_watchlist", args=[self.rec.pk]))
+        self.client.post(reverse("add_recommendation_to_watchlist", args=[self.rec.pk]))
+        watchlist = WatchList.objects.get(profile=self.recipient, is_watchlist=True)
+        self.assertEqual(WatchListItem.objects.filter(watchlist=watchlist, title=self.title).count(), 1)
+
+    def test_only_the_recipient_can_add(self):
+        self.client.logout()
+        self.client.login(username="addwlsender", password="pass12345")
+        resp = self.client.post(reverse("add_recommendation_to_watchlist", args=[self.rec.pk]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("add_recommendation_to_watchlist", args=[self.rec.pk]))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_get_not_allowed(self):
+        resp = self.client.get(reverse("add_recommendation_to_watchlist", args=[self.rec.pk]))
+        self.assertEqual(resp.status_code, 405)
+
+
 class TitleDetailRecommendCardTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("carduser", password="pass12345")
@@ -1565,6 +1609,32 @@ class DashboardRecommendationsTests(TestCase):
         self.assertContains(resp, "Recommended to you")
         self.assertContains(resp, "DashSender")
         self.assertContains(resp, "Fathom")
+
+    def test_a_single_recommendation_has_no_count_badge(self):
+        Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        resp = self.client.get(reverse("dashboard"))
+        self.assertNotContains(resp, "new)")
+
+    def test_multiple_recommendations_show_a_count_badge(self):
+        other_title = Title.objects.create(media_type=MediaType.MOVIE, name="Second Title", year=2021)
+        Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=other_title)
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "2 new")
+
+    def test_add_to_watchlist_button_shown_for_an_unlisted_title(self):
+        Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "Add to Watchlist")
+        self.assertNotContains(resp, "&#10003; Added")
+
+    def test_shows_added_state_when_title_already_on_the_watchlist(self):
+        Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        watchlist = WatchList.objects.create(profile=self.recipient, name="Watchlist", is_watchlist=True)
+        WatchListItem.objects.create(watchlist=watchlist, title=self.title)
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "Added")
+        self.assertNotContains(resp, "+ Add to Watchlist")
 
     def test_dismissed_recommendations_are_not_shown(self):
         Recommendation.objects.create(
