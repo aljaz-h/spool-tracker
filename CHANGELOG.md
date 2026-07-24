@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.32.1] - 2026-07-24
+
+### Changed
+
+- Desktop topbar's profile trigger is now a pill (avatar + display name
+  + a chevron that flips when the dropdown is open) instead of a bare
+  avatar circle, on screens sm: and up. Mobile keeps the plain avatar
+  circle to stay compact.
+
+
 ## [0.32.0] - 2026-07-24
 
 ### Changed

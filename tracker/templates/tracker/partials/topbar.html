@@ -184,10 +184,18 @@
       }">
         <button
           @click="togglePanel($el)" @click.outside="open = false"
-          class="w-9 h-9 rounded-full flex items-center justify-center font-mono text-[13px] font-semibold border-2 border-primary {% if active_profile.avatar_image %}bg-cover bg-center{% endif %}"
-          style="{% if active_profile.avatar_image %}background-image:url('{{ active_profile.avatar_image.url }}'){% else %}background:{{ active_profile.avatar_color }};color:#fff;{% endif %}"
+          class="flex items-center gap-2 sm:pr-3 h-9 rounded-full sm:bg-base-200 sm:hover:bg-base-300 flex-none"
           title="{{ active_profile.display_name }}"
-        >{% if not active_profile.avatar_image %}{{ active_profile.display_name|first|upper }}{% endif %}</button>
+        >
+          <div
+            class="w-9 h-9 rounded-full flex items-center justify-center font-mono text-[13px] font-semibold border-2 border-primary flex-none {% if active_profile.avatar_image %}bg-cover bg-center{% endif %}"
+            style="{% if active_profile.avatar_image %}background-image:url('{{ active_profile.avatar_image.url }}'){% else %}background:{{ active_profile.avatar_color }};color:#fff;{% endif %}"
+          >{% if not active_profile.avatar_image %}{{ active_profile.display_name|first|upper }}{% endif %}</div>
+          <span class="hidden sm:inline text-[13px] font-semibold text-base-content truncate max-w-[110px]">{{ active_profile.display_name }}</span>
+          <span class="hidden sm:flex flex-none transition-transform" :class="open ? 'rotate-180' : ''">
+            {% icon "chevron-down" "w-3.5 h-3.5 text-ink-dim" %}
+          </span>
+        </button>
         <div x-ref="panel" x-show="open" x-cloak class="fixed w-52 bg-base-200 border border-line rounded-lg shadow-lg z-40 py-1">
           <div class="px-3 py-2 text-xs text-ink-dim border-b border-line truncate">{{ active_profile.display_name }}</div>
           <a href="{% url 'my_profile' %}" class="block px-3 py-2 text-sm hover:bg-base-300">My Profile</a>
