@@ -257,7 +257,8 @@
     </div>
 
     <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
-      <h3 class="text-lg mb-4">Peak hours</h3>
+      <h3 class="text-lg mb-1">Peak hours</h3>
+      <div class="text-ink-dim text-xs mb-4">Plays logged in each part of the day, lifetime.</div>
       <div class="space-y-3">
         {% for bucket in peak_hours %}
           <div class="flex items-center gap-3">
@@ -265,7 +266,7 @@
             <div class="flex-1 h-2 rounded-full bg-base-300 overflow-hidden">
               <div class="h-full rounded-full bg-primary" style="width:{{ bucket.pct }}%"></div>
             </div>
-            <span class="font-mono text-xs text-ink-faint w-6 text-right flex-none">{{ bucket.count }}</span>
+            <span class="font-mono text-xs text-ink-faint w-10 text-right flex-none" title="{{ bucket.count }} play{{ bucket.count|pluralize }}">{{ bucket.count }}</span>
           </div>
         {% endfor %}
       </div>

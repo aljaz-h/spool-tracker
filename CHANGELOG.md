@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.32.4] - 2026-07-24
+
+### Changed
+
+- Stats' Peak Hours widget showed a bare, unlabeled count per bucket
+  ("6992") with nothing indicating what it meant. Added a caption
+  under the heading ("Plays logged in each part of the day, lifetime")
+  and a hover tooltip on each number, and widened the count column so
+  4-digit totals aren't cramped.
+
+
 ## [0.32.3] - 2026-07-24
 
 ### Fixed

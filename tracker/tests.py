@@ -4525,6 +4525,17 @@ class PeakHoursTests(TestCase):
         self.assertEqual(len(buckets), 4)
         self.assertTrue(all(b["count"] == 0 and b["pct"] == 0 for b in buckets))
 
+    def test_stats_page_explains_what_the_count_means(self):
+        """Peak Hours previously showed a bare, unlabeled integer per
+        bucket - "6992" with no unit is meaningless out of context. A
+        caption under the heading plus a per-row tooltip should make it
+        read as a play count, not a random number."""
+        self._watch_at_local_hour(9)
+        self.client.login(username="peakhourswatcher", password="pass12345")
+        resp = self.client.get(reverse("stats"))
+        self.assertContains(resp, "Plays logged in each part of the day")
+        self.assertContains(resp, 'title="1 play"')
+
 
 class MilestoneMessageTests(TestCase):
     def test_streak_milestone_returns_a_message(self):
