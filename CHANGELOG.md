@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.34.1] - 2026-07-24
+
+### Changed
+
+- Dropped the "self-hosted" subtitle next to the SPOOL wordmark
+  (topbar and the mobile sidebar) and sized the wordmark up a bit
+  (24px → 28px in the topbar, 28px → 32px in the mobile sidebar) now
+  that it's not sharing the space.
+
 ## [0.34.0] - 2026-07-24
 
 ### Changed
