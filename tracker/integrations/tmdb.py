@@ -500,11 +500,15 @@ def get_director(media_type, tmdb_id):
 
 
 def get_season_details(tmdb_id, season_number):
-    """{"episodes": [{"episode_number", "name", "still_url", "air_date"}, ...]}
+    """{"episodes": [{"episode_number", "name", "still_url", "air_date", "runtime"}, ...]}
     or None if nothing came back. Always the /tv/ endpoint regardless of
     the title's own media_type - anime is matched against TMDB's tv
     catalog same as any other show (see media_type_for()), and seasons
-    only exist there; movies never call this at all."""
+    only exist there; movies never call this at all. "runtime" is this
+    specific episode's own minutes (None if TMDB doesn't have it) - a
+    finer-grained figure than get_tv_details()'s show-level "typical"
+    episode_run_time, and worth carrying since completion.py falls back
+    to it per-episode when the coarse figure is missing or wrong."""
     data = _list_request(f"tv/{tmdb_id}/season/{season_number}")
     if not data or data.get("id") is None:
         return None
@@ -517,6 +521,7 @@ def get_season_details(tmdb_id, season_number):
                 "name": ep.get("name") or "",
                 "still_url": f"{IMAGE_BASE}{still_path}" if still_path else None,
                 "air_date": ep.get("air_date"),
+                "runtime": ep.get("runtime"),
             }
         )
     return {"episodes": episodes}

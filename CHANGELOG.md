@@ -8,6 +8,26 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.32.3] - 2026-07-24
+
+### Fixed
+
+- TV/anime watch time was silently undercounted whenever TMDB's
+  show-level "typical episode length" was missing (common for anime
+  and foreign shows) - those episodes counted as 0 minutes toward
+  every watch-time stat, permanently, with no retry. Added a fallback
+  that pulls each episode's own runtime from TMDB's season/episode
+  endpoint (already fetched elsewhere in the app for episode names,
+  but the runtime field was being discarded) whenever the coarser
+  show-level figure isn't available.
+
+  **If your TV/anime total watch time looks too low, re-run
+  `python manage.py backfill_completion`** (already existed, safe to
+  re-run) to recompute it against the fix - no migration needed, it
+  just needs to talk to TMDB again for shows it couldn't fully cover
+  the first time.
+
+
 ## [0.32.2] - 2026-07-24
 
 ### Fixed

@@ -650,6 +650,65 @@ class CompletionShowTests(TestCase):
             completion.sync_show_completion(self.profile, title)
         mock_details.assert_not_called()
 
+    def test_falls_back_to_per_episode_runtime_when_show_level_average_is_missing(self):
+        """The bug behind a real user-reported discrepancy: TMDB's
+        show-level episode_run_time is empty for plenty of shows even
+        though the season/episode endpoint has real per-episode data -
+        previously that meant those episodes silently counted as 0
+        minutes toward every watch-time stat, forever, with no retry."""
+        self._log_episodes(2)
+        details = {"number_of_episodes": 10, "episode_run_time": None, "seasons": []}
+        season_data = {
+            "episodes": [
+                {"episode_number": 1, "name": "Pilot", "still_url": None, "air_date": None, "runtime": 42},
+                {"episode_number": 2, "name": "Two", "still_url": None, "air_date": None, "runtime": 45},
+            ]
+        }
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            with patch("tracker.completion.tmdb.get_season_details", return_value=season_data) as mock_season:
+                completion.sync_show_completion(self.profile, self.title)
+        mock_season.assert_called_once_with("99", 1)
+        ep1 = Episode.objects.get(title=self.title, season=1, episode=1)
+        ep2 = Episode.objects.get(title=self.title, season=1, episode=2)
+        self.assertEqual(ep1.runtime_minutes, 42)
+        self.assertEqual(ep2.runtime_minutes, 45)
+
+    def test_per_episode_fallback_only_queries_seasons_with_missing_episodes(self):
+        Episode.objects.create(title=self.title, season=1, episode=1, runtime_minutes=30)
+        Episode.objects.create(title=self.title, season=2, episode=1)
+        details = {"number_of_episodes": 10, "episode_run_time": None, "seasons": []}
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            with patch("tracker.completion.tmdb.get_season_details", return_value=None) as mock_season:
+                completion.sync_show_completion(self.profile, self.title)
+        mock_season.assert_called_once_with("99", 2)
+
+    def test_per_episode_fallback_does_not_overwrite_existing_runtime(self):
+        Episode.objects.create(title=self.title, season=1, episode=1, runtime_minutes=30)
+        Episode.objects.create(title=self.title, season=1, episode=2)
+        details = {"number_of_episodes": 10, "episode_run_time": None, "seasons": []}
+        season_data = {
+            "episodes": [
+                {"episode_number": 1, "name": "Pilot", "still_url": None, "air_date": None, "runtime": 99},
+                {"episode_number": 2, "name": "Two", "still_url": None, "air_date": None, "runtime": 45},
+            ]
+        }
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            with patch("tracker.completion.tmdb.get_season_details", return_value=season_data):
+                completion.sync_show_completion(self.profile, self.title)
+        ep1 = Episode.objects.get(title=self.title, season=1, episode=1)
+        ep2 = Episode.objects.get(title=self.title, season=1, episode=2)
+        self.assertEqual(ep1.runtime_minutes, 30)
+        self.assertEqual(ep2.runtime_minutes, 45)
+
+    def test_per_episode_fallback_handles_a_missing_season_gracefully(self):
+        Episode.objects.create(title=self.title, season=1, episode=1)
+        details = {"number_of_episodes": 10, "episode_run_time": None, "seasons": []}
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            with patch("tracker.completion.tmdb.get_season_details", return_value=None):
+                completion.sync_show_completion(self.profile, self.title)  # should not raise
+        ep = Episode.objects.get(title=self.title, season=1, episode=1)
+        self.assertIsNone(ep.runtime_minutes)
+
 
 class CompletionWatchlistRemovalTests(TestCase):
     """completion.sync_watchlist_removal - the Trakt/Simkl-style behavior
@@ -5488,6 +5547,21 @@ class TmdbDetailPageTests(TestCase):
         self.assertEqual(season["episodes"][0]["still_url"], "https://image.tmdb.org/t/p/w500/e1.jpg")
         self.assertIsNone(season["episodes"][1]["still_url"])
         self.assertEqual(season["episodes"][1]["name"], "Second")
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_season_details_carries_each_episodes_own_runtime(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 99,
+                "episodes": [
+                    {"episode_number": 1, "name": "Pilot", "still_path": None, "air_date": None, "runtime": 42},
+                    {"episode_number": 2, "name": "Second", "still_path": None, "air_date": None, "runtime": None},
+                ],
+            }
+        )
+        season = tmdb.get_season_details(555, 1)
+        self.assertEqual(season["episodes"][0]["runtime"], 42)
+        self.assertIsNone(season["episodes"][1]["runtime"])
 
     @patch("tracker.integrations.tmdb.requests.get")
     def test_get_season_details_returns_none_on_missing_id(self, mock_get):
