@@ -8,7 +8,7 @@ confined to the card's own box has nowhere to render but on top of the
 poster art. Fixed positioning escapes the card (and the carousel's
 overflow-x-auto scroll clipping) entirely and floats above the page.
 {% endcomment %}
-<div class="relative" id="list-popover-{{ title.pk }}" x-data="{
+<div class="relative flex-1" id="list-popover-{{ title.pk }}" x-data="{
   open: false,
   togglePanel(button) {
     this.open = !this.open;
@@ -26,9 +26,9 @@ overflow-x-auto scroll clipping) entirely and floats above the page.
     type="button"
     @click="togglePanel($el)"
     title="Add to list"
-    class="w-7 h-7 rounded-full flex items-center justify-center border transition-colors
-      {% if in_list_ids %}bg-primary/90 border-primary/60 text-primary-content{% else %}bg-black/55 border-white/15 text-white/85 hover:bg-black/75 hover:border-white/30{% endif %}"
-  >{% icon "list-checks" "w-3.5 h-3.5" %}</button>
+    class="w-full h-9 flex items-center justify-center transition-colors
+      {% if in_list_ids %}text-primary hover:bg-white/10{% else %}text-white/75 hover:text-white hover:bg-white/10{% endif %}"
+  >{% icon "list-checks" "w-4 h-4" %}</button>
   <div
     x-ref="panel"
     x-show="open" x-cloak x-transition @click.outside="open = false"

@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.32.5] - 2026-07-24
+
+### Changed
+
+- Poster cards (library grids and Discover preview tiles) traded their
+  floating circular icon buttons for a full-width flat action bar
+  along the poster's bottom edge, matching a reference design the user
+  provided. Still just the two actions Spool supports - mark as
+  watched and add to list - now spanning the card edge-to-edge instead
+  of sitting as an inset pill. The watched indicator changed from a
+  filled green circle to a plain green checkmark so it reads
+  consistently with the flat bar.
+
 ## [0.32.4] - 2026-07-24
 
 ### Changed

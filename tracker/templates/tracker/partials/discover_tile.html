@@ -23,7 +23,7 @@ only when there's truly no local Title yet.
         <span class="absolute top-1.5 right-1.5 z-10 font-mono text-[11px] font-bold bg-black/85 px-2 py-1 rounded-md shadow-[0_1px_4px_rgba(0,0,0,0.7)]"><span class="text-amber-400">&#9733;</span> <span class="text-white">{{ item.vote_average|floatformat:1 }}</span></span>
       {% endif %}
     </a>
-    <div class="absolute bottom-2 left-2 right-2 z-20 flex items-center gap-1.5">
+    <div class="absolute bottom-0 left-0 right-0 z-20 flex items-stretch bg-black/70 backdrop-blur-sm rounded-b-lg overflow-hidden">
       {% if matched_title %}
         {% include "tracker/partials/poster_card_watched_button.html" with title=matched_title watched=discover_watched|get_item:key %}
         {% include "tracker/partials/poster_card_list_popover.html" with title=matched_title my_lists=my_lists in_list_ids=discover_list_membership|get_item:key %}

@@ -5817,7 +5817,7 @@ class DiscoverViewTests(TestCase):
             "total_pages": 1,
         }
         resp = self.client.get(reverse("movies_tv", args=["popular"]))
-        self.assertContains(resp, "bg-success")
+        self.assertContains(resp, "text-success")
         self.assertContains(resp, f"watched-btn-{title.pk}")
         # Already watched -> a further click is guarded by a confirm.
         self.assertContains(resp, 'hx-confirm="')
@@ -5832,7 +5832,7 @@ class DiscoverViewTests(TestCase):
             "total_pages": 1,
         }
         resp = self.client.get(reverse("movies_tv", args=["popular"]))
-        self.assertNotContains(resp, "bg-success")
+        self.assertNotContains(resp, "text-success")
         self.assertNotContains(resp, 'hx-confirm="')
         self.assertContains(resp, reverse("title_preview_mark_watched", args=["movie", 42]))
 
@@ -6807,7 +6807,7 @@ class TitleMarkWatchedAndRateTests(TestCase):
         resp = self.client.post(reverse("title_mark_watched", args=[self.title.pk]), HTTP_HX_REQUEST="true")
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, f"watched-btn-{self.title.pk}")
-        self.assertContains(resp, "bg-success")
+        self.assertContains(resp, "text-success")
         self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title=self.title).exists())
 
     def test_returned_fragment_guards_further_clicks_with_a_confirm(self):
@@ -7139,7 +7139,7 @@ class TitlePreviewViewTests(TestCase):
         self.assertEqual(title.name, "Fathom")
         self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title=title).exists())
         self.assertContains(resp, f"watched-btn-{title.pk}")
-        self.assertContains(resp, "bg-success")
+        self.assertContains(resp, "text-success")
 
     @patch("tracker.integrations.tmdb.get_full_details")
     def test_mark_watched_as_a_plain_post_materializes_and_redirects_to_the_real_page(self, mock_details):
