@@ -2490,15 +2490,15 @@ class AdminDashboardVisibilityTests(TestCase):
         resp = self.client.get(reverse("admin_dashboard"))
         self.assertEqual(resp.status_code, 404)
 
-    def test_member_does_not_see_admin_dashboard_nav_link(self):
+    def test_member_does_not_see_admin_sidebar_section(self):
         self.client.login(username="member2", password="pass12345")
         resp = self.client.get(reverse("settings"))
-        self.assertNotContains(resp, "Admin Dashboard")
+        self.assertNotContains(resp, "Server Integrations")
 
-    def test_owner_sees_admin_dashboard_nav_link(self):
+    def test_owner_sees_admin_sidebar_section(self):
         self.client.login(username="owner2", password="pass12345")
         resp = self.client.get(reverse("settings"))
-        self.assertContains(resp, "Admin Dashboard")
+        self.assertContains(resp, "Server Integrations")
 
     def test_configured_secret_value_never_rendered_in_html(self):
         InstanceConfig.objects.create(pk=1, trakt_client_secret="super-secret-value")
@@ -3763,10 +3763,12 @@ class MyProfilePageContextTests(TestCase):
         self.assertContains(resp, "Simkl not connected")
 
 
-class NotificationsAndPrivacyMovedToMyProfileTests(TestCase):
-    """Notifications and Privacy moved from Settings & Import to My
-    Profile - the underlying save_notifications/save_privacy endpoints
-    are untouched, only which page renders the forms."""
+class NotificationsAndPrivacyOnTheMergedSettingsPageTests(TestCase):
+    """Settings & Import, My Profile, and Admin Dashboard all render the
+    same merged template now (client-side tabs, not separate pages), so
+    Notifications/Privacy show up in the raw HTML regardless of which of
+    the three URLs was hit - the underlying save_notifications/
+    save_privacy endpoints are untouched, only where the forms live."""
 
     def setUp(self):
         user = User.objects.create_user("movedcarduser", password="pass12345")
@@ -3778,29 +3780,60 @@ class NotificationsAndPrivacyMovedToMyProfileTests(TestCase):
         self.assertContains(resp, ">Notifications<")
         self.assertContains(resp, reverse("save_notifications"))
 
-    def test_notifications_card_not_on_settings(self):
+    def test_notifications_card_also_on_settings(self):
         # The topbar's bell button (present on every page) carries
         # aria-label="Notifications" - checking for the card heading's
         # exact tag boundaries avoids a false positive on that.
         resp = self.client.get(reverse("settings"))
-        self.assertNotContains(resp, ">Notifications<")
+        self.assertContains(resp, ">Notifications<")
+        self.assertContains(resp, reverse("save_notifications"))
 
-    def test_privacy_card_on_my_profile_with_multiple_profiles(self):
+    def test_privacy_toggle_on_my_profile_with_multiple_profiles(self):
         other_user = User.objects.create_user("movedcardother", password="pass12345")
         Profile.objects.create(user=other_user, display_name="MovedCardOther")
         resp = self.client.get(reverse("my_profile"))
-        self.assertContains(resp, ">Privacy<")
+        self.assertContains(resp, "Show my activity to other profiles")
         self.assertContains(resp, reverse("save_privacy"))
 
-    def test_privacy_card_not_on_settings(self):
+    def test_privacy_toggle_also_on_settings_with_multiple_profiles(self):
         other_user = User.objects.create_user("movedcardother2", password="pass12345")
         Profile.objects.create(user=other_user, display_name="MovedCardOther2")
         resp = self.client.get(reverse("settings"))
-        self.assertNotContains(resp, ">Privacy<")
+        self.assertContains(resp, "Show my activity to other profiles")
+        self.assertContains(resp, reverse("save_privacy"))
 
-    def test_privacy_card_hidden_on_single_profile_instance(self):
+    def test_privacy_toggle_hidden_on_single_profile_instance(self):
         resp = self.client.get(reverse("my_profile"))
-        self.assertNotContains(resp, ">Privacy<")
+        self.assertNotContains(resp, "Show my activity to other profiles")
+        self.assertNotContains(resp, reverse("save_privacy"))
+
+
+class MergedSettingsPageAccountFormsPostToMyProfileTests(TestCase):
+    """The Account tab's "Profile" and "Change password" forms used to
+    rely on an implicit <form method="post"> (posting back to whatever
+    URL rendered the page) since my_profile.html was the only page that
+    ever rendered them. Now that settings_view/my_profile/admin_dashboard
+    all render the same template, submitting either form from a page
+    loaded at /settings/ or /admin-dashboard/ would silently 404/no-op
+    without an explicit action pointing at my_profile - this guards that
+    fix stays in place regardless of which of the three URLs rendered
+    the page."""
+
+    def setUp(self):
+        user = User.objects.create_user("formactionuser", password="pass12345", is_superuser=True)
+        Profile.objects.create(user=user, display_name="FormActionUser")
+        self.client.login(username="formactionuser", password="pass12345")
+
+    def test_both_account_forms_target_my_profile_from_settings(self):
+        resp = self.client.get(reverse("settings"))
+        # One for the "Profile" form (update_profile), one for "Change
+        # password" (change_password) - both explicit now, neither
+        # implicit self-posting.
+        self.assertEqual(resp.content.decode().count(f'action="{reverse("my_profile")}"'), 2)
+
+    def test_both_account_forms_target_my_profile_from_admin_dashboard(self):
+        resp = self.client.get(reverse("admin_dashboard"))
+        self.assertEqual(resp.content.decode().count(f'action="{reverse("my_profile")}"'), 2)
 
 
 class MyProfileAvatarImageTests(TestCase):

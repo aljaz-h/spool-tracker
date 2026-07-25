@@ -1,8 +1,18 @@
 {% extends "tracker/base.html" %}
-{% load tracker_extras %}
-{% block title %}Settings & Import · Spool{% endblock %}
+{% load icons %}
+{% block title %}Settings · Spool{% endblock %}
 {% block content %}
-<div>
+<div
+  x-data="{
+    tab: (new URLSearchParams(window.location.search).get('tab')) || '{{ active_tab }}',
+    setTab(t) {
+      this.tab = t;
+      const url = new URL(window.location);
+      url.searchParams.set('tab', t);
+      history.replaceState({}, '', url);
+    },
+  }"
+>
 
   {% if messages %}
     {% for message in messages %}
@@ -11,8 +21,8 @@
   {% endif %}
 
   <div class="mb-6">
-    <h1 class="font-display text-4xl">Settings &amp; Import</h1>
-    <div class="text-ink-dim text-sm mt-1">Bring in your own watch history, appearance, and integrations</div>
+    <h1 class="font-display text-4xl">Settings</h1>
+    <div class="text-ink-dim text-sm mt-1">Your account, appearance, integrations, and data</div>
   </div>
 
   {% if latest_available_version %}
@@ -25,88 +35,161 @@
     </a>
   {% endif %}
 
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+  <div class="flex flex-col lg:flex-row gap-6 items-start">
 
-    <div class="flex flex-col gap-5">
+    <nav class="w-full lg:w-[190px] flex-none lg:sticky lg:top-6 flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible pb-1 lg:pb-0">
+      {% include "tracker/partials/settings_nav_button.html" with key="account" label="Account" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="preferences" label="Preferences" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="notifications" label="Notifications" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="integrations" label="Integrations" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="import" label="Import Data" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="export" label="Export Data" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="danger" label="Danger Zone" %}
 
-    <div class="bg-base-200 border border-line rounded-2xl p-5">
-      <h3 class="text-lg mb-3.5">Connected Apps</h3>
+      {% if profile.is_owner %}
+        <div class="text-[10.5px] font-semibold text-ink-faint uppercase tracking-widest px-3 pt-4 pb-1.5">Admin</div>
+        {% include "tracker/partials/settings_nav_button.html" with key="profiles" label="Profiles" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="server_integrations" label="Server Integrations" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="server" label="Server" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="activity_log" label="Activity Log" %}
+      {% endif %}
+    </nav>
 
-      <div class="py-3.5 border-b border-line">
-        <div class="flex justify-between items-center">
-          <div><div class="font-semibold text-[13.5px]">Trakt</div><div class="text-xs text-ink-dim">Sync watched history, ratings &amp; lists</div></div>
+    <div class="flex-1 min-w-0">
+
+      {# ==================== ACCOUNT ==================== #}
+      <div x-show="tab === 'account'" x-cloak
+        x-data="{
+          color: '{{ profile.avatar_color }}',
+          photoPreview: null,
+          onFileChange(e) {
+            const file = e.target.files[0];
+            if (!file) { this.photoPreview = null; return; }
+            const reader = new FileReader();
+            reader.onload = () => { this.photoPreview = reader.result; };
+            reader.readAsDataURL(file);
+          },
+        }"
+        class="flex flex-col gap-5 max-w-2xl"
+      >
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs -mb-1">
+          <span class="text-ink-faint">Member since {{ profile.created_at|date:"F Y" }}</span>
+          <span class="text-line">&middot;</span>
           {% if "trakt" in connected_providers %}
-            <span class="font-mono text-xs text-success">&#10003; Connected</span>
-          {% elif trakt_configured %}
-            <a href="{% url 'trakt_connect' %}" class="btn btn-sm btn-soft">Connect</a>
+            <span class="font-mono text-success">&#10003; Trakt connected</span>
           {% else %}
-            <button type="button" disabled title="Ask your server owner to set this up first" class="btn btn-sm btn-disabled">Connect</button>
+            <span class="font-mono text-ink-faint">Trakt not connected</span>
           {% endif %}
-        </div>
-        {% if "trakt" in connected_providers %}
-          {% include "tracker/partials/sync_schedule_form.html" with provider="trakt" account=external_accounts.trakt %}
-        {% elif not trakt_configured %}
-          <div class="text-[10.5px] text-ink-faint mt-1">Not available yet - ask your server owner to set up Trakt first.</div>
-        {% endif %}
-      </div>
-
-      <div class="py-3.5 border-b border-line">
-        <div class="flex justify-between items-center">
-          <div><div class="font-semibold text-[13.5px]">Simkl</div><div class="text-xs text-ink-dim">Import history &amp; anime progress</div></div>
+          <span class="text-line">&middot;</span>
           {% if "simkl" in connected_providers %}
-            <span class="font-mono text-xs text-success">&#10003; Connected</span>
-          {% elif simkl_configured %}
-            <a href="{% url 'simkl_connect' %}" class="btn btn-sm btn-soft">Connect</a>
+            <span class="font-mono text-success">&#10003; Simkl connected</span>
           {% else %}
-            <button type="button" disabled title="Ask your server owner to set this up first" class="btn btn-sm btn-disabled">Connect</button>
+            <span class="font-mono text-ink-faint">Simkl not connected</span>
           {% endif %}
         </div>
-        {% if "simkl" in connected_providers %}
-          {% include "tracker/partials/sync_schedule_form.html" with provider="simkl" account=external_accounts.simkl %}
-        {% elif not simkl_configured %}
-          <div class="text-[10.5px] text-ink-faint mt-1">Not available yet - ask your server owner to set up Simkl first.</div>
-        {% endif %}
-      </div>
 
-      <div class="flex justify-between items-center py-3.5 border-b border-line">
-        <div><div class="font-semibold text-[13.5px]">CSV file</div><div class="text-xs text-ink-dim">Upload an export from any tracker</div></div>
-        <form method="post" action="{% url 'import_csv' %}" enctype="multipart/form-data" class="flex items-center gap-2">
-          {% csrf_token %}
-          <input type="file" name="csv_file" accept=".csv,text/csv" required class="file-input file-input-sm w-64">
-          <button type="submit" class="btn btn-sm btn-soft">Upload</button>
-        </form>
-      </div>
+        <div class="bg-base-200 border border-line rounded-2xl p-5">
+          <h3 class="text-lg mb-3.5">Profile</h3>
+          <form method="post" action="{% url 'my_profile' %}" enctype="multipart/form-data">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="update_profile">
 
-      <div class="pt-3.5">
-        <div class="font-semibold text-[13.5px] mb-0.5">Export your data</div>
-        <div class="text-xs text-ink-dim mb-3">Download everything you've watched, rated, or added to a list</div>
-        <div class="flex gap-2">
-          <a href="{% url 'export_csv' %}" class="btn btn-sm btn-soft">Export as CSV</a>
-          <a href="{% url 'export_trakt_json' %}" class="btn btn-sm btn-soft">Export as Trakt JSON</a>
+            <div class="flex items-center gap-3 mb-4">
+              <div
+                x-show="photoPreview" x-cloak
+                class="w-12 h-12 rounded-full flex-none bg-cover bg-center"
+                :style="`background-image:url(${photoPreview})`"
+              ></div>
+              {% if profile.avatar_image %}
+                <div x-show="!photoPreview" class="w-12 h-12 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ profile.avatar_image.url }}')"></div>
+              {% else %}
+                <div x-show="!photoPreview" class="w-12 h-12 rounded-full flex items-center justify-center font-mono text-base font-semibold flex-none" :style="`background:${color};color:#fff;`">{{ profile.display_name|first|upper }}</div>
+              {% endif %}
+              <div class="flex-1 min-w-0">
+                <label class="block text-xs text-ink-dim mb-1">Display name</label>
+                <input type="text" name="display_name" value="{{ profile.display_name }}" required class="input w-full bg-base-100">
+              </div>
+            </div>
+
+            <label class="block text-xs text-ink-dim mb-1">Bio <span class="font-normal text-ink-faint">(optional)</span></label>
+            <input type="text" name="bio" value="{{ profile.bio }}" maxlength="160" placeholder="A short status or bio" class="input w-full bg-base-100 mb-4">
+
+            <label class="block text-xs text-ink-dim mb-2">Photo</label>
+            <div class="flex items-center gap-2 mb-1.5">
+              <input type="file" name="avatar_image" accept="image/png,image/jpeg,image/webp" @change="onFileChange($event)" class="file-input file-input-sm flex-1 bg-base-100">
+              {% if profile.avatar_image %}
+                <button type="submit" name="remove_photo" value="1" title="Remove photo" class="btn btn-sm btn-square bg-base-300 border-line text-error hover:bg-error hover:text-error-content hover:border-error flex-none">
+                  {% icon "trash-2" "w-4 h-4" %}
+                </button>
+              {% endif %}
+            </div>
+            <div class="text-[10.5px] text-ink-faint mb-5">JPG, PNG, or WEBP, up to 5MB. Falls back to your avatar color below when removed.</div>
+
+            <label class="block text-xs text-ink-dim mb-2">Avatar color</label>
+            <div class="flex flex-wrap gap-2 mb-5">
+              {% for c in avatar_colors %}
+                <label class="cursor-pointer">
+                  <input type="radio" name="avatar_color" value="{{ c }}" x-model="color" class="hidden" {% if c == profile.avatar_color %}checked{% endif %}>
+                  <span class="block w-7 h-7 rounded-full border-2" :class="color === '{{ c }}' ? 'border-base-content' : 'border-transparent'" style="background:{{ c }};"></span>
+                </label>
+              {% endfor %}
+            </div>
+
+            <button type="submit" class="btn btn-primary w-full">Save profile</button>
+          </form>
+
+          {% if show_activity_nav %}
+            <form hx-post="{% url 'save_privacy' %}" hx-trigger="change" hx-swap="none" class="mt-5 pt-4 border-t border-line">
+              <label class="flex items-center justify-between gap-3 cursor-pointer">
+                <span class="text-[13.5px]">Show my activity to other profiles on this server</span>
+                <input type="checkbox" name="share_activity" class="checkbox checkbox-sm" {% if profile.share_activity %}checked{% endif %}>
+              </label>
+            </form>
+          {% endif %}
+        </div>
+
+        <div class="bg-base-200 border border-line rounded-2xl p-5" x-data="{ showCurrent: false, showNew: false, showConfirm: false }">
+          <h3 class="text-lg mb-3.5">Change password</h3>
+          <form method="post" action="{% url 'my_profile' %}">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="change_password">
+
+            <label class="block text-xs text-ink-dim mb-1">Current password</label>
+            <div class="relative mb-3">
+              <input :type="showCurrent ? 'text' : 'password'" name="current_password" required class="input w-full bg-base-100 pr-10">
+              <button type="button" @click="showCurrent = !showCurrent" tabindex="-1" title="Show/hide password" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                <span x-show="!showCurrent">{% icon "eye" "w-4 h-4" %}</span>
+                <span x-show="showCurrent" x-cloak>{% icon "eye-off" "w-4 h-4" %}</span>
+              </button>
+            </div>
+
+            <label class="block text-xs text-ink-dim mb-1">New password</label>
+            <div class="relative mb-1">
+              <input :type="showNew ? 'text' : 'password'" name="new_password" required minlength="8" class="input w-full bg-base-100 pr-10">
+              <button type="button" @click="showNew = !showNew" tabindex="-1" title="Show/hide password" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                <span x-show="!showNew">{% icon "eye" "w-4 h-4" %}</span>
+                <span x-show="showNew" x-cloak>{% icon "eye-off" "w-4 h-4" %}</span>
+              </button>
+            </div>
+            <div class="text-[10.5px] text-ink-faint mb-3">Must be at least 8 characters.</div>
+
+            <label class="block text-xs text-ink-dim mb-1">Confirm new password</label>
+            <div class="relative mb-4">
+              <input :type="showConfirm ? 'text' : 'password'" name="confirm_password" required minlength="8" class="input w-full bg-base-100 pr-10">
+              <button type="button" @click="showConfirm = !showConfirm" tabindex="-1" title="Show/hide password" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                <span x-show="!showConfirm">{% icon "eye" "w-4 h-4" %}</span>
+                <span x-show="showConfirm" x-cloak>{% icon "eye-off" "w-4 h-4" %}</span>
+              </button>
+            </div>
+
+            <button type="submit" class="btn btn-soft w-full">Change password</button>
+          </form>
         </div>
       </div>
-    </div>
 
-    <div class="bg-base-200 border border-line rounded-2xl p-5">
-      <h3 class="text-lg mb-1">AI Recommendations</h3>
-      <div class="text-ink-dim text-xs mb-3">
-        Optional. Powers AI-driven mood-based recommendations - bring your own free
-        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" class="underline hover:text-base-content">Gemini API key</a>, per profile.
-      </div>
-      <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
-        <input
-          type="password" name="gemini_api_key" value="{{ profile.gemini_api_key }}" placeholder="AIza…"
-          class="w-full bg-base-100 border border-line rounded-lg px-3.5 py-2 text-sm font-mono focus:outline-primary"
-        >
-      </form>
-    </div>
-
-    </div>
-
-    <div class="flex flex-col gap-5">
-
-      <div class="bg-base-200 border border-line rounded-2xl p-5">
-        <h3 class="text-lg mb-1">Appearance</h3>
+      {# ==================== PREFERENCES ==================== #}
+      <div x-show="tab === 'preferences'" x-cloak class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl">
+        <h3 class="text-lg mb-1">Preferences</h3>
         <div class="text-ink-dim text-xs mb-3">Dark is the default; a light mode preview isn't built yet.</div>
         <div class="flex gap-4">
           <div class="flex flex-col items-center gap-1.5">
@@ -164,50 +247,294 @@
         </form>
       </div>
 
-    </div>
-
-  </div>
-
-  <div class="bg-error/5 border border-error/30 rounded-2xl p-5 mt-5">
-    <h3 class="text-lg text-error mb-1">Danger Zone</h3>
-    <div class="text-ink-dim text-xs mb-3.5">These actions are permanent and can't be undone.</div>
-
-    <div class="flex justify-between items-center py-3.5 border-b border-error/20 last:border-b-0">
-      <div>
-        <div class="font-semibold text-[13.5px]">Clear watch history</div>
-        <div class="text-xs text-ink-dim">Deletes every watch event and rating. Your lists and watchlist are untouched.</div>
-      </div>
-      <form method="post" action="{% url 'clear_watch_history' %}" onsubmit="return confirm('Clear your entire watch history? This deletes every watch event and rating - permanently. Your lists and watchlist stay as they are.');">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content">Clear history</button>
-      </form>
-    </div>
-
-    {% if "trakt" in connected_providers %}
-      <div class="flex justify-between items-center py-3.5 border-b border-error/20 last:border-b-0">
-        <div>
-          <div class="font-semibold text-[13.5px]">Disconnect &amp; wipe Trakt</div>
-          <div class="text-xs text-ink-dim">Disconnects Trakt and removes watch history for titles matched via Trakt.</div>
-        </div>
-        <form method="post" action="{% url 'disconnect_and_wipe_provider' 'trakt' %}" onsubmit="return confirm('Disconnect Trakt and remove watch history for titles matched via Trakt? This is permanent.');">
-          {% csrf_token %}
-          <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content">Disconnect &amp; wipe</button>
+      {# ==================== NOTIFICATIONS ==================== #}
+      <div x-show="tab === 'notifications'" x-cloak class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl">
+        <h3 class="text-lg mb-1">Notifications</h3>
+        <div class="text-ink-dim text-xs mb-3">In-app only for now - no email or push.</div>
+        <form hx-post="{% url 'save_notifications' %}" hx-trigger="change" hx-swap="none" class="flex flex-col gap-3">
+          <label class="flex items-center justify-between gap-3 cursor-pointer">
+            <span class="text-[13.5px]">New episode/season alerts for what you're watching</span>
+            <input type="checkbox" name="notify_new_releases" class="checkbox checkbox-sm" {% if profile.notify_new_releases %}checked{% endif %}>
+          </label>
+          <label class="flex items-center justify-between gap-3 cursor-pointer">
+            <span class="text-[13.5px]">Calendar reminders for upcoming releases</span>
+            <input type="checkbox" name="notify_upcoming_releases" class="checkbox checkbox-sm" {% if profile.notify_upcoming_releases %}checked{% endif %}>
+          </label>
+          <label class="flex items-center justify-between gap-3 cursor-pointer">
+            <span class="text-[13.5px]">Trakt/Simkl sync failures</span>
+            <input type="checkbox" name="notify_sync_failures" class="checkbox checkbox-sm" {% if profile.notify_sync_failures %}checked{% endif %}>
+          </label>
         </form>
       </div>
-    {% endif %}
 
-    {% if "simkl" in connected_providers %}
-      <div class="flex justify-between items-center py-3.5 border-b border-error/20 last:border-b-0">
-        <div>
-          <div class="font-semibold text-[13.5px]">Disconnect &amp; wipe Simkl</div>
-          <div class="text-xs text-ink-dim">Disconnects Simkl and removes watch history for titles matched via Simkl.</div>
+      {# ==================== INTEGRATIONS ==================== #}
+      <div x-show="tab === 'integrations'" x-cloak class="flex flex-col gap-5 max-w-2xl">
+        <div class="bg-base-200 border border-line rounded-2xl p-5">
+          <h3 class="text-lg mb-3.5">Connected Apps</h3>
+
+          <div class="py-3.5 border-b border-line">
+            <div class="flex justify-between items-center">
+              <div><div class="font-semibold text-[13.5px]">Trakt</div><div class="text-xs text-ink-dim">Sync watched history, ratings &amp; lists</div></div>
+              {% if "trakt" in connected_providers %}
+                <span class="font-mono text-xs text-success">&#10003; Connected</span>
+              {% elif trakt_configured %}
+                <a href="{% url 'trakt_connect' %}" class="btn btn-sm btn-soft">Connect</a>
+              {% else %}
+                <button type="button" disabled title="Ask your server owner to set this up first" class="btn btn-sm btn-disabled">Connect</button>
+              {% endif %}
+            </div>
+            {% if "trakt" in connected_providers %}
+              {% include "tracker/partials/sync_schedule_form.html" with provider="trakt" account=external_accounts.trakt %}
+            {% elif not trakt_configured %}
+              <div class="text-[10.5px] text-ink-faint mt-1">Not available yet - ask your server owner to set up Trakt first.</div>
+            {% endif %}
+          </div>
+
+          <div class="py-3.5">
+            <div class="flex justify-between items-center">
+              <div><div class="font-semibold text-[13.5px]">Simkl</div><div class="text-xs text-ink-dim">Import history &amp; anime progress</div></div>
+              {% if "simkl" in connected_providers %}
+                <span class="font-mono text-xs text-success">&#10003; Connected</span>
+              {% elif simkl_configured %}
+                <a href="{% url 'simkl_connect' %}" class="btn btn-sm btn-soft">Connect</a>
+              {% else %}
+                <button type="button" disabled title="Ask your server owner to set this up first" class="btn btn-sm btn-disabled">Connect</button>
+              {% endif %}
+            </div>
+            {% if "simkl" in connected_providers %}
+              {% include "tracker/partials/sync_schedule_form.html" with provider="simkl" account=external_accounts.simkl %}
+            {% elif not simkl_configured %}
+              <div class="text-[10.5px] text-ink-faint mt-1">Not available yet - ask your server owner to set up Simkl first.</div>
+            {% endif %}
+          </div>
         </div>
-        <form method="post" action="{% url 'disconnect_and_wipe_provider' 'simkl' %}" onsubmit="return confirm('Disconnect Simkl and remove watch history for titles matched via Simkl? This is permanent.');">
+
+        <div class="bg-base-200 border border-line rounded-2xl p-5">
+          <h3 class="text-lg mb-1">AI Recommendations</h3>
+          <div class="text-ink-dim text-xs mb-3">
+            Optional. Powers AI-driven mood-based recommendations - bring your own free
+            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" class="underline hover:text-base-content">Gemini API key</a>, per profile.
+          </div>
+          <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
+            <input
+              type="password" name="gemini_api_key" value="{{ profile.gemini_api_key }}" placeholder="AIza…"
+              class="w-full bg-base-100 border border-line rounded-lg px-3.5 py-2 text-sm font-mono focus:outline-primary"
+            >
+          </form>
+        </div>
+      </div>
+
+      {# ==================== IMPORT DATA ==================== #}
+      <div x-show="tab === 'import'" x-cloak class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl">
+        <h3 class="text-lg mb-1">Import Data</h3>
+        <div class="text-ink-dim text-xs mb-3.5">Upload an export from any tracker as a CSV file.</div>
+        <form method="post" action="{% url 'import_csv' %}" enctype="multipart/form-data" class="flex items-center gap-2">
           {% csrf_token %}
-          <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content">Disconnect &amp; wipe</button>
+          <input type="file" name="csv_file" accept=".csv,text/csv" required class="file-input file-input-sm flex-1">
+          <button type="submit" class="btn btn-sm btn-soft">Upload</button>
         </form>
       </div>
-    {% endif %}
+
+      {# ==================== EXPORT DATA ==================== #}
+      <div x-show="tab === 'export'" x-cloak class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl">
+        <h3 class="text-lg mb-1">Export Data</h3>
+        <div class="text-ink-dim text-xs mb-3">Download everything you've watched, rated, or added to a list.</div>
+        <div class="flex gap-2">
+          <a href="{% url 'export_csv' %}" class="btn btn-sm btn-soft">Export as CSV</a>
+          <a href="{% url 'export_trakt_json' %}" class="btn btn-sm btn-soft">Export as Trakt JSON</a>
+        </div>
+      </div>
+
+      {# ==================== DANGER ZONE ==================== #}
+      <div x-show="tab === 'danger'" x-cloak class="bg-error/5 border border-error/30 rounded-2xl p-5 max-w-2xl">
+        <h3 class="text-lg text-error mb-1">Danger Zone</h3>
+        <div class="text-ink-dim text-xs mb-3.5">These actions are permanent and can't be undone.</div>
+
+        <div class="flex justify-between items-center py-3.5 border-b border-error/20">
+          <div>
+            <div class="font-semibold text-[13.5px]">Clear watch history</div>
+            <div class="text-xs text-ink-dim">Deletes every watch event and rating. Your lists and watchlist are untouched.</div>
+          </div>
+          <form method="post" action="{% url 'clear_watch_history' %}" onsubmit="return confirm('Clear your entire watch history? This deletes every watch event and rating - permanently. Your lists and watchlist stay as they are.');">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content">Clear history</button>
+          </form>
+        </div>
+
+        {% if "trakt" in connected_providers %}
+          <div class="flex justify-between items-center py-3.5 border-b border-error/20">
+            <div>
+              <div class="font-semibold text-[13.5px]">Disconnect &amp; wipe Trakt</div>
+              <div class="text-xs text-ink-dim">Disconnects Trakt and removes watch history for titles matched via Trakt.</div>
+            </div>
+            <form method="post" action="{% url 'disconnect_and_wipe_provider' 'trakt' %}" onsubmit="return confirm('Disconnect Trakt and remove watch history for titles matched via Trakt? This is permanent.');">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content">Disconnect &amp; wipe</button>
+            </form>
+          </div>
+        {% endif %}
+
+        {% if "simkl" in connected_providers %}
+          <div class="flex justify-between items-center py-3.5 border-b border-error/20">
+            <div>
+              <div class="font-semibold text-[13.5px]">Disconnect &amp; wipe Simkl</div>
+              <div class="text-xs text-ink-dim">Disconnects Simkl and removes watch history for titles matched via Simkl.</div>
+            </div>
+            <form method="post" action="{% url 'disconnect_and_wipe_provider' 'simkl' %}" onsubmit="return confirm('Disconnect Simkl and remove watch history for titles matched via Simkl? This is permanent.');">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content">Disconnect &amp; wipe</button>
+            </form>
+          </div>
+        {% endif %}
+
+        <div class="flex justify-between items-center py-3.5">
+          <div>
+            <div class="font-semibold text-[13.5px]">Delete my account</div>
+            <div class="text-xs text-ink-dim">Permanently deletes your profile, watch history, lists, and login.</div>
+            {% if not can_delete_own_account %}
+              <div class="text-xs text-warning mt-1">You're the only owner - promote another profile to owner first.</div>
+            {% endif %}
+          </div>
+          {% if can_delete_own_account %}
+            <form method="post" action="{% url 'delete_own_account' %}" onsubmit="return confirm('Permanently delete your account? This deletes your entire watch history, lists, and login - this cannot be undone.');">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content">Delete my account</button>
+            </form>
+          {% else %}
+            <button type="button" disabled class="btn btn-sm btn-outline border-error/30 text-error/40 cursor-not-allowed">Delete my account</button>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if profile.is_owner %}
+        {# ==================== ADMIN: PROFILES ==================== #}
+        <div x-show="tab === 'profiles'" x-cloak x-data="{ showAddProfile: false }" class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl">
+          <h3 class="text-lg mb-3.5">Profiles</h3>
+          {% for p in profiles %}
+            <div class="flex items-center gap-3 py-3 border-b border-line last:border-b-0">
+              {% if p.avatar_image %}
+                <div class="w-8 h-8 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ p.avatar_image.url }}')"></div>
+              {% else %}
+                <div class="w-8 h-8 rounded-full flex items-center justify-center font-mono text-xs font-semibold" style="background:{{ p.avatar_color }};color:#fff;">{{ p.display_name|first|upper }}</div>
+              {% endif %}
+              <div class="flex-1 min-w-0">
+                <div class="font-semibold text-[13.5px]">{{ p.display_name }}</div>
+                <div class="text-[11.5px] text-ink-dim font-mono">{% if p.is_owner %}Owner{% else %}Member{% endif %}</div>
+              </div>
+              {% if p.id != profile.id %}
+                <div class="flex items-center gap-1.5 flex-none">
+                  {% if p.is_owner %}
+                    <form method="post" action="{% url 'demote_from_owner' p.id %}" onsubmit="return confirm('Demote {{ p.display_name|escapejs }} to member? They will lose access to profiles, integrations, and server settings.');">
+                      {% csrf_token %}
+                      <button
+                        type="submit" title="Demote to member - removes access to profiles, integrations, and server settings"
+                        class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-base-content hover:bg-base-300"
+                      >{% icon "circle" "w-4 h-4" %}</button>
+                    </form>
+                  {% else %}
+                    <form method="post" action="{% url 'promote_to_owner' p.id %}" onsubmit="return confirm('Make {{ p.display_name|escapejs }} an owner? Owners can manage profiles, integrations, and server settings.');">
+                      {% csrf_token %}
+                      <button
+                        type="submit" title="Promote to owner - grants full access to profiles, integrations, and server settings"
+                        class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-primary hover:bg-base-300"
+                      >{% icon "crown" "w-4 h-4" %}</button>
+                    </form>
+                  {% endif %}
+                  <form method="post" action="{% url 'delete_profile' p.id %}" onsubmit="return confirm('Remove {{ p.display_name|escapejs }}? This deletes their entire watch history.');">
+                    {% csrf_token %}
+                    <button
+                      type="submit" title="Remove - permanently deletes this profile and its entire watch history"
+                      class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-error hover:bg-base-300"
+                    >{% icon "trash-2" "w-4 h-4" %}</button>
+                  </form>
+                </div>
+              {% endif %}
+            </div>
+          {% endfor %}
+          <button @click="showAddProfile = !showAddProfile" class="btn btn-soft mt-3 w-full">+ Add profile</button>
+
+          <div x-show="showAddProfile" x-cloak class="mt-4 pt-4 border-t border-line">
+            <form method="post" action="{% url 'create_profile' %}">
+              {% csrf_token %}
+              <label class="block text-xs text-ink-dim mb-1">Display name</label>
+              <input type="text" name="display_name" required class="input w-full mb-3 bg-base-100">
+              <label class="block text-xs text-ink-dim mb-1">Username (for sign-in)</label>
+              <input type="text" name="username" required class="input w-full mb-3 bg-base-100">
+              <label class="block text-xs text-ink-dim mb-1">Password</label>
+              <input type="password" name="password" required class="input w-full mb-4 bg-base-100">
+              <button type="submit" class="btn btn-primary w-full">Create profile</button>
+            </form>
+          </div>
+        </div>
+
+        {# ==================== ADMIN: SERVER INTEGRATIONS ==================== #}
+        <div x-show="tab === 'server_integrations'" x-cloak class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl">
+          <h3 class="text-lg mb-1">Server Integrations</h3>
+          <div class="text-ink-dim text-xs mb-3.5">Overrides the server's .env values for Trakt/Simkl/TMDB — leave a field blank to keep what's already set.</div>
+          <form method="post" action="{% url 'save_instance_config' %}" class="space-y-3">
+            {% csrf_token %}
+            <div>
+              <label class="block text-xs text-ink-dim mb-1">Trakt Client ID {% if trakt_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
+              <input type="text" name="trakt_client_id" placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
+            </div>
+            <div>
+              <label class="block text-xs text-ink-dim mb-1">Trakt Client Secret</label>
+              <input type="password" name="trakt_client_secret" placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
+            </div>
+            <div>
+              <label class="block text-xs text-ink-dim mb-1">Simkl Client ID {% if simkl_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
+              <input type="text" name="simkl_client_id" placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
+            </div>
+            <div>
+              <label class="block text-xs text-ink-dim mb-1">Simkl Client Secret</label>
+              <input type="password" name="simkl_client_secret" placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
+            </div>
+            <div>
+              <label class="block text-xs text-ink-dim mb-1">TMDB API Key {% if tmdb_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
+              <input type="password" name="tmdb_api_key" placeholder="{% if tmdb_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
+            </div>
+            <button type="submit" class="btn btn-sm btn-soft w-full">Save</button>
+          </form>
+          <a href="{% url 'sync_log' %}" class="block text-center text-xs text-ink-dim hover:text-base-content mt-3.5 pt-3.5 border-t border-line">View sync log →</a>
+        </div>
+
+        {# ==================== ADMIN: SERVER ==================== #}
+        <div x-show="tab === 'server'" x-cloak class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl">
+          <h3 class="text-lg mb-3">Server</h3>
+          <div class="font-mono text-[11.5px] text-ink-faint leading-loose">
+            spool&nbsp;&nbsp;&nbsp;&nbsp;v{{ app_version }}<br>
+            django&nbsp;&nbsp;&nbsp;{{ django_version }}<br>
+            database&nbsp;{{ db_engine }}<br>
+            debug&nbsp;&nbsp;&nbsp;&nbsp;{{ debug }}<br>
+            timezone&nbsp;{{ time_zone }}<br>
+            profiles&nbsp;{{ profiles|length }}
+          </div>
+        </div>
+
+        {# ==================== ADMIN: ACTIVITY LOG ==================== #}
+        <div x-show="tab === 'activity_log'" x-cloak class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl">
+          <h3 class="text-lg mb-1">Activity Log</h3>
+          <div class="text-ink-dim text-xs mb-3.5">Who added, removed, promoted, or demoted a profile - most recent first.</div>
+          {% if audit_log %}
+            <div class="space-y-2.5">
+              {% for entry in audit_log %}
+                <div class="flex justify-between items-baseline gap-3 text-[12.5px] py-1.5 border-b border-line last:border-b-0">
+                  <div class="min-w-0">
+                    <span class="font-semibold">{{ entry.actor.display_name|default:"(deleted account)" }}</span>
+                    <span class="text-ink-dim">{{ entry.get_action_display|lower }}</span>
+                    <span class="font-semibold">{{ entry.target_display_name }}</span>
+                  </div>
+                  <span class="text-ink-faint font-mono text-[10.5px] flex-none">{{ entry.created_at|timesince }} ago</span>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="text-ink-faint text-sm py-4 text-center">No activity yet.</div>
+          {% endif %}
+        </div>
+      {% endif %}
+
+    </div>
   </div>
 </div>
 {% endblock %}

@@ -8,6 +8,27 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-07-25
+
+### Changed
+
+- Merged "My Profile," "Settings & Import," and the owner-only "Admin
+  Dashboard" - three separate pages, each only reachable from the
+  profile dropdown - into a single Settings page with a left sidebar
+  (Account, Preferences, Notifications, Integrations, Import Data,
+  Export Data, Danger Zone, plus an owner-only Admin group: Profiles,
+  Server Integrations, Server, Activity Log), switching between
+  sections instantly with no page reload. The profile dropdown's three
+  links collapsed into one "Settings" entry.
+- Every existing form still posts to the exact same endpoint it always
+  did - this is a reorganization, not a rewrite. The two account forms
+  that used to rely on posting back to whatever page rendered them
+  (only ever My Profile before) now target it explicitly, since the
+  page can load from three different URLs.
+- The "share my activity" privacy toggle moved from its own card into
+  the Account tab (next to the rest of your profile info), matching
+  where the reference design for this change put it.
+
 ## [0.34.1] - 2026-07-24
 
 ### Changed

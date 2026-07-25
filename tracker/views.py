@@ -1471,15 +1471,20 @@ class SpoolLoginView(auth_views.LoginView):
         return super().get_default_redirect_url()
 
 
-@login_required
-def settings_view(request):
-    profile = Profile.objects.filter(user=request.user).first()
-    external_accounts = {}
-    if profile is not None:
-        external_accounts = {a.provider: a for a in ExternalAccount.objects.filter(profile=profile)}
+def _settings_page_context(profile):
+    """Shared context for the merged Settings/My Profile/Admin Dashboard
+    page - settings_view, my_profile, and admin_dashboard all render the
+    same template off this, so every section's data needs to be present
+    regardless of which of the three URLs was actually hit. The
+    owner-only Admin sections' data is only computed when the profile
+    actually is one, so a non-owner's response never carries it at all -
+    the template's own {% if profile.is_owner %} then has real data to
+    gate, not just markup hidden by CSS."""
+    external_accounts = {a.provider: a for a in ExternalAccount.objects.filter(profile=profile)}
+    other_owner_exists = Profile.objects.filter(user__is_superuser=True).exclude(pk=profile.pk).exists()
     context = {
         "profile": profile,
-        "connected_providers": external_accounts.keys(),
+        "connected_providers": set(external_accounts.keys()),
         "external_accounts": external_accounts,
         "languages": DISCOVER_LANGUAGES,
         "landing_pages": Profile.LandingPage.choices,
@@ -1487,8 +1492,32 @@ def settings_view(request):
         "simkl_configured": bool(instance_config.get_simkl_credentials()[0]),
         "timezones": PROFILE_TIMEZONES,
         "server_time_zone": django_settings.TIME_ZONE,
+        "avatar_colors": AVATAR_COLOR_CHOICES,
+        "can_delete_own_account": not profile.is_owner or other_owner_exists,
     }
-    return render(request, "tracker/settings.html", context)
+    if profile.is_owner:
+        db_engine = django_settings.DATABASES["default"]["ENGINE"].rsplit(".", 1)[-1]
+        context.update(
+            {
+                "profiles": Profile.objects.select_related("user").all(),
+                "cfg": InstanceConfig.load(),
+                "tmdb_configured": bool(instance_config.get_tmdb_api_key()),
+                "django_version": ".".join(map(str, django.VERSION[:3])),
+                "db_engine": db_engine,
+                "debug": django_settings.DEBUG,
+                "time_zone": django_settings.TIME_ZONE,
+                "audit_log": AdminAuditLogEntry.objects.select_related("actor")[:15],
+            }
+        )
+    return context
+
+
+@login_required
+def settings_view(request):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    return render(request, "tracker/settings.html", {**_settings_page_context(profile), "active_tab": "integrations"})
 
 
 @login_required
@@ -1496,21 +1525,7 @@ def admin_dashboard(request):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None or not profile.is_owner:
         raise Http404
-    db_engine = django_settings.DATABASES["default"]["ENGINE"].rsplit(".", 1)[-1]
-    context = {
-        "profile": profile,
-        "profiles": Profile.objects.select_related("user").all(),
-        "cfg": InstanceConfig.load(),
-        "trakt_configured": bool(instance_config.get_trakt_credentials()[0]),
-        "simkl_configured": bool(instance_config.get_simkl_credentials()[0]),
-        "tmdb_configured": bool(instance_config.get_tmdb_api_key()),
-        "django_version": ".".join(map(str, django.VERSION[:3])),
-        "db_engine": db_engine,
-        "debug": django_settings.DEBUG,
-        "time_zone": django_settings.TIME_ZONE,
-        "audit_log": AdminAuditLogEntry.objects.select_related("actor")[:15],
-    }
-    return render(request, "tracker/admin_dashboard.html", context)
+    return render(request, "tracker/settings.html", {**_settings_page_context(profile), "active_tab": "profiles"})
 
 
 @login_required
@@ -1667,24 +1682,7 @@ def my_profile(request):
             messages.success(request, "Password changed.")
         return redirect("my_profile")
 
-    connected_providers = set(
-        ExternalAccount.objects.filter(profile=profile).values_list("provider", flat=True)
-    )
-    # An owner can only self-delete once another owner exists to take over -
-    # otherwise the server would be left with no owner at all. Members have
-    # no such restriction.
-    other_owner_exists = Profile.objects.filter(user__is_superuser=True).exclude(pk=profile.pk).exists()
-    can_delete_own_account = not profile.is_owner or other_owner_exists
-    return render(
-        request,
-        "tracker/my_profile.html",
-        {
-            "profile": profile,
-            "avatar_colors": AVATAR_COLOR_CHOICES,
-            "connected_providers": connected_providers,
-            "can_delete_own_account": can_delete_own_account,
-        },
-    )
+    return render(request, "tracker/settings.html", {**_settings_page_context(profile), "active_tab": "account"})
 
 
 @login_required

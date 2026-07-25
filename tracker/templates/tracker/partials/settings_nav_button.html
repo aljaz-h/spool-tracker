@@ -1,0 +1,6 @@
+{# context: key (tab identifier), label (display text) #}
+<button
+  type="button" @click="setTab('{{ key }}')"
+  class="text-left px-3 py-2.5 rounded-lg text-sm font-medium border-l-[3px] transition-colors whitespace-nowrap"
+  :class="tab === '{{ key }}' ? 'bg-base-300 text-base-content border-primary' : 'border-transparent text-ink-dim hover:bg-base-300 hover:text-base-content'"
+>{{ label }}</button>
