@@ -1583,6 +1583,7 @@ class TitleDetailRecommendCardTests(TestCase):
         with patch("tracker.integrations.tmdb.get_full_details") as mock_details:
             mock_details.return_value = {
                 "name": "Preview Movie", "year": "2020", "genres": [], "status": "Released", "poster_url": None,
+                "number_of_seasons": None,
             }
             resp = self.client.get(reverse("title_preview", args=["movie", 999]))
         self.assertContains(resp, "Recommend to")
@@ -5722,6 +5723,21 @@ class TmdbDetailPageTests(TestCase):
         self.assertIsNone(season["episodes"][1]["runtime"])
 
     @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_season_details_carries_each_episodes_vote_average(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 99,
+                "episodes": [
+                    {"episode_number": 1, "name": "Pilot", "still_path": None, "air_date": None, "vote_average": 8.4},
+                    {"episode_number": 2, "name": "Second", "still_path": None, "air_date": None, "vote_average": 0},
+                ],
+            }
+        )
+        season = tmdb.get_season_details(555, 1)
+        self.assertEqual(season["episodes"][0]["vote_average"], 8.4)
+        self.assertEqual(season["episodes"][1]["vote_average"], 0)
+
+    @patch("tracker.integrations.tmdb.requests.get")
     def test_get_season_details_returns_none_on_missing_id(self, mock_get):
         mock_get.return_value = self._response({})
         self.assertIsNone(tmdb.get_season_details(555, 1))
@@ -6853,10 +6869,13 @@ class TitleEpisodeBrowserTests(TestCase):
             "vote_count": 100, "original_language": "en", "status": None,
         }
 
-    def _season(self, episode_names):
+    def _season(self, episode_names, vote_averages=None):
         return {
             "episodes": [
-                {"episode_number": i + 1, "name": name, "still_url": None, "air_date": None}
+                {
+                    "episode_number": i + 1, "name": name, "still_url": None, "air_date": None,
+                    "vote_average": vote_averages[i] if vote_averages else None,
+                }
                 for i, name in enumerate(episode_names)
             ]
         }
@@ -6932,6 +6951,111 @@ class TitleEpisodeBrowserTests(TestCase):
         mock_season.return_value = self._season(["Ep"])
         resp = self.client.get(reverse("title_episodes", args=[self.title.pk]), {"season": "99"})
         self.assertEqual(resp.context["season"], 1)
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_season_avg_rating_is_the_mean_of_rated_episodes(self, mock_details, mock_credits, mock_similar, mock_season):
+        mock_details.return_value = self._details()
+        mock_season.return_value = self._season(["Ep1", "Ep2", "Ep3"], vote_averages=[8.0, 9.0, None])
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertEqual(resp.context["season_avg_rating"], 8.5)
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_season_avg_rating_is_none_when_nothing_is_rated_yet(self, mock_details, mock_credits, mock_similar, mock_season):
+        mock_details.return_value = self._details()
+        # 0 is TMDB's "not enough votes" convention, same as a real None -
+        # neither should count toward the average.
+        mock_season.return_value = self._season(["Ep1", "Ep2"], vote_averages=[0, None])
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertIsNone(resp.context["season_avg_rating"])
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_episode_and_season_rating_render_on_the_page(self, mock_details, mock_credits, mock_similar, mock_season):
+        mock_details.return_value = self._details()
+        mock_season.return_value = self._season(["Ep1"], vote_averages=[8.4])
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, "8.4")
+        self.assertContains(resp, "season avg")
+
+
+class PreviewEpisodeBrowserTests(TestCase):
+    """A TV/anime title's episode browser should show up on its preview
+    page too (not yet added to any list/watchlist/marked watched), not
+    just once it's been materialized into a real Title row - previously
+    the whole browser was hidden behind {% if not is_preview %}."""
+
+    def setUp(self):
+        user = User.objects.create_user("previewepisodeuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="PreviewEpisodeUser")
+        self.client.login(username="previewepisodeuser", password="pass12345")
+        for name, default in (
+            ("get_director", None), ("get_watch_providers", []), ("get_credits", []), ("get_similar", []),
+        ):
+            patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _details(self, number_of_seasons=2):
+        return {
+            "tmdb_id": 500, "media_type": "tv", "name": "Preview Show", "year": "2023",
+            "overview": "", "tagline": "", "genres": [], "runtime": None,
+            "number_of_seasons": number_of_seasons, "number_of_episodes": 20,
+            "backdrop_url": None, "poster_url": None, "vote_average": 7.0,
+            "vote_count": 100, "original_language": "en", "status": None,
+        }
+
+    def _season(self):
+        return {"episodes": [{"episode_number": 1, "name": "Pilot", "still_url": None, "air_date": None, "vote_average": None}]}
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_preview_page_shows_seasons_and_episodes(self, mock_details, mock_season):
+        mock_details.return_value = self._details()
+        mock_season.return_value = self._season()
+        resp = self.client.get(reverse("title_preview", args=["tv", 500]))
+        self.assertEqual(resp.context["seasons"], [1, 2])
+        self.assertContains(resp, "Pilot")
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_preview_episodes_are_never_shown_as_watched(self, mock_details, mock_season):
+        mock_details.return_value = self._details()
+        mock_season.return_value = self._season()
+        resp = self.client.get(reverse("title_preview", args=["tv", 500]))
+        self.assertFalse(resp.context["episodes"][0]["watched"])
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_preview_page_has_no_watched_button_for_episodes(self, mock_details, mock_season):
+        mock_details.return_value = self._details()
+        mock_season.return_value = self._season()
+        resp = self.client.get(reverse("title_preview", args=["tv", 500]))
+        self.assertNotContains(resp, "ep-watched-btn-")
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_movie_preview_still_shows_no_episode_browser(self, mock_details, mock_season):
+        mock_details.return_value = self._details(number_of_seasons=None)
+        resp = self.client.get(reverse("title_preview", args=["movie", 500]))
+        self.assertEqual(resp.context["seasons"], [])
+        mock_season.assert_not_called()
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_season_select_switches_via_the_preview_episodes_endpoint(self, mock_details, mock_season):
+        mock_details.return_value = self._details()
+        mock_season.return_value = {"episodes": [{"episode_number": 1, "name": "S2 Ep1", "still_url": None, "air_date": None, "vote_average": None}]}
+        resp = self.client.get(reverse("title_preview_episodes", args=["tv", 500]), {"season": "2"})
+        self.assertEqual(resp.context["season"], 2)
+        mock_season.assert_called_once_with(500, 2)
 
 
 class TitleMarkWatchedAndRateTests(TestCase):

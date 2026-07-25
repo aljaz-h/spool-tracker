@@ -500,7 +500,7 @@ def get_director(media_type, tmdb_id):
 
 
 def get_season_details(tmdb_id, season_number):
-    """{"episodes": [{"episode_number", "name", "still_url", "air_date", "runtime"}, ...]}
+    """{"episodes": [{"episode_number", "name", "still_url", "air_date", "runtime", "vote_average"}, ...]}
     or None if nothing came back. Always the /tv/ endpoint regardless of
     the title's own media_type - anime is matched against TMDB's tv
     catalog same as any other show (see media_type_for()), and seasons
@@ -508,7 +508,11 @@ def get_season_details(tmdb_id, season_number):
     specific episode's own minutes (None if TMDB doesn't have it) - a
     finer-grained figure than get_tv_details()'s show-level "typical"
     episode_run_time, and worth carrying since completion.py falls back
-    to it per-episode when the coarse figure is missing or wrong."""
+    to it per-episode when the coarse figure is missing or wrong.
+    "vote_average" is TMDB's own public rating for this one episode
+    (0 or missing means "not enough votes yet," same convention as the
+    title-level vote_average elsewhere in this module - callers should
+    treat a falsy value as "no rating," not a real zero)."""
     data = _list_request(f"tv/{tmdb_id}/season/{season_number}")
     if not data or data.get("id") is None:
         return None
@@ -522,6 +526,7 @@ def get_season_details(tmdb_id, season_number):
                 "still_url": f"{IMAGE_BASE}{still_path}" if still_path else None,
                 "air_date": ep.get("air_date"),
                 "runtime": ep.get("runtime"),
+                "vote_average": ep.get("vote_average"),
             }
         )
     return {"episodes": episodes}

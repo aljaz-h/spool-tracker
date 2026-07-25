@@ -377,13 +377,17 @@ def _star_fill(rating):
     return stars
 
 
-def _episode_panel_context(request, profile, title, details):
+def _episode_panel_context(request, profile, title, tmdb_id, details):
     """Season/episode data for the title detail page's episode browser -
-    shared by title_detail's initial render and title_episodes' htmx
-    season-switch, which each already have (or cheaply fetch) `details`
-    themselves. Empty (no seasons) for movies and any show where TMDB
-    doesn't report a season count."""
-    context = {"seasons": [], "season": None, "episodes": []}
+    shared by title_detail/title_episodes (a real, already-tracked Title)
+    and title_preview/title_preview_episodes (no local Title row yet -
+    title=None, tmdb_id passed in directly since there's no title.external_ids
+    to read it from). Empty (no seasons) for movies and any show where
+    TMDB doesn't report a season count. Watched-episode badges and the
+    "resume where I left off" default season both need a real Title to
+    look up WatchEvents against, so they're skipped (not an error) when
+    title is None - a preview's episodes just all show as unwatched."""
+    context = {"seasons": [], "season": None, "episodes": [], "season_avg_rating": None}
     number_of_seasons = details["number_of_seasons"] if details else None
     if not number_of_seasons:
         return context
@@ -394,20 +398,21 @@ def _episode_panel_context(request, profile, title, details):
     except (TypeError, ValueError):
         season = None
     if season not in context["seasons"]:
-        season = selectors.default_season_for_title(profile, title) if profile else None
+        season = selectors.default_season_for_title(profile, title) if profile and title else None
         if season not in context["seasons"]:
             season = context["seasons"][0]
     context["season"] = season
 
-    tmdb_id = title.external_ids.get("tmdb")
     season_data = tmdb.get_season_details(tmdb_id, season)
     episodes = season_data["episodes"] if season_data else []
-    watched = selectors.watched_episode_numbers(profile, title, season) if profile else set()
+    watched = selectors.watched_episode_numbers(profile, title, season) if profile and title else set()
     for ep in episodes:
         ep["watched"] = ep["episode_number"] in watched
     if episodes:
         episodes[-1]["is_finale"] = True
     context["episodes"] = episodes
+    rated = [ep["vote_average"] for ep in episodes if ep.get("vote_average")]
+    context["season_avg_rating"] = round(sum(rated) / len(rated), 1) if rated else None
     return context
 
 
@@ -423,7 +428,7 @@ def title_detail(request, pk):
     tmdb_id = title.external_ids.get("tmdb")
     details = cast = similar = director = None
     watch_providers = []
-    episode_context = {"seasons": [], "season": None, "episodes": []}
+    episode_context = {"seasons": [], "season": None, "episodes": [], "season_avg_rating": None}
     if tmdb_id:
         tmdb_media_type = tmdb.media_type_for(title)
         details = tmdb.get_full_details(tmdb_media_type, tmdb_id)
@@ -431,7 +436,7 @@ def title_detail(request, pk):
         similar = tmdb.get_similar(tmdb_media_type, tmdb_id)
         director = tmdb.get_director(tmdb_media_type, tmdb_id)
         watch_providers = tmdb.get_watch_providers(tmdb_media_type, tmdb_id)
-        episode_context = _episode_panel_context(request, profile, title, details)
+        episode_context = _episode_panel_context(request, profile, title, tmdb_id, details)
 
     local_context = selectors.title_local_context(profile, title)
     context = {
@@ -615,14 +620,47 @@ def add_recommendation_to_watchlist(request, pk):
 def title_episodes(request, pk):
     """Re-renders just the episode browser (#episodes-panel) for a season
     switch - the season <select>'s own hx-get target, mirroring the
-    Stats heatmap's year-select/#heatmap-panel pattern."""
+    Stats heatmap's year-select/#heatmap-panel pattern. title_preview_episodes
+    is this same idea for a not-yet-tracked preview title."""
     title = get_object_or_404(Title, pk=pk)
     profile = Profile.objects.filter(user=request.user).first()
-    context = {"title": title, "seasons": [], "season": None, "episodes": []}
+    context = {
+        "title": title,
+        "seasons": [],
+        "season": None,
+        "episodes": [],
+        "season_avg_rating": None,
+        "preview_tmdb_id": None,
+    }
     tmdb_id = title.external_ids.get("tmdb")
     if tmdb_id:
         details = tmdb.get_full_details(tmdb.media_type_for(title), tmdb_id)
-        context.update(_episode_panel_context(request, profile, title, details))
+        context.update(_episode_panel_context(request, profile, title, tmdb_id, details))
+    return render(request, "tracker/partials/title_episodes.html", context)
+
+
+@login_required
+def title_preview_episodes(request, media_type, tmdb_id):
+    """title_episodes' counterpart for a not-yet-tracked preview title -
+    same season-switch endpoint shape, just keyed by (media_type, tmdb_id)
+    since there's no local Title row/pk yet. Lets the episode browser's
+    season <select> work on the preview page the same way it does on a
+    real title's own page."""
+    if media_type not in ("movie", "tv"):
+        raise Http404
+    profile = Profile.objects.filter(user=request.user).first()
+    context = {
+        "title": None,
+        "seasons": [],
+        "season": None,
+        "episodes": [],
+        "season_avg_rating": None,
+        "preview_media_type": media_type,
+        "preview_tmdb_id": tmdb_id,
+    }
+    details = tmdb.get_full_details(media_type, tmdb_id)
+    if details:
+        context.update(_episode_panel_context(request, profile, None, tmdb_id, details))
     return render(request, "tracker/partials/title_episodes.html", context)
 
 
@@ -845,6 +883,7 @@ def title_preview(request, media_type, tmdb_id):
         "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
         "in_list_ids": set(),
         **_preview_recommend_context(profile),
+        **_episode_panel_context(request, profile, None, tmdb_id, details),
     }
     if profile is not None and context["similar"]:
         context.update(selectors.discover_action_context(profile, context["similar"]))

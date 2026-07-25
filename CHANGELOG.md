@@ -8,6 +8,24 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-07-25
+
+### Added
+
+- TV/anime episode tiles now show TMDB's own rating for that episode,
+  and the season header shows the average across the season's rated
+  episodes.
+
+### Changed
+
+- The episode browser (season picker + episode grid) now shows up on a
+  TV/anime title's preview page too, not just after it's been added to
+  a list, marked watched, or imported - previously it was hidden
+  entirely until the title had a real library row. A preview's
+  episodes are read-only (no watched button, since there's nothing to
+  attach a watch to yet) and never show as watched; adding the title
+  to your library unlocks marking episodes watched as before.
+
 ## [0.37.0] - 2026-07-25
 
 ### Changed

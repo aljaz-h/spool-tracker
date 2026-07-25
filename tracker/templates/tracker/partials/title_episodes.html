@@ -1,12 +1,16 @@
 {% load tracker_extras %}
-{# context: title, seasons, season, episodes #}
+{# context: title (Title or None - preview titles have no local row yet), seasons, season, episodes, season_avg_rating, preview_media_type/preview_tmdb_id (only set when title is None) #}
 <div id="episodes-panel">
   {% if seasons %}
     <div class="flex justify-between items-center flex-wrap gap-3 mb-4">
-      <h2 class="font-display text-xl m-0">Episodes</h2>
+      <h2 class="font-display text-xl m-0">
+        Episodes
+        {% if season_avg_rating %}<span class="text-[11px] text-ink-faint font-mono font-body ml-2">&#9733; {{ season_avg_rating }} season avg</span>{% endif %}
+      </h2>
       <select
         name="season"
-        hx-get="{% url 'title_episodes' title.pk %}" hx-target="#episodes-panel" hx-swap="outerHTML" hx-trigger="change"
+        hx-get="{% if title %}{% url 'title_episodes' title.pk %}{% else %}{% url 'title_preview_episodes' preview_media_type preview_tmdb_id %}{% endif %}"
+        hx-target="#episodes-panel" hx-swap="outerHTML" hx-trigger="change"
         class="bg-base-200 border border-line rounded-lg text-xs font-semibold px-3 py-1.5 text-base-content cursor-pointer"
       >
         {% for s in seasons %}
@@ -19,7 +23,7 @@
       {% for ep in episodes %}
         <div class="bg-base-200 border border-line rounded-lg overflow-hidden">
           <div
-            class="aspect-video relative bg-base-300 bg-cover bg-center {% if not ep.still_url %}{{ title.pk|add:ep.episode_number|gradient_class }}{% endif %}"
+            class="aspect-video relative bg-base-300 bg-cover bg-center {% if not ep.still_url %}{{ title.pk|default:preview_tmdb_id|add:ep.episode_number|gradient_class }}{% endif %}"
             {% if ep.still_url %}style="background-image:url('{{ ep.still_url }}')"{% endif %}
           >
             <div class="absolute inset-0 bg-linear-to-t from-black/60 to-transparent"></div>
@@ -28,6 +32,9 @@
                 class="absolute top-2 right-2 w-6 h-6 rounded-full bg-success flex items-center justify-center text-success-content text-xs shadow-[0_1px_4px_rgba(0,0,0,0.5)]"
                 title="Watched"
               >&#10003;</span>
+            {% endif %}
+            {% if ep.vote_average %}
+              <span class="absolute top-2 left-2 font-mono text-[10px] font-bold bg-black/85 px-1.5 py-0.5 rounded-md shadow-[0_1px_4px_rgba(0,0,0,0.7)]"><span class="text-amber-400">&#9733;</span> <span class="text-white">{{ ep.vote_average|floatformat:1 }}</span></span>
             {% endif %}
             {% if ep.is_finale %}
               <span class="absolute bottom-2 left-2 font-mono text-[9px] font-bold uppercase tracking-wide bg-primary text-primary-content px-2 py-1 rounded-md">Season Finale</span>
@@ -38,7 +45,9 @@
               <div class="font-mono text-[10.5px] text-ink-dim">S{{ season|stringformat:"02d" }} E{{ ep.episode_number|stringformat:"02d" }}</div>
               <div class="text-[12.5px] font-semibold truncate mt-0.5">{{ ep.name }}</div>
             </div>
-            {% include "tracker/partials/episode_watched_button.html" with title=title season=season episode_number=ep.episode_number watched=ep.watched %}
+            {% if title %}
+              {% include "tracker/partials/episode_watched_button.html" with title=title season=season episode_number=ep.episode_number watched=ep.watched %}
+            {% endif %}
           </div>
         </div>
       {% empty %}
