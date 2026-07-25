@@ -89,11 +89,16 @@ def get_movie_details(tmdb_id):
 
 def get_tv_details(tmdb_id):
     """Returns {"number_of_episodes": int|None, "episode_run_time": int|None,
-    "seasons": [{"season_number": int, "episode_count": int}, ...]} or None
-    on failure. episode_run_time is TMDB's show-level typical duration
-    (first value of its episode_run_time array, when present) - not a
-    precise per-episode figure, which would need one API call per episode
-    and isn't worth it just for a watch-time estimate."""
+    "seasons": [{"season_number": int, "episode_count": int, "vote_average": float|None}, ...]}
+    or None on failure. episode_run_time is TMDB's show-level typical
+    duration (first value of its episode_run_time array, when present) -
+    not a precise per-episode figure, which would need one API call per
+    episode and isn't worth it just for a watch-time estimate. Each
+    season's own vote_average is TMDB's rating for that season's own
+    page (voted on directly, not a mean of its episodes' own ratings) -
+    cheap per-season rating data from this one call, vs. the per-episode
+    average get_season_details' episodes would need a whole extra call
+    per season to compute."""
     api_key = _api_key()
     if not api_key:
         return None
@@ -109,7 +114,11 @@ def get_tv_details(tmdb_id):
         "number_of_episodes": data.get("number_of_episodes"),
         "episode_run_time": episode_run_times[0] if episode_run_times else None,
         "seasons": [
-            {"season_number": s.get("season_number"), "episode_count": s.get("episode_count")}
+            {
+                "season_number": s.get("season_number"),
+                "episode_count": s.get("episode_count"),
+                "vote_average": s.get("vote_average"),
+            }
             for s in (data.get("seasons") or [])
         ],
     }

@@ -45,16 +45,28 @@
         </div>
         {% if details.tagline %}<div class="text-ink-dim italic text-sm mt-3">{{ details.tagline }}</div>{% endif %}
 
-        <div class="flex flex-wrap items-center gap-5 mt-4 p-3 rounded-xl bg-base-100/50 border border-line/70 w-fit">
-          {% if is_preview %}
+        {% comment %}
+          Movies are a single item - "watched" is a single fact, so the
+          header keeps the same one-click/popover control the poster
+          card's own checkmark uses. A show isn't singular the same way
+          (many seasons, many episodes) - a single "watched" toggle for
+          the whole thing doesn't map to anything real, so shows get
+          season-level "mark watched" actions down in the episode
+          browser instead (see title_episodes.html) rather than a
+          header control at all.
+        {% endcomment %}
+        {% if is_preview and preview_media_type == "movie" %}
+          <div class="flex flex-wrap items-center gap-5 mt-4 p-3 rounded-xl bg-base-100/50 border border-line/70 w-fit">
             <form method="post" action="{% url 'title_preview_mark_watched' preview_media_type preview_tmdb_id %}">
               {% csrf_token %}
               <button type="submit" class="btn btn-primary btn-sm">+ Mark as Watched</button>
             </form>
-          {% else %}
+          </div>
+        {% elif not is_preview and title.media_type == "movie" %}
+          <div class="flex flex-wrap items-center gap-5 mt-4 p-3 rounded-xl bg-base-100/50 border border-line/70 w-fit">
             {% include "tracker/partials/title_detail_watched_button.html" with title=title watch_count=watch_count %}
-          {% endif %}
-        </div>
+          </div>
+        {% endif %}
       </div>
     </div>
   </div>

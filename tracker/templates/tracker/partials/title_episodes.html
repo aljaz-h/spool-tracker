@@ -1,5 +1,5 @@
-{% load tracker_extras %}
-{# context: title (Title or None - preview titles have no local row yet), seasons, season, episodes, season_avg_rating, preview_media_type/preview_tmdb_id (only set when title is None) #}
+{% load tracker_extras icons %}
+{# context: title (Title or None - preview titles have no local row yet), seasons, season, episodes, season_avg_rating, season_ratings (dict {season_number: TMDB rating}), preview_media_type/preview_tmdb_id (only set when title is None) #}
 <div id="episodes-panel">
   {% if seasons %}
     <div class="flex justify-between items-center flex-wrap gap-3 mb-4">
@@ -7,16 +7,74 @@
         Episodes
         {% if season_avg_rating %}<span class="text-[11px] text-ink-faint font-mono font-body ml-2">&#9733; {{ season_avg_rating }} season avg</span>{% endif %}
       </h2>
-      <select
-        name="season"
-        hx-get="{% if title %}{% url 'title_episodes' title.pk %}{% else %}{% url 'title_preview_episodes' preview_media_type preview_tmdb_id %}{% endif %}"
-        hx-target="#episodes-panel" hx-swap="outerHTML" hx-trigger="change"
-        class="bg-base-200 border border-line rounded-lg text-xs font-semibold px-3 py-1.5 text-base-content cursor-pointer"
-      >
-        {% for s in seasons %}
-          <option value="{{ s }}" {% if s == season %}selected{% endif %}>Season {{ s }}</option>
-        {% endfor %}
-      </select>
+      <div class="flex items-center gap-2 flex-wrap">
+        {% if title %}
+          {% comment %}
+            A movie is one item - "watched" is a single fact (see the
+            header's own watched button/popover). A show isn't, so
+            there's no equivalent single "watched" action for the whole
+            thing here - only season-scoped and whole-show bulk actions,
+            both of which only ever add plays for episodes that don't
+            already have one (a catch-up, not a rewatch-everything).
+          {% endcomment %}
+          <button
+            type="button"
+            hx-post="{% url 'title_mark_season_watched' title.pk season %}"
+            hx-target="#episodes-panel" hx-swap="outerHTML"
+            hx-confirm="Mark every episode of Season {{ season }} of “{{ title.name }}” as watched?"
+            class="btn btn-xs btn-soft"
+          >Mark season watched</button>
+          <button
+            type="button"
+            hx-post="{% url 'title_mark_all_seasons_watched' title.pk %}"
+            hx-target="#episodes-panel" hx-swap="outerHTML"
+            hx-confirm="Mark every episode of every season of “{{ title.name }}” as watched? This can take a moment for shows with many seasons."
+            class="btn btn-xs btn-soft"
+          >Mark all watched</button>
+        {% endif %}
+
+        <div class="relative" id="season-picker-{{ title.pk|default:preview_tmdb_id }}" x-data="{
+          open: false,
+          togglePanel(button) {
+            this.open = !this.open;
+            if (!this.open) return;
+            this.$nextTick(() => {
+              const rect = button.getBoundingClientRect();
+              const panel = this.$refs.panel;
+              const width = 224;
+              panel.style.left = Math.min(rect.left, window.innerWidth - width - 8) + 'px';
+              panel.style.top = (rect.bottom + 6) + 'px';
+            });
+          },
+        }">
+          <button
+            type="button" @click="togglePanel($el)"
+            class="bg-base-200 border border-line rounded-lg text-xs font-semibold px-3 py-1.5 text-base-content cursor-pointer flex items-center gap-1.5"
+          >
+            Season {{ season }}
+            {% with rating=season_ratings|get_item:season %}{% if rating %}<span class="text-ink-faint font-mono font-normal">&#9733; {{ rating|floatformat:1 }}</span>{% endif %}{% endwith %}
+            {% icon "chevron-down" "w-3.5 h-3.5 text-ink-faint" %}
+          </button>
+          <div
+            x-ref="panel"
+            x-show="open" x-cloak x-transition @click.outside="open = false"
+            class="fixed z-50 w-56 max-h-72 overflow-y-auto bg-base-200 border border-line rounded-lg p-1.5 shadow-xl"
+          >
+            {% for s in seasons %}
+              <button
+                type="button"
+                hx-get="{% if title %}{% url 'title_episodes' title.pk %}{% else %}{% url 'title_preview_episodes' preview_media_type preview_tmdb_id %}{% endif %}?season={{ s }}"
+                hx-target="#episodes-panel" hx-swap="outerHTML"
+                @click="open = false"
+                class="btn btn-xs w-full justify-between {% if s == season %}btn-primary{% else %}btn-soft{% endif %}"
+              >
+                <span>Season {{ s }}</span>
+                {% with rating=season_ratings|get_item:s %}{% if rating %}<span class="font-mono">&#9733; {{ rating|floatformat:1 }}</span>{% endif %}{% endwith %}
+              </button>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4 mb-8">

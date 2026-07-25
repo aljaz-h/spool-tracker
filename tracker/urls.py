@@ -21,6 +21,16 @@ urlpatterns = [
         views.episode_mark_watched,
         name="episode_mark_watched",
     ),
+    path(
+        "titles/<int:pk>/episodes/<int:season>/mark-season-watched/",
+        views.title_mark_season_watched,
+        name="title_mark_season_watched",
+    ),
+    path(
+        "titles/<int:pk>/mark-all-seasons-watched/",
+        views.title_mark_all_seasons_watched,
+        name="title_mark_all_seasons_watched",
+    ),
     path("titles/<int:pk>/rate/", views.title_rate, name="title_rate"),
     path("titles/<int:pk>/recommend/", views.send_recommendation, name="send_recommendation"),
     path("recommendations/<int:pk>/dismiss/", views.dismiss_recommendation, name="dismiss_recommendation"),

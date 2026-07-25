@@ -377,7 +377,7 @@ def _star_fill(rating):
     return stars
 
 
-def _episode_panel_context(request, profile, title, tmdb_id, details):
+def _episode_panel_context(request, profile, title, tmdb_id, details, force_season=None):
     """Season/episode data for the title detail page's episode browser -
     shared by title_detail/title_episodes (a real, already-tracked Title)
     and title_preview/title_preview_episodes (no local Title row yet -
@@ -386,17 +386,34 @@ def _episode_panel_context(request, profile, title, tmdb_id, details):
     TMDB doesn't report a season count. Watched-episode badges and the
     "resume where I left off" default season both need a real Title to
     look up WatchEvents against, so they're skipped (not an error) when
-    title is None - a preview's episodes just all show as unwatched."""
-    context = {"seasons": [], "season": None, "episodes": [], "season_avg_rating": None}
+    title is None - a preview's episodes just all show as unwatched.
+    force_season pins the season directly (used by the bulk mark-watched
+    views, which already know which season they just acted on) instead
+    of resolving it from request.GET/the profile's watch history.
+
+    season_ratings (dict {season_number: vote_average|None}) is TMDB's
+    own per-season rating (get_tv_details' "seasons" list - one extra
+    call, but zero per-season round-trips) for the season-picker
+    dropdown to show next to every season, not just the selected one -
+    a different figure from season_avg_rating below, which is the mean
+    of the SELECTED season's own episodes' individual ratings."""
+    context = {"seasons": [], "season": None, "episodes": [], "season_avg_rating": None, "season_ratings": {}}
     number_of_seasons = details["number_of_seasons"] if details else None
     if not number_of_seasons:
         return context
     context["seasons"] = list(range(1, number_of_seasons + 1))
 
-    try:
-        season = int(request.GET.get("season"))
-    except (TypeError, ValueError):
-        season = None
+    tv_details = tmdb.get_tv_details(tmdb_id) if tmdb_id else None
+    if tv_details:
+        context["season_ratings"] = {s["season_number"]: s.get("vote_average") or None for s in tv_details["seasons"]}
+
+    if force_season is not None:
+        season = force_season
+    else:
+        try:
+            season = int(request.GET.get("season"))
+        except (TypeError, ValueError):
+            season = None
     if season not in context["seasons"]:
         season = selectors.default_season_for_title(profile, title) if profile and title else None
         if season not in context["seasons"]:
@@ -428,7 +445,7 @@ def title_detail(request, pk):
     tmdb_id = title.external_ids.get("tmdb")
     details = cast = similar = director = None
     watch_providers = []
-    episode_context = {"seasons": [], "season": None, "episodes": [], "season_avg_rating": None}
+    episode_context = {"seasons": [], "season": None, "episodes": [], "season_avg_rating": None, "season_ratings": {}}
     if tmdb_id:
         tmdb_media_type = tmdb.media_type_for(title)
         details = tmdb.get_full_details(tmdb_media_type, tmdb_id)
@@ -630,6 +647,7 @@ def title_episodes(request, pk):
         "season": None,
         "episodes": [],
         "season_avg_rating": None,
+        "season_ratings": {},
         "preview_tmdb_id": None,
     }
     tmdb_id = title.external_ids.get("tmdb")
@@ -655,6 +673,7 @@ def title_preview_episodes(request, media_type, tmdb_id):
         "season": None,
         "episodes": [],
         "season_avg_rating": None,
+        "season_ratings": {},
         "preview_media_type": media_type,
         "preview_tmdb_id": tmdb_id,
     }
@@ -811,6 +830,120 @@ def episode_mark_watched(request, pk, season, episode_number):
         "tracker/partials/episode_watched_button.html",
         {"title": title, "season": season, "episode_number": episode_number, "watched": True},
     )
+
+
+def _mark_episodes_watched_bulk(profile, title, episode_specs):
+    """Shared by title_mark_season_watched/title_mark_all_seasons_watched -
+    episode_specs is an iterable of (season, episode_number, name) for
+    every episode TMDB reports across whatever season(s) are being
+    marked. Unlike episode_mark_watched's own single-tile button (always
+    logs a fresh play, even on a title already fully watched), this only
+    creates a WatchEvent for an episode with zero existing ones - "catch
+    my watched status up to reality" rather than "log a rewatch of
+    everything," which is what a season/whole-show bulk action actually
+    means. Each newly-created event is a genuine first watch, so there's
+    nothing for rewatches.recompute_is_rewatch to do (its default
+    is_rewatch=False is already correct) - skipped entirely, unlike
+    csv_import.py's own bulk path, which (unlike this one) can import an
+    out-of-order historical watch that legitimately needs recomputing.
+    Returns how many new plays were logged."""
+    seasons_touched = {season for season, _, _ in episode_specs}
+    already_watched = set(
+        WatchEvent.objects.filter(
+            profile=profile, title=title, episode__isnull=False, episode__season__in=seasons_touched
+        ).values_list("episode__season", "episode__episode")
+    )
+    now = timezone.now()
+    created = 0
+    for season, episode_number, name in episode_specs:
+        if (season, episode_number) in already_watched:
+            continue
+        episode, _ = Episode.objects.get_or_create(
+            title=title, season=season, episode=episode_number, defaults={"name": name}
+        )
+        WatchEvent.objects.create(profile=profile, title=title, episode=episode, watched_at=now)
+        created += 1
+    if created:
+        completion.sync_show_completion(profile, title)
+        completion.sync_watchlist_removal(profile, title)
+        recommendations.mark_title_watched(profile, title)
+    return created
+
+
+@login_required
+@require_POST
+def title_mark_season_watched(request, pk, season):
+    """The episode browser's "Mark season watched" action - catches up
+    every episode TMDB reports for this one season the profile hasn't
+    already logged a play for, in a single request. Re-renders the
+    episode panel pinned to this same season (force_season) rather than
+    whatever _episode_panel_context would otherwise resolve from
+    request.GET, which this POST doesn't carry."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    tmdb_id = title.external_ids.get("tmdb")
+    details = None
+    if tmdb_id:
+        season_data = tmdb.get_season_details(tmdb_id, season)
+        episodes = season_data["episodes"] if season_data else []
+        _mark_episodes_watched_bulk(
+            profile, title, [(season, ep["episode_number"], ep.get("name") or "") for ep in episodes]
+        )
+        details = tmdb.get_full_details(tmdb.media_type_for(title), tmdb_id)
+    context = {
+        "title": title,
+        "seasons": [],
+        "season": None,
+        "episodes": [],
+        "season_avg_rating": None,
+        "season_ratings": {},
+        "preview_tmdb_id": None,
+    }
+    if tmdb_id:
+        context.update(_episode_panel_context(request, profile, title, tmdb_id, details, force_season=season))
+    return render(request, "tracker/partials/title_episodes.html", context)
+
+
+@login_required
+@require_POST
+def title_mark_all_seasons_watched(request, pk):
+    """The episode browser's "Mark all seasons watched" action -
+    episode_mark_watched/title_mark_season_watched's whole-show version.
+    One tmdb.get_season_details call per season (same N-calls-per-show
+    pattern completion.py's own _backfill_episode_runtimes already
+    uses) to get real episode names for every season, not just a
+    TMDB-reported episode count with blank names - worth the extra
+    calls since this is a deliberate, infrequent catch-up action, not a
+    hot path."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    tmdb_id = title.external_ids.get("tmdb")
+    context = {
+        "title": title,
+        "seasons": [],
+        "season": None,
+        "episodes": [],
+        "season_avg_rating": None,
+        "season_ratings": {},
+        "preview_tmdb_id": None,
+    }
+    if tmdb_id:
+        details = tmdb.get_full_details(tmdb.media_type_for(title), tmdb_id)
+        number_of_seasons = details["number_of_seasons"] if details else 0
+        episode_specs = []
+        for season in range(1, (number_of_seasons or 0) + 1):
+            season_data = tmdb.get_season_details(tmdb_id, season)
+            if season_data:
+                episode_specs.extend(
+                    (season, ep["episode_number"], ep.get("name") or "") for ep in season_data["episodes"]
+                )
+        _mark_episodes_watched_bulk(profile, title, episode_specs)
+        context.update(_episode_panel_context(request, profile, title, tmdb_id, details))
+    return render(request, "tracker/partials/title_episodes.html", context)
 
 
 @login_required

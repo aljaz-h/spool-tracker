@@ -8,6 +8,28 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-07-25
+
+### Added
+
+- The episode browser can now mark a whole season, or a whole show,
+  as watched in one click ("Mark season watched" / "Mark all watched"
+  next to the Episodes heading) - catches up every episode that
+  doesn't already have a play logged, without touching ones you've
+  already watched.
+- The season picker is now a custom dropdown (replacing the plain
+  browser `<select>`) showing every season's own TMDB rating next to
+  it, not just the currently-selected one.
+
+### Changed
+
+- A show's title page no longer has the single "+ Mark as Watched"
+  header button/popover a movie gets - a show isn't one item the way a
+  movie is (many seasons, many episodes), so a single whole-title
+  "watched" toggle didn't map to anything real. That control now
+  belongs only to movies; shows use the new season/whole-show actions
+  in the episode browser instead.
+
 ## [0.38.0] - 2026-07-25
 
 ### Added
