@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.35.1] - 2026-07-25
+
+### Changed
+
+- The new Settings page hugged the left edge with the sidebar+content
+  column left-aligned, leaving a large empty gap on wide screens.
+  Constrained and centered the whole page (header included) instead.
+
 ## [0.35.0] - 2026-07-25
 
 ### Changed
