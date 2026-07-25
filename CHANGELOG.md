@@ -8,6 +8,25 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-07-25
+
+### Changed
+
+- The topbar's Friends dropdown "Active X ago" badge now reflects when
+  that profile actually last used the app, not when they last watched
+  something (which could be a backdated Trakt/Simkl/CSV import
+  timestamp, unrelated to real presence). A new `Profile.last_seen_at`
+  field is stamped by a new middleware on every request (throttled to
+  once a minute, so normal browsing isn't a DB write on every page
+  load). **New migration** (`0023_profile_last_seen_at`) - run it as
+  usual on upgrade.
+- The title detail page's own "Watched" header button now opens the
+  same rewatch/undo/history menu the poster card's watched button
+  already has, instead of a plain toggle that only ever cleared the
+  whole watch history. Behaves identically either way - a title
+  watched once still shows the popover with all four actions; a
+  never-watched title still logs its first watch on a single click.
+
 ## [0.36.0] - 2026-07-25
 
 ### Added

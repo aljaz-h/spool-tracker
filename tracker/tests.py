@@ -4002,7 +4002,9 @@ class TopbarAvatarDedupeTests(TestCase):
 class TopbarFriendsDropdownTests(TestCase):
     """The topbar's household-member circles were replaced by a single
     Friends icon that opens a dropdown listing everyone else, each row
-    showing when they were last active (their most recent WatchEvent)."""
+    showing when they were last online (Profile.last_seen_at, stamped by
+    middleware.LastSeenMiddleware on every authenticated request - see
+    LastSeenMiddlewareTests for that machinery itself)."""
 
     def setUp(self):
         from django.utils import timezone
@@ -4025,32 +4027,74 @@ class TopbarFriendsDropdownTests(TestCase):
         self.assertEqual(resp.context["other_profiles"].count(), 1)
         self.assertNotIn(self.profile, list(resp.context["other_profiles"]))
 
-    def test_shows_time_since_last_watch_for_an_active_friend(self):
+    def test_shows_time_since_last_seen_for_an_active_friend(self):
         other_user = User.objects.create_user("frienddropactive", password="pass12345")
-        other_profile = Profile.objects.create(user=other_user, display_name="FriendDropActive")
-        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
-        WatchEvent.objects.create(profile=other_profile, title=title, watched_at=self.timezone.now() - timedelta(days=2))
+        other_profile = Profile.objects.create(
+            user=other_user, display_name="FriendDropActive", last_seen_at=self.timezone.now() - timedelta(hours=2)
+        )
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, "Active")
         self.assertContains(resp, "ago")
-        self.assertIsNotNone(resp.context["other_profiles"].get(pk=other_profile.pk).last_active_at)
+        self.assertIsNotNone(resp.context["other_profiles"].get(pk=other_profile.pk).last_seen_at)
 
-    def test_shows_no_activity_yet_for_a_friend_with_no_watch_history(self):
+    def test_shows_no_activity_yet_for_a_friend_who_has_never_visited(self):
         other_user = User.objects.create_user("frienddropquiet", password="pass12345")
         Profile.objects.create(user=other_user, display_name="FriendDropQuiet")
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, "No activity yet")
 
-    def test_last_active_reflects_the_most_recent_watch_not_the_oldest(self):
-        other_user = User.objects.create_user("frienddroprecent", password="pass12345")
-        other_profile = Profile.objects.create(user=other_user, display_name="FriendDropRecent")
+    def test_watching_something_alone_does_not_count_as_being_seen(self):
+        # last_seen_at is presence, not watch activity - a friend whose
+        # history was only ever synced/imported (never actually visited
+        # the app themselves) should still show "No activity yet."
+        other_user = User.objects.create_user("frienddropwatcher", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="FriendDropWatcher")
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
-        WatchEvent.objects.create(profile=other_profile, title=title, watched_at=self.timezone.now() - timedelta(days=30))
-        recent_time = self.timezone.now() - timedelta(hours=1)
-        WatchEvent.objects.create(profile=other_profile, title=title, watched_at=recent_time)
+        WatchEvent.objects.create(profile=other_profile, title=title, watched_at=self.timezone.now())
         resp = self.client.get(reverse("dashboard"))
-        last_active = resp.context["other_profiles"].get(pk=other_profile.pk).last_active_at
-        self.assertAlmostEqual(last_active, recent_time, delta=timedelta(seconds=1))
+        self.assertContains(resp, "No activity yet")
+
+
+class LastSeenMiddlewareTests(TestCase):
+    """middleware.LastSeenMiddleware - stamps Profile.last_seen_at on
+    every authenticated request, throttled to once a minute so normal
+    browsing doesn't turn into a DB write on every single page load."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("lastseenuser", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="LastSeenUser")
+        self.client.login(username="lastseenuser", password="pass12345")
+
+    def test_first_request_sets_last_seen_at(self):
+        self.assertIsNone(self.profile.last_seen_at)
+        self.client.get(reverse("dashboard"))
+        self.profile.refresh_from_db()
+        self.assertIsNotNone(self.profile.last_seen_at)
+
+    def test_a_stale_timestamp_gets_refreshed(self):
+        from django.utils import timezone
+
+        stale = timezone.now() - timedelta(hours=1)
+        self.profile.last_seen_at = stale
+        self.profile.save(update_fields=["last_seen_at"])
+        self.client.get(reverse("dashboard"))
+        self.profile.refresh_from_db()
+        self.assertGreater(self.profile.last_seen_at, stale)
+
+    def test_a_recent_timestamp_is_not_rewritten_on_every_request(self):
+        from django.utils import timezone
+
+        recent = timezone.now()
+        self.profile.last_seen_at = recent
+        self.profile.save(update_fields=["last_seen_at"])
+        self.client.get(reverse("dashboard"))
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.last_seen_at, recent)
+
+    def test_anonymous_requests_do_not_error(self):
+        self.client.logout()
+        resp = self.client.get(reverse("login"))
+        self.assertEqual(resp.status_code, 200)
 
 
 class DisconnectProviderTests(TestCase):
@@ -6705,9 +6749,26 @@ class TitleDetailViewTests(TestCase):
         WatchEvent.objects.create(profile=self.profile, title=already_watched, watched_at=timezone.now())
         resp = self.client.get(reverse("title_detail", args=[already_watched.pk]))
         self.assertTrue(resp.context["is_watched"])
+        self.assertEqual(resp.context["watch_count"], 1)
         self.assertContains(resp, "&#10003; Watched")
         self.assertContains(resp, reverse("title_unmark_watched", args=[already_watched.pk]))
-        self.assertContains(resp, "Remove your watched mark for")
+        # Same popover menu as the poster card's watched button - not the
+        # old bare toggle-with-JS-confirm.
+        self.assertContains(resp, "View history plays")
+        self.assertContains(resp, "Mark as watched again")
+        self.assertContains(resp, "Remove last watched")
+        self.assertContains(resp, "Remove all watched history")
+        self.assertNotContains(resp, "Remove your watched mark for")
+
+    def test_header_shows_a_count_badge_once_watched_more_than_once(self):
+        from django.utils import timezone
+
+        rewatched = Title.objects.create(media_type=MediaType.MOVIE, name="Rewatched", year=2021)
+        WatchEvent.objects.create(profile=self.profile, title=rewatched, watched_at=timezone.now() - timedelta(days=1))
+        WatchEvent.objects.create(profile=self.profile, title=rewatched, watched_at=timezone.now())
+        resp = self.client.get(reverse("title_detail", args=[rewatched.pk]))
+        self.assertEqual(resp.context["watch_count"], 2)
+        self.assertContains(resp, "&times;2")
 
     def test_header_stays_unwatched_when_only_episode_level_history_exists(self):
         # A show watched only via the episode browser (no whole-title
@@ -7103,6 +7164,67 @@ class PosterCardWatchedButtonPopoverTests(TestCase):
         WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
         resp = self.client.get(reverse("list_detail", args=[self.watchlist.pk]))
         self.assertContains(resp, f'href="{reverse("history")}?title={self.title.pk}"')
+
+
+class WatchedButtonTemplateSelectionTests(TestCase):
+    """title_detail's own header "Watched" control shares
+    title_mark_watched/title_unmark_watched/title_unmark_last_watched
+    with the poster card's watched button, but needs its own fragment
+    back (title_detail_watched_button.html, not poster_card_watched_button.html)
+    so the header keeps its pill styling and drop-down positioning
+    instead of turning into the grid's compact icon square. Routed off
+    HTMX's resolved HX-Target header - see views._watched_button_template."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.timezone = timezone
+        user = User.objects.create_user("templateselectuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="TemplateSelectUser")
+        self.client.login(username="templateselectuser", password="pass12345")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+
+    def test_first_click_from_the_detail_page_returns_the_detail_fragment(self):
+        # The click itself creates a WatchEvent (watch_count 0 -> 1), so
+        # the response is the detail page's watched *popover*, not its
+        # bare "+ Mark as Watched" state - the marker to check for is the
+        # detail-prefixed popover wrapper, not the pre-click button id.
+        resp = self.client.post(
+            reverse("title_mark_watched", args=[self.title.pk]),
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET=f"watched-btn-detail-{self.title.pk}",
+        )
+        self.assertContains(resp, f'id="watched-popover-detail-{self.title.pk}"')
+
+    def test_first_click_from_a_poster_card_returns_the_grid_fragment(self):
+        resp = self.client.post(
+            reverse("title_mark_watched", args=[self.title.pk]),
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET=f"watched-btn-{self.title.pk}",
+        )
+        self.assertNotContains(resp, f'id="watched-btn-detail-{self.title.pk}"')
+        self.assertContains(resp, f'id="watched-popover-{self.title.pk}"')
+
+    def test_menu_action_from_the_detail_page_returns_the_detail_fragment(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
+        resp = self.client.post(
+            reverse("title_unmark_last_watched", args=[self.title.pk]),
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET=f"watched-popover-detail-{self.title.pk}",
+        )
+        self.assertContains(resp, "+ Mark as Watched")
+        self.assertNotContains(resp, f'id="watched-popover-{self.title.pk}"')
+
+    def test_menu_action_from_a_poster_card_returns_the_grid_fragment(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now() - timedelta(days=1))
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
+        resp = self.client.post(
+            reverse("title_unmark_last_watched", args=[self.title.pk]),
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET=f"watched-popover-{self.title.pk}",
+        )
+        self.assertContains(resp, f'id="watched-popover-{self.title.pk}"')
+        self.assertNotContains(resp, f'id="watched-popover-detail-{self.title.pk}"')
 
 
 class EpisodeMarkWatchedTests(TestCase):

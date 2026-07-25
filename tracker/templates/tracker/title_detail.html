@@ -46,33 +46,13 @@
         {% if details.tagline %}<div class="text-ink-dim italic text-sm mt-3">{{ details.tagline }}</div>{% endif %}
 
         <div class="flex flex-wrap items-center gap-5 mt-4 p-3 rounded-xl bg-base-100/50 border border-line/70 w-fit">
-          {% comment %}
-            A real watched/unwatched status toggle (like Follow/Following),
-            not a static call-to-action label that never changes once
-            clicked - is_watched (see selectors.title_local_context) drives
-            both which label/color shows and which endpoint the form posts
-            to. Unmarking is destructive (removes the plain watch mark this
-            button owns), so it's confirmed client-side first via the
-            shared confirmModal() helper, same as History's delete actions.
-          {% endcomment %}
           {% if is_preview %}
             <form method="post" action="{% url 'title_preview_mark_watched' preview_media_type preview_tmdb_id %}">
               {% csrf_token %}
               <button type="submit" class="btn btn-primary btn-sm">+ Mark as Watched</button>
             </form>
-          {% elif is_watched %}
-            <form
-              method="post" action="{% url 'title_unmark_watched' title.pk %}"
-              onsubmit="event.preventDefault(); window.confirmModal('Remove your watched mark for “{{ title.name|escapejs }}”?').then((ok) => { if (ok) this.submit(); }); return false;"
-            >
-              {% csrf_token %}
-              <button type="submit" class="btn btn-sm bg-success/90 hover:bg-success border-success/60 text-success-content">&#10003; Watched</button>
-            </form>
           {% else %}
-            <form method="post" action="{% url 'title_mark_watched' title.pk %}">
-              {% csrf_token %}
-              <button type="submit" class="btn btn-primary btn-sm">+ Mark as Watched</button>
-            </form>
+            {% include "tracker/partials/title_detail_watched_button.html" with title=title watch_count=watch_count %}
           {% endif %}
         </div>
       </div>

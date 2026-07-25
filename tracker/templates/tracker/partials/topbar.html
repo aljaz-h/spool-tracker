@@ -156,7 +156,7 @@
               >{% if not p.avatar_image %}{{ p.display_name|first|upper }}{% endif %}</div>
               <div class="min-w-0 flex-1">
                 <div class="text-sm font-medium truncate">{{ p.display_name }}</div>
-                <div class="text-[10.5px] text-ink-faint font-mono">{% if p.last_active_at %}Active {{ p.last_active_at|timesince }} ago{% else %}No activity yet{% endif %}</div>
+                <div class="text-[10.5px] text-ink-faint font-mono">{% if p.last_seen_at %}Active {{ p.last_seen_at|timesince }} ago{% else %}No activity yet{% endif %}</div>
               </div>
             </button>
           {% endfor %}

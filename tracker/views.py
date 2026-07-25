@@ -626,18 +626,23 @@ def title_episodes(request, pk):
     return render(request, "tracker/partials/title_episodes.html", context)
 
 
-def _plain_watch_count(profile, title):
-    """How many episode-less WatchEvents this profile has logged for this
-    title - what the poster card's watched-button popover shows/acts on
-    (View history plays/Mark as watched again/Remove last watched/Remove
-    all watched history all only ever touch this same plain-event set,
-    same as title_unmark_watched already did before the popover existed).
-    A show tracked entirely via the episode browser has zero of these
-    even though selectors.poster_action_context's watched_by_title (which
-    counts every WatchEvent, plain or per-episode) would still say True -
-    that pre-existing distinction is untouched, not something this
-    introduces."""
-    return WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=True).count()
+def _watched_button_template(request):
+    """The watched-button popover fragment (title_mark_watched/
+    title_unmark_watched/title_unmark_last_watched's HX-Request branches)
+    is shared by two different trigger styles - the compact poster-card
+    checkmark (grids) and title_detail's own header "Watched" pill - each
+    with its own wrapper markup/positioning but the exact same menu
+    panel (see watched_menu_panel.html). The menu's own POST buttons
+    target "closest div.relative" (whichever wrapper is actually
+    present), so HTMX's resolved HX-Target header tells us which one
+    that was - the detail page's wrapper/bare-button ids are both
+    prefixed "watched-*-detail-" specifically so this can tell them
+    apart (the bare-button prefix matters too, for the very first
+    "+ Mark as Watched" click before there's a popover wrapper at all)."""
+    hx_target = request.headers.get("HX-Target", "")
+    if hx_target.startswith("watched-popover-detail-") or hx_target.startswith("watched-btn-detail-"):
+        return "tracker/partials/title_detail_watched_button.html"
+    return "tracker/partials/poster_card_watched_button.html"
 
 
 @login_required
@@ -667,10 +672,10 @@ def title_mark_watched(request, pk):
     completion.sync_watchlist_removal(profile, title)
     recommendations.mark_title_watched(profile, title)
     if request.headers.get("HX-Request"):
-        watch_count = _plain_watch_count(profile, title)
+        watch_count = selectors.plain_watch_count(profile, title)
         return render(
             request,
-            "tracker/partials/poster_card_watched_button.html",
+            _watched_button_template(request),
             {"title": title, "watched": True, "watch_count": watch_count},
         )
     return redirect("title_detail", pk=pk)
@@ -698,7 +703,7 @@ def title_unmark_watched(request, pk):
     if request.headers.get("HX-Request"):
         return render(
             request,
-            "tracker/partials/poster_card_watched_button.html",
+            _watched_button_template(request),
             {"title": title, "watched": False, "watch_count": 0},
         )
     return redirect("title_detail", pk=pk)
@@ -724,11 +729,11 @@ def title_unmark_last_watched(request, pk):
     )
     if last is not None:
         last.delete()
-    watch_count = _plain_watch_count(profile, title)
+    watch_count = selectors.plain_watch_count(profile, title)
     if request.headers.get("HX-Request"):
         return render(
             request,
-            "tracker/partials/poster_card_watched_button.html",
+            _watched_button_template(request),
             {"title": title, "watched": watch_count > 0, "watch_count": watch_count},
         )
     return redirect("title_detail", pk=pk)
@@ -922,7 +927,7 @@ def title_preview_mark_watched(request, media_type, tmdb_id):
     completion.sync_watchlist_removal(profile, title)
     recommendations.mark_title_watched(profile, title)
     if request.headers.get("HX-Request"):
-        watch_count = _plain_watch_count(profile, title)
+        watch_count = selectors.plain_watch_count(profile, title)
         return render(
             request,
             "tracker/partials/poster_card_watched_button.html",

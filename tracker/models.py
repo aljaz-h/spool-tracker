@@ -106,6 +106,11 @@ class Profile(models.Model):
     # first login is forced through a real username/password change
     # instead of leaving the .env-sourced credentials as permanent ones.
     must_change_credentials = models.BooleanField(default=False)
+    # Topbar's Friends dropdown "Active X ago" badge - when this profile
+    # was last actually present in the app (any request), not when they
+    # last watched something. Touched by middleware.LastSeenMiddleware,
+    # throttled there to avoid a DB write on every single request.
+    last_seen_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["display_name"]

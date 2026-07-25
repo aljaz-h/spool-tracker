@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.shortcuts import redirect
 from django.urls import Resolver404, resolve
 from django.utils import timezone as django_timezone
@@ -53,4 +55,27 @@ class ProfileTimezoneMiddleware:
             django_timezone.activate(tzname)
         else:
             django_timezone.deactivate()
+        return self.get_response(request)
+
+
+class LastSeenMiddleware:
+    """Stamps Profile.last_seen_at on every authenticated request - the
+    topbar's Friends dropdown "Active X ago" badge (context_processors.active_profile)
+    reads this directly, so it reflects actual presence in the app rather
+    than the profile's most recent WatchEvent. Throttled to once a minute
+    per profile (a plain .update(), not a full save - no signals, no risk
+    of clobbering a concurrent request's other field changes) so normal
+    browsing doesn't turn into a write on every single page load."""
+
+    STALE_AFTER = timedelta(minutes=1)
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if request.user.is_authenticated and not request.path.startswith(("/static/", "/media/")):
+            profile = Profile.objects.filter(user=request.user).only("last_seen_at").first()
+            now = django_timezone.now()
+            if profile is not None and (profile.last_seen_at is None or now - profile.last_seen_at > self.STALE_AFTER):
+                Profile.objects.filter(pk=profile.pk).update(last_seen_at=now)
         return self.get_response(request)

@@ -826,6 +826,21 @@ def _build_group(group_type, run):
     }
 
 
+def plain_watch_count(profile, title):
+    """How many episode-less WatchEvents this profile has logged for this
+    title - deliberately narrower than "has any watch event at all" - a
+    show with only individual episodes watched (no whole-title mark)
+    shouldn't count toward the header's primary Watched toggle/popover,
+    which would falsely claim the whole thing is done. Scoped to the
+    plain events title_mark_watched/title_unmark_watched/
+    title_unmark_last_watched actually own, not the episode browser's
+    own separate, always-append rewatch log. Shared by title_local_context
+    (the detail page's single-title case) and poster_action_context's
+    batched watch_count_by_title (a grid of cards) - same definition,
+    different query shape."""
+    return WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=True).count()
+
+
 def title_local_context(profile, title):
     """The title detail page's own-data half - watch/rating/list state -
     kept separate from the TMDB-sourced half (overview/cast/similar,
@@ -845,20 +860,15 @@ def title_local_context(profile, title):
     in_list_ids = set(
         WatchListItem.objects.filter(watchlist__profile=profile, title=title).values_list("watchlist_id", flat=True)
     )
-    # Deliberately narrower than "has any recent_events" - a show with
-    # only individual episodes watched (no whole-title mark) shouldn't
-    # flip the header's primary Watched toggle green, which would falsely
-    # claim the whole thing is done. Scoped to the plain (episode-less)
-    # events that toggle itself owns (title_mark_watched/title_unmark_watched),
-    # not the episode browser's own separate, always-append rewatch log.
-    is_watched = WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=True).exists()
+    watch_count = plain_watch_count(profile, title)
     return {
         "progress": progress,
         "recent_events": recent_events,
         "latest_rating": latest_rating,
         "my_lists": my_lists,
         "in_list_ids": in_list_ids,
-        "is_watched": is_watched,
+        "is_watched": watch_count > 0,
+        "watch_count": watch_count,
     }
 
 
