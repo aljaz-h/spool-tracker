@@ -626,6 +626,20 @@ def title_episodes(request, pk):
     return render(request, "tracker/partials/title_episodes.html", context)
 
 
+def _plain_watch_count(profile, title):
+    """How many episode-less WatchEvents this profile has logged for this
+    title - what the poster card's watched-button popover shows/acts on
+    (View history plays/Mark as watched again/Remove last watched/Remove
+    all watched history all only ever touch this same plain-event set,
+    same as title_unmark_watched already did before the popover existed).
+    A show tracked entirely via the episode browser has zero of these
+    even though selectors.poster_action_context's watched_by_title (which
+    counts every WatchEvent, plain or per-episode) would still say True -
+    that pre-existing distinction is untouched, not something this
+    introduces."""
+    return WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=True).count()
+
+
 @login_required
 @require_POST
 def title_mark_watched(request, pk):
@@ -635,13 +649,14 @@ def title_mark_watched(request, pk):
     episode-less WatchEvent (same shape History/the activity feed already
     render as "watched <title>" with no episode). Always creates a new
     WatchEvent, a second click logs a rewatch - there's still no
-    "unwatch" *here*; that's title_unmark_watched, a deliberately
-    separate endpoint the header button switches to once already watched
-    (see title_local_context's is_watched), not a toggle baked into this
-    one. The poster card's own watched button keeps this exact
-    always-append behavior even once a title is watched (rewatch
-    logging, guarded by its own confirm - see poster_card_watched_button.html) -
-    only the detail page's dedicated header control gained real
+    "unwatch" *here*; that's title_unmark_watched/title_unmark_last_watched,
+    deliberately separate endpoints (see title_local_context's is_watched,
+    and the poster card's own watched-button popover once watch_count > 0)
+    not a toggle baked into this one. The poster card's own watched button
+    keeps this exact always-append behavior even once a title is watched
+    (rewatch logging, now offered as an explicit popover menu item rather
+    than a bare second click - see poster_card_watched_button.html) - only
+    the detail page's dedicated header control gained real
     watched/unwatched toggle semantics."""
     title = get_object_or_404(Title, pk=pk)
     profile = Profile.objects.filter(user=request.user).first()
@@ -652,7 +667,12 @@ def title_mark_watched(request, pk):
     completion.sync_watchlist_removal(profile, title)
     recommendations.mark_title_watched(profile, title)
     if request.headers.get("HX-Request"):
-        return render(request, "tracker/partials/poster_card_watched_button.html", {"title": title, "watched": True})
+        watch_count = _plain_watch_count(profile, title)
+        return render(
+            request,
+            "tracker/partials/poster_card_watched_button.html",
+            {"title": title, "watched": True, "watch_count": watch_count},
+        )
     return redirect("title_detail", pk=pk)
 
 
@@ -662,16 +682,55 @@ def title_unmark_watched(request, pk):
     """The detail page's own header "Watched" control, once already
     watched - a genuine toggle, unlike title_mark_watched's other
     callers (the poster card action bar, the episode browser), which
-    always log a fresh rewatch and never unmark. Removes only the plain
-    (episode-less) watch marks that same header button creates - a
-    show's per-episode history from the episode browser is a separate,
-    untouched concern. The header form confirms client-side first (see
-    confirmModal() in title_detail.html) since this is destructive."""
+    always log a fresh rewatch and never unmark. Also reused by the
+    poster card watched-button popover's "Remove all watched history"
+    action (HX-Request branch below), which needed the exact same
+    behavior. Removes only the plain (episode-less) watch marks that
+    same header button creates - a show's per-episode history from the
+    episode browser is a separate, untouched concern. The header form
+    confirms client-side first (see confirmModal() in title_detail.html);
+    the popover's own menu item carries its own hx-confirm instead."""
     title = get_object_or_404(Title, pk=pk)
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
     WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=True).delete()
+    if request.headers.get("HX-Request"):
+        return render(
+            request,
+            "tracker/partials/poster_card_watched_button.html",
+            {"title": title, "watched": False, "watch_count": 0},
+        )
+    return redirect("title_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def title_unmark_last_watched(request, pk):
+    """The poster card watched-button popover's "Remove last watched" -
+    undoes a single play instead of title_unmark_watched's "clear
+    everything," letting a title logged several times step back one play
+    at a time. Only ever reached via the popover (watch_count > 0
+    already, by construction), so there's always something to delete in
+    practice, but a no-op is harmless either way."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    last = (
+        WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=True)
+        .order_by("-watched_at")
+        .first()
+    )
+    if last is not None:
+        last.delete()
+    watch_count = _plain_watch_count(profile, title)
+    if request.headers.get("HX-Request"):
+        return render(
+            request,
+            "tracker/partials/poster_card_watched_button.html",
+            {"title": title, "watched": watch_count > 0, "watch_count": watch_count},
+        )
     return redirect("title_detail", pk=pk)
 
 
@@ -863,7 +922,12 @@ def title_preview_mark_watched(request, media_type, tmdb_id):
     completion.sync_watchlist_removal(profile, title)
     recommendations.mark_title_watched(profile, title)
     if request.headers.get("HX-Request"):
-        return render(request, "tracker/partials/poster_card_watched_button.html", {"title": title, "watched": True})
+        watch_count = _plain_watch_count(profile, title)
+        return render(
+            request,
+            "tracker/partials/poster_card_watched_button.html",
+            {"title": title, "watched": True, "watch_count": watch_count},
+        )
     return redirect("title_detail", pk=title.pk)
 
 
@@ -970,12 +1034,21 @@ def _history_context(request, profile):
     type_filter = request.GET.get("type", "all")
     period = request.GET.get("period", "all") if request.GET.get("period") in HISTORY_PERIODS else "all"
     sort = "old" if request.GET.get("sort") == "old" else "new"
+    # Set from the poster card watched-button popover's "View history
+    # plays" link (?title=<pk>) - narrows History down to just that one
+    # title instead of the profile's whole history. title_filter is the
+    # actual Title (not just the id) so history.html can show what it's
+    # filtered to and offer a way to clear it.
+    title_id = request.GET.get("title", "")
+    title_filter = Title.objects.filter(pk=title_id).first() if title_id.isdigit() else None
 
     page_obj = None
     if profile is not None:
         events = WatchEvent.objects.filter(profile=profile).select_related("title", "episode")
         if type_filter in (MediaType.MOVIE, MediaType.TV, MediaType.ANIME):
             events = events.filter(title__media_type=type_filter)
+        if title_filter is not None:
+            events = events.filter(title=title_filter)
 
         now = timezone.now()
         today_start = timezone.localtime(now).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -996,6 +1069,7 @@ def _history_context(request, profile):
         "type_filter": type_filter,
         "period": period,
         "sort": sort,
+        "title_filter": title_filter,
         "time_format_str": _time_format_str(profile),
     }
 

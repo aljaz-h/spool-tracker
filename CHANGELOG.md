@@ -8,6 +8,23 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-07-25
+
+### Added
+
+- The poster card's watched checkmark now shows a "×N" play-count badge
+  once a title's been watched more than once.
+- Clicking an already-watched title's checkmark now opens a menu
+  instead of silently logging another play: View history plays (jumps
+  to History filtered to just that title), Mark as watched again,
+  Remove last watched (undoes a single play), and Remove all watched
+  history. A never-watched title still logs its first watch on a
+  single click, unchanged.
+- The History page can now be filtered to a single title via
+  `?title=<id>` (what the new menu's "View history plays" link uses),
+  with a "Filtered to X · Clear" banner and the filter preserved across
+  type/period/sort changes and pagination.
+
 ## [0.35.1] - 2026-07-25
 
 ### Changed

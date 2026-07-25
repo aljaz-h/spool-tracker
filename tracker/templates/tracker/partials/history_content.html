@@ -1,4 +1,11 @@
 {% load tracker_extras %}
+{% if title_filter %}
+  <div class="flex items-center justify-between gap-3 bg-base-200 border border-line rounded-lg px-4 py-2.5 mb-5 text-sm">
+    <span>Filtered to <b>{{ title_filter.name }}</b></span>
+    <a hx-get="?type={{ type_filter }}&period={{ period }}&sort={{ sort }}" hx-target="#history-content" hx-push-url="true"
+       class="text-xs text-ink-faint hover:text-base-content cursor-pointer">&times; Clear</a>
+  </div>
+{% endif %}
 {% if not profile %}
   <p class="text-ink-faint text-sm">Your account isn't linked to a household profile yet.</p>
 {% elif not day_groups %}
@@ -29,19 +36,19 @@
     <span class="font-mono text-xs text-ink-faint">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }} · {{ page_obj.paginator.count }} entries</span>
     <div class="flex gap-1.5">
       {% if page_obj.has_previous %}
-        <a hx-get="?type={{ type_filter }}&period={{ period }}&sort={{ sort }}&page={{ page_obj.previous_page_number }}" hx-target="#history-content" hx-push-url="true"
+        <a hx-get="?type={{ type_filter }}&period={{ period }}&sort={{ sort }}&title={{ title_filter.pk|default:"" }}&page={{ page_obj.previous_page_number }}" hx-target="#history-content" hx-push-url="true"
            class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim cursor-pointer">‹ Prev</a>
       {% endif %}
       {% for num in page_obj.paginator.page_range %}
         {% if num == page_obj.number %}
           <span class="px-3 py-1.5 rounded-md bg-primary text-primary-content font-mono text-xs font-bold">{{ num }}</span>
         {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}
-          <a hx-get="?type={{ type_filter }}&period={{ period }}&sort={{ sort }}&page={{ num }}" hx-target="#history-content" hx-push-url="true"
+          <a hx-get="?type={{ type_filter }}&period={{ period }}&sort={{ sort }}&title={{ title_filter.pk|default:"" }}&page={{ num }}" hx-target="#history-content" hx-push-url="true"
              class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim cursor-pointer">{{ num }}</a>
         {% endif %}
       {% endfor %}
       {% if page_obj.has_next %}
-        <a hx-get="?type={{ type_filter }}&period={{ period }}&sort={{ sort }}&page={{ page_obj.next_page_number }}" hx-target="#history-content" hx-push-url="true"
+        <a hx-get="?type={{ type_filter }}&period={{ period }}&sort={{ sort }}&title={{ title_filter.pk|default:"" }}&page={{ page_obj.next_page_number }}" hx-target="#history-content" hx-push-url="true"
            class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim cursor-pointer">Next ›</a>
       {% endif %}
     </div>

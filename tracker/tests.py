@@ -7005,6 +7005,105 @@ class TitleUnmarkWatchedTests(TestCase):
         resp = self.client.post(reverse("title_unmark_watched", args=[self.title.pk]))
         self.assertNotEqual(resp.status_code, 200)
 
+    def test_via_htmx_returns_the_unwatched_button_fragment_not_a_redirect(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
+        resp = self.client.post(reverse("title_unmark_watched", args=[self.title.pk]), HTTP_HX_REQUEST="true")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, f"watched-btn-{self.title.pk}")
+        self.assertContains(resp, "Mark as watched")
+        self.assertNotContains(resp, "text-success")
+
+
+class TitleUnmarkLastWatchedTests(TestCase):
+    """The poster card watched-button popover's "Remove last watched" -
+    undoes a single play, unlike title_unmark_watched (which clears every
+    plain watch mark for the title)."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.timezone = timezone
+        user = User.objects.create_user("unmarklastuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="UnmarkLastUser")
+        self.client.login(username="unmarklastuser", password="pass12345")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+
+    def test_removes_only_the_most_recent_play(self):
+        older = WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now() - timedelta(days=1))
+        newer = WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
+        self.client.post(reverse("title_unmark_last_watched", args=[self.title.pk]))
+        self.assertTrue(WatchEvent.objects.filter(pk=older.pk).exists())
+        self.assertFalse(WatchEvent.objects.filter(pk=newer.pk).exists())
+
+    def test_removing_the_only_play_leaves_the_title_unwatched(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
+        resp = self.client.post(reverse("title_unmark_last_watched", args=[self.title.pk]), HTTP_HX_REQUEST="true")
+        self.assertFalse(WatchEvent.objects.filter(profile=self.profile, title=self.title).exists())
+        self.assertContains(resp, "Mark as watched")
+        self.assertNotContains(resp, "text-success")
+
+    def test_via_htmx_returns_the_fragment_still_showing_watched_when_plays_remain(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now() - timedelta(days=1))
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
+        resp = self.client.post(reverse("title_unmark_last_watched", args=[self.title.pk]), HTTP_HX_REQUEST="true")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "text-success")
+
+    def test_no_op_when_nothing_to_remove(self):
+        resp = self.client.post(reverse("title_unmark_last_watched", args=[self.title.pk]))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_requires_get_is_rejected(self):
+        resp = self.client.get(reverse("title_unmark_last_watched", args=[self.title.pk]))
+        self.assertEqual(resp.status_code, 405)
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("title_unmark_last_watched", args=[self.title.pk]))
+        self.assertNotEqual(resp.status_code, 200)
+
+
+class PosterCardWatchedButtonPopoverTests(TestCase):
+    """The watched-button popover (poster_card_watched_button.html) that
+    replaces the bare checkmark once a title has been watched at least
+    once - rendered via list_detail (real Title poster cards)."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.timezone = timezone
+        user = User.objects.create_user("watchedpopoveruser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="WatchedPopoverUser")
+        self.client.login(username="watchedpopoveruser", password="pass12345")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        self.watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        WatchListItem.objects.create(watchlist=self.watchlist, title=self.title)
+
+    def test_unwatched_title_has_no_popover(self):
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.pk]))
+        self.assertNotContains(resp, "Remove all watched history")
+        self.assertContains(resp, f'hx-post="{reverse("title_mark_watched", args=[self.title.pk])}"')
+
+    def test_watched_once_shows_popover_with_no_count_badge(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.pk]))
+        self.assertContains(resp, "View history plays")
+        self.assertContains(resp, "Mark as watched again")
+        self.assertContains(resp, "Remove last watched")
+        self.assertContains(resp, "Remove all watched history")
+        self.assertNotContains(resp, "&times;1</span>")
+
+    def test_watched_multiple_times_shows_count_badge(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now() - timedelta(days=1))
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.pk]))
+        self.assertContains(resp, "&times;2</span>")
+
+    def test_history_link_targets_this_title(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.pk]))
+        self.assertContains(resp, f'href="{reverse("history")}?title={self.title.pk}"')
+
 
 class EpisodeMarkWatchedTests(TestCase):
     """The episode browser's per-episode watched button."""
@@ -7376,6 +7475,30 @@ class PosterActionContextSelectorTests(TestCase):
         self.assertIn(title.pk, context["list_membership"])
         self.assertEqual(context["list_membership"][title.pk], set())
 
+    def test_watch_count_reflects_number_of_plain_plays(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Rewatched", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-02-01T00:00:00Z")
+        context = selectors.poster_action_context(self.profile, [title])
+        self.assertEqual(context["watch_count_by_title"][title.pk], 2)
+
+    def test_watch_count_is_zero_not_missing_for_an_unwatched_title(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Unwatched", year=2020)
+        context = selectors.poster_action_context(self.profile, [title])
+        self.assertEqual(context["watch_count_by_title"][title.pk], 0)
+
+    def test_watch_count_excludes_per_episode_plays(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+        episode = Episode.objects.create(title=show, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=show, episode=episode, watched_at="2024-01-01T00:00:00Z")
+        context = selectors.poster_action_context(self.profile, [show])
+        # watched_by_title counts any WatchEvent (plain or per-episode), so
+        # this show still reads as watched overall - but watch_count_by_title
+        # only counts the plain events the popover's own actions can touch,
+        # and this show has none.
+        self.assertTrue(context["watched_by_title"][show.pk])
+        self.assertEqual(context["watch_count_by_title"][show.pk], 0)
+
 
 class DiscoverActionContextSelectorTests(TestCase):
     """discover_action_context - poster_action_context's counterpart for
@@ -7418,6 +7541,19 @@ class DiscoverActionContextSelectorTests(TestCase):
         key = "movie:42"
         self.assertEqual(context["discover_list_membership"][key], {watchlist.id})
         self.assertFalse(context["discover_watched"][key])
+
+    def test_watch_count_reflects_number_of_plain_plays(self):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-02-01T00:00:00Z")
+        context = selectors.discover_action_context(self.profile, [self._item()])
+        self.assertEqual(context["discover_watch_count"]["movie:42"], 2)
+
+    def test_watch_count_is_zero_with_no_local_title(self):
+        context = selectors.discover_action_context(self.profile, [self._item()])
+        self.assertEqual(context["discover_watch_count"]["movie:42"], 0)
 
     def test_another_profiles_watch_history_does_not_leak_in(self):
         title = Title.objects.create(
@@ -7514,6 +7650,50 @@ class PosterCardListPopoverHtmxBranchTests(TestCase):
         self.assertIn(self.title.pk, resp.context["watched_by_title"])
         self.assertTrue(resp.context["watched_by_title"][self.title.pk])
         self.assertIn("Mine", [wl.name for wl in resp.context["my_lists"]])
+
+
+class HistoryTitleFilterTests(TestCase):
+    """The poster card watched-button popover's "View history plays" link
+    (?title=<pk>) narrows the History page down to just that one title."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.timezone = timezone
+        user = User.objects.create_user("historyfilteruser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="HistoryFilterUser")
+        self.client.login(username="historyfilteruser", password="pass12345")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        self.other_title = Title.objects.create(media_type=MediaType.MOVIE, name="Evil Dead Burn", year=2019)
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
+        WatchEvent.objects.create(profile=self.profile, title=self.other_title, watched_at=self.timezone.now())
+
+    def test_filters_to_just_the_given_title(self):
+        resp = self.client.get(reverse("history"), {"title": self.title.pk})
+        self.assertContains(resp, "Fathom")
+        self.assertNotContains(resp, "Evil Dead Burn")
+
+    def test_shows_a_filtered_banner_with_a_clear_link(self):
+        resp = self.client.get(reverse("history"), {"title": self.title.pk})
+        self.assertContains(resp, "Filtered to")
+        self.assertContains(resp, "Clear")
+
+    def test_no_banner_without_a_title_filter(self):
+        resp = self.client.get(reverse("history"))
+        self.assertNotContains(resp, "Filtered to")
+
+    def test_invalid_title_param_is_ignored_not_a_500(self):
+        resp = self.client.get(reverse("history"), {"title": "not-a-number"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Fathom")
+        self.assertContains(resp, "Evil Dead Burn")
+
+    def test_filter_form_carries_the_title_forward_for_further_requests(self):
+        # The type/period/sort filter form re-submits on every change - a
+        # hidden "title" field is what keeps the title filter applied
+        # when switching those, instead of silently dropping it.
+        resp = self.client.get(reverse("history"), {"title": self.title.pk})
+        self.assertContains(resp, f'<input type="hidden" name="title" value="{self.title.pk}">')
 
 
 class HistoryConsecutiveEpisodeGroupingTests(TestCase):

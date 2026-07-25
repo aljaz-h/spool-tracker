@@ -15,6 +15,7 @@ urlpatterns = [
     path("titles/<int:pk>/episodes/", views.title_episodes, name="title_episodes"),
     path("titles/<int:pk>/mark-watched/", views.title_mark_watched, name="title_mark_watched"),
     path("titles/<int:pk>/unmark-watched/", views.title_unmark_watched, name="title_unmark_watched"),
+    path("titles/<int:pk>/unmark-last-watched/", views.title_unmark_last_watched, name="title_unmark_last_watched"),
     path(
         "titles/<int:pk>/episodes/<int:season>/<int:episode_number>/mark-watched/",
         views.episode_mark_watched,

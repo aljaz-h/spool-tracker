@@ -34,6 +34,7 @@
           <input type="radio" name="type" value="anime" class="hidden" {% if type_filter == "anime" %}checked{% endif %}>Anime
         </label>
       </div>
+      <input type="hidden" name="title" value="{{ title_filter.pk|default:"" }}">
       <div class="flex gap-2.5 flex-wrap">
         <select name="period" class="bg-base-200 border border-line text-ink-dim text-xs px-3 py-2 rounded-lg">
           <option value="all" {% if period == "all" %}selected{% endif %}>All time</option>
@@ -70,7 +71,7 @@
         <span class="text-xs font-mono text-ink-dim"><span x-text="selectedCount"></span> selected</span>
         <button
           type="button"
-          hx-post="{% url 'history_bulk_delete' %}?type={{ type_filter }}&period={{ period }}&sort={{ sort }}&page={{ page_obj.number }}"
+          hx-post="{% url 'history_bulk_delete' %}?type={{ type_filter }}&period={{ period }}&sort={{ sort }}&title={{ title_filter.pk|default:"" }}&page={{ page_obj.number }}"
           hx-include="[name='event_ids']:checked"
           hx-target="#history-content"
           hx-confirm="Remove the selected items from your watch history? This can't be undone."

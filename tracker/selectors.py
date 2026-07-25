@@ -902,6 +902,20 @@ def poster_action_context(profile, titles):
     )
     watched_by_title = {tid: tid in watched_ids for tid in title_ids}
 
+    # Plain (episode-less) watches only - what the poster card's
+    # watched-button popover shows/acts on (see views._plain_watch_count).
+    # A show watched entirely via the episode browser still shows a
+    # filled-in checkmark above (it has WatchEvents, just none plain) but
+    # its popover has nothing to count/undo - watched_by_title and
+    # watch_count_by_title deliberately answer different questions.
+    plain_counts = dict(
+        WatchEvent.objects.filter(profile=profile, title_id__in=title_ids, episode__isnull=True)
+        .values("title_id")
+        .annotate(n=Count("id"))
+        .values_list("title_id", "n")
+    )
+    watch_count_by_title = {tid: plain_counts.get(tid, 0) for tid in title_ids}
+
     my_lists = list(WatchList.objects.filter(profile=profile).order_by("name"))
     list_membership = {tid: set() for tid in title_ids}
     for title_id, list_id in WatchListItem.objects.filter(
@@ -909,7 +923,12 @@ def poster_action_context(profile, titles):
     ).values_list("title_id", "watchlist_id"):
         list_membership[title_id].add(list_id)
 
-    return {"watched_by_title": watched_by_title, "my_lists": my_lists, "list_membership": list_membership}
+    return {
+        "watched_by_title": watched_by_title,
+        "watch_count_by_title": watch_count_by_title,
+        "my_lists": my_lists,
+        "list_membership": list_membership,
+    }
 
 
 def discover_action_context(profile, items):
@@ -944,6 +963,14 @@ def discover_action_context(profile, items):
     watched_title_ids = set(
         WatchEvent.objects.filter(profile=profile, title_id__in=title_ids).values_list("title_id", flat=True).distinct()
     )
+    # Plain-watch counts, same distinction as poster_action_context's own
+    # watch_count_by_title - what the watched-button popover shows/acts on.
+    plain_counts_by_title = dict(
+        WatchEvent.objects.filter(profile=profile, title_id__in=title_ids, episode__isnull=True)
+        .values("title_id")
+        .annotate(n=Count("id"))
+        .values_list("title_id", "n")
+    )
     list_membership_by_title = {}
     for title_id, list_id in WatchListItem.objects.filter(
         watchlist__profile=profile, title_id__in=title_ids
@@ -951,13 +978,16 @@ def discover_action_context(profile, items):
         list_membership_by_title.setdefault(title_id, set()).add(list_id)
 
     discover_watched = {}
+    discover_watch_count = {}
     discover_list_membership = {}
     for key, title in matched_title_by_key.items():
         discover_watched[key] = bool(title and title.pk in watched_title_ids)
+        discover_watch_count[key] = plain_counts_by_title.get(title.pk, 0) if title else 0
         discover_list_membership[key] = list_membership_by_title.get(title.pk, set()) if title else set()
 
     return {
         "discover_title_by_key": matched_title_by_key,
         "discover_watched": discover_watched,
+        "discover_watch_count": discover_watch_count,
         "discover_list_membership": discover_list_membership,
     }
