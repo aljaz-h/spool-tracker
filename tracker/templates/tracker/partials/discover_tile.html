@@ -21,7 +21,7 @@ a title they've already watched or listed.
 {% if item.display_mode != "hide" %}
 {% with key=item|tmdb_key %}
 {% with matched_title=discover_title_by_key|get_item:key %}
-<div class="relative {% if item.display_mode == "dim" %}opacity-40 hover:opacity-100 focus-within:opacity-100 transition-opacity{% endif %}">
+<div class="relative {% if item.display_mode == "dim" %}opacity-25 hover:opacity-100 focus-within:opacity-100 transition-opacity{% endif %}">
   <div class="aspect-[2/3] rounded-t-lg relative overflow-hidden bg-cover bg-center {% if not item.poster_url %}{{ item.tmdb_id|gradient_class }}{% endif %}"
        {% if item.poster_url %}style="background-image:url('{{ item.poster_url }}')"{% endif %}>
     <a href="{% url 'title_preview' item.media_type item.tmdb_id %}" class="absolute inset-0 z-0">

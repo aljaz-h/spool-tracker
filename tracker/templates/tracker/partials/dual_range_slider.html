@@ -15,11 +15,17 @@ keeps the fill bar/labels hidden until Alpine has applied that
 calculation at least once, instead of briefly showing the pre-hydration
 unstyled (effectively full-width) state.
 
-Each thumb uses :value + @input (not x-model) so the handler can clamp
-against the *other* thumb's current value before writing - otherwise
-dragging one handle past the other produces an inverted range (from >
-to) that neither the fill bar nor the TMDB query params behind it were
-ever designed to handle.
+Each thumb's own min/max is bound to the *other* thumb's live value
+(:max on the from-input, :min on the to-input) so the browser's native
+range-dragging behavior itself refuses to cross them, rather than
+reacting after the fact - a first attempt tried clamping the bound value
+from an @input handler instead, but Chrome (and others) keep rendering
+a range thumb at the raw pointer position while the mouse button is
+still down regardless of the element's own .value being reset from JS
+mid-drag, so the thumb visibly sailed straight through the other one
+even though the submitted value was technically clamped. Constraining
+min/max is a real HTML5 input-level constraint the browser enforces
+live during the drag itself, not just on release.
 {% endcomment %}
 <div>
   <div class="text-[11px] text-ink-dim mb-4 font-semibold uppercase tracking-wide">{{ label }}</div>
@@ -42,11 +48,11 @@ ever designed to handle.
       :style="`left:calc(${(({{ from_var }} - _min) / (_max - _min))} * (100% - 16px) + 8px); right:calc(100% - (${(({{ to_var }} - _min) / (_max - _min))} * (100% - 16px) + 8px))`"
     ></div>
 
-    <input type="range" name="{{ name_from }}" min="{{ min }}" max="{{ max }}" step="{{ step|default:1 }}"
-      :value="{{ from_var }}" @input="{{ from_var }} = Math.min(Number($event.target.value), {{ to_var }})"
+    <input type="range" name="{{ name_from }}" min="{{ min }}" :max="{{ to_var }}" step="{{ step|default:1 }}"
+      x-model.number="{{ from_var }}"
       class="dual-range-thumb absolute inset-x-0 top-1/2 h-5 w-full -translate-y-1/2 cursor-pointer appearance-none bg-transparent pointer-events-none">
-    <input type="range" name="{{ name_to }}" min="{{ min }}" max="{{ max }}" step="{{ step|default:1 }}"
-      :value="{{ to_var }}" @input="{{ to_var }} = Math.max(Number($event.target.value), {{ from_var }})"
+    <input type="range" name="{{ name_to }}" :min="{{ from_var }}" max="{{ max }}" step="{{ step|default:1 }}"
+      x-model.number="{{ to_var }}"
       class="dual-range-thumb absolute inset-x-0 top-1/2 h-5 w-full -translate-y-1/2 cursor-pointer appearance-none bg-transparent pointer-events-none">
   </div>
 </div>

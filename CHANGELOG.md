@@ -8,6 +8,20 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.44.1] - 2026-07-27
+
+### Fixed
+
+- The Year/Runtime/Rating range sliders' handle-crossing fix in 0.44.0
+  didn't actually work in practice - clamping the bound value from an
+  `@input` handler doesn't stop Chrome (and others) from rendering the
+  thumb at the raw pointer position while the mouse is still down, so it
+  visibly sailed through the other handle anyway. Fixed properly this
+  time by binding each handle's own min/max to the other handle's live
+  value, a constraint the browser enforces natively during the drag
+  itself.
+- The Display panel's "Dim" opacity was too subtle - lowered further.
+
 ## [0.44.0] - 2026-07-27
 
 ### Added

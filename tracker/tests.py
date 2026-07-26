@@ -6399,7 +6399,7 @@ class DiscoverViewTests(TestCase):
         }
         resp = self.client.get(reverse("movies_tv", args=["popular"]))
         self.assertContains(resp, "Fathom")
-        self.assertNotContains(resp, "opacity-40")
+        self.assertNotContains(resp, "opacity-25")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
@@ -6434,7 +6434,7 @@ class DiscoverViewTests(TestCase):
         }
         resp = self.client.get(reverse("movies_tv", args=["popular"]), {"watched_display": "dim"})
         self.assertContains(resp, "Fathom")
-        self.assertContains(resp, "opacity-40")
+        self.assertContains(resp, "opacity-25")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
