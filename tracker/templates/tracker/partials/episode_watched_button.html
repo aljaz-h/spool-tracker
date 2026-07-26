@@ -1,11 +1,12 @@
 {% load icons %}
-{# context: title, season, episode_number, watched (bool) #}
+{# context: title, season, episode_number, watched (bool), id_suffix (str, optional - disambiguates the id when this partial renders more than once for the same episode, e.g. title_episodes.html's separate mobile/desktop layouts) #}
 <button
   type="button"
-  id="ep-watched-btn-{{ title.pk }}-{{ season }}-{{ episode_number }}"
+  id="ep-watched-btn-{{ title.pk }}-{{ season }}-{{ episode_number }}{{ id_suffix }}"
   hx-post="{% url 'episode_mark_watched' title.pk season episode_number %}"
-  hx-target="#ep-watched-btn-{{ title.pk }}-{{ season }}-{{ episode_number }}"
+  hx-target="#ep-watched-btn-{{ title.pk }}-{{ season }}-{{ episode_number }}{{ id_suffix }}"
   hx-swap="outerHTML"
+  hx-vals='{"id_suffix": "{{ id_suffix }}"}'
   {% if watched %}hx-confirm="Log another watch of S{{ season }}E{{ episode_number }}?"{% endif %}
   title="{% if watched %}Watched — log another watch{% else %}Mark as watched{% endif %}"
   class="w-7 h-7 rounded-full flex items-center justify-center border transition-colors flex-none

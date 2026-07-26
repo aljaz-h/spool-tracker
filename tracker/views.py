@@ -830,7 +830,13 @@ def episode_mark_watched(request, pk, season, episode_number):
     return render(
         request,
         "tracker/partials/episode_watched_button.html",
-        {"title": title, "season": season, "episode_number": episode_number, "watched": True},
+        {
+            "title": title,
+            "season": season,
+            "episode_number": episode_number,
+            "watched": True,
+            "id_suffix": request.POST.get("id_suffix", ""),
+        },
     )
 
 

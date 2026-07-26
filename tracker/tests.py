@@ -7067,6 +7067,27 @@ class TitleEpisodeBrowserTests(TestCase):
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         self.assertEqual(resp.context["season_ratings"], {})
 
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_mobile_and_desktop_episode_layouts_both_render_with_distinct_button_ids(
+        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details
+    ):
+        # The compact mobile row list and the sm:+ card grid render the
+        # same episodes twice (one hidden via CSS at any given
+        # breakpoint) - episode_watched_button.html's id_suffix keeps
+        # their button ids from colliding (see EpisodeMarkWatchedTests
+        # for the round-trip through a click).
+        mock_details.return_value = self._details()
+        mock_season.return_value = self._season(["Freedom Day"])
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        content = resp.content.decode()
+        self.assertIn(f'id="ep-watched-btn-{self.title.pk}-1-1"', content)
+        self.assertIn(f'id="ep-watched-btn-{self.title.pk}-1-1-m"', content)
+        self.assertEqual(content.count("Freedom Day"), 2)
+
 
 class TitleMarkSeasonWatchedTests(TestCase):
     """The episode browser's "Mark season watched"/"Mark all watched"
@@ -7662,6 +7683,19 @@ class EpisodeMarkWatchedTests(TestCase):
         self.client.logout()
         resp = self.client.post(reverse("episode_mark_watched", args=[self.title.pk, 1, 1]))
         self.assertNotEqual(resp.status_code, 200)
+
+    @patch("tracker.integrations.tmdb.get_season_details", return_value=None)
+    def test_id_suffix_round_trips_so_the_mobile_button_keeps_a_distinct_id(self, mock_season):
+        # The mobile episode row's button posts its own id_suffix (see
+        # episode_watched_button.html's hx-vals) so the swapped-in
+        # response keeps the "-m" id instead of colliding with the
+        # desktop card's un-suffixed one for the same episode.
+        resp = self.client.post(
+            reverse("episode_mark_watched", args=[self.title.pk, 1, 1]),
+            {"id_suffix": "-m"},
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertContains(resp, f"ep-watched-btn-{self.title.pk}-1-1-m")
 
 
 class WatchlistAutoRemovalIntegrationTests(TestCase):

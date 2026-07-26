@@ -8,6 +8,25 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-07-26
+
+### Changed
+
+- Reworked the title detail page for mobile:
+  - The poster/title header now stacks the poster above the title
+    instead of squeezing both side by side, which used to wrap the
+    title across several lines and clip it inside the header's fixed
+    height on narrow screens.
+  - Episodes below the `sm:` breakpoint now render as a compact row
+    (small thumbnail + title inline) instead of a full-width
+    video-thumbnail card per episode - the same card grid as before
+    on `sm:` and up.
+  - The 10-star "Your rating" row shrinks and wraps instead of
+    risking overflow on narrow screens.
+  - Reduced the app's main content padding on mobile/tablet
+    (affects every page, not just title detail) so content isn't
+    losing 64px total width to padding on a phone-sized screen.
+
 ## [0.40.0] - 2026-07-26
 
 ### Added

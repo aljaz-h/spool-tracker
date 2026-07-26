@@ -77,7 +77,46 @@
       </div>
     </div>
 
-    <div class="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4 mb-8">
+    {% comment %}
+      Two different layouts, not one resized with breakpoints: below
+      sm:, each episode is a compact row (small thumbnail + text
+      inline, badges folded into the text line) instead of a card with
+      a full-width video-aspect image on top - the card version at a
+      single mobile-width column meant a full-bleed thumbnail per
+      episode, turning a season into a very long, thumbnail-heavy
+      scroll. sm: and up keeps the existing card grid exactly as it
+      was (already proven at those widths) - same precedent as the
+      topbar/sidebar's separate mobile vs desktop nav markup.
+    {% endcomment %}
+    <div class="flex flex-col gap-2 mb-8 sm:hidden">
+      {% for ep in episodes %}
+        <div class="bg-base-200 border border-line rounded-lg overflow-hidden flex items-center gap-3 p-2">
+          <div
+            class="w-20 h-14 flex-none rounded-md relative overflow-hidden bg-base-300 bg-cover bg-center {% if not ep.still_url %}{{ title.pk|default:preview_tmdb_id|add:ep.episode_number|gradient_class }}{% endif %}"
+            {% if ep.still_url %}style="background-image:url('{{ ep.still_url }}')"{% endif %}
+          >
+            {% if ep.watched %}
+              <span class="absolute inset-0 bg-black/35 flex items-center justify-center text-success text-base" title="Watched">&#10003;</span>
+            {% endif %}
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="font-mono text-[10px] text-ink-dim flex items-center gap-1.5">
+              <span>S{{ season|stringformat:"02d" }}E{{ ep.episode_number|stringformat:"02d" }}</span>
+              {% if ep.vote_average %}<span><span class="text-amber-400">&#9733;</span> {{ ep.vote_average|floatformat:1 }}</span>{% endif %}
+              {% if ep.is_finale %}<span class="text-primary font-bold uppercase">Finale</span>{% endif %}
+            </div>
+            <div class="text-[13px] font-semibold truncate mt-0.5">{{ ep.name }}</div>
+          </div>
+          {% if title %}
+            {% include "tracker/partials/episode_watched_button.html" with title=title season=season episode_number=ep.episode_number watched=ep.watched id_suffix="-m" %}
+          {% endif %}
+        </div>
+      {% empty %}
+        <p class="text-ink-faint text-sm">No episode data for this season yet.</p>
+      {% endfor %}
+    </div>
+
+    <div class="hidden sm:grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4 mb-8">
       {% for ep in episodes %}
         <div class="bg-base-200 border border-line rounded-lg overflow-hidden">
           <div

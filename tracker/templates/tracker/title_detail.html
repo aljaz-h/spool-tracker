@@ -9,7 +9,7 @@
     </div>
   {% endif %}
 
-  <div class="rounded-2xl overflow-hidden relative mb-6 border border-line h-[300px] md:h-[340px] {% if not details.backdrop_url %}{{ poster_seed|gradient_class }}{% endif %}"
+  <div class="rounded-2xl overflow-hidden relative mb-6 border border-line min-h-[220px] h-auto sm:h-[300px] md:h-[340px] {% if not details.backdrop_url %}{{ poster_seed|gradient_class }}{% endif %}"
        {% if details.backdrop_url %}style="background-image:url('{{ details.backdrop_url }}');background-size:cover;background-position:center 20%"{% endif %}>
     <div class="absolute inset-0 bg-linear-to-t from-base-100 via-base-100/65 to-transparent"></div>
     <div class="absolute inset-0 bg-linear-to-r from-base-100 via-base-100/35 to-transparent"></div>
@@ -17,18 +17,27 @@
     <div class="filmstrip-edge filmstrip-edge--right"></div>
 
     {% if director %}
-      <div class="absolute z-10 bottom-4 right-6 text-right font-mono text-[11px] text-ink-dim">
+      <div class="absolute z-10 bottom-4 right-6 text-right font-mono text-[11px] text-ink-dim hidden sm:block">
         <div>Directed by <span class="text-base-content font-semibold">{{ director.name }}</span></div>
       </div>
     {% endif %}
 
-    <div class="relative z-10 h-full flex flex-wrap gap-5 p-6 items-end">
-      <div class="w-[130px] aspect-[2/3] flex-none rounded-lg overflow-hidden border border-white/10 bg-cover bg-center {% if not display_poster_url %}{{ poster_seed|gradient_class }}{% endif %}"
+    {% comment %}
+      Below sm:, the poster sits above the title instead of beside it
+      (flex-col, items-start) - side-by-side at the full desktop sizes
+      (130px poster + text-4xl heading) left almost no width for the
+      text column on a phone, wrapping the title across several lines
+      inside this block's fixed height and clipping it. Stacking, plus
+      smaller poster/text sizes, keeps everything on-screen without
+      needing to know the title's length ahead of time.
+    {% endcomment %}
+    <div class="relative z-10 h-full flex flex-col sm:flex-row sm:flex-wrap gap-4 sm:gap-5 p-4 sm:p-6 items-start sm:items-end">
+      <div class="w-[92px] sm:w-[130px] aspect-[2/3] flex-none rounded-lg overflow-hidden border border-white/10 bg-cover bg-center {% if not display_poster_url %}{{ poster_seed|gradient_class }}{% endif %}"
            {% if display_poster_url %}style="background-image:url('{{ display_poster_url }}')"{% endif %}>
       </div>
       <div class="min-w-0 flex-1">
-        <h1 class="font-display text-4xl">{{ display_name }}
-          <span class="text-ink-dim text-2xl font-body align-middle">{{ display_year }}</span>
+        <h1 class="font-display text-2xl sm:text-4xl">{{ display_name }}
+          <span class="text-ink-dim text-base sm:text-2xl font-body align-middle">{{ display_year }}</span>
           {% if status_badge %}
             <span class="align-middle font-mono text-[11px] uppercase tracking-wide px-2 py-0.5 rounded-full border
               {% if status_badge.color == 'success' %}border-success/30 bg-success/15 text-success
@@ -43,7 +52,7 @@
           {% if details.number_of_seasons %}<span>{{ details.number_of_seasons }} season{{ details.number_of_seasons|pluralize }} · {{ details.number_of_episodes }} episodes</span>{% endif %}
           {% if details.genres %}<span>{{ details.genres|join:", " }}</span>{% endif %}
         </div>
-        {% if details.tagline %}<div class="text-ink-dim italic text-sm mt-3">{{ details.tagline }}</div>{% endif %}
+        {% if details.tagline %}<div class="text-ink-dim italic text-sm mt-3 hidden sm:block">{{ details.tagline }}</div>{% endif %}
 
         {% comment %}
           Movies are a single item - "watched" is a single fact, so the
@@ -115,13 +124,13 @@
       {% if not is_preview %}
         <div class="bg-base-200 border border-line rounded-2xl p-4">
           <div class="text-[10px] text-ink-faint uppercase tracking-wide mb-1.5">Your rating</div>
-          <form method="post" action="{% url 'title_rate' title.pk %}" class="flex items-center gap-1.5">
+          <form method="post" action="{% url 'title_rate' title.pk %}" class="flex items-center flex-wrap gap-1 sm:gap-1.5">
             {% csrf_token %}
             {% for star in star_fill %}
-              <div class="relative w-7 h-7" title="Rate {{ star.right }}/10">
-                <span class="absolute inset-0 text-3xl leading-none text-ink-faint select-none">&#9733;</span>
+              <div class="relative w-6 h-6 sm:w-7 sm:h-7" title="Rate {{ star.right }}/10">
+                <span class="absolute inset-0 text-2xl sm:text-3xl leading-none text-ink-faint select-none">&#9733;</span>
                 {% if star.fill %}
-                  <span class="absolute inset-0 text-3xl leading-none text-primary select-none overflow-hidden pointer-events-none" style="width:{{ star.fill }}%">&#9733;</span>
+                  <span class="absolute inset-0 text-2xl sm:text-3xl leading-none text-primary select-none overflow-hidden pointer-events-none" style="width:{{ star.fill }}%">&#9733;</span>
                 {% endif %}
                 <button type="submit" name="rating" value="{{ star.left }}" class="absolute inset-y-0 left-0 w-1/2 cursor-pointer" aria-label="Rate {{ star.left }} out of 10"></button>
                 <button type="submit" name="rating" value="{{ star.right }}" class="absolute inset-y-0 right-0 w-1/2 cursor-pointer" aria-label="Rate {{ star.right }} out of 10"></button>
