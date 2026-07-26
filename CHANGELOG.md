@@ -8,6 +8,26 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-07-26
+
+### Added
+
+- Search now tolerates typos ("avangers" finds "The Avengers") - TMDB's
+  own search API has no fuzzy matching at all (a single typo'd letter
+  returns zero results), so a misspelled word gets a spelling-corrected
+  retry merged in behind the direct results.
+- Search now understands a trailing year to disambiguate a same-named
+  movie/show ("avengers 2012" surfaces the 2012 film first, not a
+  1960s TV series or an unrelated sequel).
+- The search results page has an All/Movie/TV/Anime tab filter,
+  narrowing both the "In your library" and "Discover more on TMDB"
+  sections the same way.
+
+### Changed
+
+- Added a new dependency, `pyspellchecker`, for the typo-correction
+  above - needs an image rebuild to pick up (`docker compose build`).
+
 ## [0.41.0] - 2026-07-26
 
 ### Changed

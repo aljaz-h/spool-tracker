@@ -10,10 +10,10 @@
     </div>
   </div>
 
-  <form method="get" action="{% url 'search' %}" class="mb-8 max-w-md">
+  <form method="get" action="{% url 'search' %}" class="mb-6 max-w-md">
     <input
       type="text" name="q" value="{{ query }}" autofocus
-      placeholder="Search movies, TV, anime…"
+      placeholder="Search movies, TV, anime… e.g. &quot;avengers 2012&quot;"
       class="w-full bg-base-200 border border-line rounded-lg px-3.5 py-2.5 text-sm focus:outline-primary"
     >
   </form>
@@ -21,6 +21,13 @@
   {% if not query %}
     <div class="py-16 text-center text-ink-faint text-sm">Type something above to search your library and TMDB.</div>
   {% else %}
+    <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5 mb-6">
+      <a href="?q={{ query|urlencode }}&type=all" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if selected_type == "all" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">All</a>
+      <a href="?q={{ query|urlencode }}&type=movie" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if selected_type == "movie" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Movie</a>
+      <a href="?q={{ query|urlencode }}&type=tv" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if selected_type == "tv" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">TV</a>
+      <a href="?q={{ query|urlencode }}&type=anime" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if selected_type == "anime" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Anime</a>
+    </div>
+
     <div class="flex flex-col gap-8">
 
       <div>

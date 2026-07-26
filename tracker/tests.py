@@ -5320,6 +5320,172 @@ class TmdbSearchTests(TestCase):
     def test_no_api_key_returns_empty_results(self):
         self.assertEqual(tmdb.search("x")["results"], [])
 
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_is_anime_flag_set_for_animation_genre_and_japanese_language(self, mock_get):
+        mock_get.return_value = self._response(
+            [
+                {
+                    "id": 1, "media_type": "tv", "name": "Naruto", "first_air_date": "2002-10-03",
+                    "poster_path": None, "genre_ids": [16, 10759], "original_language": "ja",
+                },
+                {
+                    "id": 2, "media_type": "movie", "title": "Fathom", "release_date": "2020-01-01",
+                    "poster_path": None, "genre_ids": [16], "original_language": "en",
+                },
+            ]
+        )
+        results = tmdb.search("x")["results"]
+        self.assertTrue(results[0]["is_anime"])
+        self.assertFalse(results[1]["is_anime"])
+
+
+class TmdbSplitQueryYearTests(TestCase):
+    """_split_query_year - pure string parsing, no network."""
+
+    def test_pulls_a_trailing_year(self):
+        self.assertEqual(tmdb._split_query_year("avengers 2012"), ("avengers", 2012))
+
+    def test_multi_word_title_before_the_year(self):
+        self.assertEqual(tmdb._split_query_year("the matrix 1999"), ("the matrix", 1999))
+
+    def test_no_year_present(self):
+        self.assertEqual(tmdb._split_query_year("avengers"), ("avengers", None))
+
+    def test_a_title_thats_just_a_number_is_not_treated_as_year_qualified(self):
+        # "1917" has no text portion before the year token, so it isn't
+        # split at all - it's a real movie title, not "<title> <year>".
+        self.assertEqual(tmdb._split_query_year("1917"), ("1917", None))
+
+    def test_year_out_of_19xx_20xx_range_is_left_alone(self):
+        self.assertEqual(tmdb._split_query_year("blade runner 2150"), ("blade runner 2150", None))
+
+
+class TmdbAutocorrectedQueryTests(TestCase):
+    """_autocorrected_query against the real bundled dictionary - no
+    network involved, just confirms the dependency behaves as relied on
+    elsewhere (unit tests for search() itself mock this out for
+    determinism/speed - see TmdbSearchYearAndAutocorrectTests)."""
+
+    def test_fixes_a_recognized_typo(self):
+        self.assertEqual(tmdb._autocorrected_query("avangers"), "avengers")
+
+    def test_leaves_an_unrecognized_proper_noun_untouched(self):
+        self.assertIsNone(tmdb._autocorrected_query("sakamoto"))
+
+    def test_returns_none_when_already_correctly_spelled(self):
+        self.assertIsNone(tmdb._autocorrected_query("dune"))
+
+
+class TmdbSearchYearAndAutocorrectTests(TestCase):
+    """search()'s two extra retries (year-qualified, spelling-corrected) -
+    _get_spellchecker is mocked throughout for deterministic, network-free
+    correction behavior (its real bundled-dictionary behavior is covered
+    separately by TmdbAutocorrectedQueryTests)."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        # Best-effort, same as _list_request's own cache access - an
+        # unreachable dev-environment Redis shouldn't fail every test in
+        # this class just because they don't strictly depend on a clean
+        # cache (each test's query string is distinct enough that a
+        # leftover cached response from a different test can't collide
+        # with it anyway).
+        try:
+            cache.clear()
+        except Exception:
+            pass
+
+    def _response(self, results, total_pages=1):
+        resp = Mock()
+        resp.json.return_value = {"results": results, "total_pages": total_pages}
+        resp.raise_for_status = Mock()
+        return resp
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._get_spellchecker")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_year_qualified_query_merges_in_the_year_specific_match(self, mock_get, mock_spell):
+        mock_spell.return_value = Mock(correction=lambda w: w)
+
+        def side_effect(url, params, timeout):
+            if "search/movie" in url:
+                return self._response(
+                    [{"id": 1, "title": "The Avengers", "release_date": "2012-04-25", "poster_path": None}]
+                )
+            return self._response([])  # baseline multi + search/tv: nothing
+
+        mock_get.side_effect = side_effect
+        results = tmdb.search("avengers 2012")["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["name"], "The Avengers")
+        self.assertEqual(results[0]["year"], "2012")
+        movie_call = next(c for c in mock_get.call_args_list if "search/movie" in c.args[0])
+        self.assertEqual(movie_call.kwargs["params"]["query"], "avengers")
+        self.assertEqual(movie_call.kwargs["params"]["year"], 2012)
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._get_spellchecker")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_exact_year_match_is_sorted_before_other_years(self, mock_get, mock_spell):
+        mock_spell.return_value = Mock(correction=lambda w: w)
+
+        def side_effect(url, params, timeout):
+            if "search/multi" in url:
+                return self._response(
+                    [{"id": 1, "media_type": "movie", "title": "The Avengers", "release_date": "1998-08-14", "poster_path": None}]
+                )
+            if "search/movie" in url:
+                return self._response(
+                    [{"id": 2, "title": "The Avengers", "release_date": "2012-04-25", "poster_path": None}]
+                )
+            return self._response([])
+
+        mock_get.side_effect = side_effect
+        results = tmdb.search("avengers 2012")["results"]
+        self.assertEqual(results[0]["tmdb_id"], 2)
+        self.assertEqual(results[0]["year"], "2012")
+        self.assertEqual(results[1]["tmdb_id"], 1)
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._get_spellchecker")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_no_year_never_calls_search_movie_or_tv(self, mock_get, mock_spell):
+        mock_spell.return_value = Mock(correction=lambda w: w)
+        mock_get.return_value = self._response([])
+        tmdb.search("dune")
+        called_paths = [c.args[0] for c in mock_get.call_args_list]
+        self.assertTrue(called_paths)
+        self.assertTrue(all("search/multi" in p for p in called_paths))
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._get_spellchecker")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_typo_retries_with_the_corrected_spelling(self, mock_get, mock_spell):
+        mock_spell.return_value = Mock(correction=lambda w: "avengers" if w == "avangers" else w)
+
+        def side_effect(url, params, timeout):
+            if params.get("query") == "avengers":
+                return self._response(
+                    [{"id": 5, "media_type": "movie", "title": "The Avengers", "release_date": "2012-04-25", "poster_path": None}]
+                )
+            return self._response([])  # baseline "avangers" search: nothing
+
+        mock_get.side_effect = side_effect
+        results = tmdb.search("avangers")["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["name"], "The Avengers")
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._get_spellchecker")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_correctly_spelled_query_skips_the_second_call(self, mock_get, mock_spell):
+        mock_spell.return_value = Mock(correction=lambda w: w)  # never changes anything
+        mock_get.return_value = self._response([])
+        tmdb.search("dune")
+        self.assertEqual(mock_get.call_count, 1)
+
 
 class GeminiGenerateTests(TestCase):
     def test_no_key_returns_none_without_a_request(self):
@@ -6090,6 +6256,51 @@ class SearchViewTests(TestCase):
         resp = self.client.get(reverse("search"), {"q": "zzzznomatch"})
         self.assertContains(resp, "Nothing in your library matches")
         self.assertContains(resp, "Nothing new found on TMDB")
+
+    @patch("tracker.integrations.tmdb.search")
+    def test_type_filter_narrows_both_library_and_tmdb_sections(self, mock_search):
+        Title.objects.create(media_type=MediaType.MOVIE, name="Dune Part Two", year=2024)
+        Title.objects.create(media_type=MediaType.TV, name="Dune: Prophecy", year=2024)
+        mock_search.return_value = {
+            "results": [
+                {"tmdb_id": 1, "media_type": "movie", "is_anime": False, "name": "Dune Movie Preview", "year": "2021", "poster_url": None, "vote_average": 7.5, "overview": ""},
+                {"tmdb_id": 2, "media_type": "tv", "is_anime": False, "name": "Dune TV Preview", "year": "2021", "poster_url": None, "vote_average": 7.5, "overview": ""},
+            ]
+        }
+        resp = self.client.get(reverse("search"), {"q": "dune", "type": "movie"})
+        self.assertContains(resp, "Dune Part Two")
+        self.assertNotContains(resp, "Dune: Prophecy")
+        self.assertContains(resp, "Dune Movie Preview")
+        self.assertNotContains(resp, "Dune TV Preview")
+        self.assertEqual(resp.context["selected_type"], "movie")
+
+    @patch("tracker.integrations.tmdb.search")
+    def test_anime_tab_matches_is_anime_flag_not_tv_media_type(self, mock_search):
+        # is_anime is layered on top of a plain tv/movie media_type (see
+        # tmdb._normalize_result) - the anime tab has to key off that
+        # flag, not media_type=="tv", or every ordinary (non-anime) show
+        # would wrongly show up under Anime too.
+        Title.objects.create(media_type=MediaType.TV, name="Regular Show", year=2020)
+        Title.objects.create(media_type=MediaType.ANIME, name="Anime Show", year=2020)
+        mock_search.return_value = {
+            "results": [
+                {"tmdb_id": 1, "media_type": "tv", "is_anime": False, "name": "Regular Preview", "year": "2021", "poster_url": None, "vote_average": 7.5, "overview": ""},
+                {"tmdb_id": 2, "media_type": "tv", "is_anime": True, "name": "Anime Preview", "year": "2021", "poster_url": None, "vote_average": 7.5, "overview": ""},
+            ]
+        }
+        resp = self.client.get(reverse("search"), {"q": "show", "type": "anime"})
+        self.assertNotContains(resp, "Regular Show")
+        self.assertContains(resp, "Anime Show")
+        self.assertNotContains(resp, "Regular Preview")
+        self.assertContains(resp, "Anime Preview")
+
+    @patch("tracker.integrations.tmdb.search")
+    def test_invalid_type_falls_back_to_all(self, mock_search):
+        mock_search.return_value = {"results": []}
+        Title.objects.create(media_type=MediaType.MOVIE, name="Dune Part Two", year=2024)
+        resp = self.client.get(reverse("search"), {"q": "dune", "type": "not-a-real-type"})
+        self.assertEqual(resp.context["selected_type"], "all")
+        self.assertContains(resp, "Dune Part Two")
 
 
 @patch("tracker.views.COLLECTIONS_ENABLED", True)

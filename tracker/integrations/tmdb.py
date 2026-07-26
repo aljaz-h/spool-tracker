@@ -18,6 +18,7 @@ it's attached to.
 import hashlib
 import json
 import logging
+import re
 
 import requests
 
@@ -197,12 +198,85 @@ def _normalize_result(item, media_type):
     return {
         "tmdb_id": item.get("id"),
         "media_type": media_type,
+        # Same signal discover()'s own anime filter uses (Animation genre +
+        # Japanese origin), just read off the fields a list/search result
+        # already carries (genre_ids, original_language) instead of the
+        # with_genres/with_origin_country params a /discover call takes -
+        # search/multi has no anime-specific endpoint to ask instead.
+        "is_anime": ANIMATION_GENRE_ID in (item.get("genre_ids") or []) and item.get("original_language") == "ja",
         "name": title or "Untitled",
         "year": date[:4] if date else None,
         "poster_url": f"{IMAGE_BASE}{poster_path}" if poster_path else None,
         "vote_average": item.get("vote_average"),
         "overview": item.get("overview", ""),
     }
+
+
+_YEAR_RE = re.compile(r"^(.*\S)\s+((?:19|20)\d{2})$")
+
+_spell = None
+
+
+def _get_spellchecker():
+    global _spell
+    if _spell is None:
+        from spellchecker import SpellChecker
+
+        _spell = SpellChecker()
+    return _spell
+
+
+def _autocorrected_query(text):
+    """Best-effort spelling fix, one word at a time - TMDB's own search has
+    none (confirmed against the live API: a single typo like "avangers" or
+    "interstellr" returns zero results or, worse, a single irrelevant
+    literal match, never the intended title). Any word the dictionary
+    doesn't recognize (proper nouns, foreign titles - "Sakamoto", "Silo")
+    is left exactly as typed rather than forced into an unrelated
+    dictionary word - correction() returns None for those, not a guess.
+    Returns None (not the unchanged text) when nothing would actually
+    change, so search() can skip a redundant second TMDB call for a query
+    that was already spelled fine."""
+    words = text.split()
+    if not words:
+        return None
+    try:
+        spell = _get_spellchecker()
+        corrected = " ".join(spell.correction(w) or w for w in words)
+    except Exception:
+        logger.warning("Spellchecker unavailable, skipping autocorrect", exc_info=True)
+        return None
+    return corrected if corrected.lower() != text.lower() else None
+
+
+def _split_query_year(query):
+    """Pulls a trailing 4-digit year off a query like "avengers 2012" - a
+    same-named movie and show (or a franchise's several entries) need a
+    year to disambiguate, the way most sites let you. /search/multi has no
+    year param at all, so search() only uses this to run an *additional*
+    year-qualified lookup via /search/movie and /search/tv (which do have
+    one) alongside the plain full-text search, never in place of it - a
+    title that's genuinely just a number, like "Blade Runner 2049" or
+    "1917", still gets found via the unmodified full-text query either
+    way."""
+    m = _YEAR_RE.match(query.strip())
+    if not m:
+        return query, None
+    return m.group(1), int(m.group(2))
+
+
+def _merge_normalized(results, seen, raw_items, media_type):
+    """media_type=None pulls each item's own "media_type" field (a
+    /search/multi response, where it varies per item) - otherwise every
+    item is normalized under the given fixed type (a /search/movie or
+    /search/tv response, which has no such field of its own)."""
+    for item in raw_items:
+        item_media_type = media_type or item.get("media_type")
+        normalized = _normalize_result(item, item_media_type)
+        key = (normalized["tmdb_id"], normalized["media_type"])
+        if key not in seen:
+            seen.add(key)
+            results.append(normalized)
 
 
 def search(query, page=1):
@@ -214,13 +288,55 @@ def search(query, page=1):
     discover_tile.html card. Unlike discover(), only TMDB's own first
     page (up to 20 results) is fetched - a search box doesn't need
     discover()'s multi-page merge, and callers wanting more can pass a
-    higher page number themselves."""
+    higher page number themselves.
+
+    Layers extra lookups on top of the baseline full-text search, each
+    only firing when it'd actually add something: a year-qualified retry
+    via /search/movie + /search/tv when the query ends in a year
+    (_split_query_year - /search/multi has no year param at all to give
+    this to directly), and a spelling-corrected retry when autocorrection
+    actually changed a word (_autocorrected_query). Each merges new
+    candidates in behind the baseline results rather than replacing them -
+    the baseline already covers everything TMDB's own multi-search gets
+    right, including a title that's genuinely just a number ("Blade
+    Runner 2049", "1917"), which _split_query_year would otherwise
+    misparse as a year qualifier and strip. When a year was given,
+    exact-year matches are stably sorted to the front afterward - "the
+    one with that exact release year" - without discarding the rest if
+    the year turns out to be wrong."""
+    text, year = _split_query_year(query)
+    corrected_text = _autocorrected_query(text)
+    text_variants = [text, *([corrected_text] if corrected_text else [])]
+
     data = _list_request("search/multi", {"query": query, "page": page})
     results = [
         _normalize_result(item, item["media_type"])
         for item in (data.get("results") or [])
         if item.get("media_type") in ("movie", "tv")
     ]
+    seen = {(r["tmdb_id"], r["media_type"]) for r in results}
+
+    for variant in text_variants:
+        if year:
+            movie_data = _list_request("search/movie", {"query": variant, "year": year, "page": page})
+            _merge_normalized(results, seen, movie_data.get("results") or [], "movie")
+            tv_data = _list_request("search/tv", {"query": variant, "first_air_date_year": year, "page": page})
+            _merge_normalized(results, seen, tv_data.get("results") or [], "tv")
+        elif variant != query:
+            # No year: the un-corrected variant equals query, already
+            # covered by the baseline /search/multi call above - only the
+            # corrected variant (if any) needs its own extra lookup.
+            variant_data = _list_request("search/multi", {"query": variant, "page": page})
+            _merge_normalized(
+                results,
+                seen,
+                (item for item in (variant_data.get("results") or []) if item.get("media_type") in ("movie", "tv")),
+                None,
+            )
+
+    if year:
+        results.sort(key=lambda r: r["year"] != str(year))
+
     return {"results": results, "total_pages": data.get("total_pages") or 0}
 
 

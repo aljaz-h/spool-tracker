@@ -297,6 +297,22 @@ def collection_detail(request, collection_id):
 
 SEARCH_LIBRARY_LIMIT = 24
 
+# "all" plus every value Title.media_type/a normalized TMDB result's own
+# category (see _search_result_category) can actually take - a bad/stale
+# ?type= just falls back to "all" rather than raising or silently matching
+# nothing.
+SEARCH_TYPES = ("all", "movie", "tv", "anime")
+
+
+def _search_result_category(result):
+    """A normalized TMDB search result (tmdb.search()'s own shape) doesn't
+    carry a MediaType-style category directly - "anime" isn't a real TMDB
+    media_type, it's tv or movie with is_anime=True layered on top (see
+    tmdb._normalize_result). Title.media_type already stores "anime" as
+    its own value, so library results don't need this - only tmdb_results
+    do."""
+    return "anime" if result["is_anime"] else result["media_type"]
+
 
 @login_required
 def search(request):
@@ -306,20 +322,29 @@ def search(request):
     query that isn't tracked yet (rendered as discover_tile.html preview
     cards, same as Movies & TV/Anime's own discovery grid). Library
     matching is a plain name__icontains scan - no ranking, no fuzzy
-    matching - which is fine at personal-library scale."""
+    matching - which is fine at personal-library scale (typo tolerance and
+    year-qualified matching for the TMDB half live in tmdb.search itself).
+    ?type= (all/movie/tv/anime) filters both sections the same way."""
     profile = Profile.objects.filter(user=request.user).first()
     query = request.GET.get("q", "").strip()
+    selected_type = request.GET.get("type", "all")
+    if selected_type not in SEARCH_TYPES:
+        selected_type = "all"
     library_results = []
     tmdb_results = []
     context = {
         "profile": profile,
         "query": query,
+        "selected_type": selected_type,
         "library_results": library_results,
         "tmdb_results": tmdb_results,
         "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
     }
     if query:
-        library_results = list(Title.objects.filter(name__icontains=query).order_by("name")[:SEARCH_LIBRARY_LIMIT])
+        library_qs = Title.objects.filter(name__icontains=query)
+        if selected_type != "all":
+            library_qs = library_qs.filter(media_type=selected_type)
+        library_results = list(library_qs.order_by("name")[:SEARCH_LIBRARY_LIMIT])
         if profile is not None and library_results:
             context.update(selectors.poster_action_context(profile, library_results))
         raw_results = tmdb.search(query)["results"]
@@ -335,7 +360,10 @@ def search(request):
         # comparison against a str RHS, as used here and everywhere else
         # this pattern appears, doesn't hit that.
         tmdb_results = [
-            r for r in raw_results if not Title.objects.filter(external_ids__tmdb=str(r["tmdb_id"])).exists()
+            r
+            for r in raw_results
+            if not Title.objects.filter(external_ids__tmdb=str(r["tmdb_id"])).exists()
+            and (selected_type == "all" or _search_result_category(r) == selected_type)
         ]
         context["library_results"] = library_results
         context["tmdb_results"] = tmdb_results
