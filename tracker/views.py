@@ -228,6 +228,13 @@ def discover(request, media_type, category):
     # deliberately chosen after landing here with a preferred_language
     # default already applied) always wins over the profile's preference.
     default_language = profile.preferred_language if profile else ""
+    # Movies-only - TMDB's /discover/tv has no certification filter param
+    # at all (see tmdb.MOVIE_CERTIFICATIONS), so a ?certification= carried
+    # over from a Movies search is simply dropped rather than erroring
+    # once the type toggle switches to TV.
+    selected_certification = request.GET.get("certification", "") if tmdb_media_type == "movie" else ""
+    if selected_certification not in tmdb.MOVIE_CERTIFICATIONS:
+        selected_certification = ""
     filters = {
         "genre_ids": genre_ids,
         "year_from": _discover_int_param(request, "year_from"),
@@ -237,6 +244,7 @@ def discover(request, media_type, category):
         "rating_from": _discover_int_param(request, "rating_from"),
         "rating_to": _discover_int_param(request, "rating_to"),
         "original_language": request.GET.get("language", default_language) or None,
+        "certification": selected_certification or None,
     }
     if is_anime:
         filters["origin_country"] = "JP"
@@ -262,6 +270,8 @@ def discover(request, media_type, category):
         "selected_genres": set(genre_ids),
         "languages": DISCOVER_LANGUAGES,
         "selected_language": filters["original_language"] or "",
+        "certifications": tmdb.MOVIE_CERTIFICATIONS,
+        "selected_certification": selected_certification,
         "base_query": query_without_page.urlencode(),
         "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
         "collections_enabled": COLLECTIONS_ENABLED,

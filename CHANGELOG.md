@@ -8,6 +8,26 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-07-26
+
+### Added
+
+- Title detail pages now show an age rating badge (e.g. "R", "TV-MA")
+  next to the language badge.
+- The Movies & TV filter panel has an Age Rating filter (movies only -
+  TMDB has no equivalent filter for TV/anime).
+
+### Fixed
+
+- Anime browsing could surface explicit hentai content - TMDB's own
+  "adult" flag isn't reliable for this (verified live: well-known
+  explicit titles come back flagged non-adult, indistinguishable by
+  genre from ordinary anime). Movies/TV/Anime browsing now excludes
+  TMDB's hentai/ecchi/adult/erotic/porn keyword tags server-side. This
+  is a real reduction, not a guarantee - some explicit titles on TMDB
+  carry no matching tag at all, a gap in TMDB's own data this can't
+  fully close.
+
 ## [0.42.0] - 2026-07-26
 
 ### Added

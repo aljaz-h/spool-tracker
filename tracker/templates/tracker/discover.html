@@ -46,7 +46,7 @@
           <label for="filters-drawer" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
             {% icon "filter" "w-3.5 h-3.5" %}
             Filters
-            {% if selected_genres or request.GET.year_from or request.GET.year_to or request.GET.runtime_from or request.GET.runtime_to or request.GET.rating_from or request.GET.rating_to or selected_language %}
+            {% if selected_genres or request.GET.year_from or request.GET.year_to or request.GET.runtime_from or request.GET.runtime_to or request.GET.rating_from or request.GET.rating_to or selected_language or selected_certification %}
               <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
             {% endif %}
           </label>
@@ -136,7 +136,7 @@
             {% include "tracker/partials/dual_range_slider.html" with label="Rating" name_from="rating_from" name_to="rating_to" min=0 max=10 step=0.1 from_var="ratingFrom" to_var="ratingTo" suffix="" %}
           </div>
 
-          <div>
+          <div class="{% if media_type == "movie" %}pb-5 border-b border-line{% endif %}">
             <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Language</div>
             <select name="language" class="select select-sm w-full bg-base-100 focus:outline-primary">
               <option value="">Any language</option>
@@ -145,6 +145,25 @@
               {% endfor %}
             </select>
           </div>
+
+          {% if media_type == "movie" %}
+            {% comment %}
+              Movies only - TMDB's /discover/tv has no certification
+              filter param at all (see tmdb.MOVIE_CERTIFICATIONS), so
+              this isn't shown for TV or Anime (always tv under the
+              hood) rather than rendering a filter that would silently
+              do nothing.
+            {% endcomment %}
+            <div>
+              <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Age Rating</div>
+              <select name="certification" class="select select-sm w-full bg-base-100 focus:outline-primary">
+                <option value="">Any rating</option>
+                {% for cert in certifications %}
+                  <option value="{{ cert }}" {% if selected_certification == cert %}selected{% endif %}>{{ cert }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          {% endif %}
 
           <div class="flex items-center gap-3 pt-1">
             <button type="submit" class="btn btn-sm btn-primary flex-1">Apply filters</button>

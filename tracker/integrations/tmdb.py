@@ -139,6 +139,37 @@ def get_tv_details(tmdb_id):
 
 ANIMATION_GENRE_ID = 16  # stable TMDB genre id, same for movie and tv
 
+# TMDB's own "adult" flag is not a reliable content filter on its own -
+# verified against the live API: well-known explicit hentai titles
+# ("Overflow", "Adam's Sweet Agony", "Souryo to Majiwaru Shikiyoku no
+# Yoru ni...") all come back adult=false, genre_ids indistinguishable
+# from ordinary anime (just [16], same as everything else). Each of
+# those three is only actually tagged by a *different* one of the
+# keywords below (hentai/erotic/ecchi respectively - checked each
+# title's own /keywords endpoint directly, not guessed), which is why
+# this list has to be this broad rather than just "hentai" alone.
+# "ecchi" (195669) is included deliberately even though it also tags
+# some mainstream, not-actually-explicit fan-service anime (High School
+# DxD, Mushoku Tensei) - for a content-safety filter, a false positive
+# (hiding a legitimate show) is a far smaller problem than a false
+# negative (showing porn to someone who asked not to see it), so this
+# errs toward over-filtering. Still not exhaustive - some explicit
+# titles on TMDB carry no matching keyword at all, a genuine gap in
+# TMDB's own community-maintained data that server-side filtering can't
+# fully close - but it materially cuts down what surfaces while browsing.
+_UNSAFE_KEYWORD_IDS = "198385|195669|360629|284535|161919|315444|325693|256466|356759|378118"
+# hentai, ecchi, adult, adult video, adult animation, adult cartoon, erotica, erotic, porn, 18+
+
+# TMDB's US movie certification order, for the discover filter panel's
+# rating dropdown and the detail page's own certification badge -
+# TV shows use their own per-network rating strings (TV-Y, TV-14, TV-MA,
+# ...) that don't share this scale, and /discover/tv has no certification
+# filter param at all (a TMDB API gap, not something this app can work
+# around) - the certification badge still renders for TV (fetched
+# straight off the title, not through discover), only the *filter*
+# is movie-only.
+MOVIE_CERTIFICATIONS = ["G", "PG", "PG-13", "R", "NC-17"]
+
 _CACHE_TTL = 6 * 3600  # trending/popular lists don't need to be fresher than this
 
 # TMDB returns 20 results per page - too little to fill a wide grid (barely
@@ -308,7 +339,12 @@ def search(query, page=1):
     corrected_text = _autocorrected_query(text)
     text_variants = [text, *([corrected_text] if corrected_text else [])]
 
-    data = _list_request("search/multi", {"query": query, "page": page})
+    # include_adult=false is already TMDB's own default for every one of
+    # these endpoints - passed explicitly anyway so that's never silently
+    # dependent on TMDB not changing it. Unlike discover(), there's no
+    # without_keywords equivalent available on /search/* at all, so this
+    # is weaker protection than the browse pages get (see _UNSAFE_KEYWORD_IDS).
+    data = _list_request("search/multi", {"query": query, "page": page, "include_adult": "false"})
     results = [
         _normalize_result(item, item["media_type"])
         for item in (data.get("results") or [])
@@ -318,15 +354,20 @@ def search(query, page=1):
 
     for variant in text_variants:
         if year:
-            movie_data = _list_request("search/movie", {"query": variant, "year": year, "page": page})
+            movie_data = _list_request(
+                "search/movie", {"query": variant, "year": year, "page": page, "include_adult": "false"}
+            )
             _merge_normalized(results, seen, movie_data.get("results") or [], "movie")
-            tv_data = _list_request("search/tv", {"query": variant, "first_air_date_year": year, "page": page})
+            tv_data = _list_request(
+                "search/tv",
+                {"query": variant, "first_air_date_year": year, "page": page, "include_adult": "false"},
+            )
             _merge_normalized(results, seen, tv_data.get("results") or [], "tv")
         elif variant != query:
             # No year: the un-corrected variant equals query, already
             # covered by the baseline /search/multi call above - only the
             # corrected variant (if any) needs its own extra lookup.
-            variant_data = _list_request("search/multi", {"query": variant, "page": page})
+            variant_data = _list_request("search/multi", {"query": variant, "page": page, "include_adult": "false"})
             _merge_normalized(
                 results,
                 seen,
@@ -349,13 +390,17 @@ def genres(media_type):
 
 def discover(media_type, category="popular", page=1, genre_ids=None, year_from=None, year_to=None,
              runtime_from=None, runtime_to=None, rating_from=None, rating_to=None,
-             original_language=None, origin_country=None, with_companies=None):
+             original_language=None, origin_country=None, with_companies=None, certification=None):
     """Returns {"results": [...normalized, up to RESULTS_PAGE_SIZE*20...], "page": int,
     "total_pages": int}. category picks a sort/date preset (see module docstring);
     every other param is an optional filter layered on top of that preset, all of
-    them straight from TMDB's own documented /discover parameter set."""
+    them straight from TMDB's own documented /discover parameter set.
+
+    include_adult/without_keywords are always applied, not opt-in filters -
+    see _UNSAFE_KEYWORD_IDS for why (TMDB's own adult flag alone isn't
+    reliable for this)."""
     date_field = "primary_release_date" if media_type == "movie" else "first_air_date"
-    params = {"sort_by": "popularity.desc"}
+    params = {"sort_by": "popularity.desc", "include_adult": "false", "without_keywords": _UNSAFE_KEYWORD_IDS}
 
     if category == "top_rated":
         params["sort_by"] = "vote_average.desc"
@@ -400,6 +445,12 @@ def discover(media_type, category="popular", page=1, genre_ids=None, year_from=N
         params["with_origin_country"] = origin_country
     if with_companies:
         params["with_companies"] = with_companies
+    if certification and media_type == "movie":
+        # TMDB requires a country alongside an exact certification match -
+        # no discover/tv equivalent exists (see MOVIE_CERTIFICATIONS), so
+        # this is silently a no-op for tv/anime rather than an error.
+        params["certification_country"] = "US"
+        params["certification"] = certification
 
     tmdb_start_page = (page - 1) * RESULTS_PAGE_SIZE + 1
     results = []
@@ -527,20 +578,44 @@ def media_type_for(title):
     return title.external_ids.get("tmdb_kind") or ("movie" if title.media_type == MediaType.MOVIE else "tv")
 
 
+def _extract_certification(data, is_movie):
+    """The US age rating - movies from the append_to_response=release_dates
+    payload (several entries per country, one per release type/re-release;
+    most carry an empty certification string except whichever one actually
+    set it, so the first non-empty one wins), tv from
+    append_to_response=content_ratings (one rating per country, no
+    per-release-type noise to filter). Deliberately US-only - the rest of
+    this app has no per-profile region setting to pick a different country
+    by, same simplification as discover()'s own certification_country."""
+    if is_movie:
+        countries = (data.get("release_dates") or {}).get("results") or []
+    else:
+        countries = (data.get("content_ratings") or {}).get("results") or []
+    us = next((c for c in countries if c.get("iso_3166_1") == "US"), None)
+    if not us:
+        return None
+    if is_movie:
+        return next((rd["certification"] for rd in us.get("release_dates") or [] if rd.get("certification")), None)
+    return us.get("rating") or None
+
+
 def get_full_details(media_type, tmdb_id):
     """{"name", "year", "overview", "tagline", "genres": [str,...],
     "runtime": int|None (movie), "number_of_seasons"/"number_of_episodes":
     int|None (tv), "backdrop_url", "poster_url", "vote_average",
     "vote_count", "original_language", "status": str|None,
+    "certification": str|None (US age rating - "PG-13"/"R" for a movie,
+    "TV-14"/"TV-MA" for a show; see _extract_certification),
     "release_date": str|None (movie, raw YYYY-MM-DD, distinct from the
     truncated "year" above), "next_episode_to_air": dict|None (tv only,
     {"air_date", "season_number", "episode_number", "name"} - used by
     release_sync.py to schedule upcoming episodes/season premieres)} or
     None if nothing came back (no api key, bad id, network error)."""
-    data = _list_request(f"{media_type}/{tmdb_id}")
+    is_movie = media_type == "movie"
+    append = "release_dates" if is_movie else "content_ratings"
+    data = _list_request(f"{media_type}/{tmdb_id}", {"append_to_response": append})
     if not data or data.get("id") is None:
         return None
-    is_movie = media_type == "movie"
     date = data.get("release_date") if is_movie else data.get("first_air_date")
     backdrop_path = data.get("backdrop_path")
     poster_path = data.get("poster_path")
@@ -571,6 +646,7 @@ def get_full_details(media_type, tmdb_id):
         "vote_count": data.get("vote_count"),
         "original_language": data.get("original_language"),
         "status": data.get("status"),
+        "certification": _extract_certification(data, is_movie),
         "release_date": date if is_movie else None,
         "next_episode_to_air": next_episode,
     }

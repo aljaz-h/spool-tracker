@@ -47,6 +47,7 @@
           {% endif %}
         </h1>
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-dim mt-2 font-mono">
+          {% if details.certification %}<span class="px-1.5 py-0.5 rounded border border-line bg-base-300/60 text-[10.5px] uppercase tracking-wide">{{ details.certification }}</span>{% endif %}
           {% if details.original_language %}<span class="px-1.5 py-0.5 rounded border border-line bg-base-300/60 text-[10.5px] uppercase tracking-wide">{{ details.original_language }}</span>{% endif %}
           {% if details.runtime %}<span>{{ details.runtime }} min</span>{% endif %}
           {% if details.number_of_seasons %}<span>{{ details.number_of_seasons }} season{{ details.number_of_seasons|pluralize }} · {{ details.number_of_episodes }} episodes</span>{% endif %}

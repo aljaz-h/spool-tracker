@@ -570,6 +570,58 @@ class TmdbDetailsTests(TestCase):
         details = tmdb.get_tv_details(99)
         self.assertIsNone(details["episode_run_time"])
 
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_full_details_movie_certification_skips_empty_entries(self, mock_get):
+        # A US movie's release_dates carries several entries (festival/
+        # theatrical/digital/...), most with an empty certification
+        # string except whichever release actually set it - the first
+        # non-empty one wins regardless of its position in the list.
+        mock_get.return_value = self._response(
+            {
+                "id": 550, "title": "Fathom", "release_date": "2020-05-01",
+                "release_dates": {
+                    "results": [
+                        {"iso_3166_1": "FR", "release_dates": [{"certification": "12"}]},
+                        {
+                            "iso_3166_1": "US",
+                            "release_dates": [
+                                {"certification": "", "note": "Festival"},
+                                {"certification": "R", "note": "Theatrical"},
+                            ],
+                        },
+                    ]
+                },
+            }
+        )
+        details = tmdb.get_full_details("movie", 550)
+        self.assertEqual(details["certification"], "R")
+        self.assertEqual(mock_get.call_args.kwargs["params"]["append_to_response"], "release_dates")
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_full_details_tv_certification_reads_us_rating(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 1396, "name": "Breaking Bad", "first_air_date": "2008-01-20",
+                "content_ratings": {"results": [{"iso_3166_1": "US", "rating": "TV-MA"}]},
+            }
+        )
+        details = tmdb.get_full_details("tv", 1396)
+        self.assertEqual(details["certification"], "TV-MA")
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_full_details_certification_none_when_no_us_entry(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 42, "title": "Fathom", "release_date": "2020-05-01",
+                "release_dates": {"results": [{"iso_3166_1": "FR", "release_dates": [{"certification": "12"}]}]},
+            }
+        )
+        details = tmdb.get_full_details("movie", 42)
+        self.assertIsNone(details["certification"])
+
 
 class CompletionMovieRuntimeTests(TestCase):
     def test_sets_runtime_from_tmdb(self):
@@ -5190,6 +5242,41 @@ class TmdbDiscoverTests(TestCase):
         self.assertEqual(params["with_origin_country"], "US")
         self.assertEqual(params["with_companies"], "420")
 
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_always_excludes_adult_and_unsafe_keywords(self, mock_get):
+        # Not opt-in - TMDB's own adult=false default isn't reliable
+        # enough on its own for anime/hentai (see _UNSAFE_KEYWORD_IDS'
+        # own comment for the live-verified reasoning), so every
+        # discover() call carries both regardless of what the caller
+        # asked for.
+        mock_get.return_value = self._response([])
+        tmdb.discover("tv", category="popular")
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(params["include_adult"], "false")
+        self.assertEqual(params["without_keywords"], tmdb._UNSAFE_KEYWORD_IDS)
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_certification_applied_for_movies(self, mock_get):
+        mock_get.return_value = self._response([])
+        tmdb.discover("movie", category="popular", certification="R")
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(params["certification"], "R")
+        self.assertEqual(params["certification_country"], "US")
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_certification_is_a_no_op_for_tv(self, mock_get):
+        # /discover/tv has no certification filter param at all - passing
+        # one through anyway would just be silently ignored by TMDB (or
+        # worse, error), so discover() drops it for anything but movies.
+        mock_get.return_value = self._response([])
+        tmdb.discover("tv", category="popular", certification="R")
+        params = mock_get.call_args.kwargs["params"]
+        self.assertNotIn("certification", params)
+        self.assertNotIn("certification_country", params)
+
     @override_settings(TMDB_API_KEY="")
     def test_returns_empty_without_api_key(self):
         page = tmdb.discover("movie")
@@ -5295,6 +5382,13 @@ class TmdbSearchTests(TestCase):
 
     @override_settings(TMDB_API_KEY="test-key")
     @patch("tracker.integrations.tmdb.requests.get")
+    def test_excludes_adult_results(self, mock_get):
+        mock_get.return_value = self._response([])
+        tmdb.search("dune")
+        self.assertEqual(mock_get.call_args.kwargs["params"]["include_adult"], "false")
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
     def test_normalizes_movie_and_tv_results_using_their_own_media_type(self, mock_get):
         mock_get.return_value = self._response(
             [
@@ -5377,25 +5471,21 @@ class TmdbAutocorrectedQueryTests(TestCase):
         self.assertIsNone(tmdb._autocorrected_query("dune"))
 
 
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
 class TmdbSearchYearAndAutocorrectTests(TestCase):
     """search()'s two extra retries (year-qualified, spelling-corrected) -
     _get_spellchecker is mocked throughout for deterministic, network-free
     correction behavior (its real bundled-dictionary behavior is covered
-    separately by TmdbAutocorrectedQueryTests)."""
+    separately by TmdbAutocorrectedQueryTests). LocMemCache override same
+    as TmdbSearchTests - without a real cache backend every call pays
+    _list_request's ~2s unreachable-Redis timeout for nothing, multiplied
+    by however many /search/* calls a single search() invocation makes
+    here."""
 
     def setUp(self):
         from django.core.cache import cache
 
-        # Best-effort, same as _list_request's own cache access - an
-        # unreachable dev-environment Redis shouldn't fail every test in
-        # this class just because they don't strictly depend on a clean
-        # cache (each test's query string is distinct enough that a
-        # leftover cached response from a different test can't collide
-        # with it anyway).
-        try:
-            cache.clear()
-        except Exception:
-            pass
+        cache.clear()
 
     def _response(self, results, total_pages=1):
         resp = Mock()
@@ -6179,6 +6269,33 @@ class DiscoverViewTests(TestCase):
         self.assertContains(resp, f"watched-btn-{title.pk}")
         # Already watched -> a further click is guarded by a confirm.
         self.assertContains(resp, 'hx-confirm="')
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_certification_filter_passed_through_for_movies(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"type": "movie", "certification": "R"})
+        self.assertEqual(mock_discover.call_args.kwargs["certification"], "R")
+        self.assertEqual(resp.context["selected_certification"], "R")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_certification_dropped_for_tv(self, mock_discover, mock_genres):
+        # No /discover/tv equivalent exists (see tmdb.MOVIE_CERTIFICATIONS)
+        # - a ?certification= carried over from a prior Movies search
+        # shouldn't silently pass through to a call that can't use it.
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"type": "tv", "certification": "R"})
+        self.assertIsNone(mock_discover.call_args.kwargs["certification"])
+        self.assertEqual(resp.context["selected_certification"], "")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_invalid_certification_falls_back_to_none(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"type": "movie", "certification": "bogus"})
+        self.assertIsNone(mock_discover.call_args.kwargs["certification"])
+        self.assertEqual(resp.context["selected_certification"], "")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
@@ -6970,6 +7087,22 @@ class TitleDetailViewTests(TestCase):
         self.assertContains(resp, "Fathom")
         self.assertContains(resp, "A movie.")
         mock_details.assert_called_once_with("movie", "42")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_age_rating_badge_renders_next_to_the_language_badge(self, mock_details, mock_credits, mock_similar):
+        mock_details.return_value = self._details(certification="R")
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, ">R<")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_no_age_rating_badge_when_tmdb_has_no_certification(self, mock_details, mock_credits, mock_similar):
+        mock_details.return_value = self._details(certification=None)
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertEqual(resp.status_code, 200)
 
     def test_404s_for_nonexistent_title(self):
         resp = self.client.get(reverse("title_detail", args=[999999]))
