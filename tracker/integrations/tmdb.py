@@ -170,6 +170,33 @@ _UNSAFE_KEYWORD_IDS = "198385|195669|360629|284535|161919|315444|325693|256466|3
 # is movie-only.
 MOVIE_CERTIFICATIONS = ["G", "PG", "PG-13", "R", "NC-17"]
 
+# TMDB's own /discover/tv with_status codes (verified live: applying one to
+# /discover/movie is silently ignored, total_results unchanged) - the mirror
+# image of MOVIE_CERTIFICATIONS above, just flipped to TV since /discover/movie
+# has no status-filter equivalent at all.
+TV_STATUSES = {
+    "Returning Series": 0,
+    "Planned": 1,
+    "In Production": 2,
+    "Ended": 3,
+    "Canceled": 4,
+    "Pilot": 5,
+}
+
+# TMDB's with_watch_monetization_types values, grouped into the two choices
+# that are actually meaningful to offer here. Region is hardcoded to "US",
+# same tradeoff as certification_country above - TMDB requires a watch_region
+# alongside this filter and Spool has no per-profile region setting yet.
+# "streaming" = watchable right now without paying per-title (subscription/
+# free/ad-supported); "digital" widens that to anything with a digital
+# release at all, rent/buy included. Verified live against the real API
+# that both meaningfully shrink result counts for movies and TV alike.
+AVAILABILITY_WATCH_REGION = "US"
+AVAILABILITY_CHOICES = {
+    "streaming": "flatrate|free|ads",
+    "digital": "flatrate|free|ads|rent|buy",
+}
+
 _CACHE_TTL = 6 * 3600  # trending/popular lists don't need to be fresher than this
 
 # TMDB returns 20 results per page - too little to fill a wide grid (barely
@@ -390,7 +417,8 @@ def genres(media_type):
 
 def discover(media_type, category="popular", page=1, genre_ids=None, year_from=None, year_to=None,
              runtime_from=None, runtime_to=None, rating_from=None, rating_to=None,
-             original_language=None, origin_country=None, with_companies=None, certification=None):
+             original_language=None, origin_country=None, with_companies=None, certification=None,
+             status=None, availability=None):
     """Returns {"results": [...normalized, up to RESULTS_PAGE_SIZE*20...], "page": int,
     "total_pages": int}. category picks a sort/date preset (see module docstring);
     every other param is an optional filter layered on top of that preset, all of
@@ -451,6 +479,13 @@ def discover(media_type, category="popular", page=1, genre_ids=None, year_from=N
         # this is silently a no-op for tv/anime rather than an error.
         params["certification_country"] = "US"
         params["certification"] = certification
+    if status and media_type == "tv":
+        # No /discover/movie equivalent (see TV_STATUSES) - silently a
+        # no-op for movies, same shape as the certification no-op above.
+        params["with_status"] = TV_STATUSES[status]
+    if availability:
+        params["watch_region"] = AVAILABILITY_WATCH_REGION
+        params["with_watch_monetization_types"] = AVAILABILITY_CHOICES[availability]
 
     tmdb_start_page = (page - 1) * RESULTS_PAGE_SIZE + 1
     results = []

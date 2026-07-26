@@ -73,6 +73,14 @@ DISCOVER_LANGUAGES = [
     ("cs", "Czech"), ("el", "Greek"), ("he", "Hebrew"), ("id", "Indonesian"),
     ("vi", "Vietnamese"), ("uk", "Ukrainian"), ("ro", "Romanian"), ("hu", "Hungarian"),
 ]
+# Discover filter panel's "Display" section - Show/Dim/Hide for titles
+# already watched or watchlisted (see _apply_display_modes below).
+DISPLAY_MODES = ("show", "dim", "hide")
+# tmdb.AVAILABILITY_CHOICES' keys, paired with their filter-panel labels.
+DISCOVER_AVAILABILITY_LABELS = [
+    ("streaming", "Streaming now"),
+    ("digital", "All digital releases"),
+]
 
 # Settings → Appearance's personal Timezone dropdown (Profile.timezone,
 # activated per-request by middleware.ProfileTimezoneMiddleware). Sourced
@@ -176,6 +184,33 @@ def _discover_int_param(request, name):
     return int(value) if value and value.lstrip("-").isdigit() else None
 
 
+def _apply_display_modes(items, discover_watched, discover_list_membership, profile, watched_display, watchlisted_display):
+    """Stamps each discover_tile.html item dict with a "display_mode" key
+    ("show"/"dim"/"hide") per the filter panel's Display section - watched
+    comes from discover_watched, watchlisted from membership in *the*
+    auto-managed Watchlist specifically (not any custom list - same
+    distinction completion.py's sync_watchlist_removal already makes via
+    WatchList.is_watchlist). When a title matches both a watched and a
+    watchlisted rule that disagree, hide wins over dim wins over show -
+    either rule alone asking to hide/dim isn't something the other rule
+    being milder should silently override."""
+    if watched_display == "show" and watchlisted_display == "show":
+        for item in items:
+            item["display_mode"] = "show"
+        return
+    watchlist_id = (
+        WatchList.objects.filter(profile=profile, is_watchlist=True).values_list("id", flat=True).first()
+    )
+    for item in items:
+        key = f"{item['media_type']}:{item['tmdb_id']}"
+        modes = []
+        if discover_watched.get(key):
+            modes.append(watched_display)
+        if watchlist_id and watchlist_id in discover_list_membership.get(key, set()):
+            modes.append(watchlisted_display)
+        item["display_mode"] = "hide" if "hide" in modes else "dim" if "dim" in modes else "show"
+
+
 def _collections_view(request):
     """Movies & TV's "Collections" tab - movie franchises (John Wick,
     Indiana Jones, ...), movie-only and not composable with the filter
@@ -235,6 +270,13 @@ def discover(request, media_type, category):
     selected_certification = request.GET.get("certification", "") if tmdb_media_type == "movie" else ""
     if selected_certification not in tmdb.MOVIE_CERTIFICATIONS:
         selected_certification = ""
+    # TV-only - the mirror image of certification above (see tmdb.TV_STATUSES).
+    selected_status = request.GET.get("status", "") if tmdb_media_type == "tv" else ""
+    if selected_status not in tmdb.TV_STATUSES:
+        selected_status = ""
+    selected_availability = request.GET.get("availability", "")
+    if selected_availability not in tmdb.AVAILABILITY_CHOICES:
+        selected_availability = ""
     filters = {
         "genre_ids": genre_ids,
         "year_from": _discover_int_param(request, "year_from"),
@@ -245,9 +287,23 @@ def discover(request, media_type, category):
         "rating_to": _discover_int_param(request, "rating_to"),
         "original_language": request.GET.get("language", default_language) or None,
         "certification": selected_certification or None,
+        "status": selected_status or None,
+        "availability": selected_availability or None,
     }
     if is_anime:
         filters["origin_country"] = "JP"
+
+    # "Display" panel - Show/Dim/Hide for titles already watched or on the
+    # watchlist. Purely a client-facing presentation choice over results
+    # TMDB already returned, not a TMDB query param (TMDB has no concept of
+    # "watched by this profile"), so it's applied below after the results
+    # come back rather than passed into tmdb.discover().
+    watched_display = request.GET.get("watched_display", "show")
+    if watched_display not in DISPLAY_MODES:
+        watched_display = "show"
+    watchlisted_display = request.GET.get("watchlisted_display", "show")
+    if watchlisted_display not in DISPLAY_MODES:
+        watchlisted_display = "show"
 
     # TMDB refuses page requests beyond 500 regardless of total_pages.
     page_num = min(_discover_int_param(request, "page") or 1, 500)
@@ -272,12 +328,22 @@ def discover(request, media_type, category):
         "selected_language": filters["original_language"] or "",
         "certifications": tmdb.MOVIE_CERTIFICATIONS,
         "selected_certification": selected_certification,
+        "tv_statuses": list(tmdb.TV_STATUSES),
+        "selected_status": selected_status,
+        "availability_choices": DISCOVER_AVAILABILITY_LABELS,
+        "selected_availability": selected_availability,
+        "watched_display": watched_display,
+        "watchlisted_display": watchlisted_display,
         "base_query": query_without_page.urlencode(),
         "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
         "collections_enabled": COLLECTIONS_ENABLED,
     }
     if profile is not None:
         context.update(selectors.discover_action_context(profile, page["results"]))
+        _apply_display_modes(
+            page["results"], context["discover_watched"], context["discover_list_membership"],
+            profile, watched_display, watchlisted_display,
+        )
     return render(request, "tracker/discover.html", context)
 
 

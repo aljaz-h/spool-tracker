@@ -14,6 +14,12 @@ matches that native positioning instead of drifting from it. x-cloak
 keeps the fill bar/labels hidden until Alpine has applied that
 calculation at least once, instead of briefly showing the pre-hydration
 unstyled (effectively full-width) state.
+
+Each thumb uses :value + @input (not x-model) so the handler can clamp
+against the *other* thumb's current value before writing - otherwise
+dragging one handle past the other produces an inverted range (from >
+to) that neither the fill bar nor the TMDB query params behind it were
+ever designed to handle.
 {% endcomment %}
 <div>
   <div class="text-[11px] text-ink-dim mb-4 font-semibold uppercase tracking-wide">{{ label }}</div>
@@ -37,10 +43,10 @@ unstyled (effectively full-width) state.
     ></div>
 
     <input type="range" name="{{ name_from }}" min="{{ min }}" max="{{ max }}" step="{{ step|default:1 }}"
-      x-model.number="{{ from_var }}"
+      :value="{{ from_var }}" @input="{{ from_var }} = Math.min(Number($event.target.value), {{ to_var }})"
       class="dual-range-thumb absolute inset-x-0 top-1/2 h-5 w-full -translate-y-1/2 cursor-pointer appearance-none bg-transparent pointer-events-none">
     <input type="range" name="{{ name_to }}" min="{{ min }}" max="{{ max }}" step="{{ step|default:1 }}"
-      x-model.number="{{ to_var }}"
+      :value="{{ to_var }}" @input="{{ to_var }} = Math.max(Number($event.target.value), {{ from_var }})"
       class="dual-range-thumb absolute inset-x-0 top-1/2 h-5 w-full -translate-y-1/2 cursor-pointer appearance-none bg-transparent pointer-events-none">
   </div>
 </div>

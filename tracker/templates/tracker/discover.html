@@ -46,7 +46,7 @@
           <label for="filters-drawer" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
             {% icon "filter" "w-3.5 h-3.5" %}
             Filters
-            {% if selected_genres or request.GET.year_from or request.GET.year_to or request.GET.runtime_from or request.GET.runtime_to or request.GET.rating_from or request.GET.rating_to or selected_language or selected_certification %}
+            {% if selected_genres or request.GET.year_from or request.GET.year_to or request.GET.runtime_from or request.GET.runtime_to or request.GET.rating_from or request.GET.rating_to or selected_language or selected_certification or selected_status or selected_availability or watched_display != "show" or watchlisted_display != "show" %}
               <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
             {% endif %}
           </label>
@@ -136,12 +136,28 @@
             {% include "tracker/partials/dual_range_slider.html" with label="Rating" name_from="rating_from" name_to="rating_to" min=0 max=10 step=0.1 from_var="ratingFrom" to_var="ratingTo" suffix="" %}
           </div>
 
-          <div class="{% if media_type == "movie" %}pb-5 border-b border-line{% endif %}">
+          <div class="pb-5 border-b border-line">
             <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Language</div>
             <select name="language" class="select select-sm w-full bg-base-100 focus:outline-primary">
               <option value="">Any language</option>
               {% for code, name in languages %}
                 <option value="{{ code }}" {% if selected_language == code %}selected{% endif %}>{{ name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="pb-5 border-b border-line">
+            {% comment %}
+              Both media types - TMDB's watch-provider data (see
+              tmdb.AVAILABILITY_CHOICES). Region is fixed to US (see
+              tmdb.AVAILABILITY_WATCH_REGION) - no per-profile region
+              setting exists yet.
+            {% endcomment %}
+            <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Availability</div>
+            <select name="availability" class="select select-sm w-full bg-base-100 focus:outline-primary">
+              <option value="">Any</option>
+              {% for value, availability_label in availability_choices %}
+                <option value="{{ value }}" {% if selected_availability == value %}selected{% endif %}>{{ availability_label }}</option>
               {% endfor %}
             </select>
           </div>
@@ -154,7 +170,7 @@
               hood) rather than rendering a filter that would silently
               do nothing.
             {% endcomment %}
-            <div>
+            <div class="pb-5 border-b border-line">
               <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Age Rating</div>
               <select name="certification" class="select select-sm w-full bg-base-100 focus:outline-primary">
                 <option value="">Any rating</option>
@@ -163,7 +179,44 @@
                 {% endfor %}
               </select>
             </div>
+          {% else %}
+            {% comment %}
+              TV/Anime only - mirror image of Age Rating above, since
+              /discover/movie has no status-filter equivalent at all
+              (see tmdb.TV_STATUSES).
+            {% endcomment %}
+            <div class="pb-5 border-b border-line">
+              <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Status</div>
+              <select name="status" class="select select-sm w-full bg-base-100 focus:outline-primary">
+                <option value="">Any status</option>
+                {% for status_value in tv_statuses %}
+                  <option value="{{ status_value }}" {% if selected_status == status_value %}selected{% endif %}>{{ status_value }}</option>
+                {% endfor %}
+              </select>
+            </div>
           {% endif %}
+
+          <div>
+            <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Display</div>
+            <div class="flex flex-col gap-2.5">
+              <div class="flex items-center justify-between gap-3">
+                <span class="text-xs text-ink-dim">Watched</span>
+                <select name="watched_display" class="select select-sm w-32 bg-base-100 focus:outline-primary">
+                  <option value="show" {% if watched_display == "show" %}selected{% endif %}>Show</option>
+                  <option value="dim" {% if watched_display == "dim" %}selected{% endif %}>Dim</option>
+                  <option value="hide" {% if watched_display == "hide" %}selected{% endif %}>Hide</option>
+                </select>
+              </div>
+              <div class="flex items-center justify-between gap-3">
+                <span class="text-xs text-ink-dim">Watchlisted</span>
+                <select name="watchlisted_display" class="select select-sm w-32 bg-base-100 focus:outline-primary">
+                  <option value="show" {% if watchlisted_display == "show" %}selected{% endif %}>Show</option>
+                  <option value="dim" {% if watchlisted_display == "dim" %}selected{% endif %}>Dim</option>
+                  <option value="hide" {% if watchlisted_display == "hide" %}selected{% endif %}>Hide</option>
+                </select>
+              </div>
+            </div>
+          </div>
 
           <div class="flex items-center gap-3 pt-1">
             <button type="submit" class="btn btn-sm btn-primary flex-1">Apply filters</button>

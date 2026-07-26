@@ -8,6 +8,25 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-07-27
+
+### Added
+
+- The Movies & TV/Anime filter panel gained three new filters: Availability
+  (streaming now / all digital releases, via TMDB's watch-provider data,
+  region fixed to US), Status (TV/Anime only - Returning Series, Planned,
+  In Production, Ended, Canceled, Pilot; no TMDB equivalent for movies),
+  and a Display section that controls how already-watched or watchlisted
+  titles show up in results - Show (default), Dim (kept in the grid at
+  lowered opacity, full brightness on hover), or Hide entirely.
+
+### Fixed
+
+- The Year/Runtime/Rating range sliders in the filter panel let you drag
+  one handle past the other, producing an inverted range that broke the
+  underlying filter. Each handle now clamps against the other's current
+  value while dragging.
+
 ## [0.43.0] - 2026-07-26
 
 ### Added

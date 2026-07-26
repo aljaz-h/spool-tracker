@@ -5277,6 +5277,49 @@ class TmdbDiscoverTests(TestCase):
         self.assertNotIn("certification", params)
         self.assertNotIn("certification_country", params)
 
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_status_applied_for_tv(self, mock_get):
+        mock_get.return_value = self._response([])
+        tmdb.discover("tv", category="popular", status="Ended")
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(params["with_status"], tmdb.TV_STATUSES["Ended"])
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_status_is_a_no_op_for_movies(self, mock_get):
+        # /discover/movie has no status-filter param at all (verified live -
+        # applying with_status there is silently ignored) - mirror image of
+        # certification being a movie-only no-op for tv.
+        mock_get.return_value = self._response([])
+        tmdb.discover("movie", category="popular", status="Ended")
+        params = mock_get.call_args.kwargs["params"]
+        self.assertNotIn("with_status", params)
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_availability_applied_for_movies_and_tv(self, mock_get):
+        mock_get.return_value = self._response([])
+        tmdb.discover("movie", category="popular", availability="streaming")
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(params["watch_region"], "US")
+        self.assertEqual(params["with_watch_monetization_types"], "flatrate|free|ads")
+
+        mock_get.reset_mock()
+        tmdb.discover("tv", category="popular", availability="digital")
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(params["watch_region"], "US")
+        self.assertEqual(params["with_watch_monetization_types"], "flatrate|free|ads|rent|buy")
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_no_availability_param_when_unset(self, mock_get):
+        mock_get.return_value = self._response([])
+        tmdb.discover("movie", category="popular")
+        params = mock_get.call_args.kwargs["params"]
+        self.assertNotIn("watch_region", params)
+        self.assertNotIn("with_watch_monetization_types", params)
+
     @override_settings(TMDB_API_KEY="")
     def test_returns_empty_without_api_key(self):
         page = tmdb.discover("movie")
@@ -6296,6 +6339,147 @@ class DiscoverViewTests(TestCase):
         resp = self.client.get(reverse("movies_tv", args=["popular"]), {"type": "movie", "certification": "bogus"})
         self.assertIsNone(mock_discover.call_args.kwargs["certification"])
         self.assertEqual(resp.context["selected_certification"], "")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_status_filter_passed_through_for_tv(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"type": "tv", "status": "Ended"})
+        self.assertEqual(mock_discover.call_args.kwargs["status"], "Ended")
+        self.assertEqual(resp.context["selected_status"], "Ended")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_status_dropped_for_movies(self, mock_discover, mock_genres):
+        # No /discover/movie equivalent exists (see tmdb.TV_STATUSES) - a
+        # ?status= carried over from a prior TV search shouldn't silently
+        # pass through to a call that can't use it.
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"type": "movie", "status": "Ended"})
+        self.assertIsNone(mock_discover.call_args.kwargs["status"])
+        self.assertEqual(resp.context["selected_status"], "")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_invalid_status_falls_back_to_none(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"type": "tv", "status": "bogus"})
+        self.assertIsNone(mock_discover.call_args.kwargs["status"])
+        self.assertEqual(resp.context["selected_status"], "")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_availability_filter_passed_through(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"availability": "streaming"})
+        self.assertEqual(mock_discover.call_args.kwargs["availability"], "streaming")
+        self.assertEqual(resp.context["selected_availability"], "streaming")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_invalid_availability_falls_back_to_none(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"availability": "bogus"})
+        self.assertIsNone(mock_discover.call_args.kwargs["availability"])
+        self.assertEqual(resp.context["selected_availability"], "")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_watched_display_defaults_to_showing_watched_titles_normally(self, mock_discover, mock_genres):
+        profile = Profile.objects.get(display_name="DiscoverViewer")
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        WatchEvent.objects.create(profile=profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        mock_discover.return_value = {
+            "results": [{"tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020",
+                         "poster_url": None, "vote_average": 7.1}],
+            "page": 1,
+            "total_pages": 1,
+        }
+        resp = self.client.get(reverse("movies_tv", args=["popular"]))
+        self.assertContains(resp, "Fathom")
+        self.assertNotContains(resp, "opacity-40")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_watched_display_hide_removes_the_tile(self, mock_discover, mock_genres):
+        profile = Profile.objects.get(display_name="DiscoverViewer")
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        WatchEvent.objects.create(profile=profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        mock_discover.return_value = {
+            "results": [{"tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020",
+                         "poster_url": None, "vote_average": 7.1}],
+            "page": 1,
+            "total_pages": 1,
+        }
+        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"watched_display": "hide"})
+        self.assertNotContains(resp, "Fathom")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_watched_display_dim_keeps_the_tile_with_a_lowered_opacity_class(self, mock_discover, mock_genres):
+        profile = Profile.objects.get(display_name="DiscoverViewer")
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        WatchEvent.objects.create(profile=profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        mock_discover.return_value = {
+            "results": [{"tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020",
+                         "poster_url": None, "vote_average": 7.1}],
+            "page": 1,
+            "total_pages": 1,
+        }
+        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"watched_display": "dim"})
+        self.assertContains(resp, "Fathom")
+        self.assertContains(resp, "opacity-40")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_watchlisted_display_hide_removes_the_tile(self, mock_discover, mock_genres):
+        profile = Profile.objects.get(display_name="DiscoverViewer")
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        watchlist = WatchList.objects.create(profile=profile, name="Watchlist", is_watchlist=True)
+        WatchListItem.objects.create(watchlist=watchlist, title=title)
+        mock_discover.return_value = {
+            "results": [{"tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020",
+                         "poster_url": None, "vote_average": 7.1}],
+            "page": 1,
+            "total_pages": 1,
+        }
+        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"watchlisted_display": "hide"})
+        self.assertNotContains(resp, "Fathom")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_watchlisted_display_ignores_membership_in_a_custom_non_watchlist_list(self, mock_discover, mock_genres):
+        # Only the auto-managed Watchlist (is_watchlist=True) counts as
+        # "watchlisted" for this filter - a custom list shouldn't trigger it.
+        profile = Profile.objects.get(display_name="DiscoverViewer")
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        custom_list = WatchList.objects.create(profile=profile, name="Favorites", is_watchlist=False)
+        WatchListItem.objects.create(watchlist=custom_list, title=title)
+        mock_discover.return_value = {
+            "results": [{"tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020",
+                         "poster_url": None, "vote_average": 7.1}],
+            "page": 1,
+            "total_pages": 1,
+        }
+        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"watchlisted_display": "hide"})
+        self.assertContains(resp, "Fathom")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_invalid_display_value_falls_back_to_show(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"watched_display": "bogus"})
+        self.assertEqual(resp.context["watched_display"], "show")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")

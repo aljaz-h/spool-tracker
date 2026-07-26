@@ -1,5 +1,5 @@
 {% load tracker_extras %}
-{# context: item (dict: tmdb_id, media_type, name, year, poster_url, vote_average), my_lists (list of WatchList, for the list-picker popover), discover_title_by_key/discover_watched/discover_watch_count/discover_list_membership from selectors.discover_action_context() #}
+{# context: item (dict: tmdb_id, media_type, name, year, poster_url, vote_average, optional display_mode), my_lists (list of WatchList, for the list-picker popover), discover_title_by_key/discover_watched/discover_watch_count/discover_list_membership from selectors.discover_action_context() #}
 {% comment %}
 Same two-anchor structure as poster_card.html (image box + text block,
 each their own <a>, action bar as a sibling of the image anchor) - see
@@ -10,10 +10,18 @@ watched/list-popover partials a tracked title's own poster card uses (so
 a title already watched/listed elsewhere correctly shows that here too),
 falling back to the "always off, materializes on click" preview partials
 only when there's truly no local Title yet.
+
+display_mode ("show"/"dim"/"hide", set by views.discover's
+_apply_display_modes for the filter panel's Display section - absent, and
+so always "show", anywhere else this partial renders) "hide" skips the
+tile entirely; "dim" keeps it in the grid but lowered-opacity until
+hovered/focused, per the user's ask for something short of fully hiding
+a title they've already watched or listed.
 {% endcomment %}
+{% if item.display_mode != "hide" %}
 {% with key=item|tmdb_key %}
 {% with matched_title=discover_title_by_key|get_item:key %}
-<div class="relative">
+<div class="relative {% if item.display_mode == "dim" %}opacity-40 hover:opacity-100 focus-within:opacity-100 transition-opacity{% endif %}">
   <div class="aspect-[2/3] rounded-t-lg relative overflow-hidden bg-cover bg-center {% if not item.poster_url %}{{ item.tmdb_id|gradient_class }}{% endif %}"
        {% if item.poster_url %}style="background-image:url('{{ item.poster_url }}')"{% endif %}>
     <a href="{% url 'title_preview' item.media_type item.tmdb_id %}" class="absolute inset-0 z-0">
@@ -39,3 +47,4 @@ only when there's truly no local Title yet.
 </div>
 {% endwith %}
 {% endwith %}
+{% endif %}
