@@ -713,8 +713,8 @@ def title_mark_watched(request, pk):
     WatchEvent, a second click logs a rewatch - there's still no
     "unwatch" *here*; that's title_unmark_watched/title_unmark_last_watched,
     deliberately separate endpoints (see title_local_context's is_watched,
-    and the poster card's own watched-button popover once watch_count > 0)
-    not a toggle baked into this one. The poster card's own watched button
+    and the poster card's own watched-button popover once selectors.title_watched
+    is true) not a toggle baked into this one. The poster card's own watched button
     keeps this exact always-append behavior even once a title is watched
     (rewatch logging, now offered as an explicit popover menu item rather
     than a bare second click - see poster_card_watched_button.html) - only
@@ -761,7 +761,7 @@ def title_unmark_watched(request, pk):
         return render(
             request,
             _watched_button_template(request),
-            {"title": title, "watched": False, "watch_count": 0},
+            {"title": title, "watched": selectors.title_watched(profile, title), "watch_count": 0},
         )
     return redirect("title_detail", pk=pk)
 
@@ -772,9 +772,11 @@ def title_unmark_last_watched(request, pk):
     """The poster card watched-button popover's "Remove last watched" -
     undoes a single play instead of title_unmark_watched's "clear
     everything," letting a title logged several times step back one play
-    at a time. Only ever reached via the popover (watch_count > 0
-    already, by construction), so there's always something to delete in
-    practice, but a no-op is harmless either way."""
+    at a time. Only reachable via the popover, which requires a
+    WatchEvent to exist (see selectors.title_watched) but not necessarily
+    a *plain* one (e.g. a show watched only through the episode browser) -
+    so there may be nothing to delete here in practice, a no-op is
+    harmless either way."""
     title = get_object_or_404(Title, pk=pk)
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
@@ -791,7 +793,7 @@ def title_unmark_last_watched(request, pk):
         return render(
             request,
             _watched_button_template(request),
-            {"title": title, "watched": watch_count > 0, "watch_count": watch_count},
+            {"title": title, "watched": selectors.title_watched(profile, title), "watch_count": watch_count},
         )
     return redirect("title_detail", pk=pk)
 

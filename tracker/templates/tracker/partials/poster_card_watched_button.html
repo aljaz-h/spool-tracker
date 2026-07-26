@@ -1,16 +1,22 @@
 {% load icons %}
-{# context: title (Title), watched (bool), watch_count (int, plain/episode-less watches for this title) #}
+{# context: title (Title), watched (bool, ANY watch event - plain or per-episode), watch_count (int, plain/episode-less watches for this title) #}
 {% comment %}
-A never-watched title (watch_count == 0) keeps the original one-click
+A never-watched title (watched == False) keeps the original one-click
 behavior below - hx-post fires immediately, no menu, so the very first
 "mark watched" stays a single uninterrupted click. Once watched at
-least once, the checkmark becomes a popover trigger instead (same
-fixed/getBoundingClientRect()-positioned popover as
-poster_card_list_popover.html) offering rewatch/undo/history actions
-(watched_menu_panel.html, shared with title_detail_watched_button.html),
-rather than silently logging a duplicate play on every further click.
+least once - including a show watched entirely through the episode
+browser, which never logs a plain event - the checkmark becomes a
+popover trigger instead (same fixed/getBoundingClientRect()-positioned
+popover as poster_card_list_popover.html) offering rewatch/undo/history
+actions (watched_menu_panel.html, shared with
+title_detail_watched_button.html), rather than silently logging a
+duplicate play on every further click. watch_count (plain watches only)
+still drives the ×N badge and what "Remove last/all watched" actually
+has to delete - a title watched only via the episode browser shows a
+plain checkmark with no ×N, and those two menu actions are harmless
+no-ops for it.
 {% endcomment %}
-{% if watch_count > 0 %}
+{% if watched %}
 <div class="relative flex-1" id="watched-popover-{{ title.pk }}" x-data="{
   open: false,
   togglePanel(button) {

@@ -841,6 +841,17 @@ def plain_watch_count(profile, title):
     return WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=True).count()
 
 
+def title_watched(profile, title):
+    """Whether this profile has ANY WatchEvent for this title - plain or
+    per-episode. Wider than plain_watch_count>0 on purpose: a show watched
+    entirely through the episode browser (see title_mark_season_watched/
+    title_mark_all_seasons_watched) never logs a plain event, but is still
+    genuinely watched for the poster card's own checkmark (poster_action_context's
+    watched_by_title answers the same question for a grid; this is the
+    single-title shape the watched-button fragment views need)."""
+    return WatchEvent.objects.filter(profile=profile, title=title).exists()
+
+
 def title_local_context(profile, title):
     """The title detail page's own-data half - watch/rating/list state -
     kept separate from the TMDB-sourced half (overview/cast/similar,

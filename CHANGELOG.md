@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.39.1] - 2026-07-26
+
+### Fixed
+
+- A show watched to completion entirely through the episode browser
+  (one-by-one, or via "Mark season watched"/"Mark all watched") now
+  correctly shows the green "watched" checkmark on poster cards
+  (Dashboard, Watchlist, Search, Discover) - it previously only lit up
+  once you'd also clicked the poster card's own one-click watch button,
+  since the checkmark was keyed off whole-title plays only and ignored
+  per-episode ones entirely.
+
 ## [0.39.0] - 2026-07-25
 
 ### Added

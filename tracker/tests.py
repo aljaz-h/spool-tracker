@@ -7401,6 +7401,20 @@ class TitleUnmarkWatchedTests(TestCase):
         self.assertContains(resp, "Mark as watched")
         self.assertNotContains(resp, "text-success")
 
+    def test_via_htmx_still_shows_watched_when_episode_history_remains(self):
+        # Regression: clearing the plain watch marks for a show that also
+        # has episode-level history shouldn't flip its poster card back to
+        # the never-watched state - the episode history is still there.
+        show = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99", "tmdb_kind": "tv"}
+        )
+        episode = Episode.objects.create(title=show, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=show, episode=episode, watched_at=self.timezone.now())
+        WatchEvent.objects.create(profile=self.profile, title=show, watched_at=self.timezone.now())
+        resp = self.client.post(reverse("title_unmark_watched", args=[show.pk]), HTTP_HX_REQUEST="true")
+        self.assertContains(resp, "text-success")
+        self.assertNotContains(resp, 'title="Mark as watched"')
+
 
 class TitleUnmarkLastWatchedTests(TestCase):
     """The poster card watched-button popover's "Remove last watched" -
@@ -7491,6 +7505,21 @@ class PosterCardWatchedButtonPopoverTests(TestCase):
         WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
         resp = self.client.get(reverse("list_detail", args=[self.watchlist.pk]))
         self.assertContains(resp, f'href="{reverse("history")}?title={self.title.pk}"')
+
+    def test_show_watched_entirely_via_episode_browser_shows_popover_not_plain_button(self):
+        # Regression: a show watched to completion through the episode
+        # browser (title_mark_season_watched/title_mark_all_seasons_watched,
+        # or one-by-one episode_mark_watched) never logs a plain,
+        # episode-less WatchEvent, so it must not fall back to the
+        # never-watched "Mark as watched" button on grids (Dashboard,
+        # Watchlist, Search) just because plain_watch_count is 0.
+        show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+        episode = Episode.objects.create(title=show, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=show, episode=episode, watched_at=self.timezone.now())
+        WatchListItem.objects.create(watchlist=self.watchlist, title=show)
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.pk]))
+        self.assertContains(resp, "View history plays")
+        self.assertContains(resp, f'id="watched-popover-{show.pk}"')
 
 
 class WatchedButtonTemplateSelectionTests(TestCase):
