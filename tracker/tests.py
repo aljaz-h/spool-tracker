@@ -4000,6 +4000,35 @@ class TopbarAvatarDedupeTests(TestCase):
         self.assertEqual(content.count('title="Other"'), 1)
 
 
+class TopbarMobileLayoutTests(TestCase):
+    """Regression coverage for the mobile topbar's icon cluster drifting
+    off the right edge - see the col-start-N comment in topbar.html.
+    CSS grid auto-placement (not just track sizing) is what actually
+    breaks once the middle <nav> is display:none on mobile, so this
+    pins down the explicit column assignment that fixes it, plus the
+    new mobile search toggle that replaces the desktop-only search bar
+    below the xl: breakpoint."""
+
+    def setUp(self):
+        user = User.objects.create_user("mobiletopbaruser", password="pass12345")
+        Profile.objects.create(user=user, display_name="MobileTopbarUser")
+        self.client.login(username="mobiletopbaruser", password="pass12345")
+
+    def test_header_blocks_carry_explicit_grid_column_placement(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "col-start-1")
+        self.assertContains(resp, "col-start-2")
+        self.assertContains(resp, "col-start-3")
+
+    def test_mobile_search_toggle_and_panel_present(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "mobileSearchOpen = true")
+        self.assertContains(resp, f'action="{reverse("search")}"')
+        # Two forms should post to search now - the desktop inline bar
+        # (xl: and up) and the mobile toggle panel (below xl:).
+        self.assertEqual(resp.content.decode().count(f'action="{reverse("search")}"'), 2)
+
+
 class TopbarFriendsDropdownTests(TestCase):
     """The topbar's household-member circles were replaced by a single
     Friends icon that opens a dropdown listing everyone else, each row

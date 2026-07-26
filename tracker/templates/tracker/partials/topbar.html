@@ -12,8 +12,20 @@
     content is - `justify-self-start`/`-end` then pins each side's
     content to the correct edge of its own (possibly much wider than
     its content) column.
+
+    Each block also gets an explicit col-start-N. Without it, on
+    mobile where the middle <nav> is display:none, CSS grid's
+    auto-placement algorithm (which places items into the next free
+    cell in DOM order) drops the right block straight into column 2
+    - the display:none nav is excluded from auto-placement entirely,
+    it doesn't just leave column 2 "empty and skipped" - so the icon
+    cluster ends up squeezed next to the logo, with column 3's 1fr
+    share of free space sitting empty and unused past it (exactly the
+    "icons drift back to center, big dead gap on the right" bug this
+    keeps regressing to). Explicit placement isn't subject to that
+    reflow, so it holds regardless of whether the middle item renders.
   {% endcomment %}
-  <div class="flex items-center gap-3.5 min-w-0 justify-self-start">
+  <div class="flex items-center gap-2.5 md:gap-3.5 min-w-0 justify-self-start col-start-1">
     <button
       @click="sidebarOpen = !sidebarOpen"
       aria-label="Toggle menu"
@@ -24,6 +36,14 @@
     <a href="{% url 'dashboard' %}" class="flex items-baseline gap-2 flex-none" title="Dashboard">
       <span class="font-display text-[28px] text-marquee tracking-wide leading-none">SPOOL</span>
     </a>
+    <button
+      type="button"
+      @click="mobileSearchOpen = true; $nextTick(() => $refs.mobileSearchInput.focus())"
+      aria-label="Search"
+      class="w-9 h-9 flex-none rounded-lg border border-line bg-base-200 flex items-center justify-center text-ink-dim hover:text-base-content hover:border-primary xl:hidden"
+    >
+      {% icon "search" "w-[17px] h-[17px]" %}
+    </button>
     <div class="hidden md:block w-px h-8 bg-line flex-none"></div>
     <form method="get" action="{% url 'search' %}" class="hidden xl:flex items-center gap-2 flex-none xl:w-64 bg-base-200 rounded-full px-4 py-2">
       {% icon "search" "w-4 h-4 text-ink-faint flex-none" %}
@@ -35,7 +55,7 @@
     </form>
   </div>
 
-  <nav class="hidden md:flex items-center justify-self-center min-w-0 overflow-x-auto">
+  <nav class="hidden md:flex items-center justify-self-center min-w-0 overflow-x-auto col-start-2">
     <div class="flex items-center gap-1 bg-base-200 rounded-full p-1">
       {% url 'movies_tv' category="trending" as movies_tv_url %}
       {% include "tracker/partials/nav_item_horizontal.html" with href=movies_tv_url icon_name="clapperboard" label="Movies & TV" is_active=url_name|eq:"movies_tv" %}
@@ -62,14 +82,13 @@
     </div>
   </nav>
 
-  <div class="flex items-center gap-3.5 flex-none justify-self-end">
+  <div class="flex items-center gap-2 md:gap-3.5 flex-none justify-self-end col-start-3">
     {% comment %}
       `justify-self-end` pins this group to the header's right edge
-      regardless of how wide its own content is or isn't (see the grid
-      comment up top) - on mobile, where the middle nav is display:none,
-      the grid's middle column collapses to 0 and the two 1fr side
-      columns butt up against each other, so this still lands at the
-      true right edge without needing a separate mobile-only rule.
+      regardless of how wide its own content is or isn't - see the
+      col-start-3 note up top for why that alone isn't enough on
+      mobile (auto-placement would otherwise drop this block into
+      column 2 once the middle nav is display:none).
       Every header dropdown below positions itself via JS (togglePanel),
       not a plain `absolute right-0` - on a narrow phone, the trigger
       button often sits well left of the true right edge (the middle nav
@@ -202,6 +221,50 @@
         </div>
       </div>
     {% endif %}
+  </div>
+
+  {% comment %}
+    Below xl:, the inline search bar next to the logo is display:none
+    (no room for it), so there was previously no way to search at all
+    short of typing /search/?q= by hand. This toggles a full-width bar
+    docked under the header instead of trying to cram a search icon's
+    own popover/expand-in-place animation into the already-tight mobile
+    header - simplest thing that reuses the exact same GET form/action
+    as the desktop bar, just full-width. mobileSearchOpen lives on the
+    root x-data in base.html (sibling of sidebarOpen), not scoped here,
+    so the trigger button up in the left block and this panel can share
+    it without a wrapping x-data of their own.
+  {% endcomment %}
+  <div
+    x-show="mobileSearchOpen"
+    x-cloak
+    @click="mobileSearchOpen = false"
+    class="fixed inset-0 top-16 bg-black/60 z-40 xl:hidden"
+  ></div>
+  <div
+    x-show="mobileSearchOpen"
+    x-cloak
+    x-transition
+    @keydown.escape.window="mobileSearchOpen = false"
+    class="fixed inset-x-0 top-16 z-40 border-b border-line bg-base-100 p-3 xl:hidden"
+  >
+    <form method="get" action="{% url 'search' %}" class="flex items-center gap-2 bg-base-200 rounded-full pl-4 pr-2 py-2">
+      {% icon "search" "w-4 h-4 text-ink-faint flex-none" %}
+      <input
+        x-ref="mobileSearchInput"
+        type="text" name="q" value="{{ request.GET.q }}"
+        class="min-w-0 flex-1 bg-transparent text-sm text-ink-dim placeholder:text-ink-faint focus:outline-none"
+        placeholder="Search…"
+      >
+      <button
+        type="button"
+        @click="mobileSearchOpen = false"
+        aria-label="Close search"
+        class="w-7 h-7 flex-none rounded-full flex items-center justify-center text-ink-faint hover:text-base-content hover:bg-base-300"
+      >
+        {% icon "x" "w-4 h-4" %}
+      </button>
+    </form>
   </div>
 
   <dialog id="profile_popup_modal" class="modal">

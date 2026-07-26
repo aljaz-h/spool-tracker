@@ -8,6 +8,28 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-07-26
+
+### Added
+
+- A search button now shows up on mobile/tablet (below the desktop's
+  own inline search bar's `xl:` breakpoint) - tapping it drops a
+  full-width search bar under the header. Previously there was no way
+  to search at all outside the desktop layout.
+
+### Fixed
+
+- The topbar's notifications/friends/profile icon cluster drifted back
+  to the middle of the header on mobile instead of sitting at the
+  right edge - a CSS grid auto-placement quirk (not a track-sizing
+  one): once the middle nav is `display:none`, grid auto-placement
+  drops the next item into the vacated column instead of skipping it,
+  so the icon cluster landed in the header's middle column with the
+  actual right-hand column sitting empty. Fixed by giving each of the
+  header's three blocks an explicit column position instead of relying
+  on auto-placement.
+- Tightened the gap between the topbar's icons on mobile/tablet.
+
 ## [0.39.1] - 2026-07-26
 
 ### Fixed
