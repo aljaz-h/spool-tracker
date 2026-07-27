@@ -8,6 +8,20 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.47.1] - 2026-07-27
+
+### Fixed
+
+- History's Filters button now shows a live active-filter dot - it
+  previously only reflected whatever period/sort was true on the very
+  first page load, since HTMX only ever swapped the results below the
+  toolbar, never the toolbar itself.
+- Switching the All/Movies/TV/Anime toggle no longer silently drops an
+  applied Period/Sort filter - the toolbar's own form only ever
+  submitted its own fields (type/search/title), never period/sort
+  (which live in the Filters drawer), resetting them to their defaults
+  on every type change.
+
 ## [0.47.0] - 2026-07-27
 
 ### Added

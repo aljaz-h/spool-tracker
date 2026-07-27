@@ -1,0 +1,82 @@
+{% load icons %}
+{# context: same as history.html's own top-level context - this is the "everything that needs to stay in sync with the current filters" region: the toolbar (type toggle, search, Filters button + its active-filter dot, Select toggle) and the results below it. Swapped as one unit (not just #history-content) so the Filters dot and the type toggle's checked state never go stale after a period/sort/search change - see history.html's own comment on why period/sort live outside this form entirely. #}
+<form
+  hx-get="{{ history_base_url }}"
+  hx-target="#history-page"
+  hx-trigger="change"
+  hx-push-url="true"
+  hx-include="[name='period'],[name='sort']"
+  {% comment %}
+    period/sort live in the drawer, outside this form (see history.html)
+    - without this hx-include, clicking a type radio or typing a search
+    only ever submitted this form's OWN fields (type/q/title), silently
+    dropping whatever period/sort had been picked in the drawer. This is
+    the other half of the fix; the drawer's own selects already pull
+    type/q/title in the same way, in the opposite direction.
+  {% endcomment %}
+  class="flex justify-between items-center flex-wrap gap-3 mb-5"
+>
+  <div class="flex items-center gap-3 flex-wrap">
+    {% comment %}
+      has-checked: (CSS, not a server-rendered class) so the active pill
+      updates the instant it's clicked, not only once the HTMX response
+      swaps this whole region back in.
+    {% endcomment %}
+    <div class="inline-flex bg-base-200 border border-line rounded-lg p-1 gap-0.5">
+      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+        <input type="radio" name="type" value="all" class="hidden" {% if type_filter == "all" %}checked{% endif %}>All
+      </label>
+      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+        <input type="radio" name="type" value="movie" class="hidden" {% if type_filter == "movie" %}checked{% endif %}>Movies
+      </label>
+      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+        <input type="radio" name="type" value="tv" class="hidden" {% if type_filter == "tv" %}checked{% endif %}>TV
+      </label>
+      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+        <input type="radio" name="type" value="anime" class="hidden" {% if type_filter == "anime" %}checked{% endif %}>Anime
+      </label>
+    </div>
+    {% comment %}
+      Debounced-as-you-type instead of the form's own change-on-blur
+      default (matches what "search bar" usually means) - its own
+      hx-trigger overrides the form's for issuing the request, inheriting
+      hx-get/hx-target/hx-push-url from the form same as every other
+      field here. @change.stop keeps the native change event (still
+      fires on blur) from ALSO bubbling into the form's own
+      hx-trigger="change" listener, which would otherwise double-fire
+      the request.
+    {% endcomment %}
+    <div class="relative">
+      {% icon "search" "w-3.5 h-3.5 text-ink-faint absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" %}
+      <input
+        type="text" name="q" value="{{ query }}"
+        placeholder="Search history…"
+        hx-trigger="input changed delay:400ms, search"
+        @change.stop=""
+        class="bg-base-200 border border-line text-ink-dim text-xs pl-8 pr-3 py-2 rounded-lg w-40 sm:w-56 focus:outline-primary"
+      >
+    </div>
+  </div>
+  <input type="hidden" name="title" value="{{ title_filter.pk|default:"" }}">
+  <div class="flex gap-2.5 flex-wrap items-center">
+    <label for="history-filters-drawer" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
+      {% icon "filter" "w-3.5 h-3.5" %}
+      Filters
+      {% if period != "all" or sort != "new" %}
+        <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+      {% endif %}
+    </label>
+    {% if is_own_history and not grouped_by_watch_count %}
+      <button
+        type="button"
+        @click="selecting = !selecting; selectedCount = 0"
+        class="px-3.5 py-2 rounded-lg text-xs font-semibold border border-line"
+        :class="selecting ? 'bg-primary text-primary-content border-primary' : 'bg-base-200 text-ink-dim'"
+      ><span x-text="selecting ? 'Cancel' : 'Select'"></span></button>
+    {% endif %}
+  </div>
+</form>
+
+<div id="history-content">
+  {% include "tracker/partials/history_content.html" %}
+</div>

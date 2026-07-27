@@ -12,76 +12,8 @@
     <div class="drawer drawer-end">
       <input id="history-filters-drawer" type="checkbox" class="drawer-toggle" />
       <div class="drawer-content">
-        <form
-          hx-get="{{ history_base_url }}"
-          hx-target="#history-content"
-          hx-trigger="change"
-          hx-push-url="true"
-          class="flex justify-between items-center flex-wrap gap-3 mb-5"
-        >
-          <div class="flex items-center gap-3 flex-wrap">
-            {% comment %}
-              has-checked: (CSS, not a server-rendered class) so the active pill
-              stays in sync with the native radio state even though this form
-              sits outside #history-content, the only thing HTMX re-renders.
-            {% endcomment %}
-            <div class="inline-flex bg-base-200 border border-line rounded-lg p-1 gap-0.5">
-              <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-                <input type="radio" name="type" value="all" class="hidden" {% if type_filter == "all" %}checked{% endif %}>All
-              </label>
-              <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-                <input type="radio" name="type" value="movie" class="hidden" {% if type_filter == "movie" %}checked{% endif %}>Movies
-              </label>
-              <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-                <input type="radio" name="type" value="tv" class="hidden" {% if type_filter == "tv" %}checked{% endif %}>TV
-              </label>
-              <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-                <input type="radio" name="type" value="anime" class="hidden" {% if type_filter == "anime" %}checked{% endif %}>Anime
-              </label>
-            </div>
-            {% comment %}
-              Debounced-as-you-type instead of the form's own change-on-
-              blur default (matches what "search bar" usually means) -
-              its own hx-trigger overrides the form's for issuing the
-              request, inheriting hx-get/hx-target/hx-push-url from the
-              form same as every other field here. @change.stop keeps
-              the native change event (still fires on blur) from ALSO
-              bubbling into the form's own hx-trigger="change" listener,
-              which would otherwise double-fire the request.
-            {% endcomment %}
-            <div class="relative">
-              {% icon "search" "w-3.5 h-3.5 text-ink-faint absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" %}
-              <input
-                type="text" name="q" value="{{ query }}"
-                placeholder="Search history…"
-                hx-trigger="input changed delay:400ms, search"
-                @change.stop=""
-                class="bg-base-200 border border-line text-ink-dim text-xs pl-8 pr-3 py-2 rounded-lg w-40 sm:w-56 focus:outline-primary"
-              >
-            </div>
-          </div>
-          <input type="hidden" name="title" value="{{ title_filter.pk|default:"" }}">
-          <div class="flex gap-2.5 flex-wrap items-center">
-            <label for="history-filters-drawer" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
-              {% icon "filter" "w-3.5 h-3.5" %}
-              Filters
-              {% if period != "all" or sort != "new" %}
-                <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
-              {% endif %}
-            </label>
-            {% if is_own_history and not grouped_by_watch_count %}
-              <button
-                type="button"
-                @click="selecting = !selecting; selectedCount = 0"
-                class="px-3.5 py-2 rounded-lg text-xs font-semibold border border-line"
-                :class="selecting ? 'bg-primary text-primary-content border-primary' : 'bg-base-200 text-ink-dim'"
-              ><span x-text="selecting ? 'Cancel' : 'Select'"></span></button>
-            {% endif %}
-          </div>
-        </form>
-
-        <div id="history-content">
-          {% include "tracker/partials/history_content.html" %}
+        <div id="history-page">
+          {% include "tracker/partials/history_toolbar_and_content.html" %}
         </div>
       </div>
 
@@ -103,12 +35,15 @@
               checkbox for daisyUI's CSS-only open/close to work, which
               rules out nesting one <form> around both) - hx-include pulls
               the toolbar's current type/search/title values in by name
-              instead, same instant-apply behavior as every other control here.
+              instead, same instant-apply behavior as every other control
+              here. Targets #history-page (not just #history-content) so
+              the Filters button's own dot and the type toggle both refresh
+              along with the results - see history_toolbar_and_content.html.
             {% endcomment %}
             <select
               name="period"
               hx-get="{{ history_base_url }}"
-              hx-target="#history-content"
+              hx-target="#history-page"
               hx-push-url="true"
               hx-include="[name='type']:checked,[name='q'],[name='title']"
               class="select select-sm w-full bg-base-100 focus:outline-primary"
@@ -127,7 +62,7 @@
             <select
               name="sort"
               hx-get="{{ history_base_url }}"
-              hx-target="#history-content"
+              hx-target="#history-page"
               hx-push-url="true"
               hx-include="[name='type']:checked,[name='q'],[name='title']"
               class="select select-sm w-full bg-base-100 focus:outline-primary"

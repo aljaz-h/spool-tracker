@@ -8953,6 +8953,73 @@ class HistorySearchAndMostWatchedTests(TestCase):
         self.assertContains(resp, "Least watched")
 
 
+class HistoryToolbarStaysInSyncTests(TestCase):
+    """A type/period/sort/search change has to refresh the toolbar
+    itself, not just the results below it - otherwise the Filters
+    button's own active-filter dot and the type toggle's checked state
+    go stale (a period picked in the drawer wouldn't even survive
+    switching the type toggle, since the toolbar's own <form> never
+    carried period/sort in the first place - see views.history's
+    HX-Target branching and history_toolbar_and_content.html)."""
+
+    def setUp(self):
+        user = User.objects.create_user("toolbarsyncuser", password="pass12345")
+        Profile.objects.create(user=user, display_name="ToolbarSyncUser")
+        self.client.login(username="toolbarsyncuser", password="pass12345")
+
+    def test_history_page_target_returns_the_toolbar_and_the_active_filter_dot(self):
+        resp = self.client.get(
+            reverse("history"), {"period": "7", "type": "movie"}, HTTP_HX_REQUEST="true", HTTP_HX_TARGET="history-page"
+        )
+        self.assertContains(resp, "<form")
+        self.assertContains(resp, "bg-primary")  # the dot itself
+        self.assertContains(resp, 'value="movie" class="hidden" checked')
+
+    def test_history_content_target_returns_only_the_results_no_toolbar(self):
+        resp = self.client.get(
+            reverse("history"), {"period": "7"}, HTTP_HX_REQUEST="true", HTTP_HX_TARGET="history-content"
+        )
+        self.assertNotContains(resp, "<form")
+
+    def test_toolbar_form_pulls_period_and_sort_in_from_the_drawer(self):
+        # The actual regression: period/sort live outside the toolbar's
+        # <form> (in the drawer, for daisyUI's CSS-only open/close - see
+        # history.html), so without this hx-include, a type-radio click
+        # or search keystroke - fields the form DOES own - would silently
+        # submit without whatever period/sort had been picked, resetting
+        # them to the server's defaults. Can't drive an actual browser
+        # click here, so this guards the wiring the fix depends on.
+        resp = self.client.get(reverse("history"))
+        self.assertContains(resp, "hx-include=\"[name='period'],[name='sort']\"")
+
+    def test_drawer_selects_pull_type_search_and_title_in_from_the_toolbar(self):
+        resp = self.client.get(reverse("history"))
+        self.assertContains(resp, "hx-include=\"[name='type']:checked,[name='q'],[name='title']\"")
+
+    def test_switching_type_preserves_an_applied_period_and_sort(self):
+        # One level down from the two hx-include tests above: given the
+        # query string HTMX *would* now send (period/sort included, per
+        # those wires), the server-rendered response actually carries
+        # them through - the period/sort <select>s themselves live in
+        # the drawer (history.html), not in this HX-Target="history-page"
+        # partial, so it's the context values (what the drawer would
+        # re-render from on the next full page load) that matter here.
+        resp = self.client.get(
+            reverse("history"),
+            {"type": "movie", "period": "7", "sort": "old"},
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET="history-page",
+        )
+        self.assertEqual(resp.context["period"], "7")
+        self.assertEqual(resp.context["sort"], "old")
+        self.assertContains(resp, 'value="movie" class="hidden" checked')
+
+    def test_full_page_load_re_selects_the_applied_period_and_sort_in_the_drawer(self):
+        resp = self.client.get(reverse("history"), {"period": "7", "sort": "old"})
+        self.assertContains(resp, 'value="7" selected')
+        self.assertContains(resp, 'value="old" selected')
+
+
 class HistoryConsecutiveEpisodeGroupingTests(TestCase):
     """A binge session's episode cards should collapse into one group tile,
     the same idea as the Activity feed's grouping but shaped for the

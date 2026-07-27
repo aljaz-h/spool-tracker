@@ -1419,12 +1419,27 @@ def history(request, profile_id=None):
     another household profile's history read-only (no bulk-select/delete,
     see history.html's is_own_history gate). history_bulk_delete always
     operates on the request's own profile regardless, so it's harmless
-    even if that gate were somehow bypassed."""
+    even if that gate were somehow bypassed.
+
+    Two different HTMX targets hit this same view: the toolbar's own
+    form/the drawer's Period+Sort selects (type/search/period/sort
+    changes) target #history-page and need the toolbar re-rendered too -
+    otherwise the Filters button's own active-filter dot and the type
+    toggle's checked state go stale after a change, since only the
+    results below them would otherwise be swapped. Pagination/bulk-
+    delete (which never change type/period/sort) target #history-content
+    directly and only need the results themselves back."""
     target, is_own = _resolve_stats_profile(request, profile_id)
     context = _history_context(request, target)
     context["is_own_history"] = is_own
     context["history_base_url"] = reverse("history") if is_own or target is None else reverse("member_history", args=[target.pk])
-    template = "tracker/partials/history_content.html" if request.headers.get("HX-Request") else "tracker/history.html"
+    hx_target = request.headers.get("HX-Target") or ""
+    if hx_target == "history-page":
+        template = "tracker/partials/history_toolbar_and_content.html"
+    elif request.headers.get("HX-Request"):
+        template = "tracker/partials/history_content.html"
+    else:
+        template = "tracker/history.html"
     return render(request, template, context)
 
 
