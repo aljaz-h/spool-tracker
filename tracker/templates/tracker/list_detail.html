@@ -2,11 +2,13 @@
 {% load icons %}
 {% block title %}{{ watchlist.name }} · Spool{% endblock %}
 {% block content %}
-{# drawer-toggle/drawer-content/drawer-side must stay flat siblings under
-.drawer for daisyUI's CSS-only open/close - that's why the Filters
-drawer's period/sort selects (below) can't be nested inside the toolbar
-form in list_toolbar_and_items.html; they talk to it via hx-include in
-both directions instead, same fix History's Filters drawer got in v0.47.1. #}
+{% comment %}
+  drawer-toggle/drawer-content/drawer-side must stay flat siblings under
+  .drawer for daisyUI's CSS-only open/close - that's why the Filters
+  drawer's period/sort selects (below) can't be nested inside the toolbar
+  form in list_toolbar_and_items.html; they talk to it via hx-include in
+  both directions instead, same fix History's Filters drawer got in v0.47.1.
+{% endcomment %}
 <div class="drawer drawer-end" x-data="{ showSearch: false, dragId: null }">
   <input id="list-filters-drawer" type="checkbox" class="drawer-toggle" />
   <div class="drawer-content">

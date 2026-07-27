@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.48.1] - 2026-07-27
+
+### Fixed
+
+- A stray developer comment above the Lists detail page was rendering as
+  visible text at the top of the page instead of being stripped - Django's
+  `{# #}` comment syntax doesn't support embedded newlines (unlike
+  `{% comment %}`), so a multi-line one meant for the daisyUI drawer
+  structure leaked straight into the HTML.
+
 ## [0.48.0] - 2026-07-27
 
 ### Added
