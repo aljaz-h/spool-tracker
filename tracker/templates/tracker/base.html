@@ -20,6 +20,35 @@
     document.addEventListener('htmx:configRequest', (e) => {
       e.detail.headers['X-CSRFToken'] = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
     });
+    // FLIP ("First, Last, Invert, Play") reorder animation - records each
+    // of container's children's on-screen position (skipping `skip`, e.g.
+    // the item actively being dragged - it gets its own CSS transform for
+    // the "lifted" look, see .list-item-dragging, and fighting over the
+    // same inline style with this function would cancel that out on every
+    // flip), runs `mutate` (which actually changes the DOM order), then
+    // for every recorded child that moved, snaps it back to its old spot
+    // with a transform and animates that transform away to zero - so
+    // items slide to their new positions instead of jumping there. Lives
+    // here (not colocated with its only caller, list_detail_items.html)
+    // because that partial gets re-swapped by htmx on every filter
+    // change/reorder - a <script> inside it would re-run and redeclare
+    // this on every swap, whereas base.html only ever loads once.
+    window.flipReorder = (container, mutate, skip) => {
+      const before = new Map([...container.children].filter((el) => el !== skip).map((el) => [el, el.getBoundingClientRect()]));
+      mutate();
+      for (const [el, prev] of before) {
+        const next = el.getBoundingClientRect();
+        const dx = prev.left - next.left;
+        const dy = prev.top - next.top;
+        if (!dx && !dy) continue;
+        el.style.transition = 'none';
+        el.style.transform = `translate(${dx}px, ${dy}px)`;
+        requestAnimationFrame(() => {
+          el.style.transition = 'transform 220ms ease';
+          el.style.transform = '';
+        });
+      }
+    };
     // Shared styled-<dialog> replacement for the browser's own native
     // confirm() popup - resolves true/false once the dialog closes,
     // whichever way (Confirm click, Cancel click, backdrop click, Esc).

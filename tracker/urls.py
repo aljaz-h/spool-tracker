@@ -74,6 +74,7 @@ urlpatterns = [
     path("lists/create/", views.create_list, name="create_list"),
     path("lists/<int:list_id>/", views.list_detail, name="list_detail"),
     path("lists/<int:list_id>/delete/", views.delete_list, name="delete_list"),
+    path("lists/<int:list_id>/toggle-shared/", views.toggle_list_shared, name="toggle_list_shared"),
     path("lists/<int:list_id>/add/", views.add_to_list, name="add_to_list"),
     path("lists/<int:list_id>/remove/", views.remove_from_list, name="remove_from_list"),
     path("lists/<int:list_id>/reorder/", views.reorder_list, name="reorder_list"),

@@ -1693,6 +1693,27 @@ def delete_list(request, list_id):
 
 @login_required
 @require_POST
+def toggle_list_shared(request, list_id):
+    """The list's own creator's call (can_edit, not is_owner - unlike
+    is_featured, which is an owner-only curation power below). Un-sharing
+    also clears is_featured: a private list can never appear in the
+    Dashboard's Featured Lists rail anyway (selectors.featured_lists()
+    requires both is_shared and is_featured), so leaving the flag set
+    would just be a dangling no-op waiting to confuse whoever re-shares
+    it later expecting it to still need featuring."""
+    profile = Profile.objects.filter(user=request.user).first()
+    watchlist = get_object_or_404(WatchList, pk=list_id)
+    if profile is None or not watchlist.can_edit(profile):
+        raise Http404
+    watchlist.is_shared = not watchlist.is_shared
+    if not watchlist.is_shared:
+        watchlist.is_featured = False
+    watchlist.save(update_fields=["is_shared", "is_featured"])
+    return redirect("list_detail", list_id=watchlist.id)
+
+
+@login_required
+@require_POST
 def toggle_list_featured(request, list_id):
     """Owner-only curation power (independent of watchlist.can_edit/who
     created the list) - surfaces a shared list in the Dashboard's Featured
@@ -1802,11 +1823,15 @@ def remove_from_list(request, list_id):
 @login_required
 @require_POST
 def reorder_list(request, list_id):
-    """Fired by list_detail_items.html's native drag-and-drop after a drop
-    - item_id is posted in the exact new DOM order, so position just
-    becomes that order's index. Only reachable when the list_detail view
-    was unfiltered (can_reorder - see _list_detail_context), but re-checked
-    here too rather than trusted from the client."""
+    """Fired by list_detail_items.html's drag-and-drop on dragend - item_id
+    is posted in the exact new DOM order, so position just becomes that
+    order's index. The drag has already reordered the DOM client-side
+    (window.flipReorder, live as you drag, not just on drop), so this is a
+    pure persist - swap:'none' on the caller's htmx.ajax means the response
+    body is discarded, there's nothing left for the server to hand back
+    that the page doesn't already show. Only reachable when the list_detail
+    view was unfiltered (can_reorder - see _list_detail_context), but
+    re-checked here too rather than trusted from the client."""
     profile = Profile.objects.filter(user=request.user).first()
     watchlist = get_object_or_404(WatchList, pk=list_id)
     if profile is None or not watchlist.can_edit(profile):
@@ -1815,7 +1840,7 @@ def reorder_list(request, list_id):
     with transaction.atomic():
         for index, item_id in enumerate(item_ids):
             WatchListItem.objects.filter(pk=item_id, watchlist=watchlist).update(position=index)
-    return _render_list_items(request, watchlist, profile)
+    return HttpResponse(status=204)
 
 
 @login_required

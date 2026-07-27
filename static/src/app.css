@@ -232,3 +232,18 @@
 [x-cloak] {
   display: none !important;
 }
+
+/* Lists detail page's drag-to-reorder (list_detail_items.html) - applied
+   to the item currently being dragged, toggled via Alpine on dragstart/
+   dragend. transition here (not on window.flipReorder's own inline
+   transform transition, which animates the *other* items sliding out of
+   the way) is what makes picking the card up and putting it back down
+   feel smooth rather than an instant snap. */
+.list-item-dragging {
+  transition: transform 150ms ease, opacity 150ms ease, box-shadow 150ms ease;
+  opacity: 0.55;
+  transform: scale(1.04) rotate(-1.5deg);
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.45);
+  cursor: grabbing;
+  z-index: 20;
+}

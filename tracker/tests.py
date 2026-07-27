@@ -8951,10 +8951,15 @@ class ReorderListTests(TestCase):
         self.item_b = WatchListItem.objects.create(watchlist=self.watchlist, title=self.second, position=1)
 
     def test_reorder_applies_the_posted_order(self):
-        self.client.post(
+        resp = self.client.post(
             reverse("reorder_list", args=[self.watchlist.id]),
             {"item_id": [self.item_b.id, self.item_a.id]},
         )
+        # 204/no body - the drag has already reordered the DOM client-side
+        # before this fires (see list_detail_items.html), so there's
+        # nothing left for the server to hand back that the page doesn't
+        # already show; the caller's htmx.ajax uses swap:'none'.
+        self.assertEqual(resp.status_code, 204)
         self.item_a.refresh_from_db()
         self.item_b.refresh_from_db()
         self.assertEqual(self.item_b.position, 0)
@@ -9012,6 +9017,56 @@ class AddToListPositionTests(TestCase):
         self.client.post(reverse("add_to_list", args=[self.watchlist.id]), {"title_id": title.pk})
         existing.refresh_from_db()
         self.assertEqual(existing.position, 3)
+
+
+class ToggleListSharedTests(TestCase):
+    """The list creator's own call (can_edit-gated, not owner-gated - see
+    ToggleListFeaturedTests for the owner-only counterpart) - the only way
+    to share/unshare a list that already exists, since create_list's
+    checkbox only ever sets is_shared at creation time."""
+
+    def setUp(self):
+        user = User.objects.create_user("sharetoggler", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ShareToggler")
+        self.client.login(username="sharetoggler", password="pass12345")
+        self.watchlist = WatchList.objects.create(profile=self.profile, name="Marvel In Order")
+
+    def test_toggling_a_private_list_shares_it(self):
+        self.client.post(reverse("toggle_list_shared", args=[self.watchlist.id]))
+        self.watchlist.refresh_from_db()
+        self.assertTrue(self.watchlist.is_shared)
+
+    def test_toggling_a_shared_list_makes_it_private_again(self):
+        self.watchlist.is_shared = True
+        self.watchlist.save()
+        self.client.post(reverse("toggle_list_shared", args=[self.watchlist.id]))
+        self.watchlist.refresh_from_db()
+        self.assertFalse(self.watchlist.is_shared)
+
+    def test_unsharing_a_featured_list_also_unfeatures_it(self):
+        self.watchlist.is_shared = True
+        self.watchlist.is_featured = True
+        self.watchlist.save()
+        self.client.post(reverse("toggle_list_shared", args=[self.watchlist.id]))
+        self.watchlist.refresh_from_db()
+        self.assertFalse(self.watchlist.is_shared)
+        self.assertFalse(self.watchlist.is_featured)
+
+    def test_a_non_creator_cannot_toggle_sharing_even_on_a_shared_list(self):
+        self.watchlist.is_shared = True
+        self.watchlist.save()
+        other_user = User.objects.create_user("sharetogglerother", password="pass12345")
+        Profile.objects.create(user=other_user, display_name="ShareTogglerOther")
+        self.client.logout()
+        self.client.login(username="sharetogglerother", password="pass12345")
+        resp = self.client.post(reverse("toggle_list_shared", args=[self.watchlist.id]))
+        self.assertEqual(resp.status_code, 404)
+        self.watchlist.refresh_from_db()
+        self.assertTrue(self.watchlist.is_shared)
+
+    def test_redirects_back_to_the_list(self):
+        resp = self.client.post(reverse("toggle_list_shared", args=[self.watchlist.id]))
+        self.assertRedirects(resp, reverse("list_detail", args=[self.watchlist.id]))
 
 
 class ToggleListFeaturedTests(TestCase):

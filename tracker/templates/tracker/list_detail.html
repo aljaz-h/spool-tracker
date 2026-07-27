@@ -23,8 +23,24 @@
       <div>
         <a href="{% url 'lists' %}" class="text-xs text-ink-faint hover:text-ink-dim">&larr; All lists</a>
         <h1 class="font-display text-4xl mt-1">{{ watchlist.name }}</h1>
-        <div class="text-ink-dim text-sm mt-1">
-          {{ total_count }} title{{ total_count|pluralize }} · {% if watchlist.is_shared %}shared{% else %}private{% endif %} · by {{ watchlist.profile.display_name }}
+        <div class="text-ink-dim text-sm mt-1 flex items-center gap-1.5 flex-wrap">
+          {{ total_count }} title{{ total_count|pluralize }} ·
+          {% if can_edit %}
+            {# Only the list's own creator can (un)share it - can_edit, not is_owner, unlike the Featured Lists star which is an owner-only curation power (list_card.html). #}
+            <form method="post" action="{% url 'toggle_list_shared' watchlist.id %}">
+              {% csrf_token %}
+              <button
+                type="submit"
+                class="inline-flex items-center gap-1 hover:text-base-content underline decoration-dotted underline-offset-2 cursor-pointer"
+                title="{% if watchlist.is_shared %}Make private{% else %}Share with household{% endif %}"
+              >
+                {% if watchlist.is_shared %}{% icon "users" "w-3.5 h-3.5" %} shared{% else %}{% icon "eye-off" "w-3.5 h-3.5" %} private{% endif %}
+              </button>
+            </form>
+          {% else %}
+            {% if watchlist.is_shared %}shared{% else %}private{% endif %}
+          {% endif %}
+          · by {{ watchlist.profile.display_name }}
         </div>
       </div>
       {% if can_edit %}

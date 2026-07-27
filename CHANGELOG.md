@@ -8,6 +8,22 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-07-27
+
+### Added
+
+- A list's own creator can now share/unshare it with the household at any
+  time (a toggle next to the title/count on the Lists detail page) - the
+  "Shared with household" checkbox previously only ever set this at
+  creation time, with no way to change it on an existing list afterward.
+
+### Changed
+
+- Dragging a title to reorder a list now reorders live as you drag over
+  another item (not just once you drop), with a smooth slide animation
+  for the items shifting out of the way, instead of a single snap-into-
+  place jump on drop.
+
 ## [0.48.1] - 2026-07-27
 
 ### Fixed

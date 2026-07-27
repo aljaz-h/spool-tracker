@@ -10,26 +10,38 @@
         draggable="true"
         {% comment %}
           Native HTML5 drag-and-drop (no JS library vendored for it - see
-          spool-product-spec.md discussion) - dragstart records which item
-          is moving, dragover.prevent is required for drop to fire at all,
-          and drop moves the actual DOM node next to the drop target
-          (before/after depending on drag direction) before posting the
-          resulting order to reorder_list. htmx.ajax's `values` accepts an
-          array for a repeated field, matching request.POST.getlist
-          ("item_id") on the view side.
+          spool-product-spec.md discussion), reordering live as you drag
+          over another item (not just once on drop) with a FLIP slide
+          animation (window.flipReorder, base.html) for the items that
+          get displaced - closer to how Trello-style reorder feels than a
+          single jump-on-drop would. dragover's own guard (alreadyThere)
+          skips re-running the flip on every one of the many dragover
+          events a single hover fires, only reacting when the drag target
+          has actually changed position. The reorder itself only ever
+          touches the DOM (cheap, instant) - persisting happens once, on
+          dragend, via a swap:'none' request (the DOM's already right, no
+          need for the server to hand back a fresh copy of it).
         {% endcomment %}
-        @dragstart="dragId = {{ item.id }}; $el.classList.add('opacity-40')"
-        @dragend="$el.classList.remove('opacity-40')"
-        @dragover.prevent=""
-        @drop.prevent="
+        @dragstart="dragId = {{ item.id }}; $el.classList.add('list-item-dragging')"
+        @dragend="
+          $el.classList.remove('list-item-dragging');
+          if (dragId !== null) {
+            htmx.ajax('POST', '{% url "reorder_list" watchlist.id %}', {
+              swap: 'none',
+              values: { item_id: [...$el.parentElement.children].map((el) => el.dataset.itemId) }
+            });
+            dragId = null;
+          }
+        "
+        @dragover.prevent="
           if (dragId !== null && dragId !== {{ item.id }}) {
             let dragged = document.getElementById('list-item-' + dragId);
             let siblings = [...$el.parentElement.children];
-            if (siblings.indexOf(dragged) < siblings.indexOf($el)) { $el.after(dragged); } else { $el.before(dragged); }
-            htmx.ajax('POST', '{% url "reorder_list" watchlist.id %}', {
-              target: '#list-items', swap: 'outerHTML',
-              values: { item_id: [...$el.parentElement.children].map((el) => el.dataset.itemId) }
-            });
+            let forward = siblings.indexOf(dragged) < siblings.indexOf($el);
+            let alreadyThere = forward ? $el.nextElementSibling === dragged : $el.previousElementSibling === dragged;
+            if (!alreadyThere) {
+              window.flipReorder($el.parentElement, () => { forward ? $el.after(dragged) : $el.before(dragged); }, dragged);
+            }
           }
         "
       {% endif %}
