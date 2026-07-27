@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-07-27
+
+### Added
+
+- Anime title pages now show a few more MyAnimeList-sourced details
+  alongside TMDB's own: a MAL score badge next to IMDb/RT/Trakt, the
+  native Japanese title under the English one, and the animation studio
+  + source material (Manga/Light Novel/Original/...) in the metadata
+  row. TMDB still drives everything else for anime (discovery, posters,
+  matching) - this is additive detail, best-effort like the filler
+  badges, never blocking the page if MyAnimeList has no match.
+
 ## [0.50.0] - 2026-07-27
 
 ### Added

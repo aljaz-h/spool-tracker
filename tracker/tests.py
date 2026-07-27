@@ -20,6 +20,7 @@ from .models import (
     AdminAuditLogEntry,
     Episode,
     ExternalAccount,
+    ExternalRating,
     Genre,
     InstanceConfig,
     MediaType,
@@ -7904,6 +7905,176 @@ class AnimeFillerBadgeTests(TestCase):
         self.client.get(reverse("title_detail", args=[show.pk]))
         mock_find_match.assert_not_called()
         mock_filler_map.assert_not_called()
+
+
+class JikanGetAnimeDetailsTests(TestCase):
+    """jikan.get_anime_details - score/title_japanese/source/studios for
+    the detail page's MAL enrichment (views._anime_jikan_context)."""
+
+    def _response(self, data):
+        resp = Mock()
+        resp.json.return_value = {"data": data}
+        resp.raise_for_status = Mock()
+        return resp
+
+    @patch("tracker.integrations.jikan.requests.get")
+    def test_extracts_the_expected_fields(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "score": 8.0,
+                "title_japanese": "BLEACH - ブリーチ -",
+                "source": "Manga",
+                "studios": [{"mal_id": 1, "name": "Studio Pierrot"}],
+            }
+        )
+        result = jikan.get_anime_details(269)
+        self.assertEqual(result["score"], 8.0)
+        self.assertEqual(result["source"], "Manga")
+        self.assertEqual(result["studios"], ["Studio Pierrot"])
+
+    @patch("tracker.integrations.jikan.requests.get")
+    def test_missing_fields_degrade_to_none_or_empty(self, mock_get):
+        mock_get.return_value = self._response({})
+        result = jikan.get_anime_details(269)
+        self.assertIsNone(result["score"])
+        self.assertIsNone(result["title_japanese"])
+        self.assertIsNone(result["source"])
+        self.assertEqual(result["studios"], [])
+
+    @patch("tracker.integrations.jikan.requests.get")
+    def test_request_exception_returns_none(self, mock_get):
+        mock_get.side_effect = requests.RequestException("boom")
+        self.assertIsNone(jikan.get_anime_details(269))
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class AnimeJikanDetailContextTests(TestCase):
+    """The title detail page's MAL score/Japanese title/studio/source
+    enrichment (views._anime_jikan_context) - anime-only, additive, never
+    blocking the page. Class-level LocMemCache override for the same
+    reason as JikanEpisodeFillerMapTests."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        user = User.objects.create_user("jikandetailwatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="JikanDetailWatcher")
+        self.client.login(username="jikandetailwatcher", password="pass12345")
+        self.anime = Title.objects.create(
+            media_type=MediaType.ANIME, name="Bleach", year=2004,
+            external_ids={"tmdb": "99", "tmdb_kind": "tv"},
+        )
+        for name, default in (("get_director", None), ("get_watch_providers", [])):
+            patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _details(self):
+        return {
+            "tmdb_id": 99, "media_type": "tv", "name": "Bleach", "year": "2004",
+            "overview": "", "tagline": "", "genres": [], "runtime": None,
+            "number_of_seasons": 1, "number_of_episodes": 20,
+            "backdrop_url": None, "poster_url": None, "vote_average": 7.0,
+            "vote_count": 100, "original_language": "ja", "status": None,
+        }
+
+    def _jikan_details(self, score=8.0):
+        return {
+            "score": score, "title_japanese": "BLEACH - ブリーチ -",
+            "source": "Manga", "studios": ["Studio Pierrot"],
+        }
+
+    @patch("tracker.integrations.jikan.get_episode_filler_map", return_value={})
+    @patch("tracker.integrations.jikan.get_anime_details")
+    @patch("tracker.integrations.jikan.find_match")
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details", return_value={"episodes": []})
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_mal_details_render_on_the_page(
+        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match, mock_jikan_details, mock_filler_map
+    ):
+        mock_details.return_value = self._details()
+        mock_find_match.return_value = {"mal_id": 269}
+        mock_jikan_details.return_value = self._jikan_details()
+        resp = self.client.get(reverse("title_detail", args=[self.anime.pk]))
+        self.assertContains(resp, "Studio Pierrot")
+        self.assertContains(resp, "Source: Manga")
+        self.assertContains(resp, "BLEACH - ブリーチ -")
+
+    @patch("tracker.integrations.jikan.get_episode_filler_map", return_value={})
+    @patch("tracker.integrations.jikan.get_anime_details")
+    @patch("tracker.integrations.jikan.find_match")
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details", return_value={"episodes": []})
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_mal_score_is_persisted_as_an_external_rating_and_shown_as_a_badge(
+        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match, mock_jikan_details, mock_filler_map
+    ):
+        mock_details.return_value = self._details()
+        mock_find_match.return_value = {"mal_id": 269}
+        mock_jikan_details.return_value = self._jikan_details(score=8.0)
+        resp = self.client.get(reverse("title_detail", args=[self.anime.pk]))
+        rating = ExternalRating.objects.get(title=self.anime, source=ExternalRating.Source.MAL)
+        self.assertEqual(rating.score, "8.0")
+        self.assertContains(resp, "MAL 8.0")
+
+    @patch("tracker.integrations.jikan.get_episode_filler_map", return_value={})
+    @patch("tracker.integrations.jikan.get_anime_details")
+    @patch("tracker.integrations.jikan.find_match")
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details", return_value={"episodes": []})
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_mal_id_is_only_resolved_once_for_both_filler_and_detail_lookups(
+        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match, mock_jikan_details, mock_filler_map
+    ):
+        # _apply_anime_filler_flags and _anime_jikan_context both need a
+        # mal_id - _resolve_mal_id is shared between them so a single
+        # title_detail render only ever calls find_match once. Needs a
+        # non-empty episode list (unlike this class's other tests) so
+        # _apply_anime_filler_flags - gated on there being episodes at
+        # all - actually runs and would otherwise re-resolve on its own.
+        mock_details.return_value = self._details()
+        mock_season.return_value = {
+            "episodes": [{"episode_number": 1, "name": "Ep1", "still_url": None, "air_date": None, "vote_average": None}]
+        }
+        mock_find_match.return_value = {"mal_id": 269}
+        mock_jikan_details.return_value = self._jikan_details()
+        self.client.get(reverse("title_detail", args=[self.anime.pk]))
+        mock_find_match.assert_called_once()
+        mock_filler_map.assert_called_once()
+
+    @patch("tracker.integrations.jikan.get_episode_filler_map", return_value={})
+    @patch("tracker.integrations.jikan.get_anime_details")
+    @patch("tracker.integrations.jikan.find_match", return_value=None)
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details", return_value={"episodes": []})
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_no_mal_match_renders_the_page_normally(
+        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match, mock_jikan_details, mock_filler_map
+    ):
+        mock_details.return_value = self._details()
+        resp = self.client.get(reverse("title_detail", args=[self.anime.pk]))
+        self.assertEqual(resp.status_code, 200)
+        mock_jikan_details.assert_not_called()
+        self.assertFalse(ExternalRating.objects.filter(title=self.anime, source=ExternalRating.Source.MAL).exists())
+
+    @patch("tracker.integrations.jikan.get_anime_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    def test_non_anime_titles_never_get_mal_enrichment(self, mock_details, mock_credits, mock_similar, mock_jikan_details):
+        show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+        self.client.get(reverse("title_detail", args=[show.pk]))
+        mock_jikan_details.assert_not_called()
 
 
 class TitleMarkSeasonWatchedTests(TestCase):

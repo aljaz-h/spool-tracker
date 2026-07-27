@@ -1,8 +1,11 @@
 """Jikan lookups - a free, unauthenticated, unofficial MyAnimeList API
-(https://api.jikan.moe/v4). Used purely to fill a gap TMDB has no data
-for at all: per-episode filler/recap status on the anime episode browser
-(views._episode_panel_context) - TMDB stays the source of truth for
-everything else (discovery, matching, posters, completion tracking).
+(https://api.jikan.moe/v4). Used purely to fill gaps TMDB has no data for
+at all: per-episode filler/recap status on the anime episode browser
+(views._episode_panel_context), plus a handful of MAL-specific detail-page
+facts (score, native Japanese title, studio, source material) TMDB either
+doesn't track for anime or tracks less precisely than MAL's own
+community - TMDB stays the source of truth for everything else
+(discovery, matching, posters, completion tracking).
 
 Every function here is best-effort and silently returns None/empty on any
 failure - no match found, network error, Jikan's own upstream MAL proxy
@@ -100,3 +103,40 @@ def get_episode_filler_map(mal_id):
         except Exception:
             logger.warning("Jikan filler-map cache write failed, continuing without cache", exc_info=True)
     return filler_map
+
+
+def get_anime_details(mal_id):
+    """Returns {"score": float|None, "title_japanese": str|None,
+    "source": str|None, "studios": [str]} or None on failure. Cached like
+    get_episode_filler_map (a week - these facts change rarely, if ever,
+    once an anime's aired)."""
+    from django.core.cache import cache
+
+    key = _cache_key("details", mal_id)
+    try:
+        cached = cache.get(key)
+    except Exception:
+        logger.warning("Jikan details cache read failed, continuing without cache", exc_info=True)
+        cached = None
+    if cached is not None:
+        return cached
+
+    try:
+        resp = requests.get(f"{API_BASE}/anime/{mal_id}", timeout=10)
+        resp.raise_for_status()
+    except requests.RequestException:
+        logger.warning("Jikan anime details failed for mal_id=%s", mal_id, exc_info=True)
+        return None
+    data = resp.json().get("data") or {}
+    result = {
+        "score": data.get("score"),
+        "title_japanese": data.get("title_japanese"),
+        "source": data.get("source"),
+        "studios": [s["name"] for s in (data.get("studios") or []) if s.get("name")],
+    }
+
+    try:
+        cache.set(key, result, _FILLER_TTL)
+    except Exception:
+        logger.warning("Jikan details cache write failed, continuing without cache", exc_info=True)
+    return result

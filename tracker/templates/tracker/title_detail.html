@@ -46,12 +46,18 @@
               {% else %}border-line bg-base-300/60 text-ink-dim{% endif %}">{{ status_badge.label }}</span>
           {% endif %}
         </h1>
+        {% if mal_title_japanese %}
+          {# MyAnimeList's native title (views._anime_jikan_context) - anime only, sits right under the English/romanized one same as most anime trackers show it. #}
+          <div class="text-ink-faint text-sm mt-0.5">{{ mal_title_japanese }}</div>
+        {% endif %}
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-dim mt-2 font-mono">
           {% if details.certification %}<span class="px-1.5 py-0.5 rounded border border-line bg-base-300/60 text-[10.5px] uppercase tracking-wide">{{ details.certification }}</span>{% endif %}
           {% if details.original_language %}<span class="px-1.5 py-0.5 rounded border border-line bg-base-300/60 text-[10.5px] uppercase tracking-wide">{{ details.original_language }}</span>{% endif %}
           {% if details.runtime %}<span>{{ details.runtime }} min</span>{% endif %}
           {% if details.number_of_seasons %}<span>{{ details.number_of_seasons }} season{{ details.number_of_seasons|pluralize }} · {{ details.number_of_episodes }} episodes</span>{% endif %}
           {% if details.genres %}<span>{{ details.genres|join:", " }}</span>{% endif %}
+          {% if mal_studios %}<span>{{ mal_studios|join:", " }}</span>{% endif %}
+          {% if mal_source %}<span>Source: {{ mal_source }}</span>{% endif %}
         </div>
         {% if details.tagline %}<div class="text-ink-dim italic text-sm mt-3 hidden sm:block">{{ details.tagline }}</div>{% endif %}
 

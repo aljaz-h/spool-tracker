@@ -33,6 +33,7 @@ from .models import (
     AdminAuditLogEntry,
     Episode,
     ExternalAccount,
+    ExternalRating,
     InstanceConfig,
     MediaType,
     Notification,
@@ -490,6 +491,51 @@ def _star_fill(rating):
     return stars
 
 
+def _resolve_mal_id(title):
+    """Best-effort Jikan/MAL id resolution for an anime Title, matched by
+    name/year and cached onto external_ids["mal"] once found so it's only
+    ever looked up once - shared by the episode browser's filler overlay
+    (_apply_anime_filler_flags) and the detail page's MAL score/Japanese
+    title/studio enrichment (_anime_jikan_context) below."""
+    mal_id = title.external_ids.get("mal")
+    if mal_id is not None:
+        return mal_id
+    match = jikan.find_match(title.name, title.year)
+    if match is None:
+        return None
+    mal_id = match["mal_id"]
+    title.external_ids["mal"] = mal_id
+    title.save(update_fields=["external_ids"])
+    return mal_id
+
+
+def _anime_jikan_context(title):
+    """MAL score/Japanese title/studio/source-material for the detail
+    hero - anime only, best-effort like every other jikan.py lookup: no
+    match or Jikan unreachable just means these keys are absent, same
+    "missing, not wrong" degrade as everywhere else Jikan is used. The
+    MAL score is persisted as a real ExternalRating row (not just context)
+    so it renders via the existing pill_badges.html alongside IMDb/RT/
+    Trakt, instead of a bespoke one-off badge."""
+    if title.media_type != MediaType.ANIME:
+        return {}
+    mal_id = _resolve_mal_id(title)
+    if mal_id is None:
+        return {}
+    details = jikan.get_anime_details(mal_id)
+    if not details:
+        return {}
+    if details.get("score") is not None:
+        ExternalRating.objects.update_or_create(
+            title=title, source=ExternalRating.Source.MAL, defaults={"score": str(details["score"])}
+        )
+    return {
+        "mal_title_japanese": details.get("title_japanese"),
+        "mal_studios": details.get("studios") or [],
+        "mal_source": details.get("source"),
+    }
+
+
 def _apply_anime_filler_flags(title, episodes, season, tv_details):
     """Overlays Jikan's (MyAnimeList) per-episode filler/recap flags onto
     TMDB's season-relative episode list - TMDB has no filler data of its
@@ -507,14 +553,9 @@ def _apply_anime_filler_flags(title, episodes, season, tv_details):
     doesn't hold for the (uncommon) anime MAL splits into separate
     per-season entries instead: those just silently get no badges for
     that season, not wrong ones."""
-    mal_id = title.external_ids.get("mal")
+    mal_id = _resolve_mal_id(title)
     if mal_id is None:
-        match = jikan.find_match(title.name, title.year)
-        if match is None:
-            return
-        mal_id = match["mal_id"]
-        title.external_ids["mal"] = mal_id
-        title.save(update_fields=["external_ids"])
+        return
 
     filler_map = jikan.get_episode_filler_map(mal_id)
     if not filler_map:
@@ -635,6 +676,7 @@ def title_detail(request, pk):
         **local_context,
         **episode_context,
         **_recommend_context(profile, title),
+        **_anime_jikan_context(title),
     }
     if profile is not None and similar:
         context.update(selectors.discover_action_context(profile, similar))

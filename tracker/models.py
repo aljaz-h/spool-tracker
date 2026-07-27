@@ -196,6 +196,7 @@ class ExternalRating(models.Model):
         IMDB = "imdb", "IMDb"
         RT = "rt", "Rotten Tomatoes"
         TRAKT = "trakt", "Trakt"
+        MAL = "mal", "MAL"
 
     title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="ratings")
     source = models.CharField(max_length=20, choices=Source.choices)
