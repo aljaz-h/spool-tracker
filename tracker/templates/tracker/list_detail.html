@@ -1,45 +1,112 @@
 {% extends "tracker/base.html" %}
+{% load icons %}
 {% block title %}{{ watchlist.name }} · Spool{% endblock %}
 {% block content %}
-<div x-data="{ showSearch: false }">
+{# drawer-toggle/drawer-content/drawer-side must stay flat siblings under
+.drawer for daisyUI's CSS-only open/close - that's why the Filters
+drawer's period/sort selects (below) can't be nested inside the toolbar
+form in list_toolbar_and_items.html; they talk to it via hx-include in
+both directions instead, same fix History's Filters drawer got in v0.47.1. #}
+<div class="drawer drawer-end" x-data="{ showSearch: false, dragId: null }">
+  <input id="list-filters-drawer" type="checkbox" class="drawer-toggle" />
+  <div class="drawer-content">
 
-  {% if messages %}
-    {% for message in messages %}
-      <div class="bg-error/15 text-error text-sm rounded-lg px-4 py-2.5 mb-4">{{ message }}</div>
-    {% endfor %}
-  {% endif %}
+    {% if messages %}
+      {% for message in messages %}
+        <div class="bg-error/15 text-error text-sm rounded-lg px-4 py-2.5 mb-4">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
 
-  <div class="flex justify-between items-start flex-wrap gap-3 mb-6">
-    <div>
-      <a href="{% url 'lists' %}" class="text-xs text-ink-faint hover:text-ink-dim">&larr; All lists</a>
-      <h1 class="font-display text-4xl mt-1">{{ watchlist.name }}</h1>
-      <div class="text-ink-dim text-sm mt-1">
-        {{ items|length }} title{{ items|length|pluralize }} · {% if watchlist.is_shared %}shared{% else %}private{% endif %} · by {{ watchlist.profile.display_name }}
+    <div class="flex justify-between items-start flex-wrap gap-3 mb-6">
+      <div>
+        <a href="{% url 'lists' %}" class="text-xs text-ink-faint hover:text-ink-dim">&larr; All lists</a>
+        <h1 class="font-display text-4xl mt-1">{{ watchlist.name }}</h1>
+        <div class="text-ink-dim text-sm mt-1">
+          {{ total_count }} title{{ total_count|pluralize }} · {% if watchlist.is_shared %}shared{% else %}private{% endif %} · by {{ watchlist.profile.display_name }}
+        </div>
       </div>
+      {% if can_edit %}
+        <div class="flex gap-2">
+          <button @click="showSearch = !showSearch" class="btn btn-primary btn-sm">+ Add title</button>
+          <form method="post" action="{% url 'delete_list' watchlist.id %}" onsubmit="return confirm('Delete \'{{ watchlist.name|escapejs }}\'? This can\'t be undone.');">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-soft">Delete list</button>
+          </form>
+        </div>
+      {% endif %}
     </div>
+
     {% if can_edit %}
-      <div class="flex gap-2">
-        <button @click="showSearch = !showSearch" class="btn btn-primary btn-sm">+ Add title</button>
-        <form method="post" action="{% url 'delete_list' watchlist.id %}" onsubmit="return confirm('Delete \'{{ watchlist.name|escapejs }}\'? This can\'t be undone.');">
-          {% csrf_token %}
-          <button type="submit" class="btn btn-sm btn-soft">Delete list</button>
-        </form>
+      <div x-show="showSearch" x-cloak class="bg-base-200 border border-line rounded-2xl p-4 mb-6">
+        <input
+          type="search" name="q" placeholder="Search titles to add…" autocomplete="off"
+          hx-get="{% url 'search_titles' watchlist.id %}" hx-trigger="input changed delay:200ms" hx-target="#search-results"
+          class="input w-full bg-base-100"
+        >
+        <div id="search-results" class="mt-3 flex flex-col gap-1"></div>
       </div>
     {% endif %}
+
+    <div id="list-page">
+      {% include "tracker/partials/list_toolbar_and_items.html" %}
+    </div>
   </div>
 
-  {% if can_edit %}
-    <div x-show="showSearch" x-cloak class="bg-base-200 border border-line rounded-2xl p-4 mb-6">
-      <input
-        type="search" name="q" placeholder="Search titles to add…" autocomplete="off"
-        hx-get="{% url 'search_titles' watchlist.id %}" hx-trigger="input changed delay:200ms" hx-target="#search-results"
-        class="input w-full bg-base-100"
-      >
-      <div id="search-results" class="mt-3 flex flex-col gap-1"></div>
+  <div class="drawer-side z-50">
+    <label for="list-filters-drawer" aria-label="close filters" class="drawer-overlay bg-black/60"></label>
+    <div class="w-full max-w-xs min-h-full overflow-y-auto bg-base-300 border-l border-line shadow-2xl p-5 flex flex-col gap-5">
+      <div class="flex items-center justify-between">
+        <h2 class="font-display text-xl">Filters</h2>
+        <label for="list-filters-drawer" aria-label="close filters" class="btn btn-sm btn-circle btn-ghost cursor-pointer">
+          {% icon "x" "w-4 h-4" %}
+        </label>
+      </div>
+
+      <div>
+        <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Added</div>
+        {% comment %}
+          Lives outside the toolbar's own <form> for the same daisyUI
+          drawer-structure reason as History's own Filters drawer
+          (list_toolbar_and_items.html) - hx-include pulls the toolbar's
+          current type value in by name instead, targeting #list-page so
+          the Filters button's dot and the type toggle both refresh
+          along with the results.
+        {% endcomment %}
+        <select
+          name="period"
+          hx-get="{% url 'list_detail' watchlist.id %}"
+          hx-target="#list-page"
+          hx-push-url="true"
+          hx-include="[name='type']:checked"
+          class="select select-sm w-full bg-base-100 focus:outline-primary"
+        >
+          <option value="all" {% if period == "all" %}selected{% endif %}>All time</option>
+          <option value="today" {% if period == "today" %}selected{% endif %}>Today</option>
+          <option value="yesterday" {% if period == "yesterday" %}selected{% endif %}>Yesterday</option>
+          <option value="7" {% if period == "7" %}selected{% endif %}>Last 7 days</option>
+          <option value="30" {% if period == "30" %}selected{% endif %}>Last 30 days</option>
+          <option value="365" {% if period == "365" %}selected{% endif %}>Last year</option>
+        </select>
+      </div>
+
+      <div>
+        <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Sort</div>
+        <select
+          name="sort"
+          hx-get="{% url 'list_detail' watchlist.id %}"
+          hx-target="#list-page"
+          hx-push-url="true"
+          hx-include="[name='type']:checked"
+          class="select select-sm w-full bg-base-100 focus:outline-primary"
+        >
+          <option value="manual" {% if sort == "manual" %}selected{% endif %}>Manual order</option>
+          <option value="added_new" {% if sort == "added_new" %}selected{% endif %}>Recently added</option>
+          <option value="added_old" {% if sort == "added_old" %}selected{% endif %}>Oldest added</option>
+          <option value="name" {% if sort == "name" %}selected{% endif %}>Name (A-Z)</option>
+          <option value="year" {% if sort == "year" %}selected{% endif %}>Release year</option>
+        </select>
+      </div>
     </div>
-  {% endif %}
-
-  {% include "tracker/partials/list_detail_items.html" %}
-
+  </div>
 </div>
 {% endblock %}

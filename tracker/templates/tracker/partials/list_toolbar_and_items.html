@@ -1,0 +1,34 @@
+{% load icons %}
+{# context: watchlist, can_edit, can_reorder, items, type_filter, period, sort - the toolbar (type toggle + Filters button/dot) and the item grid below it, swapped as one unit (like history_toolbar_and_content.html) so the Filters dot and the type toggle's checked state never go stale after a period/sort change picked in the drawer - see list_detail.html's own comment on why period/sort live outside this region entirely. #}
+<form
+  hx-get="{% url 'list_detail' watchlist.id %}"
+  hx-target="#list-page"
+  hx-trigger="change"
+  hx-push-url="true"
+  hx-include="[name='period'],[name='sort']"
+  class="flex justify-between items-center flex-wrap gap-3 mb-5"
+>
+  <div class="inline-flex bg-base-200 border border-line rounded-lg p-1 gap-0.5">
+    <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+      <input type="radio" name="type" value="all" class="hidden" {% if type_filter == "all" %}checked{% endif %}>All
+    </label>
+    <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+      <input type="radio" name="type" value="movie" class="hidden" {% if type_filter == "movie" %}checked{% endif %}>Movies
+    </label>
+    <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+      <input type="radio" name="type" value="tv" class="hidden" {% if type_filter == "tv" %}checked{% endif %}>TV
+    </label>
+    <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+      <input type="radio" name="type" value="anime" class="hidden" {% if type_filter == "anime" %}checked{% endif %}>Anime
+    </label>
+  </div>
+  <label for="list-filters-drawer" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
+    {% icon "filter" "w-3.5 h-3.5" %}
+    Filters
+    {% if period != "all" or sort != "manual" %}
+      <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+    {% endif %}
+  </label>
+</form>
+
+{% include "tracker/partials/list_detail_items.html" %}

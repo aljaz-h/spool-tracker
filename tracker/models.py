@@ -277,6 +277,11 @@ class WatchList(models.Model):
     # sync_watchlist_removal) - custom lists are never touched by that,
     # regardless of what they're named.
     is_watchlist = models.BooleanField(default=False)
+    # Owner-only curation flag (views.toggle_list_featured) - surfaces this
+    # list in the Dashboard's Featured Lists rail for every profile, not
+    # just this list's own creator. Only meaningful alongside is_shared;
+    # selectors.featured_lists() requires both.
+    is_featured = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -293,9 +298,14 @@ class WatchListItem(models.Model):
     watchlist = models.ForeignKey(WatchList, on_delete=models.CASCADE, related_name="items")
     title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="watchlist_items")
     added_at = models.DateTimeField(auto_now_add=True)
+    # Manual drag-order within the list (views.reorder_list) - the default
+    # sort in list_detail. Assigned as (current max + 1) when an item is
+    # added (views.add_to_list), so new titles land at the end instead of
+    # colliding with 0.
+    position = models.PositiveIntegerField(default=0)
 
     class Meta:
-        ordering = ["-added_at"]
+        ordering = ["position"]
         constraints = [
             models.UniqueConstraint(fields=["watchlist", "title"], name="unique_title_per_watchlist")
         ]

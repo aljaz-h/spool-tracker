@@ -8830,6 +8830,248 @@ class PosterCardListPopoverHtmxBranchTests(TestCase):
         self.assertIn("Mine", [wl.name for wl in resp.context["my_lists"]])
 
 
+class ListDetailFiltersTests(TestCase):
+    """list_detail's type/period/sort filters (_list_detail_context) -
+    History's own filter shape, adapted to a list: period narrows by
+    added_at (a list item has no watch date of its own), sort adds a
+    manual drag-order option (WatchListItem.position) on top of History's
+    added/name/year choices."""
+
+    def setUp(self):
+        user = User.objects.create_user("listfilterer", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ListFilterer")
+        self.client.login(username="listfilterer", password="pass12345")
+        self.watchlist = WatchList.objects.create(profile=self.profile, name="Mixed")
+        self.movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        self.show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+        self.anime = Title.objects.create(media_type=MediaType.ANIME, name="Frieren", year=2023)
+        WatchListItem.objects.create(watchlist=self.watchlist, title=self.movie, position=0)
+        WatchListItem.objects.create(watchlist=self.watchlist, title=self.show, position=1)
+        WatchListItem.objects.create(watchlist=self.watchlist, title=self.anime, position=2)
+
+    def test_no_filter_shows_every_type(self):
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]))
+        names = {item.title.name for item in resp.context["items"]}
+        self.assertEqual(names, {"Fathom", "Silo", "Frieren"})
+
+    def test_type_filter_narrows_to_just_that_media_type(self):
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]), {"type": "tv"})
+        names = {item.title.name for item in resp.context["items"]}
+        self.assertEqual(names, {"Silo"})
+
+    def test_sort_name_orders_alphabetically(self):
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]), {"sort": "name"})
+        names = [item.title.name for item in resp.context["items"]]
+        self.assertEqual(names, ["Fathom", "Frieren", "Silo"])
+
+    def test_sort_year_orders_newest_first(self):
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]), {"sort": "year"})
+        years = [item.title.year for item in resp.context["items"]]
+        self.assertEqual(years, [2023, 2023, 2020])
+
+    def test_default_sort_is_manual_position_order(self):
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]))
+        self.assertEqual(resp.context["sort"], "manual")
+        names = [item.title.name for item in resp.context["items"]]
+        self.assertEqual(names, ["Fathom", "Silo", "Frieren"])
+
+    def test_period_filter_excludes_items_added_before_the_window(self):
+        from django.utils import timezone
+
+        old_item = WatchListItem.objects.filter(watchlist=self.watchlist, title=self.movie).get()
+        old_item.added_at = timezone.now() - timedelta(days=40)
+        old_item.save(update_fields=["added_at"])
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]), {"period": "30"})
+        names = {item.title.name for item in resp.context["items"]}
+        self.assertEqual(names, {"Silo", "Frieren"})
+
+    def test_can_reorder_is_true_when_fully_unfiltered(self):
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]))
+        self.assertTrue(resp.context["can_reorder"])
+
+    def test_can_reorder_is_false_once_a_type_filter_is_applied(self):
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]), {"type": "movie"})
+        self.assertFalse(resp.context["can_reorder"])
+
+    def test_can_reorder_is_false_with_a_non_manual_sort(self):
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]), {"sort": "name"})
+        self.assertFalse(resp.context["can_reorder"])
+
+    def test_drag_handles_are_absent_from_the_rendered_html_when_filtered(self):
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]), {"type": "movie"})
+        self.assertNotContains(resp, "draggable=\"true\"")
+
+    def test_drag_handles_are_present_when_unfiltered_and_editable(self):
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]))
+        self.assertContains(resp, "draggable=\"true\"")
+
+
+class ListDetailToolbarStaysInSyncTests(TestCase):
+    """The type toggle + Filters button live in the same #list-page region
+    as the item grid (list_toolbar_and_items.html) so a period/sort/type
+    change re-renders them together - same fix History's Filters drawer
+    got in v0.47.1, applied here from the start instead of as a follow-up
+    bugfix."""
+
+    def setUp(self):
+        user = User.objects.create_user("listtoolbaruser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ListToolbarUser")
+        self.client.login(username="listtoolbaruser", password="pass12345")
+        self.watchlist = WatchList.objects.create(profile=self.profile, name="Mixed")
+
+    def test_plain_request_returns_the_full_page(self):
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]))
+        self.assertContains(resp, "All lists")
+        self.assertContains(resp, 'id="list-page"')
+
+    def test_hx_request_returns_just_the_list_page_partial(self):
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]), HTTP_HX_REQUEST="true")
+        self.assertNotContains(resp, "All lists")
+        self.assertContains(resp, 'id="list-items"')
+
+    def test_switching_type_keeps_the_filters_dot_in_sync(self):
+        # period != "all" should show the active-filter dot regardless of
+        # which htmx target fired the request.
+        resp = self.client.get(
+            reverse("list_detail", args=[self.watchlist.id]), {"type": "movie", "period": "30"}, HTTP_HX_REQUEST="true"
+        )
+        self.assertContains(resp, "bg-primary")
+        self.assertContains(resp, "checked")
+
+
+class ReorderListTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("reorderer", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Reorderer")
+        self.client.login(username="reorderer", password="pass12345")
+        self.watchlist = WatchList.objects.create(profile=self.profile, name="Marvel")
+        self.first = Title.objects.create(media_type=MediaType.MOVIE, name="Iron Man", year=2008)
+        self.second = Title.objects.create(media_type=MediaType.MOVIE, name="Thor", year=2011)
+        self.item_a = WatchListItem.objects.create(watchlist=self.watchlist, title=self.first, position=0)
+        self.item_b = WatchListItem.objects.create(watchlist=self.watchlist, title=self.second, position=1)
+
+    def test_reorder_applies_the_posted_order(self):
+        self.client.post(
+            reverse("reorder_list", args=[self.watchlist.id]),
+            {"item_id": [self.item_b.id, self.item_a.id]},
+        )
+        self.item_a.refresh_from_db()
+        self.item_b.refresh_from_db()
+        self.assertEqual(self.item_b.position, 0)
+        self.assertEqual(self.item_a.position, 1)
+
+    def test_reordered_position_is_reflected_in_a_later_unfiltered_fetch(self):
+        self.client.post(
+            reverse("reorder_list", args=[self.watchlist.id]),
+            {"item_id": [self.item_b.id, self.item_a.id]},
+        )
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]))
+        names = [item.title.name for item in resp.context["items"]]
+        self.assertEqual(names, ["Thor", "Iron Man"])
+
+    def test_non_editor_cannot_reorder_a_shared_list(self):
+        self.watchlist.is_shared = True
+        self.watchlist.save()
+        other_user = User.objects.create_user("reorderviewer", password="pass12345")
+        Profile.objects.create(user=other_user, display_name="ReorderViewer")
+        self.client.logout()
+        self.client.login(username="reorderviewer", password="pass12345")
+        resp = self.client.post(
+            reverse("reorder_list", args=[self.watchlist.id]),
+            {"item_id": [self.item_b.id, self.item_a.id]},
+        )
+        self.assertEqual(resp.status_code, 404)
+        self.item_a.refresh_from_db()
+        self.assertEqual(self.item_a.position, 0)
+
+
+class AddToListPositionTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("positionadder", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="PositionAdder")
+        self.client.login(username="positionadder", password="pass12345")
+        self.watchlist = WatchList.objects.create(profile=self.profile, name="Favorites")
+
+    def test_first_item_gets_position_one(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        self.client.post(reverse("add_to_list", args=[self.watchlist.id]), {"title_id": title.pk})
+        item = WatchListItem.objects.get(watchlist=self.watchlist, title=title)
+        self.assertEqual(item.position, 1)
+
+    def test_a_new_item_appends_after_the_current_max_not_at_zero(self):
+        existing_title = Title.objects.create(media_type=MediaType.MOVIE, name="Existing", year=2019)
+        WatchListItem.objects.create(watchlist=self.watchlist, title=existing_title, position=5)
+        new_title = Title.objects.create(media_type=MediaType.MOVIE, name="New", year=2020)
+        self.client.post(reverse("add_to_list", args=[self.watchlist.id]), {"title_id": new_title.pk})
+        item = WatchListItem.objects.get(watchlist=self.watchlist, title=new_title)
+        self.assertEqual(item.position, 6)
+
+    def test_readding_an_existing_title_does_not_change_its_position(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        existing = WatchListItem.objects.create(watchlist=self.watchlist, title=title, position=3)
+        self.client.post(reverse("add_to_list", args=[self.watchlist.id]), {"title_id": title.pk})
+        existing.refresh_from_db()
+        self.assertEqual(existing.position, 3)
+
+
+class ToggleListFeaturedTests(TestCase):
+    """Owner-only curation power (independent of watchlist.can_edit) that
+    surfaces a list in the Dashboard's Featured Lists rail for every
+    profile - see selectors.featured_lists()."""
+
+    def setUp(self):
+        owner_user = User.objects.create_user("featureowner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=owner_user, display_name="FeatureOwner")
+        member_user = User.objects.create_user("featuremember", password="pass12345")
+        self.member = Profile.objects.create(user=member_user, display_name="FeatureMember")
+        self.watchlist = WatchList.objects.create(profile=self.member, name="Marvel In Order", is_shared=True)
+
+    def test_owner_can_feature_a_shared_list(self):
+        self.client.login(username="featureowner", password="pass12345")
+        self.client.post(reverse("toggle_list_featured", args=[self.watchlist.id]))
+        self.watchlist.refresh_from_db()
+        self.assertTrue(self.watchlist.is_featured)
+
+    def test_owner_can_unfeature_it_again(self):
+        self.watchlist.is_featured = True
+        self.watchlist.save()
+        self.client.login(username="featureowner", password="pass12345")
+        self.client.post(reverse("toggle_list_featured", args=[self.watchlist.id]))
+        self.watchlist.refresh_from_db()
+        self.assertFalse(self.watchlist.is_featured)
+
+    def test_non_owner_gets_404_even_as_the_lists_own_creator(self):
+        self.client.login(username="featuremember", password="pass12345")
+        resp = self.client.post(reverse("toggle_list_featured", args=[self.watchlist.id]))
+        self.assertEqual(resp.status_code, 404)
+        self.watchlist.refresh_from_db()
+        self.assertFalse(self.watchlist.is_featured)
+
+    def test_a_private_list_is_excluded_from_featured_lists_even_if_flagged(self):
+        private_list = WatchList.objects.create(profile=self.member, name="Just Mine", is_shared=False, is_featured=True)
+        self.assertNotIn(private_list, list(selectors.featured_lists()))
+
+    def test_featured_lists_selector_returns_shared_and_featured_only(self):
+        self.watchlist.is_featured = True
+        self.watchlist.save()
+        WatchList.objects.create(profile=self.member, name="Shared Not Featured", is_shared=True)
+        WatchList.objects.create(profile=self.member, name="Private Featured", is_shared=False, is_featured=True)
+        self.assertEqual(list(selectors.featured_lists()), [self.watchlist])
+
+    def test_dashboard_shows_a_featured_list(self):
+        self.watchlist.is_featured = True
+        self.watchlist.save()
+        self.client.login(username="featuremember", password="pass12345")
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "Featured Lists")
+        self.assertContains(resp, "Marvel In Order")
+
+    def test_dashboard_omits_the_section_with_nothing_featured(self):
+        self.client.login(username="featuremember", password="pass12345")
+        resp = self.client.get(reverse("dashboard"))
+        self.assertNotContains(resp, "Featured Lists")
+
+
 class HistoryTitleFilterTests(TestCase):
     """The poster card watched-button popover's "View history plays" link
     (?title=<pk>) narrows the History page down to just that one title."""

@@ -18,7 +18,7 @@ from django.contrib.auth import views as auth_views
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Max
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -126,6 +126,7 @@ def dashboard(request):
                 "milestone": selectors.milestone_message(stats["streak"], stats["movies_this_year"]),
                 "because_you_watched": because_you_watched,
                 "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")),
+                "featured_lists": selectors.featured_lists(),
                 **_recommendations_context(profile),
                 **selectors.poster_action_context(profile, all_titles),
                 **selectors.discover_action_context(
@@ -1592,6 +1593,10 @@ def calendar_view(request):
     return render(request, template, context)
 
 
+LIST_PERIODS = {"today", "yesterday", "7", "30", "365"}
+LIST_SORTS = {"manual", "added_new", "added_old", "name", "year"}
+
+
 @login_required
 def lists(request):
     profile = Profile.objects.filter(user=request.user).first()
@@ -1608,19 +1613,56 @@ def _get_visible_list_or_404(profile, list_id):
     return watchlist
 
 
+def _list_detail_context(request, watchlist, profile):
+    """type/period/sort mirror History's own filter shape (_history_context)
+    but scoped to what makes sense for a list: period narrows by added_at
+    (a list item has no watch date of its own), and sort adds a manual
+    drag-order option on top of History's added/name/year choices. Drag-
+    reordering (list_detail_items.html, views.reorder_list) is only offered
+    when the view is fully unfiltered - narrowing to a subset makes
+    "where does this item's new position put it" ambiguous relative to
+    whatever's hidden, so can_reorder gates the drag handles off outside
+    that state rather than trying to resolve it."""
+    type_filter = request.GET.get("type", "all")
+    period = request.GET.get("period", "all") if request.GET.get("period") in LIST_PERIODS else "all"
+    sort = request.GET.get("sort") if request.GET.get("sort") in LIST_SORTS else "manual"
+
+    items = watchlist.items.select_related("title").prefetch_related("title__ratings")
+    if type_filter in (MediaType.MOVIE, MediaType.TV, MediaType.ANIME):
+        items = items.filter(title__media_type=type_filter)
+
+    now = timezone.now()
+    today_start = timezone.localtime(now).replace(hour=0, minute=0, second=0, microsecond=0)
+    if period == "today":
+        items = items.filter(added_at__gte=today_start)
+    elif period == "yesterday":
+        items = items.filter(added_at__gte=today_start - timedelta(days=1), added_at__lt=today_start)
+    elif period in ("7", "30", "365"):
+        items = items.filter(added_at__gte=now - timedelta(days=int(period)))
+
+    sort_field = {"added_new": "-added_at", "added_old": "added_at", "name": "title__name", "year": "-title__year"}.get(sort)
+    items = list(items.order_by(sort_field) if sort_field else items)
+
+    return {
+        "watchlist": watchlist,
+        "can_edit": watchlist.can_edit(profile),
+        "can_reorder": type_filter == "all" and period == "all" and sort == "manual",
+        "items": items,
+        "type_filter": type_filter,
+        "period": period,
+        "sort": sort,
+        **selectors.poster_action_context(profile, [item.title for item in items]),
+    }
+
+
 @login_required
 def list_detail(request, list_id):
     profile = Profile.objects.filter(user=request.user).first()
     watchlist = _get_visible_list_or_404(profile, list_id)
-    items = list(watchlist.items.select_related("title").prefetch_related("title__ratings"))
-    context = {
-        "profile": profile,
-        "watchlist": watchlist,
-        "can_edit": watchlist.can_edit(profile),
-        "items": items,
-        **selectors.poster_action_context(profile, [item.title for item in items]),
-    }
-    return render(request, "tracker/list_detail.html", context)
+    context = _list_detail_context(request, watchlist, profile)
+    context["total_count"] = watchlist.items.count()
+    template = "tracker/partials/list_toolbar_and_items.html" if request.headers.get("HX-Request") else "tracker/list_detail.html"
+    return render(request, template, context)
 
 
 @login_required
@@ -1649,16 +1691,40 @@ def delete_list(request, list_id):
     return redirect("lists")
 
 
+@login_required
+@require_POST
+def toggle_list_featured(request, list_id):
+    """Owner-only curation power (independent of watchlist.can_edit/who
+    created the list) - surfaces a shared list in the Dashboard's Featured
+    Lists rail for every profile, so that rail stays curated by whoever
+    runs the instance rather than turning into every profile's own pins."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or not profile.is_owner:
+        raise Http404
+    watchlist = get_object_or_404(WatchList, pk=list_id)
+    watchlist.is_featured = not watchlist.is_featured
+    watchlist.save(update_fields=["is_featured"])
+    return redirect("lists")
+
+
 def _render_list_items(request, watchlist, profile):
     """profile is the acting/viewing profile, not necessarily
     watchlist.profile - a shared list can be viewed/edited by other
     household profiles too (see _get_visible_list_or_404), and their own
     watched/list-membership state (not the list creator's) is what the
-    re-rendered cards' action buttons need to reflect."""
+    re-rendered cards' action buttons need to reflect.
+
+    Always the unfiltered/manual-order view (can_reorder=True) - add/
+    remove/reorder don't carry the list_detail toolbar's current type/
+    period/sort (those live in a GET query string, this is a POST), so
+    they intentionally reset the view to the default rather than trying
+    to thread filter state through every action. Not a regression: before
+    list filtering existed, this was the only view there was."""
     items = list(watchlist.items.select_related("title").prefetch_related("title__ratings"))
     context = {
         "watchlist": watchlist,
         "can_edit": True,
+        "can_reorder": True,
         "items": items,
         **selectors.poster_action_context(profile, [item.title for item in items]),
     }
@@ -1705,7 +1771,9 @@ def add_to_list(request, list_id):
     if profile is None or not watchlist.can_edit(profile):
         raise Http404
     title = get_object_or_404(Title, pk=request.POST.get("title_id"))
-    WatchListItem.objects.get_or_create(watchlist=watchlist, title=title)
+    if not WatchListItem.objects.filter(watchlist=watchlist, title=title).exists():
+        next_position = (WatchListItem.objects.filter(watchlist=watchlist).aggregate(Max("position"))["position__max"] or 0) + 1
+        WatchListItem.objects.create(watchlist=watchlist, title=title, position=next_position)
     hx_target = request.headers.get("HX-Target") or ""
     if hx_target.startswith("list-popover-"):
         return _render_poster_actions(request, profile, title)
@@ -1729,6 +1797,25 @@ def remove_from_list(request, list_id):
     if request.headers.get("HX-Request"):
         return _render_list_items(request, watchlist, profile)
     return _list_action_redirect(request, list_id)
+
+
+@login_required
+@require_POST
+def reorder_list(request, list_id):
+    """Fired by list_detail_items.html's native drag-and-drop after a drop
+    - item_id is posted in the exact new DOM order, so position just
+    becomes that order's index. Only reachable when the list_detail view
+    was unfiltered (can_reorder - see _list_detail_context), but re-checked
+    here too rather than trusted from the client."""
+    profile = Profile.objects.filter(user=request.user).first()
+    watchlist = get_object_or_404(WatchList, pk=list_id)
+    if profile is None or not watchlist.can_edit(profile):
+        raise Http404
+    item_ids = [int(v) for v in request.POST.getlist("item_id") if v.isdigit()]
+    with transaction.atomic():
+        for index, item_id in enumerate(item_ids):
+            WatchListItem.objects.filter(pk=item_id, watchlist=watchlist).update(position=index)
+    return _render_list_items(request, watchlist, profile)
 
 
 @login_required

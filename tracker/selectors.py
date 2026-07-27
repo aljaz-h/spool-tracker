@@ -406,6 +406,19 @@ def visible_lists(profile):
     )
 
 
+def featured_lists():
+    """Dashboard's Featured Lists rail - owner-curated (views.
+    toggle_list_featured), shown to every profile regardless of who
+    created the list. is_shared is required alongside is_featured since
+    featuring a private list wouldn't be visible to anyone else anyway."""
+    return (
+        WatchList.objects.filter(is_shared=True, is_featured=True)
+        .select_related("profile")
+        .prefetch_related("items__title")
+        .order_by("name")
+    )
+
+
 def stats_overview(profile):
     """Lifetime totals for the Stats page hero + donut — deliberately not
     year-scoped, unlike Dashboard's quick_stats()."""

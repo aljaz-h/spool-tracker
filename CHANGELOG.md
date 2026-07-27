@@ -8,6 +8,23 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-07-27
+
+### Added
+
+- Lists gained the same All/Movies/TV/Anime toggle and Filters drawer
+  (Period/Sort) as History, so a big mixed list can be narrowed down.
+  Sort includes a new "Manual order" option alongside the usual
+  added/name/year choices.
+- Titles in a list can now be manually reordered by dragging them (only
+  while the list is fully unfiltered, since a filtered view can't
+  unambiguously reposition items relative to whatever's hidden) - handy
+  for putting a franchise in watch order rather than add-order.
+- The instance owner can feature any shared list on the Dashboard (a
+  star toggle on the Lists page), surfacing it in a new "Featured Lists"
+  rail every profile sees - a way to spotlight a curated list (a
+  chronological Marvel watch order, for example) for the whole household.
+
 ## [0.47.1] - 2026-07-27
 
 ### Fixed

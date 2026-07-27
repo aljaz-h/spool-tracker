@@ -1,0 +1,31 @@
+{% load tracker_extras icons %}
+{# context: wl, show_featured_toggle (optional, bool) - shared between lists.html's grid and dashboard_featured_lists.html's rail so both render a list's cover collage identically. #}
+<div class="relative group">
+  <a href="{% url 'list_detail' wl.id %}" class="block bg-base-200 border border-line rounded-2xl overflow-hidden hover:border-ink-faint transition-colors">
+    <div class="grid grid-cols-4 h-24 bg-base-300">
+      {% for item in wl.items.all|slice:":4" %}
+        <div class="bg-cover bg-center {% if not item.title.poster_url %}{{ item.title.pk|gradient_class }}{% endif %}" {% if item.title.poster_url %}style="background-image:url('{{ item.title.poster_url }}')"{% endif %}></div>
+      {% endfor %}
+    </div>
+    <div class="p-3.5">
+      <div class="font-bold text-[14.5px] mb-0.5">{{ wl.name }}</div>
+      <div class="text-xs text-ink-dim font-mono">{{ wl.items.all|length }} title{{ wl.items.all|length|pluralize }} · {% if wl.is_shared %}shared{% else %}private{% endif %}</div>
+    </div>
+  </a>
+  {% if show_featured_toggle and wl.is_shared %}
+    {# Owner-only curation control (views.toggle_list_featured) - not nested inside the <a> above (invalid HTML, and would double as a navigation click) so it's an absolutely-positioned sibling instead, same non-nesting pattern list_detail_items.html uses for its remove button over poster_card.html. #}
+    <form
+      method="post" action="{% url 'toggle_list_featured' wl.id %}"
+      class="absolute top-2 right-2"
+      title="{% if wl.is_featured %}Remove from Dashboard{% else %}Feature on Dashboard{% endif %}"
+    >
+      {% csrf_token %}
+      <button
+        type="submit"
+        class="w-7 h-7 rounded-full flex items-center justify-center transition-colors {% if wl.is_featured %}bg-primary text-primary-content{% else %}bg-black/70 text-white opacity-0 group-hover:opacity-100{% endif %}"
+      >
+        {% icon "sparkles" "w-3.5 h-3.5" %}
+      </button>
+    </form>
+  {% endif %}
+</div>

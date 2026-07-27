@@ -1,0 +1,21 @@
+{# context: featured_lists (owner-curated, is_shared and is_featured - selectors.featured_lists()) #}
+{% comment %}
+Collapses to nothing when there's nothing featured, same "disappears
+along with its own margin" pattern as dashboard_recommendations.html -
+no owner has curated anything yet is the common case on a fresh
+instance, not an error state.
+{% endcomment %}
+{% if featured_lists %}
+  <div class="filmstrip-rule my-9"></div>
+  <div class="flex justify-between items-center mb-3.5">
+    <h2 class="font-display text-xl">Featured Lists</h2>
+    <a href="{% url 'lists' %}" class="text-xs text-ink-faint hover:text-ink-dim">See all lists &rarr;</a>
+  </div>
+  <div class="flex gap-4 overflow-x-auto pb-2">
+    {% for wl in featured_lists %}
+      <div class="w-[230px] flex-none">
+        {% include "tracker/partials/list_card.html" with wl=wl %}
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
