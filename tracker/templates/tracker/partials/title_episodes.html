@@ -1,11 +1,12 @@
 {% load tracker_extras icons %}
-{# context: title (Title or None - preview titles have no local row yet), seasons, season, episodes, season_avg_rating, season_ratings (dict {season_number: TMDB rating}), preview_media_type/preview_tmdb_id (only set when title is None) #}
+{# context: title (Title or None - preview titles have no local row yet), seasons, season, episodes, season_avg_rating, season_total_runtime (str, format_duration of the selected season's episodes with a known runtime), season_ratings (dict {season_number: TMDB rating}), preview_media_type/preview_tmdb_id (only set when title is None) #}
 <div id="episodes-panel">
   {% if seasons %}
     <div class="flex justify-between items-center flex-wrap gap-3 mb-4">
       <h2 class="font-display text-xl m-0">
         Episodes
         {% if season_avg_rating %}<span class="text-[11px] text-ink-faint font-mono font-body ml-2">&#9733; {{ season_avg_rating }} season avg</span>{% endif %}
+        {% if season_total_runtime %}<span class="text-[11px] text-ink-faint font-mono font-body ml-2">{{ season_total_runtime }} total</span>{% endif %}
       </h2>
       <div class="flex items-center gap-2 flex-wrap">
         {% if title %}
@@ -102,6 +103,7 @@
           <div class="min-w-0 flex-1">
             <div class="font-mono text-[10px] text-ink-dim flex items-center gap-1.5">
               <span>S{{ season|stringformat:"02d" }}E{{ ep.episode_number|stringformat:"02d" }}</span>
+              {% if ep.runtime %}<span>{{ ep.runtime }}m</span>{% endif %}
               {% if ep.vote_average %}<span><span class="text-amber-400">&#9733;</span> {{ ep.vote_average|floatformat:1 }}</span>{% endif %}
               {% if ep.is_finale %}<span class="text-primary font-bold uppercase">Finale</span>{% endif %}
             </div>
@@ -139,7 +141,7 @@
           </div>
           <div class="p-2.5 flex items-center justify-between gap-2">
             <div class="min-w-0">
-              <div class="font-mono text-[10.5px] text-ink-dim">S{{ season|stringformat:"02d" }} E{{ ep.episode_number|stringformat:"02d" }}</div>
+              <div class="font-mono text-[10.5px] text-ink-dim">S{{ season|stringformat:"02d" }} E{{ ep.episode_number|stringformat:"02d" }}{% if ep.runtime %} · {{ ep.runtime }}m{% endif %}</div>
               <div class="text-[12.5px] font-semibold truncate mt-0.5">{{ ep.name }}</div>
             </div>
             {% if title %}

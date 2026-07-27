@@ -501,7 +501,10 @@ def _episode_panel_context(request, profile, title, tmdb_id, details, force_seas
     dropdown to show next to every season, not just the selected one -
     a different figure from season_avg_rating below, which is the mean
     of the SELECTED season's own episodes' individual ratings."""
-    context = {"seasons": [], "season": None, "episodes": [], "season_avg_rating": None, "season_ratings": {}}
+    context = {
+        "seasons": [], "season": None, "episodes": [], "season_avg_rating": None,
+        "season_ratings": {}, "season_total_runtime": None,
+    }
     number_of_seasons = details["number_of_seasons"] if details else None
     if not number_of_seasons:
         return context
@@ -534,6 +537,8 @@ def _episode_panel_context(request, profile, title, tmdb_id, details, force_seas
     context["episodes"] = episodes
     rated = [ep["vote_average"] for ep in episodes if ep.get("vote_average")]
     context["season_avg_rating"] = round(sum(rated) / len(rated), 1) if rated else None
+    runtimes = [ep["runtime"] for ep in episodes if ep.get("runtime")]
+    context["season_total_runtime"] = selectors.format_duration(sum(runtimes)) if runtimes else None
     return context
 
 
@@ -1088,8 +1093,8 @@ def title_rate(request, pk):
 def title_preview(request, media_type, tmdb_id):
     """The click-through page for a Movies & TV / Anime discovery card -
     not backed by a local Title row (the user may never have watched it),
-    so this is read-only against TMDB directly, with a single "add to
-    watchlist" action that's the only thing allowed to create the Title
+    so this is read-only against TMDB directly - marking watched or
+    adding to any list are the only actions allowed to create the Title
     row. If a matching Title already exists (found this exact tmdb_id
     before, from a sync/import or an earlier watchlist-add here), that's
     the real page for it - redirect there instead of showing a second,
@@ -1121,10 +1126,11 @@ def title_preview(request, media_type, tmdb_id):
         "progress": None,
         "recent_events": [],
         "latest_rating": None,
-        # Not used by this page's own sidebar (is_preview shows "Add to
-        # Watchlist" instead of the my_lists loop) but IS needed by the
-        # "similar" grid's discover_tile.html includes below, whose own
-        # list-picker popovers are for those (also not-yet-tracked) titles.
+        # Drives this page's own "Lists" card (every chip starts unfilled -
+        # there's no local Title yet, so in_list_ids is always empty here;
+        # see title_preview_add_to_list) as well as the "similar" grid's
+        # discover_tile.html includes below, whose own list-picker popovers
+        # are for those (also not-yet-tracked) titles.
         "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
         "in_list_ids": set(),
         **_preview_recommend_context(profile),
@@ -1230,7 +1236,13 @@ def title_preview_add_to_list(request, media_type, tmdb_id, list_id):
     popover flows through the ordinary add_to_list/remove_from_list
     endpoints - this one only ever needs to handle "add", never "remove",
     since a title that didn't exist a moment ago can't already be on any
-    list yet."""
+    list yet.
+
+    Also the preview page's own "Lists" card (a plain, non-HTMX form,
+    same as the rest of that card) - not just the Discover grid's HTMX
+    popover - so a non-HTMX request instead redirects to the now-real
+    title_detail page, same as title_preview_add_to_watchlist already
+    does."""
     if media_type not in ("movie", "tv"):
         raise Http404
     profile = Profile.objects.filter(user=request.user).first()
@@ -1241,6 +1253,8 @@ def title_preview_add_to_list(request, media_type, tmdb_id, list_id):
     if title is None:
         raise Http404
     WatchListItem.objects.get_or_create(watchlist=watchlist, title=title)
+    if not request.headers.get("HX-Request"):
+        return redirect("title_detail", pk=title.pk)
     return _render_poster_actions(request, profile, title)
 
 
@@ -1259,7 +1273,7 @@ def _build_episode_group(title, run):
         "title": title,
         "count": len(run),
         "range_label": f"S{first_by_ep.season}E{first_by_ep.episode}–S{last_by_ep.season}E{last_by_ep.episode}",
-        "total_duration": selectors._format_duration(total_minutes) if total_minutes else None,
+        "total_duration": selectors.format_duration(total_minutes) if total_minutes else None,
         "events": run,
         "timeline_events": sorted(run, key=lambda e: e.watched_at),
     }
@@ -1309,7 +1323,7 @@ def _group_history_by_day(events):
                 "items": _group_consecutive_episodes(items),
                 "movie_count": movie_count,
                 "episode_count": len(items) - movie_count,
-                "total_duration": selectors._format_duration(total_minutes) if total_minutes else None,
+                "total_duration": selectors.format_duration(total_minutes) if total_minutes else None,
             }
         )
     return groups

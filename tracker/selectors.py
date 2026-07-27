@@ -127,10 +127,10 @@ def quick_stats(profile):
         "movies_this_year": movies_this_year,
         "shows_completed": shows_completed,
         # "217d 4h 3m" style, matching the Stats page's own watch-time
-        # breakdown format (_format_duration) instead of a flat "7342h" -
+        # breakdown format (format_duration) instead of a flat "7342h" -
         # the two pages showing the same kind of stat differently read as
         # inconsistent.
-        "total_watch_time": _format_duration(total_minutes),
+        "total_watch_time": format_duration(total_minutes),
     }
 
 
@@ -452,7 +452,7 @@ def stats_overview(profile):
     }
 
 
-def _format_duration(total_minutes):
+def format_duration(total_minutes):
     """"2d 17h 58m" / "22h 21m" / "45m" - matches how Trakt/Simkl format
     their own watch-time breakdowns, which is why this exists separately
     from stats_overview's plain "{hours}h" figure."""
@@ -490,7 +490,7 @@ def watch_time_breakdown(profile):
                 )["total"]
                 or 0
             )
-            result[media_type] = {"duration": _format_duration(minutes), "count": type_events.count()}
+            result[media_type] = {"duration": format_duration(minutes), "count": type_events.count()}
             combined_minutes += minutes
         combined_hours = round(combined_minutes / 60)
         result["combined"] = {"hours": combined_hours, "days": round(combined_hours / 24, 1)}
@@ -503,10 +503,10 @@ def watch_time_breakdown(profile):
     }
 
 
-def _format_duration_compact(total_minutes):
+def format_duration_compact(total_minutes):
     """Single-unit duration for the genre chart's badges - "86d"/"18h"/
     "45m", picking the largest unit that's still >= 1. Distinct from
-    _format_duration's multi-unit "Xd Xh Xm", which is too long to sit
+    format_duration's multi-unit "Xd Xh Xm", which is too long to sit
     inside a narrow genre-bar segment or a small MOST/LEAST badge."""
     days = int(total_minutes) // (24 * 60)
     if days:
@@ -539,7 +539,7 @@ def genre_breakdown(profile, media_type, metric="items"):
     total = sum(r["value"] for r in rows)
     for r in rows:
         r["pct"] = round(r["value"] / total * 100) if total else 0
-        r["display"] = _format_duration_compact(r["value"]) if metric == "duration" else f"{r['value']} {unit}"
+        r["display"] = format_duration_compact(r["value"]) if metric == "duration" else f"{r['value']} {unit}"
     return rows
 
 
@@ -612,7 +612,7 @@ def daily_breakdown(profile, days=7):
                 "label": "Today" if d == today else _WEEKDAY_LABELS[d.weekday()],
                 "date": d,
                 "minutes": minutes,
-                "duration": _format_duration(minutes),
+                "duration": format_duration(minutes),
             }
         )
 
@@ -620,7 +620,7 @@ def daily_breakdown(profile, days=7):
     for d in day_rows:
         d["height_pct"] = round(d["minutes"] / peak_minutes * 100) if peak_minutes else 0
 
-    return {"days": day_rows, "peak_minutes": peak_minutes, "peak_duration": _format_duration(peak_minutes)}
+    return {"days": day_rows, "peak_minutes": peak_minutes, "peak_duration": format_duration(peak_minutes)}
 
 
 def daily_average(profile, days=7):
@@ -645,9 +645,9 @@ def daily_average(profile, days=7):
     delta = round(current_avg) - round(previous_avg)
 
     return {
-        "average_duration": _format_duration(current_avg),
+        "average_duration": format_duration(current_avg),
         "delta_positive": delta >= 0,
-        "delta_label": f"{'+' if delta > 0 else '-'}{_format_duration(abs(delta))}" if delta else None,
+        "delta_label": f"{'+' if delta > 0 else '-'}{format_duration(abs(delta))}" if delta else None,
     }
 
 
@@ -835,10 +835,52 @@ def plain_watch_count(profile, title):
     plain events title_mark_watched/title_unmark_watched/
     title_unmark_last_watched actually own, not the episode browser's
     own separate, always-append rewatch log. Shared by title_local_context
-    (the detail page's single-title case) and poster_action_context's
-    batched watch_count_by_title (a grid of cards) - same definition,
-    different query shape."""
+    (the detail page's single-title case, which only ever renders this
+    button for movies - see title_detail.html) and _badge_watch_counts'
+    own movie branch below."""
     return WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=True).count()
+
+
+def _badge_watch_counts(profile, titles):
+    """Batched watched-button badge counts (the checkmark's ×N) for
+    poster_action_context/discover_action_context - a movie's is its
+    plain-event count (plain_watch_count, unchanged - also what the
+    popover's "Remove last/all watched" actions themselves operate on).
+    A show/anime has no equivalent single "watched" event (see
+    title_mark_watched's movie-only gating in title_detail.html), so
+    this instead takes the *minimum* watch count across every locally-
+    known episode - an Episode row only exists once watched at least
+    once (see episode_mark_watched), so this reads as "of the episodes
+    you've engaged with, the least-rewatched one has been watched this
+    many times." A DB-only approximation of "how many times have you
+    watched this show start to finish" - the real thing would need
+    TMDB's total episode count per title, a call this can't afford to
+    make once per grid tile. Deliberately conservative: only partially
+    rewatching a season keeps this low even if a few individual
+    episodes were replayed many times. Falls back to the plain-event
+    count for a show with no episode-level events at all (e.g.
+    quick-marked via the plain checkmark instead of ever opening the
+    episode browser), matching a movie's own behavior in that case."""
+    title_ids = [t.pk for t in titles]
+    plain_counts = dict(
+        WatchEvent.objects.filter(profile=profile, title_id__in=title_ids, episode__isnull=True)
+        .values("title_id")
+        .annotate(n=Count("id"))
+        .values_list("title_id", "n")
+    )
+    show_ids = [t.pk for t in titles if t.media_type != MediaType.MOVIE]
+    episode_counts_by_title = {}
+    for title_id, n in (
+        WatchEvent.objects.filter(profile=profile, title_id__in=show_ids, episode__isnull=False)
+        .values("title_id", "episode_id")
+        .annotate(n=Count("id"))
+        .values_list("title_id", "n")
+    ):
+        episode_counts_by_title.setdefault(title_id, []).append(n)
+    return {
+        t.pk: min(episode_counts_by_title[t.pk]) if t.pk in episode_counts_by_title else plain_counts.get(t.pk, 0)
+        for t in titles
+    }
 
 
 def title_watched(profile, title):
@@ -923,19 +965,13 @@ def poster_action_context(profile, titles):
     )
     watched_by_title = {tid: tid in watched_ids for tid in title_ids}
 
-    # Plain (episode-less) watches only - what the poster card's
-    # watched-button popover shows/acts on (see views._plain_watch_count).
-    # A show watched entirely via the episode browser still shows a
-    # filled-in checkmark above (it has WatchEvents, just none plain) but
-    # its popover has nothing to count/undo - watched_by_title and
-    # watch_count_by_title deliberately answer different questions.
-    plain_counts = dict(
-        WatchEvent.objects.filter(profile=profile, title_id__in=title_ids, episode__isnull=True)
-        .values("title_id")
-        .annotate(n=Count("id"))
-        .values_list("title_id", "n")
-    )
-    watch_count_by_title = {tid: plain_counts.get(tid, 0) for tid in title_ids}
+    # The checkmark's ×N badge - see _badge_watch_counts for what this
+    # means for a show vs. a movie. Note the popover's own "Remove
+    # last/all watched" actions only ever touch *plain* events
+    # regardless of what this badge shows - for a show watched via the
+    # episode browser those stay harmless no-ops, same as before this
+    # badge existed for shows at all.
+    watch_count_by_title = _badge_watch_counts(profile, titles)
 
     my_lists = list(WatchList.objects.filter(profile=profile).order_by("name"))
     list_membership = {tid: set() for tid in title_ids}
@@ -980,18 +1016,14 @@ def discover_action_context(profile, items):
         key = f"{item['media_type']}:{item['tmdb_id']}"
         matched_title_by_key[key] = Title.objects.filter(external_ids__tmdb=str(item["tmdb_id"])).first()
 
-    title_ids = [t.pk for t in matched_title_by_key.values() if t is not None]
+    matched_titles = [t for t in matched_title_by_key.values() if t is not None]
+    title_ids = [t.pk for t in matched_titles]
     watched_title_ids = set(
         WatchEvent.objects.filter(profile=profile, title_id__in=title_ids).values_list("title_id", flat=True).distinct()
     )
-    # Plain-watch counts, same distinction as poster_action_context's own
-    # watch_count_by_title - what the watched-button popover shows/acts on.
-    plain_counts_by_title = dict(
-        WatchEvent.objects.filter(profile=profile, title_id__in=title_ids, episode__isnull=True)
-        .values("title_id")
-        .annotate(n=Count("id"))
-        .values_list("title_id", "n")
-    )
+    # The checkmark's ×N badge - same _badge_watch_counts poster_action_context
+    # uses, see its own docstring for the movie/show distinction.
+    badge_counts_by_title = _badge_watch_counts(profile, matched_titles)
     list_membership_by_title = {}
     for title_id, list_id in WatchListItem.objects.filter(
         watchlist__profile=profile, title_id__in=title_ids
@@ -1003,7 +1035,7 @@ def discover_action_context(profile, items):
     discover_list_membership = {}
     for key, title in matched_title_by_key.items():
         discover_watched[key] = bool(title and title.pk in watched_title_ids)
-        discover_watch_count[key] = plain_counts_by_title.get(title.pk, 0) if title else 0
+        discover_watch_count[key] = badge_counts_by_title.get(title.pk, 0) if title else 0
         discover_list_membership[key] = list_membership_by_title.get(title.pk, set()) if title else set()
 
     return {

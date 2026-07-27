@@ -8,6 +8,23 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-07-27
+
+### Added
+
+- TV shows and anime now get the same "watched ×N" rewatch counter
+  movies already had on the poster card checkmark. Since a show has no
+  single "watched" click, the count is the minimum watch count across
+  every episode you've engaged with - "of the episodes you've watched,
+  the least-rewatched one has been watched this many times."
+- Clicking into any movie/show/anime you haven't tracked yet now shows
+  the same Lists chip picker a tracked title's page uses, instead of a
+  single dedicated "+ Add to Watchlist" button - "Watchlist" is just
+  one of the chips, alongside any custom list.
+- The episode browser now shows each episode's own runtime, and the
+  season header shows the selected season's total runtime (e.g. "5h
+  52m total") next to its average rating.
+
 ## [0.44.1] - 2026-07-27
 
 ### Fixed

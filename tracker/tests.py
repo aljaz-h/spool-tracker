@@ -4429,20 +4429,20 @@ class MemberScopedViewsTests(TestCase):
 
 class FormatDurationTests(TestCase):
     def test_minutes_only_under_an_hour(self):
-        self.assertEqual(selectors._format_duration(45), "45m")
+        self.assertEqual(selectors.format_duration(45), "45m")
 
     def test_hours_and_minutes(self):
-        self.assertEqual(selectors._format_duration(82), "1h 22m")
+        self.assertEqual(selectors.format_duration(82), "1h 22m")
 
     def test_zero_minutes(self):
-        self.assertEqual(selectors._format_duration(0), "0m")
+        self.assertEqual(selectors.format_duration(0), "0m")
 
     def test_days_hours_minutes(self):
         # 2 days, 17 hours, 58 minutes = 2*1440 + 17*60 + 58 = 2880+1020+58 = 3958
-        self.assertEqual(selectors._format_duration(3958), "2d 17h 58m")
+        self.assertEqual(selectors.format_duration(3958), "2d 17h 58m")
 
     def test_exact_day_still_shows_zero_hours(self):
-        self.assertEqual(selectors._format_duration(1440), "1d 0h 0m")
+        self.assertEqual(selectors.format_duration(1440), "1d 0h 0m")
 
 
 class StatsOverviewMoviesWatchedTests(TestCase):
@@ -4691,7 +4691,7 @@ class DailyAverageTests(TestCase):
 
         WatchEvent.objects.create(profile=self.profile, title=self._movie("A", 700), watched_at=timezone.now())
         result = selectors.daily_average(self.profile)
-        self.assertEqual(result["average_duration"], selectors._format_duration(700 / 7))
+        self.assertEqual(result["average_duration"], selectors.format_duration(700 / 7))
 
     def test_delta_compares_against_the_preceding_window(self):
         from django.utils import timezone
@@ -4703,7 +4703,7 @@ class DailyAverageTests(TestCase):
         )
         result = selectors.daily_average(self.profile)
         self.assertTrue(result["delta_positive"])
-        self.assertEqual(result["delta_label"], f"+{selectors._format_duration(round(140 / 7) - round(70 / 7))}")
+        self.assertEqual(result["delta_label"], f"+{selectors.format_duration(round(140 / 7) - round(70 / 7))}")
 
     def test_no_delta_label_when_nothing_changed(self):
         result = selectors.daily_average(self.profile)
@@ -7507,6 +7507,43 @@ class TitleEpisodeBrowserTests(TestCase):
     @patch("tracker.integrations.tmdb.get_season_details")
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_season_total_runtime_sums_every_episode_with_a_known_runtime(
+        self, mock_details, mock_credits, mock_similar, mock_season
+    ):
+        mock_details.return_value = self._details()
+        mock_season.return_value = {
+            "episodes": [
+                {"episode_number": 1, "name": "Ep1", "still_url": None, "air_date": None, "vote_average": None, "runtime": 45},
+                {"episode_number": 2, "name": "Ep2", "still_url": None, "air_date": None, "vote_average": None, "runtime": 50},
+                # No runtime for this one - excluded from the total, not
+                # treated as 0, same convention season_avg_rating already
+                # uses for missing vote_average.
+                {"episode_number": 3, "name": "Ep3", "still_url": None, "air_date": None, "vote_average": None, "runtime": None},
+            ]
+        }
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertEqual(resp.context["episodes"][0]["runtime"], 45)
+        self.assertEqual(resp.context["season_total_runtime"], "1h 35m")
+        self.assertContains(resp, "1h 35m total")
+        self.assertContains(resp, "45m")
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_season_total_runtime_is_none_when_no_episode_has_a_runtime(
+        self, mock_details, mock_credits, mock_similar, mock_season
+    ):
+        mock_details.return_value = self._details()
+        mock_season.return_value = self._season(["Ep1", "Ep2"])
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertIsNone(resp.context["season_total_runtime"])
+        self.assertNotContains(resp, "total</span>")
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
     @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
     def test_movies_never_show_an_episode_browser(self, mock_details, mock_credits, mock_similar, mock_season):
         movie = Title.objects.create(
@@ -8329,20 +8366,25 @@ class TitlePreviewViewTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.context["is_preview"])
         self.assertContains(resp, "Fathom")
-        self.assertContains(resp, "Add to Watchlist")
+        self.assertContains(resp, "Lists")
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
     @patch("tracker.integrations.tmdb.get_full_details")
-    def test_mark_watched_and_add_to_watchlist_are_both_independently_available(self, mock_details, mock_credits, mock_similar):
+    def test_mark_watched_and_add_to_a_list_are_both_independently_available(self, mock_details, mock_credits, mock_similar):
         # Neither action should require or imply the other - watched and
-        # watchlisted are two separate facts about a title.
+        # listed are two separate facts about a title. The dedicated
+        # "+ Add to Watchlist" button was replaced by the same Lists chip
+        # picker a tracked title's own page uses (see title_detail.html) -
+        # every chip, including one named "Watchlist", posts to
+        # title_preview_add_to_list here since there's no local Title yet.
+        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
         mock_details.return_value = self._details()
         resp = self.client.get(reverse("title_preview", args=["movie", 42]))
         self.assertContains(resp, "+ Mark as Watched")
         self.assertContains(resp, reverse("title_preview_mark_watched", args=["movie", 42]))
-        self.assertContains(resp, "+ Add to Watchlist")
-        self.assertContains(resp, reverse("title_preview_add_to_watchlist", args=["movie", 42]))
+        self.assertContains(resp, "Watchlist")
+        self.assertContains(resp, reverse("title_preview_add_to_list", args=["movie", 42, watchlist.pk]))
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -8435,9 +8477,13 @@ class TitlePreviewViewTests(TestCase):
 
     @patch("tracker.integrations.tmdb.get_full_details")
     def test_add_to_list_materializes_the_title_and_adds_it(self, mock_details):
+        # The Discover grid's HTMX popover flow - see the plain-form
+        # (non-HTMX) test below for the preview page's own Lists card.
         mock_details.return_value = self._details()
         watchlist = WatchList.objects.create(profile=self.profile, name="Favorites")
-        resp = self.client.post(reverse("title_preview_add_to_list", args=["movie", 42, watchlist.id]))
+        resp = self.client.post(
+            reverse("title_preview_add_to_list", args=["movie", 42, watchlist.id]), HTTP_HX_REQUEST="true"
+        )
         self.assertEqual(resp.status_code, 200)
         title = Title.objects.get(external_ids__tmdb="42")
         self.assertTrue(WatchListItem.objects.filter(watchlist=watchlist, title=title).exists())
@@ -8445,6 +8491,19 @@ class TitlePreviewViewTests(TestCase):
         # any further clicks flow through the ordinary add_to_list/
         # remove_from_list endpoints, not this preview-only one.
         self.assertContains(resp, f"list-popover-{title.pk}")
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_add_to_list_redirects_to_the_real_detail_page_for_a_plain_form_post(self, mock_details):
+        # The preview page's own Lists card is a plain form (not HTMX),
+        # same as its "+ Mark as Watched" button - so this materializes
+        # the title, adds it to the list, and redirects, same shape as
+        # title_preview_add_to_watchlist.
+        mock_details.return_value = self._details()
+        watchlist = WatchList.objects.create(profile=self.profile, name="Favorites")
+        resp = self.client.post(reverse("title_preview_add_to_list", args=["movie", 42, watchlist.id]))
+        title = Title.objects.get(external_ids__tmdb="42")
+        self.assertRedirects(resp, reverse("title_detail", args=[title.pk]), fetch_redirect_response=False)
+        self.assertTrue(WatchListItem.objects.filter(watchlist=watchlist, title=title).exists())
 
     @patch("tracker.integrations.tmdb.get_full_details")
     def test_add_to_list_rejects_a_list_this_profile_cannot_edit(self, mock_details):
@@ -8556,17 +8615,38 @@ class PosterActionContextSelectorTests(TestCase):
         context = selectors.poster_action_context(self.profile, [title])
         self.assertEqual(context["watch_count_by_title"][title.pk], 0)
 
-    def test_watch_count_excludes_per_episode_plays(self):
+    def test_watch_count_for_a_show_is_the_minimum_per_episode_play_count(self):
         show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
-        episode = Episode.objects.create(title=show, season=1, episode=1)
-        WatchEvent.objects.create(profile=self.profile, title=show, episode=episode, watched_at="2024-01-01T00:00:00Z")
+        ep1 = Episode.objects.create(title=show, season=1, episode=1)
+        ep2 = Episode.objects.create(title=show, season=1, episode=2)
+        # ep1 watched twice, ep2 only once - the *least*-rewatched episode
+        # you've engaged with caps the show's own "times watched" figure,
+        # same as not having finished a full rewatch yet.
+        WatchEvent.objects.create(profile=self.profile, title=show, episode=ep1, watched_at="2024-01-01T00:00:00Z")
+        WatchEvent.objects.create(profile=self.profile, title=show, episode=ep1, watched_at="2024-02-01T00:00:00Z")
+        WatchEvent.objects.create(profile=self.profile, title=show, episode=ep2, watched_at="2024-01-02T00:00:00Z")
         context = selectors.poster_action_context(self.profile, [show])
-        # watched_by_title counts any WatchEvent (plain or per-episode), so
-        # this show still reads as watched overall - but watch_count_by_title
-        # only counts the plain events the popover's own actions can touch,
-        # and this show has none.
         self.assertTrue(context["watched_by_title"][show.pk])
-        self.assertEqual(context["watch_count_by_title"][show.pk], 0)
+        self.assertEqual(context["watch_count_by_title"][show.pk], 1)
+
+    def test_watch_count_for_a_show_rises_once_every_known_episode_is_rewatched(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+        ep1 = Episode.objects.create(title=show, season=1, episode=1)
+        ep2 = Episode.objects.create(title=show, season=1, episode=2)
+        for ep in (ep1, ep2):
+            WatchEvent.objects.create(profile=self.profile, title=show, episode=ep, watched_at="2024-01-01T00:00:00Z")
+            WatchEvent.objects.create(profile=self.profile, title=show, episode=ep, watched_at="2024-02-01T00:00:00Z")
+        context = selectors.poster_action_context(self.profile, [show])
+        self.assertEqual(context["watch_count_by_title"][show.pk], 2)
+
+    def test_watch_count_for_a_show_falls_back_to_plain_count_with_no_episode_events(self):
+        # A show quick-marked watched via the plain checkmark (never
+        # opened the episode browser) has no episode-level events at all -
+        # falls back to plain_watch_count, same as a movie would.
+        show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+        WatchEvent.objects.create(profile=self.profile, title=show, watched_at="2024-01-01T00:00:00Z")
+        context = selectors.poster_action_context(self.profile, [show])
+        self.assertEqual(context["watch_count_by_title"][show.pk], 1)
 
 
 class DiscoverActionContextSelectorTests(TestCase):
@@ -8878,7 +8958,7 @@ class HistoryConsecutiveEpisodeGroupingTests(TestCase):
 class HistoryDayGroupTotalDurationTests(TestCase):
     """Each day-group header's own total watch time - next to the
     "1 movie · 4 episodes" count, shown in whichever unit
-    (minutes/hours/days) selectors._format_duration picks for the
+    (minutes/hours/days) selectors.format_duration picks for the
     total, matching Trakt/Simkl's own watch-time formatting."""
 
     def setUp(self):
