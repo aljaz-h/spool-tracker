@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-07-27
+
+### Added
+
+- History gained a search box (searches by title name) next to the
+  All/Movies/TV/Anime toggle.
+- History's Period and Sort dropdowns moved into a Filters drawer,
+  matching the Movies & TV/Anime filter panel's own pattern.
+- The Sort filter gained "Most watched"/"Least watched" - switches
+  History from its usual day-by-day listing to a leaderboard of titles
+  ordered by how many times each was watched, within whatever
+  type/period/search filters are active.
+
 ## [0.46.0] - 2026-07-27
 
 ### Added

@@ -19,6 +19,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
 from django.db import IntegrityError
+from django.db.models import Count, Max
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -49,6 +50,13 @@ from .models import (
 MOVIE_TV_TYPES = [MediaType.MOVIE, MediaType.TV]
 HISTORY_PAGE_SIZE = 150
 HISTORY_PERIODS = {"today", "yesterday", "7", "30", "365"}
+# "most_watched"/"least_watched" switch History from its usual day-grouped
+# listing to a title-grouped one, ordered by how many WatchEvents (plays -
+# every logged episode counts on its own, same convention history_group_tile.html's
+# own per-day ×N badge already uses, not the poster card's more conservative
+# "full rewatch" figure) exist for each title within the current filters -
+# see _history_context.
+HISTORY_SORTS = {"new", "old", "most_watched", "least_watched"}
 DISCOVER_CATEGORIES = {"trending", "popular", "upcoming", "top_rated"}
 # Movie-only, and deliberately not composable with the filter panel (see
 # tmdb.collections()'s own docstring for why) - excluded from Anime's own
@@ -1336,7 +1344,8 @@ def _time_format_str(profile):
 def _history_context(request, profile):
     type_filter = request.GET.get("type", "all")
     period = request.GET.get("period", "all") if request.GET.get("period") in HISTORY_PERIODS else "all"
-    sort = "old" if request.GET.get("sort") == "old" else "new"
+    sort = request.GET.get("sort") if request.GET.get("sort") in HISTORY_SORTS else "new"
+    query = request.GET.get("q", "").strip()
     # Set from the poster card watched-button popover's "View history
     # plays" link (?title=<pk>) - narrows History down to just that one
     # title instead of the profile's whole history. title_filter is the
@@ -1344,14 +1353,19 @@ def _history_context(request, profile):
     # filtered to and offer a way to clear it.
     title_id = request.GET.get("title", "")
     title_filter = Title.objects.filter(pk=title_id).first() if title_id.isdigit() else None
+    grouped_by_watch_count = sort in ("most_watched", "least_watched")
 
     page_obj = None
+    day_groups = []
+    title_rows = []
     if profile is not None:
-        events = WatchEvent.objects.filter(profile=profile).select_related("title", "episode")
+        events = WatchEvent.objects.filter(profile=profile)
         if type_filter in (MediaType.MOVIE, MediaType.TV, MediaType.ANIME):
             events = events.filter(title__media_type=type_filter)
         if title_filter is not None:
             events = events.filter(title=title_filter)
+        if query:
+            events = events.filter(title__name__icontains=query)
 
         now = timezone.now()
         today_start = timezone.localtime(now).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -1362,17 +1376,39 @@ def _history_context(request, profile):
         elif period in ("7", "30", "365"):
             events = events.filter(watched_at__gte=now - timedelta(days=int(period)))
 
-        events = events.order_by("-watched_at" if sort == "new" else "watched_at")
-        page_obj = Paginator(events, HISTORY_PAGE_SIZE).get_page(request.GET.get("page"))
+        if grouped_by_watch_count:
+            rows = (
+                events.values("title_id")
+                .annotate(watch_count=Count("id"), last_watched_at=Max("watched_at"))
+                .order_by("-watch_count" if sort == "most_watched" else "watch_count", "-last_watched_at")
+            )
+            page_obj = Paginator(rows, HISTORY_PAGE_SIZE).get_page(request.GET.get("page"))
+            titles_by_id = Title.objects.in_bulk([r["title_id"] for r in page_obj.object_list])
+            title_rows = [
+                {"title": titles_by_id[r["title_id"]], "watch_count": r["watch_count"], "last_watched_at": r["last_watched_at"]}
+                for r in page_obj.object_list
+                if r["title_id"] in titles_by_id
+            ]
+        else:
+            events = events.select_related("title", "episode").order_by("-watched_at" if sort == "new" else "watched_at")
+            page_obj = Paginator(events, HISTORY_PAGE_SIZE).get_page(request.GET.get("page"))
+            day_groups = _group_history_by_day(page_obj.object_list)
+
+    query_without_page = request.GET.copy()
+    query_without_page.pop("page", None)
 
     return {
         "profile": profile,
         "page_obj": page_obj,
-        "day_groups": _group_history_by_day(page_obj.object_list) if page_obj else [],
+        "day_groups": day_groups,
+        "title_rows": title_rows,
+        "grouped_by_watch_count": grouped_by_watch_count,
         "type_filter": type_filter,
         "period": period,
         "sort": sort,
+        "query": query,
         "title_filter": title_filter,
+        "base_query": query_without_page.urlencode(),
         "time_format_str": _time_format_str(profile),
     }
 

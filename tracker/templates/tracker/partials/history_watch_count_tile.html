@@ -1,0 +1,28 @@
+{% load tracker_extras %}
+{# context: title (Title), watch_count (int - total WatchEvents for this title within the current filters, plain+episode combined), last_watched_at (datetime) #}
+{% comment %}
+History's "Most/Least watched" sort switches from the usual day-grouped
+listing to this one - a leaderboard ordered by raw play count (every
+logged episode counts on its own, same convention history_group_tile.html's
+own per-day ×N badge already uses - deliberately not the poster card's
+more conservative "full rewatch" figure, since a leaderboard should
+reward total engagement, not just complete watchthroughs). Read-only,
+unlike history_tile.html/history_group_tile.html - there's no single
+WatchEvent (or same-day run of them) this tile maps to, so no
+individual-item delete action makes sense here.
+{% endcomment %}
+<a href="{% url 'title_detail' title.pk %}" class="block">
+  <div class="aspect-[2/3] rounded-lg relative overflow-hidden bg-cover bg-center {% if not title.poster_url %}{{ title.pk|gradient_class }}{% endif %}"
+       {% if title.poster_url %}style="background-image:url('{{ title.poster_url }}')"{% endif %}>
+    <div class="absolute inset-0 bg-linear-to-t from-black/50 to-transparent"></div>
+    <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ title.media_type|upper }}</span>
+    <span class="absolute bottom-1.5 right-1.5 z-10 font-mono text-[11px] font-bold bg-primary/90 px-2 py-1 rounded-md text-primary-content shadow-[0_1px_4px_rgba(0,0,0,0.7)]">&times;{{ watch_count }}</span>
+  </div>
+  <div class="mt-1.5 min-w-0">
+    <div class="text-[11.5px] font-semibold truncate">{{ title.name }}</div>
+    <div class="flex justify-between items-center mt-0.5 text-[10px] font-mono text-ink-dim">
+      <span>{{ watch_count }} watch{{ watch_count|pluralize:"es" }}</span>
+      <span class="text-ink-faint">{{ last_watched_at|timesince }} ago</span>
+    </div>
+  </div>
+</a>

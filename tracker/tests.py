@@ -8874,6 +8874,85 @@ class HistoryTitleFilterTests(TestCase):
         self.assertContains(resp, f'<input type="hidden" name="title" value="{self.title.pk}">')
 
 
+class HistorySearchAndMostWatchedTests(TestCase):
+    """The History page's search box (?q=) and the "Most/Least watched"
+    sort options, which switch the page from its usual day-grouped
+    listing to a title-grouped leaderboard ordered by play count
+    (views._history_context's grouped_by_watch_count branch)."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.timezone = timezone
+        user = User.objects.create_user("historysearchuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="HistorySearchUser")
+        self.client.login(username="historysearchuser", password="pass12345")
+        self.fathom = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        self.silo = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+        WatchEvent.objects.create(profile=self.profile, title=self.fathom, watched_at=self.timezone.now())
+        WatchEvent.objects.create(profile=self.profile, title=self.silo, watched_at=self.timezone.now())
+
+    def test_search_filters_by_title_name_case_insensitive(self):
+        resp = self.client.get(reverse("history"), {"q": "fath"})
+        self.assertContains(resp, "Fathom")
+        self.assertNotContains(resp, "Silo")
+
+    def test_search_with_no_matches_shows_empty_state(self):
+        resp = self.client.get(reverse("history"), {"q": "nonexistent title"})
+        self.assertContains(resp, "No history matches these filters")
+
+    def test_search_box_carries_the_query_forward(self):
+        resp = self.client.get(reverse("history"), {"q": "fath"})
+        self.assertContains(resp, 'value="fath"')
+
+    def test_most_watched_orders_titles_by_play_count_descending(self):
+        ep = Episode.objects.create(title=self.silo, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=self.silo, episode=ep, watched_at=self.timezone.now())
+        WatchEvent.objects.create(profile=self.profile, title=self.silo, episode=ep, watched_at=self.timezone.now())
+        # Silo: 3 plays (1 plain from setUp + 2 episode), Fathom: 1 play.
+        resp = self.client.get(reverse("history"), {"sort": "most_watched"})
+        self.assertTrue(resp.context["grouped_by_watch_count"])
+        rows = resp.context["title_rows"]
+        self.assertEqual([r["title"] for r in rows], [self.silo, self.fathom])
+        self.assertEqual(rows[0]["watch_count"], 3)
+        self.assertEqual(rows[1]["watch_count"], 1)
+
+    def test_least_watched_orders_titles_by_play_count_ascending(self):
+        ep = Episode.objects.create(title=self.silo, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=self.silo, episode=ep, watched_at=self.timezone.now())
+        resp = self.client.get(reverse("history"), {"sort": "least_watched"})
+        rows = resp.context["title_rows"]
+        self.assertEqual([r["title"] for r in rows], [self.fathom, self.silo])
+
+    def test_default_sort_is_not_grouped_by_watch_count(self):
+        resp = self.client.get(reverse("history"))
+        self.assertFalse(resp.context["grouped_by_watch_count"])
+        self.assertEqual(resp.context["title_rows"], [])
+
+    def test_invalid_sort_falls_back_to_newest_first(self):
+        resp = self.client.get(reverse("history"), {"sort": "bogus"})
+        self.assertEqual(resp.context["sort"], "new")
+        self.assertFalse(resp.context["grouped_by_watch_count"])
+
+    def test_most_watched_still_respects_the_type_filter(self):
+        resp = self.client.get(reverse("history"), {"sort": "most_watched", "type": "movie"})
+        rows = resp.context["title_rows"]
+        self.assertEqual([r["title"] for r in rows], [self.fathom])
+
+    def test_bulk_select_button_hidden_when_grouped_by_watch_count(self):
+        # The Select/Cancel label text itself is only set client-side via
+        # Alpine's x-text, so check for the button's own click handler
+        # instead of the (never server-rendered) label text.
+        resp = self.client.get(reverse("history"), {"sort": "most_watched"})
+        self.assertNotContains(resp, "selecting = !selecting")
+
+    def test_filters_drawer_contains_period_and_sort(self):
+        resp = self.client.get(reverse("history"))
+        self.assertContains(resp, "history-filters-drawer")
+        self.assertContains(resp, "Most watched")
+        self.assertContains(resp, "Least watched")
+
+
 class HistoryConsecutiveEpisodeGroupingTests(TestCase):
     """A binge session's episode cards should collapse into one group tile,
     the same idea as the Activity feed's grouping but shaped for the

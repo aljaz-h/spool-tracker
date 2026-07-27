@@ -1,4 +1,5 @@
 {% extends "tracker/base.html" %}
+{% load icons %}
 {% block title %}History · Spool{% endblock %}
 {% block content %}
 
@@ -8,62 +9,140 @@
   </div>
 
   <div x-data="{ selecting: false, selectedCount: 0, recount() { this.selectedCount = [...document.querySelectorAll('[name=event_ids]:checked')].reduce((sum, cb) => sum + cb.value.split(',').length, 0) } }">
-    <form
-      hx-get="{{ history_base_url }}"
-      hx-target="#history-content"
-      hx-trigger="change"
-      hx-push-url="true"
-      class="flex justify-between items-center flex-wrap gap-3 mb-5"
-    >
-      <div class="inline-flex bg-base-200 border border-line rounded-lg p-1 gap-0.5">
-        {% comment %}
-          has-checked: (CSS, not a server-rendered class) so the active pill
-          stays in sync with the native radio state even though this form
-          sits outside #history-content, the only thing HTMX re-renders.
-        {% endcomment %}
-        <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-          <input type="radio" name="type" value="all" class="hidden" {% if type_filter == "all" %}checked{% endif %}>All
-        </label>
-        <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-          <input type="radio" name="type" value="movie" class="hidden" {% if type_filter == "movie" %}checked{% endif %}>Movies
-        </label>
-        <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-          <input type="radio" name="type" value="tv" class="hidden" {% if type_filter == "tv" %}checked{% endif %}>TV
-        </label>
-        <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-          <input type="radio" name="type" value="anime" class="hidden" {% if type_filter == "anime" %}checked{% endif %}>Anime
-        </label>
-      </div>
-      <input type="hidden" name="title" value="{{ title_filter.pk|default:"" }}">
-      <div class="flex gap-2.5 flex-wrap">
-        <select name="period" class="bg-base-200 border border-line text-ink-dim text-xs px-3 py-2 rounded-lg">
-          <option value="all" {% if period == "all" %}selected{% endif %}>All time</option>
-          <option value="today" {% if period == "today" %}selected{% endif %}>Today</option>
-          <option value="yesterday" {% if period == "yesterday" %}selected{% endif %}>Yesterday</option>
-          <option value="7" {% if period == "7" %}selected{% endif %}>Last 7 days</option>
-          <option value="30" {% if period == "30" %}selected{% endif %}>Last 30 days</option>
-          <option value="365" {% if period == "365" %}selected{% endif %}>Last year</option>
-        </select>
-        <select name="sort" class="bg-base-200 border border-line text-ink-dim text-xs px-3 py-2 rounded-lg">
-          <option value="new" {% if sort == "new" %}selected{% endif %}>Newest first</option>
-          <option value="old" {% if sort == "old" %}selected{% endif %}>Oldest first</option>
-        </select>
-        {% if is_own_history %}
-          <button
-            type="button"
-            @click="selecting = !selecting; selectedCount = 0"
-            class="px-3.5 py-2 rounded-lg text-xs font-semibold border border-line"
-            :class="selecting ? 'bg-primary text-primary-content border-primary' : 'bg-base-200 text-ink-dim'"
-          ><span x-text="selecting ? 'Cancel' : 'Select'"></span></button>
-        {% endif %}
-      </div>
-    </form>
+    <div class="drawer drawer-end">
+      <input id="history-filters-drawer" type="checkbox" class="drawer-toggle" />
+      <div class="drawer-content">
+        <form
+          hx-get="{{ history_base_url }}"
+          hx-target="#history-content"
+          hx-trigger="change"
+          hx-push-url="true"
+          class="flex justify-between items-center flex-wrap gap-3 mb-5"
+        >
+          <div class="flex items-center gap-3 flex-wrap">
+            {% comment %}
+              has-checked: (CSS, not a server-rendered class) so the active pill
+              stays in sync with the native radio state even though this form
+              sits outside #history-content, the only thing HTMX re-renders.
+            {% endcomment %}
+            <div class="inline-flex bg-base-200 border border-line rounded-lg p-1 gap-0.5">
+              <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+                <input type="radio" name="type" value="all" class="hidden" {% if type_filter == "all" %}checked{% endif %}>All
+              </label>
+              <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+                <input type="radio" name="type" value="movie" class="hidden" {% if type_filter == "movie" %}checked{% endif %}>Movies
+              </label>
+              <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+                <input type="radio" name="type" value="tv" class="hidden" {% if type_filter == "tv" %}checked{% endif %}>TV
+              </label>
+              <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+                <input type="radio" name="type" value="anime" class="hidden" {% if type_filter == "anime" %}checked{% endif %}>Anime
+              </label>
+            </div>
+            {% comment %}
+              Debounced-as-you-type instead of the form's own change-on-
+              blur default (matches what "search bar" usually means) -
+              its own hx-trigger overrides the form's for issuing the
+              request, inheriting hx-get/hx-target/hx-push-url from the
+              form same as every other field here. @change.stop keeps
+              the native change event (still fires on blur) from ALSO
+              bubbling into the form's own hx-trigger="change" listener,
+              which would otherwise double-fire the request.
+            {% endcomment %}
+            <div class="relative">
+              {% icon "search" "w-3.5 h-3.5 text-ink-faint absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" %}
+              <input
+                type="text" name="q" value="{{ query }}"
+                placeholder="Search history…"
+                hx-trigger="input changed delay:400ms, search"
+                @change.stop=""
+                class="bg-base-200 border border-line text-ink-dim text-xs pl-8 pr-3 py-2 rounded-lg w-40 sm:w-56 focus:outline-primary"
+              >
+            </div>
+          </div>
+          <input type="hidden" name="title" value="{{ title_filter.pk|default:"" }}">
+          <div class="flex gap-2.5 flex-wrap items-center">
+            <label for="history-filters-drawer" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
+              {% icon "filter" "w-3.5 h-3.5" %}
+              Filters
+              {% if period != "all" or sort != "new" %}
+                <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+              {% endif %}
+            </label>
+            {% if is_own_history and not grouped_by_watch_count %}
+              <button
+                type="button"
+                @click="selecting = !selecting; selectedCount = 0"
+                class="px-3.5 py-2 rounded-lg text-xs font-semibold border border-line"
+                :class="selecting ? 'bg-primary text-primary-content border-primary' : 'bg-base-200 text-ink-dim'"
+              ><span x-text="selecting ? 'Cancel' : 'Select'"></span></button>
+            {% endif %}
+          </div>
+        </form>
 
-    <div id="history-content">
-      {% include "tracker/partials/history_content.html" %}
+        <div id="history-content">
+          {% include "tracker/partials/history_content.html" %}
+        </div>
+      </div>
+
+      <div class="drawer-side z-50">
+        <label for="history-filters-drawer" aria-label="close filters" class="drawer-overlay bg-black/60"></label>
+        <div class="w-full max-w-xs min-h-full overflow-y-auto bg-base-300 border-l border-line shadow-2xl p-5 flex flex-col gap-5">
+          <div class="flex items-center justify-between">
+            <h2 class="font-display text-xl">Filters</h2>
+            <label for="history-filters-drawer" aria-label="close filters" class="btn btn-sm btn-circle btn-ghost cursor-pointer">
+              {% icon "x" "w-4 h-4" %}
+            </label>
+          </div>
+
+          <div>
+            <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Period</div>
+            {% comment %}
+              These two selects live outside the toolbar's own <form> (the
+              drawer-side panel has to be a direct sibling of the drawer
+              checkbox for daisyUI's CSS-only open/close to work, which
+              rules out nesting one <form> around both) - hx-include pulls
+              the toolbar's current type/search/title values in by name
+              instead, same instant-apply behavior as every other control here.
+            {% endcomment %}
+            <select
+              name="period"
+              hx-get="{{ history_base_url }}"
+              hx-target="#history-content"
+              hx-push-url="true"
+              hx-include="[name='type']:checked,[name='q'],[name='title']"
+              class="select select-sm w-full bg-base-100 focus:outline-primary"
+            >
+              <option value="all" {% if period == "all" %}selected{% endif %}>All time</option>
+              <option value="today" {% if period == "today" %}selected{% endif %}>Today</option>
+              <option value="yesterday" {% if period == "yesterday" %}selected{% endif %}>Yesterday</option>
+              <option value="7" {% if period == "7" %}selected{% endif %}>Last 7 days</option>
+              <option value="30" {% if period == "30" %}selected{% endif %}>Last 30 days</option>
+              <option value="365" {% if period == "365" %}selected{% endif %}>Last year</option>
+            </select>
+          </div>
+
+          <div>
+            <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Sort</div>
+            <select
+              name="sort"
+              hx-get="{{ history_base_url }}"
+              hx-target="#history-content"
+              hx-push-url="true"
+              hx-include="[name='type']:checked,[name='q'],[name='title']"
+              class="select select-sm w-full bg-base-100 focus:outline-primary"
+            >
+              <option value="new" {% if sort == "new" %}selected{% endif %}>Newest first</option>
+              <option value="old" {% if sort == "old" %}selected{% endif %}>Oldest first</option>
+              <option value="most_watched" {% if sort == "most_watched" %}selected{% endif %}>Most watched</option>
+              <option value="least_watched" {% if sort == "least_watched" %}selected{% endif %}>Least watched</option>
+            </select>
+          </div>
+        </div>
+      </div>
     </div>
 
-    {% if is_own_history %}
+    {% if is_own_history and not grouped_by_watch_count %}
       <div
         x-show="selecting && selectedCount > 0" x-cloak x-transition
         class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 bg-base-200 border border-line rounded-full pl-5 pr-2 py-2 shadow-xl"
@@ -71,7 +150,7 @@
         <span class="text-xs font-mono text-ink-dim"><span x-text="selectedCount"></span> selected</span>
         <button
           type="button"
-          hx-post="{% url 'history_bulk_delete' %}?type={{ type_filter }}&period={{ period }}&sort={{ sort }}&title={{ title_filter.pk|default:"" }}&page={{ page_obj.number }}"
+          hx-post="{% url 'history_bulk_delete' %}?{{ base_query }}&page={{ page_obj.number }}"
           hx-include="[name='event_ids']:checked"
           hx-target="#history-content"
           hx-confirm="Remove the selected items from your watch history? This can't be undone."
