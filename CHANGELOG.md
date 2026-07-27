@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-07-27
+
+### Added
+
+- The notifications panel gained a "Clear all" action (eraser icon)
+  that deletes every notification outright, next to the existing
+  "Mark all read" action (now an eye icon instead of text).
+
+### Changed
+
+- The notifications panel is slightly wider (288px → 320px).
+
 ## [0.45.0] - 2026-07-27
 
 ### Added

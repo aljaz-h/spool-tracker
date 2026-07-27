@@ -2283,6 +2283,20 @@ def mark_all_notifications_read(request):
 
 
 @login_required
+@require_POST
+def clear_all_notifications(request):
+    """The header bell's eraser button - deletes every one of this
+    profile's notifications outright (not just marking them read, which
+    mark_all_notifications_read already covers), same "empty the panel
+    entirely" action Trakt/Simkl-style notification dropdowns offer."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    Notification.objects.filter(profile=profile).delete()
+    return _render_notifications_panel(request, profile)
+
+
+@login_required
 def export_csv(request):
     """Same column names csv_import.py's own COLUMN_ALIASES canonical
     keys use (title/media_type/year/season/episode/watched_at/rating), so

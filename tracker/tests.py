@@ -2393,6 +2393,35 @@ class MarkAllNotificationsReadViewTests(TestCase):
         self.assertFalse(others.read)
 
 
+class ClearAllNotificationsViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("clearalluser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ClearAllUser")
+        self.client.login(username="clearalluser", password="pass12345")
+
+    def test_deletes_every_notification_read_or_not(self):
+        Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="One")
+        Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="Two", read=True)
+        self.client.post(reverse("clear_all_notifications"))
+        self.assertEqual(Notification.objects.filter(profile=self.profile).count(), 0)
+
+    def test_does_not_touch_another_profiles_notifications(self):
+        other_user = User.objects.create_user("clearallother", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="ClearAllOther")
+        others = Notification.objects.create(profile=other_profile, kind=Notification.Kind.SYNC_FAILED, message="Not yours")
+        self.client.post(reverse("clear_all_notifications"))
+        self.assertTrue(Notification.objects.filter(pk=others.pk).exists())
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("clear_all_notifications"))
+        self.assertNotEqual(resp.status_code, 200)
+
+    def test_requires_post(self):
+        resp = self.client.get(reverse("clear_all_notifications"))
+        self.assertEqual(resp.status_code, 405)
+
+
 class UnreadNotificationCountContextTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("badgeuser", password="pass12345")
