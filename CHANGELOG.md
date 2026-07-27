@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-07-27
+
+### Added
+
+- Anime episodes now show a Filler or Recap badge in the episode browser,
+  sourced from Jikan (an unofficial MyAnimeList API) - TMDB has no filler
+  data of its own. Best-effort: a title is matched to MyAnimeList by
+  name/year once and cached, and any lookup failure (no match, Jikan
+  unreachable) just means no badge, never a broken page.
+- The sidebar now credits data sources: TMDB (movie/TV/anime metadata)
+  and Jikan/MyAnimeList (anime filler data) - previously nothing in the
+  app mentioned either, despite TMDB's own terms requiring it.
+
 ## [0.49.0] - 2026-07-27
 
 ### Added

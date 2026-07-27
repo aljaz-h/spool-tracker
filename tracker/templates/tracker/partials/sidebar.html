@@ -56,6 +56,11 @@
   <div class="mt-auto pt-2.5 px-2.5 border-t border-line text-[11px] text-ink-faint leading-relaxed">
     <div>{{ all_profiles|length }} profile{{ all_profiles|length|pluralize }} on this server</div>
     <div class="font-mono">v{{ app_version }}</div>
+    {# Movie/TV/anime metadata credit - TMDB's own terms require this; Jikan/MAL's is the same courtesy for filler/recap data (views._apply_anime_filler_flags), neither of which is otherwise mentioned anywhere in the app. #}
+    <div class="mt-1">
+      Movie &amp; TV data by <a href="https://www.themoviedb.org/" target="_blank" rel="noopener" class="hover:text-ink-dim underline decoration-dotted underline-offset-2">TMDB</a>.
+      Anime filler data via <a href="https://jikan.moe/" target="_blank" rel="noopener" class="hover:text-ink-dim underline decoration-dotted underline-offset-2">Jikan</a> (MyAnimeList).
+    </div>
   </div>
 </aside>
 {% endwith %}

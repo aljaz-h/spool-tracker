@@ -14,7 +14,7 @@ from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
 from . import completion, csv_import, instance_config, notifications, recommendations, release_sync, rewatches, scheduling, selectors, tasks, update_check, views
-from .integrations import gemini, tmdb, trakt
+from .integrations import gemini, jikan, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
@@ -7681,6 +7681,229 @@ class TitleEpisodeBrowserTests(TestCase):
         self.assertIn(f'id="ep-watched-btn-{self.title.pk}-1-1"', content)
         self.assertIn(f'id="ep-watched-btn-{self.title.pk}-1-1-m"', content)
         self.assertEqual(content.count("Freedom Day"), 2)
+
+
+class JikanFindMatchTests(TestCase):
+    """jikan.find_match - Jikan's own search endpoint was observed live to
+    occasionally 504 (it proxies to MAL, unlike the DB-backed episode
+    endpoint), so every failure mode here must degrade to None, never
+    raise - same philosophy as tmdb.py's own lookups."""
+
+    def _response(self, results):
+        resp = Mock()
+        resp.json.return_value = {"data": results}
+        resp.raise_for_status = Mock()
+        return resp
+
+    def _anime(self, mal_id, year=None):
+        return {"mal_id": mal_id, "title": "Some Anime", "year": year}
+
+    @patch("tracker.integrations.jikan.requests.get")
+    def test_returns_the_first_result_with_no_year_given(self, mock_get):
+        mock_get.return_value = self._response([self._anime(1), self._anime(2)])
+        self.assertEqual(jikan.find_match("Bleach"), {"mal_id": 1})
+
+    @patch("tracker.integrations.jikan.requests.get")
+    def test_prefers_the_result_matching_the_given_year(self, mock_get):
+        mock_get.return_value = self._response([self._anime(1, year=2020), self._anime(2, year=2004)])
+        self.assertEqual(jikan.find_match("Bleach", year=2004), {"mal_id": 2})
+
+    @patch("tracker.integrations.jikan.requests.get")
+    def test_falls_back_to_the_first_result_when_no_year_matches(self, mock_get):
+        mock_get.return_value = self._response([self._anime(1, year=2020), self._anime(2, year=2004)])
+        self.assertEqual(jikan.find_match("Bleach", year=1999), {"mal_id": 1})
+
+    @patch("tracker.integrations.jikan.requests.get")
+    def test_no_results_returns_none(self, mock_get):
+        mock_get.return_value = self._response([])
+        self.assertIsNone(jikan.find_match("Nonexistent Show"))
+
+    @patch("tracker.integrations.jikan.requests.get")
+    def test_request_exception_returns_none(self, mock_get):
+        mock_get.side_effect = requests.RequestException("boom")
+        self.assertIsNone(jikan.find_match("Bleach"))
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class JikanEpisodeFillerMapTests(TestCase):
+    """jikan.get_episode_filler_map - paginates /anime/{id}/episodes into
+    {episode_number: {"filler", "recap"}}. Class-level LocMemCache override
+    (same reasoning as TmdbDiscoverTests) - without a real cache backend,
+    every call pays get_episode_filler_map's unreachable-Redis timeout for
+    nothing, and test_result_is_cached_across_calls needs caching to
+    actually work to mean anything."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    def _page(self, episodes, has_next):
+        resp = Mock()
+        resp.json.return_value = {
+            "data": [{"mal_id": num, "filler": filler, "recap": recap} for num, filler, recap in episodes],
+            "pagination": {"has_next_page": has_next},
+        }
+        resp.raise_for_status = Mock()
+        return resp
+
+    @patch("tracker.integrations.jikan.requests.get")
+    def test_builds_a_map_keyed_by_episode_number(self, mock_get):
+        mock_get.return_value = self._page([(1, False, False), (2, True, False)], has_next=False)
+        result = jikan.get_episode_filler_map(269)
+        self.assertEqual(result, {1: {"filler": False, "recap": False}, 2: {"filler": True, "recap": False}})
+
+    @patch("tracker.integrations.jikan.requests.get")
+    def test_follows_pagination_across_multiple_pages(self, mock_get):
+        mock_get.side_effect = [
+            self._page([(1, False, False)], has_next=True),
+            self._page([(2, True, False)], has_next=False),
+        ]
+        result = jikan.get_episode_filler_map(270)
+        self.assertEqual(set(result), {1, 2})
+        self.assertEqual(mock_get.call_count, 2)
+
+    @patch("tracker.integrations.jikan.requests.get")
+    def test_result_is_cached_across_calls(self, mock_get):
+        mock_get.return_value = self._page([(1, False, False)], has_next=False)
+        jikan.get_episode_filler_map(271)
+        jikan.get_episode_filler_map(271)
+        self.assertEqual(mock_get.call_count, 1)
+
+    @patch("tracker.integrations.jikan.requests.get")
+    def test_request_exception_returns_empty_map_not_an_error(self, mock_get):
+        mock_get.side_effect = requests.RequestException("boom")
+        self.assertEqual(jikan.get_episode_filler_map(272), {})
+
+
+class AnimeFillerBadgeTests(TestCase):
+    """The episode browser's filler/recap overlay (views._apply_anime_filler_flags)
+    - anime-only, additive on top of TMDB's own season/episode data, never
+    blocking the page when Jikan has no match or is unreachable."""
+
+    def setUp(self):
+        user = User.objects.create_user("fillerwatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="FillerWatcher")
+        self.client.login(username="fillerwatcher", password="pass12345")
+        self.anime = Title.objects.create(
+            media_type=MediaType.ANIME, name="Bleach", year=2004,
+            external_ids={"tmdb": "99", "tmdb_kind": "tv"},
+        )
+        for name, default in (("get_director", None), ("get_watch_providers", [])):
+            patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _details(self, number_of_seasons=2):
+        return {
+            "tmdb_id": 99, "media_type": "tv", "name": "Bleach", "year": "2004",
+            "overview": "", "tagline": "", "genres": [], "runtime": None,
+            "number_of_seasons": number_of_seasons, "number_of_episodes": 20,
+            "backdrop_url": None, "poster_url": None, "vote_average": 7.0,
+            "vote_count": 100, "original_language": "ja", "status": None,
+        }
+
+    def _season(self, count):
+        return {
+            "episodes": [
+                {"episode_number": i + 1, "name": f"Ep{i + 1}", "still_url": None, "air_date": None, "vote_average": None}
+                for i in range(count)
+            ]
+        }
+
+    def _tv_details(self, episode_counts):
+        return {
+            "number_of_episodes": sum(episode_counts),
+            "episode_run_time": None,
+            "seasons": [
+                {"season_number": i + 1, "episode_count": count, "vote_average": None}
+                for i, count in enumerate(episode_counts)
+            ],
+        }
+
+    @patch("tracker.integrations.jikan.get_episode_filler_map")
+    @patch("tracker.integrations.jikan.find_match")
+    @patch("tracker.integrations.tmdb.get_tv_details")
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_filler_flags_land_on_the_right_episode_after_season_offset(
+        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match, mock_filler_map
+    ):
+        # Season 1 has 10 episodes, so season 2's episode 3 is Jikan's
+        # absolute episode 13 - the offset math views._apply_anime_filler_flags
+        # does to bridge TMDB's season-relative numbering onto Jikan's flat one.
+        mock_details.return_value = self._details(number_of_seasons=2)
+        mock_tv_details.return_value = self._tv_details([10, 5])
+        mock_season.return_value = self._season(3)
+        mock_find_match.return_value = {"mal_id": 269}
+        mock_filler_map.return_value = {13: {"filler": True, "recap": False}}
+
+        resp = self.client.get(reverse("title_episodes", args=[self.anime.pk]), {"season": "2"})
+        episodes = {e["episode_number"]: e for e in resp.context["episodes"]}
+        self.assertTrue(episodes[3].get("filler"))
+        self.assertFalse(episodes[1].get("filler"))
+        self.assertFalse(episodes[2].get("filler"))
+        mock_find_match.assert_called_once_with("Bleach", 2004)
+
+    @patch("tracker.integrations.jikan.get_episode_filler_map")
+    @patch("tracker.integrations.jikan.find_match")
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_mal_id_is_cached_on_the_title_and_not_re_looked_up(
+        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match, mock_filler_map
+    ):
+        mock_details.return_value = self._details(number_of_seasons=1)
+        mock_season.return_value = self._season(2)
+        mock_find_match.return_value = {"mal_id": 269}
+        mock_filler_map.return_value = {}
+
+        self.client.get(reverse("title_detail", args=[self.anime.pk]))
+        self.anime.refresh_from_db()
+        self.assertEqual(self.anime.external_ids["mal"], 269)
+
+        self.client.get(reverse("title_detail", args=[self.anime.pk]))
+        mock_find_match.assert_called_once()
+
+    @patch("tracker.integrations.jikan.get_episode_filler_map")
+    @patch("tracker.integrations.jikan.find_match", return_value=None)
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_no_jikan_match_renders_the_episode_browser_normally(
+        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match, mock_filler_map
+    ):
+        mock_details.return_value = self._details(number_of_seasons=1)
+        mock_season.return_value = self._season(2)
+        resp = self.client.get(reverse("title_detail", args=[self.anime.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.context["episodes"]), 2)
+        mock_filler_map.assert_not_called()
+
+    @patch("tracker.integrations.jikan.get_episode_filler_map")
+    @patch("tracker.integrations.jikan.find_match")
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_non_anime_titles_never_call_jikan(
+        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match, mock_filler_map
+    ):
+        show = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "1", "tmdb_kind": "tv"}
+        )
+        mock_details.return_value = self._details(number_of_seasons=1)
+        mock_season.return_value = self._season(2)
+        self.client.get(reverse("title_detail", args=[show.pk]))
+        mock_find_match.assert_not_called()
+        mock_filler_map.assert_not_called()
 
 
 class TitleMarkSeasonWatchedTests(TestCase):

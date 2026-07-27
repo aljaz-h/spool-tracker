@@ -1,5 +1,5 @@
 {% load tracker_extras icons %}
-{# context: title (Title or None - preview titles have no local row yet), seasons, season, episodes, season_avg_rating, season_total_runtime (str, format_duration of the selected season's episodes with a known runtime), season_ratings (dict {season_number: TMDB rating}), preview_media_type/preview_tmdb_id (only set when title is None) #}
+{# context: title (Title or None - preview titles have no local row yet), seasons, season, episodes (each optionally carrying filler/recap bools - anime only, from Jikan/MyAnimeList, see views._apply_anime_filler_flags - absent entirely rather than False when there's no match/data, which {% if %} already treats as falsy), season_avg_rating, season_total_runtime (str, format_duration of the selected season's episodes with a known runtime), season_ratings (dict {season_number: TMDB rating}), preview_media_type/preview_tmdb_id (only set when title is None) #}
 <div id="episodes-panel">
   {% if seasons %}
     <div class="flex justify-between items-center flex-wrap gap-3 mb-4">
@@ -106,6 +106,7 @@
               {% if ep.runtime %}<span>{{ ep.runtime }}m</span>{% endif %}
               {% if ep.vote_average %}<span><span class="text-amber-400">&#9733;</span> {{ ep.vote_average|floatformat:1 }}</span>{% endif %}
               {% if ep.is_finale %}<span class="text-primary font-bold uppercase">Finale</span>{% endif %}
+              {% if ep.filler %}<span class="bg-warning text-warning-content font-bold uppercase px-1 rounded-sm">Filler</span>{% elif ep.recap %}<span class="bg-info text-info-content font-bold uppercase px-1 rounded-sm">Recap</span>{% endif %}
             </div>
             <div class="text-[13px] font-semibold truncate mt-0.5">{{ ep.name }}</div>
           </div>
@@ -137,6 +138,11 @@
             {% endif %}
             {% if ep.is_finale %}
               <span class="absolute bottom-2 left-2 font-mono text-[9px] font-bold uppercase tracking-wide bg-primary text-primary-content px-2 py-1 rounded-md">Season Finale</span>
+            {% endif %}
+            {% if ep.filler %}
+              <span class="absolute bottom-2 right-2 font-mono text-[9px] font-bold uppercase tracking-wide bg-warning text-warning-content px-2 py-1 rounded-md">Filler</span>
+            {% elif ep.recap %}
+              <span class="absolute bottom-2 right-2 font-mono text-[9px] font-bold uppercase tracking-wide bg-info text-info-content px-2 py-1 rounded-md">Recap</span>
             {% endif %}
           </div>
           <div class="p-2.5 flex items-center justify-between gap-2">

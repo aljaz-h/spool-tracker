@@ -27,7 +27,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from . import completion, csv_import, instance_config, recommendations, rewatches, scheduling, selectors, tasks
-from .integrations import gemini, simkl, tmdb, trakt
+from .integrations import gemini, jikan, simkl, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
@@ -490,6 +490,48 @@ def _star_fill(rating):
     return stars
 
 
+def _apply_anime_filler_flags(title, episodes, season, tv_details):
+    """Overlays Jikan's (MyAnimeList) per-episode filler/recap flags onto
+    TMDB's season-relative episode list - TMDB has no filler data of its
+    own. Best-effort like every other tmdb.py/jikan.py lookup: no MAL
+    match, or Jikan unreachable/empty, just leaves every episode without
+    a "filler"/"recap" key, which title_episodes.html's `{% if
+    ep.filler %}` already treats as falsy - never an error, never a
+    wrong badge, just no badge.
+
+    TMDB's episode_number is season-relative; Jikan's is the show's whole
+    absolute count (MAL doesn't split most shows into per-season
+    entries), bridged by summing every earlier season's episode_count
+    from tv_details (already fetched by the caller for season_ratings,
+    no extra TMDB call needed here) - see the plan's note on why this
+    doesn't hold for the (uncommon) anime MAL splits into separate
+    per-season entries instead: those just silently get no badges for
+    that season, not wrong ones."""
+    mal_id = title.external_ids.get("mal")
+    if mal_id is None:
+        match = jikan.find_match(title.name, title.year)
+        if match is None:
+            return
+        mal_id = match["mal_id"]
+        title.external_ids["mal"] = mal_id
+        title.save(update_fields=["external_ids"])
+
+    filler_map = jikan.get_episode_filler_map(mal_id)
+    if not filler_map:
+        return
+
+    offset = sum(
+        s["episode_count"] or 0
+        for s in (tv_details["seasons"] if tv_details else [])
+        if s["season_number"] and s["season_number"] < season
+    )
+    for ep in episodes:
+        flags = filler_map.get(offset + ep["episode_number"])
+        if flags:
+            ep["filler"] = flags["filler"]
+            ep["recap"] = flags["recap"]
+
+
 def _episode_panel_context(request, profile, title, tmdb_id, details, force_season=None):
     """Season/episode data for the title detail page's episode browser -
     shared by title_detail/title_episodes (a real, already-tracked Title)
@@ -543,6 +585,8 @@ def _episode_panel_context(request, profile, title, tmdb_id, details, force_seas
         ep["watched"] = ep["episode_number"] in watched
     if episodes:
         episodes[-1]["is_finale"] = True
+    if title is not None and title.media_type == MediaType.ANIME and episodes:
+        _apply_anime_filler_flags(title, episodes, season, tv_details)
     context["episodes"] = episodes
     rated = [ep["vote_average"] for ep in episodes if ep.get("vote_average")]
     context["season_avg_rating"] = round(sum(rated) / len(rated), 1) if rated else None
