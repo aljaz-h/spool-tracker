@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.55.2] - 2026-07-29
+
+### Changed
+
+- Dashboard "Up Next" now shows 4 cards instead of 3, wrapped together
+  in one full-width tile with a subtle shadow, instead of sitting bare
+  on the page.
+- Dashboard's footer stats bar is now wrapped in its own tile too,
+  matching Up Next.
+- Replaced the dotted "filmstrip" section dividers on the Dashboard with
+  a plain thin line (`.dashboard-rule`, replacing `.filmstrip-rule`).
+
 ## [0.55.1] - 2026-07-29
 
 ### Changed

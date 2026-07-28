@@ -194,9 +194,7 @@
    solid dark strip so the holes reveal the real backdrop image behind
    them - this reads correctly regardless of how dark/light that backdrop
    is, unlike drawing dots in a fixed color (which vanished against dark
-   footage). .filmstrip-rule is the flat/horizontal, non-masked version
-   (dots drawn in a flat color against the page background, not an image)
-   used as a dotted divider under Dashboard's welcome header. */
+   footage). */
 .filmstrip-edge {
   position: absolute;
   top: 0;
@@ -219,12 +217,12 @@
 .filmstrip-edge--right {
   right: 0;
 }
-.filmstrip-rule {
-  height: 6px;
-  background-image: radial-gradient(circle, var(--color-line) 42%, transparent 44%);
-  background-size: 14px 6px;
-  background-repeat: repeat-x;
-  background-position: 7px center;
+/* Dashboard's section dividers - plain thin line (replaced the old
+   dotted "filmstrip" divider, which read as too decorative next to the
+   Dashboard redesign's flatter card style). */
+.dashboard-rule {
+  height: 1px;
+  background-color: var(--color-line);
 }
 
 /* Alpine hides x-cloak'd elements only once it has booted; without this

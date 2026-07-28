@@ -22,7 +22,7 @@
     </div>
   </div>
 
-  <div class="filmstrip-rule mb-6"></div>
+  <div class="dashboard-rule mb-6"></div>
 
   {% if milestone %}
     <div class="flex items-center gap-2.5 bg-primary/10 border border-primary/30 rounded-xl px-4 py-2.5 mb-6 text-sm text-primary font-semibold">
@@ -37,20 +37,22 @@
       <a href="{% url 'calendar' %}" class="text-xs text-ink-faint hover:text-ink-dim">Full calendar &rarr;</a>
     </div>
     {% if up_next %}
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {% for item in up_next %}
-          <a href="{% url 'title_detail' item.title.pk %}" class="flex items-center gap-3 bg-base-200 border border-line rounded-xl p-3 hover:border-primary/40 transition-colors">
-            <div
-              class="w-12 aspect-[2/3] rounded-md flex-none bg-cover bg-center {% if not item.title.poster_url %}{{ item.title.pk|gradient_class }}{% endif %}"
-              {% if item.title.poster_url %}style="background-image:url('{{ item.title.poster_url }}')"{% endif %}
-            ></div>
-            <div class="min-w-0 flex-1">
-              <div class="text-[13px] font-semibold truncate">{{ item.title.name }}</div>
-              <div class="text-xs text-ink-dim truncate">{{ item.caption }}</div>
-              <div class="font-mono text-[11px] font-semibold mt-0.5 {% if item.when == "TODAY" or item.when == "TOMORROW" %}text-primary{% else %}text-base-content{% endif %}">{{ item.when }}</div>
-            </div>
-          </a>
-        {% endfor %}
+      <div class="bg-base-200 border border-line rounded-2xl p-4 shadow-md shadow-black/20">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {% for item in up_next %}
+            <a href="{% url 'title_detail' item.title.pk %}" class="flex items-center gap-3 bg-base-300 border border-line rounded-xl p-3 hover:border-primary/40 transition-colors">
+              <div
+                class="w-12 aspect-[2/3] rounded-md flex-none bg-cover bg-center {% if not item.title.poster_url %}{{ item.title.pk|gradient_class }}{% endif %}"
+                {% if item.title.poster_url %}style="background-image:url('{{ item.title.poster_url }}')"{% endif %}
+              ></div>
+              <div class="min-w-0 flex-1">
+                <div class="text-[13px] font-semibold truncate">{{ item.title.name }}</div>
+                <div class="text-xs text-ink-dim truncate">{{ item.caption }}</div>
+                <div class="font-mono text-[11px] font-semibold mt-0.5 {% if item.when == "TODAY" or item.when == "TOMORROW" %}text-primary{% else %}text-base-content{% endif %}">{{ item.when }}</div>
+              </div>
+            </a>
+          {% endfor %}
+        </div>
       </div>
     {% else %}
       <p class="text-ink-faint text-sm">Nothing on the horizon yet.</p>
@@ -94,7 +96,7 @@
   {% include "tracker/partials/dashboard_featured_lists.html" %}
 
   {% if because_you_watched %}
-    <div class="filmstrip-rule my-9"></div>
+    <div class="dashboard-rule my-9"></div>
 
     {# ---- Discover ---- #}
     <div class="flex justify-between items-center mb-3.5">
@@ -108,8 +110,8 @@
   {% endif %}
 
   {# ---- Footer stats: the 3 counters that used to be their own tiles up top - still worth surfacing on Dashboard, just demoted to a closing summary now that the streak has its own pill and Up Next/Recommended/Watchlist carry the top of the page. ---- #}
-  <div class="filmstrip-rule my-9"></div>
-  <div class="flex flex-wrap items-center justify-between gap-3 text-sm text-ink-dim">
+  <div class="dashboard-rule my-9"></div>
+  <div class="flex flex-wrap items-center justify-between gap-3 bg-base-200 border border-line rounded-2xl px-5 py-4 shadow-md shadow-black/20 text-sm text-ink-dim">
     <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
       <span><b class="text-base-content">{{ stats.movies_this_year }}</b> movies this year</span>
       <span class="text-ink-faint">&middot;</span>

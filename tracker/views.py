@@ -126,7 +126,7 @@ def dashboard(request):
                 "continue_watching": continue_watching,
                 "watchlist_items": watchlist_items,
                 "watchlist_count": watchlist_count,
-                "up_next": selectors.up_next(profile),
+                "up_next": selectors.up_next(profile, limit=4),
                 "stats": stats,
                 "milestone": selectors.milestone_message(stats["streak"], stats["movies_this_year"]),
                 "because_you_watched": because_you_watched,
