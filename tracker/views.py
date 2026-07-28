@@ -482,14 +482,13 @@ def _release_info(details):
     """Human-readable release-date summary for the detail hero's metadata
     row - a movie has one release_date, but a show doesn't reduce to a
     single date the way a movie does (seasons can drop all at once or
-    air weekly over months), so this buckets by status instead: ongoing
-    shows just their first-aired date ("since" is still true even
-    mid-run), ended/cancelled shows the full first-to-last-aired span
-    (last_air_date is the most recent episode TMDB knows about either
-    way), and anything that hasn't aired at all yet shows its known
-    premiere date if TMDB has scheduled one, or just "Coming Soon" if it
-    hasn't. Returns a plain string, or None when there's nothing worth
-    showing (e.g. a movie TMDB has no release_date for at all)."""
+    air weekly over months), so this shows the first-to-last-aired span
+    once a show has stopped airing, or just the first-aired date while
+    it's still airing (status_badge already carries Ongoing/Ended/
+    Cancelled/etc, so this only needs to add the dates, not repeat the
+    status). Returns a plain string, or None when there's nothing worth
+    showing (e.g. a movie TMDB has no release_date for at all, or a show
+    with no known dates at all - status_badge alone covers that case)."""
     if not details:
         return None
     if details.get("media_type") == "movie":
@@ -499,23 +498,17 @@ def _release_info(details):
         verb = "Releases" if release_date > timezone.localdate() else "Released"
         return f"{verb} {release_date.strftime('%b %d, %Y')}"
 
-    status = details.get("status")
     first_aired = _parse_tmdb_date(details.get("first_air_date"))
     last_aired = _parse_tmdb_date(details.get("last_air_date"))
-    if status in ("Ended", "Canceled"):
-        bucket = "Ended" if status == "Ended" else "Cancelled"
-        if first_aired and last_aired:
-            return f"{first_aired.strftime('%b %d, %Y')} – {last_aired.strftime('%b %d, %Y')} · {bucket}"
-        if first_aired:
-            return f"{first_aired.strftime('%b %d, %Y')} · {bucket}"
-        return bucket
+    if first_aired and last_aired and last_aired != first_aired:
+        return f"{first_aired.strftime('%b %d, %Y')} – {last_aired.strftime('%b %d, %Y')}"
     if first_aired:
-        return f"{first_aired.strftime('%b %d, %Y')} · Ongoing"
+        return first_aired.strftime("%b %d, %Y")
     next_episode = details.get("next_episode_to_air") or {}
     premiere = _parse_tmdb_date(next_episode.get("air_date"))
     if premiere:
         return f"Premieres {premiere.strftime('%b %d, %Y')}"
-    return "Coming Soon"
+    return None
 
 
 def _star_fill(rating):

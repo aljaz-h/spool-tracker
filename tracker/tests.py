@@ -7760,7 +7760,7 @@ class TitleEpisodeBrowserTests(TestCase):
         details["first_air_date"] = "2023-05-01"
         mock_details.return_value = details
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, "May 01, 2023 · Ongoing")
+        self.assertContains(resp, "May 01, 2023")
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -7772,7 +7772,7 @@ class TitleEpisodeBrowserTests(TestCase):
         details["last_air_date"] = "2023-06-15"
         mock_details.return_value = details
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, "Jan 01, 2020 – Jun 15, 2023 · Ended")
+        self.assertContains(resp, "Jan 01, 2020 – Jun 15, 2023")
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -7784,7 +7784,7 @@ class TitleEpisodeBrowserTests(TestCase):
         details["last_air_date"] = "2020-08-01"
         mock_details.return_value = details
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, "Jan 01, 2020 – Aug 01, 2020 · Cancelled")
+        self.assertContains(resp, "Jan 01, 2020 – Aug 01, 2020")
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -7802,12 +7802,13 @@ class TitleEpisodeBrowserTests(TestCase):
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
     @patch("tracker.integrations.tmdb.get_full_details")
-    def test_unaired_show_with_no_scheduled_date_just_says_coming_soon(self, mock_details, mock_credits, mock_similar):
+    def test_unaired_show_with_no_scheduled_date_has_no_release_info(self, mock_details, mock_credits, mock_similar):
         details = self._details()
         details["status"] = "Planned"
         mock_details.return_value = details
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, "Coming Soon")
+        self.assertIsNone(resp.context["release_info"])
+        self.assertContains(resp, "Upcoming")
 
 
 class JikanFindMatchTests(TestCase):

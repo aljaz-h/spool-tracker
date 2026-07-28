@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.54.5] - 2026-07-28
+
+### Changed
+
+- Title detail page: genres now render as individual colored badges
+  (matching the rating/language tag style) instead of a comma-separated
+  list behind a bold divider dot.
+- Title detail page: dropped the redundant "Ended"/"Cancelled"/"Ongoing"
+  text from the air-date row for shows - that status is already shown as
+  its own badge next to the title, so the date row now only shows dates.
+
 ## [0.54.4] - 2026-07-28
 
 ### Changed
