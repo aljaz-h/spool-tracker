@@ -110,15 +110,22 @@ def dashboard(request):
         # discovery pages means there's nowhere else for in-progress
         # tracking to live.
         continue_watching = selectors.continue_watching(profile, limit=None)
-        watchlist_items = list(
-            selectors.library_watchlist(profile, [MediaType.MOVIE, MediaType.TV, MediaType.ANIME])
-        )
+        # Newest-first (selectors._visible_watchlist_items' own ordering),
+        # capped to one un-scrollable row (Dashboard redesign) - the full
+        # list still lives at "See all lists" (lists.html), so this only
+        # ever needs enough rows to fill the widest realistic viewport,
+        # not the whole Watchlist. watchlist_count keeps the header's
+        # "(295)" showing the true total even though only a handful render.
+        watchlist_qs = selectors.library_watchlist(profile, [MediaType.MOVIE, MediaType.TV, MediaType.ANIME])
+        watchlist_count = watchlist_qs.count()
+        watchlist_items = list(watchlist_qs[:12])
         because_you_watched = selectors.because_you_watched(profile)
         all_titles = [item["title"] for item in continue_watching] + [item.title for item in watchlist_items]
         context.update(
             {
                 "continue_watching": continue_watching,
                 "watchlist_items": watchlist_items,
+                "watchlist_count": watchlist_count,
                 "up_next": selectors.up_next(profile),
                 "stats": stats,
                 "milestone": selectors.milestone_message(stats["streak"], stats["movies_this_year"]),

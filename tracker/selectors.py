@@ -124,6 +124,10 @@ def quick_stats(profile):
     )
     return {
         "streak": current_streak(profile),
+        # Dashboard's streak pill shows both side by side ("N day streak
+        # · longest N") - cheap to compute alongside the current streak
+        # here rather than a second selector call from the view.
+        "longest_streak": longest_streak(profile),
         "movies_this_year": movies_this_year,
         "shows_completed": shows_completed,
         # "217d 4h 3m" style, matching the Stats page's own watch-time

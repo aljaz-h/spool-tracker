@@ -8,6 +8,27 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.55.0] - 2026-07-28
+
+### Changed
+
+- Redesigned the top of the Dashboard:
+  - Removed the 4 stat tiles (day streak, movies this year, shows
+    completed, total watch time).
+  - Day streak now shows as a pill in the top-right corner, next to
+    "longest streak".
+  - "Up Next" is now its own full-width row with a "Full calendar →"
+    link to the calendar page, instead of a side card.
+  - "Recommended to you" now renders as poster cards (avatar badge,
+    dismiss button, and "Add to Watchlist" overlaid on the artwork)
+    instead of a thin list of rows.
+  - Watchlist no longer scrolls through every item - it shows as many
+    of the newest items as fit one row, with "See all lists →" for the
+    rest; the header count still reflects the true total.
+  - Movies this year / shows completed / total watch time now sit in a
+    closing footer bar with a "View full stats →" link, instead of
+    their own tiles.
+
 ## [0.54.6] - 2026-07-28
 
 ### Changed

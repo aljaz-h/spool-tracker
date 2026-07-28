@@ -1,4 +1,5 @@
 {% extends "tracker/base.html" %}
+{% load tracker_extras icons %}
 {% block title %}Dashboard · Spool{% endblock %}
 {% block content %}
 
@@ -9,13 +10,15 @@
     (Settings &amp; Import, or Django admin under Tracker → Profiles).
   </p>
 {% else %}
-  <div class="flex justify-between items-end flex-wrap gap-3 mb-6">
+  <div class="flex justify-between items-start flex-wrap gap-3 mb-6">
     <div>
       <h1 class="font-display text-4xl">Welcome back, {{ profile.display_name }}</h1>
-      <div class="text-ink-dim text-sm mt-1">
-        {% now "l, F j" %}
-        {% if stats.streak > 0 %} — you're on a <span class="font-mono text-primary">{{ stats.streak }}-day</span> watch streak{% endif %}
-      </div>
+      <div class="text-ink-dim text-sm mt-1">{% now "l, F j" %}</div>
+    </div>
+    <div class="flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
+      {% icon "flame" "w-4 h-4 text-primary" %}
+      <span>{{ stats.streak }} day streak</span>
+      {% if stats.longest_streak %}<span class="text-ink-faint">&middot; longest {{ stats.longest_streak }}</span>{% endif %}
     </div>
   </div>
 
@@ -27,20 +30,37 @@
     </div>
   {% endif %}
 
-  {# ---- Your numbers ---- #}
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-    {% include "tracker/partials/stat_card.html" with value=stats.streak label="Day watch streak" %}
-    {% include "tracker/partials/stat_card.html" with value=stats.movies_this_year label="Movies watched this year" %}
-    {% include "tracker/partials/stat_card.html" with value=stats.shows_completed label="Shows completed" color_class="text-secondary" %}
-    {% include "tracker/partials/stat_card.html" with value=stats.total_watch_time label="Total watch time" value_size_class="text-2xl" %}
+  {# ---- Up next: what's about to release for something already tracked - full-width row (Dashboard redesign moved this out of the old side card so it reads as its own section, on equal footing with everything else instead of being squeezed next to Watchlist). ---- #}
+  <div class="mb-8">
+    <div class="flex justify-between items-center mb-3.5">
+      <h2 class="font-display text-xl">Up Next</h2>
+      <a href="{% url 'calendar' %}" class="text-xs text-ink-faint hover:text-ink-dim">Full calendar &rarr;</a>
+    </div>
+    {% if up_next %}
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {% for item in up_next %}
+          <a href="{% url 'title_detail' item.title.pk %}" class="flex items-center gap-3 bg-base-200 border border-line rounded-xl p-3 hover:border-primary/40 transition-colors">
+            <div
+              class="w-10 aspect-[2/3] rounded-md flex-none bg-cover bg-center {% if not item.title.poster_url %}{{ item.title.pk|gradient_class }}{% endif %}"
+              {% if item.title.poster_url %}style="background-image:url('{{ item.title.poster_url }}')"{% endif %}
+            ></div>
+            <div class="min-w-0 flex-1">
+              <div class="text-[13px] font-semibold truncate">{{ item.title.name }}</div>
+              <div class="text-xs text-ink-dim truncate">{{ item.caption }}</div>
+            </div>
+            <div class="font-mono text-[11px] font-semibold flex-none {% if item.when == "TODAY" or item.when == "TOMORROW" %}text-primary{% else %}text-ink-dim{% endif %}">{{ item.when }}</div>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-ink-faint text-sm">Nothing on the horizon yet.</p>
+    {% endif %}
   </div>
-
-  <div class="filmstrip-rule my-9"></div>
 
   {# ---- Recommended to you: real people, not the bot - its own spotlight, not merged with anything else. Bundles its own bottom margin (and disappears entirely when empty) so there's no orphaned gap either way. ---- #}
   {% include "tracker/partials/dashboard_recommendations.html" %}
 
-  {# ---- Your queue: in-progress, watchlist, and what's coming up next ---- #}
+  {# ---- Your queue: in-progress and watchlist ---- #}
   {% if continue_watching %}
     <div class="mb-8">
       <div class="flex justify-between items-center mb-3.5">
@@ -54,38 +74,21 @@
     </div>
   {% endif %}
 
-  <div class="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-5 items-start">
-    <div class="min-w-0">
-      <div class="flex justify-between items-center mb-3.5">
-        <h2 class="font-display text-xl">Watchlist{% if watchlist_items %} <span class="text-ink-faint text-base font-body">({{ watchlist_items|length }})</span>{% endif %}</h2>
-        {% if watchlist_items %}<a href="{% url 'lists' %}" class="text-xs text-ink-faint hover:text-ink-dim">See all lists &rarr;</a>{% endif %}
-      </div>
-      {% if watchlist_items %}
-        <div class="flex gap-4 overflow-x-auto pb-2">
-          {% for item in watchlist_items %}
-            {% include "tracker/partials/poster_card.html" with title=item.title show_ratings=True %}
-          {% endfor %}
-        </div>
-      {% else %}
-        <p class="text-ink-faint text-sm">Watchlist's empty — future you will thank present you for adding something.</p>
-      {% endif %}
+  <div class="mb-8">
+    <div class="flex justify-between items-center mb-3.5">
+      <h2 class="font-display text-xl">Watchlist{% if watchlist_count %} <span class="text-ink-faint text-base font-body">({{ watchlist_count }})</span>{% endif %}</h2>
+      {% if watchlist_items %}<a href="{% url 'lists' %}" class="text-xs text-ink-faint hover:text-ink-dim">See all lists &rarr;</a>{% endif %}
     </div>
-    <div class="bg-base-200 border border-line rounded-2xl p-5">
-      <h3 class="text-lg mb-3">Up next</h3>
-      {% if up_next %}
-        {% for item in up_next %}
-          <div class="flex justify-between items-center py-2.5 border-b border-line last:border-b-0">
-            <div>
-              <div class="text-[13px] font-semibold">{{ item.title.name }}</div>
-              <div class="text-xs text-ink-dim">{{ item.caption }}</div>
-            </div>
-            <div class="font-mono text-[11px] text-primary">{{ item.when }}</div>
-          </div>
+    {% if watchlist_items %}
+      {# No horizontal scroll - just however many of the newest items fit one row at the current width, the rest stay one click away via "See all lists". #}
+      <div class="flex flex-nowrap gap-4 overflow-hidden">
+        {% for item in watchlist_items %}
+          {% include "tracker/partials/poster_card.html" with title=item.title show_ratings=True %}
         {% endfor %}
-      {% else %}
-        <p class="text-ink-faint text-sm">Nothing on the horizon yet.</p>
-      {% endif %}
-    </div>
+      </div>
+    {% else %}
+      <p class="text-ink-faint text-sm">Watchlist's empty — future you will thank present you for adding something.</p>
+    {% endif %}
   </div>
 
   {% include "tracker/partials/dashboard_featured_lists.html" %}
@@ -103,6 +106,19 @@
       {% endfor %}
     </div>
   {% endif %}
+
+  {# ---- Footer stats: the 3 counters that used to be their own tiles up top - still worth surfacing on Dashboard, just demoted to a closing summary now that the streak has its own pill and Up Next/Recommended/Watchlist carry the top of the page. ---- #}
+  <div class="filmstrip-rule my-9"></div>
+  <div class="flex flex-wrap items-center justify-between gap-3 text-sm text-ink-dim">
+    <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span><b class="text-base-content">{{ stats.movies_this_year }}</b> movies this year</span>
+      <span class="text-ink-faint">&middot;</span>
+      <span><b class="text-base-content">{{ stats.shows_completed }}</b> shows completed</span>
+      <span class="text-ink-faint">&middot;</span>
+      <span><b class="text-base-content">{{ stats.total_watch_time }}</b> total watch time</span>
+    </div>
+    <a href="{% url 'stats' %}" class="text-xs text-ink-faint hover:text-ink-dim">View full stats &rarr;</a>
+  </div>
 {% endif %}
 
 {% endblock %}

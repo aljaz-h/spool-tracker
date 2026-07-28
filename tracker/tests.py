@@ -6975,6 +6975,29 @@ class DashboardWatchingWatchlistTests(TestCase):
         resp = self.client.get(reverse("dashboard"))
         self.assertIsNone(resp.context["milestone"])
 
+    def test_streak_pill_shown_even_at_zero(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "0 day streak")
+
+    def test_up_next_links_to_the_full_calendar(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, f'href="{reverse("calendar")}"')
+
+    def test_footer_stats_bar_links_to_full_stats(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, f'href="{reverse("stats")}"')
+
+    def test_watchlist_caps_to_one_row_but_the_header_count_shows_the_total(self):
+        for i in range(15):
+            title = Title.objects.create(media_type=MediaType.MOVIE, name=f"Watchlist Movie {i}", year=2020)
+            watchlist = WatchList.objects.create(profile=self.profile, name=f"List {i}", is_watchlist=(i == 0))
+            WatchListItem.objects.create(watchlist=watchlist, title=title)
+        resp = self.client.get(reverse("dashboard"))
+        self.assertEqual(resp.context["watchlist_count"], 15)
+        self.assertLess(len(resp.context["watchlist_items"]), 15)
+        self.assertContains(resp, "Watchlist")
+        self.assertContains(resp, "(15)")
+
 
 class ActivityFeedGroupingTests(TestCase):
     """A binge (many consecutive same-profile/same-title episode watches)
