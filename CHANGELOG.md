@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.54.6] - 2026-07-28
+
+### Changed
+
+- Title detail page: added a bold divider dot between the release date
+  and the runtime/season count, and gave the "Released"/"Releases"/
+  "Premieres" lead-in word and the runtime/season-count stat a bolder,
+  brighter style so they stand out from the muted date text, matching
+  the reference movie mockup.
+
 ## [0.54.5] - 2026-07-28
 
 ### Changed
