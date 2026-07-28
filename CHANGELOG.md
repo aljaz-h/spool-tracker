@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.54.1] - 2026-07-28
+
+### Changed
+
+- Split the title detail page's metadata into two rows to reduce
+  clutter on longer entries: age rating, language, and genres now sit
+  in their own row right under the title, and release/air dates,
+  runtime, and season/episode counts stay in the row below.
+
 ## [0.54.0] - 2026-07-28
 
 ### Added
