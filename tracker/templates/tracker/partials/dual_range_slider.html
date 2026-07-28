@@ -1,8 +1,10 @@
 {% comment %}
-context: label, name_from, name_to, min, max, step (optional, default 1),
-from_var, to_var (Alpine data property names in the enclosing x-data),
-suffix (optional, e.g. " min") - the enclosing element must already
-have from_var/to_var declared in its x-data.
+context: label (optional - omit/blank when the caller already shows this
+dimension's name elsewhere, e.g. a collapsible row's own <summary>, so it
+isn't printed twice), name_from, name_to, min, max, step (optional,
+default 1), from_var, to_var (Alpine data property names in the
+enclosing x-data), suffix (optional, e.g. " min") - the enclosing
+element must already have from_var/to_var declared in its x-data.
 
 Position math accounts for the 16px thumb (see .dual-range-thumb in
 app.css) - a plain 0-100% mapping would place the fill bar/labels at
@@ -28,8 +30,8 @@ min/max is a real HTML5 input-level constraint the browser enforces
 live during the drag itself, not just on release.
 {% endcomment %}
 <div>
-  <div class="text-[11px] text-ink-dim mb-4 font-semibold uppercase tracking-wide">{{ label }}</div>
-  <div class="relative h-4" x-data="{ _min: {{ min }}, _max: {{ max }} }">
+  {% if label %}<div class="text-[11px] text-ink-dim mb-4 font-semibold uppercase tracking-wide">{{ label }}</div>{% endif %}
+  <div class="relative h-4 {% if not label %}mt-1{% endif %}" x-data="{ _min: {{ min }}, _max: {{ max }} }">
     <span
       x-cloak
       class="absolute bottom-full mb-1.5 -translate-x-1/2 whitespace-nowrap font-mono text-[10px] font-semibold text-primary"

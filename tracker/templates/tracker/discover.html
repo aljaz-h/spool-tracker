@@ -8,223 +8,281 @@
     <div class="text-ink-dim text-sm mt-1">Browse what's trending, popular, upcoming, and top rated on TMDB{% if not is_anime and collections_enabled %}, or browse by collection{% endif %}</div>
   </div>
 
-  <div class="drawer drawer-end">
-    <input id="filters-drawer" type="checkbox" class="drawer-toggle" />
-    <div class="drawer-content">
-
-      <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
-        <div class="flex flex-wrap items-center gap-3">
-          {% url library_url_name category="trending" as trending_url %}
-          {% if not is_anime %}
-            {% comment %}
-              Kept visible on the Collections tab too (not hidden) - but
-              collections aren't movie/tv-typed, so clicking either one
-              here isn't a filter on the current view, it's a shortcut
-              back to the default Trending category for that type - same
-              place the sidebar/topbar's own "Movies & TV" link lands.
-            {% endcomment %}
-            <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
-              <a href="{% if is_collections %}{{ trending_url }}?type=movie{% else %}?type=movie{% endif %}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if media_type == "movie" and not is_collections %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Movies</a>
-              <a href="{% if is_collections %}{{ trending_url }}?type=tv{% else %}?type=tv{% endif %}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if media_type == "tv" and not is_collections %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">TV</a>
-            </div>
-          {% endif %}
-          <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
-            {% url library_url_name category="popular" as popular_url %}
-            {% url library_url_name category="upcoming" as upcoming_url %}
-            {% url library_url_name category="top_rated" as top_rated_url %}
-            <a href="{{ trending_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "trending" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Trending</a>
-            <a href="{{ popular_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "popular" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Popular</a>
-            <a href="{{ upcoming_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "upcoming" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Upcoming</a>
-            <a href="{{ top_rated_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "top_rated" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Top Rated</a>
-            {% if not is_anime and collections_enabled %}
-              {% url library_url_name category="collections" as collections_url %}
-              <a href="{{ collections_url }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if is_collections %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Collections</a>
-            {% endif %}
-          </div>
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+    <div class="flex flex-wrap items-center gap-3">
+      {% url library_url_name category="trending" as trending_url %}
+      {% if not is_anime %}
+        {% comment %}
+          Kept visible on the Collections tab too (not hidden) - but
+          collections aren't movie/tv-typed, so clicking either one
+          here isn't a filter on the current view, it's a shortcut
+          back to the default Trending category for that type - same
+          place the sidebar/topbar's own "Movies & TV" link lands.
+        {% endcomment %}
+        <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
+          <a href="{% if is_collections %}{{ trending_url }}?type=movie{% else %}?type=movie{% endif %}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if media_type == "movie" and not is_collections %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Movies</a>
+          <a href="{% if is_collections %}{{ trending_url }}?type=tv{% else %}?type=tv{% endif %}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if media_type == "tv" and not is_collections %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">TV</a>
         </div>
-        {% if not is_collections %}
-          <label for="filters-drawer" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
-            {% icon "filter" "w-3.5 h-3.5" %}
-            Filters
-            {% if selected_genres or request.GET.year_from or request.GET.year_to or request.GET.runtime_from or request.GET.runtime_to or request.GET.rating_from or request.GET.rating_to or selected_language or selected_certification or selected_status or selected_availability %}
-              <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
-            {% endif %}
-          </label>
+      {% endif %}
+      <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
+        {% url library_url_name category="popular" as popular_url %}
+        {% url library_url_name category="upcoming" as upcoming_url %}
+        {% url library_url_name category="top_rated" as top_rated_url %}
+        <a href="{{ trending_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "trending" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Trending</a>
+        <a href="{{ popular_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "popular" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Popular</a>
+        <a href="{{ upcoming_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "upcoming" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Upcoming</a>
+        <a href="{{ top_rated_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "top_rated" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Top Rated</a>
+        {% if not is_anime and collections_enabled %}
+          {% url library_url_name category="collections" as collections_url %}
+          <a href="{{ collections_url }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if is_collections %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Collections</a>
         {% endif %}
       </div>
+    </div>
+    {% if not is_collections %}
+      {% comment %}
+        A dropdown popover, not a sliding drawer - daisyUI's drawer
+        component keeps `will-change: transform` permanently set on the
+        sliding panel (see .drawer-side>:not(.drawer-overlay) in the
+        compiled CSS), which forces it onto its own GPU-composited layer;
+        on Windows Chrome/Edge that disables ClearType's subpixel text
+        AA inside the layer, falling back to grayscale AA - visibly
+        softer/blurrier than the rest of the (non-transformed) page. This
+        reuses the same positioned-popover pattern as the topbar's
+        notifications/friends/profile dropdowns (partials/topbar.html) -
+        those never had this problem, since x-show/x-cloak only touch
+        display/opacity, never a permanent transform layer.
+      {% endcomment %}
+      <div class="relative" x-data="{
+        open: false,
+        togglePanel(button) {
+          this.open = !this.open;
+          if (!this.open) return;
+          this.$nextTick(() => {
+            const rect = button.getBoundingClientRect();
+            const panel = this.$refs.panel;
+            const width = 320;
+            panel.style.left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)) + 'px';
+            panel.style.top = (rect.bottom + 8) + 'px';
+          });
+        },
+      }">
+        <button type="button" @click="togglePanel($el)" @click.outside="open = false" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
+          {% icon "filter" "w-3.5 h-3.5" %}
+          Filters
+          {% if selected_genres or request.GET.year_from or request.GET.year_to or request.GET.runtime_from or request.GET.runtime_to or request.GET.rating_from or request.GET.rating_to or selected_language or selected_certification or selected_status or selected_availability %}
+            <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+          {% endif %}
+        </button>
 
-      {% if not results %}
-        <div class="py-16 text-center text-ink-faint text-sm">
-          {% if not profile %}Your account isn't linked to a household profile yet.{% elif is_collections %}Nothing found — check that a TMDB API key is configured in Settings.{% else %}Nothing found — try widening your filters, or check that a TMDB API key is configured in Settings.{% endif %}
-        </div>
-      {% else %}
-        <div class="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
-          {% for item in results %}
-            {% if is_collections %}
-              {% include "tracker/partials/collection_tile.html" with item=item %}
-            {% else %}
-              {% include "tracker/partials/discover_tile.html" with item=item %}
-            {% endif %}
-          {% endfor %}
-        </div>
-
-        {% if not is_collections %}
-          <div class="flex justify-between items-center flex-wrap gap-3 mt-7">
-            <span class="font-mono text-xs text-ink-faint">Page {{ current_page }} of {{ total_pages }}</span>
-            <div class="flex gap-1.5">
-              {% if current_page > 1 %}
-                <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"-1" }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim">‹ Prev</a>
-              {% endif %}
-              {% if current_page < total_pages %}
-                <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"1" }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim">Next ›</a>
-              {% endif %}
-            </div>
+        <div x-ref="panel" x-show="open" x-cloak class="fixed w-80 max-h-[75vh] overflow-y-auto bg-base-200 border border-line rounded-lg shadow-lg z-40 flex flex-col">
+          <div class="flex items-center justify-between px-5 pt-5 pb-3">
+            <h2 class="font-display text-xl">Filters</h2>
+            <button type="button" @click="open = false" aria-label="Close filters" class="btn btn-sm btn-circle btn-ghost cursor-pointer">
+              {% icon "x" "w-4 h-4" %}
+            </button>
           </div>
-        {% endif %}
-      {% endif %}
 
+          {% now "Y" as current_year %}
+          {% with max_year=current_year|add:2 %}
+          <form
+            method="get"
+            class="flex flex-col gap-5 px-5 pb-5"
+            x-data="{
+              yearFrom: {{ request.GET.year_from|default:1950 }},
+              yearTo: {{ request.GET.year_to|default:max_year }},
+              runtimeFrom: {{ request.GET.runtime_from|default:0 }},
+              runtimeTo: {{ request.GET.runtime_to|default:400 }},
+              ratingFrom: {{ request.GET.rating_from|default:0 }},
+              ratingTo: {{ request.GET.rating_to|default:10 }},
+            }"
+          >
+            <input type="hidden" name="type" value="{{ media_type }}">
+
+            <div>
+              <div class="text-[13px] font-bold text-base-content uppercase tracking-wide mb-1">Discover</div>
+              <div class="flex flex-col divide-y divide-line">
+
+                <details class="group" {% if selected_genres %}open{% endif %}>
+                  <summary class="flex items-center justify-between gap-3 py-2.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                    <span class="text-sm font-medium">Genres</span>
+                    <span class="flex items-center gap-2 text-xs text-ink-faint font-mono">
+                      {% if selected_genres %}{{ selected_genres|length }} selected{% else %}Any{% endif %}
+                      {% icon "chevron-down" "w-3.5 h-3.5 text-ink-dim transition-transform group-open:rotate-180" %}
+                    </span>
+                  </summary>
+                  <div class="pb-3">
+                    <div class="relative">
+                      <div class="flex flex-wrap gap-1.5 max-h-56 overflow-y-auto p-2 border border-line rounded-lg bg-base-100">
+                        {% for g in genres %}
+                          <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                            <input type="checkbox" name="genre" value="{{ g.id }}" class="sr-only" {% if g.id in selected_genres %}checked{% endif %}>
+                            {{ g.name }}
+                          </label>
+                        {% endfor %}
+                      </div>
+                      <div class="pointer-events-none absolute inset-x-1 bottom-1 h-5 rounded-b-lg bg-gradient-to-t from-base-100 to-transparent"></div>
+                    </div>
+                  </div>
+                </details>
+
+                <details class="group" {% if request.GET.year_from or request.GET.year_to %}open{% endif %}>
+                  <summary class="flex items-center justify-between gap-3 py-2.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                    <span class="text-sm font-medium">Year</span>
+                    <span class="flex items-center gap-2 text-xs text-ink-faint font-mono">
+                      <span><span x-text="yearFrom"></span>–<span x-text="yearTo"></span></span>
+                      {% icon "chevron-down" "w-3.5 h-3.5 text-ink-dim transition-transform group-open:rotate-180" %}
+                    </span>
+                  </summary>
+                  <div class="pb-4 pt-1">
+                    {% include "tracker/partials/dual_range_slider.html" with label="" name_from="year_from" name_to="year_to" min=1950 max=max_year from_var="yearFrom" to_var="yearTo" suffix="" %}
+                  </div>
+                </details>
+
+                <details class="group" {% if request.GET.runtime_from or request.GET.runtime_to %}open{% endif %}>
+                  <summary class="flex items-center justify-between gap-3 py-2.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                    <span class="text-sm font-medium">Runtime</span>
+                    <span class="flex items-center gap-2 text-xs text-ink-faint font-mono">
+                      <span><span x-text="runtimeFrom"></span>–<span x-text="runtimeTo"></span>m</span>
+                      {% icon "chevron-down" "w-3.5 h-3.5 text-ink-dim transition-transform group-open:rotate-180" %}
+                    </span>
+                  </summary>
+                  <div class="pb-4 pt-1">
+                    {% include "tracker/partials/dual_range_slider.html" with label="" name_from="runtime_from" name_to="runtime_to" min=0 max=400 step=5 from_var="runtimeFrom" to_var="runtimeTo" suffix="m" %}
+                  </div>
+                </details>
+
+                <details class="group" {% if request.GET.rating_from or request.GET.rating_to %}open{% endif %}>
+                  <summary class="flex items-center justify-between gap-3 py-2.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                    <span class="text-sm font-medium">Rating</span>
+                    <span class="flex items-center gap-2 text-xs text-ink-faint font-mono">
+                      <span><span x-text="ratingFrom"></span>–<span x-text="ratingTo"></span></span>
+                      {% icon "chevron-down" "w-3.5 h-3.5 text-ink-dim transition-transform group-open:rotate-180" %}
+                    </span>
+                  </summary>
+                  <div class="pb-4 pt-1">
+                    {% include "tracker/partials/dual_range_slider.html" with label="" name_from="rating_from" name_to="rating_to" min=0 max=10 step=0.1 from_var="ratingFrom" to_var="ratingTo" suffix="" %}
+                  </div>
+                </details>
+
+              </div>
+            </div>
+
+            <div>
+              <div class="text-[13px] font-semibold text-ink-dim uppercase tracking-wide mb-1">Access</div>
+              <div class="flex flex-col divide-y divide-line">
+
+                <details class="group" {% if selected_language or selected_availability or selected_certification or selected_status %}open{% endif %}>
+                  <summary class="flex items-center justify-between gap-3 py-2.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                    <span class="text-sm font-medium">Language, availability{% if media_type == "movie" %} &amp; age rating{% else %} &amp; status{% endif %}</span>
+                    {% icon "chevron-down" "w-3.5 h-3.5 text-ink-dim transition-transform group-open:rotate-180 flex-none" %}
+                  </summary>
+                  <div class="flex flex-col gap-4 pb-4 pt-1">
+
+                    <div>
+                      <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Language</div>
+                      <select name="language" class="select select-sm w-full bg-base-100 focus:outline-primary">
+                        <option value="">Any language</option>
+                        {% for code, name in languages %}
+                          <option value="{{ code }}" {% if selected_language == code %}selected{% endif %}>{{ name }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+
+                    <div>
+                      {% comment %}
+                        Both media types - TMDB's watch-provider data (see
+                        tmdb.AVAILABILITY_CHOICES). Region is fixed to US (see
+                        tmdb.AVAILABILITY_WATCH_REGION) - no per-profile region
+                        setting exists yet.
+                      {% endcomment %}
+                      <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Availability</div>
+                      <select name="availability" class="select select-sm w-full bg-base-100 focus:outline-primary">
+                        <option value="">Any</option>
+                        {% for value, availability_label in availability_choices %}
+                          <option value="{{ value }}" {% if selected_availability == value %}selected{% endif %}>{{ availability_label }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+
+                    {% if media_type == "movie" %}
+                      {% comment %}
+                        Movies only - TMDB's /discover/tv has no certification
+                        filter param at all (see tmdb.MOVIE_CERTIFICATIONS), so
+                        this isn't shown for TV or Anime (always tv under the
+                        hood) rather than rendering a filter that would silently
+                        do nothing.
+                      {% endcomment %}
+                      <div>
+                        <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Age Rating</div>
+                        <select name="certification" class="select select-sm w-full bg-base-100 focus:outline-primary">
+                          <option value="">Any rating</option>
+                          {% for cert in certifications %}
+                            <option value="{{ cert }}" {% if selected_certification == cert %}selected{% endif %}>{{ cert }}</option>
+                          {% endfor %}
+                        </select>
+                      </div>
+                    {% else %}
+                      {% comment %}
+                        TV/Anime only - mirror image of Age Rating above, since
+                        /discover/movie has no status-filter equivalent at all
+                        (see tmdb.TV_STATUSES).
+                      {% endcomment %}
+                      <div>
+                        <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Status</div>
+                        <select name="status" class="select select-sm w-full bg-base-100 focus:outline-primary">
+                          <option value="">Any status</option>
+                          {% for status_value in tv_statuses %}
+                            <option value="{{ status_value }}" {% if selected_status == status_value %}selected{% endif %}>{{ status_value }}</option>
+                          {% endfor %}
+                        </select>
+                      </div>
+                    {% endif %}
+
+                  </div>
+                </details>
+
+              </div>
+            </div>
+
+            <div class="sticky bottom-0 -mx-5 -mb-5 px-5 pb-5 pt-4 bg-base-200 border-t border-line flex items-center gap-3">
+              <button type="submit" class="btn btn-sm btn-primary flex-1">Apply filters</button>
+              <a href="?type={{ media_type }}" class="btn btn-sm btn-ghost">Clear all</a>
+            </div>
+          </form>
+          {% endwith %}
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  {% if not results %}
+    <div class="py-16 text-center text-ink-faint text-sm">
+      {% if not profile %}Your account isn't linked to a household profile yet.{% elif is_collections %}Nothing found — check that a TMDB API key is configured in Settings.{% else %}Nothing found — try widening your filters, or check that a TMDB API key is configured in Settings.{% endif %}
+    </div>
+  {% else %}
+    <div class="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
+      {% for item in results %}
+        {% if is_collections %}
+          {% include "tracker/partials/collection_tile.html" with item=item %}
+        {% else %}
+          {% include "tracker/partials/discover_tile.html" with item=item %}
+        {% endif %}
+      {% endfor %}
     </div>
 
     {% if not is_collections %}
-    <div class="drawer-side z-50">
-      <label for="filters-drawer" aria-label="close filters" class="drawer-overlay bg-black/60"></label>
-      <div class="w-full max-w-xs min-h-full overflow-y-auto bg-base-300 border-l border-line shadow-2xl p-5 flex flex-col gap-5">
-        <div class="flex items-center justify-between">
-          <h2 class="font-display text-xl">Filters</h2>
-          <label for="filters-drawer" aria-label="close filters" class="btn btn-sm btn-circle btn-ghost cursor-pointer">
-            {% icon "x" "w-4 h-4" %}
-          </label>
+      <div class="flex justify-between items-center flex-wrap gap-3 mt-7">
+        <span class="font-mono text-xs text-ink-faint">Page {{ current_page }} of {{ total_pages }}</span>
+        <div class="flex gap-1.5">
+          {% if current_page > 1 %}
+            <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"-1" }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim">‹ Prev</a>
+          {% endif %}
+          {% if current_page < total_pages %}
+            <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"1" }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim">Next ›</a>
+          {% endif %}
         </div>
-
-        {% now "Y" as current_year %}
-        {% with max_year=current_year|add:2 %}
-        <form
-          method="get"
-          class="flex flex-col gap-5"
-          x-data="{
-            yearFrom: {{ request.GET.year_from|default:1950 }},
-            yearTo: {{ request.GET.year_to|default:max_year }},
-            runtimeFrom: {{ request.GET.runtime_from|default:0 }},
-            runtimeTo: {{ request.GET.runtime_to|default:400 }},
-            ratingFrom: {{ request.GET.rating_from|default:0 }},
-            ratingTo: {{ request.GET.rating_to|default:10 }},
-          }"
-        >
-          <input type="hidden" name="type" value="{{ media_type }}">
-
-          <details open class="group">
-            <summary class="flex items-center justify-between cursor-pointer list-none [&::-webkit-details-marker]:hidden py-1">
-              <span class="text-[13px] font-bold text-base-content uppercase tracking-wide">Discover</span>
-              {% icon "chevron-down" "w-4 h-4 text-ink-dim transition-transform group-open:rotate-180" %}
-            </summary>
-            <div class="flex flex-col gap-5 mt-3 pb-5 border-b border-line">
-
-              <div>
-                <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Genres</div>
-                <details {% if selected_genres %}open{% endif %}>
-                  <summary class="btn btn-sm bg-base-100 border-line font-normal inline-flex w-auto list-none cursor-pointer [&::-webkit-details-marker]:hidden">
-                    {% if selected_genres %}{{ selected_genres|length }} selected{% else %}Any genre{% endif %} <span class="text-ink-faint">&#9662;</span>
-                  </summary>
-                  <div class="relative mt-2">
-                    <div class="flex flex-wrap gap-1.5 max-h-64 overflow-y-auto p-2 border border-line rounded-lg bg-base-100">
-                      {% for g in genres %}
-                        <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
-                          <input type="checkbox" name="genre" value="{{ g.id }}" class="sr-only" {% if g.id in selected_genres %}checked{% endif %}>
-                          {{ g.name }}
-                        </label>
-                      {% endfor %}
-                    </div>
-                    <div class="pointer-events-none absolute inset-x-1 bottom-1 h-5 rounded-b-lg bg-gradient-to-t from-base-100 to-transparent"></div>
-                  </div>
-                </details>
-              </div>
-
-              {% include "tracker/partials/dual_range_slider.html" with label="Year" name_from="year_from" name_to="year_to" min=1950 max=max_year from_var="yearFrom" to_var="yearTo" suffix="" %}
-              {% include "tracker/partials/dual_range_slider.html" with label="Runtime" name_from="runtime_from" name_to="runtime_to" min=0 max=400 step=5 from_var="runtimeFrom" to_var="runtimeTo" suffix="m" %}
-              {% include "tracker/partials/dual_range_slider.html" with label="Rating" name_from="rating_from" name_to="rating_to" min=0 max=10 step=0.1 from_var="ratingFrom" to_var="ratingTo" suffix="" %}
-
-            </div>
-          </details>
-
-          <details {% if selected_language or selected_availability or selected_certification or selected_status %}open{% endif %} class="group">
-            <summary class="flex items-center justify-between cursor-pointer list-none [&::-webkit-details-marker]:hidden py-1">
-              <span class="text-[13px] font-semibold text-ink-dim uppercase tracking-wide">Access</span>
-              {% icon "chevron-down" "w-4 h-4 text-ink-dim transition-transform group-open:rotate-180" %}
-            </summary>
-            <div class="flex flex-col gap-5 mt-3">
-
-              <div>
-                <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Language</div>
-                <select name="language" class="select select-sm w-full bg-base-100 focus:outline-primary">
-                  <option value="">Any language</option>
-                  {% for code, name in languages %}
-                    <option value="{{ code }}" {% if selected_language == code %}selected{% endif %}>{{ name }}</option>
-                  {% endfor %}
-                </select>
-              </div>
-
-              <div>
-                {% comment %}
-                  Both media types - TMDB's watch-provider data (see
-                  tmdb.AVAILABILITY_CHOICES). Region is fixed to US (see
-                  tmdb.AVAILABILITY_WATCH_REGION) - no per-profile region
-                  setting exists yet.
-                {% endcomment %}
-                <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Availability</div>
-                <select name="availability" class="select select-sm w-full bg-base-100 focus:outline-primary">
-                  <option value="">Any</option>
-                  {% for value, availability_label in availability_choices %}
-                    <option value="{{ value }}" {% if selected_availability == value %}selected{% endif %}>{{ availability_label }}</option>
-                  {% endfor %}
-                </select>
-              </div>
-
-              {% if media_type == "movie" %}
-                {% comment %}
-                  Movies only - TMDB's /discover/tv has no certification
-                  filter param at all (see tmdb.MOVIE_CERTIFICATIONS), so
-                  this isn't shown for TV or Anime (always tv under the
-                  hood) rather than rendering a filter that would silently
-                  do nothing.
-                {% endcomment %}
-                <div>
-                  <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Age Rating</div>
-                  <select name="certification" class="select select-sm w-full bg-base-100 focus:outline-primary">
-                    <option value="">Any rating</option>
-                    {% for cert in certifications %}
-                      <option value="{{ cert }}" {% if selected_certification == cert %}selected{% endif %}>{{ cert }}</option>
-                    {% endfor %}
-                  </select>
-                </div>
-              {% else %}
-                {% comment %}
-                  TV/Anime only - mirror image of Age Rating above, since
-                  /discover/movie has no status-filter equivalent at all
-                  (see tmdb.TV_STATUSES).
-                {% endcomment %}
-                <div>
-                  <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Status</div>
-                  <select name="status" class="select select-sm w-full bg-base-100 focus:outline-primary">
-                    <option value="">Any status</option>
-                    {% for status_value in tv_statuses %}
-                      <option value="{{ status_value }}" {% if selected_status == status_value %}selected{% endif %}>{{ status_value }}</option>
-                    {% endfor %}
-                  </select>
-                </div>
-              {% endif %}
-
-            </div>
-          </details>
-
-          <div class="sticky bottom-0 -mx-5 -mb-5 px-5 pb-5 pt-4 bg-base-300 border-t border-line flex items-center gap-3 shadow-[0_-8px_16px_-4px_rgba(0,0,0,0.35)]">
-            <button type="submit" class="btn btn-sm btn-primary flex-1">Apply filters</button>
-            <a href="?type={{ media_type }}" class="btn btn-sm btn-ghost">Clear all</a>
-          </div>
-        </form>
-        {% endwith %}
       </div>
-    </div>
     {% endif %}
-  </div>
+  {% endif %}
 
 {% endblock %}

@@ -8,6 +8,23 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.52.1] - 2026-07-28
+
+### Fixed
+
+- The Filters panel is now a dropdown popover anchored under the Filters
+  button instead of a sliding sidebar drawer. daisyUI's drawer keeps
+  `will-change: transform` permanently set on the sliding panel, which on
+  Windows Chrome/Edge disables ClearType subpixel text rendering inside
+  it - the whole panel looked noticeably softer/blurrier than the rest of
+  the page. The dropdown uses the same positioned-popover pattern as the
+  topbar's notification/profile menus, which never had this problem.
+- Genres, Year, Runtime, and Rating are now each their own row inside
+  "Discover" (label + current value + a chevron that expands it), instead
+  of Genres being an odd label-plus-separate-dropdown-button. Access
+  (Language/Availability/Age Rating or Status) collapses into one row the
+  same way.
+
 ## [0.52.0] - 2026-07-28
 
 ### Changed
