@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.54.2] - 2026-07-28
+
+### Changed
+
+- Added a bold "·" divider between the age rating and language tags on
+  the title detail page, matching the dot separator already used in the
+  row below.
+
 ## [0.54.1] - 2026-07-28
 
 ### Changed
