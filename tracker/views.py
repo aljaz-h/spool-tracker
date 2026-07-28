@@ -465,6 +465,59 @@ def _title_display(title, details):
 
 
 
+def _parse_tmdb_date(value):
+    """TMDB dates are always plain "YYYY-MM-DD" (no time component) -
+    date.fromisoformat parses that exact shape directly, no strptime
+    format string needed. None for missing/malformed input (TMDB does
+    sometimes omit dates for not-yet-scheduled releases)."""
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _release_info(details):
+    """Human-readable release-date summary for the detail hero's metadata
+    row - a movie has one release_date, but a show doesn't reduce to a
+    single date the way a movie does (seasons can drop all at once or
+    air weekly over months), so this buckets by status instead: ongoing
+    shows just their first-aired date ("since" is still true even
+    mid-run), ended/cancelled shows the full first-to-last-aired span
+    (last_air_date is the most recent episode TMDB knows about either
+    way), and anything that hasn't aired at all yet shows its known
+    premiere date if TMDB has scheduled one, or just "Coming Soon" if it
+    hasn't. Returns a plain string, or None when there's nothing worth
+    showing (e.g. a movie TMDB has no release_date for at all)."""
+    if not details:
+        return None
+    if details.get("media_type") == "movie":
+        release_date = _parse_tmdb_date(details.get("release_date"))
+        if release_date is None:
+            return None
+        verb = "Releases" if release_date > timezone.localdate() else "Released"
+        return f"{verb} {release_date.strftime('%b %d, %Y')}"
+
+    status = details.get("status")
+    first_aired = _parse_tmdb_date(details.get("first_air_date"))
+    last_aired = _parse_tmdb_date(details.get("last_air_date"))
+    if status in ("Ended", "Canceled"):
+        bucket = "Ended" if status == "Ended" else "Cancelled"
+        if first_aired and last_aired:
+            return f"{first_aired.strftime('%b %d, %Y')} – {last_aired.strftime('%b %d, %Y')} · {bucket}"
+        if first_aired:
+            return f"{first_aired.strftime('%b %d, %Y')} · {bucket}"
+        return bucket
+    if first_aired:
+        return f"{first_aired.strftime('%b %d, %Y')} · Ongoing"
+    next_episode = details.get("next_episode_to_air") or {}
+    premiere = _parse_tmdb_date(next_episode.get("air_date"))
+    if premiere:
+        return f"Premieres {premiere.strftime('%b %d, %Y')}"
+    return "Coming Soon"
+
+
 def _star_fill(rating):
     """5 stars representing a 1-10 rating, 2 points each - each entry's
     "fill" (0/50/100) is precomputed here so the template just renders a
@@ -662,6 +715,7 @@ def title_detail(request, pk):
         "director": director,
         "watch_providers": watch_providers,
         "status_badge": tmdb.status_badge(details["status"]) if details else None,
+        "release_info": _release_info(details),
         "is_preview": False,
         "preview_media_type": None,
         "preview_tmdb_id": None,
@@ -1207,6 +1261,7 @@ def title_preview(request, media_type, tmdb_id):
         "director": tmdb.get_director(media_type, tmdb_id),
         "watch_providers": tmdb.get_watch_providers(media_type, tmdb_id),
         "status_badge": tmdb.status_badge(details["status"]),
+        "release_info": _release_info(details),
         "is_preview": True,
         "preview_media_type": media_type,
         "preview_tmdb_id": tmdb_id,

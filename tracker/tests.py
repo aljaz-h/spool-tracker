@@ -7482,6 +7482,33 @@ class TitleDetailViewTests(TestCase):
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         self.assertIsNone(resp.context["status_badge"])
 
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_shows_the_release_date_for_an_already_released_movie(self, mock_details, mock_credits, mock_similar):
+        mock_details.return_value = self._details(release_date="2020-05-01")
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, "Released May 01, 2020")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_shows_a_future_tense_release_date_for_an_unreleased_movie(self, mock_details, mock_credits, mock_similar):
+        from django.utils import timezone
+
+        future = (timezone.localdate() + timedelta(days=30)).isoformat()
+        mock_details.return_value = self._details(release_date=future)
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, "Releases ")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_no_release_info_when_tmdb_has_no_release_date(self, mock_details, mock_credits, mock_similar):
+        mock_details.return_value = self._details(release_date=None)
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertIsNone(resp.context["release_info"])
+
 
 class TitleEpisodeBrowserTests(TestCase):
     """The episode browser - season <select>, per-episode watched badges,
@@ -7723,6 +7750,64 @@ class TitleEpisodeBrowserTests(TestCase):
         self.assertIn(f'id="ep-watched-btn-{self.title.pk}-1-1"', content)
         self.assertIn(f'id="ep-watched-btn-{self.title.pk}-1-1-m"', content)
         self.assertEqual(content.count("Freedom Day"), 2)
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_ongoing_show_shows_only_its_first_aired_date(self, mock_details, mock_credits, mock_similar):
+        details = self._details()
+        details["status"] = "Returning Series"
+        details["first_air_date"] = "2023-05-01"
+        mock_details.return_value = details
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, "May 01, 2023 · Ongoing")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_ended_show_shows_first_and_last_aired_dates(self, mock_details, mock_credits, mock_similar):
+        details = self._details()
+        details["status"] = "Ended"
+        details["first_air_date"] = "2020-01-01"
+        details["last_air_date"] = "2023-06-15"
+        mock_details.return_value = details
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, "Jan 01, 2020 – Jun 15, 2023 · Ended")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_cancelled_show_shows_first_and_last_aired_dates(self, mock_details, mock_credits, mock_similar):
+        details = self._details()
+        details["status"] = "Canceled"
+        details["first_air_date"] = "2020-01-01"
+        details["last_air_date"] = "2020-08-01"
+        mock_details.return_value = details
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, "Jan 01, 2020 – Aug 01, 2020 · Cancelled")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_unaired_show_with_a_scheduled_premiere_shows_that_date(self, mock_details, mock_credits, mock_similar):
+        details = self._details()
+        details["status"] = "Planned"
+        details["next_episode_to_air"] = {
+            "air_date": "2026-09-01", "season_number": 1, "episode_number": 1, "name": "Pilot",
+        }
+        mock_details.return_value = details
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, "Premieres Sep 01, 2026")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_unaired_show_with_no_scheduled_date_just_says_coming_soon(self, mock_details, mock_credits, mock_similar):
+        details = self._details()
+        details["status"] = "Planned"
+        mock_details.return_value = details
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, "Coming Soon")
 
 
 class JikanFindMatchTests(TestCase):
@@ -8831,6 +8916,14 @@ class TitlePreviewViewTests(TestCase):
         self.assertTrue(resp.context["is_preview"])
         self.assertContains(resp, "Fathom")
         self.assertContains(resp, "Lists")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_shows_the_release_date_same_as_the_tracked_detail_page(self, mock_details, mock_credits, mock_similar):
+        mock_details.return_value = self._details(release_date="2020-05-01")
+        resp = self.client.get(reverse("title_preview", args=["movie", 42]))
+        self.assertContains(resp, "Released May 01, 2020")
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])

@@ -642,10 +642,15 @@ def get_full_details(media_type, tmdb_id):
     "certification": str|None (US age rating - "PG-13"/"R" for a movie,
     "TV-14"/"TV-MA" for a show; see _extract_certification),
     "release_date": str|None (movie, raw YYYY-MM-DD, distinct from the
-    truncated "year" above), "next_episode_to_air": dict|None (tv only,
-    {"air_date", "season_number", "episode_number", "name"} - used by
-    release_sync.py to schedule upcoming episodes/season premieres)} or
-    None if nothing came back (no api key, bad id, network error)."""
+    truncated "year" above), "first_air_date"/"last_air_date": str|None
+    (tv, raw YYYY-MM-DD - a show's own run may not fit in a single date
+    the way a movie's release does, since seasons can drop all at once
+    or air weekly; views._release_info turns these plus "status" into
+    the detail hero's "aired Jan 2020 · Ongoing"-style summary),
+    "next_episode_to_air": dict|None (tv only, {"air_date",
+    "season_number", "episode_number", "name"} - used by release_sync.py
+    to schedule upcoming episodes/season premieres)} or None if nothing
+    came back (no api key, bad id, network error)."""
     is_movie = media_type == "movie"
     append = "release_dates" if is_movie else "content_ratings"
     data = _list_request(f"{media_type}/{tmdb_id}", {"append_to_response": append})
@@ -683,6 +688,8 @@ def get_full_details(media_type, tmdb_id):
         "status": data.get("status"),
         "certification": _extract_certification(data, is_movie),
         "release_date": date if is_movie else None,
+        "first_air_date": None if is_movie else data.get("first_air_date"),
+        "last_air_date": None if is_movie else data.get("last_air_date"),
         "next_episode_to_air": next_episode,
     }
 

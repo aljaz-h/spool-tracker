@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.54.0] - 2026-07-28
+
+### Added
+
+- Movie and TV/Anime detail pages now show release/air date info next to
+  the title. Movies show their release date ("Released"/"Releases" for
+  past/future). Shows and anime don't reduce to one date the way a movie
+  does - seasons can drop all at once or air weekly over months - so
+  they show a status-aware summary instead: ongoing shows just their
+  first-aired date, ended/cancelled shows the full first-to-last-aired
+  span, and anything not yet aired shows its scheduled premiere date (or
+  "Coming Soon" if TMDB hasn't scheduled one yet).
+
 ## [0.53.0] - 2026-07-28
 
 ### Changed
