@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.55.1] - 2026-07-29
+
+### Changed
+
+- Dashboard's "Up Next" cards: the release-day label ("TOMORROW"/"FRI"/
+  etc.) now sits as a third line under the episode caption, left-aligned
+  with the title, instead of being pushed to the card's far right -
+  matching the reference mockup.
+
 ## [0.55.0] - 2026-07-28
 
 ### Changed
