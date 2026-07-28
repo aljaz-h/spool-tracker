@@ -83,10 +83,13 @@
     </div>
     {% if watchlist_items %}
       {# No horizontal scroll - just however many of the newest items fit one row at the current width, the rest stay one click away via "See all lists". #}
-      <div class="flex flex-nowrap gap-4 overflow-hidden">
-        {% for item in watchlist_items %}
-          {% include "tracker/partials/poster_card.html" with title=item.title show_ratings=True %}
-        {% endfor %}
+      <div class="relative">
+        <div class="flex flex-nowrap gap-4 overflow-hidden">
+          {% for item in watchlist_items %}
+            {% include "tracker/partials/poster_card.html" with title=item.title show_ratings=True %}
+          {% endfor %}
+        </div>
+        <div class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-base-100 to-transparent"></div>
       </div>
     {% else %}
       <p class="text-ink-faint text-sm">Watchlist's empty — future you will thank present you for adding something.</p>
@@ -101,25 +104,31 @@
       <div class="flex justify-between items-center mb-3.5">
         <h2 class="font-display text-xl">Start Watching</h2>
       </div>
-      <div class="flex flex-nowrap gap-4 overflow-hidden">
-        {% for title in start_watching %}
-          {% include "tracker/partials/poster_card.html" with title=title show_ratings=True %}
-        {% endfor %}
+      <div class="relative">
+        <div class="flex flex-nowrap gap-4 overflow-hidden">
+          {% for title in start_watching %}
+            {% include "tracker/partials/poster_card.html" with title=title show_ratings=True %}
+          {% endfor %}
+        </div>
+        <div class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-base-100 to-transparent"></div>
       </div>
     </div>
   {% endif %}
 
-  {# ---- Recently watched: this profile's own last titles watched, newest first - see selectors.recently_watched(). ---- #}
+  {# ---- Recently watched: this profile's own last watch events (not deduped by title - a binge shows every episode), newest first - see selectors.recently_watched(). ---- #}
   {% if recently_watched %}
     <div class="mb-8">
       <div class="flex justify-between items-center mb-3.5">
         <h2 class="font-display text-xl">Recently Watched</h2>
         <a href="{% url 'history' %}" class="text-xs text-ink-faint hover:text-ink-dim">History &rarr;</a>
       </div>
-      <div class="flex flex-nowrap gap-4 overflow-hidden">
-        {% for title in recently_watched %}
-          {% include "tracker/partials/poster_card.html" with title=title show_ratings=True %}
-        {% endfor %}
+      <div class="relative">
+        <div class="flex flex-nowrap gap-4 overflow-hidden">
+          {% for event in recently_watched %}
+            {% include "tracker/partials/watch_event_card.html" with event=event %}
+          {% endfor %}
+        </div>
+        <div class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-base-100 to-transparent"></div>
       </div>
     </div>
   {% endif %}
@@ -130,10 +139,13 @@
       <div class="flex justify-between items-center mb-3.5">
         <h2 class="font-display text-xl">Social Activity</h2>
       </div>
-      <div class="flex flex-nowrap gap-4 overflow-hidden">
-        {% for title in social_activity %}
-          {% include "tracker/partials/poster_card.html" with title=title show_ratings=True %}
-        {% endfor %}
+      <div class="relative">
+        <div class="flex flex-nowrap gap-4 overflow-hidden">
+          {% for event in social_activity %}
+            {% include "tracker/partials/watch_event_card.html" with event=event show_profile=True %}
+          {% endfor %}
+        </div>
+        <div class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-base-100 to-transparent"></div>
       </div>
     </div>
   {% endif %}

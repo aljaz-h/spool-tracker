@@ -6992,7 +6992,27 @@ class DashboardWatchingWatchlistTests(TestCase):
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, "Social Activity")
         self.assertContains(resp, "Their Movie")
-        self.assertNotIn(my_title, resp.context["social_activity"])
+        self.assertNotIn(my_title, [event.title for event in resp.context["social_activity"]])
+
+    def test_social_activity_card_shows_who_watched_it(self):
+        from django.utils import timezone
+
+        other_user = User.objects.create_user("dashother2", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="SocialWatcher")
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Shared Movie", year=2020)
+        WatchEvent.objects.create(profile=other_profile, title=title, watched_at=timezone.now())
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "SocialWatcher")
+
+    def test_recently_watched_shows_each_episode_separately_not_deduped_by_title(self):
+        from django.utils import timezone
+
+        title = Title.objects.create(media_type=MediaType.TV, name="Binge Show", year=2022)
+        for n in (1, 2, 3):
+            episode = Episode.objects.create(title=title, season=1, episode=n, name=f"Episode {n}")
+            WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
+        resp = self.client.get(reverse("dashboard"))
+        self.assertEqual(len(resp.context["recently_watched"]), 3)
 
     def test_shows_all_watching_items_not_just_a_teaser(self):
         for i in range(10):
@@ -7064,6 +7084,56 @@ class DashboardWatchingWatchlistTests(TestCase):
         self.assertLess(len(resp.context["watchlist_items"]), 15)
         self.assertContains(resp, "Watchlist")
         self.assertContains(resp, "(15)")
+
+
+class RecentlyWatchedStillImageTests(TestCase):
+    """selectors._attach_watch_event_display() - the still-image/caption
+    logic shared by the Dashboard's Recently Watched and Social Activity
+    rows, tested directly rather than through a full dashboard render."""
+
+    def setUp(self):
+        user = User.objects.create_user("stillimageselector", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="StillImageSelector")
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_episode_still_falls_back_to_the_title_poster_when_tmdb_has_none(self, mock_season):
+        from django.utils import timezone
+
+        mock_season.return_value = None
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="No Still Show", year=2022, poster_url="https://example.com/poster.jpg",
+            external_ids={"tmdb": "555", "tmdb_kind": "tv"},
+        )
+        episode = Episode.objects.create(title=title, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
+        events = selectors.recently_watched(self.profile, [MediaType.TV])
+        self.assertEqual(events[0].still_url, "https://example.com/poster.jpg")
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_episode_still_uses_tmdbs_still_when_available(self, mock_season):
+        from django.utils import timezone
+
+        mock_season.return_value = {"episodes": [{"episode_number": 1, "still_url": "https://example.com/still.jpg"}]}
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Has Still Show", year=2022,
+            external_ids={"tmdb": "556", "tmdb_kind": "tv"},
+        )
+        episode = Episode.objects.create(title=title, season=1, episode=1, name="Pilot")
+        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
+        events = selectors.recently_watched(self.profile, [MediaType.TV])
+        self.assertEqual(events[0].still_url, "https://example.com/still.jpg")
+        self.assertEqual(events[0].caption, "S1E1 · Pilot")
+
+    def test_movie_event_uses_the_title_poster_directly_with_no_caption(self):
+        from django.utils import timezone
+
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="A Movie", year=2020, poster_url="https://example.com/movie.jpg"
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at=timezone.now())
+        events = selectors.recently_watched(self.profile, [MediaType.MOVIE])
+        self.assertEqual(events[0].still_url, "https://example.com/movie.jpg")
+        self.assertIsNone(events[0].caption)
 
 
 class ActivityFeedGroupingTests(TestCase):

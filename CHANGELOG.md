@@ -8,6 +8,30 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.56.1] - 2026-07-29
+
+### Changed
+
+- "Recently Watched" no longer dedupes by title - a 3-episode binge now
+  shows as 3 separate cards, each using that specific episode's own
+  still image (falls back to the show's poster when TMDB has none),
+  fixing the row looking sparse/half-empty for anyone who mostly binges
+  a few shows rather than sampling many different titles.
+- "Recently Watched" and "Social Activity" cards are now horizontal
+  (16:9), matching an episode still's actual aspect ratio instead of a
+  vertical movie-poster crop.
+- "Social Activity" cards now show a small avatar + name pill in the
+  top-left corner so it's clear who watched what.
+- Watchlist/Start Watching/Recently Watched/Social Activity's single-row
+  layout now fades to the page background at the right edge instead of
+  hard-clipping whichever card lands on the boundary.
+
+### Added
+
+- New `tracker/partials/watch_event_card.html` partial (horizontal,
+  still/poster-backed card with an optional watcher pill) backing
+  Recently Watched and Social Activity.
+
 ## [0.56.0] - 2026-07-29
 
 ### Added

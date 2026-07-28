@@ -129,14 +129,16 @@ def dashboard(request):
         )
         media_types = [MediaType.MOVIE, MediaType.TV, MediaType.ANIME]
         start_watching = selectors.start_watching(profile, media_types)
+        # Recently Watched/Social Activity use their own watch_event_card.html
+        # (no watched-toggle/list-popover action bar - those cards are about
+        # what already happened, not library management), so unlike
+        # start_watching they don't need to feed poster_action_context below.
         recently_watched = selectors.recently_watched(profile, media_types)
         social_activity = selectors.social_activity(profile)
         all_titles = (
             [item["title"] for item in continue_watching]
             + [item.title for item in watchlist_items]
             + start_watching
-            + recently_watched
-            + social_activity
         )
         context.update(
             {

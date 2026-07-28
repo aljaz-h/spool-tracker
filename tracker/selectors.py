@@ -277,51 +277,67 @@ def start_watching(profile, media_types, limit=12):
     return [watchlist_titles[title_id] for title_id in ordered_ids[:limit]]
 
 
-def recently_watched(profile, media_types, limit=12):
-    """Dashboard's "Recently watched" row - this profile's own last
-    `limit` distinct titles watched, newest first (a binge of the same
-    show only counts once, at its most recent watch)."""
-    seen_title_ids = set()
-    titles = []
-    qs = (
-        WatchEvent.objects.filter(profile=profile, title__media_type__in=media_types)
-        .select_related("title")
-        .prefetch_related("title__ratings")
-        .order_by("-watched_at")[: limit * 10]
-    )
-    for event in qs:
-        if event.title_id in seen_title_ids:
+def _attach_watch_event_display(events):
+    """Attaches .still_url (this specific episode's TMDB still, falling
+    back to the title's own poster when there's no episode, no TMDB id,
+    or TMDB has nothing for it) and .caption ("S1E4 · Name", or None for
+    a movie) to each WatchEvent - shared by recently_watched()/
+    social_activity() so both Dashboard rows render identically. Batches
+    TMDB season lookups per distinct (tmdb_id, season) touched rather
+    than per event, since a binge revisits the same season repeatedly
+    and get_season_details is a real (if 6h-cached) TMDB call."""
+    from .integrations import tmdb as tmdb_integration
+
+    season_cache = {}
+    for event in events:
+        ep = event.episode
+        if ep is None:
+            event.still_url = event.title.poster_url or None
+            event.caption = None
             continue
-        seen_title_ids.add(event.title_id)
-        titles.append(event.title)
-        if len(titles) >= limit:
-            break
-    return titles
+        event.caption = f"S{ep.season}E{ep.episode}" + (f" · {ep.name}" if ep.name else "")
+        tmdb_id = event.title.external_ids.get("tmdb")
+        cache_key = (tmdb_id, ep.season)
+        if tmdb_id and cache_key not in season_cache:
+            season_cache[cache_key] = tmdb_integration.get_season_details(tmdb_id, ep.season)
+        season_data = season_cache.get(cache_key) or {}
+        still_url = None
+        for ep_data in season_data.get("episodes") or []:
+            if ep_data.get("episode_number") == ep.episode:
+                still_url = ep_data.get("still_url")
+                break
+        event.still_url = still_url or event.title.poster_url or None
+
+
+def recently_watched(profile, media_types, limit=12):
+    """Dashboard's "Recently Watched" row - this profile's own last
+    `limit` watch events, newest first - not deduped by title, so a
+    3-episode binge shows as 3 separate cards, each with that episode's
+    own still image via _attach_watch_event_display()."""
+    events = list(
+        WatchEvent.objects.filter(profile=profile, title__media_type__in=media_types)
+        .select_related("title", "episode")
+        .order_by("-watched_at")[:limit]
+    )
+    _attach_watch_event_display(events)
+    return events
 
 
 def social_activity(profile, limit=12):
-    """Dashboard's "Social Activity" row - what other profiles in the
-    household have watched most recently, distinct by title (same
-    share_activity privacy flag activity_feed() honors - a profile that
-    opted out is fully absent here too, not just muted). Nothing here
-    is this profile's own history - see recently_watched() for that."""
-    seen_title_ids = set()
-    titles = []
-    qs = (
+    """Dashboard's "Social Activity" row - the last `limit` watch events
+    from other profiles in the household (share_activity respecting,
+    same privacy flag activity_feed() honors), newest first, not
+    deduped - same per-event shape as recently_watched(), plus each
+    event carries its own .profile so the card can show who watched
+    it."""
+    events = list(
         WatchEvent.objects.filter(profile__share_activity=True)
         .exclude(profile=profile)
-        .select_related("title")
-        .prefetch_related("title__ratings")
-        .order_by("-watched_at")[: limit * 10]
+        .select_related("title", "episode", "profile")
+        .order_by("-watched_at")[:limit]
     )
-    for event in qs:
-        if event.title_id in seen_title_ids:
-            continue
-        seen_title_ids.add(event.title_id)
-        titles.append(event.title)
-        if len(titles) >= limit:
-            break
-    return titles
+    _attach_watch_event_display(events)
+    return events
 
 
 def library_watchlist(profile, media_types):
