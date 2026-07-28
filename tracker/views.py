@@ -193,8 +193,9 @@ def _discover_int_param(request, name):
 
 def _apply_display_modes(items, discover_watched, discover_list_membership, profile, watched_display, watchlisted_display):
     """Stamps each discover_tile.html item dict with a "display_mode" key
-    ("show"/"dim"/"hide") per Settings → Preferences' Discover display
-    prefs - watched comes from discover_watched, watchlisted from
+    ("show"/"dim"/"hide") per the Filters panel's Display toggle (a
+    persisted Profile preference, not a GET param - see discover.html)
+    - watched comes from discover_watched, watchlisted from
     membership in *the* auto-managed Watchlist specifically (not any
     custom list - same distinction completion.py's sync_watchlist_removal
     already makes via WatchList.is_watchlist). When a title matches both a

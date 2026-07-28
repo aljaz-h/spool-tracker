@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-07-28
+
+### Changed
+
+- Moved the Watched/Watchlisted "Display" preference back into the
+  Filters panel (where it's actually used) as a 3-way eye-icon toggle -
+  open eye for Show, half-shut eye for Dim, closed eye for Hide -
+  instead of Settings → Preferences' dropdowns. It's still the same
+  persisted per-profile preference and saves instantly on click; it just
+  no longer requires leaving the page to change.
+
 ## [0.52.2] - 2026-07-28
 
 ### Fixed

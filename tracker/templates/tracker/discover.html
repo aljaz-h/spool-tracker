@@ -84,9 +84,11 @@
 
           {% now "Y" as current_year %}
           {% with max_year=current_year|add:2 %}
+          <div class="flex flex-col gap-5 px-5 pb-5">
           <form
+            id="discover-filters-form"
             method="get"
-            class="flex flex-col gap-5 px-5 pb-5"
+            class="flex flex-col gap-5"
             x-data="{
               yearFrom: {{ request.GET.year_from|default:1950 }},
               yearTo: {{ request.GET.year_to|default:max_year }},
@@ -243,12 +245,64 @@
 
               </div>
             </div>
-
-            <div class="sticky bottom-0 -mx-5 -mb-5 px-5 pb-5 pt-4 bg-base-200 border-t border-line flex items-center gap-3">
-              <button type="submit" class="btn btn-sm btn-primary flex-1">Apply filters</button>
-              <a href="?type={{ media_type }}" class="btn btn-sm btn-ghost">Clear all</a>
-            </div>
           </form>
+
+          {% comment %}
+            Not a filter (doesn't change which titles TMDB returns, only
+            how already-returned tiles render) and not part of the GET
+            form above - a persisted per-profile preference (Profile.
+            discover_watched_display/discover_watchlisted_display),
+            saved instantly via save_appearance on click rather than
+            waiting for "Apply filters". Lives here (not Settings →
+            Preferences, where it briefly lived) since it's only ever
+            actually used from this page - shown right next to the
+            results it affects instead of two clicks away.
+          {% endcomment %}
+          <div>
+            <div class="text-[13px] font-semibold text-ink-dim uppercase tracking-wide mb-2">Display</div>
+            <div class="flex flex-col gap-2.5">
+              <div class="flex items-center justify-between gap-3">
+                <span class="text-sm font-medium">Watched</span>
+                <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="inline-flex bg-base-100 border border-line rounded-lg p-1 gap-0.5">
+                  <label class="p-1.5 rounded-md cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content" title="Show">
+                    <input type="radio" name="discover_watched_display" value="show" class="hidden" {% if profile.discover_watched_display == "show" %}checked{% endif %}>
+                    {% icon "eye" "w-3.5 h-3.5" %}
+                  </label>
+                  <label class="p-1.5 rounded-md cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content" title="Dim">
+                    <input type="radio" name="discover_watched_display" value="dim" class="hidden" {% if profile.discover_watched_display == "dim" %}checked{% endif %}>
+                    {% icon "eye-half" "w-3.5 h-3.5" %}
+                  </label>
+                  <label class="p-1.5 rounded-md cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content" title="Hide">
+                    <input type="radio" name="discover_watched_display" value="hide" class="hidden" {% if profile.discover_watched_display == "hide" %}checked{% endif %}>
+                    {% icon "eye-off" "w-3.5 h-3.5" %}
+                  </label>
+                </form>
+              </div>
+              <div class="flex items-center justify-between gap-3">
+                <span class="text-sm font-medium">Watchlisted</span>
+                <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="inline-flex bg-base-100 border border-line rounded-lg p-1 gap-0.5">
+                  <label class="p-1.5 rounded-md cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content" title="Show">
+                    <input type="radio" name="discover_watchlisted_display" value="show" class="hidden" {% if profile.discover_watchlisted_display == "show" %}checked{% endif %}>
+                    {% icon "eye" "w-3.5 h-3.5" %}
+                  </label>
+                  <label class="p-1.5 rounded-md cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content" title="Dim">
+                    <input type="radio" name="discover_watchlisted_display" value="dim" class="hidden" {% if profile.discover_watchlisted_display == "dim" %}checked{% endif %}>
+                    {% icon "eye-half" "w-3.5 h-3.5" %}
+                  </label>
+                  <label class="p-1.5 rounded-md cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content" title="Hide">
+                    <input type="radio" name="discover_watchlisted_display" value="hide" class="hidden" {% if profile.discover_watchlisted_display == "hide" %}checked{% endif %}>
+                    {% icon "eye-off" "w-3.5 h-3.5" %}
+                  </label>
+                </form>
+              </div>
+            </div>
+          </div>
+          </div>
+
+          <div class="sticky bottom-0 px-5 pb-5 pt-4 bg-base-200 border-t border-line flex items-center gap-3">
+            <button type="submit" form="discover-filters-form" class="btn btn-sm btn-primary flex-1">Apply filters</button>
+            <a href="?type={{ media_type }}" class="btn btn-sm btn-ghost">Clear all</a>
+          </div>
           {% endwith %}
         </div>
       </div>
