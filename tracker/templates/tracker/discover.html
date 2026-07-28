@@ -52,7 +52,7 @@
         those never had this problem, since x-show/x-cloak only touch
         display/opacity, never a permanent transform layer.
       {% endcomment %}
-      <div class="relative" x-data="{
+      <div class="relative" @click.outside="open = false" x-data="{
         open: false,
         togglePanel(button) {
           this.open = !this.open;
@@ -66,7 +66,7 @@
           });
         },
       }">
-        <button type="button" @click="togglePanel($el)" @click.outside="open = false" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
+        <button type="button" @click="togglePanel($el)" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
           {% icon "filter" "w-3.5 h-3.5" %}
           Filters
           {% if selected_genres or request.GET.year_from or request.GET.year_to or request.GET.runtime_from or request.GET.runtime_to or request.GET.rating_from or request.GET.rating_to or selected_language or selected_certification or selected_status or selected_availability %}

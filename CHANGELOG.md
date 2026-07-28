@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.52.2] - 2026-07-28
+
+### Fixed
+
+- The new Filters dropdown (and, it turns out, the topbar's notification/
+  friends/profile dropdowns too) closed itself the instant you clicked
+  anything inside it - a select, a genre chip, a row's expand chevron -
+  before the click could register. `@click.outside` was bound to the
+  trigger button itself, so Alpine treated any click that wasn't
+  literally on the button as "outside" and closed the panel, including
+  clicks on the panel's own content. Moved it to the wrapper containing
+  both the button and the panel.
+
 ## [0.52.1] - 2026-07-28
 
 ### Fixed

@@ -100,7 +100,7 @@
       regardless of viewport width or where the trigger lands.
     {% endcomment %}
     {% if active_profile %}
-      <div class="relative" x-data="{
+      <div class="relative" @click.outside="open = false" x-data="{
         open: false,
         togglePanel(button) {
           this.open = !this.open;
@@ -115,7 +115,7 @@
         },
       }">
         <button
-          @click="togglePanel($el)" @click.outside="open = false"
+          @click="togglePanel($el)"
           hx-get="{% url 'notifications_panel' %}"
           hx-target="#notifications-dropdown-content"
           hx-swap="innerHTML"
@@ -135,7 +135,7 @@
       </div>
     {% endif %}
     {% if other_profiles %}
-      <div class="relative" x-data="{
+      <div class="relative" @click.outside="open = false" x-data="{
         open: false,
         togglePanel(button) {
           this.open = !this.open;
@@ -150,7 +150,7 @@
         },
       }">
         <button
-          @click="togglePanel($el)" @click.outside="open = false"
+          @click="togglePanel($el)"
           aria-label="Friends"
           class="w-9 h-9 flex-none rounded-lg border border-line bg-base-200 flex items-center justify-center text-ink-dim hover:text-base-content hover:border-primary"
         >
@@ -183,7 +183,7 @@
       </div>
     {% endif %}
     {% if active_profile %}
-      <div class="relative" x-data="{
+      <div class="relative" @click.outside="open = false" x-data="{
         open: false,
         togglePanel(button) {
           this.open = !this.open;
@@ -198,7 +198,7 @@
         },
       }">
         <button
-          @click="togglePanel($el)" @click.outside="open = false"
+          @click="togglePanel($el)"
           class="flex items-center gap-2 sm:pr-3 h-9 rounded-full sm:bg-base-200 sm:hover:bg-base-300 flex-none"
           title="{{ active_profile.display_name }}"
         >
