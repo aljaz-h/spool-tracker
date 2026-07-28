@@ -8,6 +8,12 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.54.4] - 2026-07-28
+
+### Changed
+
+- Title detail page: "N seasons · N episodes" is now "N seasons (N EP)".
+
 ## [0.54.3] - 2026-07-28
 
 ### Fixed
