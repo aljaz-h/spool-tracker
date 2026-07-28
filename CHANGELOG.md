@@ -8,6 +8,22 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.56.0] - 2026-07-29
+
+### Added
+
+- Three new Dashboard rows, replacing "Because you watched" (disabled
+  for now, not removed - `DASHBOARD_BECAUSE_YOU_WATCHED_ENABLED` in
+  views.py):
+  - "Start Watching" - watchlist titles worth starting right now: a
+    recent release/new episode, or something currently trending on
+    TMDB. Skips anything already in progress.
+  - "Recently Watched" - your own last watched titles, with a "History
+    →" link.
+  - "Social Activity" - what other profiles in the household have
+    watched most recently.
+  - All three use the same single-row, no-scroll layout as Watchlist.
+
 ## [0.55.2] - 2026-07-29
 
 ### Changed

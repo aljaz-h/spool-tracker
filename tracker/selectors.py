@@ -220,6 +220,110 @@ def because_you_watched(profile, candidate_pool=3, limit=12):
     return None
 
 
+def start_watching(profile, media_types, limit=12):
+    """Dashboard's "Start watching" row - watchlist titles worth
+    surfacing right now: a movie that recently released, a show that
+    recently dropped a new episode/season, or anything currently
+    trending on TMDB. Recency comes from ReleaseSchedule (already
+    populated by the Trakt/Simkl calendar sync - up_next() reads the
+    same model's future side, this reads its recent-past side);
+    trending comes from a live TMDB call, intersected against the
+    watchlist by tmdb id (that call is cached 6h by tmdb._list_request,
+    so this isn't a per-request cost). Already-WATCHING titles are
+    excluded - this row is about starting something, the "Watching" row
+    above it already covers continuing one. Recently-released titles
+    are listed before trending ones (a concrete "new episode dropped"
+    beats a soft popularity signal), each bucket newest/most-popular
+    first, capped to limit total."""
+    from .integrations import tmdb as tmdb_integration
+
+    watching_ids = set(
+        WatchProgress.objects.filter(profile=profile, status=WatchProgress.Status.WATCHING).values_list(
+            "title_id", flat=True
+        )
+    )
+    watchlist_titles = {}
+    for item in _visible_watchlist_items(profile, media_types):
+        if item.title_id not in watching_ids:
+            watchlist_titles[item.title_id] = item.title
+    if not watchlist_titles:
+        return []
+
+    cutoff = timezone.now() - timedelta(days=30)
+    recent_ids = list(
+        ReleaseSchedule.objects.filter(
+            title_id__in=watchlist_titles.keys(), release_date__gte=cutoff, release_date__lte=timezone.now()
+        )
+        .order_by("-release_date")
+        .values_list("title_id", flat=True)
+        .distinct()
+    )
+
+    trending_tmdb_ids = set()
+    for media_type in ("movie", "tv"):
+        for result in tmdb_integration.discover(media_type, category="trending").get("results", []):
+            if result.get("tmdb_id") is not None:
+                trending_tmdb_ids.add(str(result["tmdb_id"]))
+    trending_ids = [
+        title_id
+        for title_id, title in watchlist_titles.items()
+        if title.external_ids.get("tmdb") in trending_tmdb_ids
+    ]
+
+    ordered_ids = []
+    for title_id in [*recent_ids, *trending_ids]:
+        if title_id not in ordered_ids:
+            ordered_ids.append(title_id)
+    return [watchlist_titles[title_id] for title_id in ordered_ids[:limit]]
+
+
+def recently_watched(profile, media_types, limit=12):
+    """Dashboard's "Recently watched" row - this profile's own last
+    `limit` distinct titles watched, newest first (a binge of the same
+    show only counts once, at its most recent watch)."""
+    seen_title_ids = set()
+    titles = []
+    qs = (
+        WatchEvent.objects.filter(profile=profile, title__media_type__in=media_types)
+        .select_related("title")
+        .prefetch_related("title__ratings")
+        .order_by("-watched_at")[: limit * 10]
+    )
+    for event in qs:
+        if event.title_id in seen_title_ids:
+            continue
+        seen_title_ids.add(event.title_id)
+        titles.append(event.title)
+        if len(titles) >= limit:
+            break
+    return titles
+
+
+def social_activity(profile, limit=12):
+    """Dashboard's "Social Activity" row - what other profiles in the
+    household have watched most recently, distinct by title (same
+    share_activity privacy flag activity_feed() honors - a profile that
+    opted out is fully absent here too, not just muted). Nothing here
+    is this profile's own history - see recently_watched() for that."""
+    seen_title_ids = set()
+    titles = []
+    qs = (
+        WatchEvent.objects.filter(profile__share_activity=True)
+        .exclude(profile=profile)
+        .select_related("title")
+        .prefetch_related("title__ratings")
+        .order_by("-watched_at")[: limit * 10]
+    )
+    for event in qs:
+        if event.title_id in seen_title_ids:
+            continue
+        seen_title_ids.add(event.title_id)
+        titles.append(event.title)
+        if len(titles) >= limit:
+            break
+    return titles
+
+
 def library_watchlist(profile, media_types):
     """Movies & TV / Anime 'Watchlist' tab — every title on any list visible
     to this profile (own + shared), scoped to the section's media types.

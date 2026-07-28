@@ -6911,7 +6911,21 @@ class DashboardWatchingWatchlistTests(TestCase):
         self.assertContains(resp, "2h 10m")
 
     @patch("tracker.integrations.tmdb.get_similar")
-    def test_because_you_watched_row_rendered_when_present(self, mock_get_similar):
+    def test_because_you_watched_row_is_disabled_for_now(self, mock_get_similar):
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Bleach", year=2004, external_ids={"tmdb": "1", "tmdb_kind": "tv"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        mock_get_similar.return_value = [
+            {"tmdb_id": 42, "media_type": "tv", "name": "Naruto", "year": "2002", "poster_url": None, "vote_average": 8.0}
+        ]
+        resp = self.client.get(reverse("dashboard"))
+        self.assertNotContains(resp, "Because you watched")
+        mock_get_similar.assert_not_called()
+
+    @patch("tracker.views.DASHBOARD_BECAUSE_YOU_WATCHED_ENABLED", True)
+    @patch("tracker.integrations.tmdb.get_similar")
+    def test_because_you_watched_row_rendered_when_re_enabled(self, mock_get_similar):
         title = Title.objects.create(
             media_type=MediaType.TV, name="Bleach", year=2004, external_ids={"tmdb": "1", "tmdb_kind": "tv"}
         )
@@ -6926,6 +6940,59 @@ class DashboardWatchingWatchlistTests(TestCase):
     def test_no_because_you_watched_row_without_qualifying_history(self):
         resp = self.client.get(reverse("dashboard"))
         self.assertNotContains(resp, "Because you watched")
+
+    def test_start_watching_shows_a_watchlist_title_with_a_recent_release(self):
+        from django.utils import timezone
+
+        title = Title.objects.create(media_type=MediaType.TV, name="Recently Released Show", year=2023)
+        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        WatchListItem.objects.create(watchlist=watchlist, title=title)
+        ReleaseSchedule.objects.create(
+            title=title, release_type=ReleaseSchedule.ReleaseType.EPISODE,
+            release_date=timezone.now() - timedelta(days=2),
+        )
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "Start Watching")
+        self.assertContains(resp, "Recently Released Show")
+        self.assertIn(title, resp.context["start_watching"])
+
+    def test_start_watching_excludes_a_title_already_being_watched(self):
+        from django.utils import timezone
+
+        title = Title.objects.create(media_type=MediaType.TV, name="Already Watching Show", year=2023)
+        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        WatchListItem.objects.create(watchlist=watchlist, title=title)
+        ReleaseSchedule.objects.create(
+            title=title, release_type=ReleaseSchedule.ReleaseType.EPISODE,
+            release_date=timezone.now() - timedelta(days=2),
+        )
+        WatchProgress.objects.create(profile=self.profile, title=title, status=WatchProgress.Status.WATCHING)
+        resp = self.client.get(reverse("dashboard"))
+        self.assertNotIn(title, resp.context["start_watching"])
+
+    def test_recently_watched_row_shows_own_history_and_links_to_history_page(self):
+        from django.utils import timezone
+
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Watched Movie", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at=timezone.now())
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "Recently Watched")
+        self.assertContains(resp, "Watched Movie")
+        self.assertContains(resp, f'href="{reverse("history")}"')
+
+    def test_social_activity_shows_other_profiles_recent_watches_not_own(self):
+        from django.utils import timezone
+
+        other_user = User.objects.create_user("dashother", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="DashOther")
+        their_title = Title.objects.create(media_type=MediaType.MOVIE, name="Their Movie", year=2021)
+        WatchEvent.objects.create(profile=other_profile, title=their_title, watched_at=timezone.now())
+        my_title = Title.objects.create(media_type=MediaType.MOVIE, name="My Own Movie", year=2022)
+        WatchEvent.objects.create(profile=self.profile, title=my_title, watched_at=timezone.now())
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "Social Activity")
+        self.assertContains(resp, "Their Movie")
+        self.assertNotIn(my_title, resp.context["social_activity"])
 
     def test_shows_all_watching_items_not_just_a_teaser(self):
         for i in range(10):

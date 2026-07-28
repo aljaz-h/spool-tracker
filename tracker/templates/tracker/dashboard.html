@@ -95,6 +95,49 @@
 
   {% include "tracker/partials/dashboard_featured_lists.html" %}
 
+  {# ---- Start watching: watchlist titles worth surfacing right now (recent release/episode, or trending on TMDB) - see selectors.start_watching(). Replaces "Because you watched" (currently turned off, DASHBOARD_BECAUSE_YOU_WATCHED_ENABLED in views.py). ---- #}
+  {% if start_watching %}
+    <div class="mb-8">
+      <div class="flex justify-between items-center mb-3.5">
+        <h2 class="font-display text-xl">Start Watching</h2>
+      </div>
+      <div class="flex flex-nowrap gap-4 overflow-hidden">
+        {% for title in start_watching %}
+          {% include "tracker/partials/poster_card.html" with title=title show_ratings=True %}
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  {# ---- Recently watched: this profile's own last titles watched, newest first - see selectors.recently_watched(). ---- #}
+  {% if recently_watched %}
+    <div class="mb-8">
+      <div class="flex justify-between items-center mb-3.5">
+        <h2 class="font-display text-xl">Recently Watched</h2>
+        <a href="{% url 'history' %}" class="text-xs text-ink-faint hover:text-ink-dim">History &rarr;</a>
+      </div>
+      <div class="flex flex-nowrap gap-4 overflow-hidden">
+        {% for title in recently_watched %}
+          {% include "tracker/partials/poster_card.html" with title=title show_ratings=True %}
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  {# ---- Social Activity: what other profiles in the household have watched most recently - see selectors.social_activity(). ---- #}
+  {% if social_activity %}
+    <div class="mb-8">
+      <div class="flex justify-between items-center mb-3.5">
+        <h2 class="font-display text-xl">Social Activity</h2>
+      </div>
+      <div class="flex flex-nowrap gap-4 overflow-hidden">
+        {% for title in social_activity %}
+          {% include "tracker/partials/poster_card.html" with title=title show_ratings=True %}
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
   {% if because_you_watched %}
     <div class="dashboard-rule my-9"></div>
 

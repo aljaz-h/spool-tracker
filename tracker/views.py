@@ -70,6 +70,11 @@ COLLECTIONS_CATEGORY = "collections"
 # other piece (tmdb.collections()/get_collection_details(), the view
 # branches, the templates, the tests) is untouched and ready to go.
 COLLECTIONS_ENABLED = False
+# Turned off for now (replaced on Dashboard by "Start watching"/"Recently
+# watched"/"Social Activity") without ripping the feature out -
+# selectors.because_you_watched() and its TMDB call are simply skipped
+# while this is False. Flip back to True to restore the row.
+DASHBOARD_BECAUSE_YOU_WATCHED_ENABLED = False
 # ISO 639-1 codes TMDB's with_original_language accepts - not exhaustive,
 # just the languages common enough in a movie/TV catalog to be worth a
 # dedicated dropdown entry instead of making everyone type a code.
@@ -119,13 +124,28 @@ def dashboard(request):
         watchlist_qs = selectors.library_watchlist(profile, [MediaType.MOVIE, MediaType.TV, MediaType.ANIME])
         watchlist_count = watchlist_qs.count()
         watchlist_items = list(watchlist_qs[:12])
-        because_you_watched = selectors.because_you_watched(profile)
-        all_titles = [item["title"] for item in continue_watching] + [item.title for item in watchlist_items]
+        because_you_watched = (
+            selectors.because_you_watched(profile) if DASHBOARD_BECAUSE_YOU_WATCHED_ENABLED else None
+        )
+        media_types = [MediaType.MOVIE, MediaType.TV, MediaType.ANIME]
+        start_watching = selectors.start_watching(profile, media_types)
+        recently_watched = selectors.recently_watched(profile, media_types)
+        social_activity = selectors.social_activity(profile)
+        all_titles = (
+            [item["title"] for item in continue_watching]
+            + [item.title for item in watchlist_items]
+            + start_watching
+            + recently_watched
+            + social_activity
+        )
         context.update(
             {
                 "continue_watching": continue_watching,
                 "watchlist_items": watchlist_items,
                 "watchlist_count": watchlist_count,
+                "start_watching": start_watching,
+                "recently_watched": recently_watched,
+                "social_activity": social_activity,
                 "up_next": selectors.up_next(profile, limit=4),
                 "stats": stats,
                 "milestone": selectors.milestone_message(stats["streak"], stats["movies_this_year"]),
