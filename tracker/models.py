@@ -83,6 +83,20 @@ class Profile(models.Model):
     # field existed, and still the common case for a single-household,
     # single-timezone instance.
     timezone = models.CharField(max_length=50, blank=True, default="")
+
+    class DiscoverDisplay(models.TextChoices):
+        SHOW = "show", "Show"
+        DIM = "dim", "Dim"
+        HIDE = "hide", "Hide"
+
+    # Settings → Preferences - how Movies & TV/Anime's discover grid renders
+    # a title you've already watched, or already have on your Watchlist
+    # (views._apply_display_modes). A rendering preference over results TMDB
+    # already returned, not a filter criterion - moved off the Filters
+    # panel's querystring (never belonged there conceptually) to a
+    # persisted per-profile preference here instead.
+    discover_watched_display = models.CharField(max_length=4, choices=DiscoverDisplay.choices, default=DiscoverDisplay.SHOW)
+    discover_watchlisted_display = models.CharField(max_length=4, choices=DiscoverDisplay.choices, default=DiscoverDisplay.SHOW)
     # Settings → Privacy - whether this profile's watches/ratings/list-adds
     # appear in the household-wide Activity feed for other profiles
     # (selectors.activity_feed). Only ever shown/relevant with >1 profile

@@ -82,9 +82,6 @@ DISCOVER_LANGUAGES = [
     ("cs", "Czech"), ("el", "Greek"), ("he", "Hebrew"), ("id", "Indonesian"),
     ("vi", "Vietnamese"), ("uk", "Ukrainian"), ("ro", "Romanian"), ("hu", "Hungarian"),
 ]
-# Discover filter panel's "Display" section - Show/Dim/Hide for titles
-# already watched or watchlisted (see _apply_display_modes below).
-DISPLAY_MODES = ("show", "dim", "hide")
 # tmdb.AVAILABILITY_CHOICES' keys, paired with their filter-panel labels.
 DISCOVER_AVAILABILITY_LABELS = [
     ("streaming", "Streaming now"),
@@ -196,14 +193,14 @@ def _discover_int_param(request, name):
 
 def _apply_display_modes(items, discover_watched, discover_list_membership, profile, watched_display, watchlisted_display):
     """Stamps each discover_tile.html item dict with a "display_mode" key
-    ("show"/"dim"/"hide") per the filter panel's Display section - watched
-    comes from discover_watched, watchlisted from membership in *the*
-    auto-managed Watchlist specifically (not any custom list - same
-    distinction completion.py's sync_watchlist_removal already makes via
-    WatchList.is_watchlist). When a title matches both a watched and a
-    watchlisted rule that disagree, hide wins over dim wins over show -
-    either rule alone asking to hide/dim isn't something the other rule
-    being milder should silently override."""
+    ("show"/"dim"/"hide") per Settings → Preferences' Discover display
+    prefs - watched comes from discover_watched, watchlisted from
+    membership in *the* auto-managed Watchlist specifically (not any
+    custom list - same distinction completion.py's sync_watchlist_removal
+    already makes via WatchList.is_watchlist). When a title matches both a
+    watched and a watchlisted rule that disagree, hide wins over dim wins
+    over show - either rule alone asking to hide/dim isn't something the
+    other rule being milder should silently override."""
     if watched_display == "show" and watchlisted_display == "show":
         for item in items:
             item["display_mode"] = "show"
@@ -303,17 +300,12 @@ def discover(request, media_type, category):
     if is_anime:
         filters["origin_country"] = "JP"
 
-    # "Display" panel - Show/Dim/Hide for titles already watched or on the
-    # watchlist. Purely a client-facing presentation choice over results
-    # TMDB already returned, not a TMDB query param (TMDB has no concept of
-    # "watched by this profile"), so it's applied below after the results
-    # come back rather than passed into tmdb.discover().
-    watched_display = request.GET.get("watched_display", "show")
-    if watched_display not in DISPLAY_MODES:
-        watched_display = "show"
-    watchlisted_display = request.GET.get("watchlisted_display", "show")
-    if watchlisted_display not in DISPLAY_MODES:
-        watchlisted_display = "show"
+    # "Display" preference - Show/Dim/Hide for titles already watched or on
+    # the watchlist. A persisted per-profile rendering preference (Settings
+    # → Preferences), not a TMDB query param or a shareable filter -
+    # applied below after TMDB's own results come back.
+    watched_display = profile.discover_watched_display if profile else Profile.DiscoverDisplay.SHOW
+    watchlisted_display = profile.discover_watchlisted_display if profile else Profile.DiscoverDisplay.SHOW
 
     # TMDB refuses page requests beyond 500 regardless of total_pages.
     page_num = min(_discover_int_param(request, "page") or 1, 500)
@@ -2428,9 +2420,10 @@ def demote_from_owner(request, profile_id):
 @require_POST
 def save_appearance(request):
     """One endpoint for every Appearance control (time format, default
-    landing page, preferred language) - each field only touches update_fields
-    it actually received, so any single control's htmx submit (they each
-    post independently, on change) leaves the others untouched."""
+    landing page, preferred language, Discover watched/watchlisted display)
+    - each field only touches update_fields it actually received, so any
+    single control's htmx submit (they each post independently, on change)
+    leaves the others untouched."""
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
@@ -2453,6 +2446,14 @@ def save_appearance(request):
         if tzname == "" or tzname in PROFILE_TIMEZONES:
             profile.timezone = tzname
             update_fields.append("timezone")
+    watched_display = request.POST.get("discover_watched_display")
+    if watched_display in Profile.DiscoverDisplay.values:
+        profile.discover_watched_display = watched_display
+        update_fields.append("discover_watched_display")
+    watchlisted_display = request.POST.get("discover_watchlisted_display")
+    if watchlisted_display in Profile.DiscoverDisplay.values:
+        profile.discover_watchlisted_display = watchlisted_display
+        update_fields.append("discover_watchlisted_display")
     if "gemini_api_key" in request.POST:
         profile.gemini_api_key = request.POST.get("gemini_api_key", "").strip()
         update_fields.append("gemini_api_key")

@@ -46,7 +46,7 @@
           <label for="filters-drawer" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
             {% icon "filter" "w-3.5 h-3.5" %}
             Filters
-            {% if selected_genres or request.GET.year_from or request.GET.year_to or request.GET.runtime_from or request.GET.runtime_to or request.GET.rating_from or request.GET.rating_to or selected_language or selected_certification or selected_status or selected_availability or watched_display != "show" or watchlisted_display != "show" %}
+            {% if selected_genres or request.GET.year_from or request.GET.year_to or request.GET.runtime_from or request.GET.runtime_to or request.GET.rating_from or request.GET.rating_to or selected_language or selected_certification or selected_status or selected_availability %}
               <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
             {% endif %}
           </label>
@@ -112,113 +112,111 @@
         >
           <input type="hidden" name="type" value="{{ media_type }}">
 
-          <div class="pb-5 border-b border-line">
-            <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Genres</div>
-            <div class="flex flex-wrap gap-1.5">
-              {% for g in genres %}
-                <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
-                  <input type="checkbox" name="genre" value="{{ g.id }}" class="sr-only" {% if g.id in selected_genres %}checked{% endif %}>
-                  {{ g.name }}
-                </label>
-              {% endfor %}
+          <details open class="group">
+            <summary class="flex items-center justify-between cursor-pointer list-none [&::-webkit-details-marker]:hidden py-1">
+              <span class="text-[13px] font-bold text-base-content uppercase tracking-wide">Discover</span>
+              {% icon "chevron-down" "w-4 h-4 text-ink-dim transition-transform group-open:rotate-180" %}
+            </summary>
+            <div class="flex flex-col gap-5 mt-3 pb-5 border-b border-line">
+
+              <div>
+                <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Genres</div>
+                <details {% if selected_genres %}open{% endif %}>
+                  <summary class="btn btn-sm bg-base-100 border-line font-normal inline-flex w-auto list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+                    {% if selected_genres %}{{ selected_genres|length }} selected{% else %}Any genre{% endif %} <span class="text-ink-faint">&#9662;</span>
+                  </summary>
+                  <div class="relative mt-2">
+                    <div class="flex flex-wrap gap-1.5 max-h-64 overflow-y-auto p-2 border border-line rounded-lg bg-base-100">
+                      {% for g in genres %}
+                        <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                          <input type="checkbox" name="genre" value="{{ g.id }}" class="sr-only" {% if g.id in selected_genres %}checked{% endif %}>
+                          {{ g.name }}
+                        </label>
+                      {% endfor %}
+                    </div>
+                    <div class="pointer-events-none absolute inset-x-1 bottom-1 h-5 rounded-b-lg bg-gradient-to-t from-base-100 to-transparent"></div>
+                  </div>
+                </details>
+              </div>
+
+              {% include "tracker/partials/dual_range_slider.html" with label="Year" name_from="year_from" name_to="year_to" min=1950 max=max_year from_var="yearFrom" to_var="yearTo" suffix="" %}
+              {% include "tracker/partials/dual_range_slider.html" with label="Runtime" name_from="runtime_from" name_to="runtime_to" min=0 max=400 step=5 from_var="runtimeFrom" to_var="runtimeTo" suffix="m" %}
+              {% include "tracker/partials/dual_range_slider.html" with label="Rating" name_from="rating_from" name_to="rating_to" min=0 max=10 step=0.1 from_var="ratingFrom" to_var="ratingTo" suffix="" %}
+
             </div>
-          </div>
+          </details>
 
-          <div class="pb-5 border-b border-line">
-            {% include "tracker/partials/dual_range_slider.html" with label="Year" name_from="year_from" name_to="year_to" min=1950 max=max_year from_var="yearFrom" to_var="yearTo" suffix="" %}
-          </div>
+          <details {% if selected_language or selected_availability or selected_certification or selected_status %}open{% endif %} class="group">
+            <summary class="flex items-center justify-between cursor-pointer list-none [&::-webkit-details-marker]:hidden py-1">
+              <span class="text-[13px] font-semibold text-ink-dim uppercase tracking-wide">Access</span>
+              {% icon "chevron-down" "w-4 h-4 text-ink-dim transition-transform group-open:rotate-180" %}
+            </summary>
+            <div class="flex flex-col gap-5 mt-3">
 
-          <div class="pb-5 border-b border-line">
-            {% include "tracker/partials/dual_range_slider.html" with label="Runtime" name_from="runtime_from" name_to="runtime_to" min=0 max=400 step=5 from_var="runtimeFrom" to_var="runtimeTo" suffix="m" %}
-          </div>
-
-          <div class="pb-5 border-b border-line">
-            {% include "tracker/partials/dual_range_slider.html" with label="Rating" name_from="rating_from" name_to="rating_to" min=0 max=10 step=0.1 from_var="ratingFrom" to_var="ratingTo" suffix="" %}
-          </div>
-
-          <div class="pb-5 border-b border-line">
-            <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Language</div>
-            <select name="language" class="select select-sm w-full bg-base-100 focus:outline-primary">
-              <option value="">Any language</option>
-              {% for code, name in languages %}
-                <option value="{{ code }}" {% if selected_language == code %}selected{% endif %}>{{ name }}</option>
-              {% endfor %}
-            </select>
-          </div>
-
-          <div class="pb-5 border-b border-line">
-            {% comment %}
-              Both media types - TMDB's watch-provider data (see
-              tmdb.AVAILABILITY_CHOICES). Region is fixed to US (see
-              tmdb.AVAILABILITY_WATCH_REGION) - no per-profile region
-              setting exists yet.
-            {% endcomment %}
-            <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Availability</div>
-            <select name="availability" class="select select-sm w-full bg-base-100 focus:outline-primary">
-              <option value="">Any</option>
-              {% for value, availability_label in availability_choices %}
-                <option value="{{ value }}" {% if selected_availability == value %}selected{% endif %}>{{ availability_label }}</option>
-              {% endfor %}
-            </select>
-          </div>
-
-          {% if media_type == "movie" %}
-            {% comment %}
-              Movies only - TMDB's /discover/tv has no certification
-              filter param at all (see tmdb.MOVIE_CERTIFICATIONS), so
-              this isn't shown for TV or Anime (always tv under the
-              hood) rather than rendering a filter that would silently
-              do nothing.
-            {% endcomment %}
-            <div class="pb-5 border-b border-line">
-              <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Age Rating</div>
-              <select name="certification" class="select select-sm w-full bg-base-100 focus:outline-primary">
-                <option value="">Any rating</option>
-                {% for cert in certifications %}
-                  <option value="{{ cert }}" {% if selected_certification == cert %}selected{% endif %}>{{ cert }}</option>
-                {% endfor %}
-              </select>
-            </div>
-          {% else %}
-            {% comment %}
-              TV/Anime only - mirror image of Age Rating above, since
-              /discover/movie has no status-filter equivalent at all
-              (see tmdb.TV_STATUSES).
-            {% endcomment %}
-            <div class="pb-5 border-b border-line">
-              <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Status</div>
-              <select name="status" class="select select-sm w-full bg-base-100 focus:outline-primary">
-                <option value="">Any status</option>
-                {% for status_value in tv_statuses %}
-                  <option value="{{ status_value }}" {% if selected_status == status_value %}selected{% endif %}>{{ status_value }}</option>
-                {% endfor %}
-              </select>
-            </div>
-          {% endif %}
-
-          <div>
-            <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Display</div>
-            <div class="flex flex-col gap-2.5">
-              <div class="flex items-center justify-between gap-3">
-                <span class="text-xs text-ink-dim">Watched</span>
-                <select name="watched_display" class="select select-sm w-32 bg-base-100 focus:outline-primary">
-                  <option value="show" {% if watched_display == "show" %}selected{% endif %}>Show</option>
-                  <option value="dim" {% if watched_display == "dim" %}selected{% endif %}>Dim</option>
-                  <option value="hide" {% if watched_display == "hide" %}selected{% endif %}>Hide</option>
+              <div>
+                <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Language</div>
+                <select name="language" class="select select-sm w-full bg-base-100 focus:outline-primary">
+                  <option value="">Any language</option>
+                  {% for code, name in languages %}
+                    <option value="{{ code }}" {% if selected_language == code %}selected{% endif %}>{{ name }}</option>
+                  {% endfor %}
                 </select>
               </div>
-              <div class="flex items-center justify-between gap-3">
-                <span class="text-xs text-ink-dim">Watchlisted</span>
-                <select name="watchlisted_display" class="select select-sm w-32 bg-base-100 focus:outline-primary">
-                  <option value="show" {% if watchlisted_display == "show" %}selected{% endif %}>Show</option>
-                  <option value="dim" {% if watchlisted_display == "dim" %}selected{% endif %}>Dim</option>
-                  <option value="hide" {% if watchlisted_display == "hide" %}selected{% endif %}>Hide</option>
+
+              <div>
+                {% comment %}
+                  Both media types - TMDB's watch-provider data (see
+                  tmdb.AVAILABILITY_CHOICES). Region is fixed to US (see
+                  tmdb.AVAILABILITY_WATCH_REGION) - no per-profile region
+                  setting exists yet.
+                {% endcomment %}
+                <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Availability</div>
+                <select name="availability" class="select select-sm w-full bg-base-100 focus:outline-primary">
+                  <option value="">Any</option>
+                  {% for value, availability_label in availability_choices %}
+                    <option value="{{ value }}" {% if selected_availability == value %}selected{% endif %}>{{ availability_label }}</option>
+                  {% endfor %}
                 </select>
               </div>
-            </div>
-          </div>
 
-          <div class="flex items-center gap-3 pt-1">
+              {% if media_type == "movie" %}
+                {% comment %}
+                  Movies only - TMDB's /discover/tv has no certification
+                  filter param at all (see tmdb.MOVIE_CERTIFICATIONS), so
+                  this isn't shown for TV or Anime (always tv under the
+                  hood) rather than rendering a filter that would silently
+                  do nothing.
+                {% endcomment %}
+                <div>
+                  <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Age Rating</div>
+                  <select name="certification" class="select select-sm w-full bg-base-100 focus:outline-primary">
+                    <option value="">Any rating</option>
+                    {% for cert in certifications %}
+                      <option value="{{ cert }}" {% if selected_certification == cert %}selected{% endif %}>{{ cert }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+              {% else %}
+                {% comment %}
+                  TV/Anime only - mirror image of Age Rating above, since
+                  /discover/movie has no status-filter equivalent at all
+                  (see tmdb.TV_STATUSES).
+                {% endcomment %}
+                <div>
+                  <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Status</div>
+                  <select name="status" class="select select-sm w-full bg-base-100 focus:outline-primary">
+                    <option value="">Any status</option>
+                    {% for status_value in tv_statuses %}
+                      <option value="{{ status_value }}" {% if selected_status == status_value %}selected{% endif %}>{{ status_value }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+              {% endif %}
+
+            </div>
+          </details>
+
+          <div class="sticky bottom-0 -mx-5 -mb-5 px-5 pb-5 pt-4 bg-base-300 border-t border-line flex items-center gap-3 shadow-[0_-8px_16px_-4px_rgba(0,0,0,0.35)]">
             <button type="submit" class="btn btn-sm btn-primary flex-1">Apply filters</button>
             <a href="?type={{ media_type }}" class="btn btn-sm btn-ghost">Clear all</a>
           </div>

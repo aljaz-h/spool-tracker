@@ -246,6 +246,26 @@
           </select>
           <div class="text-[10.5px] text-ink-faint mt-1.5">Your own timezone for times shown across the app - useful if you're not in the same timezone as the server.</div>
         </form>
+
+        <div class="text-ink-dim text-xs mt-4 mb-2">Discover: watched titles</div>
+        <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
+          <select name="discover_watched_display" class="select select-sm w-full bg-base-100 focus:outline-primary">
+            <option value="show" {% if profile.discover_watched_display == "show" %}selected{% endif %}>Show</option>
+            <option value="dim" {% if profile.discover_watched_display == "dim" %}selected{% endif %}>Dim</option>
+            <option value="hide" {% if profile.discover_watched_display == "hide" %}selected{% endif %}>Hide</option>
+          </select>
+          <div class="text-[10.5px] text-ink-faint mt-1.5">How Movies &amp; TV/Anime results you've already watched are rendered.</div>
+        </form>
+
+        <div class="text-ink-dim text-xs mt-4 mb-2">Discover: watchlisted titles</div>
+        <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
+          <select name="discover_watchlisted_display" class="select select-sm w-full bg-base-100 focus:outline-primary">
+            <option value="show" {% if profile.discover_watchlisted_display == "show" %}selected{% endif %}>Show</option>
+            <option value="dim" {% if profile.discover_watchlisted_display == "dim" %}selected{% endif %}>Dim</option>
+            <option value="hide" {% if profile.discover_watchlisted_display == "hide" %}selected{% endif %}>Hide</option>
+          </select>
+          <div class="text-[10.5px] text-ink-faint mt-1.5">How Movies &amp; TV/Anime results already on your Watchlist are rendered.</div>
+        </form>
       </div>
 
       {# ==================== NOTIFICATIONS ==================== #}

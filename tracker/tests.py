@@ -2218,6 +2218,26 @@ class SaveAppearanceViewTests(TestCase):
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.time_format, Profile.TimeFormat.H12)
 
+    def test_saves_discover_watched_display(self):
+        self.client.post(reverse("save_appearance"), {"discover_watched_display": "dim"})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.discover_watched_display, "dim")
+
+    def test_invalid_discover_watched_display_is_ignored(self):
+        self.client.post(reverse("save_appearance"), {"discover_watched_display": "bogus"})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.discover_watched_display, Profile.DiscoverDisplay.SHOW)
+
+    def test_saves_discover_watchlisted_display(self):
+        self.client.post(reverse("save_appearance"), {"discover_watchlisted_display": "hide"})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.discover_watchlisted_display, "hide")
+
+    def test_invalid_discover_watchlisted_display_is_ignored(self):
+        self.client.post(reverse("save_appearance"), {"discover_watchlisted_display": "bogus"})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.discover_watchlisted_display, Profile.DiscoverDisplay.SHOW)
+
     def test_saves_default_landing_page(self):
         self.client.post(reverse("save_appearance"), {"default_landing_page": "stats"})
         self.profile.refresh_from_db()
@@ -6435,6 +6455,8 @@ class DiscoverViewTests(TestCase):
     @patch("tracker.integrations.tmdb.discover")
     def test_watched_display_hide_removes_the_tile(self, mock_discover, mock_genres):
         profile = Profile.objects.get(display_name="DiscoverViewer")
+        profile.discover_watched_display = "hide"
+        profile.save(update_fields=["discover_watched_display"])
         title = Title.objects.create(
             media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
         )
@@ -6445,13 +6467,15 @@ class DiscoverViewTests(TestCase):
             "page": 1,
             "total_pages": 1,
         }
-        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"watched_display": "hide"})
+        resp = self.client.get(reverse("movies_tv", args=["popular"]))
         self.assertNotContains(resp, "Fathom")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
     def test_watched_display_dim_keeps_the_tile_with_a_lowered_opacity_class(self, mock_discover, mock_genres):
         profile = Profile.objects.get(display_name="DiscoverViewer")
+        profile.discover_watched_display = "dim"
+        profile.save(update_fields=["discover_watched_display"])
         title = Title.objects.create(
             media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
         )
@@ -6462,7 +6486,7 @@ class DiscoverViewTests(TestCase):
             "page": 1,
             "total_pages": 1,
         }
-        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"watched_display": "dim"})
+        resp = self.client.get(reverse("movies_tv", args=["popular"]))
         self.assertContains(resp, "Fathom")
         self.assertContains(resp, "opacity-25")
 
@@ -6470,6 +6494,8 @@ class DiscoverViewTests(TestCase):
     @patch("tracker.integrations.tmdb.discover")
     def test_watchlisted_display_hide_removes_the_tile(self, mock_discover, mock_genres):
         profile = Profile.objects.get(display_name="DiscoverViewer")
+        profile.discover_watchlisted_display = "hide"
+        profile.save(update_fields=["discover_watchlisted_display"])
         title = Title.objects.create(
             media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
         )
@@ -6481,7 +6507,7 @@ class DiscoverViewTests(TestCase):
             "page": 1,
             "total_pages": 1,
         }
-        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"watchlisted_display": "hide"})
+        resp = self.client.get(reverse("movies_tv", args=["popular"]))
         self.assertNotContains(resp, "Fathom")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
@@ -6490,6 +6516,8 @@ class DiscoverViewTests(TestCase):
         # Only the auto-managed Watchlist (is_watchlist=True) counts as
         # "watchlisted" for this filter - a custom list shouldn't trigger it.
         profile = Profile.objects.get(display_name="DiscoverViewer")
+        profile.discover_watchlisted_display = "hide"
+        profile.save(update_fields=["discover_watchlisted_display"])
         title = Title.objects.create(
             media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
         )
@@ -6501,15 +6529,28 @@ class DiscoverViewTests(TestCase):
             "page": 1,
             "total_pages": 1,
         }
-        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"watchlisted_display": "hide"})
+        resp = self.client.get(reverse("movies_tv", args=["popular"]))
         self.assertContains(resp, "Fathom")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
-    def test_invalid_display_value_falls_back_to_show(self, mock_discover, mock_genres):
+    def test_a_non_default_display_preference_alone_does_not_light_up_the_filters_dot(self, mock_discover, mock_genres):
+        # Display moved off the Filters panel entirely (Settings ->
+        # Preferences now) - the panel's own active-filter dot shouldn't
+        # react to it anymore.
+        profile = Profile.objects.get(display_name="DiscoverViewer")
+        profile.discover_watched_display = "hide"
+        profile.save(update_fields=["discover_watched_display"])
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"watched_display": "bogus"})
-        self.assertEqual(resp.context["watched_display"], "show")
+        resp = self.client.get(reverse("movies_tv", args=["trending"]))
+        self.assertNotContains(resp, 'w-1.5 h-1.5 rounded-full bg-primary')
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_an_active_genre_filter_lights_up_the_filters_dot(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies_tv", args=["trending"]), {"genre": ["28"]})
+        self.assertContains(resp, 'w-1.5 h-1.5 rounded-full bg-primary')
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")

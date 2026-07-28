@@ -8,6 +8,23 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.52.0] - 2026-07-28
+
+### Changed
+
+- Redesigned the Movies & TV/Anime "Filters" drawer: Genres/Year/Runtime/
+  Rating and Language/Availability/Age Rating now live in two collapsible
+  "Discover"/"Access" sections instead of one long flat list, genres get
+  their own scrollable chip well again (with a fade-out hint when there's
+  more below), and Apply/Clear now stay pinned to the bottom of the drawer
+  while scrolling instead of requiring a trip back down after every
+  adjustment.
+- Moved the "Display" (Watched/Watchlisted: Show/Dim/Hide) controls out of
+  the Filters drawer entirely, into Settings → Preferences as a persisted
+  per-profile preference. It changes how already-returned results render,
+  not which titles come back, so it never belonged alongside real filters -
+  it's now remembered across visits instead of resetting with every Clear.
+
 ## [0.51.0] - 2026-07-27
 
 ### Added
