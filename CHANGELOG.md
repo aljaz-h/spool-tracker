@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.54.3] - 2026-07-28
+
+### Fixed
+
+- Moved the bold "·" divider on the title detail page - it now sits
+  between the rating/language tags and the genre list, not between the
+  rating and language tags themselves.
+
 ## [0.54.2] - 2026-07-28
 
 ### Changed

@@ -53,8 +53,8 @@
         {% if details.certification or details.original_language or details.genres %}
           <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-dim mt-2 font-mono">
             {% if details.certification %}<span class="px-1.5 py-0.5 rounded border border-line bg-base-300/60 text-[10.5px] uppercase tracking-wide">{{ details.certification }}</span>{% endif %}
-            {% if details.certification and details.original_language %}<span class="font-bold">·</span>{% endif %}
             {% if details.original_language %}<span class="px-1.5 py-0.5 rounded border border-line bg-base-300/60 text-[10.5px] uppercase tracking-wide">{{ details.original_language }}</span>{% endif %}
+            {% if details.genres and details.certification %}<span class="font-bold">·</span>{% elif details.genres and details.original_language %}<span class="font-bold">·</span>{% endif %}
             {% if details.genres %}<span>{{ details.genres|join:", " }}</span>{% endif %}
           </div>
         {% endif %}
