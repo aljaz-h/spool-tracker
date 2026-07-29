@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.56.7] - 2026-07-29
+
+### Changed
+
+- Finished matching the Stats page hero card to the mockup: movies-watched
+  and shows-completed are now two separate icon-badged items (a new
+  vendored `tv` icon alongside the existing `clapperboard`), each past its
+  own divider, instead of one combined "2041 / 95" line.
+
 ## [0.56.6] - 2026-07-29
 
 ### Changed

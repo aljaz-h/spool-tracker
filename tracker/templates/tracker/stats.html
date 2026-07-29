@@ -1,5 +1,5 @@
 {% extends "tracker/base.html" %}
-{% load tracker_extras %}
+{% load tracker_extras icons %}
 {% block title %}Stats · Spool{% endblock %}
 {% block content %}
 
@@ -28,9 +28,23 @@
           <div class="text-xs text-ink-faint mt-2">Personal best <span class="text-ink-dim underline decoration-dotted underline-offset-2">{{ longest_streak }} days</span></div>
         {% endif %}
       </div>
-      <div class="pl-8 border-l border-line">
-        <div class="font-display text-3xl text-accent">{{ movies_watched }} / {{ shows_completed }}</div>
-        <div class="text-xs text-ink-dim">Movies watched ({{ movies_plays }} plays) / Shows completed</div>
+      <div class="pl-8 border-l border-line flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-primary/15 text-primary flex items-center justify-center flex-none">
+          {% icon "clapperboard" "w-4.5 h-4.5" %}
+        </div>
+        <div>
+          <div class="font-display text-2xl text-primary leading-none">{{ movies_watched }}</div>
+          <div class="text-xs text-ink-dim mt-1">Movies watched <span class="text-ink-faint">({{ movies_plays }} plays)</span></div>
+        </div>
+      </div>
+      <div class="pl-8 border-l border-line flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-accent/15 text-accent flex items-center justify-center flex-none">
+          {% icon "tv" "w-4.5 h-4.5" %}
+        </div>
+        <div>
+          <div class="font-display text-2xl text-accent leading-none">{{ shows_completed }}</div>
+          <div class="text-xs text-ink-dim mt-1">Shows completed</div>
+        </div>
       </div>
     </div>
 
