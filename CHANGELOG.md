@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.56.5] - 2026-07-29
+
+### Changed
+
+- Reworked the profile popup's streak card: the day-streak dial (a small
+  ring with the number boxed inside) is now a bold typographic headline —
+  no shape, just scale and weight, matching the app's poster-title type.
+  "Longest streak" moved from its own stat tile to a "Personal best N days"
+  line under the headline; movies-watched/shows-completed and total watch
+  time now sit below a divider as a clean 2-column row.
+
 ## [0.56.4] - 2026-07-29
 
 ### Changed

@@ -4372,7 +4372,7 @@ class ProfilePopupViewTests(TestCase):
 
     def test_shows_stats_overview_labels_matching_the_main_stats_page(self):
         resp = self.client.get(reverse("profile_popup", args=[self.target.id]))
-        self.assertContains(resp, "Longest streak (days)")
+        self.assertContains(resp, "Personal best")
         self.assertContains(resp, "Movies watched / Shows completed")
         self.assertContains(resp, "Total watch time")
 
