@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.56.8] - 2026-07-29
+
+### Changed
+
+- Stats page hero card's streak/movies/shows items now spread across the
+  full width of the card (`justify-between`) instead of clumping on the
+  left with dead space before the "Last 30 days" column.
+
 ## [0.56.7] - 2026-07-29
 
 ### Changed
