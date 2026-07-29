@@ -1,12 +1,52 @@
-# Spool
+<p align="center">
+  <img src="docs/images/banner.png" alt="Spool" width="640">
+</p>
 
-A self-hosted media tracker for movies, TV, and anime — a Trakt/Simkl/Yamtrack
-alternative you run yourself. Django + Postgres + Redis/Celery, server-rendered
-with HTMX, shipped as a five-container Docker Compose stack.
+<p align="center">
+  <a href="https://github.com/aljaz-h/spool-tracker/actions/workflows/docker-publish.yml"><img src="https://github.com/aljaz-h/spool-tracker/actions/workflows/docker-publish.yml/badge.svg" alt="Docker image build status"></a>
+  <img src="https://img.shields.io/badge/Django-5.1-0C4B33?logo=django&logoColor=white" alt="Django 5.1">
+  <img src="https://img.shields.io/badge/docker-compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose">
+</p>
 
-Multiple household members can each get their own profile, watch history,
-lists, and stats on one instance. History can be logged manually, imported
-from a CSV export, or synced automatically from a connected Trakt or Simkl
+<p align="center">
+  Track what your household watches — movies, TV, and anime — on your own
+  server, not someone else's. A self-hosted Trakt/Simkl/Yamtrack
+  alternative: Django + Postgres + Redis/Celery, server-rendered with HTMX,
+  shipped as a five-container Docker Compose stack you can be running in
+  under five minutes.
+</p>
+
+## Contents
+
+- [Screenshots](#screenshots)
+- [Features](#features)
+- [Quick start](#quick-start-docker-compose)
+- [Deploying without cloning the repo](#deploying-without-cloning-the-repo-pre-built-image)
+- [Configuration reference](#configuration-reference)
+- [Posters](#posters)
+- [Connecting Trakt / Simkl](#connecting-trakt--simkl)
+- [Importing a CSV](#importing-a-csv)
+- [Updating](#updating)
+- [Backups](#backups)
+- [Known limitations](#known-limitations)
+- [Local development](#local-development-without-docker)
+- [Contributing](#contributing)
+
+## Screenshots
+
+Every screenshot below is a real render of the app against seeded demo
+data (`manage.py seed_demo`) — nothing mocked up.
+
+|  |  |
+|---|---|
+| ![Dashboard](docs/images/screenshots/dashboard.png) Dashboard — streak, up next, watching, watchlist | ![Movies & TV](docs/images/screenshots/discover.png) Movies & TV — trending/popular/upcoming/top rated, live from TMDB |
+| ![Title detail](docs/images/screenshots/title-detail.png) Title detail — cast, lists, recommend-to-a-housemate | ![Stats](docs/images/screenshots/stats.png) Stats — streaks, genre breakdown, watch time |
+
+<p align="center"><img src="docs/images/screenshots/calendar.png" alt="Calendar" width="720"><br>Calendar — episodes, season premieres, and movie releases from what you're watching and your watchlists</p>
+
+A household member can each get their own profile, watch history, lists,
+and stats on one instance. History can be logged manually, imported from
+a CSV export, or synced automatically from a connected Trakt or Simkl
 account.
 
 ## Features
@@ -28,6 +68,25 @@ This is the whole install — there's no separate app-server setup.
 ```bash
 git clone https://github.com/aljaz-h/spool-tracker.git
 cd spool-tracker
+```
+
+**Fastest path** — `setup.sh` (Linux/Mac) or `setup.ps1` (Windows) writes a
+working `.env` for you (random `DJANGO_SECRET_KEY`/`DB_PASSWORD`, prompts
+for the hostname you'll browse Spool through) and brings the stack up:
+
+```bash
+./setup.sh
+```
+```powershell
+.\setup.ps1
+```
+
+It's safe to re-run — it never overwrites an existing `.env`. Skip ahead to
+[First login](#first-login) once it finishes.
+
+**Or configure manually:**
+
+```bash
 cp .env.example .env
 ```
 
@@ -271,3 +330,14 @@ python manage.py runserver
 Celery/Redis-dependent features (Trakt/Simkl sync) won't run without a
 Redis instance and a `celery -A spool worker` process alongside the dev
 server; everything else works against just `runserver` + sqlite.
+
+Want the app populated with realistic demo data instead of an empty
+account (handy for trying features out, or for taking your own
+screenshots)? `python manage.py seed_demo` — refuses to touch anything
+outside `DEBUG=True` on purpose, see its `--help`.
+
+## Contributing
+
+Bug reports, feature requests, and PRs are welcome — see
+[CONTRIBUTING.md](CONTRIBUTING.md) for dev setup and expectations, and
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community guidelines.

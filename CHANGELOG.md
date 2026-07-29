@@ -8,6 +8,29 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.57.0] - 2026-07-30
+
+### Added
+
+- `manage.py seed_demo` — populates a disposable dev database with
+  realistic demo data (a profile with weeks of watch history, lists, a
+  watchlist, and upcoming releases). Refuses to run outside `DEBUG` unless
+  `--force` is passed, since it's throwaway data never meant for a real
+  instance.
+- `setup.sh` / `setup.ps1` — one-shot install scripts that write a working
+  `.env` (random `DJANGO_SECRET_KEY`/`DB_PASSWORD`, prompted hostname) and
+  bring the Docker Compose stack up, so a new user doesn't have to
+  hand-edit `.env` just to get started.
+- `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`.
+- A GitHub Pages landing page (`docs/index.html`) and a banner + real
+  screenshots (`docs/images/`) captured against `seed_demo` data.
+
+### Changed
+
+- `README.md` rewritten with a banner, badge row, table of contents, a
+  Screenshots section, and the new setup scripts as the lead install path
+  — content/instructions otherwise unchanged.
+
 ## [0.56.8] - 2026-07-29
 
 ### Changed

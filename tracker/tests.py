@@ -5007,6 +5007,64 @@ class BackfillPostersCommandTests(TestCase):
         self.assertTrue(title.poster_url)
 
 
+class SeedDemoCommandTests(TestCase):
+    """seed_demo - throwaway dev/screenshot data, never meant to touch a
+    real instance, hence the DEBUG guard below."""
+
+    def _mock_details(self, genres=None, runtime=100):
+        return {"genres": genres or ["Drama"], "runtime": runtime}
+
+    @override_settings(DEBUG=False)
+    def test_refuses_to_run_outside_debug_without_force(self):
+        from django.core.management import CommandError, call_command
+
+        with self.assertRaises(CommandError):
+            call_command("seed_demo")
+        self.assertFalse(Profile.objects.exists())
+
+    @override_settings(DEBUG=False)
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.find_match")
+    def test_force_runs_outside_debug(self, mock_find_match, mock_details):
+        from django.core.management import call_command
+
+        mock_find_match.return_value = {"id": 1, "kind": "movie", "poster_url": None}
+        mock_details.return_value = self._mock_details()
+        call_command("seed_demo", "--force")
+        self.assertTrue(Profile.objects.filter(display_name="Demo").exists())
+
+    @override_settings(DEBUG=True)
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.find_match")
+    def test_creates_demo_and_alex_profiles_with_watch_history(self, mock_find_match, mock_details):
+        from django.core.management import call_command
+
+        mock_find_match.return_value = {"id": 1, "kind": "movie", "poster_url": "https://image.tmdb.org/t/p/w500/x.jpg"}
+        mock_details.return_value = self._mock_details()
+        call_command("seed_demo")
+
+        demo = Profile.objects.get(display_name="Demo")
+        self.assertTrue(Profile.objects.filter(display_name="Alex").exists())
+        self.assertGreater(WatchEvent.objects.filter(profile=demo).count(), 0)
+        self.assertEqual(selectors.current_streak(demo), 7)
+        self.assertEqual(selectors.longest_streak(demo), 18)
+        self.assertTrue(WatchList.objects.filter(profile=demo, is_watchlist=True).exists())
+        self.assertTrue(WatchList.objects.filter(profile=demo, is_shared=True, is_featured=True).exists())
+        self.assertTrue(ReleaseSchedule.objects.exists())
+
+    @override_settings(DEBUG=True)
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.find_match")
+    def test_running_twice_skips_instead_of_duplicating(self, mock_find_match, mock_details):
+        from django.core.management import call_command
+
+        mock_find_match.return_value = {"id": 1, "kind": "movie", "poster_url": None}
+        mock_details.return_value = self._mock_details()
+        call_command("seed_demo")
+        call_command("seed_demo")
+        self.assertEqual(Profile.objects.filter(display_name="Demo").count(), 1)
+
+
 class AttachGenresTests(TestCase):
     """attach_genres() - shared by every import path (Trakt/Simkl/CSV,
     the discover/preview materialize flow, and the backfill_genres
