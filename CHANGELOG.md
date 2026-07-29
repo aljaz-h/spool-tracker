@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.56.6] - 2026-07-29
+
+### Changed
+
+- Applied the same streak treatment to the Stats page's hero card: the
+  150px dial is gone, replaced by a bold typographic headline ("Personal
+  best N days" now sits under the number instead of in its own tile), with
+  movies-watched/shows-completed alongside it past a divider.
+
 ## [0.56.5] - 2026-07-29
 
 ### Changed

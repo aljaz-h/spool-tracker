@@ -18,18 +18,19 @@
   {% else %}
 
   <div class="bg-base-200 border border-line rounded-2xl grid grid-cols-1 lg:grid-cols-[1.7fr_1fr_1fr] divide-y lg:divide-y-0 lg:divide-x divide-line">
-    <div class="min-w-0 grid grid-cols-1 md:grid-cols-[190px_1fr] gap-6 items-center p-6">
-      <div class="flex justify-center">
-        <div class="relative w-[150px] h-[150px] rounded-full" style="background: conic-gradient(var(--color-primary) calc({{ dial_pct }}*1%), var(--color-base-300) 0)">
-          <div class="absolute inset-3.5 rounded-full bg-base-200 flex flex-col items-center justify-center">
-            <div class="font-display text-4xl text-primary leading-none">{{ current_streak }}</div>
-            <div class="text-[10px] text-ink-dim uppercase tracking-wide mt-1">day streak</div>
-          </div>
+    <div class="min-w-0 flex flex-wrap items-center gap-8 p-6">
+      <div>
+        <div class="flex items-baseline gap-2.5">
+          <span class="font-display text-7xl text-primary leading-none">{{ current_streak }}</span>
+          <span class="font-display text-sm text-ink-dim uppercase tracking-wide">day streak</span>
         </div>
+        {% if longest_streak %}
+          <div class="text-xs text-ink-faint mt-2">Personal best <span class="text-ink-dim underline decoration-dotted underline-offset-2">{{ longest_streak }} days</span></div>
+        {% endif %}
       </div>
-      <div class="grid grid-cols-2 gap-4.5">
-        <div><div class="font-display text-3xl text-primary">{{ longest_streak }}</div><div class="text-xs text-ink-dim">Longest streak (days)</div></div>
-        <div><div class="font-display text-3xl text-accent">{{ movies_watched }} / {{ shows_completed }}</div><div class="text-xs text-ink-dim">Movies watched ({{ movies_plays }} plays) / Shows completed</div></div>
+      <div class="pl-8 border-l border-line">
+        <div class="font-display text-3xl text-accent">{{ movies_watched }} / {{ shows_completed }}</div>
+        <div class="text-xs text-ink-dim">Movies watched ({{ movies_plays }} plays) / Shows completed</div>
       </div>
     </div>
 
