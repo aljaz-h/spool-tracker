@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.56.3] - 2026-07-29
+
+### Changed
+
+- Stats page's "Combined" rows (Last 30 days and All time) now lead
+  with a whole rounded day count and show the precise hour/minute
+  figure in parentheses - "8 days (≈ 198h)" instead of
+  "198h (≈ 8.2 days)". Days round to the nearest whole day (430.6
+  rounds up to 431, not down to 430).
+
 ## [0.56.2] - 2026-07-29
 
 ### Changed

@@ -4902,8 +4902,21 @@ class WatchTimeBreakdownTests(TestCase):
 
     def test_empty_profile_combined_is_zero(self):
         breakdown = selectors.watch_time_breakdown(self.profile)
-        self.assertEqual(breakdown["last_30_days"]["combined"], {"hours": 0, "days": 0.0})
-        self.assertEqual(breakdown["all_time"]["combined"], {"hours": 0, "days": 0.0})
+        self.assertEqual(
+            breakdown["last_30_days"]["combined"],
+            {"hours": 0, "days": 0.0, "days_rounded": 0, "hours_display": "0h"},
+        )
+        self.assertEqual(
+            breakdown["all_time"]["combined"],
+            {"hours": 0, "days": 0.0, "days_rounded": 0, "hours_display": "0h"},
+        )
+
+    def test_days_rounded_rounds_half_up_to_the_next_day(self):
+        # 430.6 days worth of minutes should round UP to 431, not truncate to 430.
+        minutes = 430.6 * 24 * 60
+        days, hours_display = selectors._days_and_hours_display(minutes)
+        self.assertEqual(days, 431)
+        self.assertEqual(hours_display, "10334h 24m")
 
 
 class StatsPageLast30DaysCombinedTests(TestCase):
@@ -4931,6 +4944,10 @@ class StatsPageLast30DaysCombinedTests(TestCase):
     def test_last_30_days_combined_reflects_the_right_total(self):
         resp = self.client.get(reverse("stats"))
         self.assertEqual(resp.context["watch_time_breakdown"]["last_30_days"]["combined"]["hours"], 2)
+
+    def test_combined_rows_lead_with_days_and_show_hours_in_parentheses(self):
+        resp = self.client.get(reverse("stats"))
+        self.assertContains(resp, "<b>0 days</b> <span class=\"text-ink-faint\">(&asymp; 2h)</span>")
 
 
 class BackfillPostersCommandTests(TestCase):

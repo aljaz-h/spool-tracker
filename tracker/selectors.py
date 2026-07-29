@@ -545,6 +545,21 @@ def featured_lists():
     )
 
 
+def _days_and_hours_display(total_minutes):
+    """(whole rounded day count, "Nh Mm" display string) for a duration -
+    the Stats page's "Combined" rows lead with days (rounded to the
+    nearest whole day - 430.6 rounds up to 431, not truncated down to
+    430) and show the precise hour/minute figure alongside it in
+    parentheses, the reverse of stats_overview()/watch_time_breakdown()'s
+    older hours-first total_watch_hours/total_watch_days and combined
+    "hours"/"days" keys (kept as-is - profile_popup.html still reads
+    those directly)."""
+    days = round(total_minutes / (24 * 60))
+    hours, minutes = divmod(int(total_minutes), 60)
+    hours_display = f"{hours}h {minutes}m" if minutes else f"{hours}h"
+    return days, hours_display
+
+
 def stats_overview(profile):
     """Lifetime totals for the Stats page hero + donut — deliberately not
     year-scoped, unlike Dashboard's quick_stats()."""
@@ -553,6 +568,7 @@ def stats_overview(profile):
         events.aggregate(total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))["total"] or 0
     )
     total_hours = round(total_minutes / 60)
+    total_watch_days_rounded, total_watch_hours_display = _days_and_hours_display(total_minutes)
 
     cur, longest = current_streak(profile), longest_streak(profile)
 
@@ -568,6 +584,8 @@ def stats_overview(profile):
         "dial_pct": min(100, round(cur / longest * 100)) if longest else 0,
         "total_watch_hours": total_hours,
         "total_watch_days": round(total_hours / 24, 1),
+        "total_watch_days_rounded": total_watch_days_rounded,
+        "total_watch_hours_display": total_watch_hours_display,
         # "watched" (unique titles) vs "plays" (every watch, rewatches
         # included) - the same distinction Trakt/Simkl draw ("2,034 movies
         # (2,773 plays)"). movies_watched previously *was* the plays count
@@ -632,7 +650,13 @@ def watch_time_breakdown(profile):
             result[media_type] = {"duration": format_duration(minutes), "count": type_events.count()}
             combined_minutes += minutes
         combined_hours = round(combined_minutes / 60)
-        result["combined"] = {"hours": combined_hours, "days": round(combined_hours / 24, 1)}
+        days_rounded, hours_display = _days_and_hours_display(combined_minutes)
+        result["combined"] = {
+            "hours": combined_hours,
+            "days": round(combined_hours / 24, 1),
+            "days_rounded": days_rounded,
+            "hours_display": hours_display,
+        }
         return result
 
     events = WatchEvent.objects.filter(profile=profile)

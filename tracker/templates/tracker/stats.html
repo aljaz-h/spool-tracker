@@ -50,7 +50,7 @@
         </div>
         <div class="flex justify-between items-baseline pt-3 border-t border-line">
           <span class="text-[13px] text-ink-dim">Combined</span>
-          <span class="font-mono text-sm"><b>{{ watch_time_breakdown.last_30_days.combined.hours }}h</b> <span class="text-ink-faint">(&asymp; {{ watch_time_breakdown.last_30_days.combined.days }} days)</span></span>
+          <span class="font-mono text-sm"><b>{{ watch_time_breakdown.last_30_days.combined.days_rounded }} days</b> <span class="text-ink-faint">(&asymp; {{ watch_time_breakdown.last_30_days.combined.hours_display }})</span></span>
         </div>
       </div>
     </div>
@@ -72,7 +72,7 @@
         </div>
         <div class="flex justify-between items-baseline pt-3 border-t border-line">
           <span class="text-[13px] text-ink-dim">Combined</span>
-          <span class="font-mono text-sm"><b>{{ total_watch_hours }}h</b> <span class="text-ink-faint">(&asymp; {{ total_watch_days }} days)</span></span>
+          <span class="font-mono text-sm"><b>{{ total_watch_days_rounded }} days</b> <span class="text-ink-faint">(&asymp; {{ total_watch_hours_display }})</span></span>
         </div>
       </div>
     </div>
