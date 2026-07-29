@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.56.4] - 2026-07-29
+
+### Changed
+
+- Applied the same days-first flip to the profile popup's "Combined"
+  rows (Last 30 days/All time) - "2h (≈ 0d)" becomes "0d (≈ 2h)",
+  matching the Stats page change from the previous release. The
+  standalone "Total watch time" hero figure in the popup is unchanged.
+
 ## [0.56.3] - 2026-07-29
 
 ### Changed

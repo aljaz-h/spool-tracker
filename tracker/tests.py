@@ -4403,6 +4403,14 @@ class ProfilePopupViewTests(TestCase):
         self.assertEqual(resp.context["watch_time_breakdown"]["last_30_days"]["combined"]["hours"], 2)
         self.assertNotContains(resp, "Split by type")
 
+    def test_combined_rows_lead_with_days_and_show_hours_in_parentheses(self):
+        from django.utils import timezone
+
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fresh Movie", year=2024, runtime_minutes=120)
+        WatchEvent.objects.create(profile=self.target, title=movie, watched_at=timezone.now())
+        resp = self.client.get(reverse("profile_popup", args=[self.target.id]))
+        self.assertContains(resp, "<b>0d</b> <span class=\"text-ink-faint\">(&asymp; 2h)</span>")
+
 
 class MemberScopedViewsTests(TestCase):
     """Deep-linking into another household profile's Stats/History from
