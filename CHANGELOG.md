@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.56.2] - 2026-07-29
+
+### Changed
+
+- "Social Activity" cards are back to the normal vertical poster style
+  (poster_card.html, with the full watched/add-to-list action bar) -
+  the watcher avatar+name pill from the previous release now overlays
+  the poster's top-left corner instead of living on a horizontal still-
+  image card. "Recently Watched" keeps the horizontal episode-still
+  cards from the previous release; only Social Activity changed.
+
 ## [0.56.1] - 2026-07-29
 
 ### Changed

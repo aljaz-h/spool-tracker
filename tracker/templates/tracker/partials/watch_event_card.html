@@ -1,21 +1,11 @@
 {% load tracker_extras %}
-{# context: event (WatchEvent, .still_url/.caption attached by selectors._attach_watch_event_display), show_profile (bool - Social Activity shows who watched it, Recently Watched doesn't since it's always "you") #}
+{# context: event (WatchEvent, .still_url/.caption attached by selectors._attach_watch_event_display) - Dashboard's Recently Watched row only; Social Activity uses poster_card.html instead (see dashboard.html) #}
 <a href="{% url 'title_detail' event.title.pk %}" class="w-[220px] flex-none">
   <div
     class="aspect-video rounded-lg relative overflow-hidden bg-cover bg-center {% if not event.still_url %}{{ event.title.pk|gradient_class }}{% endif %}"
     {% if event.still_url %}style="background-image:url('{{ event.still_url }}')"{% endif %}
   >
     <span class="absolute top-2 right-2 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ event.title.media_type|upper }}</span>
-    {% if show_profile %}
-      <div class="absolute top-2 left-2 z-10 flex items-center gap-1.5 bg-black/70 rounded-full pl-1 pr-2.5 py-1 max-w-[85%]">
-        {% if event.profile.avatar_image %}
-          <div class="w-5 h-5 rounded-full bg-cover bg-center flex-none" style="background-image:url('{{ event.profile.avatar_image.url }}')"></div>
-        {% else %}
-          <div class="w-5 h-5 rounded-full flex items-center justify-center font-mono text-[10px] font-semibold flex-none" style="background:{{ event.profile.avatar_color }};color:#fff;">{{ event.profile.display_name|first|upper }}</div>
-        {% endif %}
-        <span class="text-[11px] font-semibold text-white truncate">{{ event.profile.display_name }}</span>
-      </div>
-    {% endif %}
     <div class="absolute inset-x-0 bottom-0 p-2.5 bg-gradient-to-t from-black/85 via-black/40 to-transparent">
       <div class="text-[13px] font-semibold text-white truncate">{{ event.title.name }}</div>
       {% if event.caption %}<div class="text-[11px] text-white/70 truncate">{{ event.caption }}</div>{% endif %}

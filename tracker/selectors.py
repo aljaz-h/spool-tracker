@@ -327,17 +327,19 @@ def social_activity(profile, limit=12):
     """Dashboard's "Social Activity" row - the last `limit` watch events
     from other profiles in the household (share_activity respecting,
     same privacy flag activity_feed() honors), newest first, not
-    deduped - same per-event shape as recently_watched(), plus each
-    event carries its own .profile so the card can show who watched
-    it."""
-    events = list(
+    deduped, each carrying its own .profile so the card (a normal
+    poster_card.html, not recently_watched()'s episode-still cards) can
+    show who watched it via a pill over the poster - no still-image
+    lookup needed here, so this skips _attach_watch_event_display()
+    entirely rather than paying for TMDB calls a plain poster card
+    would just ignore."""
+    return list(
         WatchEvent.objects.filter(profile__share_activity=True)
         .exclude(profile=profile)
         .select_related("title", "episode", "profile")
+        .prefetch_related("title__ratings")
         .order_by("-watched_at")[:limit]
     )
-    _attach_watch_event_display(events)
-    return events
 
 
 def library_watchlist(profile, media_types):

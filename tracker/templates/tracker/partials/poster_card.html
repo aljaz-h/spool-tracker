@@ -1,5 +1,5 @@
 {% load tracker_extras %}
-{# context: title, progress, show_ratings, user_rating, width_class (all as before) plus watched_by_title/watch_count_by_title/my_lists/list_membership from selectors.poster_action_context() #}
+{# context: title, progress, show_ratings, user_rating, width_class, event_profile (Profile - Dashboard's Social Activity row, shows who watched it) plus watched_by_title/watch_count_by_title/my_lists/list_membership from selectors.poster_action_context() #}
 {% comment %}
 Two <a> tags to the same URL (image box + text block below) instead of
 one wrapping anchor, so the action bar can sit below the image as a
@@ -15,6 +15,16 @@ to avoid triggering navigation.
     <a href="{% url 'title_detail' title.pk %}" class="absolute inset-0 z-0">
       <span class="absolute top-2 right-2 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ title.media_type|upper }}</span>
     </a>
+    {% if event_profile %}
+      <div class="absolute top-2 left-2 z-10 flex items-center gap-1.5 bg-black/70 rounded-full pl-1 pr-2.5 py-1 max-w-[80%] pointer-events-none">
+        {% if event_profile.avatar_image %}
+          <div class="w-5 h-5 rounded-full bg-cover bg-center flex-none" style="background-image:url('{{ event_profile.avatar_image.url }}')"></div>
+        {% else %}
+          <div class="w-5 h-5 rounded-full flex items-center justify-center font-mono text-[10px] font-semibold flex-none" style="background:{{ event_profile.avatar_color }};color:#fff;">{{ event_profile.display_name|first|upper }}</div>
+        {% endif %}
+        <span class="text-[11px] font-semibold text-white truncate">{{ event_profile.display_name }}</span>
+      </div>
+    {% endif %}
   </div>
   <div class="flex items-stretch bg-base-300 rounded-b-lg overflow-hidden">
     {% include "tracker/partials/poster_card_watched_button.html" with title=title watched=watched_by_title|get_item:title.pk watch_count=watch_count_by_title|get_item:title.pk %}
