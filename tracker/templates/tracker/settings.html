@@ -12,7 +12,8 @@
       history.replaceState({}, '', url);
     },
   }"
-  class="max-w-4xl mx-auto"
+  class="mx-auto"
+  :class="tab === 'logs' ? 'max-w-7xl' : 'max-w-4xl'"
 >
 
   {% if messages %}
@@ -540,6 +541,20 @@
           <h3 class="text-lg mb-1">Logs</h3>
           <div class="text-ink-dim text-xs mb-3.5">Trakt/Simkl syncs and connects, CSV imports and exports — every profile, most recent first, admin-only.</div>
 
+          <form method="get" class="flex items-center gap-2.5 flex-wrap mb-3.5">
+            <input type="hidden" name="tab" value="logs">
+            <select name="log_profile" onchange="this.form.submit()" class="select select-sm bg-base-100 focus:outline-primary text-xs">
+              <option value="">All profiles</option>
+              {% for p in profiles %}
+                <option value="{{ p.id }}" {% if log_profile_id == p.id|stringformat:"s" %}selected{% endif %}>{{ p.display_name }}</option>
+              {% endfor %}
+            </select>
+            <select name="log_sort" onchange="this.form.submit()" class="select select-sm bg-base-100 focus:outline-primary text-xs">
+              <option value="newest" {% if log_sort == "newest" %}selected{% endif %}>Newest first</option>
+              <option value="oldest" {% if log_sort == "oldest" %}selected{% endif %}>Oldest first</option>
+            </select>
+          </form>
+
           {% if failure_streaks %}
             <div class="flex flex-col gap-2.5 mb-5">
               {% for streak in failure_streaks %}
@@ -639,10 +654,10 @@
               <span class="font-mono text-xs text-ink-faint">Page {{ logs_page.number }} of {{ logs_page.paginator.num_pages }} · {{ logs_page.paginator.count }} entries</span>
               <div class="flex gap-1.5">
                 {% if logs_page.has_previous %}
-                  <a href="?tab=logs&page={{ logs_page.previous_page_number }}" class="px-3 py-1.5 rounded-md border border-line bg-base-100 font-mono text-xs text-ink-dim">‹ Prev</a>
+                  <a href="?tab=logs&page={{ logs_page.previous_page_number }}{% if log_profile_id %}&log_profile={{ log_profile_id }}{% endif %}{% if log_sort == "oldest" %}&log_sort=oldest{% endif %}" class="px-3 py-1.5 rounded-md border border-line bg-base-100 font-mono text-xs text-ink-dim">‹ Prev</a>
                 {% endif %}
                 {% if logs_page.has_next %}
-                  <a href="?tab=logs&page={{ logs_page.next_page_number }}" class="px-3 py-1.5 rounded-md border border-line bg-base-100 font-mono text-xs text-ink-dim">Next ›</a>
+                  <a href="?tab=logs&page={{ logs_page.next_page_number }}{% if log_profile_id %}&log_profile={{ log_profile_id }}{% endif %}{% if log_sort == "oldest" %}&log_sort=oldest{% endif %}" class="px-3 py-1.5 rounded-md border border-line bg-base-100 font-mono text-xs text-ink-dim">Next ›</a>
                 {% endif %}
               </div>
             </div>

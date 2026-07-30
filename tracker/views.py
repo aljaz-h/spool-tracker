@@ -2211,7 +2211,13 @@ def _settings_page_context(request, profile):
                 "debug": django_settings.DEBUG,
                 "time_zone": django_settings.TIME_ZONE,
                 "audit_log": AdminAuditLogEntry.objects.select_related("actor")[:15],
-                "logs_page": selectors.combined_logs(request.GET.get("page")),
+                "logs_page": selectors.combined_logs(
+                    request.GET.get("page"),
+                    profile_id=request.GET.get("log_profile") or None,
+                    oldest_first=request.GET.get("log_sort") == "oldest",
+                ),
+                "log_profile_id": request.GET.get("log_profile", ""),
+                "log_sort": request.GET.get("log_sort", "newest"),
                 "failure_streaks": selectors.sync_failure_streaks(),
             }
         )

@@ -8,6 +8,22 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.58.1] - 2026-07-31
+
+### Changed
+
+- Settings → Logs is wider now (matches the rest of Settings on most
+  panels, but the log table needed the extra room) and gained a profile
+  filter and a newest/oldest sort toggle.
+- The merged sync/import/export/connect feed now looks back over the
+  most recent 1000 rows per table instead of 200 (filtering to one
+  profile narrows the same cap to just that profile's rows), so older
+  history stays reachable through pagination instead of silently falling
+  off the end. Note this only affects `SyncLog`, which already had
+  history before this feature shipped — `DataLog` (CSV import/export,
+  Trakt/Simkl connect attempts) only started recording with v0.58.0, so
+  there's nothing from before that date to surface.
+
 ## [0.58.0] - 2026-07-30
 
 ### Added

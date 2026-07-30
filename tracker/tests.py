@@ -3482,6 +3482,32 @@ class CombinedLogsTests(TestCase):
         self.assertEqual(len(page.object_list), 2)
         self.assertEqual(page.paginator.count, 3)
 
+    def test_oldest_first_reverses_order(self):
+        from django.utils import timezone
+
+        sync = SyncLog.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.SUCCESS
+        )
+        SyncLog.objects.filter(pk=sync.pk).update(started_at=timezone.now() - timedelta(days=2))
+        data = DataLog.objects.create(
+            profile=self.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.SUCCESS
+        )
+        DataLog.objects.filter(pk=data.pk).update(created_at=timezone.now() - timedelta(days=1))
+
+        page = selectors.combined_logs(None, oldest_first=True)
+        self.assertEqual(page.object_list[0]["action"], "Sync · Trakt")
+        self.assertEqual(page.object_list[1]["action"], "CSV Import")
+
+    def test_profile_id_filters_to_one_profile(self):
+        other_user = User.objects.create_user("logsmerger2", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="LogsMerger2")
+        DataLog.objects.create(profile=self.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.SUCCESS)
+        DataLog.objects.create(profile=other_profile, action=DataLog.Action.EXPORT, status=DataLog.Status.SUCCESS)
+
+        page = selectors.combined_logs(None, profile_id=self.profile.id)
+        self.assertEqual(len(page.object_list), 1)
+        self.assertEqual(page.object_list[0]["profile"], self.profile)
+
 
 class SyncLogViewTests(TestCase):
     def setUp(self):
@@ -3521,6 +3547,27 @@ class SyncLogViewTests(TestCase):
         resp = self.client.get(reverse("settings"))
         self.assertContains(resp, "LogOwner")
         self.assertContains(resp, "success")
+
+    def test_log_profile_filter_narrows_entries(self):
+        SyncLog.objects.create(
+            profile=self.member, provider=ExternalAccount.Provider.SIMKL, status=SyncLog.Status.SUCCESS
+        )
+        self.client.login(username="logowner", password="pass12345")
+        resp = self.client.get(reverse("settings"), {"tab": "logs", "log_profile": self.owner.id})
+        profiles_shown = {entry["profile"] for entry in resp.context["logs_page"].object_list}
+        self.assertEqual(profiles_shown, {self.owner})
+
+    def test_log_sort_oldest_first(self):
+        from django.utils import timezone
+
+        newer = SyncLog.objects.create(
+            profile=self.owner, provider=ExternalAccount.Provider.SIMKL, status=SyncLog.Status.SUCCESS
+        )
+        SyncLog.objects.filter(pk=newer.pk).update(started_at=timezone.now())
+        self.client.login(username="logowner", password="pass12345")
+        resp = self.client.get(reverse("settings"), {"tab": "logs", "log_sort": "oldest"})
+        content = resp.content.decode()
+        self.assertLess(content.index("Sync · Trakt"), content.index("Sync · Simkl"))
 
     def test_no_banner_for_a_lone_success(self):
         self.client.login(username="logowner", password="pass12345")

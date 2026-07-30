@@ -466,18 +466,29 @@ def sync_failure_streaks():
     return streaks
 
 
-def combined_logs(page_number, page_size=50, cap=200):
+def combined_logs(page_number, page_size=50, cap=1000, profile_id=None, oldest_first=False):
     """Settings → Logs. Merges SyncLog (recurring background Trakt/Simkl
     syncs) and DataLog (CSV import/export, connect attempts) into one
-    reverse-chronological feed across every profile - admin-only. Each
-    table is capped at `cap` rows before merging in Python rather than a
-    SQL UNION - same cap/reasoning as sync_failure_streaks() above.
-    SyncLog's RUNNING rows are included deliberately, unlike
-    sync_failure_streaks() - a stuck/long-running sync showing "running"
-    is itself useful signal in a raw log view."""
+    chronological feed across every profile - admin-only, optionally
+    narrowed to a single profile. Each table is capped at `cap` rows
+    before merging in Python rather than a SQL UNION - a generous cap
+    (unlike sync_failure_streaks()'s 200, which only ever needs to look
+    at recent rows to detect a *current* streak) since this view's whole
+    point is letting an admin page back through history, not just the
+    latest activity. Filtering to one profile is applied before the cap,
+    so a single user's full history stays reachable even once the
+    all-profiles feed exceeds it. SyncLog's RUNNING rows are included
+    deliberately, unlike sync_failure_streaks() - a stuck/long-running
+    sync showing "running" is itself useful signal in a raw log view."""
     from django.core.paginator import Paginator
 
     from .models import DataLog, SyncLog
+
+    sync_logs = SyncLog.objects.select_related("profile").order_by("-started_at")
+    data_logs = DataLog.objects.select_related("profile").order_by("-created_at")
+    if profile_id:
+        sync_logs = sync_logs.filter(profile_id=profile_id)
+        data_logs = data_logs.filter(profile_id=profile_id)
 
     entries = [
         {
@@ -490,7 +501,7 @@ def combined_logs(page_number, page_size=50, cap=200):
             "timestamp": log.started_at,
             "duration_seconds": log.duration_seconds,
         }
-        for log in SyncLog.objects.select_related("profile").order_by("-started_at")[:cap]
+        for log in sync_logs[:cap]
     ] + [
         {
             "profile": log.profile,
@@ -502,9 +513,9 @@ def combined_logs(page_number, page_size=50, cap=200):
             "timestamp": log.created_at,
             "duration_seconds": None,
         }
-        for log in DataLog.objects.select_related("profile").order_by("-created_at")[:cap]
+        for log in data_logs[:cap]
     ]
-    entries.sort(key=lambda e: e["timestamp"], reverse=True)
+    entries.sort(key=lambda e: e["timestamp"], reverse=not oldest_first)
     return Paginator(entries, page_size).get_page(page_number)
 
 
