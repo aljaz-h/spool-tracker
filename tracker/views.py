@@ -31,6 +31,7 @@ from .integrations import gemini, jikan, simkl, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
+    DataLog,
     Episode,
     ExternalAccount,
     ExternalRating,
@@ -39,7 +40,6 @@ from .models import (
     Notification,
     Profile,
     Recommendation,
-    SyncLog,
     Title,
     WatchEvent,
     WatchList,
@@ -2175,7 +2175,7 @@ class SpoolLoginView(auth_views.LoginView):
         return super().get_default_redirect_url()
 
 
-def _settings_page_context(profile):
+def _settings_page_context(request, profile):
     """Shared context for the merged Settings/My Profile/Admin Dashboard
     page - settings_view, my_profile, and admin_dashboard all render the
     same template off this, so every section's data needs to be present
@@ -2211,6 +2211,8 @@ def _settings_page_context(profile):
                 "debug": django_settings.DEBUG,
                 "time_zone": django_settings.TIME_ZONE,
                 "audit_log": AdminAuditLogEntry.objects.select_related("actor")[:15],
+                "logs_page": selectors.combined_logs(request.GET.get("page")),
+                "failure_streaks": selectors.sync_failure_streaks(),
             }
         )
     return context
@@ -2221,7 +2223,7 @@ def settings_view(request):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
-    return render(request, "tracker/settings.html", {**_settings_page_context(profile), "active_tab": "integrations"})
+    return render(request, "tracker/settings.html", {**_settings_page_context(request, profile), "active_tab": "integrations"})
 
 
 @login_required
@@ -2229,7 +2231,7 @@ def admin_dashboard(request):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None or not profile.is_owner:
         raise Http404
-    return render(request, "tracker/settings.html", {**_settings_page_context(profile), "active_tab": "profiles"})
+    return render(request, "tracker/settings.html", {**_settings_page_context(request, profile), "active_tab": "profiles"})
 
 
 @login_required
@@ -2257,21 +2259,11 @@ def save_instance_config(request):
     return redirect("admin_dashboard")
 
 
-SYNC_LOG_PAGE_SIZE = 50
-
-
 @login_required
 def sync_log(request):
-    profile = Profile.objects.filter(user=request.user).first()
-    if profile is None or not profile.is_owner:
-        raise Http404
-    logs = SyncLog.objects.select_related("profile").all()
-    paginator = Paginator(logs, SYNC_LOG_PAGE_SIZE)
-    page = paginator.get_page(request.GET.get("page"))
-    failure_streaks = selectors.sync_failure_streaks()
-    return render(
-        request, "tracker/sync_log.html", {"profile": profile, "page": page, "failure_streaks": failure_streaks}
-    )
+    """Moved into Settings' Logs tab - kept as a redirect so old
+    bookmarks/links to this URL still land somewhere useful."""
+    return redirect(f"{reverse('settings')}?tab=logs")
 
 
 @login_required
@@ -2386,7 +2378,7 @@ def my_profile(request):
             messages.success(request, "Password changed.")
         return redirect("my_profile")
 
-    return render(request, "tracker/settings.html", {**_settings_page_context(profile), "active_tab": "account"})
+    return render(request, "tracker/settings.html", {**_settings_page_context(request, profile), "active_tab": "account"})
 
 
 @login_required
@@ -2649,6 +2641,7 @@ def export_csv(request):
         .select_related("title", "episode")
         .order_by("watched_at")
     )
+    written = 0
     for event in events:
         writer.writerow(
             [
@@ -2661,6 +2654,11 @@ def export_csv(request):
                 event.user_rating or "",
             ]
         )
+        written += 1
+    DataLog.objects.create(
+        profile=profile, action=DataLog.Action.EXPORT, status=DataLog.Status.SUCCESS,
+        item_count=written, detail="CSV",
+    )
     return response
 
 
@@ -2712,6 +2710,10 @@ def export_trakt_json(request):
     response = JsonResponse(items, safe=False, json_dumps_params={"indent": 2})
     filename = f"spool-trakt-export-{timezone.localdate().isoformat()}.json"
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    DataLog.objects.create(
+        profile=profile, action=DataLog.Action.EXPORT, status=DataLog.Status.SUCCESS,
+        item_count=len(items), detail="Trakt JSON",
+    )
     return response
 
 
@@ -2740,19 +2742,31 @@ def oauth_connect(request, provider):
     return redirect(PROVIDER_MODULES[provider].authorize_url(redirect_uri, state, client_id))
 
 
+CONNECT_ACTIONS = {"trakt": DataLog.Action.TRAKT_CONNECT, "simkl": DataLog.Action.SIMKL_CONNECT}
+
+
 @login_required
 def oauth_callback(request, provider):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
+    connect_action = CONNECT_ACTIONS[provider]
 
     expected_state = request.session.pop(f"{provider}_oauth_state", None)
     if not expected_state or request.GET.get("state") != expected_state:
+        DataLog.objects.create(
+            profile=profile, action=connect_action, status=DataLog.Status.FAILED,
+            error_message="Connection request expired or was invalid (state mismatch).",
+        )
         messages.error(request, "That connection request expired or was invalid — please try connecting again.")
         return redirect("settings")
 
     code = request.GET.get("code")
     if not code:
+        DataLog.objects.create(
+            profile=profile, action=connect_action, status=DataLog.Status.FAILED,
+            error_message=f"{provider.title()} didn't return an authorization code.",
+        )
         messages.error(request, f"{provider.title()} didn't return an authorization code.")
         return redirect("settings")
 
@@ -2760,7 +2774,11 @@ def oauth_callback(request, provider):
     client_id, client_secret = instance_config.get_credentials(provider)
     try:
         token_data = PROVIDER_MODULES[provider].exchange_code(code, redirect_uri, client_id, client_secret)
-    except requests.RequestException:
+    except requests.RequestException as e:
+        DataLog.objects.create(
+            profile=profile, action=connect_action, status=DataLog.Status.FAILED,
+            error_message=str(e)[:500],
+        )
         messages.error(request, f"Couldn't complete the {provider.title()} connection — please try again.")
         return redirect("settings")
 
@@ -2785,6 +2803,7 @@ def oauth_callback(request, provider):
     # does. Worst case, a broker hiccup costs nothing worse than "today's
     # sync happens on the next daily beat run instead of immediately."
     _dispatch_sync_task_safely(SYNC_TASKS[provider], profile.id)
+    DataLog.objects.create(profile=profile, action=connect_action, status=DataLog.Status.SUCCESS, detail="connected")
     messages.success(request, f"Connected to {provider.title()} — syncing your history now.")
     return redirect("settings")
 
@@ -3029,13 +3048,25 @@ def import_csv_commit(request):
         messages.error(request, f"Map the required column(s) first: {', '.join(missing_required)}.")
         return redirect("import_csv_preview")
 
-    with open(pending["path"], "rb") as f:
-        reader = csv_import.open_csv_reader(f)
-        rows, parse_errors = csv_import.parse_rows(reader, pending["mapping"])
-    imported, skipped = csv_import.commit_rows(profile, rows)
+    try:
+        with open(pending["path"], "rb") as f:
+            reader = csv_import.open_csv_reader(f)
+            rows, parse_errors = csv_import.parse_rows(reader, pending["mapping"])
+        imported, skipped = csv_import.commit_rows(profile, rows)
+    except Exception as e:
+        DataLog.objects.create(
+            profile=profile, action=DataLog.Action.IMPORT, status=DataLog.Status.FAILED,
+            error_message=str(e)[:500],
+        )
+        _discard_pending_csv_import(request)
+        raise
     _discard_pending_csv_import(request)
 
     all_skipped = parse_errors + skipped
+    DataLog.objects.create(
+        profile=profile, action=DataLog.Action.IMPORT, status=DataLog.Status.SUCCESS,
+        item_count=imported, detail=f"{len(all_skipped)} skipped" if all_skipped else "",
+    )
     request.session["csv_import_result"] = {
         "imported": imported,
         "skipped_count": len(all_skipped),

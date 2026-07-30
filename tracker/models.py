@@ -569,6 +569,39 @@ class SyncLog(models.Model):
         return (self.finished_at - self.started_at).total_seconds()
 
 
+class DataLog(models.Model):
+    """Audit trail for CSV import/export and Trakt/Simkl connect attempts
+    - the request/response-shaped data actions SyncLog doesn't cover
+    (that model is for the recurring background sync task specifically,
+    see tasks._run_sync). Together with SyncLog, backs Settings' Logs tab
+    (selectors.combined_logs)."""
+
+    class Action(models.TextChoices):
+        IMPORT = "import", "CSV Import"
+        EXPORT = "export", "Export"
+        TRAKT_CONNECT = "trakt_connect", "Trakt Connect"
+        SIMKL_CONNECT = "simkl_connect", "Simkl Connect"
+
+    class Status(models.TextChoices):
+        SUCCESS = "success", "Success"
+        FAILED = "failed", "Failed"
+
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="data_logs")
+    action = models.CharField(max_length=15, choices=Action.choices)
+    status = models.CharField(max_length=10, choices=Status.choices)
+    item_count = models.PositiveIntegerField(null=True, blank=True)
+    detail = models.CharField(max_length=255, blank=True)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["-created_at"])]
+
+    def __str__(self):
+        return f"{self.profile} · {self.get_action_display()} · {self.get_status_display()} @ {self.created_at:%Y-%m-%d %H:%M}"
+
+
 class AdminAuditLogEntry(models.Model):
     """Who added/removed/promoted which profile, and when - Admin
     Dashboard's own audit trail, separate from SyncLog (which is about

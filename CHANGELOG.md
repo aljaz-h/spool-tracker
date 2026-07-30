@@ -8,6 +8,22 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.58.0] - 2026-07-30
+
+### Added
+
+- Settings → Admin → **Logs** — a new tab that relocates the old
+  standalone Sync Log page and broadens it into one paginated,
+  reverse-chronological feed across every profile: Trakt/Simkl syncs
+  *and* connect attempts, and CSV import/export, each with status, item
+  counts, and an expandable/copyable error message where applicable.
+  Connect failures (expired OAuth state, missing authorization code, a
+  failed token exchange) and CSV import failures were previously only
+  ever shown once via a transient message — now persisted via a new
+  `DataLog` model alongside the existing `SyncLog`.
+- `/settings/sync-log/` now redirects to `Settings → Logs` instead of
+  rendering its own page — old links/bookmarks still work.
+
 ## [0.57.0] - 2026-07-30
 
 ### Added

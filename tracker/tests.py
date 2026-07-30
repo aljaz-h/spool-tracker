@@ -18,6 +18,7 @@ from .integrations import gemini, jikan, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
+    DataLog,
     Episode,
     ExternalAccount,
     ExternalRating,
@@ -2533,6 +2534,53 @@ class ExportCsvViewTests(TestCase):
         resp = self.client.get(reverse("export_csv"))
         self.assertNotEqual(resp.status_code, 200)
 
+    def test_logs_a_data_log_entry(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at="2024-01-01T00:00:00Z")
+        self.client.get(reverse("export_csv"))
+        log = DataLog.objects.get(profile=self.profile)
+        self.assertEqual(log.action, DataLog.Action.EXPORT)
+        self.assertEqual(log.status, DataLog.Status.SUCCESS)
+        self.assertEqual(log.item_count, 1)
+        self.assertEqual(log.detail, "CSV")
+
+
+class ImportCsvCommitViewTests(TestCase):
+    """import_csv_commit - the actual data-writing step of the CSV import
+    flow (upload/preview/remap only stage state in the session) - checks
+    it logs a DataLog row on both the happy path and a failure."""
+
+    def setUp(self):
+        user = User.objects.create_user("csvimporter", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="CsvImporter")
+        self.client.login(username="csvimporter", password="pass12345")
+
+    def _upload(self, body):
+        upload = SimpleUploadedFile("history.csv", body.encode(), content_type="text/csv")
+        return self.client.post(reverse("import_csv"), {"csv_file": upload})
+
+    def test_logs_success_with_imported_and_skipped_counts(self):
+        body = "title,media_type,watched_at\nFathom,movie,2024-01-01\nBad Row,movie,not-a-date\n"
+        self._upload(body)
+        self.client.post(reverse("import_csv_commit"))
+        log = DataLog.objects.get(profile=self.profile)
+        self.assertEqual(log.action, DataLog.Action.IMPORT)
+        self.assertEqual(log.status, DataLog.Status.SUCCESS)
+        self.assertEqual(log.item_count, 1)
+        self.assertEqual(log.detail, "1 skipped")
+
+    @patch("tracker.csv_import.commit_rows")
+    def test_logs_failure_with_error_message_on_exception(self, mock_commit):
+        mock_commit.side_effect = RuntimeError("db exploded")
+        body = "title,media_type,watched_at\nFathom,movie,2024-01-01\n"
+        self._upload(body)
+        with self.assertRaises(RuntimeError):
+            self.client.post(reverse("import_csv_commit"))
+        log = DataLog.objects.get(profile=self.profile)
+        self.assertEqual(log.action, DataLog.Action.IMPORT)
+        self.assertEqual(log.status, DataLog.Status.FAILED)
+        self.assertIn("db exploded", log.error_message)
+
 
 class ExportTraktJsonViewTests(TestCase):
     def setUp(self):
@@ -2574,6 +2622,16 @@ class ExportTraktJsonViewTests(TestCase):
         self.client.logout()
         resp = self.client.get(reverse("export_trakt_json"))
         self.assertNotEqual(resp.status_code, 200)
+
+    def test_logs_a_data_log_entry(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at="2024-01-01T00:00:00Z")
+        self.client.get(reverse("export_trakt_json"))
+        log = DataLog.objects.get(profile=self.profile)
+        self.assertEqual(log.action, DataLog.Action.EXPORT)
+        self.assertEqual(log.status, DataLog.Status.SUCCESS)
+        self.assertEqual(log.item_count, 1)
+        self.assertEqual(log.detail, "Trakt JSON")
 
 
 class AdminDashboardVisibilityTests(TestCase):
@@ -3195,6 +3253,63 @@ class OAuthCallbackRedirectUriTests(TestCase):
         self.assertEqual(account.redirect_uri, expected_uri)
 
 
+class OAuthCallbackDataLogTests(TestCase):
+    """Every exit path of oauth_callback (tracker/views.py) should leave a
+    DataLog row behind - connect failures previously only surfaced via a
+    transient messages.error(), never queryable afterward."""
+
+    def setUp(self):
+        user = User.objects.create_user("connector2", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Connector2")
+        InstanceConfig.objects.update_or_create(
+            pk=1, defaults={"trakt_client_id": "cid", "trakt_client_secret": "csecret"}
+        )
+        self.client.login(username="connector2", password="pass12345")
+
+    @patch("tracker.integrations.trakt.exchange_code")
+    def test_successful_connect_is_logged(self, mock_exchange):
+        mock_exchange.return_value = {"access_token": "tok", "refresh_token": "rtok", "expires_in": 7776000}
+        session = self.client.session
+        session["trakt_oauth_state"] = "abc123"
+        session.save()
+
+        self.client.get(reverse("trakt_callback"), {"code": "authcode", "state": "abc123"})
+
+        log = DataLog.objects.get(profile=self.profile)
+        self.assertEqual(log.action, DataLog.Action.TRAKT_CONNECT)
+        self.assertEqual(log.status, DataLog.Status.SUCCESS)
+
+    def test_expired_state_is_logged_as_failure(self):
+        self.client.get(reverse("trakt_callback"), {"code": "authcode", "state": "wrong"})
+        log = DataLog.objects.get(profile=self.profile)
+        self.assertEqual(log.action, DataLog.Action.TRAKT_CONNECT)
+        self.assertEqual(log.status, DataLog.Status.FAILED)
+
+    def test_missing_code_is_logged_as_failure(self):
+        session = self.client.session
+        session["trakt_oauth_state"] = "abc123"
+        session.save()
+        self.client.get(reverse("trakt_callback"), {"state": "abc123"})
+        log = DataLog.objects.get(profile=self.profile)
+        self.assertEqual(log.status, DataLog.Status.FAILED)
+        self.assertIn("authorization code", log.error_message)
+
+    @patch("tracker.integrations.trakt.exchange_code")
+    def test_exchange_request_exception_is_logged_as_failure(self, mock_exchange):
+        import requests
+
+        mock_exchange.side_effect = requests.RequestException("network blip")
+        session = self.client.session
+        session["trakt_oauth_state"] = "abc123"
+        session.save()
+
+        self.client.get(reverse("trakt_callback"), {"code": "authcode", "state": "abc123"})
+
+        log = DataLog.objects.get(profile=self.profile)
+        self.assertEqual(log.status, DataLog.Status.FAILED)
+        self.assertIn("network blip", log.error_message)
+
+
 class IncrementalSyncTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("incremental", password="pass12345")
@@ -3331,6 +3446,43 @@ class SyncFailureStreaksTests(TestCase):
         self.assertEqual(streaks[1]["profile"], self.profile)
 
 
+class CombinedLogsTests(TestCase):
+    """selectors.combined_logs() - merges SyncLog and DataLog into one
+    reverse-chronological, paginated feed for Settings' Logs tab."""
+
+    def setUp(self):
+        user = User.objects.create_user("logsmerger", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="LogsMerger")
+
+    def test_empty_when_nothing_logged(self):
+        page = selectors.combined_logs(None)
+        self.assertEqual(list(page.object_list), [])
+
+    def test_merges_both_tables_sorted_newest_first(self):
+        from django.utils import timezone
+
+        sync = SyncLog.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.SUCCESS
+        )
+        SyncLog.objects.filter(pk=sync.pk).update(started_at=timezone.now() - timedelta(days=2))
+        data = DataLog.objects.create(
+            profile=self.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.SUCCESS
+        )
+        DataLog.objects.filter(pk=data.pk).update(created_at=timezone.now() - timedelta(days=1))
+
+        page = selectors.combined_logs(None)
+        self.assertEqual(len(page.object_list), 2)
+        self.assertEqual(page.object_list[0]["action"], "CSV Import")
+        self.assertEqual(page.object_list[1]["action"], "Sync · Trakt")
+
+    def test_paginates(self):
+        for _ in range(3):
+            DataLog.objects.create(profile=self.profile, action=DataLog.Action.EXPORT, status=DataLog.Status.SUCCESS)
+        page = selectors.combined_logs(1, page_size=2)
+        self.assertEqual(len(page.object_list), 2)
+        self.assertEqual(page.paginator.count, 3)
+
+
 class SyncLogViewTests(TestCase):
     def setUp(self):
         from django.utils import timezone
@@ -3353,20 +3505,26 @@ class SyncLogViewTests(TestCase):
         old = timezone.now() - timedelta(days=30)
         SyncLog.objects.filter(pk=log.pk).update(started_at=old, finished_at=old)
 
-    def test_non_owner_gets_404(self):
-        self.client.login(username="logmember", password="pass12345")
+    def test_sync_log_url_redirects_to_settings_logs_tab(self):
+        self.client.login(username="logowner", password="pass12345")
         resp = self.client.get(reverse("sync_log"))
-        self.assertEqual(resp.status_code, 404)
+        self.assertRedirects(resp, f"{reverse('settings')}?tab=logs")
+
+    def test_non_owner_does_not_see_logs_tab(self):
+        self.client.login(username="logmember", password="pass12345")
+        resp = self.client.get(reverse("settings"))
+        self.assertNotContains(resp, ">Logs<")
+        self.assertNotContains(resp, "Trakt/Simkl syncs and connects")
 
     def test_owner_sees_log_entries(self):
         self.client.login(username="logowner", password="pass12345")
-        resp = self.client.get(reverse("sync_log"))
+        resp = self.client.get(reverse("settings"))
         self.assertContains(resp, "LogOwner")
         self.assertContains(resp, "success")
 
     def test_no_banner_for_a_lone_success(self):
         self.client.login(username="logowner", password="pass12345")
-        resp = self.client.get(reverse("sync_log"))
+        resp = self.client.get(reverse("settings"))
         self.assertNotContains(resp, "has failed")
 
     def _fail_twice(self, profile, error="401 Client Error: Unauthorized for url: https://api.trakt.tv/x"):
@@ -3383,7 +3541,7 @@ class SyncLogViewTests(TestCase):
     def test_banner_and_reconnect_link_shown_for_own_consecutive_failures(self):
         self._fail_twice(self.owner)
         self.client.login(username="logowner", password="pass12345")
-        resp = self.client.get(reverse("sync_log"))
+        resp = self.client.get(reverse("settings"))
         self.assertContains(resp, "has failed 2 times in a row")
         self.assertContains(resp, "Reconnect Trakt")
         self.assertContains(resp, reverse("trakt_connect"))
@@ -3391,7 +3549,7 @@ class SyncLogViewTests(TestCase):
     def test_banner_shown_without_reconnect_link_for_other_profiles_failures(self):
         self._fail_twice(self.member)
         self.client.login(username="logowner", password="pass12345")
-        resp = self.client.get(reverse("sync_log"))
+        resp = self.client.get(reverse("settings"))
         self.assertContains(resp, "has failed 2 times in a row")
         self.assertContains(resp, "LogMember")
         self.assertNotContains(resp, "Reconnect Trakt")
@@ -3402,19 +3560,19 @@ class SyncLogViewTests(TestCase):
         long_error = "401 Client Error: Unauthorized for url: https://api.trakt.tv/sync/history?limit=200&start_at=2026-07-16T13%3A30%3A00.028Z&page=1"
         self._fail_twice(self.owner, error=long_error)
         self.client.login(username="logowner", password="pass12345")
-        resp = self.client.get(reverse("sync_log"))
+        resp = self.client.get(reverse("settings"))
         self.assertContains(resp, escape(long_error))
 
     def test_status_icons_rendered_for_success_and_failure(self):
         self._fail_twice(self.owner)
         self.client.login(username="logowner", password="pass12345")
-        resp = self.client.get(reverse("sync_log"))
+        resp = self.client.get(reverse("settings"))
         self.assertGreaterEqual(resp.content.decode().count("<svg"), 3)
 
     def test_fast_fail_badge_shown_for_subsecond_failure(self):
         self._fail_twice(self.owner)
         self.client.login(username="logowner", password="pass12345")
-        resp = self.client.get(reverse("sync_log"))
+        resp = self.client.get(reverse("settings"))
         self.assertContains(resp, "fast fail")
 
     def test_fast_fail_badge_not_shown_for_slow_failure(self):
@@ -3427,7 +3585,7 @@ class SyncLogViewTests(TestCase):
         started = timezone.now()
         SyncLog.objects.filter(pk=log.pk).update(started_at=started, finished_at=started + timedelta(seconds=12))
         self.client.login(username="logowner", password="pass12345")
-        resp = self.client.get(reverse("sync_log"))
+        resp = self.client.get(reverse("settings"))
         self.assertNotContains(resp, "fast fail")
 
 

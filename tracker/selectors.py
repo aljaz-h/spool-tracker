@@ -466,6 +466,48 @@ def sync_failure_streaks():
     return streaks
 
 
+def combined_logs(page_number, page_size=50, cap=200):
+    """Settings → Logs. Merges SyncLog (recurring background Trakt/Simkl
+    syncs) and DataLog (CSV import/export, connect attempts) into one
+    reverse-chronological feed across every profile - admin-only. Each
+    table is capped at `cap` rows before merging in Python rather than a
+    SQL UNION - same cap/reasoning as sync_failure_streaks() above.
+    SyncLog's RUNNING rows are included deliberately, unlike
+    sync_failure_streaks() - a stuck/long-running sync showing "running"
+    is itself useful signal in a raw log view."""
+    from django.core.paginator import Paginator
+
+    from .models import DataLog, SyncLog
+
+    entries = [
+        {
+            "profile": log.profile,
+            "action": f"Sync · {log.get_provider_display()}",
+            "status": log.status,
+            "item_count": log.item_count,
+            "detail": "",
+            "error_message": log.error_message,
+            "timestamp": log.started_at,
+            "duration_seconds": log.duration_seconds,
+        }
+        for log in SyncLog.objects.select_related("profile").order_by("-started_at")[:cap]
+    ] + [
+        {
+            "profile": log.profile,
+            "action": log.get_action_display(),
+            "status": log.status,
+            "item_count": log.item_count,
+            "detail": log.detail,
+            "error_message": log.error_message,
+            "timestamp": log.created_at,
+            "duration_seconds": None,
+        }
+        for log in DataLog.objects.select_related("profile").order_by("-created_at")[:cap]
+    ]
+    entries.sort(key=lambda e: e["timestamp"], reverse=True)
+    return Paginator(entries, page_size).get_page(page_number)
+
+
 def titles_needing_release_sync():
     """Titles worth polling TMDB for upcoming releases - anything with a
     WatchProgress row (any status), watchlist membership, or plain watch
