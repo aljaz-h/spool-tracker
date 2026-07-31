@@ -23,14 +23,14 @@
             hx-post="{% url 'title_mark_season_watched' title.pk season %}"
             hx-target="#episodes-panel" hx-swap="outerHTML"
             hx-confirm="Mark every episode of Season {{ season }} of “{{ title.name }}” as watched?"
-            class="btn btn-xs btn-soft"
+            class="bg-base-200 border border-line rounded-lg text-xs font-semibold px-3 py-1.5 text-base-content cursor-pointer hover:bg-base-300 transition-colors"
           >Mark season watched</button>
           <button
             type="button"
             hx-post="{% url 'title_mark_all_seasons_watched' title.pk %}"
             hx-target="#episodes-panel" hx-swap="outerHTML"
             hx-confirm="Mark every episode of every season of “{{ title.name }}” as watched? This can take a moment for shows with many seasons."
-            class="btn btn-xs btn-soft"
+            class="bg-base-200 border border-line rounded-lg text-xs font-semibold px-3 py-1.5 text-base-content cursor-pointer hover:bg-base-300 transition-colors"
           >Mark all watched</button>
         {% endif %}
 

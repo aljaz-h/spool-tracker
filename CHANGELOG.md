@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.60.5] - 2026-07-31
+
+### Changed
+
+- The episode browser's "Mark season watched"/"Mark all watched" buttons
+  now match the season dropdown's height exactly, instead of sitting
+  visibly shorter next to it.
+- An episode card's per-episode watched button is now a box that fills
+  the available height next to the episode's title/runtime line, instead
+  of a small fixed-size circle - same fill/checkmark idea as the poster
+  grid's own watched button, just narrower.
+
 ## [0.60.4] - 2026-07-31
 
 ### Added
