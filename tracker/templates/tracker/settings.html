@@ -330,10 +330,10 @@
       {# ==================== IMPORT DATA ==================== #}
       <div x-show="tab === 'import'" x-cloak class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl">
         <h3 class="text-lg mb-1">Import Data</h3>
-        <div class="text-ink-dim text-xs mb-3.5">Upload an export from any tracker as a CSV file.</div>
+        <div class="text-ink-dim text-xs mb-3.5">Upload an export from any tracker as a CSV, JSON, or zip file — including Trakt's own "Export now" zip.</div>
         <form method="post" action="{% url 'import_csv' %}" enctype="multipart/form-data" class="flex items-center gap-2">
           {% csrf_token %}
-          <input type="file" name="csv_file" accept=".csv,text/csv" required class="file-input file-input-sm flex-1">
+          <input type="file" name="csv_file" accept=".csv,.json,.zip,text/csv,application/json,application/zip" required class="file-input file-input-sm flex-1">
           <button type="submit" class="btn btn-sm btn-soft">Upload</button>
         </form>
       </div>

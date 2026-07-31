@@ -1,10 +1,12 @@
 import calendar as calendar_stdlib
 import csv
+import json
 import logging
 import os
 import secrets
 import threading
 import uuid
+import zipfile
 import zoneinfo
 from datetime import date, timedelta
 from itertools import groupby
@@ -2959,37 +2961,87 @@ def _discard_pending_csv_import(request):
             pass
 
 
+def _parse_pending_import(pending, limit=None):
+    """Dispatches to the right csv_import parser for pending['kind'] - csv
+    needs the stored column mapping and re-reads the saved file as text;
+    json/zip carry no mapping (see import_csv_upload) and are parsed
+    fresh each call rather than cached, same as csv - all three are
+    cheap local parses, the only real cost (TMDB lookups) happens later
+    in commit_rows()."""
+    kind = pending["kind"]
+    if kind == "csv":
+        with open(pending["path"], "rb") as f:
+            reader = csv_import.open_csv_reader(f)
+            return csv_import.parse_rows(reader, pending["mapping"], limit=limit)
+    if kind == "json":
+        with open(pending["path"], "rb") as f:
+            data = json.loads(f.read().decode("utf-8-sig"))
+        return csv_import.parse_json_rows(data, limit=limit)
+    return csv_import.parse_zip_file(pending["path"], limit=limit)
+
+
 @login_required
 @require_POST
 def import_csv_upload(request):
     upload = request.FILES.get("csv_file")
     if not upload:
-        messages.error(request, "Choose a CSV file first.")
+        messages.error(request, "Choose a file first.")
+        return redirect("settings")
+
+    kind = csv_import.detect_kind(upload.name)
+    if kind is None:
+        messages.error(request, f'"{upload.name}" isn\'t a .csv, .json, or .zip file.')
         return redirect("settings")
 
     os.makedirs(CSV_IMPORT_DIR, exist_ok=True)
-    path = os.path.join(CSV_IMPORT_DIR, f"{uuid.uuid4().hex}.csv")
+    path = os.path.join(CSV_IMPORT_DIR, f"{uuid.uuid4().hex}.{kind}")
     with open(path, "wb") as f:
         for chunk in upload.chunks():
             f.write(chunk)
 
-    try:
-        with open(path, "rb") as f:
-            headers = csv_import.open_csv_reader(f).fieldnames or []
-    except (OSError, UnicodeDecodeError):
-        headers = []
-    if not headers:
-        os.remove(path)
-        messages.error(request, f'"{upload.name}" doesn\'t look like a CSV file (no header row found).')
-        return redirect("settings")
+    pending = {"path": path, "filename": upload.name, "kind": kind}
+
+    if kind == "csv":
+        try:
+            with open(path, "rb") as f:
+                headers = csv_import.open_csv_reader(f).fieldnames or []
+        except (OSError, UnicodeDecodeError):
+            headers = []
+        if not headers:
+            os.remove(path)
+            messages.error(request, f'"{upload.name}" doesn\'t look like a CSV file (no header row found).')
+            return redirect("settings")
+        pending["headers"] = headers
+        pending["mapping"] = csv_import.detect_mapping(headers)
+    elif kind == "json":
+        try:
+            with open(path, "rb") as f:
+                data = json.loads(f.read().decode("utf-8-sig"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            os.remove(path)
+            messages.error(request, f'"{upload.name}" doesn\'t look like a valid JSON file.')
+            return redirect("settings")
+        rows, errors = csv_import.parse_json_rows(data, limit=1)
+        if not rows and not errors:
+            os.remove(path)
+            messages.error(request, f'"{upload.name}" doesn\'t contain any recognizable watch history.')
+            return redirect("settings")
+    else:  # zip
+        try:
+            with zipfile.ZipFile(path):
+                pass
+        except zipfile.BadZipFile:
+            os.remove(path)
+            messages.error(request, f'"{upload.name}" doesn\'t look like a valid zip file.')
+            return redirect("settings")
+        rows, errors = csv_import.parse_zip_file(path, limit=1)
+        if not rows and not errors:
+            os.remove(path)
+            messages.error(request, f'"{upload.name}" doesn\'t contain any recognizable watch history in its .csv/.json entries.')
+            return redirect("settings")
 
     _discard_pending_csv_import(request)
-    request.session["csv_import"] = {
-        "path": path,
-        "filename": upload.name,
-        "headers": headers,
-        "mapping": csv_import.detect_mapping(headers),
-    }
+    request.session["csv_import"] = pending
     return redirect("import_csv_preview")
 
 
@@ -2997,22 +3049,24 @@ def import_csv_upload(request):
 def import_csv_preview(request):
     pending = request.session.get("csv_import")
     if not pending:
-        messages.error(request, "No CSV import in progress — upload a file to start.")
+        messages.error(request, "No import in progress — upload a file to start.")
         return redirect("settings")
 
-    with open(pending["path"], "rb") as f:
-        reader = csv_import.open_csv_reader(f)
-        sample_rows, sample_errors = csv_import.parse_rows(reader, pending["mapping"], limit=10)
+    sample_rows, sample_errors = _parse_pending_import(pending, limit=10)
+    kind = pending["kind"]
 
     context = {
         "filename": pending["filename"],
-        "headers": pending["headers"],
-        "mapping": pending["mapping"],
+        "kind": kind,
+        "headers": pending.get("headers", []),
+        "mapping": pending.get("mapping", {}),
         "fields": csv_import.FIELDS,
         "required_fields": csv_import.REQUIRED_FIELDS,
         "sample_rows": sample_rows,
         "sample_errors": sample_errors,
-        "missing_required": [f for f in csv_import.REQUIRED_FIELDS if f not in pending["mapping"]],
+        "missing_required": (
+            [f for f in csv_import.REQUIRED_FIELDS if f not in pending["mapping"]] if kind == "csv" else []
+        ),
     }
     return render(request, "tracker/import_csv_preview.html", context)
 
@@ -3049,15 +3103,14 @@ def import_csv_commit(request):
     if profile is None or not pending:
         return redirect("settings")
 
-    missing_required = [f for f in csv_import.REQUIRED_FIELDS if f not in pending["mapping"]]
-    if missing_required:
-        messages.error(request, f"Map the required column(s) first: {', '.join(missing_required)}.")
-        return redirect("import_csv_preview")
+    if pending["kind"] == "csv":
+        missing_required = [f for f in csv_import.REQUIRED_FIELDS if f not in pending["mapping"]]
+        if missing_required:
+            messages.error(request, f"Map the required column(s) first: {', '.join(missing_required)}.")
+            return redirect("import_csv_preview")
 
     try:
-        with open(pending["path"], "rb") as f:
-            reader = csv_import.open_csv_reader(f)
-            rows, parse_errors = csv_import.parse_rows(reader, pending["mapping"])
+        rows, parse_errors = _parse_pending_import(pending)
         imported, skipped = csv_import.commit_rows(profile, rows)
     except Exception as e:
         DataLog.objects.create(

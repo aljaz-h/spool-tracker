@@ -1,7 +1,9 @@
 import io
+import json
 import os
 import shutil
 import tempfile
+import zipfile
 from datetime import timedelta
 from unittest.mock import Mock, patch
 
@@ -184,6 +186,175 @@ class CsvImportCommitTests(TestCase):
         imported, skipped = csv_import.commit_rows(self.profile, rows)
         self.assertEqual(imported, 0)
         self.assertEqual(skipped[0][1], "already in history")
+
+    def test_trakt_id_matches_existing_title_over_name_year(self):
+        from django.utils import timezone
+
+        existing = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Renamed Since", year=2020, external_ids={"trakt": "555"}
+        )
+        rows = [
+            {
+                "row": 1, "title": "The Long Corridor", "media_type": MediaType.MOVIE, "year": 2020,
+                "season": None, "episode": None, "watched_at": timezone.now(), "rating": None, "trakt_id": "555",
+            }
+        ]
+        imported, skipped = csv_import.commit_rows(self.profile, rows)
+        self.assertEqual(imported, 1)
+        self.assertEqual(skipped, [])
+        self.assertEqual(Title.objects.filter(media_type=MediaType.MOVIE).count(), 1)
+        self.assertEqual(WatchEvent.objects.get().title, existing)
+
+
+class DetectKindTests(TestCase):
+    def test_recognizes_csv_json_zip_case_insensitively(self):
+        self.assertEqual(csv_import.detect_kind("export.CSV"), "csv")
+        self.assertEqual(csv_import.detect_kind("watched-history.json"), "json")
+        self.assertEqual(csv_import.detect_kind("trakt-export.zip"), "zip")
+
+    def test_unrecognized_extension_returns_none(self):
+        self.assertIsNone(csv_import.detect_kind("notes.txt"))
+        self.assertIsNone(csv_import.detect_kind(""))
+
+
+class ParseJsonRowsTests(TestCase):
+    def test_trakt_shaped_movie_item(self):
+        data = [
+            {
+                "type": "movie",
+                "watched_at": "2024-01-05T20:30:00.000Z",
+                "movie": {"title": "The Long Corridor", "year": 2020, "ids": {"trakt": 42}},
+            }
+        ]
+        rows, errors = csv_import.parse_json_rows(data)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["title"], "The Long Corridor")
+        self.assertEqual(row["media_type"], MediaType.MOVIE)
+        self.assertEqual(row["trakt_id"], 42)
+
+    def test_trakt_shaped_episode_item(self):
+        data = [
+            {
+                "type": "episode",
+                "watched_at": "2024-01-05T20:30:00.000Z",
+                "show": {"title": "Fathom", "year": 2019, "ids": {"trakt": 7}},
+                "episode": {"season": 2, "number": 10},
+            }
+        ]
+        rows, errors = csv_import.parse_json_rows(data)
+        self.assertEqual(errors, [])
+        row = rows[0]
+        self.assertEqual(row["media_type"], MediaType.TV)
+        self.assertEqual(row["season"], 2)
+        self.assertEqual(row["episode"], 10)
+
+    def test_trakt_shaped_episode_item_missing_season_number_is_an_error(self):
+        data = [
+            {
+                "type": "episode",
+                "watched_at": "2024-01-05T20:30:00.000Z",
+                "show": {"title": "Fathom", "ids": {"trakt": 7}},
+                "episode": {},
+            }
+        ]
+        rows, errors = csv_import.parse_json_rows(data)
+        self.assertEqual(rows, [])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("season/number", errors[0][1])
+
+    def test_generic_flat_item(self):
+        data = [{"name": "The Long Corridor", "type": "movie", "date": "2024-01-05", "your_rating": "8"}]
+        rows, errors = csv_import.parse_json_rows(data)
+        self.assertEqual(errors, [])
+        row = rows[0]
+        self.assertEqual(row["title"], "The Long Corridor")
+        self.assertEqual(row["media_type"], MediaType.MOVIE)
+        self.assertEqual(row["rating"], 8)
+        self.assertIsNone(row["trakt_id"])
+
+    def test_dict_with_list_values_is_flattened(self):
+        data = {
+            "movies": [
+                {
+                    "type": "movie",
+                    "watched_at": "2024-01-05T20:30:00.000Z",
+                    "movie": {"title": "A", "ids": {"trakt": 1}},
+                }
+            ],
+            "shows": [
+                {
+                    "type": "episode",
+                    "watched_at": "2024-01-06T20:30:00.000Z",
+                    "show": {"title": "B", "ids": {"trakt": 2}},
+                    "episode": {"season": 1, "number": 1},
+                }
+            ],
+        }
+        rows, errors = csv_import.parse_json_rows(data)
+        self.assertEqual(errors, [])
+        self.assertEqual({r["title"] for r in rows}, {"A", "B"})
+
+    def test_non_object_item_is_an_error(self):
+        rows, errors = csv_import.parse_json_rows(["just a string"])
+        self.assertEqual(rows, [])
+        self.assertEqual(errors, [(1, "not a JSON object")])
+
+    def test_limit_caps_parsed_rows(self):
+        data = [
+            {"type": "movie", "watched_at": "2024-01-0%dT00:00:00.000Z" % i, "movie": {"title": f"M{i}", "ids": {"trakt": i}}}
+            for i in range(1, 6)
+        ]
+        rows, errors = csv_import.parse_json_rows(data, limit=2)
+        self.assertEqual(len(rows), 2)
+
+
+class ParseZipFileTests(TestCase):
+    def _make_zip(self, entries):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            for name, content in entries.items():
+                zf.writestr(name, content)
+        path = tempfile.mktemp(suffix=".zip")
+        with open(path, "wb") as f:
+            f.write(buf.getvalue())
+        return path
+
+    def test_extracts_rows_from_csv_and_json_entries_and_skips_others(self):
+        json_content = json.dumps(
+            [{"type": "movie", "watched_at": "2024-01-05T00:00:00.000Z", "movie": {"title": "A", "ids": {"trakt": 1}}}]
+        )
+        path = self._make_zip(
+            {
+                "history.csv": "title,type,watched_at\nB,movie,2024-01-06\n",
+                "watched-movies.json": json_content,
+                "README.txt": "not watch history",
+            }
+        )
+        try:
+            rows, errors = csv_import.parse_zip_file(path)
+        finally:
+            os.remove(path)
+        self.assertEqual(errors, [])
+        self.assertEqual({r["title"] for r in rows}, {"A", "B"})
+
+    def test_csv_entry_without_a_title_column_is_skipped(self):
+        path = self._make_zip({"manifest.csv": "exported_at,version\n2024-01-01,1\n"})
+        try:
+            rows, errors = csv_import.parse_zip_file(path)
+        finally:
+            os.remove(path)
+        self.assertEqual(rows, [])
+        self.assertEqual(errors, [])
+
+    def test_errors_are_prefixed_with_the_entry_filename(self):
+        path = self._make_zip({"bad.csv": "title,type,watched_at\n,movie,2024-01-05\n"})
+        try:
+            rows, errors = csv_import.parse_zip_file(path)
+        finally:
+            os.remove(path)
+        self.assertEqual(errors[0][0], "bad.csv:2")
 
 
 class TraktFetchHistoryPaginationTests(TestCase):
@@ -2580,6 +2751,66 @@ class ImportCsvCommitViewTests(TestCase):
         self.assertEqual(log.action, DataLog.Action.IMPORT)
         self.assertEqual(log.status, DataLog.Status.FAILED)
         self.assertIn("db exploded", log.error_message)
+
+
+class ImportUploadKindTests(TestCase):
+    """import_csv_upload accepting .csv/.json/.zip, and the full upload →
+    preview → commit path for the two new kinds - CsvImport*Tests above
+    already cover .csv end to end."""
+
+    def setUp(self):
+        user = User.objects.create_user("multiformat", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="MultiFormat")
+        self.client.login(username="multiformat", password="pass12345")
+
+    def test_unrecognized_extension_is_rejected(self):
+        upload = SimpleUploadedFile("history.txt", b"not a real export", content_type="text/plain")
+        resp = self.client.post(reverse("import_csv"), {"csv_file": upload}, follow=True)
+        self.assertRedirects(resp, reverse("settings"))
+        self.assertContains(resp, "isn&#x27;t a .csv, .json, or .zip file")
+
+    def test_invalid_json_is_rejected(self):
+        upload = SimpleUploadedFile("history.json", b"{not valid json", content_type="application/json")
+        resp = self.client.post(reverse("import_csv"), {"csv_file": upload}, follow=True)
+        self.assertRedirects(resp, reverse("settings"))
+        self.assertContains(resp, "doesn&#x27;t look like a valid JSON file")
+
+    def test_invalid_zip_is_rejected(self):
+        upload = SimpleUploadedFile("export.zip", b"not a real zip", content_type="application/zip")
+        resp = self.client.post(reverse("import_csv"), {"csv_file": upload}, follow=True)
+        self.assertRedirects(resp, reverse("settings"))
+        self.assertContains(resp, "doesn&#x27;t look like a valid zip file")
+
+    def test_json_upload_previews_and_commits(self):
+        data = json.dumps(
+            [
+                {
+                    "type": "movie",
+                    "watched_at": "2024-01-05T20:30:00.000Z",
+                    "movie": {"title": "The Long Corridor", "year": 2020, "ids": {"trakt": 42}},
+                }
+            ]
+        )
+        upload = SimpleUploadedFile("watched-movies.json", data.encode(), content_type="application/json")
+        resp = self.client.post(reverse("import_csv"), {"csv_file": upload}, follow=True)
+        self.assertContains(resp, "The Long Corridor")
+        self.assertNotContains(resp, "Column mapping")
+
+        self.client.post(reverse("import_csv_commit"))
+        self.assertTrue(WatchEvent.objects.filter(profile=self.profile).exists())
+        log = DataLog.objects.get(profile=self.profile)
+        self.assertEqual(log.item_count, 1)
+
+    def test_zip_upload_previews_and_commits(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("history.csv", "title,type,watched_at\nFathom,movie,2024-01-05\n")
+        upload = SimpleUploadedFile("trakt-export.zip", buf.getvalue(), content_type="application/zip")
+        resp = self.client.post(reverse("import_csv"), {"csv_file": upload}, follow=True)
+        self.assertContains(resp, "Fathom")
+
+        self.client.post(reverse("import_csv_commit"))
+        self.assertTrue(WatchEvent.objects.filter(profile=self.profile).exists())
 
 
 class ExportTraktJsonViewTests(TestCase):

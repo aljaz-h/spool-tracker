@@ -8,6 +8,29 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.59.0] - 2026-07-31
+
+### Added
+
+- Import Data now accepts `.json` and `.zip` files, not just `.csv` —
+  including Trakt's own "Export now" zip (a bundle of JSON files, not
+  CSVs). JSON entries are read either in Trakt's own history/API shape
+  or a generic flat object (same field names as the CSV importer's
+  columns); a zip is walked for every `.csv`/`.json` file inside and
+  each is parsed and merged into one import, skipping anything that
+  isn't watch-history data (images, a README, etc.).
+- Rows sourced from Trakt-shaped JSON/zip imports now carry a Trakt id,
+  so they dedupe against a title already synced in via Trakt OAuth
+  instead of only matching by name/year the way CSV imports always have.
+
+### Note
+
+- The exact JSON structure inside Trakt's real export zip is unverified
+  against a live export (matches the existing caveat on the Trakt OAuth
+  sync code) — if your real file doesn't match, its rows will show up as
+  parse errors in the preview step rather than failing silently or
+  importing wrong data.
+
 ## [0.58.1] - 2026-07-31
 
 ### Changed
