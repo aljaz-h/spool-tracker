@@ -1505,6 +1505,43 @@ def _group_history_by_day(events):
     return groups
 
 
+def _paginate_history_tiles(events, page_number):
+    """Paginates History by rendered tile, not by raw WatchEvent row -
+    otherwise a single binge-marked day whose consecutive-episode run is
+    exactly (or bigger than) HISTORY_PAGE_SIZE collapses to one group
+    tile via _group_consecutive_episodes but still consumes a whole
+    page's worth of raw rows getting there, leaving that page showing
+    just that one tile. Groups the full filtered/sorted event list by
+    day first, flattens to (day_group, item) pairs, and paginates that -
+    so a "page" means N tiles, matching what's actually on screen.
+    Requires the full events list in memory to group before paginating
+    (no DB-level LIMIT/OFFSET here) - fine at this app's personal-history
+    scale, not fine at forum-scale.
+
+    Each day-group's own movie/episode/duration totals come from its
+    FULL set of events, not just whatever lands on this page - a single
+    day spanning a page boundary is rare enough that its header should
+    still report accurate totals rather than a partial count."""
+    full_day_groups = _group_history_by_day(events)
+    flat_items = [(group, item) for group in full_day_groups for item in group["items"]]
+    page_obj = Paginator(flat_items, HISTORY_PAGE_SIZE).get_page(page_number)
+
+    page_groups = []
+    for group, item in page_obj.object_list:
+        if not page_groups or page_groups[-1]["date"] != group["date"]:
+            page_groups.append(
+                {
+                    "date": group["date"],
+                    "items": [],
+                    "movie_count": group["movie_count"],
+                    "episode_count": group["episode_count"],
+                    "total_duration": group["total_duration"],
+                }
+            )
+        page_groups[-1]["items"].append(item)
+    return page_obj, page_groups
+
+
 def _time_format_str(profile):
     return "H:i" if profile and profile.time_format == Profile.TimeFormat.H24 else "g:i A"
 
@@ -1559,8 +1596,7 @@ def _history_context(request, profile):
             ]
         else:
             events = events.select_related("title", "episode").order_by("-watched_at" if sort == "new" else "watched_at")
-            page_obj = Paginator(events, HISTORY_PAGE_SIZE).get_page(request.GET.get("page"))
-            day_groups = _group_history_by_day(page_obj.object_list)
+            page_obj, day_groups = _paginate_history_tiles(list(events), request.GET.get("page"))
 
     query_without_page = request.GET.copy()
     query_without_page.pop("page", None)

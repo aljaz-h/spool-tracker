@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.60.2] - 2026-07-31
+
+### Fixed
+
+- History paginated by raw watch-event rows instead of the tiles actually
+  rendered on screen, so a single day with a big binge-marked run
+  (consecutive episodes of one show collapse into one group tile) could
+  eat an entire page's row budget and leave that page showing just one
+  tile with the rest blank. Pagination now operates on the grouped tiles
+  themselves, so a page's density matches what's actually on screen.
+
 ## [0.60.1] - 2026-07-31
 
 ### Fixed

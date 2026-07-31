@@ -11433,6 +11433,78 @@ class HistoryConsecutiveEpisodeGroupingTests(TestCase):
         self.assertContains(resp, "S1E1–S1E3")
 
 
+class HistoryPaginatesByTileTests(TestCase):
+    """A big same-day binge (e.g. bulk-marking a season watched) collapses
+    to one group tile - History's pagination has to be based on that
+    rendered tile count, not the raw WatchEvent rows behind it, or a page
+    can end up showing a single tile with the rest of the page blank
+    (reported live: 150 Bleach episodes watched "today" filled all of
+    HISTORY_PAGE_SIZE's raw-row budget and left page 1 showing just one
+    card)."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("tileuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="TileUser")
+        self.now = timezone.now()
+
+    def test_a_binge_bigger_than_the_page_size_does_not_starve_the_page(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
+        for i in range(1, views.HISTORY_PAGE_SIZE + 1):
+            ep = Episode.objects.create(title=show, season=1, episode=i)
+            WatchEvent.objects.create(
+                profile=self.profile, title=show, episode=ep, watched_at=self.now - timedelta(minutes=i)
+            )
+        # A second, older day with its own distinct titles - should still
+        # show up on page 1 alongside the binge's single group tile,
+        # instead of being pushed off onto a near-empty page 2.
+        other_movies = [
+            Title.objects.create(media_type=MediaType.MOVIE, name=f"Other Movie {i}", year=2020) for i in range(1, 4)
+        ]
+        for movie in other_movies:
+            WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now - timedelta(days=1))
+
+        self.client.login(username="tileuser", password="pass12345")
+        resp = self.client.get(reverse("history"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, f"{views.HISTORY_PAGE_SIZE} episodes")
+        self.assertContains(resp, "Other Movie 1")
+        self.assertContains(resp, "Other Movie 2")
+        self.assertContains(resp, "Other Movie 3")
+        # Only one page needed - 1 binge tile + 3 movie tiles is nowhere
+        # near HISTORY_PAGE_SIZE tiles.
+        self.assertNotContains(resp, "Page 1 of 2")
+
+    def test_paginator_count_reflects_tiles_not_raw_events(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
+        for i in range(1, 11):
+            ep = Episode.objects.create(title=show, season=1, episode=i)
+            WatchEvent.objects.create(
+                profile=self.profile, title=show, episode=ep, watched_at=self.now - timedelta(minutes=i)
+            )
+        context = views._history_context(self._get_request(), self.profile)
+        # 10 consecutive same-show episodes on one day collapse to 1 tile.
+        self.assertEqual(context["page_obj"].paginator.count, 1)
+
+    def test_many_distinct_tiles_still_paginate_at_the_page_size(self):
+        movies = [
+            Title.objects.create(media_type=MediaType.MOVIE, name=f"Movie {i}", year=2020)
+            for i in range(views.HISTORY_PAGE_SIZE + 10)
+        ]
+        for i, movie in enumerate(movies):
+            WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now - timedelta(minutes=i))
+
+        self.client.login(username="tileuser", password="pass12345")
+        resp = self.client.get(reverse("history"))
+        self.assertContains(resp, "Page 1 of 2")
+
+    def _get_request(self):
+        from django.test import RequestFactory
+
+        return RequestFactory().get("/history/")
+
+
 class HistoryDayGroupTotalDurationTests(TestCase):
     """Each day-group header's own total watch time - next to the
     "1 movie · 4 episodes" count, shown in whichever unit
