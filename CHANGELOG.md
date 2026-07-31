@@ -8,7 +8,29 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
-## [0.59.0] - 2026-07-31
+## [0.59.1] - 2026-07-31
+
+### Fixed
+
+- Importing a real Trakt "Export now" zip could 500 partway through and
+  miss most rewatch history. Root-caused against an actual export:
+  1. The zip's ~85 non-history JSON files (aggregated watched-movies/
+     watched-shows, ratings, lists, collection, network data, etc.) were
+     being parsed too, dumping thousands of spurious "missing title"/
+     "unparseable watched_at" errors — only `watched-history-*.json`
+     turned out to hold real per-play events; the aggregate files can't
+     reconstruct rewatch history anyway (just a play count, no per-play
+     timestamps). Non-history JSON files are now skipped entirely.
+  2. A real export's ~10,500 watch events took ~85s to commit
+     synchronously (measured, with zero TMDB lookups) — well past any
+     reverse-proxy/request timeout, which is what produced the 500 and
+     left only a partial, timing-dependent slice of history imported.
+     Imports over 500 rows now run in the background via Celery (the
+     same mechanism Trakt/Simkl sync already uses) instead of inside the
+     request — Settings → Logs shows it as `running` immediately and
+     flips to `success`/`failed` once the worker finishes. Small
+     imports are unaffected and still commit instantly with the same
+     result page as before.
 
 ### Added
 

@@ -1,3 +1,4 @@
+import os
 from datetime import timedelta
 
 import requests
@@ -5,9 +6,9 @@ from celery import shared_task
 from celery.utils.log import get_task_logger
 from django.utils import timezone
 
-from . import instance_config, notifications, release_sync, selectors, update_check, version
+from . import csv_import, instance_config, notifications, release_sync, selectors, update_check, version
 from .integrations import simkl, trakt
-from .models import ExternalAccount, Notification, Profile, SyncLog
+from .models import DataLog, ExternalAccount, Notification, Profile, SyncLog
 
 logger = get_task_logger(__name__)
 
@@ -124,6 +125,42 @@ def sync_simkl_history(profile_id):
     created = _run_sync(account.profile, ExternalAccount.Provider.SIMKL, do_sync)
     logger.info("sync_simkl_history: profile %s, %d new watch events", profile_id, created)
     return created
+
+
+@shared_task
+def run_data_import(log_id, profile_id, path, kind, mapping=None):
+    """Settings → Import Data's background path for a file too large to
+    commit inside one request - see LARGE_IMPORT_ROW_THRESHOLD in
+    views.py. `log_id` is a DataLog row already created (status=RUNNING)
+    synchronously by the view before dispatch, same as _run_sync creates
+    its SyncLog row up front - so the Logs tab shows the import as
+    in-progress immediately rather than only once this task actually
+    starts running on a worker. Always removes the temp file at `path`
+    (success or failure), since ownership of it passes from the view to
+    this task at dispatch time - see import_csv_commit."""
+    log = DataLog.objects.get(id=log_id)
+    profile = Profile.objects.get(id=profile_id)
+    try:
+        rows, parse_errors = csv_import.parse_file(path, kind, mapping)
+        imported, skipped = csv_import.commit_rows(profile, rows)
+    except Exception as e:
+        log.status = DataLog.Status.FAILED
+        log.error_message = str(e)[:500]
+        log.save(update_fields=["status", "error_message"])
+        raise
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+    all_skipped = parse_errors + skipped
+    log.status = DataLog.Status.SUCCESS
+    log.item_count = imported
+    log.detail = f"{len(all_skipped)} skipped" if all_skipped else ""
+    log.save(update_fields=["status", "item_count", "detail"])
+    logger.info("run_data_import: profile %s, %d imported, %d skipped", profile_id, imported, len(all_skipped))
+    return imported
 
 
 @shared_task

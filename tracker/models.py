@@ -583,6 +583,7 @@ class DataLog(models.Model):
         SIMKL_CONNECT = "simkl_connect", "Simkl Connect"
 
     class Status(models.TextChoices):
+        RUNNING = "running", "Running"
         SUCCESS = "success", "Success"
         FAILED = "failed", "Failed"
 

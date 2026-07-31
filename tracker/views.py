@@ -2962,22 +2962,11 @@ def _discard_pending_csv_import(request):
 
 
 def _parse_pending_import(pending, limit=None):
-    """Dispatches to the right csv_import parser for pending['kind'] - csv
-    needs the stored column mapping and re-reads the saved file as text;
-    json/zip carry no mapping (see import_csv_upload) and are parsed
-    fresh each call rather than cached, same as csv - all three are
-    cheap local parses, the only real cost (TMDB lookups) happens later
-    in commit_rows()."""
-    kind = pending["kind"]
-    if kind == "csv":
-        with open(pending["path"], "rb") as f:
-            reader = csv_import.open_csv_reader(f)
-            return csv_import.parse_rows(reader, pending["mapping"], limit=limit)
-    if kind == "json":
-        with open(pending["path"], "rb") as f:
-            data = json.loads(f.read().decode("utf-8-sig"))
-        return csv_import.parse_json_rows(data, limit=limit)
-    return csv_import.parse_zip_file(pending["path"], limit=limit)
+    """Thin wrapper over csv_import.parse_file() using the session-stored
+    path/kind/mapping - parsed fresh each call rather than cached (cheap:
+    confirmed ~0.1s even for a 10k-row real Trakt export), the only real
+    cost (TMDB lookups, DB writes) happens later in commit_rows()."""
+    return csv_import.parse_file(pending["path"], pending["kind"], pending.get("mapping"), limit=limit)
 
 
 @login_required
@@ -3095,6 +3084,40 @@ def import_csv_cancel(request):
     return redirect("settings")
 
 
+
+# A real Trakt "Export now" zip can carry 10k+ watch events. Timed
+# against that actual export: committing ~10,500 rows synchronously took
+# ~85s with zero TMDB lookups involved (no API key configured in that
+# test) - already well past any reasonable reverse-proxy/gunicorn
+# request timeout, and worse with real TMDB lookups for new titles. 500
+# rows is comfortably inside "finishes in a couple seconds" territory
+# even accounting for TMDB calls, while still covering the vast majority
+# of ordinary personal CSV/JSON exports synchronously (instant result
+# page, no polling needed).
+LARGE_IMPORT_ROW_THRESHOLD = 500
+
+
+def _dispatch_import_task_safely(log, profile_id, path, kind, mapping, timeout=2.0):
+    """Same pattern as _dispatch_sync_task_safely - dispatch on a
+    background thread with a short timeout so a slow/unreachable Celery
+    broker can't hang this request, just log and move on. Unlike sync,
+    there's no daily beat job that'll pick this back up later if the
+    dispatch itself fails - the DataLog row is left at RUNNING and the
+    temp file stays on disk. Acceptable here: dispatch failure means the
+    broker is down, which is a bigger problem than one stuck import."""
+    def _dispatch():
+        try:
+            tasks.run_data_import.apply_async(args=[log.id, profile_id, path, kind, mapping], retry=False)
+        except Exception:
+            logging.getLogger(__name__).exception("Background dispatch of run_data_import failed")
+
+    thread = threading.Thread(target=_dispatch, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+    if thread.is_alive():
+        logging.getLogger(__name__).warning("Dispatch of run_data_import did not complete within %ss", timeout)
+
+
 @login_required
 @require_POST
 def import_csv_commit(request):
@@ -3109,8 +3132,20 @@ def import_csv_commit(request):
             messages.error(request, f"Map the required column(s) first: {', '.join(missing_required)}.")
             return redirect("import_csv_preview")
 
+    rows, parse_errors = _parse_pending_import(pending)
+
+    if len(rows) > LARGE_IMPORT_ROW_THRESHOLD:
+        request.session.pop("csv_import", None)  # ownership of the temp file passes to the task below
+        log = DataLog.objects.create(profile=profile, action=DataLog.Action.IMPORT, status=DataLog.Status.RUNNING)
+        _dispatch_import_task_safely(log, profile.id, pending["path"], pending["kind"], pending.get("mapping"))
+        messages.success(
+            request,
+            f"Import started in the background ({len(rows)} rows) — large files can take a few minutes. "
+            "Check Settings → Logs for progress.",
+        )
+        return redirect(f"{reverse('settings')}?tab=logs")
+
     try:
-        rows, parse_errors = _parse_pending_import(pending)
         imported, skipped = csv_import.commit_rows(profile, rows)
     except Exception as e:
         DataLog.objects.create(

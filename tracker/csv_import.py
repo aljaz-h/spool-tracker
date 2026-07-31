@@ -310,14 +310,26 @@ def parse_json_rows(data, limit=None):
 def parse_zip_file(path, limit=None):
     """Walks every .csv/.json entry in the zip at `path`, parsing each
     with the matching parser above and concatenating rows/errors across
-    all of them - Trakt's own "Export now" zip is a flat pile of JSON
-    files (see module docstring), other tools may bundle CSVs instead,
-    so both are handled rather than assuming one. Entries that are
-    neither (a directory, an image, a README) are silently skipped
-    rather than reported as errors - a zip is expected to contain more
-    than just watch-history data. Row numbers in the returned errors are
-    prefixed with the entry's filename since they're no longer unique
-    across the whole zip."""
+    all of them - Trakt's own "Export now" zip is a flat pile of ~90 JSON
+    files (see module docstring), most of which aren't watch history at
+    all (profile/settings/network/ratings/notes/lists/collection data) -
+    only watched-history-*.json turned out, against a real export, to be
+    per-play watch events; watched-movies-*.json/watched-shows.json are
+    *aggregates* (a play count + last_watched_at, no per-play timestamps,
+    so importing them can't reconstruct rewatch history anyway) that
+    happen to have no top-level "title" the generic JSON shape looks for.
+
+    A JSON entry that yields zero rows is treated the same way a CSV
+    entry with no detected title column already was - skipped entirely,
+    errors included - rather than reported, since a Trakt export's ~85
+    non-history JSON files would otherwise dump thousands of "missing
+    title"/"unparseable watched_at" errors into the preview for files
+    that were never watch history to begin with (confirmed against a
+    real export zip: every non-watched-history-*.json file produced 0
+    rows and only errors, while every watched-history-*.json file
+    produced only rows and 0 errors - a clean split). Row numbers in
+    genuinely surfaced errors are prefixed with the entry's filename
+    since they're no longer unique across the whole zip."""
     rows, errors = [], []
     with zipfile.ZipFile(path) as zf:
         for name in zf.namelist():
@@ -338,6 +350,8 @@ def parse_zip_file(path, limit=None):
                     except (UnicodeDecodeError, json.JSONDecodeError):
                         continue
                     file_rows, file_errors = parse_json_rows(data)
+                if not file_rows:
+                    continue
             else:
                 continue
             rows.extend(file_rows)
@@ -345,6 +359,25 @@ def parse_zip_file(path, limit=None):
             if limit and len(rows) >= limit:
                 return rows[:limit], errors
     return rows, errors
+
+
+def parse_file(path, kind, mapping=None, limit=None):
+    """Dispatches to the right parser for kind ("csv"/"json"/"zip") -
+    the one place that knows how to turn an uploaded file into
+    commit_rows()-ready rows, shared between the request-time preview/
+    small-file commit path (views.py's _parse_pending_import) and the
+    background run_data_import task (tasks.py) used once a file is too
+    large to safely commit inside one request - see
+    LARGE_IMPORT_ROW_THRESHOLD in views.py."""
+    if kind == "csv":
+        with open(path, "rb") as f:
+            reader = open_csv_reader(f)
+            return parse_rows(reader, mapping or {}, limit=limit)
+    if kind == "json":
+        with open(path, "rb") as f:
+            data = json.loads(f.read().decode("utf-8-sig"))
+        return parse_json_rows(data, limit=limit)
+    return parse_zip_file(path, limit=limit)
 
 
 def _get_or_create_title(media_type, name, year, trakt_id=None):

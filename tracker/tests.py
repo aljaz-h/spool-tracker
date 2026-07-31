@@ -356,6 +356,90 @@ class ParseZipFileTests(TestCase):
             os.remove(path)
         self.assertEqual(errors[0][0], "bad.csv:2")
 
+    def test_json_entry_that_yields_zero_rows_is_skipped_entirely(self):
+        """Confirmed against a real Trakt export zip: every non-history
+        JSON file (watched-movies-*.json's per-title aggregates, ratings,
+        lists, collection, network, notes, etc.) produced 0 rows and
+        nothing but errors, while watched-history-*.json produced only
+        rows. This is the aggregate shape specifically - a top-level
+        "title" alias never matches since it's nested under "movie"."""
+        aggregate_content = json.dumps(
+            [{"last_watched_at": "2026-07-29T13:32:00.000Z", "movie": {"title": "Dolly", "year": 2026}, "plays": 1}]
+        )
+        history_content = json.dumps(
+            [{"type": "movie", "watched_at": "2026-07-29T13:32:00.000Z", "movie": {"title": "Dolly", "ids": {"trakt": 1}}}]
+        )
+        path = self._make_zip(
+            {"watched-movies-1.json": aggregate_content, "watched-history-1.json": history_content}
+        )
+        try:
+            rows, errors = csv_import.parse_zip_file(path)
+        finally:
+            os.remove(path)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["title"], "Dolly")
+
+    def test_limit_caps_rows_across_entries(self):
+        history_content = json.dumps(
+            [
+                {"type": "movie", "watched_at": f"2024-01-0{i}T00:00:00.000Z", "movie": {"title": f"M{i}", "ids": {"trakt": i}}}
+                for i in range(1, 4)
+            ]
+        )
+        path = self._make_zip({"watched-history-1.json": history_content})
+        try:
+            rows, errors = csv_import.parse_zip_file(path, limit=2)
+        finally:
+            os.remove(path)
+        self.assertEqual(len(rows), 2)
+
+
+class ParseFileTests(TestCase):
+    """csv_import.parse_file() - the single dispatch point shared by the
+    request-time preview/small-file commit path and the background
+    run_data_import task, so any kind-specific bug here would affect
+    both."""
+
+    def _write(self, suffix, content):
+        path = tempfile.mktemp(suffix=suffix)
+        with open(path, "wb") as f:
+            f.write(content if isinstance(content, bytes) else content.encode())
+        return path
+
+    def test_dispatches_csv_with_mapping(self):
+        path = self._write(".csv", "title,type,watched_at\nFathom,movie,2024-01-05\n")
+        try:
+            rows, errors = csv_import.parse_file(path, "csv", mapping={"title": "title", "media_type": "type", "watched_at": "watched_at"})
+        finally:
+            os.remove(path)
+        self.assertEqual(errors, [])
+        self.assertEqual(rows[0]["title"], "Fathom")
+
+    def test_dispatches_json(self):
+        data = json.dumps([{"type": "movie", "watched_at": "2024-01-05T00:00:00.000Z", "movie": {"title": "Fathom", "ids": {"trakt": 1}}}])
+        path = self._write(".json", data)
+        try:
+            rows, errors = csv_import.parse_file(path, "json")
+        finally:
+            os.remove(path)
+        self.assertEqual(errors, [])
+        self.assertEqual(rows[0]["title"], "Fathom")
+
+    def test_dispatches_zip(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("watched-history-1.json", json.dumps(
+                [{"type": "movie", "watched_at": "2024-01-05T00:00:00.000Z", "movie": {"title": "Fathom", "ids": {"trakt": 1}}}]
+            ))
+        path = self._write(".zip", buf.getvalue())
+        try:
+            rows, errors = csv_import.parse_file(path, "zip")
+        finally:
+            os.remove(path)
+        self.assertEqual(errors, [])
+        self.assertEqual(rows[0]["title"], "Fathom")
+
 
 class TraktFetchHistoryPaginationTests(TestCase):
     """A first version of fetch_history() only ever requested page 1 -
@@ -2813,6 +2897,59 @@ class ImportUploadKindTests(TestCase):
         self.assertTrue(WatchEvent.objects.filter(profile=self.profile).exists())
 
 
+class ImportCsvCommitLargeFileDispatchTests(TestCase):
+    """import_csv_commit's threshold split (views.LARGE_IMPORT_ROW_THRESHOLD) -
+    a file over the threshold must not run commit_rows() synchronously in
+    the request (confirmed against a real Trakt export zip to take ~85s
+    for ~10.5k rows with zero TMDB calls involved - guaranteed to blow
+    past a request timeout); instead it hands off to Celery and leaves a
+    RUNNING DataLog row for the Logs tab to show as in-progress."""
+
+    def setUp(self):
+        user = User.objects.create_user("bulkimporter", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="BulkImporter")
+        self.client.login(username="bulkimporter", password="pass12345")
+
+    def _upload_json_with_n_rows(self, n):
+        data = json.dumps(
+            [
+                {
+                    "type": "movie",
+                    "watched_at": f"2024-01-01T00:00:{i % 60:02d}.000Z",
+                    "movie": {"title": f"Movie {i}", "ids": {"trakt": i}},
+                }
+                for i in range(n)
+            ]
+        )
+        upload = SimpleUploadedFile("watched-history-1.json", data.encode(), content_type="application/json")
+        self.client.post(reverse("import_csv"), {"csv_file": upload})
+
+    @patch("tracker.views._dispatch_import_task_safely")
+    @patch("tracker.views.LARGE_IMPORT_ROW_THRESHOLD", 2)
+    def test_over_threshold_dispatches_instead_of_committing_synchronously(self, mock_dispatch):
+        self._upload_json_with_n_rows(3)
+        resp = self.client.post(reverse("import_csv_commit"), follow=True)
+
+        mock_dispatch.assert_called_once()
+        self.assertFalse(WatchEvent.objects.filter(profile=self.profile).exists())
+        log = DataLog.objects.get(profile=self.profile)
+        self.assertEqual(log.status, DataLog.Status.RUNNING)
+        self.assertContains(resp, "Import started in the background")
+        # session state cleared even though the task hasn't run yet in this test
+        self.assertNotIn("csv_import", self.client.session)
+
+    @patch("tracker.views._dispatch_import_task_safely")
+    @patch("tracker.views.LARGE_IMPORT_ROW_THRESHOLD", 2)
+    def test_at_threshold_commits_synchronously(self, mock_dispatch):
+        self._upload_json_with_n_rows(2)
+        self.client.post(reverse("import_csv_commit"))
+
+        mock_dispatch.assert_not_called()
+        self.assertEqual(WatchEvent.objects.filter(profile=self.profile).count(), 2)
+        log = DataLog.objects.get(profile=self.profile)
+        self.assertEqual(log.status, DataLog.Status.SUCCESS)
+
+
 class ExportTraktJsonViewTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("jsonexporter", password="pass12345")
@@ -3357,6 +3494,49 @@ class SyncLogTests(TestCase):
         with self.assertRaises(requests.RequestException):
             tasks.sync_trakt_history(self.profile.id)
         self.assertFalse(Notification.objects.exists())
+
+
+class RunDataImportTaskTests(TestCase):
+    """tasks.run_data_import - the background path for a large Import
+    Data upload (see LARGE_IMPORT_ROW_THRESHOLD in views.py), used once
+    a real Trakt export zip proved too big to commit synchronously
+    inside one request."""
+
+    def setUp(self):
+        user = User.objects.create_user("importer", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Importer")
+
+    def _write(self, content):
+        path = tempfile.mktemp(suffix=".csv")
+        with open(path, "w") as f:
+            f.write(content)
+        return path
+
+    def test_success_updates_log_and_removes_temp_file(self):
+        path = self._write("title,type,watched_at\nFathom,movie,2024-01-05\n")
+        log = DataLog.objects.create(profile=self.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.RUNNING)
+
+        tasks.run_data_import(log.id, self.profile.id, path, "csv", {"title": "title", "media_type": "type", "watched_at": "watched_at"})
+
+        log.refresh_from_db()
+        self.assertEqual(log.status, DataLog.Status.SUCCESS)
+        self.assertEqual(log.item_count, 1)
+        self.assertTrue(WatchEvent.objects.filter(profile=self.profile).exists())
+        self.assertFalse(os.path.exists(path))
+
+    @patch("tracker.csv_import.commit_rows")
+    def test_failure_marks_log_failed_and_still_removes_temp_file(self, mock_commit):
+        mock_commit.side_effect = RuntimeError("db exploded")
+        path = self._write("title,type,watched_at\nFathom,movie,2024-01-05\n")
+        log = DataLog.objects.create(profile=self.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.RUNNING)
+
+        with self.assertRaises(RuntimeError):
+            tasks.run_data_import(log.id, self.profile.id, path, "csv", {"title": "title", "media_type": "type", "watched_at": "watched_at"})
+
+        log.refresh_from_db()
+        self.assertEqual(log.status, DataLog.Status.FAILED)
+        self.assertIn("db exploded", log.error_message)
+        self.assertFalse(os.path.exists(path))
 
 
 def _http_401():
