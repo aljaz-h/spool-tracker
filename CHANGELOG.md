@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.60.3] - 2026-07-31
+
+### Changed
+
+- History now paginates by calendar date (10 dates per page) instead of
+  by rendered tile count - a page's length is predictable regardless of
+  how many tiles a given date happens to produce, and a heavy binge day
+  no longer changes how many *other* dates fit alongside it on the page.
+
 ## [0.60.2] - 2026-07-31
 
 ### Fixed

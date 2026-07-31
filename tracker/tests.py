@@ -11433,14 +11433,15 @@ class HistoryConsecutiveEpisodeGroupingTests(TestCase):
         self.assertContains(resp, "S1E1–S1E3")
 
 
-class HistoryPaginatesByTileTests(TestCase):
-    """A big same-day binge (e.g. bulk-marking a season watched) collapses
-    to one group tile - History's pagination has to be based on that
-    rendered tile count, not the raw WatchEvent rows behind it, or a page
-    can end up showing a single tile with the rest of the page blank
-    (reported live: 150 Bleach episodes watched "today" filled all of
-    HISTORY_PAGE_SIZE's raw-row budget and left page 1 showing just one
-    card)."""
+class HistoryPaginatesByDateTests(TestCase):
+    """History paginates by calendar date (HISTORY_DATES_PER_PAGE dates
+    per page), not by tile or raw WatchEvent row count - a big same-day
+    binge (e.g. bulk-marking a season watched, which collapses to one
+    group tile via _group_consecutive_episodes) used to eat a whole
+    page's raw-row budget by itself and leave that page showing just one
+    card (reported live: 150 Bleach episodes watched "today"). Grouping
+    by date instead means a heavy binge day sits on the same page as
+    however many other dates fit, regardless of how many tiles it is."""
 
     def setUp(self):
         from django.utils import timezone
@@ -11449,34 +11450,28 @@ class HistoryPaginatesByTileTests(TestCase):
         self.profile = Profile.objects.create(user=user, display_name="TileUser")
         self.now = timezone.now()
 
-    def test_a_binge_bigger_than_the_page_size_does_not_starve_the_page(self):
+    def test_a_big_binge_day_shares_the_page_with_other_dates(self):
         show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
-        for i in range(1, views.HISTORY_PAGE_SIZE + 1):
+        for i in range(1, 151):
             ep = Episode.objects.create(title=show, season=1, episode=i)
             WatchEvent.objects.create(
                 profile=self.profile, title=show, episode=ep, watched_at=self.now - timedelta(minutes=i)
             )
-        # A second, older day with its own distinct titles - should still
-        # show up on page 1 alongside the binge's single group tile,
+        # A second, older date with its own distinct title - should still
+        # show up on page 1 alongside the binge day's single group tile,
         # instead of being pushed off onto a near-empty page 2.
-        other_movies = [
-            Title.objects.create(media_type=MediaType.MOVIE, name=f"Other Movie {i}", year=2020) for i in range(1, 4)
-        ]
-        for movie in other_movies:
-            WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now - timedelta(days=1))
+        other_movie = Title.objects.create(media_type=MediaType.MOVIE, name="Other Movie", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=other_movie, watched_at=self.now - timedelta(days=1))
 
         self.client.login(username="tileuser", password="pass12345")
         resp = self.client.get(reverse("history"))
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, f"{views.HISTORY_PAGE_SIZE} episodes")
-        self.assertContains(resp, "Other Movie 1")
-        self.assertContains(resp, "Other Movie 2")
-        self.assertContains(resp, "Other Movie 3")
-        # Only one page needed - 1 binge tile + 3 movie tiles is nowhere
-        # near HISTORY_PAGE_SIZE tiles.
+        self.assertContains(resp, "150 episodes")
+        self.assertContains(resp, "Other Movie")
+        # Only 2 dates total - nowhere near HISTORY_DATES_PER_PAGE.
         self.assertNotContains(resp, "Page 1 of 2")
 
-    def test_paginator_count_reflects_tiles_not_raw_events(self):
+    def test_paginator_count_reflects_dates_not_tiles_or_raw_events(self):
         show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
         for i in range(1, 11):
             ep = Episode.objects.create(title=show, season=1, episode=i)
@@ -11484,25 +11479,38 @@ class HistoryPaginatesByTileTests(TestCase):
                 profile=self.profile, title=show, episode=ep, watched_at=self.now - timedelta(minutes=i)
             )
         context = views._history_context(self._get_request(), self.profile)
-        # 10 consecutive same-show episodes on one day collapse to 1 tile.
+        # 10 consecutive same-show episodes, all on one date, collapse
+        # to 1 tile - but pagination now counts dates, so this is 1
+        # either way; the point is it's dates being counted, not tiles.
         self.assertEqual(context["page_obj"].paginator.count, 1)
 
-    def test_many_distinct_tiles_still_paginate_at_the_page_size(self):
-        movies = [
-            Title.objects.create(media_type=MediaType.MOVIE, name=f"Movie {i}", year=2020)
-            for i in range(views.HISTORY_PAGE_SIZE + 10)
-        ]
+    def test_more_than_ten_dates_paginate_at_ten_per_page(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Movie", year=2020)
+        for i in range(views.HISTORY_DATES_PER_PAGE + 2):
+            WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now - timedelta(days=i))
+
+        self.client.login(username="tileuser", password="pass12345")
+        resp = self.client.get(reverse("history"))
+        self.assertContains(resp, "Page 1 of 2")
+        context = views._history_context(self._get_request(page=2), self.profile)
+        self.assertEqual(len(context["day_groups"]), 2)
+
+    def test_a_hundred_tiles_on_one_date_is_still_a_single_page(self):
+        # Distinct (non-grouping) titles all watched the same day - lots
+        # of tiles, but still just 1 date, so still 1 page.
+        movies = [Title.objects.create(media_type=MediaType.MOVIE, name=f"Movie {i}", year=2020) for i in range(100)]
         for i, movie in enumerate(movies):
             WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now - timedelta(minutes=i))
 
         self.client.login(username="tileuser", password="pass12345")
         resp = self.client.get(reverse("history"))
-        self.assertContains(resp, "Page 1 of 2")
+        self.assertContains(resp, "Page 1 of 1")
 
-    def _get_request(self):
+    def _get_request(self, page=None):
         from django.test import RequestFactory
 
-        return RequestFactory().get("/history/")
+        params = {"page": page} if page else {}
+        return RequestFactory().get("/history/", params)
 
 
 class HistoryDayGroupTotalDurationTests(TestCase):

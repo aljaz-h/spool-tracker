@@ -52,7 +52,8 @@ from .models import (
 )
 
 MOVIE_TV_TYPES = [MediaType.MOVIE, MediaType.TV]
-HISTORY_PAGE_SIZE = 150
+HISTORY_PAGE_SIZE = 150  # rows per page for the most/least-watched title list - one row is already one tile there, no day-grouping involved
+HISTORY_DATES_PER_PAGE = 10  # dates per page for the default day-grouped History view - see _paginate_history_by_day
 HISTORY_PERIODS = {"today", "yesterday", "7", "30", "365"}
 # "most_watched"/"least_watched" switch History from its usual day-grouped
 # listing to a title-grouped one, ordered by how many WatchEvents (plays -
@@ -1505,41 +1506,20 @@ def _group_history_by_day(events):
     return groups
 
 
-def _paginate_history_tiles(events, page_number):
-    """Paginates History by rendered tile, not by raw WatchEvent row -
-    otherwise a single binge-marked day whose consecutive-episode run is
-    exactly (or bigger than) HISTORY_PAGE_SIZE collapses to one group
-    tile via _group_consecutive_episodes but still consumes a whole
-    page's worth of raw rows getting there, leaving that page showing
-    just that one tile. Groups the full filtered/sorted event list by
-    day first, flattens to (day_group, item) pairs, and paginates that -
-    so a "page" means N tiles, matching what's actually on screen.
+def _paginate_history_by_day(events, page_number):
+    """Paginates History by calendar date, not by tile or raw WatchEvent
+    row - a "page" is HISTORY_DATES_PER_PAGE dates' worth of history,
+    however many tiles that turns out to be (a heavy binge day next to
+    several quiet ones is still just as many *dates*, so pages stay
+    predictable in a way row/tile counts weren't - see CHANGELOG for the
+    tile-starved-page bug this replaced). Groups the full filtered/sorted
+    event list by day first, then paginates the day-group list itself.
     Requires the full events list in memory to group before paginating
     (no DB-level LIMIT/OFFSET here) - fine at this app's personal-history
-    scale, not fine at forum-scale.
-
-    Each day-group's own movie/episode/duration totals come from its
-    FULL set of events, not just whatever lands on this page - a single
-    day spanning a page boundary is rare enough that its header should
-    still report accurate totals rather than a partial count."""
+    scale, not fine at forum-scale."""
     full_day_groups = _group_history_by_day(events)
-    flat_items = [(group, item) for group in full_day_groups for item in group["items"]]
-    page_obj = Paginator(flat_items, HISTORY_PAGE_SIZE).get_page(page_number)
-
-    page_groups = []
-    for group, item in page_obj.object_list:
-        if not page_groups or page_groups[-1]["date"] != group["date"]:
-            page_groups.append(
-                {
-                    "date": group["date"],
-                    "items": [],
-                    "movie_count": group["movie_count"],
-                    "episode_count": group["episode_count"],
-                    "total_duration": group["total_duration"],
-                }
-            )
-        page_groups[-1]["items"].append(item)
-    return page_obj, page_groups
+    page_obj = Paginator(full_day_groups, HISTORY_DATES_PER_PAGE).get_page(page_number)
+    return page_obj, list(page_obj.object_list)
 
 
 def _time_format_str(profile):
@@ -1596,7 +1576,7 @@ def _history_context(request, profile):
             ]
         else:
             events = events.select_related("title", "episode").order_by("-watched_at" if sort == "new" else "watched_at")
-            page_obj, day_groups = _paginate_history_tiles(list(events), request.GET.get("page"))
+            page_obj, day_groups = _paginate_history_by_day(list(events), request.GET.get("page"))
 
     query_without_page = request.GET.copy()
     query_without_page.pop("page", None)
