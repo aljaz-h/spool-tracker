@@ -7,7 +7,7 @@ normal-flow sibling - not overlaid on top of it, so the full poster
 art stays visible - and its buttons don't need any click-stop handling
 to avoid triggering navigation.
 {% endcomment %}
-<div class="{{ width_class|default:"w-[168px] flex-none" }}">
+<div class="{{ width_class|default:"w-[168px] flex-none" }}{% if progress %} group{% endif %}" {% if progress %}id="watch-progress-card-{{ title.pk }}"{% endif %}>
   <div
     class="aspect-[2/3] rounded-t-lg relative overflow-hidden bg-cover bg-center {% if not title.poster_url %}{{ title.pk|gradient_class }}{% endif %}"
     {% if title.poster_url %}style="background-image:url('{{ title.poster_url }}')"{% endif %}
@@ -15,6 +15,17 @@ to avoid triggering navigation.
     <a href="{% url 'title_detail' title.pk %}" class="absolute inset-0 z-0">
       <span class="absolute top-2 right-2 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ title.media_type|upper }}</span>
     </a>
+    {% if progress %}
+      <button
+        type="button"
+        hx-delete="/api/watch-progress/{{ title.pk }}"
+        hx-confirm="Remove &quot;{{ title.name }}&quot; from Watching? This only clears its progress - your watch history isn't touched."
+        hx-target="#watch-progress-card-{{ title.pk }}"
+        hx-swap="outerHTML swap:150ms"
+        title="Remove from Watching"
+        class="absolute top-2 left-2 z-20 w-5 h-5 rounded-full bg-black/75 text-white text-xs leading-none flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-error"
+      >&times;</button>
+    {% endif %}
     {% if event_profile %}
       <div class="absolute top-2 left-2 z-10 flex items-center gap-1.5 bg-black/70 rounded-full pl-1 pr-2.5 py-1 max-w-[80%] pointer-events-none">
         {% if event_profile.avatar_image %}

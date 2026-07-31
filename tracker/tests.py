@@ -3845,7 +3845,9 @@ class NuvioUpsertProgressItemsTests(TestCase):
         self.profile = Profile.objects.create(user=user, display_name="NuvProg")
 
     def test_creates_progress_row_from_ms_position(self):
-        items = [{"content_id": "tmdb:550", "content_type": "movie", "position": 1000, "duration": 2000, "name": "Fight Club"}]
+        items = [
+            {"content_id": "tmdb:550", "content_type": "movie", "position": 1000, "duration": 7_200_000, "name": "Fight Club"}
+        ]
         updated = nuvio.upsert_progress_items(self.profile, items)
         self.assertEqual(updated, 1)
         progress = WatchProgress.objects.get(profile=self.profile)
@@ -3874,6 +3876,37 @@ class NuvioUpsertProgressItemsTests(TestCase):
     def test_item_missing_position_is_skipped(self):
         items = [{"content_id": "tmdb:1", "content_type": "movie"}]
         self.assertEqual(nuvio.upsert_progress_items(self.profile, items), 0)
+
+    def test_near_complete_item_marks_existing_progress_completed_instead_of_watching(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"nuvio": "tmdb:99"})
+        WatchProgress.objects.create(
+            profile=self.profile, title=title, position_seconds=100, status=WatchProgress.Status.WATCHING
+        )
+        # 1 minute (60_000ms) remaining - well under the 2-minute threshold.
+        items = [{"content_id": "tmdb:99", "content_type": "movie", "position": 7_140_000, "duration": 7_200_000}]
+        updated = nuvio.upsert_progress_items(self.profile, items)
+        self.assertEqual(updated, 0)
+        progress = WatchProgress.objects.get(profile=self.profile, title=title)
+        self.assertEqual(progress.status, WatchProgress.Status.COMPLETED)
+
+    def test_near_complete_item_with_no_existing_progress_creates_nothing(self):
+        items = [{"content_id": "tmdb:12345", "content_type": "movie", "position": 7_140_000, "duration": 7_200_000, "name": "Never Synced Before"}]
+        updated = nuvio.upsert_progress_items(self.profile, items)
+        self.assertEqual(updated, 0)
+        self.assertFalse(WatchProgress.objects.exists())
+        self.assertFalse(Title.objects.exists())
+
+    def test_not_near_complete_stays_watching(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"nuvio": "tmdb:99"})
+        WatchProgress.objects.create(
+            profile=self.profile, title=title, position_seconds=100, status=WatchProgress.Status.WATCHING
+        )
+        # 10 minutes (600_000ms) remaining - well over the 2-minute threshold.
+        items = [{"content_id": "tmdb:99", "content_type": "movie", "position": 6_600_000, "duration": 7_200_000, "name": "Fathom"}]
+        updated = nuvio.upsert_progress_items(self.profile, items)
+        self.assertEqual(updated, 1)
+        progress = WatchProgress.objects.get(profile=self.profile, title=title)
+        self.assertEqual(progress.status, WatchProgress.Status.WATCHING)
 
 
 class SyncNuvioHistoryTaskTests(TestCase):
@@ -8181,6 +8214,19 @@ class DashboardWatchingWatchlistTests(TestCase):
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, "2h 10m")
 
+    def test_watching_tile_has_a_dismiss_button_other_tiles_do_not(self):
+        watching_title = Title.objects.create(media_type=MediaType.MOVIE, name="In Progress Movie", year=2020)
+        WatchProgress.objects.create(
+            profile=self.profile, title=watching_title, position_seconds=100, status=WatchProgress.Status.WATCHING
+        )
+        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        watchlist_title = Title.objects.create(media_type=MediaType.MOVIE, name="Not Started Movie", year=2021)
+        WatchListItem.objects.create(watchlist=watchlist, title=watchlist_title)
+
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, f'hx-delete="/api/watch-progress/{watching_title.pk}"')
+        self.assertNotContains(resp, f'hx-delete="/api/watch-progress/{watchlist_title.pk}"')
+
     @patch("tracker.integrations.tmdb.get_similar")
     def test_because_you_watched_row_is_disabled_for_now(self, mock_get_similar):
         title = Title.objects.create(
@@ -11619,6 +11665,57 @@ class HistoryDeleteEpisodeTests(TestCase):
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.content, b"")
+
+
+class WatchProgressDeleteApiTests(TestCase):
+    """DELETE /api/watch-progress/{title_id} - the Dashboard Watching
+    tile's dismiss button (api/routers/watch_progress.py). Only ever
+    removes the WatchProgress row itself; WatchEvent/history is untouched
+    either way, since this is meant for stale/finished/abandoned entries
+    a user wants off Watching without it being mistaken for "unwatch"."""
+
+    def setUp(self):
+        user = User.objects.create_user("progressdismisser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ProgressDismisser")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        self.progress = WatchProgress.objects.create(
+            profile=self.profile, title=self.title, position_seconds=600, status=WatchProgress.Status.WATCHING
+        )
+        self.client.login(username="progressdismisser", password="pass12345")
+
+    def test_deletes_the_progress_row(self):
+        resp = self.client.delete(f"/api/watch-progress/{self.title.pk}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(WatchProgress.objects.filter(pk=self.progress.pk).exists())
+
+    def test_does_not_touch_watch_history(self):
+        from django.utils import timezone
+
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=timezone.now())
+        self.client.delete(f"/api/watch-progress/{self.title.pk}")
+        self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title=self.title).exists())
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.delete(f"/api/watch-progress/{self.title.pk}")
+        self.assertIn(resp.status_code, (401, 403))
+        self.assertTrue(WatchProgress.objects.filter(pk=self.progress.pk).exists())
+
+    def test_404s_for_another_profiles_progress(self):
+        other_user = User.objects.create_user("otherprogress", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="OtherProgress")
+        other_title = Title.objects.create(media_type=MediaType.MOVIE, name="Other Movie", year=2021)
+        other_progress = WatchProgress.objects.create(
+            profile=other_profile, title=other_title, position_seconds=100, status=WatchProgress.Status.WATCHING
+        )
+        resp = self.client.delete(f"/api/watch-progress/{other_title.pk}")
+        self.assertEqual(resp.status_code, 404)
+        self.assertTrue(WatchProgress.objects.filter(pk=other_progress.pk).exists())
+
+    def test_404s_when_no_progress_exists_for_the_title(self):
+        untracked = Title.objects.create(media_type=MediaType.MOVIE, name="Untracked", year=2022)
+        resp = self.client.delete(f"/api/watch-progress/{untracked.pk}")
+        self.assertEqual(resp.status_code, 404)
 
 
 class HistoryGroupTileDropdownTests(TestCase):

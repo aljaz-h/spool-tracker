@@ -8,6 +8,26 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.60.1] - 2026-07-31
+
+### Fixed
+
+- Nuvio-synced "Watching" entries could sit stuck at "0 min left"/
+  "1 min left" indefinitely — Nuvio's own continue-watching feed can keep
+  reporting something as in-progress even once actually finished (many
+  players never clear a completed entry on their own), and every sync was
+  force-writing that back as `WATCHING` with no way out. An item within 2
+  minutes of its own duration is now treated as finished instead and
+  marked `COMPLETED`, dropping it out of Watching on the next sync -
+  watch history is untouched either way.
+
+### Added
+
+- A dismiss ("×", shown on hover) on Dashboard Watching tiles for entries
+  that don't fit the above — abandoned partway through, for instance,
+  which nothing can auto-detect. Removes only the progress row; your
+  watch history is never touched.
+
 ## [0.60.0] - 2026-07-31
 
 ### Added

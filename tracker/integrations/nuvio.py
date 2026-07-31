@@ -310,14 +310,35 @@ def upsert_history_items(profile, items):
     return created
 
 
+NEAR_COMPLETE_REMAINING_MS = 120_000  # 2 minutes
+
+
 def upsert_progress_items(profile, items):
     """items: raw dicts from fetch_watch_progress(). Returns the count of
-    WatchProgress rows written (created or updated) - keyed by
+    WatchProgress rows written WATCHING (created or updated) - keyed by
     (profile, title), same as unique_progress_per_profile_title already
     enforces. position/duration are milliseconds (see module docstring);
     only position is stored - WatchProgress has no duration field, the
     app derives % complete from Title/Episode.runtime_minutes elsewhere.
-    Unparseable items are skipped, not fatal."""
+    Unparseable items are skipped, not fatal.
+
+    An item within NEAR_COMPLETE_REMAINING_MS of its own duration is
+    treated as finished rather than upserted as WATCHING - confirmed
+    against a real synced account that Nuvio's own "continue watching"
+    feed can keep reporting something as in-progress indefinitely once
+    actually finished (many players never clear a completed entry from
+    that list on their own), which without this would re-appear as
+    "0 min left"/"1 min left" in the Dashboard's Watching tab
+    (selectors.continue_watching) on every single sync instead of ever
+    settling. Marked COMPLETED (same status sync_show_completion already
+    uses for a finished show) rather than deleted, so there's still a
+    record of it - continue_watching() only ever surfaces status=WATCHING
+    rows, so this alone is enough to drop it out of Watching. Only ever
+    updates an *existing* WatchProgress row already matched by
+    external_ids__nuvio - never creates a Title/Episode just to
+    immediately discard it for something that was already finished
+    before this sync ever saw it. Doesn't touch WatchEvent/history at
+    all either way."""
     from tracker.models import Episode, MediaType, Title, WatchProgress
 
     updated = 0
@@ -333,6 +354,20 @@ def upsert_progress_items(profile, items):
         elif content_type == "series":
             media_type = MediaType.TV
         else:
+            continue
+
+        duration_ms = item.get("duration")
+        near_complete = (
+            isinstance(duration_ms, (int, float))
+            and duration_ms > 0
+            and (duration_ms - position_ms) <= NEAR_COMPLETE_REMAINING_MS
+        )
+        if near_complete:
+            existing_title = Title.objects.filter(media_type=media_type, external_ids__nuvio=content_id).first()
+            if existing_title:
+                WatchProgress.objects.filter(profile=profile, title=existing_title).update(
+                    status=WatchProgress.Status.COMPLETED
+                )
             continue
 
         parsed = _parse_content_id(content_id)
