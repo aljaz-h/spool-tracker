@@ -459,6 +459,11 @@ class ExternalAccount(models.Model):
     class Provider(models.TextChoices):
         TRAKT = "trakt", "Trakt"
         SIMKL = "simkl", "Simkl"
+        # Nuvio never gets an ExternalAccount row (see NuvioConnection
+        # below) - this choice exists purely so SyncLog.provider, whose
+        # choices reuse this enum, can represent a Nuvio sync run in the
+        # Logs tab without a parallel provider enum.
+        NUVIO = "nuvio", "Nuvio"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="external_accounts")
     provider = models.CharField(max_length=10, choices=Provider.choices)
@@ -501,6 +506,50 @@ class ExternalAccount(models.Model):
 
     def __str__(self):
         return f"{self.profile} · {self.get_provider_display()}"
+
+
+class NuvioConnection(models.Model):
+    """Per-profile Nuvio Cloud connection - a separate model from
+    ExternalAccount rather than widening it, because Nuvio isn't OAuth
+    (email/password exchanged once for a refresh token, no
+    client_id/secret, no redirect_uri) and needs a selected
+    nuvio_profile_id ExternalAccount has no concept of (a Nuvio account
+    can have multiple profiles, like Trakt slate). See
+    tracker/integrations/nuvio.py for the client and tracker/crypto.py
+    for why the token is encrypted here but not on ExternalAccount - a
+    Nuvio refresh token is closer to a password-equivalent than an OAuth
+    token, worth the extra bar."""
+
+    profile = models.OneToOneField(Profile, on_delete=models.CASCADE, related_name="nuvio_connection")
+    email = models.EmailField()
+    encrypted_refresh_token = models.TextField()
+    nuvio_profile_id = models.PositiveSmallIntegerField()
+    nuvio_profile_name = models.CharField(max_length=100, blank=True)
+    sync_enabled = models.BooleanField(default=True)
+    connected_at = models.DateTimeField(auto_now_add=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    sync_interval_days = models.PositiveSmallIntegerField(default=1)
+    sync_hour = models.PositiveSmallIntegerField(default=4, validators=[MaxValueValidator(23)])
+    sync_minute = models.PositiveSmallIntegerField(default=0, validators=[MaxValueValidator(59)])
+
+    # Duck-typed to match ExternalAccount's shape so scheduling.py's
+    # ensure_periodic_task/remove_periodic_task and the provider-keyed
+    # views (save_sync_schedule/trigger_manual_sync/disconnect_provider/
+    # disconnect_and_wipe_provider) work against either model unmodified.
+    provider = "nuvio"
+
+    def get_refresh_token(self):
+        from . import crypto
+
+        return crypto.decrypt(self.encrypted_refresh_token)
+
+    def set_refresh_token(self, plaintext):
+        from . import crypto
+
+        self.encrypted_refresh_token = crypto.encrypt(plaintext)
+
+    def __str__(self):
+        return f"{self.profile} · Nuvio ({self.email})"
 
 
 class InstanceConfig(models.Model):
@@ -581,6 +630,7 @@ class DataLog(models.Model):
         EXPORT = "export", "Export"
         TRAKT_CONNECT = "trakt_connect", "Trakt Connect"
         SIMKL_CONNECT = "simkl_connect", "Simkl Connect"
+        NUVIO_CONNECT = "nuvio_connect", "Nuvio Connect"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"

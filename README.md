@@ -24,7 +24,7 @@
 - [Deploying without cloning the repo](#deploying-without-cloning-the-repo-pre-built-image)
 - [Configuration reference](#configuration-reference)
 - [Posters](#posters)
-- [Connecting Trakt / Simkl](#connecting-trakt--simkl)
+- [Connecting Trakt / Simkl / Nuvio](#connecting-trakt--simkl--nuvio)
 - [Importing a CSV](#importing-a-csv)
 - [Updating](#updating)
 - [Backups](#backups)
@@ -59,7 +59,7 @@ account.
 - Stats: watch streaks, genre breakdown, year breakdown, activity heatmap
 - Activity feed across profiles (only shown once a second profile exists)
 - CSV import with column-mapping and a preview-before-commit step
-- Trakt / Simkl OAuth connect + a daily background sync job
+- Trakt / Simkl OAuth connect, Nuvio email/password connect, + a daily background sync job
 
 ## Quick start (Docker Compose)
 
@@ -225,7 +225,9 @@ docker compose exec web python manage.py backfill_posters
 This looks up every title that currently has no `poster_url`, so it's
 safe to re-run any time (already-illustrated titles are skipped).
 
-## Connecting Trakt / Simkl
+## Connecting Trakt / Simkl / Nuvio
+
+### Trakt / Simkl
 
 1. Register an application with the provider:
    - Trakt: create an app at Trakt's API settings page.
@@ -260,6 +262,28 @@ parsing — especially Simkl's — was written against documentation rather
 than a live account, since this project was built without real developer
 credentials to test against. Do a small test sync first and spot-check a
 few titles/episodes before trusting a full history import.
+
+### Nuvio
+
+Nuvio has no public developer API or OAuth flow, so this works differently
+from Trakt/Simkl above: there's no server-owner setup step at all — every
+profile connects with its own Nuvio email/password directly from Settings
+& Import → Connect. If the account has more than one Nuvio profile, you'll
+be asked to pick one right after signing in.
+
+Nuvio's password is only ever used for that one sign-in request and is
+never stored; only the resulting access token is, encrypted at rest
+(derived from `DJANGO_SECRET_KEY`, no separate key to manage). Same as
+Trakt/Simkl, a daily background sync keeps history/continue-watching
+progress up to date, and connecting triggers an immediate first sync.
+
+**Caveat:** Nuvio's sync API (`api.nuvio.tv`) is undocumented and
+reverse-engineered — this integration (`tracker/integrations/nuvio.py`) is
+built from a third-party open-source reference implementation
+([github.com/ellite/scrob](https://github.com/ellite/scrob)), not official
+docs, and unverified against a live account from this environment. It
+could change or break without notice; a failed sync shows up in
+Settings & Import → Logs with whatever error the API actually returned.
 
 ## Importing a CSV
 
@@ -301,6 +325,11 @@ docker compose exec db pg_dump -U spool spool > backup.sql
 
 - **Simkl history sync is unverified against a live account** — see the
   caveat above.
+- **Nuvio sync is against an undocumented, reverse-engineered API** (see
+  `tracker/integrations/nuvio.py`) — built from a third-party open-source
+  reference implementation, not official docs, and unverified against a
+  live account from this environment. Could change or break without
+  notice; failures show up in Settings & Import → Logs.
 - **CSV import** has no TMDB/IMDB-based matching — same-title-different-
   spelling across a CSV import and a Trakt/Simkl sync can create a
   duplicate Title.

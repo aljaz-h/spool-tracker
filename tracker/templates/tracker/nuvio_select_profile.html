@@ -1,0 +1,26 @@
+{% extends "tracker/base.html" %}
+{% block title %}Choose a Nuvio profile · Spool{% endblock %}
+{% block content %}
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="{% if message.tags == 'error' %}bg-error/15 text-error{% else %}bg-info/15 text-info{% endif %} text-sm rounded-lg px-4 py-2.5 mb-4">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="mb-6">
+    <h1 class="font-display text-4xl">Choose a Nuvio profile</h1>
+    <div class="text-ink-dim text-sm mt-1">{{ email }} has more than one profile — pick which one to sync from.</div>
+  </div>
+
+  <div class="bg-base-200 border border-line rounded-2xl p-5 max-w-md flex flex-col gap-2.5">
+    {% for p in profiles %}
+      <form method="post" action="{% url 'nuvio_select_profile' %}">
+        {% csrf_token %}
+        <input type="hidden" name="profile_index" value="{{ p.index }}">
+        <button type="submit" class="btn btn-sm btn-soft w-full justify-start">{{ p.name }}</button>
+      </form>
+    {% endfor %}
+  </div>
+
+{% endblock %}

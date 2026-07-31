@@ -15,8 +15,8 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
-from . import completion, csv_import, instance_config, notifications, recommendations, release_sync, rewatches, scheduling, selectors, tasks, update_check, views
-from .integrations import gemini, jikan, tmdb, trakt
+from . import completion, crypto, csv_import, instance_config, notifications, recommendations, release_sync, rewatches, scheduling, selectors, tasks, update_check, views
+from .integrations import gemini, jikan, nuvio, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
@@ -28,6 +28,7 @@ from .models import (
     InstanceConfig,
     MediaType,
     Notification,
+    NuvioConnection,
     Profile,
     Recommendation,
     ReleaseSchedule,
@@ -770,6 +771,64 @@ class TmdbFindMatchTests(TestCase):
 
         mock_get.side_effect = requests.RequestException("boom")
         self.assertIsNone(tmdb.find_match(MediaType.MOVIE, "Fathom", 2020))
+
+
+class TmdbFindByImdbIdTests(TestCase):
+    """find_by_imdb_id - added for Nuvio sync (see tracker/integrations/
+    nuvio.py), which hands over an IMDb id directly rather than a title
+    to search for."""
+
+    def _response(self, movie_results=None, tv_results=None):
+        resp = Mock()
+        resp.json.return_value = {"movie_results": movie_results or [], "tv_results": tv_results or []}
+        resp.raise_for_status = Mock()
+        return resp
+
+    @override_settings(TMDB_API_KEY="")
+    def test_returns_none_without_api_key(self):
+        self.assertIsNone(tmdb.find_by_imdb_id("tt0137523", MediaType.MOVIE))
+
+    def test_returns_none_without_imdb_id(self):
+        self.assertIsNone(tmdb.find_by_imdb_id("", MediaType.MOVIE))
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_movie_uses_movie_results(self, mock_get):
+        mock_get.return_value = self._response(movie_results=[{"id": 550, "poster_path": "/fc.jpg"}])
+        match = tmdb.find_by_imdb_id("tt0137523", MediaType.MOVIE)
+        self.assertEqual(match["id"], 550)
+        self.assertEqual(match["kind"], "movie")
+        self.assertEqual(match["poster_url"], "https://image.tmdb.org/t/p/w500/fc.jpg")
+        self.assertEqual(mock_get.call_args.args[0], "https://api.themoviedb.org/3/find/tt0137523")
+        self.assertEqual(mock_get.call_args.kwargs["params"]["external_source"], "imdb_id")
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_tv_uses_tv_results(self, mock_get):
+        mock_get.return_value = self._response(tv_results=[{"id": 1396, "poster_path": None}])
+        match = tmdb.find_by_imdb_id("tt0903747", MediaType.TV)
+        self.assertEqual(match["id"], 1396)
+        self.assertEqual(match["kind"], "tv")
+        self.assertIsNone(match["poster_url"])
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_anime_tries_tv_then_falls_back_to_movie(self, mock_get):
+        mock_get.return_value = self._response(movie_results=[{"id": 99, "poster_path": None}])
+        match = tmdb.find_by_imdb_id("tt1234567", MediaType.ANIME)
+        self.assertEqual(match["kind"], "movie")
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_returns_none_on_no_results(self, mock_get):
+        mock_get.return_value = self._response()
+        self.assertIsNone(tmdb.find_by_imdb_id("tt0000000", MediaType.MOVIE))
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_returns_none_on_request_exception(self, mock_get):
+        mock_get.side_effect = requests.RequestException("boom")
+        self.assertIsNone(tmdb.find_by_imdb_id("tt0137523", MediaType.MOVIE))
 
 
 class TmdbDetailsTests(TestCase):
@@ -3563,6 +3622,342 @@ class TraktRefreshAccessTokenTests(TestCase):
         self.assertEqual(result["access_token"], "new-tok")
 
 
+class CryptoTests(TestCase):
+    def test_round_trip(self):
+        ciphertext = crypto.encrypt("a secret refresh token")
+        self.assertNotEqual(ciphertext, "a secret refresh token")
+        self.assertEqual(crypto.decrypt(ciphertext), "a secret refresh token")
+
+    def test_different_plaintexts_produce_different_ciphertexts(self):
+        self.assertNotEqual(crypto.encrypt("one"), crypto.encrypt("two"))
+
+
+class NuvioAuthTests(TestCase):
+    @patch("tracker.integrations.nuvio.requests.post")
+    def test_sign_in_posts_password_grant(self, mock_post):
+        mock_post.return_value = Mock(
+            status_code=200, json=lambda: {"access_token": "at", "refresh_token": "rt", "expires_in": 3600}
+        )
+        mock_post.return_value.raise_for_status = lambda: None
+        result = nuvio.sign_in("user@example.com", "hunter2")
+        self.assertEqual(mock_post.call_args.kwargs["params"], {"grant_type": "password"})
+        self.assertEqual(mock_post.call_args.kwargs["json"], {"email": "user@example.com", "password": "hunter2"})
+        self.assertEqual(mock_post.call_args.kwargs["headers"]["apikey"], nuvio.PUBLISHABLE_KEY)
+        self.assertEqual(result["access_token"], "at")
+
+    @patch("tracker.integrations.nuvio.requests.post")
+    def test_refresh_posts_refresh_token_grant_and_returns_rotated_token(self, mock_post):
+        mock_post.return_value = Mock(
+            status_code=200, json=lambda: {"access_token": "at2", "refresh_token": "rotated-rt", "expires_in": 3600}
+        )
+        mock_post.return_value.raise_for_status = lambda: None
+        result = nuvio.refresh_access_token("old-rt")
+        self.assertEqual(mock_post.call_args.kwargs["params"], {"grant_type": "refresh_token"})
+        self.assertEqual(mock_post.call_args.kwargs["json"], {"refresh_token": "old-rt"})
+        self.assertEqual(result["refresh_token"], "rotated-rt")
+
+    @patch("tracker.integrations.nuvio.requests.post")
+    def test_get_profiles_calls_sync_pull_profiles_rpc(self, mock_post):
+        mock_post.return_value = Mock(status_code=200, json=lambda: [{"profile_index": 0, "name": "Main"}])
+        mock_post.return_value.raise_for_status = lambda: None
+        profiles = nuvio.get_profiles("at")
+        self.assertIn("/rest/v1/rpc/sync_pull_profiles", mock_post.call_args.args[0])
+        self.assertEqual(mock_post.call_args.kwargs["headers"]["Authorization"], "Bearer at")
+        self.assertEqual(profiles[0]["name"], "Main")
+
+    @patch("tracker.integrations.nuvio.get_profiles")
+    @patch("tracker.integrations.nuvio.sign_in")
+    def test_authenticate_signs_in_then_fetches_profiles(self, mock_sign_in, mock_get_profiles):
+        mock_sign_in.return_value = {"access_token": "at", "refresh_token": "rt"}
+        mock_get_profiles.return_value = [{"profile_index": 0}]
+        session, profiles = nuvio.authenticate("e@x.com", "pw")
+        mock_get_profiles.assert_called_once_with("at")
+        self.assertEqual(session["refresh_token"], "rt")
+        self.assertEqual(profiles, [{"profile_index": 0}])
+
+
+class NuvioPaginationTests(TestCase):
+    @patch("tracker.integrations.nuvio.requests.post")
+    def test_fetch_watched_items_pages_until_short_page(self, mock_post):
+        full_page = [{"content_id": f"tmdb:{i}"} for i in range(500)]
+        short_page = [{"content_id": "tmdb:999"}]
+        mock_post.side_effect = [
+            Mock(status_code=200, json=lambda: full_page, raise_for_status=lambda: None),
+            Mock(status_code=200, json=lambda: short_page, raise_for_status=lambda: None),
+        ]
+        items = nuvio.fetch_watched_items("at", 0)
+        self.assertEqual(len(items), 501)
+        self.assertEqual(mock_post.call_count, 2)
+        self.assertEqual(mock_post.call_args_list[0].kwargs["json"]["p_page"], 1)
+        self.assertEqual(mock_post.call_args_list[1].kwargs["json"]["p_page"], 2)
+
+    @patch("tracker.integrations.nuvio.requests.post")
+    def test_fetch_watched_items_stops_on_empty_first_page(self, mock_post):
+        mock_post.return_value = Mock(status_code=200, json=lambda: [], raise_for_status=lambda: None)
+        items = nuvio.fetch_watched_items("at", 0)
+        self.assertEqual(items, [])
+        self.assertEqual(mock_post.call_count, 1)
+
+    @patch("tracker.integrations.nuvio.requests.post")
+    def test_fetch_watch_progress_sends_no_p_offset(self, mock_post):
+        mock_post.return_value = Mock(status_code=200, json=lambda: [], raise_for_status=lambda: None)
+        nuvio.fetch_watch_progress("at", 0)
+        sent_params = mock_post.call_args.kwargs["json"]
+        self.assertNotIn("p_offset", sent_params)
+        self.assertEqual(sent_params["p_limit"], 200)
+        self.assertEqual(sent_params["p_profile_id"], 0)
+
+
+class NuvioParseContentIdTests(TestCase):
+    def test_tmdb_prefixed(self):
+        self.assertEqual(
+            nuvio._parse_content_id("tmdb:550"),
+            {"tmdb_id": 550, "imdb_id": None, "season": None, "episode": None},
+        )
+
+    def test_bare_imdb(self):
+        self.assertEqual(
+            nuvio._parse_content_id("tt0137523"),
+            {"tmdb_id": None, "imdb_id": "tt0137523", "season": None, "episode": None},
+        )
+
+    def test_imdb_with_season_episode(self):
+        self.assertEqual(
+            nuvio._parse_content_id("tt0903747:1:1"),
+            {"tmdb_id": None, "imdb_id": "tt0903747", "season": 1, "episode": 1},
+        )
+
+    def test_unrecognized_returns_all_none(self):
+        self.assertEqual(
+            nuvio._parse_content_id("garbage"),
+            {"tmdb_id": None, "imdb_id": None, "season": None, "episode": None},
+        )
+
+    def test_blank_returns_all_none(self):
+        self.assertEqual(
+            nuvio._parse_content_id(""),
+            {"tmdb_id": None, "imdb_id": None, "season": None, "episode": None},
+        )
+
+
+class NuvioGetOrCreateTitleTests(TestCase):
+    def test_matches_existing_by_nuvio_content_id(self):
+        existing = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Dolly", year=2026, external_ids={"nuvio": "tmdb:550"}
+        )
+        title = nuvio._get_or_create_title(MediaType.MOVIE, "tmdb:550", "Different Name", 2020)
+        self.assertEqual(title, existing)
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_tmdb_prefixed_uses_get_full_details_directly(self, mock_details):
+        mock_details.return_value = {
+            "name": "Dolly", "year": "2026", "poster_url": "http://x/p.jpg", "genres": ["Horror"],
+        }
+        title = nuvio._get_or_create_title(MediaType.MOVIE, "tmdb:550")
+        mock_details.assert_called_once_with("movie", 550)
+        self.assertEqual(title.name, "Dolly")
+        self.assertEqual(title.year, 2026)
+        self.assertEqual(title.external_ids["tmdb"], "550")
+        self.assertEqual(title.external_ids["nuvio"], "tmdb:550")
+        self.assertEqual(list(title.genres.values_list("name", flat=True)), ["Horror"])
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.find_by_imdb_id")
+    def test_bare_imdb_uses_find_by_imdb_id(self, mock_find, mock_details):
+        mock_find.return_value = {"id": 42, "kind": "movie", "poster_url": None}
+        mock_details.return_value = {"name": "Fathom", "year": "2020", "poster_url": None, "genres": []}
+        title = nuvio._get_or_create_title(MediaType.MOVIE, "tt1234567")
+        mock_find.assert_called_once_with("tt1234567", MediaType.MOVIE)
+        self.assertEqual(title.external_ids["tmdb"], "42")
+
+    def test_falls_back_to_bare_title_when_tmdb_has_nothing(self):
+        title = nuvio._get_or_create_title(MediaType.MOVIE, "tmdb:999999999", "Untitled Nuvio Movie", 2020)
+        self.assertEqual(title.name, "Untitled Nuvio Movie")
+        self.assertEqual(title.external_ids["nuvio"], "tmdb:999999999")
+        self.assertNotIn("tmdb", title.external_ids)
+
+
+class NuvioUpsertHistoryItemsTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("nuvfan", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="NuvFan")
+
+    def test_creates_movie_watch_event_from_epoch_ms(self):
+        items = [
+            {"content_id": "tmdb:550", "content_type": "movie", "watched_at": 1711600000000, "name": "Fight Club", "year": 1999}
+        ]
+        created = nuvio.upsert_history_items(self.profile, items)
+        self.assertEqual(created, 1)
+        event = WatchEvent.objects.get(profile=self.profile)
+        self.assertEqual(event.title.name, "Fight Club")
+        self.assertEqual(event.watched_at.year, 2024)
+
+    def test_creates_episode_watch_event_with_explicit_season_episode_fields(self):
+        items = [
+            {
+                "content_id": "tt0903747:1:1", "content_type": "series", "watched_at": 1711600000000,
+                "season": 1, "episode": 1, "name": "Breaking Bad", "year": 2008,
+            }
+        ]
+        created = nuvio.upsert_history_items(self.profile, items)
+        self.assertEqual(created, 1)
+        event = WatchEvent.objects.get(profile=self.profile)
+        self.assertEqual(event.episode.season, 1)
+        self.assertEqual(event.episode.episode, 1)
+
+    def test_episode_item_missing_season_episode_entirely_is_skipped(self):
+        items = [{"content_id": "tmdb:9999", "content_type": "series", "watched_at": 1711600000000, "name": "No Season Show"}]
+        created = nuvio.upsert_history_items(self.profile, items)
+        self.assertEqual(created, 0)
+        self.assertFalse(WatchEvent.objects.exists())
+
+    def test_item_missing_content_id_is_skipped(self):
+        items = [{"content_type": "movie", "watched_at": 1711600000000}]
+        self.assertEqual(nuvio.upsert_history_items(self.profile, items), 0)
+
+    def test_item_missing_watched_at_is_skipped(self):
+        items = [{"content_id": "tmdb:1", "content_type": "movie"}]
+        self.assertEqual(nuvio.upsert_history_items(self.profile, items), 0)
+
+    def test_unrecognized_content_type_is_skipped(self):
+        items = [{"content_id": "tmdb:1", "content_type": "person", "watched_at": 1711600000000}]
+        self.assertEqual(nuvio.upsert_history_items(self.profile, items), 0)
+
+    def test_duplicate_watch_event_is_not_recreated(self):
+        items = [{"content_id": "tmdb:550", "content_type": "movie", "watched_at": 1711600000000, "name": "Fight Club"}]
+        nuvio.upsert_history_items(self.profile, items)
+        created_again = nuvio.upsert_history_items(self.profile, items)
+        self.assertEqual(created_again, 0)
+        self.assertEqual(WatchEvent.objects.count(), 1)
+
+    def test_marks_rewatch_on_second_distinct_watch(self):
+        items1 = [{"content_id": "tmdb:550", "content_type": "movie", "watched_at": 1711600000000, "name": "Fight Club"}]
+        items2 = [{"content_id": "tmdb:550", "content_type": "movie", "watched_at": 1711700000000, "name": "Fight Club"}]
+        nuvio.upsert_history_items(self.profile, items1)
+        nuvio.upsert_history_items(self.profile, items2)
+        self.assertEqual(WatchEvent.objects.count(), 2)
+        self.assertTrue(WatchEvent.objects.filter(is_rewatch=True).exists())
+
+
+class NuvioUpsertProgressItemsTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("nuvprog", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="NuvProg")
+
+    def test_creates_progress_row_from_ms_position(self):
+        items = [{"content_id": "tmdb:550", "content_type": "movie", "position": 1000, "duration": 2000, "name": "Fight Club"}]
+        updated = nuvio.upsert_progress_items(self.profile, items)
+        self.assertEqual(updated, 1)
+        progress = WatchProgress.objects.get(profile=self.profile)
+        self.assertEqual(progress.position_seconds, 1)
+        self.assertEqual(progress.status, WatchProgress.Status.WATCHING)
+
+    def test_updates_existing_progress_row_instead_of_duplicating(self):
+        items = [{"content_id": "tmdb:550", "content_type": "movie", "position": 1000, "name": "Fight Club"}]
+        nuvio.upsert_progress_items(self.profile, items)
+        items2 = [{"content_id": "tmdb:550", "content_type": "movie", "position": 5000, "name": "Fight Club"}]
+        nuvio.upsert_progress_items(self.profile, items2)
+        self.assertEqual(WatchProgress.objects.count(), 1)
+        self.assertEqual(WatchProgress.objects.get().position_seconds, 5)
+
+    def test_episode_progress_sets_current_episode(self):
+        items = [
+            {
+                "content_id": "tt0903747:1:1", "content_type": "series", "position": 500,
+                "season": 1, "episode": 1, "name": "Breaking Bad",
+            }
+        ]
+        nuvio.upsert_progress_items(self.profile, items)
+        progress = WatchProgress.objects.get(profile=self.profile)
+        self.assertEqual(progress.current_episode.season, 1)
+
+    def test_item_missing_position_is_skipped(self):
+        items = [{"content_id": "tmdb:1", "content_type": "movie"}]
+        self.assertEqual(nuvio.upsert_progress_items(self.profile, items), 0)
+
+
+class SyncNuvioHistoryTaskTests(TestCase):
+    """tasks.sync_nuvio_history - one Celery invocation per profile, same
+    shape as sync_trakt_history/sync_simkl_history. Includes the
+    explicitly-requested isolation check: two profiles' syncs never touch
+    each other's rows, even when one of them fails."""
+
+    def setUp(self):
+        self.user_a = User.objects.create_user("nuvioa", password="pass12345")
+        self.profile_a = Profile.objects.create(user=self.user_a, display_name="NuvioA")
+        self.conn_a = NuvioConnection.objects.create(profile=self.profile_a, email="a@x.com", nuvio_profile_id=0)
+        self.conn_a.set_refresh_token("refresh-a")
+        self.conn_a.save()
+
+        self.user_b = User.objects.create_user("nuviob", password="pass12345")
+        self.profile_b = Profile.objects.create(user=self.user_b, display_name="NuvioB")
+        self.conn_b = NuvioConnection.objects.create(profile=self.profile_b, email="b@x.com", nuvio_profile_id=0)
+        self.conn_b.set_refresh_token("refresh-b")
+        self.conn_b.save()
+
+    @patch("tracker.integrations.nuvio.fetch_watch_progress")
+    @patch("tracker.integrations.nuvio.fetch_watched_items")
+    @patch("tracker.integrations.nuvio.refresh_access_token")
+    def test_two_profiles_stay_isolated_even_when_one_fails(self, mock_refresh, mock_watched, mock_progress):
+        def refresh_side_effect(refresh_token):
+            if refresh_token == "refresh-a":
+                return {"access_token": "at-a", "refresh_token": "rotated-a"}
+            raise requests.RequestException("nuvio down for this account")
+
+        mock_refresh.side_effect = refresh_side_effect
+        mock_watched.return_value = [
+            {"content_id": "tmdb:100", "content_type": "movie", "watched_at": 1711600000000, "name": "Only For A"}
+        ]
+        mock_progress.return_value = []
+
+        tasks.sync_nuvio_history(self.profile_a.id)
+        with self.assertRaises(requests.RequestException):
+            tasks.sync_nuvio_history(self.profile_b.id)
+
+        self.assertEqual(WatchEvent.objects.filter(profile=self.profile_a).count(), 1)
+        self.assertEqual(WatchEvent.objects.filter(profile=self.profile_b).count(), 0)
+        self.assertEqual(WatchEvent.objects.get().profile, self.profile_a)
+
+        log_a = SyncLog.objects.get(profile=self.profile_a)
+        self.assertEqual(log_a.status, SyncLog.Status.SUCCESS)
+        log_b = SyncLog.objects.get(profile=self.profile_b)
+        self.assertEqual(log_b.status, SyncLog.Status.FAILED)
+
+    @patch("tracker.integrations.nuvio.fetch_watch_progress")
+    @patch("tracker.integrations.nuvio.fetch_watched_items")
+    @patch("tracker.integrations.nuvio.refresh_access_token")
+    def test_refresh_token_is_rotated_and_saved(self, mock_refresh, mock_watched, mock_progress):
+        mock_refresh.return_value = {"access_token": "at", "refresh_token": "brand-new-refresh"}
+        mock_watched.return_value = []
+        mock_progress.return_value = []
+        tasks.sync_nuvio_history(self.profile_a.id)
+        self.conn_a.refresh_from_db()
+        self.assertEqual(self.conn_a.get_refresh_token(), "brand-new-refresh")
+
+    def test_no_connection_returns_zero_without_error(self):
+        user = User.objects.create_user("noconn", password="pass12345")
+        profile = Profile.objects.create(user=user, display_name="NoConn")
+        self.assertEqual(tasks.sync_nuvio_history(profile.id), 0)
+
+    @patch("tracker.integrations.nuvio.fetch_watch_progress")
+    @patch("tracker.integrations.nuvio.fetch_watched_items")
+    @patch("tracker.integrations.nuvio.refresh_access_token")
+    def test_disabled_connection_is_skipped(self, mock_refresh, mock_watched, mock_progress):
+        self.conn_a.sync_enabled = False
+        self.conn_a.save()
+        self.assertEqual(tasks.sync_nuvio_history(self.profile_a.id), 0)
+        mock_refresh.assert_not_called()
+
+    @patch("tracker.tasks.sync_nuvio_history.delay")
+    @patch("tracker.tasks.sync_simkl_history.delay")
+    @patch("tracker.tasks.sync_trakt_history.delay")
+    def test_sync_all_connected_accounts_fans_out_to_nuvio_too(self, mock_trakt, mock_simkl, mock_nuvio):
+        dispatched = tasks.sync_all_connected_accounts()
+        mock_nuvio.assert_any_call(self.profile_a.id)
+        mock_nuvio.assert_any_call(self.profile_b.id)
+        self.assertEqual(dispatched, 2)
+
+
 class SyncTokenRefreshTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("refresher", password="pass12345")
@@ -4362,6 +4757,183 @@ class TriggerManualSyncViewTests(TestCase):
         self.client.login(username="othermanualsync", password="pass12345")
         resp = self.client.post(reverse("trigger_manual_sync", args=["trakt"]))
         self.assertEqual(resp.status_code, 404)
+
+
+class NuvioConnectViewTests(TestCase):
+    """nuvio_connect_submit / nuvio_select_profile - Nuvio's email/
+    password form-based connect flow, since there's no OAuth redirect to
+    use here."""
+
+    def setUp(self):
+        user = User.objects.create_user("nuvioconnector", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="NuvioConnector")
+        self.client.login(username="nuvioconnector", password="pass12345")
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.nuvio.authenticate")
+    def test_single_profile_connects_immediately(self, mock_auth, mock_dispatch):
+        mock_auth.return_value = (
+            {"access_token": "at", "refresh_token": "rt"},
+            [{"profile_index": 0, "name": "Main"}],
+        )
+        resp = self.client.post(
+            reverse("nuvio_connect_submit"), {"email": "me@nuvio.tv", "password": "hunter2"}, follow=True
+        )
+        self.assertRedirects(resp, reverse("settings"))
+        connection = NuvioConnection.objects.get(profile=self.profile)
+        self.assertEqual(connection.email, "me@nuvio.tv")
+        self.assertEqual(connection.nuvio_profile_id, 0)
+        self.assertEqual(connection.get_refresh_token(), "rt")
+        mock_dispatch.assert_called_once_with(views.tasks.sync_nuvio_history, self.profile.id)
+        log = DataLog.objects.get(profile=self.profile)
+        self.assertEqual(log.action, DataLog.Action.NUVIO_CONNECT)
+        self.assertEqual(log.status, DataLog.Status.SUCCESS)
+
+    @patch("tracker.integrations.nuvio.authenticate")
+    def test_multiple_profiles_redirects_to_picker_without_creating_a_connection(self, mock_auth):
+        mock_auth.return_value = (
+            {"access_token": "at", "refresh_token": "rt"},
+            [{"profile_index": 0, "name": "Main"}, {"profile_index": 1, "name": "Kids"}],
+        )
+        resp = self.client.post(
+            reverse("nuvio_connect_submit"), {"email": "me@nuvio.tv", "password": "hunter2"}, follow=True
+        )
+        self.assertRedirects(resp, reverse("nuvio_select_profile"))
+        self.assertFalse(NuvioConnection.objects.exists())
+        self.assertContains(resp, "Main")
+        self.assertContains(resp, "Kids")
+        # the password is never carried into the session
+        self.assertNotIn("hunter2", str(self.client.session.get("nuvio_connect_pending")))
+
+    @patch("tracker.integrations.nuvio.authenticate")
+    def test_wrong_password_does_not_create_a_connection(self, mock_auth):
+        mock_auth.side_effect = requests.HTTPError("401 Client Error")
+        resp = self.client.post(
+            reverse("nuvio_connect_submit"), {"email": "me@nuvio.tv", "password": "wrong"}, follow=True
+        )
+        self.assertRedirects(resp, reverse("settings"))
+        self.assertFalse(NuvioConnection.objects.exists())
+        log = DataLog.objects.get(profile=self.profile)
+        self.assertEqual(log.status, DataLog.Status.FAILED)
+
+    def test_missing_email_or_password_is_rejected(self):
+        resp = self.client.post(reverse("nuvio_connect_submit"), {"email": "", "password": ""}, follow=True)
+        self.assertFalse(NuvioConnection.objects.exists())
+        self.assertContains(resp, "Enter both your Nuvio email and password")
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_select_profile_finishes_the_connection(self, mock_dispatch):
+        session = self.client.session
+        session["nuvio_connect_pending"] = {
+            "email": "me@nuvio.tv",
+            "refresh_token": crypto.encrypt("rt"),
+            "profiles": [{"profile_index": 0, "name": "Main"}, {"profile_index": 1, "name": "Kids"}],
+        }
+        session.save()
+        resp = self.client.post(reverse("nuvio_select_profile"), {"profile_index": "1"}, follow=True)
+        self.assertRedirects(resp, reverse("settings"))
+        connection = NuvioConnection.objects.get(profile=self.profile)
+        self.assertEqual(connection.nuvio_profile_id, 1)
+        self.assertEqual(connection.nuvio_profile_name, "Kids")
+        self.assertEqual(connection.get_refresh_token(), "rt")
+        self.assertNotIn("nuvio_connect_pending", self.client.session)
+
+    def test_select_profile_without_pending_state_redirects_to_settings(self):
+        resp = self.client.get(reverse("nuvio_select_profile"), follow=True)
+        self.assertRedirects(resp, reverse("settings"))
+
+
+class NuvioProviderKeyedViewsTests(TestCase):
+    """save_sync_schedule/trigger_manual_sync/disconnect_provider/
+    disconnect_and_wipe_provider all branch on provider == "nuvio" to
+    operate on NuvioConnection instead of ExternalAccount (see
+    views._get_provider_account) - reusing the same 4 views/URLs/
+    sync_schedule_form.html partial Trakt/Simkl already use, rather than
+    a parallel set of nuvio_* views for these actions."""
+
+    def setUp(self):
+        user = User.objects.create_user("nuvioprovider", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="NuvioProvider")
+        self.connection = NuvioConnection.objects.create(
+            profile=self.profile, email="me@nuvio.tv", nuvio_profile_id=0
+        )
+        self.connection.set_refresh_token("rt")
+        self.connection.save()
+        self.client.login(username="nuvioprovider", password="pass12345")
+
+    def test_save_sync_schedule_updates_nuvio_connection(self):
+        self.client.post(
+            reverse("save_sync_schedule", args=["nuvio"]), {"sync_interval_days": "2", "sync_time": "13:45"}
+        )
+        self.connection.refresh_from_db()
+        self.assertEqual(self.connection.sync_interval_days, 2)
+        self.assertEqual(self.connection.sync_hour, 13)
+        self.assertEqual(self.connection.sync_minute, 45)
+        pt = PeriodicTask.objects.get(name=scheduling.sync_periodic_task_name(self.connection))
+        self.assertEqual(pt.task, "tracker.tasks.sync_nuvio_history")
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_trigger_manual_sync_dispatches_nuvio_task(self, mock_dispatch):
+        self.client.post(reverse("trigger_manual_sync", args=["nuvio"]))
+        mock_dispatch.assert_called_once_with(views.tasks.sync_nuvio_history, self.profile.id)
+
+    def test_disconnect_removes_connection_and_periodic_task(self):
+        scheduling.ensure_periodic_task(self.connection)
+        self.client.post(reverse("disconnect_provider", args=["nuvio"]))
+        self.assertFalse(NuvioConnection.objects.filter(profile=self.profile).exists())
+        self.assertFalse(PeriodicTask.objects.filter(name=scheduling.sync_periodic_task_name(self.connection)).exists())
+
+    def test_disconnect_and_wipe_removes_only_nuvio_matched_history(self):
+        from django.utils import timezone
+
+        nuvio_title = Title.objects.create(media_type=MediaType.MOVIE, name="A", year=0, external_ids={"nuvio": "tmdb:1"})
+        other_title = Title.objects.create(media_type=MediaType.MOVIE, name="B", year=0, external_ids={"trakt": "2"})
+        WatchEvent.objects.create(profile=self.profile, title=nuvio_title, watched_at=timezone.now())
+        WatchEvent.objects.create(profile=self.profile, title=other_title, watched_at=timezone.now())
+
+        self.client.post(reverse("disconnect_and_wipe_provider", args=["nuvio"]))
+
+        self.assertFalse(NuvioConnection.objects.filter(profile=self.profile).exists())
+        self.assertFalse(WatchEvent.objects.filter(profile=self.profile, title=nuvio_title).exists())
+        self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title=other_title).exists())
+
+    def test_other_profiles_connection_is_not_reachable(self):
+        other_user = User.objects.create_user("othernuvio", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="OtherNuvio")
+        self.client.logout()
+        self.client.login(username="othernuvio", password="pass12345")
+        resp = self.client.post(
+            reverse("save_sync_schedule", args=["nuvio"]), {"sync_interval_days": "2", "sync_time": "13:45"}
+        )
+        self.assertEqual(resp.status_code, 404)
+
+
+class NuvioSettingsPageContextTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("nuviosettings", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="NuvioSettings")
+        self.client.login(username="nuviosettings", password="pass12345")
+
+    def test_unconnected_settings_page_shows_connect_form(self):
+        resp = self.client.get(reverse("settings"), {"tab": "integrations"})
+        self.assertContains(resp, "Nuvio email")
+
+    def test_connected_settings_page_shows_connected_state(self):
+        connection = NuvioConnection.objects.create(
+            profile=self.profile, email="me@nuvio.tv", nuvio_profile_id=0, nuvio_profile_name="Main"
+        )
+        connection.set_refresh_token("rt")
+        connection.save()
+        resp = self.client.get(reverse("settings"), {"tab": "integrations"})
+        self.assertContains(resp, "me@nuvio.tv")
+        self.assertContains(resp, "Connected")
+
+    def test_nuvio_sync_log_appears_in_combined_logs(self):
+        owner_user = User.objects.create_user("nuvioowner", password="pass12345", is_superuser=True)
+        owner = Profile.objects.create(user=owner_user, display_name="NuvioOwner")
+        SyncLog.objects.create(profile=owner, provider=ExternalAccount.Provider.NUVIO, status=SyncLog.Status.SUCCESS)
+        page = selectors.combined_logs(None)
+        self.assertEqual(page.object_list[0]["action"], "Sync · Nuvio")
 
 
 class MyProfileViewTests(TestCase):

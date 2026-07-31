@@ -11,6 +11,7 @@ from .models import ExternalAccount
 _TASK_NAME = {
     ExternalAccount.Provider.TRAKT: "tracker.tasks.sync_trakt_history",
     ExternalAccount.Provider.SIMKL: "tracker.tasks.sync_simkl_history",
+    ExternalAccount.Provider.NUVIO: "tracker.tasks.sync_nuvio_history",
 }
 
 

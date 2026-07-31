@@ -293,7 +293,7 @@
             {% endif %}
           </div>
 
-          <div class="py-3.5">
+          <div class="py-3.5 border-b border-line">
             <div class="flex justify-between items-center">
               <div><div class="font-semibold text-[13.5px]">Simkl</div><div class="text-xs text-ink-dim">Import history &amp; anime progress</div></div>
               {% if "simkl" in connected_providers %}
@@ -308,6 +308,29 @@
               {% include "tracker/partials/sync_schedule_form.html" with provider="simkl" account=external_accounts.simkl %}
             {% elif not simkl_configured %}
               <div class="text-[10.5px] text-ink-faint mt-1">Not available yet - ask your server owner to set up Simkl first.</div>
+            {% endif %}
+          </div>
+
+          <div class="py-3.5">
+            <div class="flex justify-between items-center">
+              <div><div class="font-semibold text-[13.5px]">Nuvio</div><div class="text-xs text-ink-dim">Sync watch history &amp; continue-watching progress</div></div>
+              {% if nuvio_connection %}
+                <span class="font-mono text-xs text-success">&#10003; Connected</span>
+              {% endif %}
+            </div>
+            {% if nuvio_connection %}
+              <div class="text-[10.5px] text-ink-faint mt-1">{{ nuvio_connection.email }}{% if nuvio_connection.nuvio_profile_name %} · {{ nuvio_connection.nuvio_profile_name }}{% endif %}</div>
+              {% include "tracker/partials/sync_schedule_form.html" with provider="nuvio" account=nuvio_connection %}
+            {% else %}
+              <form method="post" action="{% url 'nuvio_connect_submit' %}" class="flex flex-col gap-2 mt-2">
+                {% csrf_token %}
+                <input type="email" name="email" placeholder="Nuvio email" required class="w-full bg-base-100 border border-line rounded-lg px-3 py-1.5 text-sm focus:outline-primary">
+                <input type="password" name="password" placeholder="Nuvio password" required class="w-full bg-base-100 border border-line rounded-lg px-3 py-1.5 text-sm focus:outline-primary">
+                <button type="submit" class="btn btn-sm btn-soft self-start">Connect</button>
+                <div class="text-[10.5px] text-ink-faint">
+                  Stores an encrypted token, never your password. Uses an undocumented Nuvio API that could change or break without notice.
+                </div>
+              </form>
             {% endif %}
           </div>
         </div>
@@ -384,6 +407,19 @@
               <div class="text-xs text-ink-dim">Disconnects Simkl and removes watch history for titles matched via Simkl.</div>
             </div>
             <form method="post" action="{% url 'disconnect_and_wipe_provider' 'simkl' %}" onsubmit="return confirm('Disconnect Simkl and remove watch history for titles matched via Simkl? This is permanent.');">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content">Disconnect &amp; wipe</button>
+            </form>
+          </div>
+        {% endif %}
+
+        {% if nuvio_connection %}
+          <div class="flex justify-between items-center py-3.5 border-b border-error/20">
+            <div>
+              <div class="font-semibold text-[13.5px]">Disconnect &amp; wipe Nuvio</div>
+              <div class="text-xs text-ink-dim">Disconnects Nuvio and removes watch history for titles matched via Nuvio.</div>
+            </div>
+            <form method="post" action="{% url 'disconnect_and_wipe_provider' 'nuvio' %}" onsubmit="return confirm('Disconnect Nuvio and remove watch history for titles matched via Nuvio? This is permanent.');">
               {% csrf_token %}
               <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content">Disconnect &amp; wipe</button>
             </form>

@@ -28,8 +28,8 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from . import completion, csv_import, instance_config, recommendations, rewatches, scheduling, selectors, tasks
-from .integrations import gemini, jikan, simkl, tmdb, trakt
+from . import completion, crypto, csv_import, instance_config, recommendations, rewatches, scheduling, selectors, tasks
+from .integrations import gemini, jikan, nuvio, simkl, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
@@ -40,6 +40,7 @@ from .models import (
     InstanceConfig,
     MediaType,
     Notification,
+    NuvioConnection,
     Profile,
     Recommendation,
     Title,
@@ -2192,6 +2193,10 @@ def _settings_page_context(request, profile):
         "profile": profile,
         "connected_providers": set(external_accounts.keys()),
         "external_accounts": external_accounts,
+        # Nuvio's connect status is per-viewer, same as Trakt/Simkl's own
+        # connect status above - not admin-only, so this lives outside
+        # the `if profile.is_owner:` block below.
+        "nuvio_connection": NuvioConnection.objects.filter(profile=profile).first(),
         "languages": DISCOVER_LANGUAGES,
         "landing_pages": Profile.LandingPage.choices,
         "trakt_configured": bool(instance_config.get_trakt_credentials()[0]),
@@ -2726,7 +2731,7 @@ def export_trakt_json(request):
 
 
 PROVIDER_MODULES = {"trakt": trakt, "simkl": simkl}
-SYNC_TASKS = {"trakt": tasks.sync_trakt_history, "simkl": tasks.sync_simkl_history}
+SYNC_TASKS = {"trakt": tasks.sync_trakt_history, "simkl": tasks.sync_simkl_history, "nuvio": tasks.sync_nuvio_history}
 
 
 @login_required
@@ -2816,13 +2821,143 @@ def oauth_callback(request, provider):
     return redirect("settings")
 
 
+def _finish_nuvio_connect(profile, email, refresh_token, nuvio_profile):
+    """Creates/updates this profile's NuvioConnection, encrypts+saves the
+    refresh token, (re)schedules the daily sync, and triggers an
+    immediate first sync - the Nuvio-flow equivalent of oauth_callback's
+    ExternalAccount.objects.update_or_create + scheduling.ensure_periodic_task
+    + _dispatch_sync_task_safely block above. Shared by nuvio_connect_submit's
+    single-profile happy path and nuvio_select_profile's multi-profile
+    finish, so both end up in exactly the same state."""
+    nuvio_profile_id = int(nuvio_profile.get("profile_index") or 0)
+    connection, _ = NuvioConnection.objects.update_or_create(
+        profile=profile,
+        defaults={
+            "email": email,
+            "nuvio_profile_id": nuvio_profile_id,
+            "nuvio_profile_name": nuvio_profile.get("name") or "",
+        },
+    )
+    connection.set_refresh_token(refresh_token)
+    connection.save(update_fields=["encrypted_refresh_token"])
+    scheduling.ensure_periodic_task(connection)
+    _dispatch_sync_task_safely(SYNC_TASKS["nuvio"], profile.id)
+    DataLog.objects.create(
+        profile=profile, action=DataLog.Action.NUVIO_CONNECT, status=DataLog.Status.SUCCESS, detail="connected"
+    )
+
+
+@login_required
+@require_POST
+def nuvio_connect_submit(request):
+    """Nuvio has no OAuth redirect flow - the connect form lives inline
+    in Settings' Integrations panel and posts straight here. The
+    password is used only for this one sign-in call and is never stored
+    or put in the session; only the resulting refresh token is (see
+    tracker/crypto.py). An account with more than one Nuvio profile
+    (like Trakt slate) can't be resolved to one NuvioConnection yet, so
+    it's routed to nuvio_select_profile instead of finishing here."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+
+    email = request.POST.get("email", "").strip()
+    password = request.POST.get("password", "")
+    if not email or not password:
+        messages.error(request, "Enter both your Nuvio email and password.")
+        return redirect("settings")
+
+    try:
+        session, profiles = nuvio.authenticate(email, password)
+    except requests.RequestException as e:
+        DataLog.objects.create(
+            profile=profile, action=DataLog.Action.NUVIO_CONNECT, status=DataLog.Status.FAILED,
+            error_message=str(e)[:500],
+        )
+        messages.error(request, "Couldn't sign in to Nuvio — check your email and password and try again.")
+        return redirect("settings")
+
+    if not profiles:
+        DataLog.objects.create(
+            profile=profile, action=DataLog.Action.NUVIO_CONNECT, status=DataLog.Status.FAILED,
+            error_message="Nuvio account has no profiles.",
+        )
+        messages.error(request, "That Nuvio account has no profiles to sync from.")
+        return redirect("settings")
+
+    if len(profiles) == 1:
+        _finish_nuvio_connect(profile, email, session["refresh_token"], profiles[0])
+        messages.success(request, "Connected to Nuvio — syncing your history now.")
+        return redirect("settings")
+
+    # Stashed encrypted, same as NuvioConnection.encrypted_refresh_token -
+    # this is Django's server-side DB-backed session by default, but
+    # encrypting here too costs nothing and doesn't depend on that.
+    request.session["nuvio_connect_pending"] = {
+        "email": email,
+        "refresh_token": crypto.encrypt(session["refresh_token"]),
+        "profiles": profiles,
+    }
+    return redirect("nuvio_select_profile")
+
+
+@login_required
+def nuvio_select_profile(request):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    pending = request.session.get("nuvio_connect_pending")
+    if not pending:
+        messages.error(request, "That Nuvio connection request expired — please try connecting again.")
+        return redirect("settings")
+
+    if request.method == "POST":
+        try:
+            chosen_index = int(request.POST.get("profile_index", ""))
+        except ValueError:
+            chosen_index = None
+        chosen = next(
+            (p for p in pending["profiles"] if int(p.get("profile_index") or 0) == chosen_index), None
+        )
+        if chosen is None:
+            messages.error(request, "Pick a Nuvio profile to continue.")
+            return redirect("nuvio_select_profile")
+        del request.session["nuvio_connect_pending"]
+        _finish_nuvio_connect(profile, pending["email"], crypto.decrypt(pending["refresh_token"]), chosen)
+        messages.success(request, "Connected to Nuvio — syncing your history now.")
+        return redirect("settings")
+
+    context = {
+        "email": pending["email"],
+        "profiles": [
+            {
+                "index": int(p.get("profile_index") or 0),
+                "name": p.get("name") or f"Profile {int(p.get('profile_index') or 0)}",
+            }
+            for p in pending["profiles"]
+        ],
+    }
+    return render(request, "tracker/nuvio_select_profile.html", context)
+
+
+def _get_provider_account(profile, provider):
+    """Returns the connection row for `provider` scoped to `profile` - a
+    NuvioConnection for "nuvio" (see its duck-typed `provider` constant
+    in models.py), an ExternalAccount for trakt/simkl. 404s if there
+    isn't one, same as get_object_or_404 would - used by every view
+    below that needs to look one up regardless of which kind it is."""
+    if provider == "nuvio":
+        return get_object_or_404(NuvioConnection, profile=profile)
+    return get_object_or_404(ExternalAccount, profile=profile, provider=provider)
+
+
 @login_required
 @require_POST
 def disconnect_provider(request, provider):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
-    account = get_object_or_404(ExternalAccount, profile=profile, provider=provider)
+    account = _get_provider_account(profile, provider)
     scheduling.remove_periodic_task(account)
     account.delete()
     # Titles/episodes/watch events that sync already created are left in
@@ -2865,7 +3000,7 @@ def disconnect_and_wipe_provider(request, provider):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
-    account = get_object_or_404(ExternalAccount, profile=profile, provider=provider)
+    account = _get_provider_account(profile, provider)
     scheduling.remove_periodic_task(account)
     account.delete()
     deleted, _ = WatchEvent.objects.filter(
@@ -2904,7 +3039,7 @@ def save_sync_schedule(request, provider):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
-    account = get_object_or_404(ExternalAccount, profile=profile, provider=provider)
+    account = _get_provider_account(profile, provider)
 
     try:
         interval_days = max(1, min(30, int(request.POST.get("sync_interval_days", 1))))
@@ -2942,7 +3077,7 @@ def trigger_manual_sync(request, provider):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
-    get_object_or_404(ExternalAccount, profile=profile, provider=provider)
+    _get_provider_account(profile, provider)
     _dispatch_sync_task_safely(SYNC_TASKS[provider], profile.id)
     messages.success(request, f"{provider.title()} sync started - check back in a moment.")
     return redirect("settings")

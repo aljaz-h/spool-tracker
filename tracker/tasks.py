@@ -7,8 +7,8 @@ from celery.utils.log import get_task_logger
 from django.utils import timezone
 
 from . import csv_import, instance_config, notifications, release_sync, selectors, update_check, version
-from .integrations import simkl, trakt
-from .models import DataLog, ExternalAccount, Notification, Profile, SyncLog
+from .integrations import nuvio, simkl, trakt
+from .models import DataLog, ExternalAccount, Notification, NuvioConnection, Profile, SyncLog
 
 logger = get_task_logger(__name__)
 
@@ -128,6 +128,42 @@ def sync_simkl_history(profile_id):
 
 
 @shared_task
+def sync_nuvio_history(profile_id):
+    """One Celery invocation per profile, same shape as sync_trakt_history/
+    sync_simkl_history above - a task instance never iterates other
+    profiles' NuvioConnections, so one profile's sync can't read or write
+    another's rows. _run_sync already records/re-raises any failure onto
+    this profile's own SyncLog row without affecting any other profile's
+    already-independent task run."""
+    try:
+        connection = NuvioConnection.objects.select_related("profile").get(profile_id=profile_id, sync_enabled=True)
+    except NuvioConnection.DoesNotExist:
+        logger.info("sync_nuvio_history: profile %s has no active Nuvio connection", profile_id)
+        return 0
+
+    def fetch_and_upsert():
+        session = nuvio.refresh_access_token(connection.get_refresh_token())
+        # Supabase rotates the refresh token on every use (per scrob) -
+        # saved before touching anything else so a later failure in the
+        # fetch/upsert calls below doesn't strand the connection on a
+        # now-invalid refresh token.
+        connection.set_refresh_token(session["refresh_token"])
+        connection.save(update_fields=["encrypted_refresh_token"])
+
+        watched = nuvio.fetch_watched_items(session["access_token"], connection.nuvio_profile_id)
+        progress = nuvio.fetch_watch_progress(session["access_token"], connection.nuvio_profile_id)
+        created = nuvio.upsert_history_items(connection.profile, watched)
+        nuvio.upsert_progress_items(connection.profile, progress)
+        return created
+
+    created = _run_sync(connection.profile, ExternalAccount.Provider.NUVIO, fetch_and_upsert)
+    connection.last_synced_at = timezone.now()
+    connection.save(update_fields=["last_synced_at"])
+    logger.info("sync_nuvio_history: profile %s, %d new watch events", profile_id, created)
+    return created
+
+
+@shared_task
 def run_data_import(log_id, profile_id, path, kind, mapping=None):
     """Settings → Import Data's background path for a file too large to
     commit inside one request - see LARGE_IMPORT_ROW_THRESHOLD in
@@ -174,6 +210,9 @@ def sync_all_connected_accounts():
             sync_trakt_history.delay(account.profile_id)
         elif account.provider == ExternalAccount.Provider.SIMKL:
             sync_simkl_history.delay(account.profile_id)
+        dispatched += 1
+    for connection in NuvioConnection.objects.filter(sync_enabled=True):
+        sync_nuvio_history.delay(connection.profile_id)
         dispatched += 1
     return dispatched
 

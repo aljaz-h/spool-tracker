@@ -5,6 +5,7 @@ from .models import (
     ExternalAccount,
     ExternalRating,
     Genre,
+    NuvioConnection,
     Profile,
     ReleaseSchedule,
     Title,
@@ -93,3 +94,11 @@ class ReleaseScheduleAdmin(admin.ModelAdmin):
 class ExternalAccountAdmin(admin.ModelAdmin):
     list_display = ("profile", "provider", "connected_at", "token_expires_at")
     list_filter = ("provider",)
+
+
+@admin.register(NuvioConnection)
+class NuvioConnectionAdmin(admin.ModelAdmin):
+    # No token field here (or exposed on the change form beyond its raw
+    # ciphertext, since encryption happens before it ever reaches the
+    # DB) - matches ExternalAccountAdmin's own list_display choice above.
+    list_display = ("profile", "email", "nuvio_profile_id", "sync_enabled", "connected_at", "last_synced_at")

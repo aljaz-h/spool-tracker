@@ -74,6 +74,48 @@ def find_match(media_type, name, year):
     return None
 
 
+_FIND_RESULT_KEYS = {
+    "movie": [("movie_results", "movie")],
+    "tv": [("tv_results", "tv")],
+    "anime": [("tv_results", "tv"), ("movie_results", "movie")],
+}
+
+
+def find_by_imdb_id(imdb_id, media_type):
+    """TMDB's /find endpoint, looking up by IMDb id instead of a fuzzy
+    title/year search - for a source that hands over an IMDb id directly
+    (currently Nuvio - see tracker/integrations/nuvio.py) rather than
+    just a title. Returns the same {"id", "kind", "poster_url"} shape
+    find_match() does, or None if no key is configured or nothing
+    matched."""
+    api_key = _api_key()
+    if not api_key or not imdb_id:
+        return None
+    try:
+        resp = requests.get(
+            f"{API_BASE}/find/{imdb_id}",
+            params={"api_key": api_key, "external_source": "imdb_id"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+    except requests.RequestException:
+        logger.warning("TMDB find-by-imdb failed for %r (%s)", imdb_id, media_type, exc_info=True)
+        return None
+    data = resp.json()
+    for result_key, kind in _FIND_RESULT_KEYS.get(media_type, []):
+        results = data.get(result_key) or []
+        if not results:
+            continue
+        result = results[0]
+        poster_path = result.get("poster_path")
+        return {
+            "id": result.get("id"),
+            "kind": kind,
+            "poster_url": f"{IMAGE_BASE}{poster_path}" if poster_path else None,
+        }
+    return None
+
+
 def get_movie_details(tmdb_id):
     """Returns {"runtime": int|None} or None on failure."""
     api_key = _api_key()

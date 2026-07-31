@@ -8,6 +8,32 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.60.0] - 2026-07-31
+
+### Added
+
+- **Nuvio Cloud integration** — a third sync source alongside Trakt/Simkl,
+  per-profile, pulling watch history and continue-watching progress. Unlike
+  Trakt/Simkl, Nuvio has no public developer API or OAuth flow: each
+  profile connects with its own email/password (never stored — exchanged
+  once for a refresh token, which is encrypted at rest with a new Fernet
+  helper keyed off `DJANGO_SECRET_KEY`), needs no server-owner setup step,
+  and picks which Nuvio profile to sync from if the account has more than
+  one. Runs on the same daily background schedule and "Sync now" flow as
+  Trakt/Simkl, and shows up in the same Settings & Import → Logs tab.
+- New `tmdb.find_by_imdb_id` — matches a title by IMDb id directly rather
+  than a fuzzy title/year search, used when Nuvio hands over an IMDb id.
+
+### Note
+
+- Nuvio has no documented API. This integration
+  (`tracker/integrations/nuvio.py`) is built from a third-party
+  open-source reference implementation
+  ([github.com/ellite/scrob](https://github.com/ellite/scrob)), not
+  official docs, and is unverified against a live Nuvio account — same
+  caveat this project already carries for Simkl. A failed sync surfaces
+  its real error in Settings & Import → Logs rather than failing silently.
+
 ## [0.59.1] - 2026-07-31
 
 ### Fixed
