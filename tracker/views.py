@@ -1683,6 +1683,25 @@ def history_delete_episode(request, event_id):
     return render(request, "tracker/partials/history_group_tile.html", context)
 
 
+@login_required
+@require_POST
+def history_delete_group(request):
+    """The binge-group tile's top-right delete button - removes every
+    episode in the group in one action, unlike the count badge's dropdown
+    which removes one at a time. The confirm dialog (built client-side in
+    history_group_tile.html, showing the play count) is the only guard
+    against an accidental one-click wipe of a whole binge, so this view
+    trusts it and just deletes - same trust level history_bulk_delete
+    already gives its own multi-select confirm. event_ids is the same
+    comma-joined format history_bulk_delete/history_delete_episode's
+    remaining_ids already use."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is not None:
+        event_ids = {int(part) for part in request.POST.get("event_ids", "").split(",") if part.strip().isdigit()}
+        WatchEvent.objects.filter(profile=profile, pk__in=event_ids).delete()
+    return HttpResponse(status=200)
+
+
 CALENDAR_TYPES = {"movie": MediaType.MOVIE, "tv": MediaType.TV, "anime": MediaType.ANIME}
 # How far back the sidebar's agenda list looks for already-passed releases,
 # so a weekly show doesn't just vanish from it the moment its release time

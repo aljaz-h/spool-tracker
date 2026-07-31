@@ -69,6 +69,7 @@ urlpatterns = [
     path("profile/<int:profile_id>/history/", views.history, name="member_history"),
     path("history/bulk-delete/", views.history_bulk_delete, name="history_bulk_delete"),
     path("history/delete-episode/<int:event_id>/", views.history_delete_episode, name="history_delete_episode"),
+    path("history/delete-group/", views.history_delete_group, name="history_delete_group"),
     path("calendar/", views.calendar_view, name="calendar"),
     path("lists/", views.lists, name="lists"),
     path("lists/create/", views.create_list, name="create_list"),

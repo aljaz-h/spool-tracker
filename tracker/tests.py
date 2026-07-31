@@ -11747,6 +11747,101 @@ class HistoryDeleteEpisodeTests(TestCase):
         self.assertEqual(resp.content, b"")
 
 
+class HistoryDeleteGroupTests(TestCase):
+    """The binge-group tile's top-right x button - deletes every episode
+    in the group in one shot, guarded only by the client-side hx-confirm
+    (checked separately in HistoryTileDeleteButtonsTests) rather than any
+    server-side double-check, same trust level history_bulk_delete's own
+    multi-select confirm already gets."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.user = User.objects.create_user("groupdeleter", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="GroupDeleter")
+        self.show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
+        self.now = timezone.now()
+        self.client.login(username="groupdeleter", password="pass12345")
+
+    def _watch(self, episode_num, minutes_ago, profile=None):
+        ep = Episode.objects.create(title=self.show, season=1, episode=episode_num)
+        return WatchEvent.objects.create(
+            profile=profile or self.profile, title=self.show, episode=ep, watched_at=self.now - timedelta(minutes=minutes_ago)
+        )
+
+    def test_deletes_every_event_in_the_group(self):
+        events = [self._watch(i, 30 - i) for i in range(1, 6)]
+        resp = self.client.post(
+            reverse("history_delete_group"), {"event_ids": ",".join(str(e.pk) for e in events)}
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(WatchEvent.objects.filter(pk__in=[e.pk for e in events]).exists())
+
+    def test_requires_login(self):
+        self.client.logout()
+        e1 = self._watch(1, 10)
+        resp = self.client.post(reverse("history_delete_group"), {"event_ids": str(e1.pk)})
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(WatchEvent.objects.filter(pk=e1.pk).exists())
+
+    def test_get_is_not_allowed(self):
+        resp = self.client.get(reverse("history_delete_group"))
+        self.assertEqual(resp.status_code, 405)
+
+    def test_does_not_touch_another_profiles_events(self):
+        other_user = User.objects.create_user("othergroupdeleter", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="Other")
+        other_event = self._watch(1, 10, profile=other_profile)
+        resp = self.client.post(reverse("history_delete_group"), {"event_ids": str(other_event.pk)})
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(WatchEvent.objects.filter(pk=other_event.pk).exists())
+
+    def test_ignores_junk_in_event_ids(self):
+        e1 = self._watch(1, 10)
+        resp = self.client.post(reverse("history_delete_group"), {"event_ids": f"{e1.pk},notanumber,"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(WatchEvent.objects.filter(pk=e1.pk).exists())
+
+
+class HistoryTileDeleteButtonsTests(TestCase):
+    """History's per-tile delete affordances - a plain x on single-event
+    tiles, and a count-guarded x on binge-group tiles (see
+    HistoryDeleteGroupTests for the group button's actual deletion
+    behavior)."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.user = User.objects.create_user("deletebuttonviewer", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="DeleteButtonViewer")
+        self.now = timezone.now()
+        self.client.login(username="deletebuttonviewer", password="pass12345")
+
+    def test_single_tile_delete_button_is_not_hover_gated(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now)
+        resp = self.client.get(reverse("history"))
+        self.assertContains(resp, "Remove from history")
+        self.assertNotContains(resp, "opacity-0")
+
+    def test_group_tile_delete_button_confirm_shows_the_play_count(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
+        for i in range(1, 6):
+            ep = Episode.objects.create(title=show, season=1, episode=i)
+            WatchEvent.objects.create(profile=self.profile, title=show, episode=ep, watched_at=self.now - timedelta(minutes=i))
+        resp = self.client.get(reverse("history"))
+        self.assertContains(resp, "Remove all 5 plays of &quot;Bleach&quot;")
+        self.assertContains(resp, reverse("history_delete_group"))
+
+    def test_group_tile_delete_button_not_hover_gated_either(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
+        for i in range(1, 3):
+            ep = Episode.objects.create(title=show, season=1, episode=i)
+            WatchEvent.objects.create(profile=self.profile, title=show, episode=ep, watched_at=self.now - timedelta(minutes=i))
+        resp = self.client.get(reverse("history"))
+        self.assertNotContains(resp, "opacity-0")
+
+
 class WatchProgressDeleteApiTests(TestCase):
     """DELETE /api/watch-progress/{title_id} - the Dashboard Watching
     tile's dismiss button (api/routers/watch_progress.py). Only ever

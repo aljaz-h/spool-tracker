@@ -5,6 +5,16 @@
     x-show="selecting" x-cloak
     class="absolute top-1.5 right-1.5 z-20 w-5 h-5 rounded-md bg-black/75 border border-white/20 flex items-center justify-center cursor-pointer"
   ><input type="checkbox" name="event_ids" value="{% for event in group.events %}{{ event.id }}{% if not forloop.last %},{% endif %}{% endfor %}" @change="recount()" class="w-3.5 h-3.5 accent-primary"></label>
+  <button
+    x-show="!selecting"
+    hx-post="{% url 'history_delete_group' %}"
+    hx-vals='{"event_ids": "{% for event in group.events %}{{ event.id }}{% if not forloop.last %},{% endif %}{% endfor %}"}'
+    hx-confirm="Remove all {{ group.count }} plays of &quot;{{ group.title.name }}&quot; from your watch history? This can't be undone."
+    hx-target="closest [data-history-tile]"
+    hx-swap="outerHTML swap:150ms"
+    title="Remove all {{ group.count }} plays"
+    class="absolute top-1.5 right-1.5 z-20 w-5 h-5 rounded-full bg-black/75 text-white text-xs leading-none flex items-center justify-center hover:bg-error"
+  >&times;</button>
 
   <div class="aspect-[2/3] rounded-lg relative overflow-hidden bg-cover bg-center {% if not group.title.poster_url %}{{ group.title.pk|gradient_class }}{% endif %}"
        {% if group.title.poster_url %}style="background-image:url('{{ group.title.poster_url }}')"{% endif %}>

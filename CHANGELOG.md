@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.60.4] - 2026-07-31
+
+### Added
+
+- History tiles' delete (×) button is now always visible instead of
+  hover-only. Binge-group tiles get their own delete button too - it
+  removes every play in the group at once, guarded by a confirm dialog
+  that states the exact count (e.g. `Remove all 150 plays of "Bleach"
+  from your watch history?`) so a single click can't silently wipe a
+  whole binge.
+
 ## [0.60.3] - 2026-07-31
 
 ### Changed
