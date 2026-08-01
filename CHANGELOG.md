@@ -8,6 +8,25 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.62.0] - 2026-08-02
+
+### Added
+
+- Person detail page (`/person/<tmdb_id>/`) - click through from any cast
+  or director credit on a movie, TV, or anime title page. Shows TMDB's
+  bio/photo/birthday alongside household-specific stats computed from
+  your own watch history (titles watched vs. total credits, your average
+  rating across their rated work, total watch time, and overlap with any
+  other profile that shares activity), plus a filmography grouped into
+  Acting/Directing/Writing sections, each filterable to All/Watched/
+  Unwatched and sorted watched-first, newest release first within each
+  group.
+
+### Changed
+
+- Cast/director entries on the title detail page are now links (when
+  TMDB has a person id for them) instead of plain text.
+
 ## [0.61.6] - 2026-08-02
 
 ### Changed

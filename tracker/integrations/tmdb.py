@@ -750,8 +750,10 @@ def get_full_details(media_type, tmdb_id):
 
 
 def get_credits(media_type, tmdb_id, limit=12):
-    """[{"name", "character", "profile_url"}, ...] billing-ordered cast,
-    or [] if nothing came back."""
+    """[{"name", "character", "profile_url", "tmdb_person_id"}, ...]
+    billing-ordered cast, or [] if nothing came back. tmdb_person_id
+    (None if TMDB's own entry has no id, which shouldn't normally happen)
+    is what the title detail page's Cast row links to /person/<id>/ with."""
     data = _list_request(f"{media_type}/{tmdb_id}/credits")
     cast = (data or {}).get("cast") or []
     results = []
@@ -762,6 +764,7 @@ def get_credits(media_type, tmdb_id, limit=12):
                 "name": person.get("name") or "",
                 "character": person.get("character") or "",
                 "profile_url": f"{PROFILE_BASE}{profile_path}" if profile_path else None,
+                "tmdb_person_id": person.get("id"),
             }
         )
     return results
@@ -778,13 +781,13 @@ def get_similar(media_type, tmdb_id, limit=12):
 
 
 def get_director(media_type, tmdb_id):
-    """{"name", "profile_url"} for the credited director, or None - shaped
-    like get_credits()'s cast entries so the title detail page can render
-    the director as the lead entry in the same Cast row, not a separate
-    element. Hits the same /credits endpoint as get_credits() -
-    _list_request's cache means calling both for the same title in one
-    request doesn't cost a second real HTTP call, so this doesn't need
-    its own cache-key/network story."""
+    """{"name", "profile_url", "tmdb_person_id"} for the credited director,
+    or None - shaped like get_credits()'s cast entries so the title detail
+    page can render the director as the lead entry in the same Cast row,
+    not a separate element. Hits the same /credits endpoint as
+    get_credits() - _list_request's cache means calling both for the same
+    title in one request doesn't cost a second real HTTP call, so this
+    doesn't need its own cache-key/network story."""
     data = _list_request(f"{media_type}/{tmdb_id}/credits")
     crew = (data or {}).get("crew") or []
     director = next((c for c in crew if c.get("job") == "Director"), None)
@@ -794,6 +797,7 @@ def get_director(media_type, tmdb_id):
     return {
         "name": director.get("name") or "",
         "profile_url": f"{PROFILE_BASE}{profile_path}" if profile_path else None,
+        "tmdb_person_id": director.get("id"),
     }
 
 
@@ -848,3 +852,88 @@ def get_watch_providers(media_type, tmdb_id, region="US"):
             logo_path = p.get("logo_path")
             providers.append({"name": name, "logo_url": f"{PROFILE_BASE}{logo_path}" if logo_path else None})
     return providers[:6]
+
+
+# --- Person detail page (tracker/views.person_detail) -------------------
+
+_CREDIT_CAP = 40
+
+
+def get_person_details(person_id):
+    """{"id", "name", "biography", "birthday", "deathday",
+    "place_of_birth", "profile_url", "known_for_department"} or None if
+    nothing came back (no api key, bad id, network error) - same failure
+    convention as get_collection_details/get_season_details above."""
+    data = _list_request(f"person/{person_id}")
+    if not data or data.get("id") is None:
+        return None
+    profile_path = data.get("profile_path")
+    return {
+        "id": data["id"],
+        "name": data.get("name") or "",
+        "biography": data.get("biography") or "",
+        "birthday": data.get("birthday"),
+        "deathday": data.get("deathday"),
+        "place_of_birth": data.get("place_of_birth"),
+        "profile_url": f"{PROFILE_BASE}{profile_path}" if profile_path else None,
+        "known_for_department": data.get("known_for_department"),
+    }
+
+
+def _normalize_credit(item):
+    """Same normalized shape _normalize_result produces (tmdb_id,
+    media_type, name, year, poster_url, vote_average - so these render
+    through discover_tile.html exactly like "if you like this" does),
+    plus release_date/vote_count kept for get_person_credits' own
+    sort/cap use - discover_tile.html ignores keys it doesn't read.
+    Reads media_type off the credit item itself rather than taking a
+    single passed-in value, since a person's combined_credits response
+    mixes movie and tv entries in one list."""
+    media_type = item.get("media_type") or "movie"
+    is_movie = media_type == "movie"
+    date = item.get("release_date") if is_movie else item.get("first_air_date")
+    poster_path = item.get("poster_path")
+    return {
+        "tmdb_id": item.get("id"),
+        "media_type": media_type,
+        "name": (item.get("title") if is_movie else item.get("name")) or "Untitled",
+        "year": date[:4] if date else None,
+        "release_date": date,
+        "poster_url": f"{IMAGE_BASE}{poster_path}" if poster_path else None,
+        "vote_average": item.get("vote_average"),
+        "vote_count": item.get("vote_count") or 0,
+    }
+
+
+def get_person_credits(person_id):
+    """{"acting": [...], "directing": [...], "writing": [...]} - each a
+    list of normalized credit dicts (see _normalize_credit), deduped by
+    tmdb_id within its own section (a person can hold two crew jobs on
+    one title - e.g. Writer + Story - which would otherwise list the
+    same poster twice) and capped to the _CREDIT_CAP most-notable
+    credits (TMDB's own vote_count, highest first) per section - a
+    prolific person's full combined_credits can run past 200 entries,
+    and matching each against the local library costs one query per
+    credit (see selectors.discover_action_context's own docstring for
+    why that's not batched), so capping keeps one page load's query
+    count bounded. Scoped to just these three departments - TMDB's
+    combined_credits crew list spans many more (Production, Sound,
+    Editing...) that this page doesn't surface. Every section is []
+    rather than missing when there's nothing, so callers don't need an
+    extra "credits is None" branch on top of "list is empty"."""
+    data = _list_request(f"person/{person_id}/combined_credits")
+    cast = (data or {}).get("cast") or []
+    crew = (data or {}).get("crew") or []
+
+    def dedupe_and_cap(items):
+        seen = {}
+        for item in items:
+            seen.setdefault(item["tmdb_id"], item)
+        ordered = sorted(seen.values(), key=lambda c: c["vote_count"], reverse=True)
+        return ordered[:_CREDIT_CAP]
+
+    return {
+        "acting": dedupe_and_cap([_normalize_credit(c) for c in cast]),
+        "directing": dedupe_and_cap([_normalize_credit(c) for c in crew if c.get("department") == "Directing"]),
+        "writing": dedupe_and_cap([_normalize_credit(c) for c in crew if c.get("department") == "Writing"]),
+    }

@@ -7548,15 +7548,23 @@ class TmdbDetailPageTests(TestCase):
         mock_get.return_value = self._response(
             {
                 "cast": [
-                    {"name": "Actor One", "character": "Hero", "profile_path": "/a.jpg"},
-                    {"name": "Actor Two", "character": "Villain", "profile_path": None},
+                    {"id": 501, "name": "Actor One", "character": "Hero", "profile_path": "/a.jpg"},
+                    {"id": 502, "name": "Actor Two", "character": "Villain", "profile_path": None},
                 ]
             }
         )
         cast = tmdb.get_credits("movie", 42)
         self.assertEqual(len(cast), 2)
-        self.assertEqual(cast[0], {"name": "Actor One", "character": "Hero", "profile_url": "https://image.tmdb.org/t/p/w185/a.jpg"})
+        self.assertEqual(
+            cast[0],
+            {
+                "name": "Actor One", "character": "Hero",
+                "profile_url": "https://image.tmdb.org/t/p/w185/a.jpg",
+                "tmdb_person_id": 501,
+            },
+        )
         self.assertIsNone(cast[1]["profile_url"])
+        self.assertEqual(cast[1]["tmdb_person_id"], 502)
 
     @patch("tracker.integrations.tmdb.requests.get")
     def test_get_credits_respects_limit(self, mock_get):
@@ -7592,14 +7600,15 @@ class TmdbDetailPageTests(TestCase):
         mock_get.return_value = self._response(
             {
                 "crew": [
-                    {"name": "Editor Person", "job": "Editor"},
-                    {"name": "Director Person", "job": "Director", "profile_path": "/d.jpg"},
+                    {"id": 601, "name": "Editor Person", "job": "Editor"},
+                    {"id": 602, "name": "Director Person", "job": "Director", "profile_path": "/d.jpg"},
                 ]
             }
         )
         director = tmdb.get_director("movie", 42)
         self.assertEqual(director["name"], "Director Person")
         self.assertEqual(director["profile_url"], "https://image.tmdb.org/t/p/w185/d.jpg")
+        self.assertEqual(director["tmdb_person_id"], 602)
 
     @patch("tracker.integrations.tmdb.requests.get")
     def test_get_director_profile_url_is_none_without_a_photo(self, mock_get):
@@ -7706,6 +7715,122 @@ class TmdbDetailPageTests(TestCase):
 
         mock_get.side_effect = requests.RequestException("boom")
         self.assertEqual(tmdb.get_watch_providers("movie", 1), [])
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_person_details_normalizes_fields(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 500,
+                "name": "Jordan Ellery Voss",
+                "biography": "A director.",
+                "birthday": "1975-03-14",
+                "deathday": None,
+                "place_of_birth": "Portland, Oregon, USA",
+                "profile_path": "/p.jpg",
+                "known_for_department": "Directing",
+            }
+        )
+        person = tmdb.get_person_details(500)
+        self.assertEqual(person["name"], "Jordan Ellery Voss")
+        self.assertEqual(person["birthday"], "1975-03-14")
+        self.assertIsNone(person["deathday"])
+        self.assertEqual(person["place_of_birth"], "Portland, Oregon, USA")
+        self.assertEqual(person["profile_url"], "https://image.tmdb.org/t/p/w185/p.jpg")
+        self.assertEqual(person["known_for_department"], "Directing")
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_person_details_missing_optional_fields_stay_falsy(self, mock_get):
+        mock_get.return_value = self._response({"id": 500, "name": "Bit Player"})
+        person = tmdb.get_person_details(500)
+        self.assertEqual(person["biography"], "")
+        self.assertIsNone(person["birthday"])
+        self.assertIsNone(person["place_of_birth"])
+        self.assertIsNone(person["profile_url"])
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_person_details_returns_none_on_missing_id(self, mock_get):
+        mock_get.return_value = self._response({})
+        self.assertIsNone(tmdb.get_person_details(500))
+
+    @override_settings(TMDB_API_KEY="")
+    def test_get_person_details_returns_none_without_api_key(self):
+        self.assertIsNone(tmdb.get_person_details(500))
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_person_details_returns_none_on_request_exception(self, mock_get):
+        import requests
+
+        mock_get.side_effect = requests.RequestException("boom")
+        self.assertIsNone(tmdb.get_person_details(500))
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_person_credits_splits_into_acting_directing_writing(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "cast": [
+                    {"id": 42, "media_type": "movie", "title": "Fathom", "release_date": "2020-05-01",
+                     "vote_average": 7.2, "vote_count": 300, "character": "Bear"},
+                ],
+                "crew": [
+                    {"id": 99, "media_type": "tv", "name": "Cinder Street", "first_air_date": "2022-01-01",
+                     "vote_average": 8.1, "vote_count": 100, "department": "Directing", "job": "Director"},
+                    {"id": 123, "media_type": "movie", "title": "Quiet Hours", "release_date": "2018-01-01",
+                     "vote_average": 6.0, "vote_count": 50, "department": "Writing", "job": "Screenplay"},
+                    {"id": 456, "media_type": "movie", "title": "Untracked Dept", "release_date": "2015-01-01",
+                     "vote_average": 5.0, "vote_count": 10, "department": "Sound", "job": "Composer"},
+                ],
+            }
+        )
+        credits = tmdb.get_person_credits(500)
+        self.assertEqual([c["tmdb_id"] for c in credits["acting"]], [42])
+        self.assertEqual([c["tmdb_id"] for c in credits["directing"]], [99])
+        self.assertEqual([c["tmdb_id"] for c in credits["writing"]], [123])
+        # "Sound" isn't one of the three surfaced departments.
+        all_ids = {c["tmdb_id"] for section in credits.values() for c in section}
+        self.assertNotIn(456, all_ids)
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_person_credits_dedupes_multiple_crew_jobs_on_one_title(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "cast": [],
+                "crew": [
+                    {"id": 123, "media_type": "movie", "title": "Quiet Hours", "release_date": "2018-01-01",
+                     "vote_average": 6.0, "vote_count": 50, "department": "Writing", "job": "Screenplay"},
+                    {"id": 123, "media_type": "movie", "title": "Quiet Hours", "release_date": "2018-01-01",
+                     "vote_average": 6.0, "vote_count": 50, "department": "Writing", "job": "Story"},
+                ],
+            }
+        )
+        credits = tmdb.get_person_credits(500)
+        self.assertEqual(len(credits["writing"]), 1)
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_person_credits_caps_and_sorts_by_vote_count(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "cast": [
+                    {"id": i, "media_type": "movie", "title": f"Movie {i}", "release_date": "2020-01-01",
+                     "vote_average": 5.0, "vote_count": i}
+                    for i in range(50)
+                ],
+                "crew": [],
+            }
+        )
+        credits = tmdb.get_person_credits(500)
+        self.assertEqual(len(credits["acting"]), 40)
+        # Highest vote_count (49) sorts first, and every kept credit beats
+        # every dropped one.
+        self.assertEqual(credits["acting"][0]["tmdb_id"], 49)
+        self.assertEqual(credits["acting"][-1]["tmdb_id"], 10)
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_person_credits_returns_empty_sections_on_failure(self, mock_get):
+        import requests
+
+        mock_get.side_effect = requests.RequestException("boom")
+        credits = tmdb.get_person_credits(500)
+        self.assertEqual(credits, {"acting": [], "directing": [], "writing": []})
 
 
 class TmdbMediaTypeForTests(TestCase):
@@ -11000,6 +11125,260 @@ class DiscoverActionContextSelectorTests(TestCase):
         self.assertEqual(context["discover_title_by_key"], {})
         self.assertEqual(context["discover_watched"], {})
         self.assertEqual(context["discover_list_membership"], {})
+
+
+class PersonPersonalStatsSelectorTests(TestCase):
+    """person_personal_stats - the person detail page's "N of M watched"/
+    average rating/watch time/co-watcher stats, computed against this
+    household's own WatchEvent history, not anything TMDB provides."""
+
+    def setUp(self):
+        user = User.objects.create_user("personstatsuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="PersonStatsUser")
+
+    def _item(self, tmdb_id, name, year="2020", media_type="movie"):
+        return {"tmdb_id": tmdb_id, "media_type": media_type, "name": name, "year": year, "poster_url": None, "vote_average": 7.0}
+
+    def _stats(self, items):
+        action_context = selectors.discover_action_context(self.profile, items)
+        return selectors.person_personal_stats(self.profile, items, action_context)
+
+    def test_counts_watched_out_of_total_credits(self):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        stats = self._stats([self._item(42, "Fathom"), self._item(555, "Untracked")])
+        self.assertEqual(stats["watched_count"], 1)
+        self.assertEqual(stats["total_count"], 2)
+
+    def test_avg_rating_averages_each_titles_latest_rating(self):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        title2 = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Second Film", year=2021, external_ids={"tmdb": "43", "tmdb_kind": "movie"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z", user_rating=6)
+        # A rewatch's later rating wins over the earlier one, same
+        # definition title_local_context's latest_rating already uses.
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-02-01T00:00:00Z", user_rating=8)
+        WatchEvent.objects.create(profile=self.profile, title=title2, watched_at="2024-01-01T00:00:00Z", user_rating=10)
+        stats = self._stats([self._item(42, "Fathom"), self._item(43, "Second Film", year="2021")])
+        self.assertEqual(stats["avg_rating"], 9.0)
+
+    def test_avg_rating_is_none_with_no_rated_titles(self):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        stats = self._stats([self._item(42, "Fathom")])
+        self.assertIsNone(stats["avg_rating"])
+
+    def test_total_watch_time_sums_runtime_of_watched_titles_only(self):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, runtime_minutes=100,
+            external_ids={"tmdb": "42", "tmdb_kind": "movie"},
+        )
+        Title.objects.create(
+            media_type=MediaType.MOVIE, name="Unwatched Film", year=2021, runtime_minutes=999,
+            external_ids={"tmdb": "43", "tmdb_kind": "movie"},
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        stats = self._stats([self._item(42, "Fathom"), self._item(43, "Unwatched Film", year="2021")])
+        self.assertEqual(stats["total_watch_time"], "1h 40m")
+
+    def test_no_watched_titles_means_no_watch_time(self):
+        stats = self._stats([self._item(42, "Fathom")])
+        self.assertIsNone(stats["total_watch_time"])
+
+    def test_co_watcher_included_when_both_profiles_watched_the_same_title(self):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        other_user = User.objects.create_user("personstatsother", password="pass12345")
+        other = Profile.objects.create(user=other_user, display_name="Other", share_activity=True)
+        WatchEvent.objects.create(profile=other, title=title, watched_at="2024-01-02T00:00:00Z")
+        stats = self._stats([self._item(42, "Fathom")])
+        self.assertEqual(stats["co_watchers"], [{"profile": other, "count": 1}])
+
+    def test_co_watcher_excluded_when_share_activity_is_off(self):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        other_user = User.objects.create_user("personstatsprivate", password="pass12345")
+        other = Profile.objects.create(user=other_user, display_name="Private", share_activity=False)
+        WatchEvent.objects.create(profile=other, title=title, watched_at="2024-01-02T00:00:00Z")
+        stats = self._stats([self._item(42, "Fathom")])
+        self.assertEqual(stats["co_watchers"], [])
+
+    def test_co_watcher_excluded_with_zero_overlap(self):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        other_user = User.objects.create_user("personstatsnooverlap", password="pass12345")
+        Profile.objects.create(user=other_user, display_name="NoOverlap", share_activity=True)
+        stats = self._stats([self._item(42, "Fathom")])
+        self.assertEqual(stats["co_watchers"], [])
+
+
+class TitleDetailCastRowPersonLinksTests(TestCase):
+    """Cast/director entries on a title's detail page link to
+    /person/<tmdb_person_id>/ when TMDB gave one - see title_detail.html's
+    Cast row and tmdb.get_credits/get_director's own tmdb_person_id field."""
+
+    def setUp(self):
+        user = User.objects.create_user("castlinkuser", password="pass12345")
+        Profile.objects.create(user=user, display_name="CastLinkUser")
+        self.client.login(username="castlinkuser", password="pass12345")
+        self.title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020,
+            external_ids={"tmdb": "42", "tmdb_kind": "movie"},
+        )
+        for name, default in (("get_watch_providers", []), ("get_season_details", None), ("get_similar", [])):
+            patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        patcher = patch(
+            "tracker.integrations.tmdb.get_full_details",
+            return_value={
+                "tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020",
+                "overview": "A movie.", "tagline": "", "genres": [], "runtime": 100,
+                "number_of_seasons": None, "number_of_episodes": None,
+                "backdrop_url": None, "poster_url": None, "vote_average": 7.0,
+                "vote_count": 100, "original_language": "en", "status": None,
+            },
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @patch("tracker.integrations.tmdb.get_director", return_value=None)
+    @patch("tracker.integrations.tmdb.get_credits")
+    def test_cast_member_with_a_tmdb_person_id_is_a_link(self, mock_credits, mock_director):
+        mock_credits.return_value = [
+            {"name": "Actor One", "character": "Hero", "profile_url": None, "tmdb_person_id": 501},
+        ]
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, reverse("person_detail", args=[501]))
+
+    @patch("tracker.integrations.tmdb.get_director", return_value=None)
+    @patch("tracker.integrations.tmdb.get_credits")
+    def test_cast_member_without_a_tmdb_person_id_is_not_a_link(self, mock_credits, mock_director):
+        mock_credits.return_value = [
+            {"name": "Actor One", "character": "Hero", "profile_url": None, "tmdb_person_id": None},
+        ]
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, "Actor One")
+        self.assertNotContains(resp, "/person/None/")
+
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    def test_director_with_a_tmdb_person_id_is_a_link(self, mock_credits):
+        with patch(
+            "tracker.integrations.tmdb.get_director",
+            return_value={"name": "Director Person", "profile_url": None, "tmdb_person_id": 602},
+        ):
+            resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, reverse("person_detail", args=[602]))
+
+
+class PersonDetailViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("persondetailviewer", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="PersonDetailViewer")
+        self.client.login(username="persondetailviewer", password="pass12345")
+
+    def _person(self, **overrides):
+        base = {
+            "id": 500, "name": "Jordan Ellery Voss", "biography": "A director.",
+            "birthday": "1975-03-14", "deathday": None, "place_of_birth": "Portland, Oregon, USA",
+            "profile_url": None, "known_for_department": "Directing",
+        }
+        base.update(overrides)
+        return base
+
+    def _credit(self, tmdb_id, name, media_type="movie", year="2020", vote_count=10):
+        return {
+            "tmdb_id": tmdb_id, "media_type": media_type, "name": name, "year": year,
+            "release_date": f"{year}-01-01", "poster_url": None, "vote_average": 7.0, "vote_count": vote_count,
+        }
+
+    @patch("tracker.integrations.tmdb.get_person_credits")
+    @patch("tracker.integrations.tmdb.get_person_details")
+    def test_renders_200_with_bio_and_name(self, mock_details, mock_credits):
+        mock_details.return_value = self._person()
+        mock_credits.return_value = {"acting": [], "directing": [], "writing": []}
+        resp = self.client.get(reverse("person_detail", args=[500]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Jordan Ellery Voss")
+        self.assertContains(resp, "A director.")
+
+    @patch("tracker.integrations.tmdb.get_person_credits")
+    @patch("tracker.integrations.tmdb.get_person_details", return_value=None)
+    def test_404s_for_unknown_person(self, mock_details, mock_credits):
+        resp = self.client.get(reverse("person_detail", args=[999999]))
+        self.assertEqual(resp.status_code, 404)
+
+    @patch("tracker.integrations.tmdb.get_person_credits")
+    @patch("tracker.integrations.tmdb.get_person_details")
+    def test_filmography_grouped_into_separate_department_sections(self, mock_details, mock_credits):
+        mock_details.return_value = self._person()
+        mock_credits.return_value = {
+            "acting": [self._credit(42, "Fathom")],
+            "directing": [self._credit(99, "Cinder Street", media_type="tv")],
+            "writing": [],
+        }
+        resp = self.client.get(reverse("person_detail", args=[500]))
+        self.assertContains(resp, "Acting")
+        self.assertContains(resp, "Directing")
+        self.assertNotContains(resp, "Writing")  # empty section omitted entirely
+        self.assertContains(resp, "Fathom")
+        self.assertContains(resp, "Cinder Street")
+
+    @patch("tracker.integrations.tmdb.get_person_credits")
+    @patch("tracker.integrations.tmdb.get_person_details")
+    def test_watched_credits_sort_before_unwatched(self, mock_details, mock_credits):
+        watched_title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Old But Watched", year=2010,
+            external_ids={"tmdb": "42", "tmdb_kind": "movie"},
+        )
+        WatchEvent.objects.create(profile=self.profile, title=watched_title, watched_at="2024-01-01T00:00:00Z")
+        mock_details.return_value = self._person()
+        mock_credits.return_value = {
+            "acting": [
+                self._credit(43, "New Unwatched", year="2023"),
+                self._credit(42, "Old But Watched", year="2010"),
+            ],
+            "directing": [], "writing": [],
+        }
+        resp = self.client.get(reverse("person_detail", args=[500]))
+        content = resp.content.decode()
+        self.assertLess(content.index("Old But Watched"), content.index("New Unwatched"))
+
+    @patch("tracker.integrations.tmdb.get_person_credits")
+    @patch("tracker.integrations.tmdb.get_person_details")
+    def test_personal_stats_card_shows_watched_count(self, mock_details, mock_credits):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020,
+            external_ids={"tmdb": "42", "tmdb_kind": "movie"},
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        mock_details.return_value = self._person()
+        mock_credits.return_value = {
+            "acting": [self._credit(42, "Fathom"), self._credit(43, "Untracked")],
+            "directing": [], "writing": [],
+        }
+        resp = self.client.get(reverse("person_detail", args=[500]))
+        self.assertContains(resp, "1 of 2 credits")
+
+    @patch("tracker.integrations.tmdb.get_person_credits", return_value={"acting": [], "directing": [], "writing": []})
+    @patch("tracker.integrations.tmdb.get_person_details")
+    def test_missing_birthday_and_bio_are_hidden_gracefully(self, mock_details, mock_credits):
+        mock_details.return_value = self._person(biography="", birthday=None, place_of_birth=None)
+        resp = self.client.get(reverse("person_detail", args=[500]))
+        self.assertEqual(resp.status_code, 200)
 
 
 class PosterCardListPopoverHtmxBranchTests(TestCase):

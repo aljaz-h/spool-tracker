@@ -8,7 +8,17 @@ from django.db.models import Count, Q, Sum
 from django.db.models.functions import Coalesce, ExtractHour
 from django.utils import timezone
 
-from .models import Episode, MediaType, ReleaseSchedule, Title, WatchEvent, WatchList, WatchListItem, WatchProgress
+from .models import (
+    Episode,
+    MediaType,
+    Profile,
+    ReleaseSchedule,
+    Title,
+    WatchEvent,
+    WatchList,
+    WatchListItem,
+    WatchProgress,
+)
 
 
 def current_streak(profile):
@@ -1259,4 +1269,69 @@ def discover_action_context(profile, items):
         "discover_watched": discover_watched,
         "discover_watch_count": discover_watch_count,
         "discover_list_membership": discover_list_membership,
+    }
+
+
+def person_personal_stats(profile, items, action_context):
+    """The person detail page's "N of M watched"/average rating/watch
+    time/co-watcher stats - computed against this household's own watch
+    history, not anything TMDB provides. items is a person's credits,
+    already deduped by tmdb_id across their Acting/Directing/Writing
+    sections by the caller (views.person_detail) - a title the person
+    both acted in and directed must only be counted once here (unlike
+    the filmography display itself, which deliberately shows it in both
+    of that person's department sections), or its watch time/rating
+    would double-count. action_context is discover_action_context(profile,
+    items)'s own return value - computed once by the caller (which also
+    needs it to render each filmography section) and reused here instead
+    of a second per-item Title lookup pass."""
+    matched_titles = [t for t in action_context["discover_title_by_key"].values() if t is not None]
+    matched_title_ids = [t.pk for t in matched_titles]
+
+    watched_title_ids = set(
+        WatchEvent.objects.filter(profile=profile, title_id__in=matched_title_ids)
+        .values_list("title_id", flat=True)
+        .distinct()
+    )
+
+    latest_ratings = []
+    for title_id in watched_title_ids:
+        rating = (
+            WatchEvent.objects.filter(profile=profile, title_id=title_id, user_rating__isnull=False)
+            .order_by("-watched_at")
+            .values_list("user_rating", flat=True)
+            .first()
+        )
+        if rating is not None:
+            latest_ratings.append(rating)
+    avg_rating = round(sum(latest_ratings) / len(latest_ratings), 1) if latest_ratings else None
+
+    total_minutes = (
+        WatchEvent.objects.filter(profile=profile, title_id__in=watched_title_ids)
+        .aggregate(total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))["total"]
+        or 0
+    )
+
+    # share_activity-gated, same privacy convention social_activity() uses -
+    # this stat exposes another profile's watch history, unlike
+    # _recommend_context's unfiltered "other_profiles" (recommending
+    # doesn't reveal what anyone's watched).
+    co_watchers = []
+    if watched_title_ids:
+        for other in Profile.objects.exclude(pk=profile.pk).filter(share_activity=True).order_by("display_name"):
+            their_watched_ids = set(
+                WatchEvent.objects.filter(profile=other, title_id__in=watched_title_ids)
+                .values_list("title_id", flat=True)
+                .distinct()
+            )
+            overlap = len(watched_title_ids & their_watched_ids)
+            if overlap:
+                co_watchers.append({"profile": other, "count": overlap})
+
+    return {
+        "watched_count": len(watched_title_ids),
+        "total_count": len(items),
+        "avg_rating": avg_rating,
+        "total_watch_time": format_duration(total_minutes) if total_minutes else None,
+        "co_watchers": co_watchers,
     }

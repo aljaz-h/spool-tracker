@@ -1,0 +1,93 @@
+{% extends "tracker/base.html" %}
+{% load tracker_extras %}
+{% block title %}{{ person.name }} · Spool{% endblock %}
+{% block content %}
+
+  <div class="flex flex-col sm:flex-row gap-5 mb-8">
+    <div class="w-[140px] sm:w-[160px] aspect-square rounded-full flex-none overflow-hidden bg-base-300 bg-cover bg-center border border-line mx-auto sm:mx-0"
+         {% if person.profile_url %}style="background-image:url('{{ person.profile_url }}')"{% endif %}></div>
+    <div class="min-w-0 flex-1 text-center sm:text-left">
+      <h1 class="font-display text-2xl sm:text-3xl">{{ person.name }}</h1>
+      {% if known_for %}
+        <div class="text-ink-dim text-sm mt-1">{{ known_for }}</div>
+      {% endif %}
+      {% if person.birthday or person.place_of_birth %}
+        <div class="flex flex-wrap justify-center sm:justify-start items-center gap-x-3 gap-y-1 text-xs text-ink-dim mt-2 font-mono">
+          {% if person.birthday %}
+            <span>
+              {% if person.deathday %}{{ person.birthday }} – {{ person.deathday }}{% else %}Born {{ person.birthday }}{% endif %}
+              {% if age is not None %}
+                <span class="font-semibold text-base-content">({% if person.deathday %}aged {{ age }}{% else %}age {{ age }}{% endif %})</span>
+              {% endif %}
+            </span>
+          {% endif %}
+          {% if person.place_of_birth %}<span>{{ person.place_of_birth }}</span>{% endif %}
+        </div>
+      {% endif %}
+      {% if person.biography %}
+        <div class="mt-4 max-w-3xl" {% if person.biography|length > 400 %}x-data="{ expanded: false }"{% endif %}>
+          <p class="text-[14px] leading-relaxed text-ink-dim text-left {% if person.biography|length > 400 %}line-clamp-4{% endif %}"
+             {% if person.biography|length > 400 %}:class="expanded ? '' : 'line-clamp-4'"{% endif %}>{{ person.biography }}</p>
+          {% if person.biography|length > 400 %}
+            <button type="button" @click="expanded = !expanded" class="mt-1.5 text-[11.5px] font-semibold text-ink-faint hover:text-primary transition-colors cursor-pointer">
+              <span x-show="!expanded">Read more</span>
+              <span x-show="expanded" x-cloak>Show less</span>
+            </button>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if stats %}
+    <div class="bg-base-200 border border-line rounded-2xl p-4 mb-8 max-w-xl">
+      <h2 class="font-display text-lg mb-2.5">Your history with {{ person.name }}</h2>
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3">
+        <div>
+          <div class="text-[10px] text-ink-faint uppercase tracking-wide mb-0.5">Watched</div>
+          <div class="text-[13px] font-medium">{{ stats.watched_count }} of {{ stats.total_count }} credits</div>
+        </div>
+        {% if stats.avg_rating %}
+          <div>
+            <div class="text-[10px] text-ink-faint uppercase tracking-wide mb-0.5">Your average rating</div>
+            <div class="text-[13px] font-medium">&#9733; {{ stats.avg_rating }}/10</div>
+          </div>
+        {% endif %}
+        {% if stats.total_watch_time %}
+          <div>
+            <div class="text-[10px] text-ink-faint uppercase tracking-wide mb-0.5">Total watch time</div>
+            <div class="text-[13px] font-medium">{{ stats.total_watch_time }}</div>
+          </div>
+        {% endif %}
+      </div>
+      {% if stats.co_watchers %}
+        <div class="mt-3 pt-3 border-t border-line flex flex-col gap-1">
+          {% for co in stats.co_watchers %}
+            <div class="text-[12.5px] text-ink-dim">You and <span class="font-semibold text-base-content">{{ co.profile.display_name }}</span> have both watched <span class="font-semibold text-base-content">{{ co.count }}</span> title{{ co.count|pluralize }} with them</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% for section in filmography_sections %}
+    <div x-data="{ filter: 'all' }" class="mb-8">
+      <div class="flex justify-between items-center flex-wrap gap-3 mb-3">
+        <h2 class="font-display text-xl m-0">{{ section.label }}</h2>
+        <div class="flex items-center gap-1.5">
+          <button type="button" @click="filter = 'all'" :class="filter === 'all' ? 'bg-primary text-primary-content' : 'bg-base-200 text-ink-dim hover:text-base-content'" class="px-3 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer">All</button>
+          <button type="button" @click="filter = 'watched'" :class="filter === 'watched' ? 'bg-primary text-primary-content' : 'bg-base-200 text-ink-dim hover:text-base-content'" class="px-3 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer">Watched</button>
+          <button type="button" @click="filter = 'unwatched'" :class="filter === 'unwatched' ? 'bg-primary text-primary-content' : 'bg-base-200 text-ink-dim hover:text-base-content'" class="px-3 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer">Unwatched</button>
+        </div>
+      </div>
+      <div class="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-3">
+        {% for item in section.items %}
+          <div x-data="{ watched: {{ item.watched|yesno:'true,false' }} }" x-show="filter === 'all' || (filter === 'watched' && watched) || (filter === 'unwatched' && !watched)">
+            {% include "tracker/partials/discover_tile.html" with item=item %}
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endfor %}
+
+{% endblock %}

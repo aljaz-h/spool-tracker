@@ -1318,6 +1318,111 @@ def title_preview(request, media_type, tmdb_id):
     return render(request, "tracker/title_detail.html", context)
 
 
+_EMPTY_DISCOVER_CONTEXT = {
+    "discover_title_by_key": {},
+    "discover_watched": {},
+    "discover_watch_count": {},
+    "discover_list_membership": {},
+}
+
+
+def _person_age(details):
+    """Years as of today, or as of deathday when the person has one
+    ("age at death" per the spec) - accounts for whether their birthday
+    has occurred yet within the end year. None if TMDB has no birthday
+    for this person (common for smaller crew/cast), or an unparseable
+    one - the template hides the whole birthday/age line in that case
+    rather than showing a broken figure."""
+    birthday = details.get("birthday")
+    if not birthday:
+        return None
+    try:
+        born = date.fromisoformat(birthday)
+    except ValueError:
+        return None
+    deathday = details.get("deathday")
+    end = timezone.localdate()
+    if deathday:
+        try:
+            end = date.fromisoformat(deathday)
+        except ValueError:
+            pass
+    return end.year - born.year - ((end.month, end.day) < (born.month, born.day))
+
+
+@login_required
+def person_detail(request, person_id):
+    """The click-through page for a cast/director credit on any movie,
+    TV, or anime title page (title_detail.html's Cast row, shared by
+    title_detail and title_preview, so this covers not-yet-tracked
+    preview pages too) - bio/photo/filmography straight from TMDB, plus
+    household watch stats (selectors.person_personal_stats) TMDB has no
+    concept of. Read-only against TMDB, same as title_preview - no local
+    row is ever created for a person."""
+    details = tmdb.get_person_details(person_id)
+    if details is None:
+        raise Http404
+    credits = tmdb.get_person_credits(person_id)
+    profile = Profile.objects.filter(user=request.user).first()
+
+    # Deduped once across all three departments - a hyphenate (e.g.
+    # someone who both acted in and directed a film) would otherwise get
+    # counted twice in the personal-stats totals below, even though the
+    # filmography display itself deliberately still lists it under both
+    # of their department sections.
+    deduped_items = {}
+    for department in ("acting", "directing", "writing"):
+        for item in credits[department]:
+            deduped_items.setdefault(item["tmdb_id"], item)
+    items = list(deduped_items.values())
+
+    action_context = (
+        selectors.discover_action_context(profile, items) if profile and items else _EMPTY_DISCOVER_CONTEXT
+    )
+    stats = selectors.person_personal_stats(profile, items, action_context) if profile else None
+
+    sections = {}
+    for department in ("acting", "directing", "writing"):
+        section_items = list(credits[department])
+        for item in section_items:
+            item["watched"] = action_context["discover_watched"].get(f"{item['media_type']}:{item['tmdb_id']}", False)
+        # Two-pass stable sort (not one combined key) so "newest first"
+        # holds *within* each watched-status group rather than being
+        # overridden by it - Python's sort is stable, so the first pass's
+        # date order survives the second pass's watched/unwatched split.
+        section_items.sort(key=lambda i: i["release_date"] or "", reverse=True)
+        section_items.sort(key=lambda i: not i["watched"])
+        sections[department] = section_items
+
+    department_labels = {"acting": "Acting", "directing": "Directing", "writing": "Writing"}
+    filmography_sections = [
+        {"key": department, "label": department_labels[department], "items": sections[department]}
+        for department in ("acting", "directing", "writing")
+        if sections[department]
+    ]
+    # "or multiple if applicable" (spec) - which of the three sections
+    # actually have credits, not just TMDB's own single-guess
+    # known_for_department, so a hyphenate reads as "Acting, Directing"
+    # rather than only whichever one TMDB happened to pick.
+    known_for = ", ".join(s["label"] for s in filmography_sections) or details.get("known_for_department")
+
+    context = {
+        "profile": profile,
+        "person": details,
+        "known_for": known_for,
+        "age": _person_age(details),
+        "stats": stats,
+        "filmography_sections": filmography_sections,
+        # discover_tile.html's own list-picker popover needs this regardless
+        # of whether a given tile has a matched local Title yet - same
+        # context key title_detail's "similar" grid and title_preview both
+        # already provide it under.
+        "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
+        **action_context,
+    }
+    return render(request, "tracker/person_detail.html", context)
+
+
 def _get_or_create_preview_title(media_type, tmdb_id):
     """get-or-create the local Title for a TMDB preview id (same shape as
     trakt.py/simkl.py's own get-or-create, just keyed off an id we already
