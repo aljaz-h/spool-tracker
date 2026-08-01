@@ -127,12 +127,6 @@
             {% if ep.still_url %}style="background-image:url('{{ ep.still_url }}')"{% endif %}
           >
             <div class="absolute inset-0 bg-linear-to-t from-black/60 to-transparent"></div>
-            {% if ep.watched %}
-              <span
-                class="absolute top-2 right-2 w-6 h-6 rounded-full bg-success flex items-center justify-center text-success-content text-xs shadow-[0_1px_4px_rgba(0,0,0,0.5)]"
-                title="Watched"
-              >&#10003;</span>
-            {% endif %}
             {% if ep.vote_average %}
               <span class="absolute top-2 left-2 font-mono text-[10px] font-bold bg-black/85 px-1.5 py-0.5 rounded-md shadow-[0_1px_4px_rgba(0,0,0,0.7)]"><span class="text-amber-400">&#9733;</span> <span class="text-white">{{ ep.vote_average|floatformat:1 }}</span></span>
             {% endif %}

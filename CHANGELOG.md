@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.61.6] - 2026-08-02
+
+### Changed
+
+- Removed the redundant circular "watched" checkmark on episode
+  thumbnails in the episode browser - the box watched-button next to it
+  already shows the same state.
+- The "Details" panel on a show/anime's title page now sits between
+  Cast and Episodes instead of after Episodes (unchanged for movies,
+  which never have an episode browser to sit above).
+
 ## [0.61.5] - 2026-08-01
 
 ### Fixed

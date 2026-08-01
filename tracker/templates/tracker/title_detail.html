@@ -151,16 +151,12 @@
         </div>
       {% endif %}
 
-      {% include "tracker/partials/title_episodes.html" %}
-
       {% comment %}
-        Lives in this column (not full-width below the whole grid) so it
-        sits directly after whatever this column's own content ends
-        with, regardless of how tall the sidebar next to it is - a
-        full-width section placed after the grid instead only starts
-        once *both* columns finish, which is what left a large empty
-        gap here before (the sidebar's stack of cards is usually taller
-        than Cast alone).
+        Sits between Cast and Episodes (rather than after Episodes) so
+        it reads right after Cast for movies too - title_episodes.html
+        renders nothing for a movie (no seasons), so this is the same
+        physical position either way, just written once instead of
+        branching on media_type.
       {% endcomment %}
       {% if details.status or details.original_language or details.budget or details.revenue or details.production_companies or details.countries %}
         <h2 class="font-display text-xl mb-3">Details</h2>
@@ -205,6 +201,8 @@
           </div>
         </div>
       {% endif %}
+
+      {% include "tracker/partials/title_episodes.html" %}
 
       {% if similar %}
         <h2 class="font-display text-xl mb-3">If you like this, check out</h2>
