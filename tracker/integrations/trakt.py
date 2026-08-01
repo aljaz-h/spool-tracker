@@ -152,6 +152,18 @@ def _get_or_create_title(media_type, name, year, trakt_id):
         details = tmdb.get_full_details(match["kind"], match["id"])
         if details:
             genre_names = details["genres"]
+        # A title already tracked via Simkl/CSV import/Nuvio before Trakt
+        # was ever connected must reuse that same Title, not fork a
+        # duplicate that leaves the original stuck showing "not watched"
+        # while this one silently absorbs the new WatchEvent (see
+        # nuvio.py's _get_or_create_title docstring - the same bug, first
+        # caught there against a real account).
+        existing = Title.objects.filter(media_type=media_type, external_ids__tmdb=external_ids["tmdb"]).first()
+        if existing:
+            if existing.external_ids.get("trakt") != str(trakt_id):
+                existing.external_ids = {**existing.external_ids, "trakt": str(trakt_id)}
+                existing.save(update_fields=["external_ids"])
+            return existing
     title = Title.objects.create(
         media_type=media_type, name=name, year=year or 0, external_ids=external_ids, poster_url=poster_url
     )

@@ -172,13 +172,20 @@ def _parse_content_id(content_id):
 
 def _get_or_create_title(media_type, content_id, name_hint="", year_hint=None):
     """Matching preference: an existing title already synced from this
-    exact content_id (resync dedup) > a direct TMDB id lookup (when
-    content_id is "tmdb:"-prefixed - more reliable than a fuzzy search,
-    since it's a confirmed id rather than a guess) > a TMDB find-by-imdb
-    lookup (bare/prefixed imdb ids) > a fuzzy title/year search (only
-    possible if the item happened to carry a name) > a bare Title with
-    no TMDB match at all. Whatever gets created/matched has
-    external_ids["nuvio"] set to this content_id, so
+    exact content_id (resync dedup) > an existing title already matched to
+    the same resolved TMDB id, regardless of which provider found it first
+    (a title tracked via Trakt/Simkl/CSV import before Nuvio was ever
+    connected must reuse that same Title, not fork a duplicate - this bit
+    was missing until a real account hit it: every movie already tracked
+    elsewhere got a second, Nuvio-only Title with its own WatchEvent, which
+    is why the *original* Title kept showing "not watched" on Movies & TV
+    while History showed two entries for the same movie at the identical
+    watched_at) > a direct TMDB id lookup (when content_id is "tmdb:"-
+    prefixed - more reliable than a fuzzy search, since it's a confirmed id
+    rather than a guess) > a TMDB find-by-imdb lookup (bare/prefixed imdb
+    ids) > a fuzzy title/year search (only possible if the item happened to
+    carry a name) > a bare Title with no TMDB match at all. Whatever gets
+    created/matched has external_ids["nuvio"] set to this content_id, so
     disconnect_and_wipe_provider's title__external_ids__nuvio filter
     works the same way it already does for trakt/simkl."""
     from tracker.integrations import tmdb
@@ -224,6 +231,14 @@ def _get_or_create_title(media_type, content_id, name_hint="", year_hint=None):
             fallback_details = tmdb.get_full_details(match["kind"], match["id"])
             if fallback_details:
                 genre_names = fallback_details["genres"]
+
+    if "tmdb" in external_ids:
+        existing = Title.objects.filter(media_type=media_type, external_ids__tmdb=external_ids["tmdb"]).first()
+        if existing:
+            if existing.external_ids.get("nuvio") != content_id:
+                existing.external_ids = {**existing.external_ids, "nuvio": content_id}
+                existing.save(update_fields=["external_ids"])
+            return existing
 
     title = Title.objects.create(
         media_type=media_type, name=name, year=int(year) if year else 0,

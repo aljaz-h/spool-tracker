@@ -99,6 +99,15 @@ def _get_or_create_title(media_type, name, year, simkl_id):
         details = tmdb.get_full_details(match["kind"], match["id"])
         if details:
             genre_names = details["genres"]
+        # Same duplicate-Title bug nuvio.py's _get_or_create_title
+        # docstring describes - reuse a title already tracked via another
+        # provider instead of forking a second one for this same TMDB id.
+        existing = Title.objects.filter(media_type=media_type, external_ids__tmdb=external_ids["tmdb"]).first()
+        if existing:
+            if existing.external_ids.get("simkl") != str(simkl_id):
+                existing.external_ids = {**existing.external_ids, "simkl": str(simkl_id)}
+                existing.save(update_fields=["external_ids"])
+            return existing
     title = Title.objects.create(
         media_type=media_type, name=name, year=year or 0, external_ids=external_ids, poster_url=poster_url
     )

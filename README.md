@@ -225,6 +225,27 @@ docker compose exec web python manage.py backfill_posters
 This looks up every title that currently has no `poster_url`, so it's
 safe to re-run any time (already-illustrated titles are skipped).
 
+## Duplicate titles from multiple sync sources
+
+Trakt/Simkl/Nuvio sync each used to only check their *own* provider id
+for an already-tracked title before creating a new one — so a movie or
+show already synced through one provider got a second, duplicate Title
+(with its own WatchEvent) the first time a *different* provider synced
+it too. Symptoms: a title showing "not watched" on Movies & TV/Anime
+despite History showing it watched, or the same watch appearing twice in
+History at the exact same timestamp. Fixed going forward (all three now
+reuse an existing Title matched by TMDB id first), but any duplicates
+already created need a one-time cleanup:
+
+```bash
+docker compose exec web python manage.py merge_duplicate_titles
+```
+
+Dry run by default — prints what it would merge without changing
+anything. Add `--commit` to actually merge (moves watch history/progress/
+ratings/list entries onto the older of the two Titles, deduping any
+exact-duplicate watches in the process, then deletes the duplicate).
+
 ## Connecting Trakt / Simkl / Nuvio
 
 ### Trakt / Simkl
@@ -330,9 +351,11 @@ docker compose exec db pg_dump -U spool spool > backup.sql
   reference implementation, not official docs, and unverified against a
   live account from this environment. Could change or break without
   notice; failures show up in Settings & Import → Logs.
-- **CSV import** has no TMDB/IMDB-based matching — same-title-different-
-  spelling across a CSV import and a Trakt/Simkl sync can create a
-  duplicate Title.
+- **CSV import** has no TMDB/IMDB-based matching (unlike Trakt/Simkl/
+  Nuvio, which now all dedupe against each other by TMDB id — see
+  "Duplicate titles from multiple sync sources" above) — same-title-
+  different-spelling across a CSV import and any of those syncs can still
+  create a duplicate Title.
 - **No light theme** — the Settings → Appearance light-mode swatch is
   decorative; only the dark theme is implemented.
 - **Poster matching is title+year search, not ID-based** — an unusual

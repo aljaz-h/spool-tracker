@@ -3776,6 +3776,47 @@ class NuvioGetOrCreateTitleTests(TestCase):
         self.assertEqual(title.external_ids["nuvio"], "tmdb:999999999")
         self.assertNotIn("tmdb", title.external_ids)
 
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_reuses_a_title_already_tracked_via_another_provider_same_tmdb_id(self, mock_details):
+        # A movie already tracked via Trakt/CSV import/Simkl before Nuvio
+        # was ever connected - syncing it from Nuvio must not fork a
+        # second Title for the same TMDB id (see the docstring: this was
+        # a real bug that left the original Title stuck showing "not
+        # watched" while a Nuvio-only duplicate silently absorbed the
+        # WatchEvent instead).
+        existing = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Disclosure Day", year=2026, external_ids={"trakt": "777", "tmdb": "550"}
+        )
+        mock_details.return_value = {"name": "Disclosure Day", "year": "2026", "poster_url": None, "genres": []}
+        title = nuvio._get_or_create_title(MediaType.MOVIE, "tmdb:550")
+        self.assertEqual(title.pk, existing.pk)
+        self.assertEqual(Title.objects.filter(media_type=MediaType.MOVIE, external_ids__tmdb="550").count(), 1)
+        title.refresh_from_db()
+        self.assertEqual(title.external_ids["nuvio"], "tmdb:550")
+        self.assertEqual(title.external_ids["trakt"], "777")
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.find_by_imdb_id")
+    def test_reuses_existing_title_when_matched_via_imdb_lookup(self, mock_find, mock_details):
+        existing = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"simkl": "9", "tmdb": "42"}
+        )
+        mock_find.return_value = {"id": 42, "kind": "movie", "poster_url": None}
+        mock_details.return_value = {"name": "Fathom", "year": "2020", "poster_url": None, "genres": []}
+        title = nuvio._get_or_create_title(MediaType.MOVIE, "tt1234567")
+        self.assertEqual(title.pk, existing.pk)
+        self.assertEqual(Title.objects.filter(external_ids__tmdb="42").count(), 1)
+
+    @patch("tracker.integrations.tmdb.find_match")
+    def test_reuses_existing_title_when_matched_via_fuzzy_search_fallback(self, mock_find_match):
+        existing = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Obsession", year=2026, external_ids={"trakt": "5", "tmdb": "88"}
+        )
+        mock_find_match.return_value = {"id": 88, "kind": "movie", "poster_url": None}
+        title = nuvio._get_or_create_title(MediaType.MOVIE, "tt7654321", name_hint="Obsession", year_hint=2026)
+        self.assertEqual(title.pk, existing.pk)
+        self.assertEqual(Title.objects.filter(external_ids__tmdb="88").count(), 1)
+
 
 class NuvioUpsertHistoryItemsTests(TestCase):
     def setUp(self):
@@ -6365,6 +6406,46 @@ class ImportPathGenreAttachmentTests(TestCase):
         self.assertEqual(sorted(g.name for g in title.genres.all()), ["Horror", "Mystery"])
 
 
+class CrossProviderTitleDedupTests(TestCase):
+    """trakt.py/simkl.py's own _get_or_create_title has the same
+    duplicate-Title bug nuvio.py's had (see nuvio.py's docstring) - fixed
+    the same way: reuse an existing Title already matched to the same
+    resolved TMDB id instead of forking a second one just because this
+    sync's own provider-id lookup (external_ids__trakt/simkl) came up
+    empty on a title tracked through some *other* provider first."""
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.find_match")
+    def test_trakt_reuses_a_title_already_tracked_via_another_provider(self, mock_find_match, mock_details):
+        existing = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Obsession", year=2026, external_ids={"simkl": "9", "tmdb": "88"}
+        )
+        mock_find_match.return_value = {"id": 88, "kind": "movie", "poster_url": None}
+        mock_details.return_value = {"genres": []}
+        title = trakt._get_or_create_title(MediaType.MOVIE, "Obsession", 2026, trakt_id=777)
+        self.assertEqual(title.pk, existing.pk)
+        self.assertEqual(Title.objects.filter(external_ids__tmdb="88").count(), 1)
+        title.refresh_from_db()
+        self.assertEqual(title.external_ids["trakt"], "777")
+        self.assertEqual(title.external_ids["simkl"], "9")
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.find_match")
+    def test_simkl_reuses_a_title_already_tracked_via_another_provider(self, mock_find_match, mock_details):
+        from tracker.integrations import simkl
+
+        existing = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Disclosure Day", year=2026, external_ids={"trakt": "5", "tmdb": "42"}
+        )
+        mock_find_match.return_value = {"id": 42, "kind": "movie", "poster_url": None}
+        mock_details.return_value = {"genres": []}
+        title = simkl._get_or_create_title(MediaType.MOVIE, "Disclosure Day", 2026, simkl_id=321)
+        self.assertEqual(title.pk, existing.pk)
+        self.assertEqual(Title.objects.filter(external_ids__tmdb="42").count(), 1)
+        title.refresh_from_db()
+        self.assertEqual(title.external_ids["simkl"], "321")
+
+
 class BackfillGenresCommandTests(TestCase):
     def _details(self, genre_names):
         return {"genres": genre_names}
@@ -6398,6 +6479,129 @@ class BackfillGenresCommandTests(TestCase):
         title.genres.add(Genre.objects.create(name="Comedy"))
         call_command("backfill_genres")
         mock_get_full_details.assert_not_called()
+
+
+class MergeDuplicateTitlesCommandTests(TestCase):
+    """Cleans up the already-existing fallout of the duplicate-Title bug
+    CrossProviderTitleDedupTests/NuvioGetOrCreateTitleTests' new reuse
+    tests guard against going forward - two Title rows for the same
+    (media_type, tmdb id) that should always have been one."""
+
+    def setUp(self):
+        from django.core.management import call_command
+
+        self.call_command = call_command
+        user = User.objects.create_user("mergeowner", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="MergeOwner")
+
+    def test_dry_run_changes_nothing(self):
+        canonical = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Disclosure Day", year=2026, external_ids={"trakt": "5", "tmdb": "42"}
+        )
+        Title.objects.create(
+            media_type=MediaType.MOVIE, name="Disclosure Day", year=2026, external_ids={"nuvio": "tmdb:42", "tmdb": "42"}
+        )
+        self.call_command("merge_duplicate_titles")
+        self.assertEqual(Title.objects.filter(external_ids__tmdb="42").count(), 2)
+        self.assertTrue(Title.objects.filter(pk=canonical.pk).exists())
+
+    def test_commit_merges_movie_watch_events_and_keeps_the_oldest_title(self):
+        from django.utils import timezone
+
+        canonical = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Disclosure Day", year=2026, external_ids={"trakt": "5", "tmdb": "42"}
+        )
+        dupe = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Disclosure Day", year=2026, external_ids={"nuvio": "tmdb:42", "tmdb": "42"}
+        )
+        now = timezone.now()
+        WatchEvent.objects.create(profile=self.profile, title=canonical, watched_at=now)
+        WatchEvent.objects.create(profile=self.profile, title=dupe, watched_at=now - timedelta(days=1))
+
+        self.call_command("merge_duplicate_titles", "--commit")
+
+        self.assertFalse(Title.objects.filter(pk=dupe.pk).exists())
+        self.assertTrue(Title.objects.filter(pk=canonical.pk).exists())
+        events = WatchEvent.objects.filter(profile=self.profile)
+        self.assertEqual(events.count(), 2)
+        self.assertTrue(all(e.title_id == canonical.pk for e in events))
+        canonical.refresh_from_db()
+        self.assertEqual(canonical.external_ids["nuvio"], "tmdb:42")
+
+    def test_commit_dedupes_identical_watch_events_reported_by_two_providers(self):
+        from django.utils import timezone
+
+        canonical = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Obsession", year=2026, external_ids={"trakt": "1", "tmdb": "88"}
+        )
+        dupe = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Obsession", year=2026, external_ids={"nuvio": "tmdb:88", "tmdb": "88"}
+        )
+        same_instant = timezone.now()
+        WatchEvent.objects.create(profile=self.profile, title=canonical, watched_at=same_instant)
+        WatchEvent.objects.create(profile=self.profile, title=dupe, watched_at=same_instant)
+
+        self.call_command("merge_duplicate_titles", "--commit")
+
+        self.assertEqual(WatchEvent.objects.filter(profile=self.profile, title=canonical).count(), 1)
+
+    def test_commit_merges_episodes_and_repoints_watch_events_on_collision(self):
+        from django.utils import timezone
+
+        canonical = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"trakt": "5", "tmdb": "99"}
+        )
+        dupe = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"nuvio": "tmdb:99", "tmdb": "99"}
+        )
+        canonical_ep = Episode.objects.create(title=canonical, season=1, episode=1)
+        dupe_ep = Episode.objects.create(title=dupe, season=1, episode=1)
+        dupe_only_ep = Episode.objects.create(title=dupe, season=1, episode=2)
+        WatchEvent.objects.create(profile=self.profile, title=dupe, episode=dupe_ep, watched_at=timezone.now())
+        WatchEvent.objects.create(profile=self.profile, title=dupe, episode=dupe_only_ep, watched_at=timezone.now())
+
+        self.call_command("merge_duplicate_titles", "--commit")
+
+        self.assertFalse(Episode.objects.filter(pk=dupe_ep.pk).exists())
+        self.assertEqual(Episode.objects.filter(title=canonical, season=1, episode=1).count(), 1)
+        self.assertTrue(Episode.objects.filter(title=canonical, season=1, episode=2).exists())
+        events = WatchEvent.objects.filter(profile=self.profile)
+        self.assertEqual(events.count(), 2)
+        self.assertTrue(all(e.title_id == canonical.pk for e in events))
+        self.assertEqual({e.episode.pk for e in events}, {canonical_ep.pk, Episode.objects.get(title=canonical, episode=2).pk})
+
+    def test_commit_keeps_the_more_recently_updated_watch_progress_on_collision(self):
+        from django.utils import timezone
+
+        canonical = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"trakt": "5", "tmdb": "1"}
+        )
+        dupe = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"nuvio": "tmdb:1", "tmdb": "1"}
+        )
+        WatchProgress.objects.create(
+            profile=self.profile, title=canonical, position_seconds=10, status=WatchProgress.Status.WATCHING
+        )
+        newer = WatchProgress.objects.create(
+            profile=self.profile, title=dupe, position_seconds=500, status=WatchProgress.Status.WATCHING
+        )
+        WatchProgress.objects.filter(pk=newer.pk).update(updated_at=timezone.now() + timedelta(hours=1))
+
+        self.call_command("merge_duplicate_titles", "--commit")
+
+        progress = WatchProgress.objects.get(profile=self.profile, title=canonical)
+        self.assertEqual(progress.position_seconds, 500)
+
+    def test_no_duplicates_is_a_noop(self):
+        Title.objects.create(media_type=MediaType.MOVIE, name="Alone", year=2020, external_ids={"tmdb": "1"})
+        self.call_command("merge_duplicate_titles", "--commit")
+        self.assertEqual(Title.objects.count(), 1)
+
+    def test_titles_without_a_tmdb_id_are_never_grouped_together(self):
+        Title.objects.create(media_type=MediaType.MOVIE, name="No TMDB Match A", year=2020)
+        Title.objects.create(media_type=MediaType.MOVIE, name="No TMDB Match B", year=2020)
+        self.call_command("merge_duplicate_titles", "--commit")
+        self.assertEqual(Title.objects.count(), 2)
 
 
 class RecomputeIsRewatchTests(TestCase):

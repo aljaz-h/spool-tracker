@@ -8,6 +8,27 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.61.0] - 2026-08-01
+
+### Fixed
+
+- Trakt/Simkl/Nuvio sync each only checked their *own* provider id for an
+  already-tracked title before creating a new one, so a title already
+  synced through one provider got a second, duplicate Title (with its own
+  WatchEvent) the first time a different provider synced it - symptoms
+  were a title showing "not watched" on Movies & TV/Anime despite History
+  showing it watched, or the same watch appearing twice in History at the
+  exact same timestamp. All three now check for an existing Title matched
+  by TMDB id first. New `manage.py merge_duplicate_titles` command
+  (`--commit` to apply, dry run by default) cleans up any duplicates
+  already created before this fix - see the README.
+
+### Added
+
+- Title detail page's synopsis now has a "Description" heading above it,
+  matching Cast/Lists/Your History's own section headers instead of
+  reading as an unlabeled paragraph.
+
 ## [0.60.5] - 2026-07-31
 
 ### Changed
