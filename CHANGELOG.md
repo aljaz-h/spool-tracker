@@ -8,6 +8,13 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.61.4] - 2026-08-01
+
+### Removed
+
+- The "Not in your library yet — this is a live preview from TMDB..."
+  banner on preview title pages.
+
 ## [0.61.3] - 2026-08-01
 
 ### Changed

@@ -3,12 +3,6 @@
 {% block title %}{{ display_name }} · Spool{% endblock %}
 {% block content %}
 
-  {% if is_preview %}
-    <div class="bg-base-200 border border-dashed border-line rounded-lg px-4 py-3 text-[12.5px] text-ink-dim mb-5">
-      Not in your library yet — this is a live preview from TMDB. Mark it as watched or add it to your watchlist to start tracking it.
-    </div>
-  {% endif %}
-
   {% comment %}
     Full-bleed hero - negative horizontal margins so this section runs
     edge-to-edge against the actual viewport instead of sitting inside a
