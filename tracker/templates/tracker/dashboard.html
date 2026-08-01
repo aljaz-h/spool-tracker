@@ -68,7 +68,7 @@
       <div class="flex justify-between items-center mb-3.5">
         <h2 class="font-display text-xl">Watching <span class="text-ink-faint text-base font-body">({{ continue_watching|length }})</span></h2>
       </div>
-      <div class="flex gap-4 overflow-x-auto pb-2">
+      <div class="flex gap-4 overflow-x-auto scroll-row pb-2">
         {% for item in continue_watching %}
           {% include "tracker/partials/poster_card.html" with title=item.title progress=item %}
         {% endfor %}

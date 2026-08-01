@@ -130,7 +130,7 @@
 
       {% if director or cast %}
         <h2 class="font-display text-xl mb-3">Cast</h2>
-        <div class="flex gap-4 overflow-x-auto pb-2 mb-8">
+        <div class="flex gap-4 overflow-x-auto scroll-row pb-2 mb-8">
           {% if director %}
             <div class="w-[104px] flex-none">
               <div class="aspect-square rounded-full overflow-hidden bg-base-300 bg-cover bg-center border border-line"
@@ -208,7 +208,7 @@
 
       {% if similar %}
         <h2 class="font-display text-xl mb-3">If you like this, check out</h2>
-        <div class="flex gap-3 overflow-x-auto pb-2 mb-2">
+        <div class="flex gap-3 overflow-x-auto scroll-row pb-2 mb-2">
           {% for item in similar %}
             <div class="w-[130px] sm:w-[168px] flex-none">
               {% include "tracker/partials/discover_tile.html" with item=item %}

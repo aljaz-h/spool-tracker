@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.61.5] - 2026-08-01
+
+### Fixed
+
+- Horizontally-scrolling card rows (Cast/similar titles on the title
+  detail page, Watching/Featured Lists on the dashboard) now use a thin,
+  theme-colored scrollbar instead of falling back to the raw OS one.
+
 ## [0.61.4] - 2026-08-01
 
 ### Removed
