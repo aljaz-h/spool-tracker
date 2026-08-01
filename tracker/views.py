@@ -466,18 +466,25 @@ def search(request):
         # A title already in the library shouldn't also show up as a
         # "not tracked yet" TMDB preview card - same per-id
         # already-exists check title_preview itself does
-        # (Title.objects.filter(external_ids__tmdb=str(tmdb_id))). One
-        # query per result rather than a single __in lookup deliberately -
-        # a JSONField key-transform's value round-trips through SQLite's
-        # json_extract typed (a stored JSON string like "42" comes back
-        # as the Python int 42, not "42"), which silently breaks a
-        # str-vs-set-of-ids membership check after the fact. Equality
-        # comparison against a str RHS, as used here and everywhere else
-        # this pattern appears, doesn't hit that.
+        # (Title.objects.filter(external_ids__tmdb=str(tmdb_id),
+        # external_ids__tmdb_kind=media_type) - the tmdb_kind half matters
+        # here too, not just for title_preview's redirect: movie and tv
+        # ids are separate TMDB namespaces, so without it a tv result
+        # could get silently dropped from these results because an
+        # unrelated movie happens to already be tracked under the same
+        # numeric id). One query per result rather than a single __in
+        # lookup deliberately - a JSONField key-transform's value
+        # round-trips through SQLite's json_extract typed (a stored JSON
+        # string like "42" comes back as the Python int 42, not "42"),
+        # which silently breaks a str-vs-set-of-ids membership check
+        # after the fact. Equality comparison against a str RHS, as used
+        # here and everywhere else this pattern appears, doesn't hit that.
         tmdb_results = [
             r
             for r in raw_results
-            if not Title.objects.filter(external_ids__tmdb=str(r["tmdb_id"])).exists()
+            if not Title.objects.filter(
+                external_ids__tmdb=str(r["tmdb_id"]), external_ids__tmdb_kind=r["media_type"]
+            ).exists()
             and (selected_type == "all" or _search_result_category(r) == selected_type)
         ]
         context["library_results"] = library_results
@@ -1277,7 +1284,12 @@ def title_preview(request, media_type, tmdb_id):
     library-blind copy of the same title."""
     if media_type not in ("movie", "tv"):
         raise Http404
-    existing = Title.objects.filter(external_ids__tmdb=str(tmdb_id)).first()
+    # tmdb_kind constrains this to the same TMDB catalog media_type came
+    # from - movie and tv ids are separate TMDB namespaces, so omitting
+    # this could redirect to a same-numbered but unrelated title from the
+    # other catalog (see discover_action_context's own docstring for a
+    # live case this exact gap caused).
+    existing = Title.objects.filter(external_ids__tmdb=str(tmdb_id), external_ids__tmdb_kind=media_type).first()
     if existing is not None:
         return redirect("title_detail", pk=existing.pk)
 
@@ -1430,8 +1442,13 @@ def _get_or_create_preview_title(media_type, tmdb_id):
     not-yet-tracked discover/preview card can trigger (watchlist-add,
     mark watched, add to any list), so a title only ever gets materialized
     once regardless of which action the user clicks first. Returns None
-    if TMDB has nothing for this id."""
-    title = Title.objects.filter(external_ids__tmdb=str(tmdb_id)).first()
+    if TMDB has nothing for this id.
+
+    Matches tmdb_kind alongside tmdb id (see discover_action_context's
+    docstring) - without it, materializing e.g. a tv preview whose id
+    happens to collide with an unrelated movie's would silently reuse
+    that movie's Title row instead of creating the real one."""
+    title = Title.objects.filter(external_ids__tmdb=str(tmdb_id), external_ids__tmdb_kind=media_type).first()
     if title is not None:
         return title
     details = tmdb.get_full_details(media_type, tmdb_id)

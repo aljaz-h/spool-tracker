@@ -8,6 +8,22 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.62.1] - 2026-08-02
+
+### Fixed
+
+- A movie and a tv/anime title sharing the same raw TMDB numeric id (TMDB
+  numbers movies and tv shows in separate, overlapping namespaces) could
+  get treated as the same title anywhere a TMDB id alone was matched
+  against the local library - a tv credit on a person's filmography page
+  could show an unrelated already-tracked movie's watched badge/count
+  and link straight through to that movie's page instead of its own.
+  Matching now also checks the stored `tmdb_kind` (movie vs. tv), not
+  just the numeric id, in `discover_action_context` (Cast/similar/
+  filmography tiles, Movies & TV/Anime grids, search), `title_preview`'s
+  already-tracked redirect, and preview materialization (mark
+  watched/add to list/watchlist).
+
 ## [0.62.0] - 2026-08-02
 
 ### Added

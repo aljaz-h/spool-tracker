@@ -8285,7 +8285,7 @@ class SearchViewTests(TestCase):
     @patch("tracker.integrations.tmdb.search")
     def test_tmdb_results_already_tracked_are_excluded(self, mock_search):
         Title.objects.create(
-            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42"}
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
         )
         mock_search.return_value = {
             "results": [{"tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020", "poster_url": None, "vote_average": 7.5, "overview": ""}]
@@ -10812,6 +10812,28 @@ class TitlePreviewViewTests(TestCase):
         # (unmocked in this test) tmdb.get_credits/get_similar.
         self.assertRedirects(resp, reverse("title_detail", args=[title.pk]), fetch_redirect_response=False)
 
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_does_not_redirect_to_an_unrelated_movie_sharing_the_same_tmdb_id(
+        self, mock_details, mock_credits, mock_similar
+    ):
+        # TMDB movie/tv id numbering is a separate namespace per kind - a
+        # tv preview whose id happens to match an already-tracked movie's
+        # id must render the real tv preview, not redirect into that
+        # unrelated movie (the bug this test guards against: reported
+        # live via a person's filmography linking a tv credit through to
+        # a same-numbered movie's detail page).
+        Title.objects.create(
+            media_type=MediaType.MOVIE, name="Die Hard", year=1988,
+            external_ids={"tmdb": "42", "tmdb_kind": "movie"},
+        )
+        mock_details.return_value = self._details(media_type="tv", name="Ellen", number_of_seasons=1)
+        resp = self.client.get(reverse("title_preview", args=["tv", 42]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.context["is_preview"])
+        self.assertContains(resp, "Ellen")
+
     @patch("tracker.integrations.tmdb.get_full_details")
     def test_add_to_watchlist_creates_title_and_adds_it(self, mock_details):
         mock_details.return_value = self._details()
@@ -10841,6 +10863,27 @@ class TitlePreviewViewTests(TestCase):
         self.client.logout()
         resp = self.client.post(reverse("title_preview_add_to_watchlist", args=["movie", 42]))
         self.assertNotEqual(resp.status_code, 200)
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_add_to_watchlist_for_a_tv_id_does_not_reuse_a_same_numbered_movie(self, mock_details):
+        # Same collision this class's title_preview redirect test guards
+        # against, but for materialization: adding a tv preview to the
+        # watchlist must create/find the real tv Title, not silently
+        # attach an unrelated already-tracked movie that happens to share
+        # the same raw tmdb id.
+        movie = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Die Hard", year=1988,
+            external_ids={"tmdb": "42", "tmdb_kind": "movie"},
+        )
+        mock_details.return_value = self._details(media_type="tv", name="Ellen", number_of_seasons=1)
+        self.client.post(reverse("title_preview_add_to_watchlist", args=["tv", 42]))
+        mock_details.assert_called_once()  # no existing tv Title, so it had to actually fetch
+        new_title = Title.objects.get(external_ids__tmdb="42", external_ids__tmdb_kind="tv")
+        self.assertEqual(new_title.name, "Ellen")
+        self.assertNotEqual(new_title.pk, movie.pk)
+        watchlist = WatchList.objects.get(profile=self.profile, name="Watchlist")
+        self.assertTrue(WatchListItem.objects.filter(watchlist=watchlist, title=new_title).exists())
+        self.assertFalse(WatchListItem.objects.filter(watchlist=watchlist, title=movie).exists())
 
     @patch("tracker.integrations.tmdb.get_full_details")
     def test_mark_watched_via_htmx_materializes_the_title_and_returns_the_fragment(self, mock_details):
@@ -11125,6 +11168,37 @@ class DiscoverActionContextSelectorTests(TestCase):
         self.assertEqual(context["discover_title_by_key"], {})
         self.assertEqual(context["discover_watched"], {})
         self.assertEqual(context["discover_list_membership"], {})
+
+    def test_a_tv_item_does_not_match_an_unrelated_movie_with_the_same_tmdb_id(self):
+        # TMDB's movie and tv id numbering are separate namespaces - a
+        # movie and a tv show can share the same raw numeric id purely by
+        # coincidence. Reported live: a person's tv acting credit showed
+        # an unrelated already-tracked movie's watch badge/count and
+        # linked through to that movie instead of the real show, because
+        # matching used to ignore tmdb_kind entirely.
+        movie = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Die Hard", year=1988,
+            external_ids={"tmdb": "42", "tmdb_kind": "movie"},
+        )
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at="2024-01-01T00:00:00Z")
+        tv_item = self._item(tmdb_id=42, media_type="tv")
+        context = selectors.discover_action_context(self.profile, [tv_item])
+        self.assertIsNone(context["discover_title_by_key"]["tv:42"])
+        self.assertFalse(context["discover_watched"]["tv:42"])
+
+    def test_a_tv_item_matches_its_own_tracked_show_not_a_same_id_movie(self):
+        Title.objects.create(
+            media_type=MediaType.MOVIE, name="Die Hard", year=1988,
+            external_ids={"tmdb": "42", "tmdb_kind": "movie"},
+        )
+        show = Title.objects.create(
+            media_type=MediaType.TV, name="Ellen", year=2003, external_ids={"tmdb": "42", "tmdb_kind": "tv"},
+        )
+        WatchEvent.objects.create(profile=self.profile, title=show, watched_at="2024-01-01T00:00:00Z")
+        tv_item = self._item(tmdb_id=42, media_type="tv")
+        context = selectors.discover_action_context(self.profile, [tv_item])
+        self.assertEqual(context["discover_title_by_key"]["tv:42"], show)
+        self.assertTrue(context["discover_watched"]["tv:42"])
 
 
 class PersonPersonalStatsSelectorTests(TestCase):

@@ -1232,6 +1232,18 @@ def discover_action_context(profile, items):
     check under __in. Bounded to a page's worth of items (~20-24), same
     as that existing per-result check.
 
+    Matches on external_ids__tmdb_kind alongside external_ids__tmdb, not
+    tmdb id alone - TMDB's movie and tv id numbering are separate
+    namespaces, so an unrelated movie and tv show can share the same raw
+    numeric id (confirmed live: a tv credit incorrectly matched, badged,
+    and linked to an unrelated movie that happened to share its tmdb id
+    before this check existed). tmdb_kind is set alongside tmdb on every
+    Title that has one (trakt.py/simkl.py/nuvio.py/csv_import.py/
+    _get_or_create_preview_title all pair them) - see media_type_for()'s
+    own docstring for why tmdb_kind, not local media_type, is the
+    authoritative "which TMDB catalog" signal (anime is tracked as
+    media_type="anime" locally but matched via TMDB's tv catalog).
+
     Returns matched_title_by_key (Title or None - lets the template reuse
     poster_card_watched_button.html/poster_card_list_popover.html, the
     same partials a tracked title's own poster card uses, whenever a
@@ -1240,7 +1252,9 @@ def discover_action_context(profile, items):
     matched_title_by_key = {}
     for item in items:
         key = f"{item['media_type']}:{item['tmdb_id']}"
-        matched_title_by_key[key] = Title.objects.filter(external_ids__tmdb=str(item["tmdb_id"])).first()
+        matched_title_by_key[key] = Title.objects.filter(
+            external_ids__tmdb=str(item["tmdb_id"]), external_ids__tmdb_kind=item["media_type"]
+        ).first()
 
     matched_titles = [t for t in matched_title_by_key.values() if t is not None]
     title_ids = [t.pk for t in matched_titles]
