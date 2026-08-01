@@ -7420,6 +7420,48 @@ class TmdbDetailPageTests(TestCase):
         self.assertEqual(details["number_of_episodes"], 24)
 
     @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_full_details_movie_includes_budget_revenue_companies_countries(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 42, "title": "Fathom", "release_date": "2020-05-01", "genres": [],
+                "budget": 50_000_000, "revenue": 200_000_000,
+                "production_companies": [{"id": 1, "name": "A24"}, {"id": 2, "name": "Studio B"}],
+                "production_countries": [{"iso_3166_1": "US", "name": "United States of America"}],
+            }
+        )
+        details = tmdb.get_full_details("movie", 42)
+        self.assertEqual(details["budget"], 50_000_000)
+        self.assertEqual(details["revenue"], 200_000_000)
+        self.assertEqual(details["production_companies"], ["A24", "Studio B"])
+        self.assertEqual(details["countries"], ["United States of America"])
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_full_details_movie_budget_revenue_zero_becomes_none(self, mock_get):
+        # TMDB returns 0 (not null) for an unknown budget/revenue - "$0"
+        # would read as real data, not "we don't know".
+        mock_get.return_value = self._response(
+            {"id": 42, "title": "Fathom", "release_date": "2020-05-01", "genres": [], "budget": 0, "revenue": 0}
+        )
+        details = tmdb.get_full_details("movie", 42)
+        self.assertIsNone(details["budget"])
+        self.assertIsNone(details["revenue"])
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_full_details_tv_has_no_budget_or_revenue_but_has_origin_country(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 99, "name": "Cinder Street", "first_air_date": "2022-01-01", "genres": [],
+                "production_companies": [{"id": 1, "name": "HBO"}],
+                "origin_country": ["US"],
+            }
+        )
+        details = tmdb.get_full_details("tv", 99)
+        self.assertIsNone(details["budget"])
+        self.assertIsNone(details["revenue"])
+        self.assertEqual(details["production_companies"], ["HBO"])
+        self.assertEqual(details["countries"], ["US"])
+
+    @patch("tracker.integrations.tmdb.requests.get")
     def test_get_full_details_includes_raw_status(self, mock_get):
         mock_get.return_value = self._response(
             {

@@ -1,11 +1,17 @@
 {% load icons %}
 {# context: title (Title|None), is_preview (bool), preview_media_type/preview_tmdb_id (when is_preview), other_profiles, already_watched_profile_ids, recommended_profile_ids #}
 {% if other_profiles %}
-  <div class="bg-base-200 border border-line rounded-2xl p-4">
+  {% comment %}
+    Capped to 4 visible rows + a "+N more" toggle - other_profiles grows
+    with the household's friend list, and an always-expanded list here
+    would eventually push every card below it further down the sidebar
+    every time someone new gets added.
+  {% endcomment %}
+  <div class="bg-base-200 border border-line rounded-2xl p-4" x-data="{ expanded: false }">
     <h2 class="font-display text-lg mb-2.5">Recommend to</h2>
     <div class="flex flex-col gap-2.5">
       {% for op in other_profiles %}
-        <div class="flex items-center gap-2.5">
+        <div class="flex items-center gap-2.5" {% if forloop.counter > 4 %}x-show="expanded" x-cloak{% endif %}>
           {% if op.avatar_image %}
             <div class="w-8 h-8 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ op.avatar_image.url }}')"></div>
           {% else %}
@@ -43,5 +49,15 @@
         </div>
       {% endfor %}
     </div>
+    {% if other_profiles|length > 4 %}
+      <button
+        type="button"
+        @click="expanded = !expanded"
+        class="mt-2.5 text-[11.5px] font-semibold text-ink-faint hover:text-primary transition-colors cursor-pointer"
+      >
+        <span x-show="!expanded">+ {{ other_profiles|length|add:"-4" }} more</span>
+        <span x-show="expanded" x-cloak>Show less</span>
+      </button>
+    {% endif %}
   </div>
 {% endif %}

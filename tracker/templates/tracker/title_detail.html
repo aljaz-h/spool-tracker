@@ -9,15 +9,22 @@
     </div>
   {% endif %}
 
-  <div class="rounded-2xl overflow-hidden relative mb-6 border border-line min-h-[220px] h-auto sm:h-[300px] md:h-[340px] {% if not details.backdrop_url %}{{ poster_seed|gradient_class }}{% endif %}"
+  {% comment %}
+    Full-bleed hero - negative horizontal margins matching <main>'s own
+    responsive padding (see base.html) so this section runs edge-to-edge
+    against the actual viewport instead of sitting inside a card. The
+    inner content wrapper below re-applies that same padding so the
+    poster/title still line up with Description/Cast underneath it,
+    which stayed in <main>'s normal padded flow.
+  {% endcomment %}
+  <div class="relative overflow-hidden -mx-4 sm:-mx-6 lg:-mx-[calc(2rem+10%)] mb-8 min-h-[280px] h-auto sm:h-[380px] md:h-[440px] lg:h-[500px] {% if not details.backdrop_url %}{{ poster_seed|gradient_class }}{% endif %}"
        {% if details.backdrop_url %}style="background-image:url('{{ details.backdrop_url }}');background-size:cover;background-position:center 20%"{% endif %}>
-    <div class="absolute inset-0 bg-linear-to-t from-base-100 via-base-100/65 to-transparent"></div>
-    <div class="absolute inset-0 bg-linear-to-r from-base-100 via-base-100/35 to-transparent"></div>
+    <div class="hero-backdrop-scrim"></div>
     <div class="filmstrip-edge filmstrip-edge--left"></div>
     <div class="filmstrip-edge filmstrip-edge--right"></div>
 
     {% if director %}
-      <div class="absolute z-10 bottom-4 right-6 text-right font-mono text-[11px] text-ink-dim hidden sm:block">
+      <div class="absolute z-10 bottom-4 right-4 sm:right-6 lg:right-[calc(2rem+10%)] text-right font-mono text-[11px] text-ink-dim hidden sm:block">
         <div>Directed by <span class="text-base-content font-semibold">{{ director.name }}</span></div>
       </div>
     {% endif %}
@@ -31,7 +38,7 @@
       smaller poster/text sizes, keeps everything on-screen without
       needing to know the title's length ahead of time.
     {% endcomment %}
-    <div class="relative z-10 h-full flex flex-col sm:flex-row sm:flex-wrap gap-4 sm:gap-5 p-4 sm:p-6 items-start sm:items-end">
+    <div class="relative z-10 h-full flex flex-col sm:flex-row sm:flex-wrap gap-4 sm:gap-5 p-4 sm:p-6 lg:p-8 lg:px-[calc(2rem+10%)] items-start sm:items-end">
       <div class="w-[92px] sm:w-[130px] aspect-[2/3] flex-none rounded-lg overflow-hidden border border-white/10 bg-cover bg-center {% if not display_poster_url %}{{ poster_seed|gradient_class }}{% endif %}"
            {% if display_poster_url %}style="background-image:url('{{ display_poster_url }}')"{% endif %}>
       </div>
@@ -135,6 +142,68 @@
       {% endif %}
 
       {% include "tracker/partials/title_episodes.html" %}
+
+      {% comment %}
+        Lives in this column (not full-width below the whole grid) so it
+        sits directly after whatever this column's own content ends
+        with, regardless of how tall the sidebar next to it is - a
+        full-width section placed after the grid instead only starts
+        once *both* columns finish, which is what left a large empty
+        gap here before (the sidebar's stack of cards is usually taller
+        than Cast alone).
+      {% endcomment %}
+      {% if details.status or details.original_language or details.budget or details.revenue or details.production_companies or details.countries %}
+        <h2 class="font-display text-xl mb-3">Details</h2>
+        <div class="bg-base-200 border border-line rounded-2xl p-4 mb-8">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
+            {% if details.status %}
+              <div>
+                <div class="text-[10px] text-ink-faint uppercase tracking-wide mb-0.5">Status</div>
+                <div class="text-[13px] font-medium">{{ details.status }}</div>
+              </div>
+            {% endif %}
+            {% if details.original_language %}
+              <div>
+                <div class="text-[10px] text-ink-faint uppercase tracking-wide mb-0.5">Original language</div>
+                <div class="text-[13px] font-medium uppercase">{{ details.original_language }}</div>
+              </div>
+            {% endif %}
+            {% if details.budget %}
+              <div>
+                <div class="text-[10px] text-ink-faint uppercase tracking-wide mb-0.5">Budget</div>
+                <div class="text-[13px] font-medium">{{ details.budget|format_money }}</div>
+              </div>
+            {% endif %}
+            {% if details.revenue %}
+              <div>
+                <div class="text-[10px] text-ink-faint uppercase tracking-wide mb-0.5">Revenue</div>
+                <div class="text-[13px] font-medium">{{ details.revenue|format_money }}</div>
+              </div>
+            {% endif %}
+            {% if details.production_companies %}
+              <div>
+                <div class="text-[10px] text-ink-faint uppercase tracking-wide mb-0.5">Production companies</div>
+                <div class="text-[13px] font-medium">{{ details.production_companies|join:", " }}</div>
+              </div>
+            {% endif %}
+            {% if details.countries %}
+              <div>
+                <div class="text-[10px] text-ink-faint uppercase tracking-wide mb-0.5">Country</div>
+                <div class="text-[13px] font-medium">{{ details.countries|join:", " }}</div>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
+      {% if similar %}
+        <h2 class="font-display text-xl mb-3">If you like this, check out</h2>
+        <div class="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-3">
+          {% for item in similar %}
+            {% include "tracker/partials/discover_tile.html" with item=item %}
+          {% endfor %}
+        </div>
+      {% endif %}
 
     </div>
 
@@ -244,14 +313,5 @@
       {% endif %}
     </div>
   </div>
-
-  {% if similar %}
-    <h2 class="font-display text-xl mb-3">If you like this, check out</h2>
-    <div class="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-3">
-      {% for item in similar %}
-        {% include "tracker/partials/discover_tile.html" with item=item %}
-      {% endfor %}
-    </div>
-  {% endif %}
 
 {% endblock %}

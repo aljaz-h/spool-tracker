@@ -77,3 +77,12 @@ def day_header(d):
     # Not %-d (platform-specific, breaks on Windows) — build the "no
     # leading zero" day number by hand instead.
     return f"{d.strftime('%A, %b')} {d.day}, {d.year}"
+
+
+@register.filter
+def format_money(amount):
+    """$50,000,000 - the title detail Details panel's budget/revenue
+    rows. amount is already None (not 0) for "unknown" by the time it
+    reaches here (see tmdb.get_full_details), so this only ever runs on
+    a real figure."""
+    return f"${amount:,}"

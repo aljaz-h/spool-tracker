@@ -8,6 +8,25 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.61.1] - 2026-08-01
+
+### Changed
+
+- Title detail page's hero backdrop is now full-bleed (edge-to-edge,
+  taller, no card border) instead of sitting in a padded, rounded panel -
+  poster/title/watched-button sit directly on the image behind a
+  stronger two-layer gradient scrim. The "Watched" pill now has a soft
+  green glow instead of reading as a plain button.
+- Added a "Details" panel (status, original language, budget, revenue,
+  production companies, country - whichever the title actually has)
+  directly below Cast, and moved "If you like this, check out" to
+  follow it immediately - closes the large empty gap that used to sit
+  between Cast and the carousel on titles with a short main column next
+  to a tall sidebar.
+- Sidebar's "Recommend to" list now caps at 4 visible people with a
+  "+N more" / "Show less" toggle, instead of always rendering the full
+  friend list and growing the sidebar indefinitely as it does.
+
 ## [0.61.0] - 2026-08-01
 
 ### Fixed

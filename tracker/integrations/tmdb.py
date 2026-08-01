@@ -691,8 +691,13 @@ def get_full_details(media_type, tmdb_id):
     the detail hero's "aired Jan 2020 · Ongoing"-style summary),
     "next_episode_to_air": dict|None (tv only, {"air_date",
     "season_number", "episode_number", "name"} - used by release_sync.py
-    to schedule upcoming episodes/season premieres)} or None if nothing
-    came back (no api key, bad id, network error)."""
+    to schedule upcoming episodes/season premieres), "budget"/"revenue":
+    int|None (movie only - TMDB returns 0, not null, when unknown; that's
+    normalized to None here since "$0" reads as data, not "no data"),
+    "production_companies": [str,...], "countries": [str,...] (movie:
+    full names from production_countries; tv has no equivalent field,
+    only origin_country's ISO codes)} or None if nothing came back (no
+    api key, bad id, network error)."""
     is_movie = media_type == "movie"
     append = "release_dates" if is_movie else "content_ratings"
     data = _list_request(f"{media_type}/{tmdb_id}", {"append_to_response": append})
@@ -733,6 +738,14 @@ def get_full_details(media_type, tmdb_id):
         "first_air_date": None if is_movie else data.get("first_air_date"),
         "last_air_date": None if is_movie else data.get("last_air_date"),
         "next_episode_to_air": next_episode,
+        "budget": data.get("budget") if is_movie and data.get("budget") else None,
+        "revenue": data.get("revenue") if is_movie and data.get("revenue") else None,
+        "production_companies": [c["name"] for c in data.get("production_companies") or [] if c.get("name")],
+        "countries": (
+            [c["name"] for c in data.get("production_countries") or [] if c.get("name")]
+            if is_movie
+            else (data.get("origin_country") or [])
+        ),
     }
 
 

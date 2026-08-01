@@ -217,6 +217,23 @@
 .filmstrip-edge--right {
   right: 0;
 }
+/* title_detail's full-bleed hero scrim - two layered gradients rather
+   than one, since a single left-to-right fade alone leaves the bottom
+   third of the image (behind the "Directed by" line, on wide viewports
+   where the hero is much wider than it is tall) too bright relative to
+   text sitting on it. Horizontal layer carries most of the legibility
+   weight (near-opaque behind the poster/title on the left, fading out
+   toward the visible backdrop on the right); vertical layer is a
+   lighter assist along the bottom edge only. Tailwind's arbitrary-value
+   syntax can't express a multi-stop, two-layer background cleanly,
+   same reasoning as .filmstrip-edge above. */
+.hero-backdrop-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(8, 9, 12, 0.98) 0%, rgba(8, 9, 12, 0.92) 22%, rgba(8, 9, 12, 0.55) 48%, rgba(8, 9, 12, 0.15) 75%, transparent 100%),
+    linear-gradient(0deg, rgba(8, 9, 12, 0.9) 0%, transparent 35%);
+}
 /* Dashboard's section dividers - plain thin line (replaced the old
    dotted "filmstrip" divider, which read as too decorative next to the
    Dashboard redesign's flatter card style). */

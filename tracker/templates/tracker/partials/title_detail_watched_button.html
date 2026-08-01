@@ -30,7 +30,7 @@ after a menu action taken from here.
     type="button"
     id="watched-btn-{{ title.pk }}"
     @click="togglePanel($el)"
-    class="btn btn-sm bg-success/90 hover:bg-success border-success/60 text-success-content"
+    class="btn btn-sm bg-success/90 hover:bg-success border-success/60 text-success-content shadow-[0_0_18px_rgba(91,213,138,0.45)]"
   >&#10003; Watched{% if watch_count > 1 %} &times;{{ watch_count }}{% endif %}</button>
   <div
     x-ref="panel"
