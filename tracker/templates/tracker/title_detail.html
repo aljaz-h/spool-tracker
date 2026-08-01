@@ -10,14 +10,27 @@
   {% endif %}
 
   {% comment %}
-    Full-bleed hero - negative horizontal margins matching <main>'s own
-    responsive padding (see base.html) so this section runs edge-to-edge
-    against the actual viewport instead of sitting inside a card. The
-    inner content wrapper below re-applies that same padding so the
-    poster/title still line up with Description/Cast underneath it,
-    which stayed in <main>'s normal padded flow.
+    Full-bleed hero - negative horizontal margins so this section runs
+    edge-to-edge against the actual viewport instead of sitting inside a
+    card. The inner content wrapper below re-applies <main>'s own padding
+    (base.html) so the poster/title still line up with Description/Cast
+    underneath it, which stayed in <main>'s normal padded flow.
+
+    The lg: figure is NOT a typo of <main>'s own lg:px-[calc(2rem+10%)] -
+    percentage margins/padding resolve against the width of the
+    element's own containing block, and this div's containing block is
+    <main>'s content box (already narrowed by that same padding), not
+    the wider box <main>'s padding percentage itself resolves against.
+    Naively reusing calc(2rem+10%) here undershoots by a bit that grows
+    with viewport width, since 10% of the *narrower* content box is
+    less than 10% of the box <main> based its own padding on - visible
+    live as a growing gap on wide monitors. calc(2.5rem+12.5%) is the
+    value that, once you carry that narrowing through, lands back on
+    exactly the same absolute inset as <main>'s own padding for every
+    width (solved algebraically, verified against a live render at
+    1280/1920/2560px).
   {% endcomment %}
-  <div class="relative overflow-hidden -mx-4 sm:-mx-6 lg:-mx-[calc(2rem+10%)] mb-8 min-h-[280px] h-auto sm:h-[380px] md:h-[440px] lg:h-[500px] {% if not details.backdrop_url %}{{ poster_seed|gradient_class }}{% endif %}"
+  <div class="relative overflow-hidden -mx-4 sm:-mx-6 lg:-mx-[calc(2.5rem+12.5%)] mb-8 min-h-[280px] h-auto sm:h-[380px] md:h-[440px] lg:h-[500px] {% if not details.backdrop_url %}{{ poster_seed|gradient_class }}{% endif %}"
        {% if details.backdrop_url %}style="background-image:url('{{ details.backdrop_url }}');background-size:cover;background-position:center 20%"{% endif %}>
     <div class="hero-backdrop-scrim"></div>
     <div class="filmstrip-edge filmstrip-edge--left"></div>

@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.61.2] - 2026-08-01
+
+### Fixed
+
+- Title detail hero's full-bleed edges (0.61.1) left a growing gap on
+  wide monitors - the negative margin reused `<main>`'s own padding
+  percentage verbatim, but percentage margins/padding resolve against
+  the *element's own* containing block, and this div's containing block
+  is already narrowed by that same padding, not the wider box `<main>`'s
+  own percentage is based on. Corrected to the value that actually
+  cancels it at every width (verified at 1280/1920/2560px).
+
 ## [0.61.1] - 2026-08-01
 
 ### Changed
