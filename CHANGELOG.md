@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.61.3] - 2026-08-01
+
+### Changed
+
+- Title detail hero now sits flush against the navbar (removed the
+  leftover top gap from `<main>`'s own padding) and no longer has the
+  film-strip perforation borders down its left/right edges.
+- "If you like this, check out" is now a single horizontally scrolling
+  row instead of a wrapping grid, matching the Cast row's pattern.
+
 ## [0.61.2] - 2026-08-01
 
 ### Fixed
