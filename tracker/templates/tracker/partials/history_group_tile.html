@@ -93,7 +93,13 @@
     {% endfor %}
   </div>
   <a href="{% url 'title_detail' group.title.pk %}" class="block mt-1.5 min-w-0" @click="if (selecting) $event.preventDefault()">
-    <div class="text-[11.5px] font-semibold truncate">{{ group.title.name }}</div>
+    <div class="flex items-center gap-1 min-w-0">
+      <div class="text-[11.5px] font-semibold truncate">{{ group.title.name }}</div>
+      {% if group.has_nuvio_source %}
+        {# Temporary debug marker so Nuvio-synced rows are visually distinguishable in History - see CHANGELOG. Every poster corner here is already spoken for (range/type badges, selection checkbox, episode-remove panel), so this one lives in the text row instead. #}
+        <span class="flex-none font-mono text-[9px] font-bold bg-info/90 px-1.5 py-0.5 rounded text-black" title="Added by Nuvio sync">N</span>
+      {% endif %}
+    </div>
     <div class="text-[10px] font-mono text-ink-dim mt-0.5">{{ group.count }} episodes{% if group.total_duration %} · {{ group.total_duration }}{% endif %}</div>
   </a>
 </div>

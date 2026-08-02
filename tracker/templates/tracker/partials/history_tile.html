@@ -13,6 +13,10 @@
         <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 shadow-[0_1px_4px_rgba(0,0,0,0.7)]">S{{ event.episode.season }}:E{{ event.episode.episode }}</span>
       {% endif %}
       <span class="absolute bottom-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ event.title.media_type|upper }}</span>
+      {% if event.source == "nuvio" %}
+        {# Temporary debug marker so Nuvio-synced rows are visually distinguishable in History - see CHANGELOG. #}
+        <span class="absolute bottom-1.5 right-1.5 z-10 font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)]" title="Added by Nuvio sync">N</span>
+      {% endif %}
     </div>
     <div class="mt-1.5 min-w-0">
       <div class="text-[11.5px] font-semibold truncate">{{ event.title.name }}</div>

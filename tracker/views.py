@@ -1604,6 +1604,11 @@ def _build_episode_group(title, run):
         "total_duration": selectors.format_duration(total_minutes) if total_minutes else None,
         "events": run,
         "timeline_events": sorted(run, key=lambda e: e.watched_at),
+        # Nuvio syncs write a whole session's episodes in one batch, so in
+        # practice a group is either all-Nuvio or none - "any" rather than
+        # "all" just means a mixed group (e.g. one episode later re-logged
+        # manually) still gets flagged instead of silently losing the marker.
+        "has_nuvio_source": any(e.source == WatchEvent.Source.NUVIO for e in run),
     }
 
 

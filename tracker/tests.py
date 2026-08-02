@@ -3879,6 +3879,12 @@ class NuvioUpsertHistoryItemsTests(TestCase):
         self.assertEqual(WatchEvent.objects.count(), 2)
         self.assertTrue(WatchEvent.objects.filter(is_rewatch=True).exists())
 
+    def test_created_watch_event_is_tagged_with_the_nuvio_source(self):
+        items = [{"content_id": "tmdb:550", "content_type": "movie", "watched_at": 1711600000000, "name": "Fight Club"}]
+        nuvio.upsert_history_items(self.profile, items)
+        event = WatchEvent.objects.get(profile=self.profile)
+        self.assertEqual(event.source, WatchEvent.Source.NUVIO)
+
 
 class NuvioUpsertProgressItemsTests(TestCase):
     def setUp(self):
@@ -8692,6 +8698,27 @@ class DashboardWatchingWatchlistTests(TestCase):
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, "SocialWatcher")
 
+    def test_social_activity_card_shows_the_season_and_episode_watched(self):
+        from django.utils import timezone
+
+        other_user = User.objects.create_user("dashother3", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="EpisodeWatcher")
+        show = Title.objects.create(media_type=MediaType.TV, name="Shared Show", year=2020)
+        episode = Episode.objects.create(title=show, season=1, episode=5)
+        WatchEvent.objects.create(profile=other_profile, title=show, episode=episode, watched_at=timezone.now())
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "S1:E5")
+
+    def test_social_activity_card_has_no_episode_pill_for_a_movie(self):
+        from django.utils import timezone
+
+        other_user = User.objects.create_user("dashother4", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="MovieWatcher")
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Shared Movie Two", year=2021)
+        WatchEvent.objects.create(profile=other_profile, title=title, watched_at=timezone.now())
+        resp = self.client.get(reverse("dashboard"))
+        self.assertNotContains(resp, "S1:E")
+
     def test_recently_watched_shows_each_episode_separately_not_deduped_by_title(self):
         from django.utils import timezone
 
@@ -12193,6 +12220,84 @@ class HistoryConsecutiveEpisodeGroupingTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "3 episodes")
         self.assertContains(resp, "S1E1–S1E3")
+
+    def test_group_is_flagged_nuvio_when_every_event_came_from_nuvio_sync(self):
+        events = [
+            WatchEvent.objects.create(
+                profile=self.profile, title=self.show,
+                episode=Episode.objects.create(title=self.show, season=1, episode=i),
+                watched_at=self.now - timedelta(minutes=(10 - i)), source=WatchEvent.Source.NUVIO,
+            )
+            for i in range(1, 4)
+        ]
+        grouped = views._group_consecutive_episodes(events)
+        self.assertTrue(grouped[0]["has_nuvio_source"])
+
+    def test_group_is_not_flagged_nuvio_when_events_are_manual(self):
+        events = [self._watch(episode_num=i, minutes_ago=(20 - i)) for i in range(1, 4)]
+        grouped = views._group_consecutive_episodes(events)
+        self.assertFalse(grouped[0]["has_nuvio_source"])
+
+    def test_group_is_flagged_nuvio_when_any_one_event_came_from_nuvio_sync(self):
+        events = [
+            self._watch(episode_num=1, minutes_ago=20),
+            WatchEvent.objects.create(
+                profile=self.profile, title=self.show,
+                episode=Episode.objects.create(title=self.show, season=1, episode=2),
+                watched_at=self.now - timedelta(minutes=10), source=WatchEvent.Source.NUVIO,
+            ),
+        ]
+        grouped = views._group_consecutive_episodes(events)
+        self.assertTrue(grouped[0]["has_nuvio_source"])
+
+
+class HistoryNuvioSourceMarkerTests(TestCase):
+    """A small, deliberately temporary visual marker (see CHANGELOG) so
+    Nuvio-synced rows are distinguishable from manually-logged ones while
+    debugging that integration - not a general provenance display."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("histnuvio", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="HistNuvio")
+        self.now = timezone.now()
+        self.client.login(username="histnuvio", password="pass12345")
+
+    def test_a_nuvio_synced_single_watch_shows_the_marker(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchEvent.objects.create(
+            profile=self.profile, title=movie, watched_at=self.now, source=WatchEvent.Source.NUVIO
+        )
+        resp = self.client.get(reverse("history"))
+        self.assertContains(resp, "Added by Nuvio sync")
+
+    def test_a_manually_logged_single_watch_does_not_show_the_marker(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now)
+        resp = self.client.get(reverse("history"))
+        self.assertNotContains(resp, "Added by Nuvio sync")
+
+    def test_a_nuvio_synced_episode_binge_group_shows_the_marker(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
+        for i in range(1, 4):
+            ep = Episode.objects.create(title=show, season=1, episode=i)
+            WatchEvent.objects.create(
+                profile=self.profile, title=show, episode=ep,
+                watched_at=self.now - timedelta(minutes=(10 - i)), source=WatchEvent.Source.NUVIO,
+            )
+        resp = self.client.get(reverse("history"))
+        self.assertContains(resp, "Added by Nuvio sync")
+
+    def test_a_manually_logged_episode_binge_group_does_not_show_the_marker(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
+        for i in range(1, 4):
+            ep = Episode.objects.create(title=show, season=1, episode=i)
+            WatchEvent.objects.create(
+                profile=self.profile, title=show, episode=ep, watched_at=self.now - timedelta(minutes=(10 - i))
+            )
+        resp = self.client.get(reverse("history"))
+        self.assertNotContains(resp, "Added by Nuvio sync")
 
 
 class HistoryPaginatesByDateTests(TestCase):

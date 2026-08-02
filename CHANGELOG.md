@@ -8,6 +8,20 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.63.0] - 2026-08-02
+
+### Added
+
+- History: rows synced in from Nuvio now carry a small "N" marker (poster
+  corner on single tiles, next to the title on binge-group tiles) so
+  they're visually distinguishable from manually-logged/other-source
+  entries - a deliberately temporary debug aid, not a general provenance
+  display.
+- Dashboard's Social Activity row: episode watches now show a "S1:E5"
+  style pill in the poster's bottom-right corner alongside the existing
+  "who watched it" pill, so you can tell which episode without opening
+  the title.
+
 ## [0.62.3] - 2026-08-02
 
 ### Changed

@@ -56,8 +56,8 @@ class TitleAdmin(admin.ModelAdmin):
 
 @admin.register(WatchEvent)
 class WatchEventAdmin(admin.ModelAdmin):
-    list_display = ("profile", "title", "episode", "watched_at", "is_rewatch")
-    list_filter = ("is_rewatch", "title__media_type")
+    list_display = ("profile", "title", "episode", "watched_at", "is_rewatch", "source")
+    list_filter = ("is_rewatch", "title__media_type", "source")
     date_hierarchy = "watched_at"
     autocomplete_fields = ("title", "episode")
 

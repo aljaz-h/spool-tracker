@@ -304,7 +304,10 @@ def upsert_history_items(profile, items):
             profile=profile, title=title, episode=episode, watched_at=watched_at
         ).exists()
         if not already_logged:
-            WatchEvent.objects.create(profile=profile, title=title, episode=episode, watched_at=watched_at)
+            WatchEvent.objects.create(
+                profile=profile, title=title, episode=episode, watched_at=watched_at,
+                source=WatchEvent.Source.NUVIO,
+            )
             created += 1
             touched_watch_keys.add((title.id, episode.id if episode else None))
 

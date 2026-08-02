@@ -229,6 +229,14 @@ class WatchEvent(models.Model):
     """One row = one movie watched, or one episode watched. Single source of
     truth for History, streaks, the heatmap, and stats (spool-product-spec.md §2)."""
 
+    class Source(models.TextChoices):
+        # Deliberately Nuvio-only for now (user asked for a way to spot
+        # Nuvio-synced rows in History while debugging that integration) -
+        # not a general provenance system, so manual entries, CSV imports,
+        # and Trakt/Simkl syncs all just leave this blank rather than each
+        # getting their own choice.
+        NUVIO = "nuvio", "Nuvio"
+
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="watch_events")
     title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="watch_events")
     episode = models.ForeignKey(
@@ -239,6 +247,7 @@ class WatchEvent(models.Model):
     user_rating = models.PositiveSmallIntegerField(
         null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(10)]
     )
+    source = models.CharField(max_length=20, choices=Source.choices, blank=True, default="")
 
     class Meta:
         ordering = ["-watched_at"]

@@ -142,7 +142,7 @@
       <div class="relative">
         <div class="flex flex-nowrap gap-4 overflow-hidden">
           {% for event in social_activity %}
-            {% include "tracker/partials/poster_card.html" with title=event.title show_ratings=True event_profile=event.profile %}
+            {% include "tracker/partials/poster_card.html" with title=event.title show_ratings=True event_profile=event.profile event_episode=event.episode %}
           {% endfor %}
         </div>
         <div class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-base-100 to-transparent"></div>

@@ -1,5 +1,5 @@
 {% load tracker_extras %}
-{# context: title, progress, show_ratings, user_rating, width_class, event_profile (Profile - Dashboard's Social Activity row, shows who watched it) plus watched_by_title/watch_count_by_title/my_lists/list_membership from selectors.poster_action_context() #}
+{# context: title, progress, show_ratings, user_rating, width_class, event_profile (Profile - Dashboard's Social Activity row, shows who watched it), event_episode (Episode, optional - paired with event_profile, shows which episode) plus watched_by_title/watch_count_by_title/my_lists/list_membership from selectors.poster_action_context() #}
 {% comment %}
 Two <a> tags to the same URL (image box + text block below) instead of
 one wrapping anchor, so the action bar can sit below the image as a
@@ -35,6 +35,9 @@ to avoid triggering navigation.
         {% endif %}
         <span class="text-[11px] font-semibold text-white truncate">{{ event_profile.display_name }}</span>
       </div>
+    {% endif %}
+    {% if event_episode %}
+      <span class="absolute bottom-2 right-2 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 shadow-[0_1px_4px_rgba(0,0,0,0.7)]">S{{ event_episode.season }}:E{{ event_episode.episode }}</span>
     {% endif %}
   </div>
   <div class="flex items-stretch bg-base-300 rounded-b-lg overflow-hidden">
