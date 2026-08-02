@@ -1,14 +1,34 @@
-<div class="flex gap-5 items-stretch flex-col lg:flex-row" x-data="{ selected: '{{ today|date:'Y-m-d' }}' }">
+{% comment %}
+  align-items:stretch can't express "sidebar always matches cal-main's
+  height exactly, whichever is naturally taller" - stretch only grows
+  the shorter item up to the taller one's own content height, so a long
+  agenda list just dragged the whole row (and cal-main with it) down to
+  its own height instead of getting capped, while a short one left
+  empty space below a cal-main-sized box instead of shrinking to match.
+  Explicitly copying cal-main's rendered height onto the sidebar's own
+  height (JS, via ResizeObserver so month navigation/content swaps keep
+  it in sync) pins the sidebar to cal-main in both directions -
+  overflow-y-auto then handles a longer agenda list by scrolling inside
+  that fixed height instead of growing past it. No-ops below the lg:
+  breakpoint, where they stack instead of sitting side by side.
+{% endcomment %}
+<div
+  class="flex gap-5 items-start flex-col lg:flex-row"
+  x-data="{ selected: '{{ today|date:'Y-m-d' }}' }"
+  x-init="
+    const main = document.getElementById('cal-main');
+    const sidebar = document.getElementById('cal-sidebar');
+    const syncSidebarHeight = () => {
+      sidebar.style.height = window.innerWidth >= 1024 ? main.offsetHeight + 'px' : '';
+    };
+    syncSidebarHeight();
+    new ResizeObserver(syncSidebarHeight).observe(main);
+    window.addEventListener('resize', syncSidebarHeight);
+  "
+>
   <div id="cal-main" class="flex-1 min-w-0">
     {% include "tracker/partials/calendar_main.html" %}
   </div>
-  {% comment %}
-    items-stretch (not items-start) on the row above makes this match
-    cal-main's actual rendered height instead of a fixed max-h - a 6-week
-    month is taller than a 4-week one, and the sidebar should track that,
-    not leave empty space below a shorter fixed box. overflow-y-auto
-    still caps it if the agenda list itself is the long side.
-  {% endcomment %}
   <aside id="cal-sidebar" class="w-full lg:w-[300px] flex-none bg-base-200 border border-line rounded-2xl p-3.5 overflow-y-auto">
     {% include "tracker/partials/calendar_sidebar.html" %}
   </aside>

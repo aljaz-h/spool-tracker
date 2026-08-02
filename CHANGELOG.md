@@ -8,6 +8,24 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.65.1] - 2026-08-02
+
+### Fixed
+
+- Calendar's agenda sidebar no longer grows unbounded when it has more
+  releases than the calendar grid has room for - `align-items: stretch`
+  can only grow a shorter flex item up to match a taller one, never the
+  reverse, so a long agenda list was dragging the whole row down to its
+  own height instead of being capped and scrolling internally. Now
+  pinned to the calendar grid's actual rendered height via JS
+  (ResizeObserver, kept in sync across month navigation), in both
+  directions - a short list stretches to fill it, a long one scrolls
+  inside it.
+- The refresh button's tooltip and confirmation now make clear the sync
+  runs in the background (same as Settings' "Sync now" buttons) and
+  won't be reflected until the page is reloaded a few seconds later -
+  clicking it doesn't refresh what's currently on screen.
+
 ## [0.65.0] - 2026-08-02
 
 ### Added

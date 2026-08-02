@@ -63,17 +63,24 @@
           <input type="radio" name="source" value="watchlist" class="hidden" {% if source_filter == "watchlist" %}checked{% endif %}>Watchlist
         </label>
       </div>
+      {% comment %}
+        Fire-and-forget, same as Settings' own "Sync now" buttons
+        (_dispatch_sync_task_safely) - the actual TMDB sync runs on a
+        Celery worker after this request returns, not inline, so the
+        checkmark only confirms it started, not that new data has
+        landed yet. Reload the page a few seconds later to see it.
+      {% endcomment %}
       <button
         type="button"
         x-data="{ justRefreshed: false }"
         hx-post="{% url 'calendar_refresh_releases' %}"
         hx-swap="none"
-        @htmx:after-request="justRefreshed = true; setTimeout(() => justRefreshed = false, 2000)"
-        title="Refresh releases from TMDB"
+        @htmx:after-request="justRefreshed = true; setTimeout(() => justRefreshed = false, 3000)"
+        title="Refresh releases from TMDB - runs in the background, reload in a few seconds to see updates"
         class="flex-none bg-base-200 border border-line rounded-lg p-2 text-ink-dim hover:text-base-content hover:bg-base-300 transition-colors cursor-pointer"
       >
         <span x-show="!justRefreshed">{% icon "refresh-cw" "w-4 h-4" %}</span>
-        <span x-show="justRefreshed" x-cloak class="block w-4 h-4 text-success">{% icon "check" "w-4 h-4" %}</span>
+        <span x-show="justRefreshed" x-cloak class="flex items-center gap-1 text-success text-[10px] font-semibold whitespace-nowrap">{% icon "check" "w-4 h-4" %} Started</span>
       </button>
     </div>
   </form>
