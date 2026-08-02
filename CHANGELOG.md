@@ -8,6 +8,21 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.64.0] - 2026-08-02
+
+### Changed
+
+- Calendar's release sync now pulls a TV show's whole current season
+  (every dated episode, past and future) instead of only TMDB's single
+  "next episode" - a weekly show now shows all its upcoming air dates at
+  once instead of one at a time, and already-aired episodes populate the
+  calendar's past months instead of leaving them empty. Also backfills
+  the previous season when the current one premiered within the last 60
+  days, and falls back to the last-aired season for a show with nothing
+  currently upcoming (ended, or between seasons). Movie releases are now
+  synced regardless of whether the date has already passed, so a movie
+  added to a list after it came out still shows up when browsing back.
+
 ## [0.63.1] - 2026-08-02
 
 ### Fixed

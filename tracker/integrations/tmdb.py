@@ -689,9 +689,13 @@ def get_full_details(media_type, tmdb_id):
     the way a movie's release does, since seasons can drop all at once
     or air weekly; views._release_info turns these plus "status" into
     the detail hero's "aired Jan 2020 · Ongoing"-style summary),
-    "next_episode_to_air": dict|None (tv only, {"air_date",
-    "season_number", "episode_number", "name"} - used by release_sync.py
-    to schedule upcoming episodes/season premieres), "budget"/"revenue":
+    "next_episode_to_air"/"last_episode_to_air": dict|None (tv only,
+    {"air_date", "season_number", "episode_number", "name"} - used by
+    release_sync.py to pick which season to pull the full episode list
+    for: next_episode_to_air's season when the show has one upcoming,
+    else last_episode_to_air's season as a fallback for an ended/
+    between-seasons show, so its most recent season still shows up on
+    the calendar), "budget"/"revenue":
     int|None (movie only - TMDB returns 0, not null, when unknown; that's
     normalized to None here since "$0" reads as data, not "no data"),
     "production_companies": [str,...], "countries": [str,...] (movie:
@@ -707,6 +711,7 @@ def get_full_details(media_type, tmdb_id):
     backdrop_path = data.get("backdrop_path")
     poster_path = data.get("poster_path")
     next_episode = None
+    last_episode = None
     if not is_movie:
         raw_next = data.get("next_episode_to_air") or {}
         if raw_next.get("air_date"):
@@ -715,6 +720,14 @@ def get_full_details(media_type, tmdb_id):
                 "season_number": raw_next.get("season_number"),
                 "episode_number": raw_next.get("episode_number"),
                 "name": raw_next.get("name") or "",
+            }
+        raw_last = data.get("last_episode_to_air") or {}
+        if raw_last.get("air_date"):
+            last_episode = {
+                "air_date": raw_last["air_date"],
+                "season_number": raw_last.get("season_number"),
+                "episode_number": raw_last.get("episode_number"),
+                "name": raw_last.get("name") or "",
             }
     return {
         "tmdb_id": tmdb_id,
@@ -738,6 +751,7 @@ def get_full_details(media_type, tmdb_id):
         "first_air_date": None if is_movie else data.get("first_air_date"),
         "last_air_date": None if is_movie else data.get("last_air_date"),
         "next_episode_to_air": next_episode,
+        "last_episode_to_air": last_episode,
         "budget": data.get("budget") if is_movie and data.get("budget") else None,
         "revenue": data.get("revenue") if is_movie and data.get("revenue") else None,
         "production_companies": [c["name"] for c in data.get("production_companies") or [] if c.get("name")],

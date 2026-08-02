@@ -1156,12 +1156,39 @@ class ReleaseSyncTests(TestCase):
             "release_date": release_date, "next_episode_to_air": None,
         }
 
+    def _season(self, episodes):
+        """episodes: [(episode_number, air_date_or_None, name), ...] -
+        shaped like tmdb.get_season_details()'s return."""
+        return {
+            "episodes": [
+                {
+                    "episode_number": num, "name": name, "air_date": air_date,
+                    "still_url": None, "runtime": None, "vote_average": None,
+                }
+                for num, air_date, name in episodes
+            ]
+        }
+
+    def _season_only_for(self, season_number, season_data):
+        """side_effect for get_season_details that only answers for
+        season_number (returns None otherwise) - the previous-season
+        backfill's own probe lookup then finds nothing and no-ops,
+        without needing tests unrelated to that behavior to account
+        for it."""
+        def fake(tmdb_id, requested_season):
+            return season_data if requested_season == season_number else None
+        return fake
+
     def test_tv_next_episode_creates_episode_and_release_row(self):
         title = Title.objects.create(
             media_type=MediaType.TV, name="Cinder Street", year=2022, external_ids={"tmdb": "99"}
         )
         next_ep = {"air_date": "2026-08-01", "season_number": 2, "episode_number": 3, "name": "Return"}
-        with patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(next_ep)):
+        season = self._season([(3, "2026-08-01", "Return")])
+        with (
+            patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(next_ep)),
+            patch("tracker.release_sync.tmdb.get_season_details", side_effect=self._season_only_for(2, season)),
+        ):
             touched = release_sync.sync_title_releases(title)
         self.assertEqual(touched, 1)
         episode = Episode.objects.get(title=title, season=2, episode=3)
@@ -1174,19 +1201,133 @@ class ReleaseSyncTests(TestCase):
             media_type=MediaType.TV, name="Cinder Street", year=2022, external_ids={"tmdb": "99"}
         )
         next_ep = {"air_date": "2026-08-01", "season_number": 2, "episode_number": 1, "name": "Return"}
-        with patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(next_ep)):
+        season = self._season([(1, "2026-08-01", "Return")])
+        with (
+            patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(next_ep)),
+            patch("tracker.release_sync.tmdb.get_season_details", side_effect=self._season_only_for(2, season)),
+        ):
             release_sync.sync_title_releases(title)
         row = ReleaseSchedule.objects.get(title=title)
         self.assertEqual(row.release_type, ReleaseSchedule.ReleaseType.SEASON_PREMIERE)
 
-    def test_tv_with_no_next_episode_touches_nothing(self):
+    def test_tv_with_no_next_or_last_episode_touches_nothing(self):
         title = Title.objects.create(
             media_type=MediaType.TV, name="Cinder Street", year=2022, external_ids={"tmdb": "99"}
         )
-        with patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(None)):
+        with (
+            patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(None)),
+            patch("tracker.release_sync.tmdb.get_season_details") as mock_season,
+        ):
             touched = release_sync.sync_title_releases(title)
+        mock_season.assert_not_called()
         self.assertEqual(touched, 0)
         self.assertFalse(ReleaseSchedule.objects.filter(title=title).exists())
+
+    def test_tv_syncs_every_dated_episode_in_the_season_not_just_the_next_one(self):
+        # A weekly show with several remaining Thursdays already scheduled
+        # on TMDB, plus one already-aired episode - all of them should get
+        # a row, not just next_episode_to_air's single entry.
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99"}
+        )
+        next_ep = {"air_date": "2026-08-08", "season_number": 1, "episode_number": 3, "name": "Ep3"}
+        season = self._season(
+            [
+                (1, "2026-07-25", "Ep1"),
+                (2, "2026-08-01", "Ep2"),
+                (3, "2026-08-08", "Ep3"),
+                (4, "2026-08-15", "Ep4"),
+                (5, None, "Ep5"),  # unannounced - no air_date yet
+            ]
+        )
+        with (
+            patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(next_ep)),
+            patch("tracker.release_sync.tmdb.get_season_details", return_value=season),
+        ):
+            touched = release_sync.sync_title_releases(title)
+        self.assertEqual(touched, 4)
+        self.assertEqual(ReleaseSchedule.objects.filter(title=title).count(), 4)
+        self.assertFalse(Episode.objects.filter(title=title, season=1, episode=5).exists())
+        past_row = ReleaseSchedule.objects.get(title=title, episode__episode=1)
+        self.assertEqual(past_row.release_date.date().isoformat(), "2026-07-25")
+        self.assertEqual(past_row.release_type, ReleaseSchedule.ReleaseType.SEASON_PREMIERE)
+
+    def test_tv_falls_back_to_last_episode_season_when_nothing_is_upcoming(self):
+        # An ended show (or one between seasons) has no next_episode_to_air
+        # at all - its last aired season's episodes should still sync so
+        # the calendar's past view isn't empty for it.
+        from django.utils import timezone
+
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Finished Show", year=2020, external_ids={"tmdb": "99"}
+        )
+        old_finale = (timezone.now() - timedelta(days=120)).date().isoformat()
+        details = self._tv_details(None)
+        details["last_episode_to_air"] = {
+            "air_date": old_finale, "season_number": 3, "episode_number": 8, "name": "Finale",
+        }
+        season = self._season([(8, old_finale, "Finale")])
+        with (
+            patch("tracker.release_sync.tmdb.get_full_details", return_value=details),
+            patch("tracker.release_sync.tmdb.get_season_details", return_value=season) as mock_season,
+        ):
+            touched = release_sync.sync_title_releases(title)
+        mock_season.assert_called_once_with("99", 3)
+        self.assertEqual(touched, 1)
+        self.assertTrue(ReleaseSchedule.objects.filter(title=title, episode__episode=8).exists())
+
+    def test_tv_backfills_the_previous_season_when_this_one_just_premiered(self):
+        from django.utils import timezone
+
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99"}
+        )
+        recent_premiere = (timezone.now() - timedelta(days=10)).date().isoformat()
+        next_ep = {"air_date": "2026-08-08", "season_number": 2, "episode_number": 2, "name": "Ep2"}
+        season_2 = self._season([(1, recent_premiere, "Premiere"), (2, "2026-08-08", "Ep2")])
+        season_1 = self._season([(1, "2026-01-01", "S1E1"), (2, "2026-01-08", "S1E2")])
+
+        def fake_season_details(tmdb_id, season_number):
+            return season_2 if season_number == 2 else season_1
+
+        with (
+            patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(next_ep)),
+            patch("tracker.release_sync.tmdb.get_season_details", side_effect=fake_season_details),
+        ):
+            touched = release_sync.sync_title_releases(title)
+        self.assertEqual(touched, 4)
+        self.assertTrue(ReleaseSchedule.objects.filter(title=title, episode__season=1).exists())
+        self.assertTrue(ReleaseSchedule.objects.filter(title=title, episode__season=2).exists())
+
+    def test_tv_does_not_backfill_a_previous_season_that_premiered_long_ago(self):
+        from django.utils import timezone
+
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99"}
+        )
+        old_premiere = (timezone.now() - timedelta(days=120)).date().isoformat()
+        next_ep = {"air_date": "2026-08-08", "season_number": 2, "episode_number": 6, "name": "Ep6"}
+        season_2 = self._season([(1, old_premiere, "Premiere"), (6, "2026-08-08", "Ep6")])
+        with (
+            patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(next_ep)),
+            patch("tracker.release_sync.tmdb.get_season_details", return_value=season_2) as mock_season,
+        ):
+            release_sync.sync_title_releases(title)
+        mock_season.assert_called_once_with("99", 2)
+        self.assertFalse(ReleaseSchedule.objects.filter(title=title, episode__season=1).exists())
+
+    def test_tv_season_one_never_attempts_a_previous_season(self):
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99"}
+        )
+        next_ep = {"air_date": "2026-08-08", "season_number": 1, "episode_number": 1, "name": "Pilot"}
+        season_1 = self._season([(1, "2026-08-08", "Pilot")])
+        with (
+            patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(next_ep)),
+            patch("tracker.release_sync.tmdb.get_season_details", return_value=season_1) as mock_season,
+        ):
+            release_sync.sync_title_releases(title)
+        mock_season.assert_called_once_with("99", 1)
 
     def test_movie_future_release_date_creates_one_row(self):
         from django.utils import timezone
@@ -1218,7 +1359,10 @@ class ReleaseSyncTests(TestCase):
             1,
         )
 
-    def test_movie_past_release_date_touches_nothing(self):
+    def test_movie_past_release_date_still_creates_a_row_for_the_calendars_past_view(self):
+        # A movie added to a list after it already came out should still
+        # show up when browsing back on the calendar, not be skipped
+        # outright just because its release date has passed.
         from django.utils import timezone
 
         title = Title.objects.create(
@@ -1227,8 +1371,9 @@ class ReleaseSyncTests(TestCase):
         past = (timezone.now() - timedelta(days=30)).date().isoformat()
         with patch("tracker.release_sync.tmdb.get_full_details", return_value=self._movie_details(past)):
             touched = release_sync.sync_title_releases(title)
-        self.assertEqual(touched, 0)
-        self.assertFalse(ReleaseSchedule.objects.filter(title=title).exists())
+        self.assertEqual(touched, 1)
+        row = ReleaseSchedule.objects.get(title=title, release_type=ReleaseSchedule.ReleaseType.MOVIE_RELEASE)
+        self.assertEqual(row.release_date.date().isoformat(), past)
 
     def test_title_without_tmdb_id_is_skipped(self):
         title = Title.objects.create(media_type=MediaType.MOVIE, name="No TMDB", year=2020)
@@ -1250,11 +1395,23 @@ class ReleaseSyncTests(TestCase):
             media_type=MediaType.TV, name="Cinder Street", year=2022, external_ids={"tmdb": "99"}
         )
         premiere = {"air_date": "2026-08-01", "season_number": 2, "episode_number": 1, "name": "Return"}
-        with patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(premiere)):
+        with (
+            patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(premiere)),
+            patch(
+                "tracker.release_sync.tmdb.get_season_details",
+                side_effect=self._season_only_for(2, self._season([(1, "2026-08-01", "Return")])),
+            ),
+        ):
             release_sync.sync_title_releases(title)
 
         delayed = {"air_date": "2026-08-08", "season_number": 2, "episode_number": 1, "name": "Return"}
-        with patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(delayed)):
+        with (
+            patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(delayed)),
+            patch(
+                "tracker.release_sync.tmdb.get_season_details",
+                side_effect=self._season_only_for(2, self._season([(1, "2026-08-08", "Return")])),
+            ),
+        ):
             release_sync.sync_title_releases(title)
 
         episode = Episode.objects.get(title=title, season=2, episode=1)
