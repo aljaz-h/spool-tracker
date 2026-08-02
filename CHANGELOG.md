@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.63.1] - 2026-08-02
+
+### Fixed
+
+- Nuvio sync now backfills the History "N" marker onto rows that were
+  logged before the marker existed - it re-pulls the whole Nuvio history
+  on every sync anyway, so a matching already-logged row just gets its
+  source tagged instead of being skipped outright. Trigger a sync (or
+  wait for the next scheduled one) to have it apply to existing history.
+
 ## [0.63.0] - 2026-08-02
 
 ### Added

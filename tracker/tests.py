@@ -3885,6 +3885,26 @@ class NuvioUpsertHistoryItemsTests(TestCase):
         event = WatchEvent.objects.get(profile=self.profile)
         self.assertEqual(event.source, WatchEvent.Source.NUVIO)
 
+    def test_resyncing_backfills_the_source_on_an_already_logged_event(self):
+        # Rows logged by Nuvio sync before WatchEvent.source existed have
+        # no way to be tagged retroactively except a re-sync re-matching
+        # them via the same dedup key - fetch_watched_items() re-pulls the
+        # whole history every time, so this is just the ordinary sync path.
+        # Simulated here by blanking out the source an initial sync set,
+        # the same state a pre-migration row would be in.
+        items = [{"content_id": "tmdb:550", "content_type": "movie", "watched_at": 1711600000000, "name": "Fight Club"}]
+        nuvio.upsert_history_items(self.profile, items)
+        event = WatchEvent.objects.get(profile=self.profile)
+        event.source = ""
+        event.save(update_fields=["source"])
+
+        created = nuvio.upsert_history_items(self.profile, items)
+
+        self.assertEqual(created, 0)
+        self.assertEqual(WatchEvent.objects.count(), 1)
+        event.refresh_from_db()
+        self.assertEqual(event.source, WatchEvent.Source.NUVIO)
+
 
 class NuvioUpsertProgressItemsTests(TestCase):
     def setUp(self):
