@@ -84,47 +84,6 @@
   }
 }
 
-/* Signature "sprocket" progress bar (mockup's own term) — the perforated
-   film-strip look comes from two repeating radial-gradient strips, which
-   is unwieldy to express as Tailwind utility classes, so it lives here
-   instead of inline on every poster_card.html use. */
-@layer components {
-  .sprocket {
-    position: relative;
-    height: 10px;
-    background: var(--color-base-300);
-    border-radius: 2px;
-    overflow: hidden;
-    margin-bottom: 4px;
-  }
-  .sprocket::before,
-  .sprocket::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    height: 4px;
-    background-image: radial-gradient(circle, var(--color-base-200) 42%, transparent 43%);
-    background-size: 9px 4px;
-    background-repeat: repeat-x;
-    z-index: 2;
-  }
-  .sprocket::before {
-    top: 0;
-  }
-  .sprocket::after {
-    bottom: 0;
-  }
-  .sprocket-fill {
-    position: absolute;
-    top: 3px;
-    bottom: 3px;
-    left: 0;
-    background: var(--color-primary);
-    border-radius: 1px;
-  }
-}
-
 /* Scope the Anime section to the teal accent without a second daisyUI theme —
    swaps what `btn-primary` / `text-primary` / etc. resolve to on this subtree
    only, per spool-stack-addendum.md §1. */

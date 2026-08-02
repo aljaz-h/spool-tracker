@@ -42,12 +42,16 @@ to avoid triggering navigation.
     {% include "tracker/partials/poster_card_list_popover.html" with title=title my_lists=my_lists in_list_ids=list_membership|get_item:title.pk %}
   </div>
   <a href="{% url 'title_detail' title.pk %}" class="block mt-2 min-w-0">
-    <div class="text-[13px] font-semibold mb-1 truncate">{{ title.name }}</div>
     {% if progress %}
-      {% include "tracker/partials/sprocket_bar.html" with percent=progress.percent caption=progress.caption %}
+      <div class="mb-2">
+        {% include "tracker/partials/sprocket_bar.html" with percent=progress.percent caption=progress.caption %}
+      </div>
     {% endif %}
+    <div class="text-[13px] font-semibold truncate">{{ title.name }}</div>
     {% if show_ratings %}
-      {% include "tracker/partials/pill_badges.html" with ratings=title.ratings.all user_rating=user_rating %}
+      <div class="mt-1">
+        {% include "tracker/partials/pill_badges.html" with ratings=title.ratings.all user_rating=user_rating %}
+      </div>
     {% endif %}
   </a>
 </div>

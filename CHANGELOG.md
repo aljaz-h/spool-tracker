@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.62.3] - 2026-08-02
+
+### Changed
+
+- Dashboard's Watching row: the progress bar now sits above the title
+  instead of below it, redesigned as a filled pill (rounded to match
+  the watched/list button row above it, slightly shorter) with its
+  caption ("S1E1 of 8", "126 min left") centered inside the bar itself
+  rather than as separate text underneath.
+
 ## [0.62.2] - 2026-08-02
 
 ### Changed

@@ -1,5 +1,17 @@
 {# context: percent (0-100 int), caption (str) #}
-<div class="sprocket">
-  <div class="sprocket-fill" style="width:{{ percent }}%"></div>
+{% comment %}
+h-7 (28px) is deliberately a touch shorter than the h-9 watched/list
+button row above it - rounded-lg to match that row's own corner radius
+(poster_card.html's bg-base-300 rounded-b-lg wrapper), not a fully
+pill-shaped rounded-full - at this height the two read almost
+identically anyway. The fill div carries no rounding of its own -
+overflow-hidden on this wrapper already clips its left edge to match,
+and rounding the fill itself would incorrectly round its right (mid-bar
+cutoff) edge too whenever percent < 100.
+{% endcomment %}
+<div class="relative h-7 rounded-lg overflow-hidden bg-primary/20">
+  <div class="absolute inset-y-0 left-0 bg-primary" style="width:{{ percent }}%"></div>
+  <div class="absolute inset-0 flex items-center justify-center px-2">
+    <span class="font-mono text-[10.5px] font-bold text-white truncate">{{ caption }}</span>
+  </div>
 </div>
-<div class="font-mono text-[10.5px] text-ink-faint">{{ caption }}</div>
