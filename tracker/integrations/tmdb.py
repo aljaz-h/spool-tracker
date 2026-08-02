@@ -856,7 +856,7 @@ def get_watch_providers(media_type, tmdb_id, region="US"):
 
 # --- Person detail page (tracker/views.person_detail) -------------------
 
-_CREDIT_CAP = 40
+CREDIT_CAP = 40  # public - views.person_detail surfaces this in the stats card's cap tooltip
 
 
 def get_person_details(person_id):
@@ -910,7 +910,7 @@ def get_person_credits(person_id):
     list of normalized credit dicts (see _normalize_credit), deduped by
     tmdb_id within its own section (a person can hold two crew jobs on
     one title - e.g. Writer + Story - which would otherwise list the
-    same poster twice) and capped to the _CREDIT_CAP most-notable
+    same poster twice) and capped to the CREDIT_CAP most-notable
     credits (TMDB's own vote_count, highest first) per section - a
     prolific person's full combined_credits can run past 200 entries,
     and matching each against the local library costs one query per
@@ -930,7 +930,7 @@ def get_person_credits(person_id):
         for item in items:
             seen.setdefault(item["tmdb_id"], item)
         ordered = sorted(seen.values(), key=lambda c: c["vote_count"], reverse=True)
-        return ordered[:_CREDIT_CAP]
+        return ordered[:CREDIT_CAP]
 
     return {
         "acting": dedupe_and_cap([_normalize_credit(c) for c in cast]),

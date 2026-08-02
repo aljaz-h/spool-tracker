@@ -236,6 +236,25 @@
   background-color: var(--color-base-300);
 }
 
+/* Clips a CSS grid to exactly its first two row tracks - person_detail's
+   filmography sections ("show two rows, then a Show all button") rather
+   than an item-count cutoff, since the grid's own column count (and so
+   how many items make up "two rows") varies with viewport width and
+   with how many tiles a given watched/unwatched filter leaves visible.
+   grid-auto-rows: 0 collapses every row past the first two to zero
+   height; overflow: hidden clips whatever spills past that regardless
+   of each tile's own content height (a longer title wrapping to two
+   lines doesn't need this value kept in sync with it). Alpine only
+   needs to measure whether a real third row exists (see
+   person_detail.html) - the actual clipping is this CSS, not JS-computed
+   pixel heights, so it stays correct across resizes and filter changes
+   without a resize listener. */
+.grid-clamp-2-rows {
+  grid-template-rows: repeat(2, min-content);
+  grid-auto-rows: 0;
+  overflow: hidden;
+}
+
 /* Alpine hides x-cloak'd elements only once it has booted; without this
    rule an element that must start hidden (e.g. the mobile sidebar's
    backdrop) flashes visible for one frame on every page load. */

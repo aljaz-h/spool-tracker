@@ -11445,7 +11445,8 @@ class PersonDetailViewTests(TestCase):
             "directing": [], "writing": [],
         }
         resp = self.client.get(reverse("person_detail", args=[500]))
-        self.assertContains(resp, "1 of 2 credits")
+        self.assertContains(resp, "1 of 2")
+        self.assertContains(resp, "watched")
 
     @patch("tracker.integrations.tmdb.get_person_credits", return_value={"acting": [], "directing": [], "writing": []})
     @patch("tracker.integrations.tmdb.get_person_details")
@@ -11453,6 +11454,68 @@ class PersonDetailViewTests(TestCase):
         mock_details.return_value = self._person(biography="", birthday=None, place_of_birth=None)
         resp = self.client.get(reverse("person_detail", args=[500]))
         self.assertEqual(resp.status_code, 200)
+
+    @patch("tracker.integrations.tmdb.get_person_credits")
+    @patch("tracker.integrations.tmdb.get_person_details")
+    def test_known_for_uses_the_department_with_the_most_credits_not_display_order(self, mock_details, mock_credits):
+        # TMDB's own known_for_department is a single guess and Acting is
+        # always listed first among the three sections - neither should
+        # decide this when the person's actual credits say otherwise (a
+        # primarily-directing person with only one small acting credit).
+        mock_details.return_value = self._person(known_for_department="Acting")
+        mock_credits.return_value = {
+            "acting": [self._credit(42, "Bit Part")],
+            "directing": [self._credit(i, f"Film {i}") for i in range(43, 48)],
+            "writing": [],
+        }
+        resp = self.client.get(reverse("person_detail", args=[500]))
+        self.assertEqual(resp.context["known_for_primary"], "Directing")
+        self.assertEqual(resp.context["known_for_secondary"], ["Acting"])
+        self.assertContains(resp, "Directing")
+
+    @patch("tracker.integrations.tmdb.get_person_credits")
+    @patch("tracker.integrations.tmdb.get_person_details")
+    def test_known_for_lists_every_other_department_as_also(self, mock_details, mock_credits):
+        mock_details.return_value = self._person()
+        mock_credits.return_value = {
+            "acting": [self._credit(i, f"Film {i}") for i in range(42, 45)],
+            "directing": [self._credit(50, "Directed Thing")],
+            "writing": [self._credit(51, "Written Thing")],
+        }
+        resp = self.client.get(reverse("person_detail", args=[500]))
+        self.assertEqual(resp.context["known_for_primary"], "Acting")
+        self.assertEqual(resp.context["known_for_secondary"], ["Directing", "Writing"])
+        self.assertContains(resp, "Also Directing, Writing")
+
+    @patch("tracker.integrations.tmdb.get_person_credits")
+    @patch("tracker.integrations.tmdb.get_person_details")
+    def test_watched_stat_carries_a_credit_cap_tooltip(self, mock_details, mock_credits):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020,
+            external_ids={"tmdb": "42", "tmdb_kind": "movie"},
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        mock_details.return_value = self._person()
+        mock_credits.return_value = {"acting": [self._credit(42, "Fathom")], "directing": [], "writing": []}
+        resp = self.client.get(reverse("person_detail", args=[500]))
+        self.assertContains(resp, f"{tmdb.CREDIT_CAP} most notable credits")
+
+    @patch("tracker.integrations.tmdb.get_person_credits")
+    @patch("tracker.integrations.tmdb.get_person_details")
+    def test_secondary_department_credit_counts_are_surfaced(self, mock_details, mock_credits):
+        # The primary department's own count isn't repeated here (already
+        # named in "Known for") - only non-primary sections get a
+        # standalone "N <department> credits" stat.
+        mock_details.return_value = self._person()
+        mock_credits.return_value = {
+            "acting": [self._credit(i, f"Film {i}") for i in range(42, 45)],
+            "directing": [self._credit(50, "Directed Thing"), self._credit(51, "Another")],
+            "writing": [],
+        }
+        resp = self.client.get(reverse("person_detail", args=[500]))
+        self.assertContains(resp, "2")
+        self.assertContains(resp, "directing credits")
+        self.assertNotContains(resp, "acting credits")
 
 
 class PosterCardListPopoverHtmxBranchTests(TestCase):

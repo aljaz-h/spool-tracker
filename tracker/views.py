@@ -1338,28 +1338,17 @@ _EMPTY_DISCOVER_CONTEXT = {
 }
 
 
-def _person_age(details):
+def _person_age(birthday_date, deathday_date):
     """Years as of today, or as of deathday when the person has one
     ("age at death" per the spec) - accounts for whether their birthday
-    has occurred yet within the end year. None if TMDB has no birthday
-    for this person (common for smaller crew/cast), or an unparseable
-    one - the template hides the whole birthday/age line in that case
-    rather than showing a broken figure."""
-    birthday = details.get("birthday")
-    if not birthday:
+    has occurred yet within the end year. Takes already-parsed dates
+    (see _parse_tmdb_date) - person_detail parses birthday/deathday once
+    and reuses the same date objects for this and for the template's own
+    |date: formatting, rather than parsing the raw strings twice."""
+    if birthday_date is None:
         return None
-    try:
-        born = date.fromisoformat(birthday)
-    except ValueError:
-        return None
-    deathday = details.get("deathday")
-    end = timezone.localdate()
-    if deathday:
-        try:
-            end = date.fromisoformat(deathday)
-        except ValueError:
-            pass
-    return end.year - born.year - ((end.month, end.day) < (born.month, born.day))
+    end = deathday_date or timezone.localdate()
+    return end.year - birthday_date.year - ((end.month, end.day) < (birthday_date.month, birthday_date.day))
 
 
 @login_required
@@ -1412,18 +1401,58 @@ def person_detail(request, person_id):
         for department in ("acting", "directing", "writing")
         if sections[department]
     ]
-    # "or multiple if applicable" (spec) - which of the three sections
-    # actually have credits, not just TMDB's own single-guess
-    # known_for_department, so a hyphenate reads as "Acting, Directing"
-    # rather than only whichever one TMDB happened to pick.
-    known_for = ", ".join(s["label"] for s in filmography_sections) or details.get("known_for_department")
+    # "Known for" (primary) is whichever section has the most credits, not
+    # just TMDB's own single-guess known_for_department or display order -
+    # a person could be primarily a director with only a couple of small
+    # acting credits, and "known for acting" would read wrong for them.
+    # "also" lists every other non-empty section, so a hyphenate reads as
+    # "Known for Acting - also Directing, Writing" per the spec's "or
+    # multiple if applicable".
+    by_credit_count = sorted(filmography_sections, key=lambda s: -len(s["items"]))
+    known_for_primary = by_credit_count[0]["label"] if by_credit_count else details.get("known_for_department")
+    known_for_secondary = [s["label"] for s in by_credit_count[1:]]
+
+    birthday_date = _parse_tmdb_date(details.get("birthday"))
+    deathday_date = _parse_tmdb_date(details.get("deathday"))
+
+    # The stats card's inline figures - built as an ordered list (not
+    # separate always-present context keys) so the template can lay them
+    # out identically regardless of which ones this particular person
+    # actually has data for. The credit-count callouts only cover
+    # secondary departments - the primary one is already named in
+    # "Known for", so repeating its count here would be redundant.
+    highlight_stats = []
+    if stats:
+        highlight_stats.append(
+            {
+                "value": f"{stats['watched_count']} of {stats['total_count']}", "label": "watched",
+                "info": f"Limited to their {tmdb.CREDIT_CAP} most notable credits per category.",
+            }
+        )
+        if stats["total_watch_time"]:
+            highlight_stats.append({"value": stats["total_watch_time"], "label": "total watch time", "info": None})
+        if stats["avg_rating"]:
+            highlight_stats.append(
+                {"value": f"★ {stats['avg_rating']}/10", "label": "your average rating", "info": None}
+            )
+    for section in by_credit_count:
+        if section["label"] != known_for_primary:
+            count = len(section["items"])
+            noun = "credit" if count == 1 else "credits"
+            highlight_stats.append(
+                {"value": str(count), "label": f"{section['label'].lower()} {noun}", "info": None}
+            )
 
     context = {
         "profile": profile,
         "person": details,
-        "known_for": known_for,
-        "age": _person_age(details),
+        "known_for_primary": known_for_primary,
+        "known_for_secondary": known_for_secondary,
+        "birthday_date": birthday_date,
+        "deathday_date": deathday_date,
+        "age": _person_age(birthday_date, deathday_date),
         "stats": stats,
+        "highlight_stats": highlight_stats,
         "filmography_sections": filmography_sections,
         # discover_tile.html's own list-picker popover needs this regardless
         # of whether a given tile has a matched local Title yet - same

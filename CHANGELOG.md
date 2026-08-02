@@ -8,6 +8,22 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.62.2] - 2026-08-02
+
+### Changed
+
+- Person detail page redesign: header and personal stats now live in one
+  unified card (photo with an accent ring, "Known for X - also Y, Z"
+  computed from actual credit counts rather than TMDB's single guess or
+  display order, birthday formatted with the full month name, inline
+  stat row with a tooltip on the credit-cap figure). Each filmography
+  section's All/Watched/Unwatched filter now uses the same segmented-tab
+  style as the Movies & TV page's Movies/TV and category tabs. Each
+  section also now shows only its first two rows by default, with a
+  "Show all N credits" button to reveal the rest - the clip is exactly
+  two grid rows regardless of viewport width or which filter is active,
+  not a fixed item count.
+
 ## [0.62.1] - 2026-08-02
 
 ### Fixed
