@@ -9562,6 +9562,55 @@ class TitleDetailViewTests(TestCase):
         self.assertIsNone(resp.context["release_info"])
 
 
+class EpisodeReleaseLabelTests(TestCase):
+    """views._episode_release_label - the episode browser's "In N
+    days/weeks/months" countdown pill for a not-yet-aired episode."""
+
+    def test_none_when_no_air_date(self):
+        self.assertIsNone(views._episode_release_label(None))
+
+    def test_none_when_air_date_already_passed(self):
+        from django.utils import timezone
+
+        past = (timezone.localdate() - timedelta(days=3)).isoformat()
+        self.assertIsNone(views._episode_release_label(past))
+
+    def test_today(self):
+        from django.utils import timezone
+
+        self.assertEqual(views._episode_release_label(timezone.localdate().isoformat()), "Today")
+
+    def test_tomorrow(self):
+        from django.utils import timezone
+
+        tomorrow = (timezone.localdate() + timedelta(days=1)).isoformat()
+        self.assertEqual(views._episode_release_label(tomorrow), "Tomorrow")
+
+    def test_in_days_under_two_weeks(self):
+        from django.utils import timezone
+
+        soon = (timezone.localdate() + timedelta(days=5)).isoformat()
+        self.assertEqual(views._episode_release_label(soon), "In 5 days")
+
+    def test_in_weeks_under_two_months(self):
+        from django.utils import timezone
+
+        soon = (timezone.localdate() + timedelta(days=21)).isoformat()
+        self.assertEqual(views._episode_release_label(soon), "In 3 weeks")
+
+    def test_in_months_beyond_two_months(self):
+        from django.utils import timezone
+
+        soon = (timezone.localdate() + timedelta(days=90)).isoformat()
+        self.assertEqual(views._episode_release_label(soon), "In 3 months")
+
+    def test_singular_month(self):
+        from django.utils import timezone
+
+        soon = (timezone.localdate() + timedelta(days=40)).isoformat()
+        self.assertEqual(views._episode_release_label(soon), "In 1 month")
+
+
 class TitleEpisodeBrowserTests(TestCase):
     """The episode browser - season <select>, per-episode watched badges,
     and the default-season "resume where you left off" logic (the
@@ -9653,6 +9702,29 @@ class TitleEpisodeBrowserTests(TestCase):
         self.assertEqual([e["watched"] for e in episodes], [False, True, False])
         self.assertTrue(episodes[-1]["is_finale"])
         self.assertNotIn("is_finale", episodes[0])
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_upcoming_episode_shows_a_release_countdown_pill(
+        self, mock_details, mock_credits, mock_similar, mock_season
+    ):
+        from django.utils import timezone
+
+        mock_details.return_value = self._details()
+        soon = (timezone.localdate() + timedelta(days=5)).isoformat()
+        mock_season.return_value = {
+            "episodes": [
+                {"episode_number": 1, "name": "Aired", "still_url": None, "air_date": "2020-01-01", "vote_average": None},
+                {"episode_number": 2, "name": "Upcoming", "still_url": None, "air_date": soon, "vote_average": None},
+            ]
+        }
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        episodes = resp.context["episodes"]
+        self.assertIsNone(episodes[0]["release_in"])
+        self.assertEqual(episodes[1]["release_in"], "In 5 days")
+        self.assertContains(resp, "In 5 days")
 
     @patch("tracker.integrations.tmdb.get_season_details")
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])

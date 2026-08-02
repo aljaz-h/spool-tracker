@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.64.1] - 2026-08-02
+
+### Added
+
+- Episode browser: an upcoming episode now shows a countdown pill
+  ("Tomorrow", "In 8 days", "In 3 weeks", "In 2 months") based on its
+  TMDB air date, so you can tell when it's actually coming out instead
+  of just that it hasn't aired yet. No pill for an episode TMDB hasn't
+  scheduled a date for at all.
+
 ## [0.64.0] - 2026-08-02
 
 ### Changed

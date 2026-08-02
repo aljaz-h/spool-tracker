@@ -521,6 +521,34 @@ def _parse_tmdb_date(value):
         return None
 
 
+def _episode_release_label(air_date_str):
+    """Countdown pill for an episode browser tile with a still-upcoming
+    air date - "Today"/"Tomorrow", "In N days" under two weeks out,
+    "In N weeks" under ~40 days, else "In N months" (the crossover sits
+    where round(days/30) first reaches 1, so "In 1 month" is reachable
+    rather than jumping straight from weeks to "In 2 months"). None once
+    the date has passed (today counts as aired, not upcoming) or TMDB
+    hasn't scheduled the episode yet at all (no air_date), which the
+    template's `{% if %}` already treats as "no pill", not an error."""
+    air_date = _parse_tmdb_date(air_date_str)
+    if air_date is None:
+        return None
+    delta_days = (air_date - timezone.localdate()).days
+    if delta_days < 0:
+        return None
+    if delta_days == 0:
+        return "Today"
+    if delta_days == 1:
+        return "Tomorrow"
+    if delta_days < 14:
+        return f"In {delta_days} days"
+    if delta_days < 40:
+        weeks = delta_days // 7
+        return f"In {weeks} week{'s' if weeks != 1 else ''}"
+    months = round(delta_days / 30)
+    return f"In {months} month{'s' if months != 1 else ''}"
+
+
 def _release_info(details):
     """Release-date summary for the detail hero's metadata row - a movie
     has one release_date, but a show doesn't reduce to a single date the
@@ -673,6 +701,9 @@ def _episode_panel_context(request, profile, title, tmdb_id, details, force_seas
     force_season pins the season directly (used by the bulk mark-watched
     views, which already know which season they just acted on) instead
     of resolving it from request.GET/the profile's watch history.
+    Each episode also carries release_in (see _episode_release_label) -
+    a "In N days/weeks/months" countdown pill for one that hasn't aired
+    yet, None once it has or TMDB has no air_date for it at all.
 
     season_ratings (dict {season_number: vote_average|None}) is TMDB's
     own per-season rating (get_tv_details' "seasons" list - one extra
@@ -711,6 +742,7 @@ def _episode_panel_context(request, profile, title, tmdb_id, details, force_seas
     watched = selectors.watched_episode_numbers(profile, title, season) if profile and title else set()
     for ep in episodes:
         ep["watched"] = ep["episode_number"] in watched
+        ep["release_in"] = _episode_release_label(ep.get("air_date"))
     if episodes:
         episodes[-1]["is_finale"] = True
     if title is not None and title.media_type == MediaType.ANIME and episodes:

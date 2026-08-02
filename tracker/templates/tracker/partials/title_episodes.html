@@ -1,5 +1,5 @@
 {% load tracker_extras icons %}
-{# context: title (Title or None - preview titles have no local row yet), seasons, season, episodes (each optionally carrying filler/recap bools - anime only, from Jikan/MyAnimeList, see views._apply_anime_filler_flags - absent entirely rather than False when there's no match/data, which {% if %} already treats as falsy), season_avg_rating, season_total_runtime (str, format_duration of the selected season's episodes with a known runtime), season_ratings (dict {season_number: TMDB rating}), preview_media_type/preview_tmdb_id (only set when title is None) #}
+{# context: title (Title or None - preview titles have no local row yet), seasons, season, episodes (each optionally carrying filler/recap bools - anime only, from Jikan/MyAnimeList, see views._apply_anime_filler_flags - absent entirely rather than False when there's no match/data, which {% if %} already treats as falsy - and release_in, a "In N days/weeks/months" countdown string for a not-yet-aired episode, None once it's aired), season_avg_rating, season_total_runtime (str, format_duration of the selected season's episodes with a known runtime), season_ratings (dict {season_number: TMDB rating}), preview_media_type/preview_tmdb_id (only set when title is None) #}
 <div id="episodes-panel">
   {% if seasons %}
     <div class="flex justify-between items-center flex-wrap gap-3 mb-4">
@@ -105,6 +105,7 @@
               <span>S{{ season|stringformat:"02d" }}E{{ ep.episode_number|stringformat:"02d" }}</span>
               {% if ep.runtime %}<span>{{ ep.runtime }}m</span>{% endif %}
               {% if ep.vote_average %}<span><span class="text-amber-400">&#9733;</span> {{ ep.vote_average|floatformat:1 }}</span>{% endif %}
+              {% if ep.release_in %}<span class="text-primary font-bold uppercase">{{ ep.release_in }}</span>{% endif %}
               {% if ep.is_finale %}<span class="text-primary font-bold uppercase">Finale</span>{% endif %}
               {% if ep.filler %}<span class="bg-warning text-warning-content font-bold uppercase px-1 rounded-sm">Filler</span>{% elif ep.recap %}<span class="bg-info text-info-content font-bold uppercase px-1 rounded-sm">Recap</span>{% endif %}
             </div>
@@ -129,6 +130,9 @@
             <div class="absolute inset-0 bg-linear-to-t from-black/60 to-transparent"></div>
             {% if ep.vote_average %}
               <span class="absolute top-2 left-2 font-mono text-[10px] font-bold bg-black/85 px-1.5 py-0.5 rounded-md shadow-[0_1px_4px_rgba(0,0,0,0.7)]"><span class="text-amber-400">&#9733;</span> <span class="text-white">{{ ep.vote_average|floatformat:1 }}</span></span>
+            {% endif %}
+            {% if ep.release_in %}
+              <span class="absolute top-2 right-2 font-mono text-[9px] font-bold uppercase tracking-wide bg-primary/90 text-primary-content px-2 py-1 rounded-md shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ ep.release_in }}</span>
             {% endif %}
             {% if ep.is_finale %}
               <span class="absolute bottom-2 left-2 font-mono text-[9px] font-bold uppercase tracking-wide bg-primary text-primary-content px-2 py-1 rounded-md">Season Finale</span>
