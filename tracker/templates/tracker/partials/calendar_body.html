@@ -1,8 +1,15 @@
-<div class="flex gap-5 items-start flex-col lg:flex-row" x-data="{ selected: '{{ today|date:'Y-m-d' }}' }">
+<div class="flex gap-5 items-stretch flex-col lg:flex-row" x-data="{ selected: '{{ today|date:'Y-m-d' }}' }">
   <div id="cal-main" class="flex-1 min-w-0">
     {% include "tracker/partials/calendar_main.html" %}
   </div>
-  <aside id="cal-sidebar" class="w-full lg:w-[300px] flex-none bg-base-200 border border-line rounded-2xl p-3.5 max-h-[660px] overflow-y-auto">
+  {% comment %}
+    items-stretch (not items-start) on the row above makes this match
+    cal-main's actual rendered height instead of a fixed max-h - a 6-week
+    month is taller than a 4-week one, and the sidebar should track that,
+    not leave empty space below a shorter fixed box. overflow-y-auto
+    still caps it if the agenda list itself is the long side.
+  {% endcomment %}
+  <aside id="cal-sidebar" class="w-full lg:w-[300px] flex-none bg-base-200 border border-line rounded-2xl p-3.5 overflow-y-auto">
     {% include "tracker/partials/calendar_sidebar.html" %}
   </aside>
 </div>

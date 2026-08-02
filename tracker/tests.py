@@ -2526,6 +2526,39 @@ class CalendarAgendaLookbackTests(TestCase):
         self.assertNotIn("Ancient Ep", self._agenda_titles(resp))
 
 
+class CalendarRefreshReleasesViewTests(TestCase):
+    """The Calendar page's manual refresh button - dispatches the same
+    household-wide sync_release_schedules task the nightly beat job runs.
+    _dispatch_release_sync_safely is mocked out here (rather than run for
+    real) for the same reason TriggerManualSyncViewTests mocks
+    _dispatch_sync_task_safely - this class only needs to confirm the
+    view calls it, not re-prove the thread/timeout dispatch mechanics."""
+
+    def setUp(self):
+        user = User.objects.create_user("calrefresh", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="CalRefresh")
+        self.client.login(username="calrefresh", password="pass12345")
+
+    @patch("tracker.views._dispatch_release_sync_safely")
+    def test_dispatches_the_release_sync(self, mock_dispatch):
+        self.client.post(reverse("calendar_refresh_releases"))
+        mock_dispatch.assert_called_once_with()
+
+    @patch("tracker.views._dispatch_release_sync_safely")
+    def test_returns_no_content(self, mock_dispatch):
+        resp = self.client.post(reverse("calendar_refresh_releases"))
+        self.assertEqual(resp.status_code, 204)
+
+    def test_get_is_not_allowed(self):
+        resp = self.client.get(reverse("calendar_refresh_releases"))
+        self.assertEqual(resp.status_code, 405)
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("calendar_refresh_releases"))
+        self.assertEqual(resp.status_code, 302)
+
+
 class UpNextBroadeningTests(TestCase):
     def setUp(self):
         from django.utils import timezone

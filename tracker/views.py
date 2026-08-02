@@ -1983,6 +1983,45 @@ def calendar_view(request):
     return render(request, template, context)
 
 
+def _dispatch_release_sync_safely(timeout=2.0):
+    """Same short-timeout background-thread dispatch as
+    _dispatch_sync_task_safely, just for sync_release_schedules - which
+    takes no per-profile argument (it's instance-wide, see its own
+    docstring), so that helper's args=[profile_id] doesn't fit here."""
+    def _dispatch():
+        try:
+            tasks.sync_release_schedules.apply_async(retry=False)
+        except Exception:
+            logging.getLogger(__name__).exception("Background dispatch of sync_release_schedules failed")
+
+    thread = threading.Thread(target=_dispatch, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+    if thread.is_alive():
+        logging.getLogger(__name__).warning(
+            "Dispatch of sync_release_schedules did not complete within %ss; abandoning it for this request "
+            "(the nightly beat sync will still pick it up)",
+            timeout,
+        )
+
+
+@login_required
+@require_POST
+def calendar_refresh_releases(request):
+    """The Calendar page's manual refresh button - kicks off the same
+    household-wide release sync the nightly beat job runs, instead of
+    waiting for it. Fire-and-forget like every other manual "sync now"
+    action (see _dispatch_sync_task_safely) - the button's own Alpine
+    state gives the click immediate feedback, this response carries no
+    fresh data of its own (the sync runs on a worker, not in this
+    request), so there's nothing here worth rendering."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    _dispatch_release_sync_safely()
+    return HttpResponse(status=204)
+
+
 LIST_PERIODS = {"today", "yesterday", "7", "30", "365"}
 LIST_SORTS = {"manual", "added_new", "added_old", "name", "year"}
 

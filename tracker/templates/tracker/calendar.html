@@ -1,4 +1,5 @@
 {% extends "tracker/base.html" %}
+{% load icons %}
 {% block title %}Calendar · Spool{% endblock %}
 {% block content %}
 
@@ -7,15 +8,26 @@
     <div class="text-ink-dim text-sm mt-1">New episodes, season premieres &amp; releases — from what you're watching and your watchlists</div>
   </div>
 
+  {% comment %}
+    Two columns matching calendar_body.html's own flex-1/w-[300px] split,
+    so the right-hand group (source filter + refresh) lines up above and
+    matches the width of the agenda sidebar underneath it, instead of a
+    single full-width row. Still one <form> - a source-filter change
+    needs the type filter's current value (and vice versa) in the same
+    request, and a <button type="button"> inside it (the refresh button)
+    never fires the "change" this form's hx-trigger listens for, so
+    nesting it here doesn't risk an accidental extra request.
+  {% endcomment %}
   <form
     hx-get="{% url 'calendar' %}"
     hx-target="#calendar-body"
     hx-trigger="change"
     hx-push-url="true"
-    class="flex justify-between items-center flex-wrap gap-3 mb-5"
+    class="flex gap-5 items-center flex-col lg:flex-row mb-5"
   >
     <input type="hidden" name="month" value="{{ current_month_param }}" id="calendar-month-field">
-    <div class="inline-flex bg-base-200 border border-line rounded-lg p-1 gap-0.5">
+
+    <div class="w-full lg:flex-1 lg:min-w-0">
       {% comment %}
         has-checked: (CSS, not a server-rendered class) — this form sits
         outside #calendar-body, the only thing HTMX re-renders, so a
@@ -23,24 +35,47 @@
         (Django's {# #} comment is single-line only — a multi-line one
         like this isn't recognized as a tag and renders as literal text.)
       {% endcomment %}
-      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-        <input type="radio" name="type" value="all" class="hidden" {% if type_filter == "all" %}checked{% endif %}>All
-      </label>
-      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-        <input type="radio" name="type" value="movie" class="hidden" {% if type_filter == "movie" %}checked{% endif %}>Movies
-      </label>
-      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-        <input type="radio" name="type" value="tv" class="hidden" {% if type_filter == "tv" %}checked{% endif %}>TV
-      </label>
-      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-        <input type="radio" name="type" value="anime" class="hidden" {% if type_filter == "anime" %}checked{% endif %}>Anime
-      </label>
+      <div class="inline-flex bg-base-200 border border-line rounded-lg p-1 gap-0.5">
+        <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+          <input type="radio" name="type" value="all" class="hidden" {% if type_filter == "all" %}checked{% endif %}>All
+        </label>
+        <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+          <input type="radio" name="type" value="movie" class="hidden" {% if type_filter == "movie" %}checked{% endif %}>Movies
+        </label>
+        <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+          <input type="radio" name="type" value="tv" class="hidden" {% if type_filter == "tv" %}checked{% endif %}>TV
+        </label>
+        <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+          <input type="radio" name="type" value="anime" class="hidden" {% if type_filter == "anime" %}checked{% endif %}>Anime
+        </label>
+      </div>
     </div>
-    <select name="source" class="bg-base-200 border border-line text-ink-dim text-xs px-3 py-2 rounded-lg">
-      <option value="all" {% if source_filter == "all" %}selected{% endif %}>Watching &amp; Watchlist</option>
-      <option value="watching" {% if source_filter == "watching" %}selected{% endif %}>Watching only</option>
-      <option value="watchlist" {% if source_filter == "watchlist" %}selected{% endif %}>Watchlist only</option>
-    </select>
+
+    <div class="w-full lg:w-[300px] flex-none flex items-center gap-2">
+      <div class="inline-flex flex-1 min-w-0 bg-base-200 border border-line rounded-lg p-1 gap-0.5">
+        <label class="flex-1 text-center px-2 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+          <input type="radio" name="source" value="all" class="hidden" {% if source_filter == "all" %}checked{% endif %}>Both
+        </label>
+        <label class="flex-1 text-center px-2 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+          <input type="radio" name="source" value="watching" class="hidden" {% if source_filter == "watching" %}checked{% endif %}>Watching
+        </label>
+        <label class="flex-1 text-center px-2 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+          <input type="radio" name="source" value="watchlist" class="hidden" {% if source_filter == "watchlist" %}checked{% endif %}>Watchlist
+        </label>
+      </div>
+      <button
+        type="button"
+        x-data="{ justRefreshed: false }"
+        hx-post="{% url 'calendar_refresh_releases' %}"
+        hx-swap="none"
+        @htmx:after-request="justRefreshed = true; setTimeout(() => justRefreshed = false, 2000)"
+        title="Refresh releases from TMDB"
+        class="flex-none bg-base-200 border border-line rounded-lg p-2 text-ink-dim hover:text-base-content hover:bg-base-300 transition-colors cursor-pointer"
+      >
+        <span x-show="!justRefreshed">{% icon "refresh-cw" "w-4 h-4" %}</span>
+        <span x-show="justRefreshed" x-cloak class="block w-4 h-4 text-success">{% icon "check" "w-4 h-4" %}</span>
+      </button>
+    </div>
   </form>
 
   <div id="calendar-body">

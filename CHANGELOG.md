@@ -8,6 +8,24 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.65.0] - 2026-08-02
+
+### Added
+
+- Calendar: a manual refresh button (next to the source filter) kicks
+  off the release sync immediately instead of waiting for its nightly
+  run.
+
+### Changed
+
+- Calendar's source filter ("Watching & Watchlist"/"Watching only"/
+  "Watchlist only") is now a Both/Watching/Watchlist segmented tab
+  control matching the rest of the app, sized to the agenda sidebar's
+  width, instead of a plain dropdown.
+- The agenda sidebar now stretches to match the calendar grid's actual
+  height instead of a fixed max-height, so a short release list no
+  longer leaves empty space below it when the grid is taller.
+
 ## [0.64.1] - 2026-08-02
 
 ### Added

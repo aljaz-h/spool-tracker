@@ -72,6 +72,7 @@ urlpatterns = [
     path("history/delete-episode/<int:event_id>/", views.history_delete_episode, name="history_delete_episode"),
     path("history/delete-group/", views.history_delete_group, name="history_delete_group"),
     path("calendar/", views.calendar_view, name="calendar"),
+    path("calendar/refresh/", views.calendar_refresh_releases, name="calendar_refresh_releases"),
     path("lists/", views.lists, name="lists"),
     path("lists/create/", views.create_list, name="create_list"),
     path("lists/<int:list_id>/", views.list_detail, name="list_detail"),
