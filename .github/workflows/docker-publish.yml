@@ -13,6 +13,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Read VERSION
+        id: version
+        run: echo "value=$(cat VERSION | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -28,3 +32,4 @@ jobs:
           tags: |
             ghcr.io/aljaz-h/spool-tracker:latest
             ghcr.io/aljaz-h/spool-tracker:${{ github.sha }}
+            ghcr.io/aljaz-h/spool-tracker:${{ steps.version.outputs.value }}

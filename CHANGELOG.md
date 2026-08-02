@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.65.3] - 2026-08-02
+
+### Added
+
+- The Docker publish workflow now also tags each image it builds with
+  the `VERSION` file's own value (e.g. `:0.65.3`), alongside the
+  existing `:latest`/`:<commit-sha>` tags - so rolling back to a known-
+  good release is just pinning to that version number instead of
+  hunting for a commit SHA. See the README's new "Rolling back" section.
+
 ## [0.65.2] - 2026-08-02
 
 ### Fixed
