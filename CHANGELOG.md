@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.65.2] - 2026-08-02
+
+### Fixed
+
+- Movies & TV / Anime's results grid no longer leaves a stray tile or
+  two dangling alone on the last row - the column count is purely a
+  function of the responsive auto-fill grid's CSS, not knowable
+  server-side, so this measures the actually-rendered grid after paint
+  and hides whichever tiles landed in an incomplete final row, re-run
+  on window resize.
+
 ## [0.65.1] - 2026-08-02
 
 ### Fixed

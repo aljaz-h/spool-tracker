@@ -314,7 +314,44 @@
       {% if not profile %}Your account isn't linked to a household profile yet.{% elif is_collections %}Nothing found — check that a TMDB API key is configured in Settings.{% else %}Nothing found — try widening your filters, or check that a TMDB API key is configured in Settings.{% endif %}
     </div>
   {% else %}
-    <div class="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
+    {% comment %}
+      TMDB's own per-page result count isn't a clean multiple of however
+      many columns this auto-fill grid ends up rendering at the current
+      viewport width (that's determined purely by CSS, not knowable
+      server-side), so the last row is often left with just one or two
+      stray tiles. Rather than guess a column count to truncate results
+      to server-side (which would only be right at one specific
+      viewport width), this measures the actually-rendered grid after
+      paint and hides whichever tiles landed in an incomplete final row
+      - re-run on resize since the column count (and so what counts as
+      "incomplete") changes with it.
+    {% endcomment %}
+    <div
+      class="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4"
+      x-data="{
+        resizeTimer: null,
+        trimIncompleteLastRow() {
+          const tiles = Array.from(this.$el.children);
+          tiles.forEach((el) => { el.style.display = ''; });
+          const rowTops = [...new Set(tiles.map((el) => el.offsetTop))];
+          if (rowTops.length < 2) return;
+          const lastRowTop = rowTops[rowTops.length - 1];
+          const priorRowTop = rowTops[rowTops.length - 2];
+          const lastRowTiles = tiles.filter((el) => el.offsetTop === lastRowTop);
+          const priorRowCount = tiles.filter((el) => el.offsetTop === priorRowTop).length;
+          if (lastRowTiles.length < priorRowCount) {
+            lastRowTiles.forEach((el) => { el.style.display = 'none'; });
+          }
+        },
+      }"
+      x-init="
+        trimIncompleteLastRow();
+        window.addEventListener('resize', () => {
+          clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(() => trimIncompleteLastRow(), 150);
+        });
+      "
+    >
       {% for item in results %}
         {% if is_collections %}
           {% include "tracker/partials/collection_tile.html" with item=item %}
