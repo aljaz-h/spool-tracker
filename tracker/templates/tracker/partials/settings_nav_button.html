@@ -1,6 +1,7 @@
-{# context: key (tab identifier), label (display text) #}
+{% load icons %}
+{# context: key (tab identifier), label (display text), icon (icon name) #}
 <button
   type="button" @click="setTab('{{ key }}')"
-  class="text-left px-3 py-2.5 rounded-lg text-sm font-medium border-l-[3px] transition-colors whitespace-nowrap"
+  class="flex items-center gap-2 text-left px-3 py-2.5 rounded-lg text-sm font-medium border-l-[3px] transition-colors whitespace-nowrap"
   :class="tab === '{{ key }}' ? 'bg-base-300 text-base-content border-primary' : 'border-transparent text-ink-dim hover:bg-base-300 hover:text-base-content'"
->{{ label }}</button>
+>{% icon icon "w-4 h-4 flex-none" %}{{ label }}</button>

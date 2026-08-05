@@ -40,22 +40,22 @@
   <div class="flex flex-col lg:flex-row gap-6 items-start">
 
     <nav class="w-full lg:w-[190px] flex-none lg:sticky lg:top-6 flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible pb-1 lg:pb-0">
-      {% include "tracker/partials/settings_nav_button.html" with key="account" label="Account" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="preferences" label="Preferences" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="notifications" label="Notifications" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="integrations" label="Integrations" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="import" label="Import Data" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="export" label="Export Data" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="danger" label="Danger Zone" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="account" label="Account" icon="user" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="preferences" label="Preferences" icon="settings" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="notifications" label="Notifications" icon="bell" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="integrations" label="Integrations" icon="plug" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="import" label="Import Data" icon="upload" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="export" label="Export Data" icon="download" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="danger" label="Danger Zone" icon="triangle-alert" %}
 
       {% if profile.is_owner %}
         <div class="text-[10.5px] font-semibold text-ink-faint uppercase tracking-widest px-3 pt-4 pb-1.5">Admin</div>
-        {% include "tracker/partials/settings_nav_button.html" with key="profiles" label="Profiles" %}
-        {% include "tracker/partials/settings_nav_button.html" with key="server_integrations" label="Server Integrations" %}
-        {% include "tracker/partials/settings_nav_button.html" with key="server" label="Server" %}
-        {% include "tracker/partials/settings_nav_button.html" with key="maintenance" label="Maintenance" %}
-        {% include "tracker/partials/settings_nav_button.html" with key="activity_log" label="Activity Log" %}
-        {% include "tracker/partials/settings_nav_button.html" with key="logs" label="Logs" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="profiles" label="Profiles" icon="users" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="server_integrations" label="Server Integrations" icon="key" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="server" label="Server" icon="server" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="maintenance" label="Maintenance" icon="refresh-cw" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="activity_log" label="Activity Log" icon="history" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="logs" label="Logs" icon="list-checks" %}
       {% endif %}
     </nav>
 
@@ -591,6 +591,30 @@
           <div class="py-3.5 border-b border-line">
             <div class="flex items-center justify-between gap-3 flex-wrap">
               <div class="flex items-center gap-1.5">
+                <span class="font-semibold text-[13.5px]">Log retention</span>
+                <span
+                  title="Sync/import log entries older than this are deleted by a nightly cleanup job. Blank = keep forever. Doesn't affect the Activity Log."
+                  class="text-ink-faint cursor-help"
+                >{% icon "circle-help" "w-3.5 h-3.5" %}</span>
+              </div>
+              <form
+                hx-post="{% url 'save_log_retention' %}" hx-trigger="change" hx-swap="none"
+                class="flex items-center gap-1.5"
+              >
+                <label class="text-xs text-ink-dim">Keep logs for</label>
+                <input
+                  type="number" name="log_retention_days" min="1" max="3650" placeholder="forever"
+                  value="{{ cfg.log_retention_days|default_if_none:'' }}"
+                  class="input input-xs w-20 bg-base-100 text-xs"
+                >
+                <span class="text-xs text-ink-dim">days</span>
+              </form>
+            </div>
+          </div>
+
+          <div class="py-3.5 border-b border-line">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <div class="flex items-center gap-1.5">
                 <span class="font-semibold text-[13.5px]">Merge duplicate titles</span>
                 <span
                   title="Finds titles that were imported twice under the same TMDB id (e.g. once via Trakt, once via Simkl, before duplicate detection existed) and merges their watch history, ratings, and lists into one. Preview changes nothing; Commit is not reversible."
@@ -735,7 +759,7 @@
                 {% endif %}
               </button>
 
-              <div x-ref="panel" x-show="open" x-cloak class="fixed w-96 max-h-[75vh] overflow-y-auto bg-base-200 border border-line rounded-lg shadow-lg z-40 flex flex-col">
+              <div x-ref="panel" x-show="open" x-cloak class="fixed w-96 max-h-[75vh] overflow-y-auto bg-base-300 border border-line rounded-lg shadow-2xl shadow-black/60 z-40 flex flex-col">
                 <div class="flex items-center justify-between px-5 pt-5 pb-3">
                   <h2 class="font-display text-xl">Filters</h2>
                   <button type="button" @click="open = false" aria-label="Close filters" class="btn btn-sm btn-circle btn-ghost cursor-pointer">
@@ -837,34 +861,19 @@
               </div>
             </div>
 
-            <div class="flex items-center gap-2.5 flex-wrap">
-              <form method="get" class="flex items-center gap-2.5 flex-wrap">
-                <input type="hidden" name="tab" value="logs">
-                <input type="hidden" name="log_profile" value="{{ log_profile_id }}">
-                <input type="hidden" name="log_action_type" value="{{ log_action_type }}">
-                <input type="hidden" name="log_provider" value="{{ log_provider }}">
-                <input type="hidden" name="log_status" value="{{ log_status }}">
-                <input type="hidden" name="log_date_from" value="{{ log_date_from }}">
-                <input type="hidden" name="log_date_to" value="{{ log_date_to }}">
-                <select name="log_sort" onchange="this.form.submit()" class="select select-sm bg-base-100 focus:outline-primary text-xs">
-                  <option value="newest" {% if log_sort == "newest" %}selected{% endif %}>Newest first</option>
-                  <option value="oldest" {% if log_sort == "oldest" %}selected{% endif %}>Oldest first</option>
-                </select>
-              </form>
-              <form
-                hx-post="{% url 'save_log_retention' %}" hx-trigger="change" hx-swap="none"
-                class="flex items-center gap-1.5"
-              >
-                <label class="text-xs text-ink-dim">Keep logs for</label>
-                <input
-                  type="number" name="log_retention_days" min="1" max="3650" placeholder="forever"
-                  value="{{ cfg.log_retention_days|default_if_none:'' }}"
-                  title="Sync/import log entries older than this are deleted by a nightly cleanup job. Blank = keep forever. Doesn't affect the Activity Log."
-                  class="input input-sm w-20 bg-base-100 text-xs"
-                >
-                <span class="text-xs text-ink-dim">days</span>
-              </form>
-            </div>
+            <form method="get" class="flex items-center gap-2.5 flex-wrap">
+              <input type="hidden" name="tab" value="logs">
+              <input type="hidden" name="log_profile" value="{{ log_profile_id }}">
+              <input type="hidden" name="log_action_type" value="{{ log_action_type }}">
+              <input type="hidden" name="log_provider" value="{{ log_provider }}">
+              <input type="hidden" name="log_status" value="{{ log_status }}">
+              <input type="hidden" name="log_date_from" value="{{ log_date_from }}">
+              <input type="hidden" name="log_date_to" value="{{ log_date_to }}">
+              <select name="log_sort" onchange="this.form.submit()" class="select select-sm bg-base-100 focus:outline-primary text-xs">
+                <option value="newest" {% if log_sort == "newest" %}selected{% endif %}>Newest first</option>
+                <option value="oldest" {% if log_sort == "oldest" %}selected{% endif %}>Oldest first</option>
+              </select>
+            </form>
           </div>
 
           {% if failure_streaks %}

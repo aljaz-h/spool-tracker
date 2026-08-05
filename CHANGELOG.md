@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.73.0] - 2026-08-05
+
+### Changed
+
+- Settings' left-hand nav now has an icon next to every item.
+- The Logs filter panel gets a stronger shadow and a lighter surface so
+  it visually separates from the page instead of blending into it.
+- "Keep logs for" moved from the Logs tab header into the Maintenance
+  tab, alongside the other cleanup-job settings.
+
 ## [0.72.0] - 2026-08-05
 
 ### Added
