@@ -722,6 +722,11 @@ class DataLog(models.Model):
         TRAKT_CONNECT = "trakt_connect", "Trakt Connect"
         SIMKL_CONNECT = "simkl_connect", "Simkl Connect"
         NUVIO_CONNECT = "nuvio_connect", "Nuvio Connect"
+        MERGE_DUPLICATES = "merge_duplicates", "Merge Duplicate Titles"
+        BACKFILL_POSTERS = "backfill_posters", "Backfill Posters"
+        BACKFILL_GENRES = "backfill_genres", "Backfill Genres"
+        BACKFILL_COMPLETION = "backfill_completion", "Backfill Completion"
+        BACKFILL_REWATCHES = "backfill_rewatches", "Backfill Rewatches"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"
@@ -729,7 +734,7 @@ class DataLog(models.Model):
         FAILED = "failed", "Failed"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="data_logs")
-    action = models.CharField(max_length=15, choices=Action.choices)
+    action = models.CharField(max_length=20, choices=Action.choices)
     status = models.CharField(max_length=10, choices=Status.choices)
     item_count = models.PositiveIntegerField(null=True, blank=True)
     detail = models.CharField(max_length=255, blank=True)
@@ -757,6 +762,7 @@ class AdminAuditLogEntry(models.Model):
         PROFILE_PROMOTED = "profile_promoted", "Promoted to owner"
         PROFILE_DEMOTED = "profile_demoted", "Demoted to member"
         PROFILE_SELF_DELETED = "profile_self_deleted", "Deleted own account"
+        PROFILE_PASSWORD_RESET = "profile_password_reset", "Password reset"
 
     # Null once the actor's own Profile is gone (e.g. they deleted their
     # own account - see views.delete_own_account) rather than losing the

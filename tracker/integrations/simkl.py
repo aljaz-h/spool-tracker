@@ -75,6 +75,17 @@ def _headers(access_token, client_id):
     }
 
 
+def test_credentials(client_id):
+    """Settings' "Test connection" button. Best-effort, like the rest of
+    this module (see its own docstring) - Simkl's public API surface
+    beyond OAuth isn't documented well enough here to be fully confident
+    this endpoint tells a valid key apart from an invalid one, but it's
+    the closest thing to a public, no-user-auth GET Simkl appears to
+    offer. Raises requests.RequestException on failure."""
+    resp = requests.get(f"{API_BASE}/search/movie", params={"q": "test"}, headers={"simkl-api-key": client_id}, timeout=10)
+    resp.raise_for_status()
+
+
 def fetch_history(access_token, client_id):
     resp = requests.get(f"{API_BASE}/sync/activities", headers=_headers(access_token, client_id), timeout=15)
     resp.raise_for_status()

@@ -9,6 +9,7 @@ import uuid
 import zipfile
 import zoneinfo
 from datetime import date, timedelta
+from io import StringIO
 from itertools import groupby
 
 import django
@@ -19,6 +20,7 @@ from django.contrib.auth import logout, update_session_auth_hash
 from django.contrib.auth import views as auth_views
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
+from django.core.management import call_command
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Max
@@ -2575,7 +2577,57 @@ def save_instance_config(request):
             setter(value)
     cfg.save()
     messages.success(request, "Saved integration credentials.")
-    return redirect("admin_dashboard")
+    return redirect(f"{reverse('admin_dashboard')}?tab=server_integrations")
+
+
+@login_required
+@require_POST
+def test_provider_credentials(request, provider):
+    """Server Integrations' "Test connection" buttons - shares
+    save_instance_config's own form (same fields; the button posts here
+    instead via formaction) and the same blank-means-keep-existing
+    convention: a field left blank tests whatever's already saved rather
+    than nothing, so testing works both before and after hitting Save."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or not profile.is_owner:
+        raise Http404
+
+    # str.title() would mangle "TMDB" to "Tmdb" - an explicit display name
+    # per provider instead, same reasoning as get_provider_display() on
+    # ExternalAccount.Provider elsewhere in this file.
+    display_names = {"trakt": "Trakt", "simkl": "Simkl", "tmdb": "TMDB"}
+    if provider not in display_names:
+        raise Http404
+    display_name = display_names[provider]
+
+    if provider == "trakt":
+        credential = request.POST.get("trakt_client_id", "").strip() or instance_config.get_trakt_credentials()[0]
+        caveat = " (this only confirms the client ID is live - Trakt only checks the secret during the OAuth flow, not here)"
+    elif provider == "simkl":
+        credential = request.POST.get("simkl_client_id", "").strip() or instance_config.get_simkl_credentials()[0]
+        caveat = " (best effort - Simkl's API beyond OAuth isn't fully documented, see Server Integrations)"
+    else:
+        credential = request.POST.get("tmdb_api_key", "").strip() or instance_config.get_tmdb_api_key()
+        caveat = ""
+
+    if not credential:
+        messages.error(request, f"No {display_name} credentials to test - fill in a value first.")
+        return redirect(f"{reverse('admin_dashboard')}?tab=server_integrations")
+
+    try:
+        if provider == "trakt":
+            trakt.test_credentials(credential)
+        elif provider == "simkl":
+            simkl.test_credentials(credential)
+        elif not tmdb.test_api_key(credential):
+            raise requests.RequestException("TMDB reported the key as invalid")
+    except requests.RequestException as e:
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        reason = f"HTTP {status}" if status else str(e) or "couldn't reach the API"
+        messages.error(request, f"{display_name} connection failed ({reason}).")
+    else:
+        messages.success(request, f"{display_name} connection succeeded{caveat}.")
+    return redirect(f"{reverse('admin_dashboard')}?tab=server_integrations")
 
 
 @login_required
@@ -2817,6 +2869,114 @@ def demote_from_owner(request, profile_id):
         )
         messages.success(request, f"{target.display_name} is now a member.")
     return redirect("admin_dashboard")
+
+
+@login_required
+@require_POST
+def admin_reset_password(request, profile_id):
+    """Owner-only "Reset password" in the Profiles tab, for when a member
+    forgets theirs and can't get to their own Change Password form. No
+    update_session_auth_hash call here, unlike change_credentials/
+    my_profile's own password changes - those exist specifically so a
+    user's *own* change doesn't log out their *own* session; here the
+    target is someone else's account, so their other active sessions
+    should (and, via Django's normal session auth-hash check, will)
+    become invalid on their next request - the correct outcome for an
+    owner-forced reset."""
+    profile = Profile.objects.filter(user=request.user).first()
+    target = get_object_or_404(Profile, pk=profile_id)
+    new_password = request.POST.get("new_password", "")
+    confirm_password = request.POST.get("confirm_password", "")
+    if profile is None or not profile.is_owner:
+        messages.error(request, "Only the server owner can reset passwords.")
+    elif target.id == profile.id:
+        messages.error(request, "Use “Change password” in your Account tab to change your own password.")
+    elif not new_password or new_password != confirm_password:
+        messages.error(request, "Passwords don't match.")
+    elif len(new_password) < 8:
+        messages.error(request, "Password must be at least 8 characters.")
+    else:
+        target.user.set_password(new_password)
+        target.user.save(update_fields=["password"])
+        AdminAuditLogEntry.objects.create(
+            actor=profile,
+            action=AdminAuditLogEntry.Action.PROFILE_PASSWORD_RESET,
+            target_display_name=target.display_name,
+        )
+        messages.success(request, f"Reset {target.display_name}'s password.")
+    return redirect("admin_dashboard")
+
+
+@login_required
+@require_POST
+def run_merge_duplicates(request):
+    """Maintenance tab - wraps management/commands/merge_duplicate_titles.py,
+    which is pure DB queries with no external calls, so both preview and
+    commit run inline rather than dispatching to Celery (unlike the three
+    TMDB-touching backfills below). A preview doesn't change anything, so
+    it doesn't write a DataLog row; a commit always does, even "no
+    duplicates found" - that's still a completed run worth showing in the
+    Logs tab."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or not profile.is_owner:
+        raise Http404
+
+    commit = request.POST.get("mode") == "commit"
+    buf = StringIO()
+    call_command("merge_duplicate_titles", *(["--commit"] if commit else []), stdout=buf)
+    output = buf.getvalue().strip()
+
+    if commit:
+        DataLog.objects.create(
+            profile=profile,
+            action=DataLog.Action.MERGE_DUPLICATES,
+            status=DataLog.Status.SUCCESS,
+            detail=(output.splitlines()[-1][:255] if output else ""),
+        )
+        messages.success(request, output or "Done.")
+    else:
+        messages.info(request, output or "No duplicate titles found.")
+    return redirect(f"{reverse('admin_dashboard')}?tab=maintenance")
+
+
+# (task, DataLog.Action, is_async) - "is_async" ones make one TMDB call per
+# title with a deliberate throttle (see each command's own docstring) and
+# can run well past a normal request's timeout for a real library, so they
+# dispatch to Celery instead of running inline like backfill_rewatches.
+MAINTENANCE_TASKS = {
+    "backfill_posters": (tasks.run_backfill_posters, DataLog.Action.BACKFILL_POSTERS, True),
+    "backfill_genres": (tasks.run_backfill_genres, DataLog.Action.BACKFILL_GENRES, True),
+    "backfill_completion": (tasks.run_backfill_completion, DataLog.Action.BACKFILL_COMPLETION, True),
+    "backfill_rewatches": (None, DataLog.Action.BACKFILL_REWATCHES, False),
+}
+
+
+@login_required
+@require_POST
+def run_maintenance_task(request, task_key):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or not profile.is_owner:
+        raise Http404
+    if task_key not in MAINTENANCE_TASKS:
+        raise Http404
+    task, action, is_async = MAINTENANCE_TASKS[task_key]
+
+    if is_async:
+        log = DataLog.objects.create(profile=profile, action=action, status=DataLog.Status.RUNNING)
+        _dispatch_sync_task_safely(task, [log.id])
+        messages.success(request, "Started — check the Logs tab in a bit.")
+    else:
+        buf = StringIO()
+        call_command(task_key, stdout=buf)
+        output = buf.getvalue().strip()
+        DataLog.objects.create(
+            profile=profile,
+            action=action,
+            status=DataLog.Status.SUCCESS,
+            detail=(output.splitlines()[-1][:255] if output else ""),
+        )
+        messages.success(request, output or "Done.")
+    return redirect(f"{reverse('admin_dashboard')}?tab=maintenance")
 
 
 @login_required
@@ -3155,7 +3315,7 @@ def oauth_callback(request, provider):
     # so config alone doesn't bound this — a hard thread-join timeout
     # does. Worst case, a broker hiccup costs nothing worse than "today's
     # sync happens on the next daily beat run instead of immediately."
-    _dispatch_sync_task_safely(SYNC_TASKS[provider], profile.id)
+    _dispatch_sync_task_safely(SYNC_TASKS[provider], [profile.id])
     DataLog.objects.create(profile=profile, action=connect_action, status=DataLog.Status.SUCCESS, detail="connected")
     messages.success(request, f"Connected to {provider.title()} — syncing your history now.")
     return redirect("settings")
@@ -3181,7 +3341,7 @@ def _finish_nuvio_connect(profile, email, refresh_token, nuvio_profile):
     connection.set_refresh_token(refresh_token)
     connection.save(update_fields=["encrypted_refresh_token"])
     scheduling.ensure_periodic_task(connection)
-    _dispatch_sync_task_safely(SYNC_TASKS["nuvio"], profile.id)
+    _dispatch_sync_task_safely(SYNC_TASKS["nuvio"], [profile.id])
     DataLog.objects.create(
         profile=profile, action=DataLog.Action.NUVIO_CONNECT, status=DataLog.Status.SUCCESS, detail="connected"
     )
@@ -3354,10 +3514,10 @@ def disconnect_and_wipe_provider(request, provider):
     return redirect("settings")
 
 
-def _dispatch_sync_task_safely(task, profile_id, timeout=2.0):
+def _dispatch_sync_task_safely(task, args, timeout=2.0):
     def _dispatch():
         try:
-            task.apply_async(args=[profile_id], retry=False)
+            task.apply_async(args=args, retry=False)
         except Exception:
             logging.getLogger(__name__).exception("Background dispatch of %s failed", task.name)
 
@@ -3418,7 +3578,7 @@ def trigger_manual_sync(request, provider):
     if profile is None:
         raise Http404
     _get_provider_account(profile, provider)
-    _dispatch_sync_task_safely(SYNC_TASKS[provider], profile.id)
+    _dispatch_sync_task_safely(SYNC_TASKS[provider], [profile.id])
     messages.success(request, f"{provider.title()} sync started - check back in a moment.")
     return redirect("settings")
 

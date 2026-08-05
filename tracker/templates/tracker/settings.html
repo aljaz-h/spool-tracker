@@ -18,7 +18,7 @@
 
   {% if messages %}
     {% for message in messages %}
-      <div class="{% if message.tags == 'error' %}bg-error/15 text-error{% else %}bg-info/15 text-info{% endif %} text-sm rounded-lg px-4 py-2.5 mb-4">{{ message }}</div>
+      <div class="{% if message.tags == 'error' %}bg-error/15 text-error{% else %}bg-info/15 text-info{% endif %} text-sm rounded-lg px-4 py-2.5 mb-4">{{ message|linebreaksbr }}</div>
     {% endfor %}
   {% endif %}
 
@@ -53,6 +53,7 @@
         {% include "tracker/partials/settings_nav_button.html" with key="profiles" label="Profiles" %}
         {% include "tracker/partials/settings_nav_button.html" with key="server_integrations" label="Server Integrations" %}
         {% include "tracker/partials/settings_nav_button.html" with key="server" label="Server" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="maintenance" label="Maintenance" %}
         {% include "tracker/partials/settings_nav_button.html" with key="activity_log" label="Activity Log" %}
         {% include "tracker/partials/settings_nav_button.html" with key="logs" label="Logs" %}
       {% endif %}
@@ -450,41 +451,58 @@
         <div x-show="tab === 'profiles'" x-cloak x-data="{ showAddProfile: false }" class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl">
           <h3 class="text-lg mb-3.5">Profiles</h3>
           {% for p in profiles %}
-            <div class="flex items-center gap-3 py-3 border-b border-line last:border-b-0">
-              {% if p.avatar_image %}
-                <div class="w-8 h-8 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ p.avatar_image.url }}')"></div>
-              {% else %}
-                <div class="w-8 h-8 rounded-full flex items-center justify-center font-mono text-xs font-semibold" style="background:{{ p.avatar_color }};color:#fff;">{{ p.display_name|first|upper }}</div>
-              {% endif %}
-              <div class="flex-1 min-w-0">
-                <div class="font-semibold text-[13.5px]">{{ p.display_name }}</div>
-                <div class="text-[11.5px] text-ink-dim font-mono">{% if p.is_owner %}Owner{% else %}Member{% endif %}</div>
+            <div {% if p.id != profile.id %}x-data="{ showReset: false }"{% endif %} class="py-3 border-b border-line last:border-b-0">
+              <div class="flex items-center gap-3">
+                {% if p.avatar_image %}
+                  <div class="w-8 h-8 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ p.avatar_image.url }}')"></div>
+                {% else %}
+                  <div class="w-8 h-8 rounded-full flex items-center justify-center font-mono text-xs font-semibold" style="background:{{ p.avatar_color }};color:#fff;">{{ p.display_name|first|upper }}</div>
+                {% endif %}
+                <div class="flex-1 min-w-0">
+                  <div class="font-semibold text-[13.5px]">{{ p.display_name }}</div>
+                  <div class="text-[11.5px] text-ink-dim font-mono">{% if p.is_owner %}Owner{% else %}Member{% endif %}</div>
+                </div>
+                {% if p.id != profile.id %}
+                  <div class="flex items-center gap-1.5 flex-none">
+                    {% if p.is_owner %}
+                      <form method="post" action="{% url 'demote_from_owner' p.id %}" onsubmit="return confirm('Demote {{ p.display_name|escapejs }} to member? They will lose access to profiles, integrations, and server settings.');">
+                        {% csrf_token %}
+                        <button
+                          type="submit" title="Demote to member - removes access to profiles, integrations, and server settings"
+                          class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-base-content hover:bg-base-300"
+                        >{% icon "circle" "w-4 h-4" %}</button>
+                      </form>
+                    {% else %}
+                      <form method="post" action="{% url 'promote_to_owner' p.id %}" onsubmit="return confirm('Make {{ p.display_name|escapejs }} an owner? Owners can manage profiles, integrations, and server settings.');">
+                        {% csrf_token %}
+                        <button
+                          type="submit" title="Promote to owner - grants full access to profiles, integrations, and server settings"
+                          class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-primary hover:bg-base-300"
+                        >{% icon "crown" "w-4 h-4" %}</button>
+                      </form>
+                    {% endif %}
+                    <button
+                      type="button" @click="showReset = !showReset"
+                      title="Reset password - sets a new password for this profile and signs them out of any active sessions"
+                      class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-base-content hover:bg-base-300"
+                    >{% icon "key" "w-4 h-4" %}</button>
+                    <form method="post" action="{% url 'delete_profile' p.id %}" onsubmit="return confirm('Remove {{ p.display_name|escapejs }}? This deletes their entire watch history.');">
+                      {% csrf_token %}
+                      <button
+                        type="submit" title="Remove - permanently deletes this profile and its entire watch history"
+                        class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-error hover:bg-base-300"
+                      >{% icon "trash-2" "w-4 h-4" %}</button>
+                    </form>
+                  </div>
+                {% endif %}
               </div>
               {% if p.id != profile.id %}
-                <div class="flex items-center gap-1.5 flex-none">
-                  {% if p.is_owner %}
-                    <form method="post" action="{% url 'demote_from_owner' p.id %}" onsubmit="return confirm('Demote {{ p.display_name|escapejs }} to member? They will lose access to profiles, integrations, and server settings.');">
-                      {% csrf_token %}
-                      <button
-                        type="submit" title="Demote to member - removes access to profiles, integrations, and server settings"
-                        class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-base-content hover:bg-base-300"
-                      >{% icon "circle" "w-4 h-4" %}</button>
-                    </form>
-                  {% else %}
-                    <form method="post" action="{% url 'promote_to_owner' p.id %}" onsubmit="return confirm('Make {{ p.display_name|escapejs }} an owner? Owners can manage profiles, integrations, and server settings.');">
-                      {% csrf_token %}
-                      <button
-                        type="submit" title="Promote to owner - grants full access to profiles, integrations, and server settings"
-                        class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-primary hover:bg-base-300"
-                      >{% icon "crown" "w-4 h-4" %}</button>
-                    </form>
-                  {% endif %}
-                  <form method="post" action="{% url 'delete_profile' p.id %}" onsubmit="return confirm('Remove {{ p.display_name|escapejs }}? This deletes their entire watch history.');">
+                <div x-show="showReset" x-cloak class="flex flex-col gap-2 mt-2.5 pl-11">
+                  <form method="post" action="{% url 'admin_reset_password' p.id %}" class="flex flex-col gap-2">
                     {% csrf_token %}
-                    <button
-                      type="submit" title="Remove - permanently deletes this profile and its entire watch history"
-                      class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-error hover:bg-base-300"
-                    >{% icon "trash-2" "w-4 h-4" %}</button>
+                    <input type="password" name="new_password" placeholder="New password" required minlength="8" class="input input-sm w-full bg-base-100">
+                    <input type="password" name="confirm_password" placeholder="Confirm new password" required minlength="8" class="input input-sm w-full bg-base-100">
+                    <button type="submit" class="btn btn-xs btn-soft self-start">Set new password</button>
                   </form>
                 </div>
               {% endif %}
@@ -520,6 +538,11 @@
               <label class="block text-xs text-ink-dim mb-1">Trakt Client Secret</label>
               <input type="password" name="trakt_client_secret" placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
             </div>
+            <button
+              type="submit" formaction="{% url 'test_provider_credentials' 'trakt' %}"
+              title="Makes a live request to Trakt using the values above (without saving them) - only confirms the client ID is live, since Trakt doesn't check the secret outside the OAuth flow"
+              class="btn btn-xs btn-outline gap-1"
+            >{% icon "circle-help" "w-3.5 h-3.5" %} Test Trakt connection</button>
             <div>
               <label class="block text-xs text-ink-dim mb-1">Simkl Client ID {% if simkl_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
               <input type="text" name="simkl_client_id" placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
@@ -528,10 +551,20 @@
               <label class="block text-xs text-ink-dim mb-1">Simkl Client Secret</label>
               <input type="password" name="simkl_client_secret" placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
             </div>
+            <button
+              type="submit" formaction="{% url 'test_provider_credentials' 'simkl' %}"
+              title="Makes a live request to Simkl using the values above (without saving them) - best effort, Simkl's API beyond OAuth isn't fully documented"
+              class="btn btn-xs btn-outline gap-1"
+            >{% icon "circle-help" "w-3.5 h-3.5" %} Test Simkl connection</button>
             <div>
               <label class="block text-xs text-ink-dim mb-1">TMDB API Key {% if tmdb_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
               <input type="password" name="tmdb_api_key" placeholder="{% if tmdb_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
             </div>
+            <button
+              type="submit" formaction="{% url 'test_provider_credentials' 'tmdb' %}"
+              title="Makes a live request to TMDB using the value above (without saving it) - fully validates the key"
+              class="btn btn-xs btn-outline gap-1"
+            >{% icon "circle-help" "w-3.5 h-3.5" %} Test TMDB connection</button>
             <button type="submit" class="btn btn-sm btn-soft w-full">Save</button>
           </form>
           <a href="#" @click.prevent="setTab('logs')" class="block text-center text-xs text-ink-dim hover:text-base-content mt-3.5 pt-3.5 border-t border-line">View Logs →</a>
@@ -547,6 +580,100 @@
             debug&nbsp;&nbsp;&nbsp;&nbsp;{{ debug }}<br>
             timezone&nbsp;{{ time_zone }}<br>
             profiles&nbsp;{{ profiles|length }}
+          </div>
+        </div>
+
+        {# ==================== ADMIN: MAINTENANCE ==================== #}
+        <div x-show="tab === 'maintenance'" x-cloak class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl">
+          <h3 class="text-lg mb-1">Maintenance</h3>
+          <div class="text-ink-dim text-xs mb-3.5">One-off cleanup and backfill jobs, normally only run from the command line. Results show up in the Logs tab below.</div>
+
+          <div class="py-3.5 border-b border-line">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <div class="flex items-center gap-1.5">
+                <span class="font-semibold text-[13.5px]">Merge duplicate titles</span>
+                <span
+                  title="Finds titles that were imported twice under the same TMDB id (e.g. once via Trakt, once via Simkl, before duplicate detection existed) and merges their watch history, ratings, and lists into one. Preview changes nothing; Commit is not reversible."
+                  class="text-ink-faint cursor-help"
+                >{% icon "circle-help" "w-3.5 h-3.5" %}</span>
+              </div>
+              <div class="flex items-center gap-1.5 flex-none">
+                <form method="post" action="{% url 'run_merge_duplicates' %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="mode" value="preview">
+                  <button type="submit" class="btn btn-xs btn-soft">Preview</button>
+                </form>
+                <form method="post" action="{% url 'run_merge_duplicates' %}" onsubmit="return confirm('Merge every duplicate title found? This deletes the duplicate rows and moves their watch history, ratings, and lists onto the original - not reversible.');">
+                  {% csrf_token %}
+                  <input type="hidden" name="mode" value="commit">
+                  <button type="submit" class="btn btn-xs btn-outline border-error text-error hover:bg-error hover:text-error-content">Commit merge</button>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          <div class="py-3.5 border-b border-line">
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex items-center gap-1.5">
+                <span class="font-semibold text-[13.5px]">Backfill posters &amp; TMDB ids</span>
+                <span
+                  title="Looks up a poster and TMDB id for any tracked title missing one - covers anything imported before poster lookup existed. Runs in the background; check the Logs tab for the result."
+                  class="text-ink-faint cursor-help"
+                >{% icon "circle-help" "w-3.5 h-3.5" %}</span>
+              </div>
+              <form method="post" action="{% url 'run_maintenance_task' 'backfill_posters' %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-xs btn-soft">Run</button>
+              </form>
+            </div>
+          </div>
+
+          <div class="py-3.5 border-b border-line">
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex items-center gap-1.5">
+                <span class="font-semibold text-[13.5px]">Backfill genres</span>
+                <span
+                  title="Looks up genres for any tracked title that doesn't have any yet. Needs a TMDB id already captured - run Backfill posters &amp; TMDB ids first if unsure. Runs in the background; check the Logs tab for the result."
+                  class="text-ink-faint cursor-help"
+                >{% icon "circle-help" "w-3.5 h-3.5" %}</span>
+              </div>
+              <form method="post" action="{% url 'run_maintenance_task' 'backfill_genres' %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-xs btn-soft">Run</button>
+              </form>
+            </div>
+          </div>
+
+          <div class="py-3.5 border-b border-line">
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex items-center gap-1.5">
+                <span class="font-semibold text-[13.5px]">Backfill completion &amp; runtime</span>
+                <span
+                  title="Recomputes movie/episode runtime and watch-progress completion from TMDB - covers anything imported before this existed. Runs in the background; check the Logs tab for the result."
+                  class="text-ink-faint cursor-help"
+                >{% icon "circle-help" "w-3.5 h-3.5" %}</span>
+              </div>
+              <form method="post" action="{% url 'run_maintenance_task' 'backfill_completion' %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-xs btn-soft">Run</button>
+              </form>
+            </div>
+          </div>
+
+          <div class="py-3.5">
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex items-center gap-1.5">
+                <span class="font-semibold text-[13.5px]">Backfill rewatches</span>
+                <span
+                  title="Recomputes which watch events are rewatches, for history imported before rewatch marking existed. Fast, runs immediately, and safe to re-run."
+                  class="text-ink-faint cursor-help"
+                >{% icon "circle-help" "w-3.5 h-3.5" %}</span>
+              </div>
+              <form method="post" action="{% url 'run_maintenance_task' 'backfill_rewatches' %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-xs btn-soft">Run</button>
+              </form>
+            </div>
           </div>
         </div>
 

@@ -79,6 +79,23 @@ def _headers(access_token, client_id):
     }
 
 
+def test_credentials(client_id):
+    """Settings' "Test connection" button - a public GET that only needs
+    trakt-api-key, no user auth, to confirm client_id is a live, registered
+    Trakt app. Raises requests.RequestException on failure, same as every
+    other network call in this module - the caller decides what to show.
+    Can't validate client_secret this way: Trakt only checks that during
+    OAuth token exchange, never on a plain GET, so a right id paired with a
+    wrong secret still passes this check."""
+    resp = requests.get(
+        f"{API_BASE}/movies/trending",
+        params={"limit": 1},
+        headers={"Content-Type": "application/json", "trakt-api-version": "2", "trakt-api-key": client_id},
+        timeout=10,
+    )
+    resp.raise_for_status()
+
+
 def _format_trakt_datetime(dt):
     """Trakt's own documented example format is 2014-09-01T09:10:11.000Z -
     matched exactly here, though the start_at param itself is unverified

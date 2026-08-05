@@ -288,6 +288,17 @@ def _list_request(path, params=None):
     return data
 
 
+def test_api_key(api_key):
+    """Settings' "Test connection" button - TMDB's own dedicated key-check
+    endpoint, unlike Trakt/Simkl's test_credentials() this is a full check
+    (TMDB has just the one secret, no separate id/secret pair). Raises
+    requests.RequestException on failure; returns the endpoint's own
+    "success" flag on a 200 rather than assuming 200 always means valid."""
+    resp = requests.get(f"{API_BASE}/authentication", params={"api_key": api_key}, timeout=10)
+    resp.raise_for_status()
+    return bool(resp.json().get("success"))
+
+
 def _normalize_result(item, media_type):
     is_movie = media_type == "movie"
     title = item.get("title") if is_movie else item.get("name")

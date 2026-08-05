@@ -5220,7 +5220,7 @@ class TriggerManualSyncViewTests(TestCase):
     @patch("tracker.views._dispatch_sync_task_safely")
     def test_dispatches_the_right_task_for_the_provider(self, mock_dispatch):
         self.client.post(reverse("trigger_manual_sync", args=["trakt"]))
-        mock_dispatch.assert_called_once_with(views.tasks.sync_trakt_history, self.profile.id)
+        mock_dispatch.assert_called_once_with(views.tasks.sync_trakt_history, [self.profile.id])
 
     @patch("tracker.views._dispatch_sync_task_safely")
     def test_does_not_change_the_sync_schedule(self, mock_dispatch):
@@ -5269,7 +5269,7 @@ class NuvioConnectViewTests(TestCase):
         self.assertEqual(connection.email, "me@nuvio.tv")
         self.assertEqual(connection.nuvio_profile_id, 0)
         self.assertEqual(connection.get_refresh_token(), "rt")
-        mock_dispatch.assert_called_once_with(views.tasks.sync_nuvio_history, self.profile.id)
+        mock_dispatch.assert_called_once_with(views.tasks.sync_nuvio_history, [self.profile.id])
         log = DataLog.objects.get(profile=self.profile)
         self.assertEqual(log.action, DataLog.Action.NUVIO_CONNECT)
         self.assertEqual(log.status, DataLog.Status.SUCCESS)
@@ -5360,7 +5360,7 @@ class NuvioProviderKeyedViewsTests(TestCase):
     @patch("tracker.views._dispatch_sync_task_safely")
     def test_trigger_manual_sync_dispatches_nuvio_task(self, mock_dispatch):
         self.client.post(reverse("trigger_manual_sync", args=["nuvio"]))
-        mock_dispatch.assert_called_once_with(views.tasks.sync_nuvio_history, self.profile.id)
+        mock_dispatch.assert_called_once_with(views.tasks.sync_nuvio_history, [self.profile.id])
 
     def test_disconnect_removes_connection_and_periodic_task(self):
         scheduling.ensure_periodic_task(self.connection)
@@ -13427,3 +13427,280 @@ class HistoryGroupTileDropdownTests(TestCase):
     def test_grid_uses_the_bumped_tile_size(self):
         resp = self.client.get(reverse("history"))
         self.assertContains(resp, "minmax(150px,1fr)")
+
+
+class TestProviderCredentialsViewTests(TestCase):
+    """Server Integrations' "Test connection" buttons - views.test_provider_credentials.
+    One live GET per provider, mocked at the requests.get level inside
+    each integration module (same pattern TmdbFindMatchTests uses)."""
+
+    def setUp(self):
+        user = User.objects.create_user("testconnowner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=user, display_name="TestConnOwner")
+        self.client.login(username="testconnowner", password="pass12345")
+
+    def _response(self, json_data, status_code=200):
+        resp = Mock()
+        resp.status_code = status_code
+        resp.json.return_value = json_data
+        if status_code >= 400:
+            resp.raise_for_status.side_effect = requests.HTTPError(response=resp)
+        else:
+            resp.raise_for_status = Mock()
+        return resp
+
+    @patch("tracker.integrations.trakt.requests.get")
+    def test_trakt_success(self, mock_get):
+        mock_get.return_value = self._response({})
+        resp = self.client.post(reverse("test_provider_credentials", args=["trakt"]), {"trakt_client_id": "abc"}, follow=True)
+        self.assertContains(resp, "Trakt connection succeeded")
+
+    @patch("tracker.integrations.trakt.requests.get")
+    def test_trakt_failure_reports_the_status_code(self, mock_get):
+        mock_get.return_value = self._response({}, status_code=401)
+        resp = self.client.post(reverse("test_provider_credentials", args=["trakt"]), {"trakt_client_id": "bad"}, follow=True)
+        self.assertContains(resp, "Trakt connection failed")
+        self.assertContains(resp, "401")
+
+    @patch("tracker.integrations.simkl.requests.get")
+    def test_simkl_success(self, mock_get):
+        mock_get.return_value = self._response({})
+        resp = self.client.post(reverse("test_provider_credentials", args=["simkl"]), {"simkl_client_id": "abc"}, follow=True)
+        self.assertContains(resp, "Simkl connection succeeded")
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_tmdb_success(self, mock_get):
+        mock_get.return_value = self._response({"success": True})
+        resp = self.client.post(reverse("test_provider_credentials", args=["tmdb"]), {"tmdb_api_key": "abc"}, follow=True)
+        self.assertContains(resp, "TMDB connection succeeded")
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_tmdb_reports_invalid_key_without_a_200_meaning_success(self, mock_get):
+        mock_get.return_value = self._response({"success": False})
+        resp = self.client.post(reverse("test_provider_credentials", args=["tmdb"]), {"tmdb_api_key": "bad"}, follow=True)
+        self.assertContains(resp, "TMDB connection failed")
+
+    def test_blank_field_falls_back_to_the_saved_credential(self):
+        cfg = InstanceConfig.load()
+        cfg.trakt_client_id = "saved-id"
+        cfg.save()
+        with patch("tracker.integrations.trakt.requests.get") as mock_get:
+            mock_get.return_value = self._response({})
+            self.client.post(reverse("test_provider_credentials", args=["trakt"]), {"trakt_client_id": ""})
+            self.assertEqual(mock_get.call_args.kwargs["headers"]["trakt-api-key"], "saved-id")
+
+    @override_settings(TRAKT_CLIENT_ID="")
+    def test_no_credentials_at_all_shows_an_error_without_calling_the_api(self):
+        with patch("tracker.integrations.trakt.requests.get") as mock_get:
+            resp = self.client.post(reverse("test_provider_credentials", args=["trakt"]), {"trakt_client_id": ""}, follow=True)
+            mock_get.assert_not_called()
+        self.assertContains(resp, "No Trakt credentials")
+
+    def test_non_owner_gets_404(self):
+        member_user = User.objects.create_user("testconnmember", password="pass12345")
+        Profile.objects.create(user=member_user, display_name="TestConnMember")
+        self.client.logout()
+        self.client.login(username="testconnmember", password="pass12345")
+        resp = self.client.post(reverse("test_provider_credentials", args=["trakt"]), {"trakt_client_id": "abc"})
+        self.assertEqual(resp.status_code, 404)
+
+
+class AdminResetPasswordViewTests(TestCase):
+    def setUp(self):
+        owner_user = User.objects.create_user("resetpwowner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=owner_user, display_name="ResetPwOwner")
+        member_user = User.objects.create_user("resetpwmember", password="pass12345")
+        self.member = Profile.objects.create(user=member_user, display_name="ResetPwMember")
+
+    def test_owner_can_reset_a_members_password(self):
+        self.client.login(username="resetpwowner", password="pass12345")
+        self.client.post(
+            reverse("admin_reset_password", args=[self.member.id]),
+            {"new_password": "newpass456", "confirm_password": "newpass456"},
+        )
+        self.member.user.refresh_from_db()
+        self.assertTrue(self.member.user.check_password("newpass456"))
+
+    def test_mismatched_passwords_are_rejected(self):
+        self.client.login(username="resetpwowner", password="pass12345")
+        old_hash = self.member.user.password
+        resp = self.client.post(
+            reverse("admin_reset_password", args=[self.member.id]),
+            {"new_password": "newpass456", "confirm_password": "different"},
+            follow=True,
+        )
+        self.member.user.refresh_from_db()
+        self.assertEqual(self.member.user.password, old_hash)
+        self.assertContains(resp, "don&#x27;t match")
+
+    def test_too_short_password_is_rejected(self):
+        self.client.login(username="resetpwowner", password="pass12345")
+        resp = self.client.post(
+            reverse("admin_reset_password", args=[self.member.id]),
+            {"new_password": "short", "confirm_password": "short"},
+            follow=True,
+        )
+        self.assertContains(resp, "at least 8 characters")
+
+    def test_cannot_reset_own_password_this_way(self):
+        self.client.login(username="resetpwowner", password="pass12345")
+        old_hash = self.owner.user.password
+        self.client.post(
+            reverse("admin_reset_password", args=[self.owner.id]),
+            {"new_password": "newpass456", "confirm_password": "newpass456"},
+        )
+        self.owner.user.refresh_from_db()
+        self.assertEqual(self.owner.user.password, old_hash)
+
+    def test_member_cannot_reset_anyones_password(self):
+        self.client.login(username="resetpwmember", password="pass12345")
+        old_hash = self.owner.user.password
+        self.client.post(
+            reverse("admin_reset_password", args=[self.owner.id]),
+            {"new_password": "newpass456", "confirm_password": "newpass456"},
+        )
+        self.owner.user.refresh_from_db()
+        self.assertEqual(self.owner.user.password, old_hash)
+
+    def test_resetting_logs_an_audit_entry(self):
+        self.client.login(username="resetpwowner", password="pass12345")
+        self.client.post(
+            reverse("admin_reset_password", args=[self.member.id]),
+            {"new_password": "newpass456", "confirm_password": "newpass456"},
+        )
+        entry = AdminAuditLogEntry.objects.get(action=AdminAuditLogEntry.Action.PROFILE_PASSWORD_RESET)
+        self.assertEqual(entry.actor, self.owner)
+        self.assertEqual(entry.target_display_name, "ResetPwMember")
+
+
+class RunMergeDuplicatesViewTests(TestCase):
+    """Maintenance tab's Preview/Commit merge-duplicates buttons -
+    _merge_title's own correctness is already covered by
+    MergeDuplicateTitlesCommandTests; this only checks the view wraps the
+    command correctly (mode dispatch, DataLog logging)."""
+
+    def setUp(self):
+        owner_user = User.objects.create_user("mergeviewowner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=owner_user, display_name="MergeViewOwner")
+        self.client.login(username="mergeviewowner", password="pass12345")
+        self.canonical = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Disclosure Day", year=2026, external_ids={"trakt": "5", "tmdb": "42"}
+        )
+        self.dupe = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Disclosure Day", year=2026, external_ids={"nuvio": "tmdb:42", "tmdb": "42"}
+        )
+
+    def test_preview_does_not_change_anything_or_log(self):
+        resp = self.client.post(reverse("run_merge_duplicates"), {"mode": "preview"}, follow=True)
+        self.assertTrue(Title.objects.filter(pk=self.dupe.pk).exists())
+        self.assertFalse(DataLog.objects.exists())
+        self.assertContains(resp, "Disclosure Day")
+
+    def test_commit_merges_and_logs_a_datalog_entry(self):
+        self.client.post(reverse("run_merge_duplicates"), {"mode": "commit"})
+        self.assertFalse(Title.objects.filter(pk=self.dupe.pk).exists())
+        log = DataLog.objects.get(action=DataLog.Action.MERGE_DUPLICATES)
+        self.assertEqual(log.status, DataLog.Status.SUCCESS)
+        self.assertEqual(log.profile, self.owner)
+
+    def test_commit_with_no_duplicates_still_logs_a_completed_run(self):
+        self.dupe.delete()
+        self.client.post(reverse("run_merge_duplicates"), {"mode": "commit"})
+        log = DataLog.objects.get(action=DataLog.Action.MERGE_DUPLICATES)
+        self.assertEqual(log.status, DataLog.Status.SUCCESS)
+
+    def test_non_owner_gets_404(self):
+        member_user = User.objects.create_user("mergeviewmember", password="pass12345")
+        Profile.objects.create(user=member_user, display_name="MergeViewMember")
+        self.client.logout()
+        self.client.login(username="mergeviewmember", password="pass12345")
+        resp = self.client.post(reverse("run_merge_duplicates"), {"mode": "preview"})
+        self.assertEqual(resp.status_code, 404)
+
+
+class RunMaintenanceTaskViewTests(TestCase):
+    """Maintenance tab's Run buttons for the three TMDB-touching backfills
+    (dispatched to Celery, like TriggerManualSyncViewTests mocks
+    _dispatch_sync_task_safely rather than re-proving broker mechanics)
+    and the DB-only backfill_rewatches (runs inline)."""
+
+    def setUp(self):
+        owner_user = User.objects.create_user("maintowner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=owner_user, display_name="MaintOwner")
+        self.client.login(username="maintowner", password="pass12345")
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_backfill_posters_creates_a_running_datalog_and_dispatches(self, mock_dispatch):
+        self.client.post(reverse("run_maintenance_task", args=["backfill_posters"]))
+        log = DataLog.objects.get(action=DataLog.Action.BACKFILL_POSTERS)
+        self.assertEqual(log.status, DataLog.Status.RUNNING)
+        mock_dispatch.assert_called_once_with(views.tasks.run_backfill_posters, [log.id])
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_backfill_genres_dispatches(self, mock_dispatch):
+        self.client.post(reverse("run_maintenance_task", args=["backfill_genres"]))
+        log = DataLog.objects.get(action=DataLog.Action.BACKFILL_GENRES)
+        mock_dispatch.assert_called_once_with(views.tasks.run_backfill_genres, [log.id])
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_backfill_completion_dispatches(self, mock_dispatch):
+        self.client.post(reverse("run_maintenance_task", args=["backfill_completion"]))
+        log = DataLog.objects.get(action=DataLog.Action.BACKFILL_COMPLETION)
+        mock_dispatch.assert_called_once_with(views.tasks.run_backfill_completion, [log.id])
+
+    def test_backfill_rewatches_runs_synchronously_and_logs_success(self):
+        from django.utils import timezone
+
+        show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
+        ep = Episode.objects.create(title=show, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.owner, title=show, episode=ep, watched_at=timezone.now())
+        self.client.post(reverse("run_maintenance_task", args=["backfill_rewatches"]))
+        log = DataLog.objects.get(action=DataLog.Action.BACKFILL_REWATCHES)
+        self.assertEqual(log.status, DataLog.Status.SUCCESS)
+
+    def test_unknown_task_key_404s(self):
+        resp = self.client.post(reverse("run_maintenance_task", args=["not-a-real-task"]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_non_owner_gets_404(self):
+        member_user = User.objects.create_user("maintmember", password="pass12345")
+        Profile.objects.create(user=member_user, display_name="MaintMember")
+        self.client.logout()
+        self.client.login(username="maintmember", password="pass12345")
+        resp = self.client.post(reverse("run_maintenance_task", args=["backfill_rewatches"]))
+        self.assertEqual(resp.status_code, 404)
+
+
+class RunBackfillCommandTaskTests(TestCase):
+    """tasks._run_backfill_command/run_backfill_* - called directly as
+    plain functions (Celery needs no broker for this, same as calling any
+    @shared_task-decorated function outside .delay()/.apply_async())."""
+
+    def setUp(self):
+        user = User.objects.create_user("backfilltaskowner", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="BackfillTaskOwner")
+
+    def test_success_marks_the_datalog_row_success_with_captured_detail(self):
+        log = DataLog.objects.create(
+            profile=self.profile, action=DataLog.Action.BACKFILL_POSTERS, status=DataLog.Status.RUNNING
+        )
+
+        def fake_call_command(name, stdout=None):
+            stdout.write("Done: 3/5 got a poster, 2/5 got a TMDB id.\n")
+
+        with patch("tracker.tasks.call_command", side_effect=fake_call_command):
+            tasks.run_backfill_posters(log.id)
+        log.refresh_from_db()
+        self.assertEqual(log.status, DataLog.Status.SUCCESS)
+        self.assertIn("Done: 3/5", log.detail)
+
+    def test_failure_marks_the_datalog_row_failed_and_reraises(self):
+        log = DataLog.objects.create(
+            profile=self.profile, action=DataLog.Action.BACKFILL_GENRES, status=DataLog.Status.RUNNING
+        )
+        with patch("tracker.tasks.call_command", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                tasks.run_backfill_genres(log.id)
+        log.refresh_from_db()
+        self.assertEqual(log.status, DataLog.Status.FAILED)
+        self.assertIn("boom", log.error_message)

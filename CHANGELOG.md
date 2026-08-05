@@ -8,7 +8,35 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
-## [0.69.0] - 2026-08-05
+## [0.70.0] - 2026-08-05
+
+### Added
+
+- Settings → Server Integrations: a "Test connection" button next to each
+  of Trakt/Simkl/TMDB's credential fields, making one live request with
+  the currently typed (or already-saved, if left blank) value and
+  reporting success/failure without saving anything. TMDB's check fully
+  validates the key; Trakt/Simkl's only confirm the client ID is live,
+  since neither checks the secret outside the OAuth flow.
+- Settings → Profiles: the server owner can now reset another profile's
+  password directly (a "Set new password" form next to promote/demote/
+  delete), for when a household member forgets theirs. Logged to the
+  existing Activity Log; the target's other sessions are invalidated on
+  their next request, same as any password change.
+- Settings → Maintenance (new tab, owner-only): one-click buttons for the
+  `merge_duplicate_titles` (preview/commit) and `backfill_posters`/
+  `backfill_genres`/`backfill_completion`/`backfill_rewatches` management
+  commands, previously reachable only via `docker compose exec web
+  python manage.py ...`. The three TMDB-touching backfills run in the
+  background (Celery) since a real library can take longer than a
+  request's timeout; results show up automatically in the existing Logs
+  tab.
+
+### Fixed
+
+- Saving Server Integrations credentials, or running any of the actions
+  above, no longer bounces the admin back to the Profiles tab - it now
+  stays on the tab they were on.
 
 ### Added
 

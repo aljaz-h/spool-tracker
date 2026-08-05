@@ -1,9 +1,11 @@
 import os
 from datetime import timedelta
+from io import StringIO
 
 import requests
 from celery import shared_task
 from celery.utils.log import get_task_logger
+from django.core.management import call_command
 from django.utils import timezone
 
 from . import csv_import, instance_config, notifications, release_sync, selectors, update_check, version
@@ -266,3 +268,42 @@ def check_for_new_version():
         created += made
     logger.info("check_for_new_version: v%s available, %d notification(s) created", latest, created)
     return created
+
+
+def _run_backfill_command(data_log_id, command_name):
+    """Shared body for run_backfill_posters/genres/completion below - each
+    just wraps its own already-existing management command (see
+    tracker/management/commands/), dispatched from Settings' Maintenance
+    tab (views.run_maintenance_task) instead of run from a shell, because
+    each one makes one TMDB call per title with a deliberate throttle and
+    can run past a normal request's timeout for a real library. The
+    DataLog row is created by the view *before* dispatch (so "started" is
+    visible in the Logs tab immediately) - this only ever updates it."""
+    log = DataLog.objects.get(pk=data_log_id)
+    buf = StringIO()
+    try:
+        call_command(command_name, stdout=buf)
+    except Exception as e:
+        log.status = DataLog.Status.FAILED
+        log.error_message = str(e)[:500]
+        log.save(update_fields=["status", "error_message"])
+        raise
+    output = buf.getvalue().strip()
+    log.status = DataLog.Status.SUCCESS
+    log.detail = output.splitlines()[-1][:255] if output else ""
+    log.save(update_fields=["status", "detail"])
+
+
+@shared_task
+def run_backfill_posters(data_log_id):
+    _run_backfill_command(data_log_id, "backfill_posters")
+
+
+@shared_task
+def run_backfill_genres(data_log_id):
+    _run_backfill_command(data_log_id, "backfill_genres")
+
+
+@shared_task
+def run_backfill_completion(data_log_id):
+    _run_backfill_command(data_log_id, "backfill_completion")
