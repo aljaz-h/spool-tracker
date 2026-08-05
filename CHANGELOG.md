@@ -8,31 +8,6 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
-## [0.66.0] - 2026-08-02
-
-### Changed
-
-- Split the README's install/config/import/maintenance sections out into
-  focused guides under `docs/` (`QUICKSTART.md`, `CONFIGURATION.md`,
-  `IMPORTING.md`, `MAINTENANCE.md`, `LIMITATIONS.md`, `DEVELOPMENT.md`) -
-  the README itself is now a short pitch + screenshots + a documentation
-  table linking out to each one, instead of one 400+ line page covering
-  everything at once. `docs/CONFIGURATION.md` also now documents every
-  `.env` variable (not just the commonly-touched ones) plus the
-  `docker-compose.yml`/`docker-compose.prod.yml` settings that live
-  outside `.env` (host port, the reverse-proxy network, volumes, image
-  tag pinning).
-
-## [0.65.3] - 2026-08-02
-
-### Added
-
-- The Docker publish workflow now also tags each image it builds with
-  the `VERSION` file's own value (e.g. `:0.65.3`), alongside the
-  existing `:latest`/`:<commit-sha>` tags - so rolling back to a known-
-  good release is just pinning to that version number instead of
-  hunting for a commit SHA. See the README's new "Rolling back" section.
-
 ## [0.65.2] - 2026-08-02
 
 ### Fixed

@@ -20,8 +20,9 @@ data).
   template class combinations — the compiled CSS only contains classes it
   has actually seen used somewhere in the templates at build time.
 - **Bump `VERSION`** (semantic versioning) **and add a dated entry to
-  `CHANGELOG.md`** (Keep a Changelog format) for any user-visible change —
-  one entry per logical change, not per commit.
+  `CHANGELOG.md`** (Keep a Changelog format) for any change to the app
+  itself — one entry per logical change, not per commit. Repo-only
+  changes (README/docs, CI workflows, `.md` files) don't get a bump.
 - Keep changes scoped to what the PR describes. If you spot an unrelated
   issue while working, mention it in the PR description or open a separate
   issue rather than folding an unrelated fix in.
