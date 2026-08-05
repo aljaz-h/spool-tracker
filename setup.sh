@@ -25,7 +25,7 @@ else
   sedi "s#^DJANGO_ALLOWED_HOSTS=.*#DJANGO_ALLOWED_HOSTS=${ALLOWED_HOST}#"
 
   echo "Wrote .env with a random DJANGO_SECRET_KEY and DB_PASSWORD."
-  echo "Edit .env now if you want Trakt/Simkl/TMDB integration, HTTPS via a reverse proxy, or a non-default admin password - see the README's Configuration reference."
+  echo "Edit .env now if you want Trakt/Simkl/TMDB integration, HTTPS via a reverse proxy, or a non-default admin password - see docs/CONFIGURATION.md."
 fi
 
 echo "Starting Spool (this builds the image and runs migrations - first run can take a minute or two)..."
@@ -33,4 +33,4 @@ docker compose up -d --build
 
 echo
 echo "Done. Once 'docker compose ps' shows all five services healthy, open http://<the host you entered>:8000"
-echo "and sign in with ADMIN_USERNAME/ADMIN_PASSWORD from .env (still the 'changeme' default unless you edited it - see the README's First login section)."
+echo "and sign in with ADMIN_USERNAME/ADMIN_PASSWORD from .env (still the 'changeme' default unless you edited it - see docs/QUICKSTART.md's First login section)."

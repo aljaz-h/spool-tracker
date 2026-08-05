@@ -6,20 +6,9 @@ feature is easier to review and merge than a sweeping rewrite.
 
 ## Dev setup
 
-```bash
-python -m venv .venv && source .venv/Scripts/activate   # or .venv/bin/activate on Linux/Mac
-pip install -r requirements.txt
-npm install
-npx @tailwindcss/cli -i ./static/src/app.css -o ./static/dist/app.css --watch   # separate terminal
-cp .env.example .env   # DATABASE_URL can be left unset to fall back to sqlite
-python manage.py migrate
-python manage.py bootstrap_admin   # or createsuperuser, see the README
-python manage.py runserver
-```
-
-Celery/Redis-dependent features (Trakt/Simkl sync) won't run without a Redis
-instance and a `celery -A spool worker` process alongside the dev server;
-everything else works against just `runserver` + sqlite.
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for running Spool locally
+without Docker (venv, Tailwind watch mode, sqlite fallback, seeding demo
+data).
 
 ## Before opening a PR
 

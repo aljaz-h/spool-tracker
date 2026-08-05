@@ -28,7 +28,7 @@ addressed as soon as practical.
 
 Spool is designed to be run on a trusted home network or behind your own
 reverse proxy for a small household, not exposed as a multi-tenant public
-service — see the "Known limitations" section of the README (profiles
+service — see [docs/LIMITATIONS.md](docs/LIMITATIONS.md) (profiles
 share one database by design; anyone with a login can see shared lists
 and the Activity feed). Reports specific to that trust model (e.g. "one
 household member can see another's shared list") are expected behavior,

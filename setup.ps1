@@ -27,7 +27,7 @@ if (Test-Path .env) {
     Set-Content .env -Value $content -Encoding utf8 -NoNewline
 
     Write-Host "Wrote .env with a random DJANGO_SECRET_KEY and DB_PASSWORD."
-    Write-Host "Edit .env now if you want Trakt/Simkl/TMDB integration, HTTPS via a reverse proxy, or a non-default admin password - see the README's Configuration reference."
+    Write-Host "Edit .env now if you want Trakt/Simkl/TMDB integration, HTTPS via a reverse proxy, or a non-default admin password - see docs/CONFIGURATION.md."
 }
 
 Write-Host "Starting Spool (this builds the image and runs migrations - first run can take a minute or two)..."
@@ -35,4 +35,4 @@ docker compose up -d --build
 
 Write-Host ""
 Write-Host "Done. Once 'docker compose ps' shows all five services healthy, open http://<the host you entered>:8000"
-Write-Host "and sign in with ADMIN_USERNAME/ADMIN_PASSWORD from .env (still the 'changeme' default unless you edited it - see the README's First login section)."
+Write-Host "and sign in with ADMIN_USERNAME/ADMIN_PASSWORD from .env (still the 'changeme' default unless you edited it - see docs/QUICKSTART.md's First login section)."
