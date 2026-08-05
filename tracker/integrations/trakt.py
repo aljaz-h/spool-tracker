@@ -130,9 +130,18 @@ def fetch_history(access_token, client_id, limit=200, max_pages=500, start_at=No
     return items
 
 
-def _get_or_create_title(media_type, name, year, trakt_id):
+def _get_or_create_title(media_type, name, year, trakt_id, tmdb_id=None):
+    """tmdb_id: Trakt's own ids.tmdb for this item, when the caller has it
+    (see upsert_history_items/upsert_lists) - checked first and, when
+    creating a new title, used directly instead of the fuzzy name/year
+    find_match() search below. find_match can come up empty (a year
+    mismatch between Trakt's and TMDB's own metadata returns nothing) or
+    match the wrong TMDB entry, leaving the title Trakt is reporting
+    unlinked from what the Movies & TV/Anime grid matches watched status
+    against - Trakt's id is exact, so prefer it whenever the response
+    actually included one."""
     from tracker.integrations import tmdb
-    from tracker.models import Title, attach_genres
+    from tracker.models import MediaType, Title, attach_genres
 
     # Manual filter-then-create instead of get_or_create(): a JSONField key
     # lookup like external_ids__trakt=X can't double as a constructor kwarg
@@ -140,18 +149,28 @@ def _get_or_create_title(media_type, name, year, trakt_id):
     # the pitfall get_or_create's defaults-merging would hit here.
     title = Title.objects.filter(media_type=media_type, external_ids__trakt=str(trakt_id)).first()
     if title:
+        if tmdb_id and not title.external_ids.get("tmdb"):
+            kind = "movie" if media_type == MediaType.MOVIE else "tv"
+            title.external_ids = {**title.external_ids, "tmdb": str(tmdb_id), "tmdb_kind": kind}
+            title.save(update_fields=["external_ids"])
         return title
     external_ids = {"trakt": str(trakt_id)}
     poster_url = ""
     genre_names = []
-    match = tmdb.find_match(media_type, name, year)
+    if tmdb_id:
+        kind = "movie" if media_type == MediaType.MOVIE else "tv"
+        match = {"id": tmdb_id, "kind": kind, "poster_url": None}
+    else:
+        match = tmdb.find_match(media_type, name, year)
     if match:
         external_ids["tmdb"] = str(match["id"])
         external_ids["tmdb_kind"] = match["kind"]
-        poster_url = match["poster_url"] or ""
         details = tmdb.get_full_details(match["kind"], match["id"])
         if details:
+            poster_url = match["poster_url"] or details.get("poster_url") or ""
             genre_names = details["genres"]
+        else:
+            poster_url = match["poster_url"] or ""
         # A title already tracked via Simkl/CSV import/Nuvio before Trakt
         # was ever connected must reuse that same Title, not fork a
         # duplicate that leaves the original stuck showing "not watched"
@@ -199,7 +218,9 @@ def upsert_history_items(profile, items):
             ids = m.get("ids") or {}
             if "trakt" not in ids:
                 continue
-            title = _get_or_create_title(MediaType.MOVIE, m.get("title", "Untitled"), m.get("year"), ids["trakt"])
+            title = _get_or_create_title(
+                MediaType.MOVIE, m.get("title", "Untitled"), m.get("year"), ids["trakt"], ids.get("tmdb")
+            )
             episode = None
             touched_movies.add(title.id)
         elif item.get("type") == "episode":
@@ -208,7 +229,9 @@ def upsert_history_items(profile, items):
             ids = s.get("ids") or {}
             if "trakt" not in ids or "season" not in e or "number" not in e:
                 continue
-            title = _get_or_create_title(MediaType.TV, s.get("title", "Untitled"), s.get("year"), ids["trakt"])
+            title = _get_or_create_title(
+                MediaType.TV, s.get("title", "Untitled"), s.get("year"), ids["trakt"], ids.get("tmdb")
+            )
             episode, _ = Episode.objects.get_or_create(
                 title=title, season=e["season"], episode=e["number"], defaults={"name": e.get("title") or ""}
             )
@@ -296,13 +319,17 @@ def upsert_lists(profile, lists_data):
                 ids = m.get("ids") or {}
                 if "trakt" not in ids:
                     continue
-                title = _get_or_create_title(MediaType.MOVIE, m.get("title", "Untitled"), m.get("year"), ids["trakt"])
+                title = _get_or_create_title(
+                    MediaType.MOVIE, m.get("title", "Untitled"), m.get("year"), ids["trakt"], ids.get("tmdb")
+                )
             elif item.get("type") == "show":
                 s = item.get("show") or {}
                 ids = s.get("ids") or {}
                 if "trakt" not in ids:
                     continue
-                title = _get_or_create_title(MediaType.TV, s.get("title", "Untitled"), s.get("year"), ids["trakt"])
+                title = _get_or_create_title(
+                    MediaType.TV, s.get("title", "Untitled"), s.get("year"), ids["trakt"], ids.get("tmdb")
+                )
             else:
                 continue
             _, created = WatchListItem.objects.get_or_create(watchlist=watchlist, title=title)

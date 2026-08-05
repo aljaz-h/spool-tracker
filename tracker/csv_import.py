@@ -213,6 +213,7 @@ def _row_from_trakt_item(item, i):
             "watched_at": watched_at,
             "rating": None,
             "trakt_id": ids.get("trakt"),
+            "tmdb_id": ids.get("tmdb"),
         }, None
 
     s = item.get("show") or {}
@@ -230,6 +231,7 @@ def _row_from_trakt_item(item, i):
         "watched_at": watched_at,
         "rating": None,
         "trakt_id": ids.get("trakt"),
+        "tmdb_id": ids.get("tmdb"),
     }, None
 
 
@@ -270,6 +272,7 @@ def _generic_row_from_dict(d, i):
         "watched_at": watched_at,
         "rating": _parse_rating(cell("rating")),
         "trakt_id": None,
+        "tmdb_id": None,
     }, None
 
 
@@ -380,18 +383,42 @@ def parse_file(path, kind, mapping=None, limit=None):
     return parse_zip_file(path, limit=limit)
 
 
-def _get_or_create_title(media_type, name, year, trakt_id=None):
-    """trakt_id: present for rows sourced from Trakt-shaped JSON/zip
-    imports - matched first (same external_ids__trakt lookup trakt.py's
-    OAuth sync uses) so a title already synced via Trakt OAuth doesn't
-    get a second, name/year-matched duplicate. CSV rows and generic JSON
-    rows never carry this (see module docstring)."""
+def _get_or_create_title(media_type, name, year, trakt_id=None, tmdb_id=None):
+    """trakt_id/tmdb_id: present for rows sourced from Trakt-shaped
+    JSON/zip imports - Trakt's own ids.trakt/ids.tmdb (see
+    _row_from_trakt_item). tmdb_id is checked first (same
+    external_ids__tmdb+tmdb_kind lookup discover_action_context uses to
+    match Movies & TV/Anime grid items back to a local Title) and, when
+    creating a brand new title, used directly instead of the fuzzy
+    name/year find_match() search below - find_match can come up empty
+    (a year mismatch between Trakt's and TMDB's own metadata returns
+    nothing) or match the wrong TMDB entry, leaving the title untracked
+    on the Discover grid even though it's already in History. A title
+    found via trakt_id or the name/year fallback that's missing a tmdb
+    link gets backfilled with this row's tmdb_id too, same resync-
+    backfills-missing-data pattern nuvio.py's upsert_history_items uses
+    for its own source marker. CSV rows and generic JSON rows carry
+    neither id (see module docstring)."""
+    kind = "movie" if media_type == MediaType.MOVIE else "tv"
+    if tmdb_id:
+        title = Title.objects.filter(external_ids__tmdb=str(tmdb_id), external_ids__tmdb_kind=kind).first()
+        if title:
+            if trakt_id and title.external_ids.get("trakt") != str(trakt_id):
+                title.external_ids = {**title.external_ids, "trakt": str(trakt_id)}
+                title.save(update_fields=["external_ids"])
+            return title
     if trakt_id:
         title = Title.objects.filter(media_type=media_type, external_ids__trakt=str(trakt_id)).first()
         if title:
+            if tmdb_id and not title.external_ids.get("tmdb"):
+                title.external_ids = {**title.external_ids, "tmdb": str(tmdb_id), "tmdb_kind": kind}
+                title.save(update_fields=["external_ids"])
             return title
     title = Title.objects.filter(media_type=media_type, name__iexact=name, year=year or 0).first()
     if title:
+        if tmdb_id and not title.external_ids.get("tmdb"):
+            title.external_ids = {**title.external_ids, "tmdb": str(tmdb_id), "tmdb_kind": kind}
+            title.save(update_fields=["external_ids"])
         return title
     from tracker.integrations import tmdb
     from tracker.models import attach_genres
@@ -399,14 +426,22 @@ def _get_or_create_title(media_type, name, year, trakt_id=None):
     external_ids = {"trakt": str(trakt_id)} if trakt_id else {}
     poster_url = ""
     genre_names = []
-    match = tmdb.find_match(media_type, name, year)
-    if match:
-        external_ids["tmdb"] = str(match["id"])
-        external_ids["tmdb_kind"] = match["kind"]
-        poster_url = match["poster_url"] or ""
-        details = tmdb.get_full_details(match["kind"], match["id"])
+    if tmdb_id:
+        external_ids["tmdb"] = str(tmdb_id)
+        external_ids["tmdb_kind"] = kind
+        details = tmdb.get_full_details(kind, tmdb_id)
         if details:
+            poster_url = details["poster_url"] or ""
             genre_names = details["genres"]
+    else:
+        match = tmdb.find_match(media_type, name, year)
+        if match:
+            external_ids["tmdb"] = str(match["id"])
+            external_ids["tmdb_kind"] = match["kind"]
+            poster_url = match["poster_url"] or ""
+            details = tmdb.get_full_details(match["kind"], match["id"])
+            if details:
+                genre_names = details["genres"]
     title = Title.objects.create(
         media_type=media_type, name=name, year=year or 0, external_ids=external_ids, poster_url=poster_url
     )
@@ -431,7 +466,7 @@ def commit_rows(profile, rows):
             skipped.append((r["row"], "TV/anime rows need a season and episode number"))
             continue
 
-        title = _get_or_create_title(r["media_type"], r["title"], r["year"], r.get("trakt_id"))
+        title = _get_or_create_title(r["media_type"], r["title"], r["year"], r.get("trakt_id"), r.get("tmdb_id"))
         episode = None
         if r["media_type"] != MediaType.MOVIE:
             episode, _ = Episode.objects.get_or_create(title=title, season=r["season"], episode=r["episode"])

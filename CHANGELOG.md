@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.65.3] - 2026-08-05
+
+### Fixed
+
+- Trakt/Simkl import (both the "Export now" zip/JSON upload and the OAuth
+  sync) now uses the TMDB id Trakt/Simkl already hand over for each item
+  instead of re-deriving it with a fuzzy name/year search - the fuzzy
+  search could come up empty or match the wrong TMDB entry, leaving an
+  already-watched title (visible in History) showing as unwatched on the
+  Movies & TV / Anime grid because it never linked up with the grid's own
+  live TMDB data. A title that's already missing this link gets it
+  backfilled the next time it's re-imported or re-synced.
+
 ## [0.65.2] - 2026-08-02
 
 ### Fixed

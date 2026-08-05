@@ -206,6 +206,73 @@ class CsvImportCommitTests(TestCase):
         self.assertEqual(Title.objects.filter(media_type=MediaType.MOVIE).count(), 1)
         self.assertEqual(WatchEvent.objects.get().title, existing)
 
+    def test_tmdb_id_matches_existing_title_over_name_year(self):
+        """A row whose imported name/year no longer matches the local
+        Title (renamed, or the two sources disagree on year) still lands
+        on the right Title when the row carries an exact tmdb id - the
+        bug this guards against: Movies & TV showing an already-watched
+        title as unwatched because import created a second, disconnected
+        Title instead of finding this one."""
+        from django.utils import timezone
+
+        existing = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Disclosure Day", year=2026,
+            external_ids={"tmdb": "550", "tmdb_kind": "movie"},
+        )
+        rows = [
+            {
+                "row": 1, "title": "Disclosure Day", "media_type": MediaType.MOVIE, "year": 2025,
+                "season": None, "episode": None, "watched_at": timezone.now(), "rating": None,
+                "trakt_id": None, "tmdb_id": 550,
+            }
+        ]
+        imported, skipped = csv_import.commit_rows(self.profile, rows)
+        self.assertEqual(imported, 1)
+        self.assertEqual(skipped, [])
+        self.assertEqual(Title.objects.filter(media_type=MediaType.MOVIE).count(), 1)
+        self.assertEqual(WatchEvent.objects.get().title, existing)
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_tmdb_id_used_directly_instead_of_fuzzy_search_when_creating(self, mock_details):
+        from django.utils import timezone
+
+        mock_details.return_value = {"poster_url": "https://image.tmdb.org/t/p/w500/x.jpg", "genres": []}
+        rows = [
+            {
+                "row": 1, "title": "Disclosure Day", "media_type": MediaType.MOVIE, "year": 2026,
+                "season": None, "episode": None, "watched_at": timezone.now(), "rating": None,
+                "trakt_id": None, "tmdb_id": 550,
+            }
+        ]
+        with patch("tracker.integrations.tmdb.find_match") as mock_find_match:
+            imported, skipped = csv_import.commit_rows(self.profile, rows)
+        mock_find_match.assert_not_called()
+        self.assertEqual(imported, 1)
+        title = Title.objects.get(name="Disclosure Day")
+        self.assertEqual(title.external_ids["tmdb"], "550")
+        self.assertEqual(title.external_ids["tmdb_kind"], "movie")
+        self.assertEqual(title.poster_url, "https://image.tmdb.org/t/p/w500/x.jpg")
+
+    def test_existing_title_missing_tmdb_link_gets_backfilled_on_reimport(self):
+        """Mirrors nuvio.py's backfill-on-resync pattern: a title matched
+        by name/year that has no tmdb link yet (e.g. created before this
+        row ever carried a tmdb id) gets one attached instead of staying
+        permanently unlinked from the Discover grid."""
+        from django.utils import timezone
+
+        existing = Title.objects.create(media_type=MediaType.MOVIE, name="Disclosure Day", year=2026)
+        rows = [
+            {
+                "row": 1, "title": "Disclosure Day", "media_type": MediaType.MOVIE, "year": 2026,
+                "season": None, "episode": None, "watched_at": timezone.now(), "rating": None,
+                "trakt_id": None, "tmdb_id": 550,
+            }
+        ]
+        csv_import.commit_rows(self.profile, rows)
+        existing.refresh_from_db()
+        self.assertEqual(existing.external_ids["tmdb"], "550")
+        self.assertEqual(existing.external_ids["tmdb_kind"], "movie")
+
 
 class DetectKindTests(TestCase):
     def test_recognizes_csv_json_zip_case_insensitively(self):
@@ -224,7 +291,7 @@ class ParseJsonRowsTests(TestCase):
             {
                 "type": "movie",
                 "watched_at": "2024-01-05T20:30:00.000Z",
-                "movie": {"title": "The Long Corridor", "year": 2020, "ids": {"trakt": 42}},
+                "movie": {"title": "The Long Corridor", "year": 2020, "ids": {"trakt": 42, "tmdb": 999}},
             }
         ]
         rows, errors = csv_import.parse_json_rows(data)
@@ -234,13 +301,14 @@ class ParseJsonRowsTests(TestCase):
         self.assertEqual(row["title"], "The Long Corridor")
         self.assertEqual(row["media_type"], MediaType.MOVIE)
         self.assertEqual(row["trakt_id"], 42)
+        self.assertEqual(row["tmdb_id"], 999)
 
     def test_trakt_shaped_episode_item(self):
         data = [
             {
                 "type": "episode",
                 "watched_at": "2024-01-05T20:30:00.000Z",
-                "show": {"title": "Fathom", "year": 2019, "ids": {"trakt": 7}},
+                "show": {"title": "Fathom", "year": 2019, "ids": {"trakt": 7, "tmdb": 888}},
                 "episode": {"season": 2, "number": 10},
             }
         ]
@@ -250,6 +318,7 @@ class ParseJsonRowsTests(TestCase):
         self.assertEqual(row["media_type"], MediaType.TV)
         self.assertEqual(row["season"], 2)
         self.assertEqual(row["episode"], 10)
+        self.assertEqual(row["tmdb_id"], 888)
 
     def test_trakt_shaped_episode_item_missing_season_number_is_an_error(self):
         data = [

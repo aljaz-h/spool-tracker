@@ -81,24 +81,38 @@ def fetch_history(access_token, client_id):
     return resp.json()
 
 
-def _get_or_create_title(media_type, name, year, simkl_id):
+def _get_or_create_title(media_type, name, year, simkl_id, tmdb_id=None):
+    """tmdb_id: Simkl's own ids.tmdb for this item, when the caller has it
+    - see trakt.py's own _get_or_create_title docstring for why this is
+    preferred over the fuzzy name/year find_match() search below whenever
+    it's present."""
     from tracker.integrations import tmdb
-    from tracker.models import Title, attach_genres
+    from tracker.models import MediaType, Title, attach_genres
 
     title = Title.objects.filter(media_type=media_type, external_ids__simkl=str(simkl_id)).first()
     if title:
+        if tmdb_id and not title.external_ids.get("tmdb"):
+            kind = "movie" if media_type == MediaType.MOVIE else "tv"
+            title.external_ids = {**title.external_ids, "tmdb": str(tmdb_id), "tmdb_kind": kind}
+            title.save(update_fields=["external_ids"])
         return title
     external_ids = {"simkl": str(simkl_id)}
     poster_url = ""
     genre_names = []
-    match = tmdb.find_match(media_type, name, year)
+    if tmdb_id:
+        kind = "movie" if media_type == MediaType.MOVIE else "tv"
+        match = {"id": tmdb_id, "kind": kind, "poster_url": None}
+    else:
+        match = tmdb.find_match(media_type, name, year)
     if match:
         external_ids["tmdb"] = str(match["id"])
         external_ids["tmdb_kind"] = match["kind"]
-        poster_url = match["poster_url"] or ""
         details = tmdb.get_full_details(match["kind"], match["id"])
         if details:
+            poster_url = match["poster_url"] or details.get("poster_url") or ""
             genre_names = details["genres"]
+        else:
+            poster_url = match["poster_url"] or ""
         # Same duplicate-Title bug nuvio.py's _get_or_create_title
         # docstring describes - reuse a title already tracked via another
         # provider instead of forking a second one for this same TMDB id.
@@ -137,7 +151,9 @@ def upsert_history_items(profile, items):
             ids = m.get("ids") or {}
             if "simkl" not in ids:
                 continue
-            title = _get_or_create_title(MediaType.MOVIE, m.get("title", "Untitled"), m.get("year"), ids["simkl"])
+            title = _get_or_create_title(
+                MediaType.MOVIE, m.get("title", "Untitled"), m.get("year"), ids["simkl"], ids.get("tmdb")
+            )
             episode = None
             touched_movies.add(title.id)
         elif item.get("type") == "episode":
@@ -151,7 +167,9 @@ def upsert_history_items(profile, items):
             # spool-product-spec.md §5; a real integration needs Simkl's
             # own show-type field to pick TV vs. ANIME correctly instead
             # of always assuming anime.
-            title = _get_or_create_title(MediaType.ANIME, s.get("title", "Untitled"), s.get("year"), ids["simkl"])
+            title = _get_or_create_title(
+                MediaType.ANIME, s.get("title", "Untitled"), s.get("year"), ids["simkl"], ids.get("tmdb")
+            )
             episode, _ = Episode.objects.get_or_create(
                 title=title, season=e["season"], episode=e["number"], defaults={"name": e.get("title") or ""}
             )
