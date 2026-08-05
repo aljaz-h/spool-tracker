@@ -13,7 +13,7 @@ def get_trakt_credentials():
     cfg = InstanceConfig.load()
     return (
         cfg.trakt_client_id or settings.TRAKT_CLIENT_ID,
-        cfg.trakt_client_secret or settings.TRAKT_CLIENT_SECRET,
+        cfg.get_trakt_client_secret() or settings.TRAKT_CLIENT_SECRET,
     )
 
 
@@ -21,7 +21,7 @@ def get_simkl_credentials():
     cfg = InstanceConfig.load()
     return (
         cfg.simkl_client_id or settings.SIMKL_CLIENT_ID,
-        cfg.simkl_client_secret or settings.SIMKL_CLIENT_SECRET,
+        cfg.get_simkl_client_secret() or settings.SIMKL_CLIENT_SECRET,
     )
 
 
@@ -35,4 +35,4 @@ def get_credentials(provider):
 
 def get_tmdb_api_key():
     cfg = InstanceConfig.load()
-    return cfg.tmdb_api_key or settings.TMDB_API_KEY
+    return cfg.get_tmdb_api_key() or settings.TMDB_API_KEY

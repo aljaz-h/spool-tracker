@@ -476,8 +476,14 @@ class ExternalAccount(models.Model):
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="external_accounts")
     provider = models.CharField(max_length=10, choices=Provider.choices)
-    access_token = models.TextField(blank=True)
-    refresh_token = models.TextField(blank=True)
+    # Encrypted at rest via tracker/crypto.py (Fernet, same convention as
+    # NuvioConnection.encrypted_refresh_token below) - these are live
+    # OAuth credentials that let a sync job act as the connected Trakt/
+    # Simkl account, worth the same bar as a Nuvio refresh token. Access
+    # via get_access_token()/set_access_token()/get_refresh_token()/
+    # set_refresh_token(), never these fields directly.
+    encrypted_access_token = models.TextField(blank=True, default="")
+    encrypted_refresh_token = models.TextField(blank=True, default="")
     token_expires_at = models.DateTimeField(null=True, blank=True)
     # The exact redirect_uri used for the authorization-code exchange that
     # produced the tokens above - Trakt's refresh grant requires the same
@@ -512,6 +518,30 @@ class ExternalAccount(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["profile", "provider"], name="unique_provider_per_profile")
         ]
+
+    def get_access_token(self):
+        if not self.encrypted_access_token:
+            return ""
+        from . import crypto
+
+        return crypto.decrypt(self.encrypted_access_token)
+
+    def set_access_token(self, plaintext):
+        from . import crypto
+
+        self.encrypted_access_token = crypto.encrypt(plaintext) if plaintext else ""
+
+    def get_refresh_token(self):
+        if not self.encrypted_refresh_token:
+            return ""
+        from . import crypto
+
+        return crypto.decrypt(self.encrypted_refresh_token)
+
+    def set_refresh_token(self, plaintext):
+        from . import crypto
+
+        self.encrypted_refresh_token = crypto.encrypt(plaintext) if plaintext else ""
 
     def __str__(self):
         return f"{self.profile} · {self.get_provider_display()}"
@@ -569,11 +599,17 @@ class InstanceConfig(models.Model):
     upgrading an existing install with working .env credentials doesn't
     silently break anything."""
 
+    # Client ids aren't secret (they're the public half of an OAuth app
+    # registration, visible in the browser's own redirect during login) -
+    # only the secret/key fields below are encrypted at rest, same Fernet
+    # convention as ExternalAccount/NuvioConnection's own tokens. Access
+    # via get_trakt_client_secret()/set_trakt_client_secret() etc., never
+    # these fields directly.
     trakt_client_id = models.CharField(max_length=255, blank=True)
-    trakt_client_secret = models.CharField(max_length=255, blank=True)
+    encrypted_trakt_client_secret = models.TextField(blank=True, default="")
     simkl_client_id = models.CharField(max_length=255, blank=True)
-    simkl_client_secret = models.CharField(max_length=255, blank=True)
-    tmdb_api_key = models.CharField(max_length=255, blank=True)
+    encrypted_simkl_client_secret = models.TextField(blank=True, default="")
+    encrypted_tmdb_api_key = models.TextField(blank=True, default="")
     # Set by tasks.check_for_new_version (see tracker/update_check.py) -
     # the newest VERSION seen on the repo as of the last nightly check.
     # Read back through update_check.available_version(), which only
@@ -586,6 +622,42 @@ class InstanceConfig(models.Model):
     def load(cls):
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
+
+    def get_trakt_client_secret(self):
+        if not self.encrypted_trakt_client_secret:
+            return ""
+        from . import crypto
+
+        return crypto.decrypt(self.encrypted_trakt_client_secret)
+
+    def set_trakt_client_secret(self, plaintext):
+        from . import crypto
+
+        self.encrypted_trakt_client_secret = crypto.encrypt(plaintext) if plaintext else ""
+
+    def get_simkl_client_secret(self):
+        if not self.encrypted_simkl_client_secret:
+            return ""
+        from . import crypto
+
+        return crypto.decrypt(self.encrypted_simkl_client_secret)
+
+    def set_simkl_client_secret(self, plaintext):
+        from . import crypto
+
+        self.encrypted_simkl_client_secret = crypto.encrypt(plaintext) if plaintext else ""
+
+    def get_tmdb_api_key(self):
+        if not self.encrypted_tmdb_api_key:
+            return ""
+        from . import crypto
+
+        return crypto.decrypt(self.encrypted_tmdb_api_key)
+
+    def set_tmdb_api_key(self, plaintext):
+        from . import crypto
+
+        self.encrypted_tmdb_api_key = crypto.encrypt(plaintext) if plaintext else ""
 
     def __str__(self):
         return "Instance configuration"

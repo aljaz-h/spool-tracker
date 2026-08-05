@@ -19,16 +19,17 @@ def _refresh_account_token(account, provider_module, client_id, client_secret):
     raising when refresh isn't possible - no refresh_token stored, or no
     redirect_uri captured (accounts connected before that field existed,
     see models.py) - so the caller falls through to the original 401."""
-    if not account.refresh_token or not account.redirect_uri:
+    refresh_token = account.get_refresh_token()
+    if not refresh_token or not account.redirect_uri:
         return False
     token_data = provider_module.refresh_access_token(
-        account.refresh_token, client_id, client_secret, account.redirect_uri
+        refresh_token, client_id, client_secret, account.redirect_uri
     )
     expires_in = token_data.get("expires_in")
-    account.access_token = token_data.get("access_token", "")
-    account.refresh_token = token_data.get("refresh_token") or account.refresh_token
+    account.set_access_token(token_data.get("access_token", ""))
+    account.set_refresh_token(token_data.get("refresh_token") or refresh_token)
     account.token_expires_at = timezone.now() + timedelta(seconds=expires_in) if expires_in else None
-    account.save(update_fields=["access_token", "refresh_token", "token_expires_at"])
+    account.save(update_fields=["encrypted_access_token", "encrypted_refresh_token", "token_expires_at"])
     return True
 
 
@@ -86,10 +87,10 @@ def sync_trakt_history(profile_id):
     client_id, client_secret = instance_config.get_trakt_credentials()
 
     def fetch_and_upsert():
-        items = trakt.fetch_history(account.access_token, client_id, start_at=account.last_synced_at)
+        items = trakt.fetch_history(account.get_access_token(), client_id, start_at=account.last_synced_at)
         created = trakt.upsert_history_items(account.profile, items)
         if account.import_lists:
-            lists_data = trakt.fetch_lists(account.access_token, client_id)
+            lists_data = trakt.fetch_lists(account.get_access_token(), client_id)
             created += trakt.upsert_lists(account.profile, lists_data)
         return created
 
@@ -116,7 +117,7 @@ def sync_simkl_history(profile_id):
     client_id, client_secret = instance_config.get_simkl_credentials()
 
     def fetch_and_upsert():
-        items = simkl.fetch_history(account.access_token, client_id)
+        items = simkl.fetch_history(account.get_access_token(), client_id)
         return simkl.upsert_history_items(account.profile, items)
 
     def do_sync():

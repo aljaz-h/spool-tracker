@@ -10,12 +10,13 @@ from unittest.mock import Mock, patch
 import requests
 from django.conf import settings as django_settings
 from django.contrib.auth.models import User
+from django.contrib.messages import get_messages
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
-from . import completion, crypto, csv_import, instance_config, notifications, recommendations, release_sync, rewatches, scheduling, selectors, tasks, update_check, views
+from . import completion, crypto, csv_import, instance_config, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, update_check, views
 from .integrations import gemini, jikan, nuvio, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
@@ -713,7 +714,7 @@ class SyncTraktListsWiringTests(TestCase):
         user = User.objects.create_user("listswiring", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="ListsWiring")
         self.account = ExternalAccount.objects.create(
-            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok"
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, encrypted_access_token=crypto.encrypt("tok")
         )
 
     @patch("tracker.integrations.trakt.upsert_lists")
@@ -750,10 +751,10 @@ class SaveSyncScheduleImportListsTests(TestCase):
         user = User.objects.create_user("listscheduleuser", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="ListScheduleUser")
         self.trakt_account = ExternalAccount.objects.create(
-            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok"
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, encrypted_access_token=crypto.encrypt("tok")
         )
         self.simkl_account = ExternalAccount.objects.create(
-            profile=self.profile, provider=ExternalAccount.Provider.SIMKL, access_token="tok"
+            profile=self.profile, provider=ExternalAccount.Provider.SIMKL, encrypted_access_token=crypto.encrypt("tok")
         )
         self.client.login(username="listscheduleuser", password="pass12345")
 
@@ -2730,7 +2731,9 @@ class InstanceConfigTests(TestCase):
 
     @override_settings(TRAKT_CLIENT_ID="env-id", TRAKT_CLIENT_SECRET="env-secret")
     def test_db_value_overrides_env(self):
-        InstanceConfig.objects.create(pk=1, trakt_client_id="db-id", trakt_client_secret="db-secret")
+        InstanceConfig.objects.create(
+            pk=1, trakt_client_id="db-id", encrypted_trakt_client_secret=crypto.encrypt("db-secret")
+        )
         client_id, client_secret = instance_config.get_trakt_credentials()
         self.assertEqual(client_id, "db-id")
         self.assertEqual(client_secret, "db-secret")
@@ -2762,7 +2765,7 @@ class SaveInstanceConfigViewTests(TestCase):
         )
         cfg = InstanceConfig.load()
         self.assertEqual(cfg.trakt_client_id, "new-id")
-        self.assertEqual(cfg.trakt_client_secret, "new-secret")
+        self.assertEqual(cfg.get_trakt_client_secret(), "new-secret")
 
     def test_blank_field_does_not_clear_existing_value(self):
         InstanceConfig.objects.create(pk=1, trakt_client_id="existing-id")
@@ -3069,6 +3072,116 @@ class SpoolLoginRedirectTests(TestCase):
         self.assertRedirects(resp, reverse("history"))
 
 
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class RateLimitTests(TestCase):
+    """tracker/ratelimit.py - the cache-backed brute-force guard on login
+    and password/credential changes. Class-level LocMemCache override so
+    it's active during setUp() too (same reason TmdbDiscoverCachingTests
+    uses this pattern)."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    def test_allows_up_to_the_limit_then_blocks(self):
+        request = type("Req", (), {"META": {"REMOTE_ADDR": "10.0.0.1"}})()
+        for _ in range(5):
+            self.assertFalse(ratelimit.is_rate_limited(request, "test-key", limit=5, window_seconds=60))
+        self.assertTrue(ratelimit.is_rate_limited(request, "test-key", limit=5, window_seconds=60))
+
+    def test_different_keys_and_ips_have_independent_budgets(self):
+        req_a = type("Req", (), {"META": {"REMOTE_ADDR": "10.0.0.2"}})()
+        req_b = type("Req", (), {"META": {"REMOTE_ADDR": "10.0.0.3"}})()
+        for _ in range(3):
+            ratelimit.is_rate_limited(req_a, "key-a", limit=3, window_seconds=60)
+        self.assertFalse(ratelimit.is_rate_limited(req_b, "key-a", limit=3, window_seconds=60))
+        self.assertFalse(ratelimit.is_rate_limited(req_a, "key-b", limit=3, window_seconds=60))
+
+    def test_uses_the_first_x_forwarded_for_entry_when_present(self):
+        request = type(
+            "Req", (), {"META": {"REMOTE_ADDR": "10.0.0.1", "HTTP_X_FORWARDED_FOR": "203.0.113.5, 10.0.0.1"}}
+        )()
+        for _ in range(3):
+            ratelimit.is_rate_limited(request, "xff-key", limit=3, window_seconds=60)
+        same_client = type("Req", (), {"META": {"REMOTE_ADDR": "10.0.0.1", "HTTP_X_FORWARDED_FOR": "203.0.113.5"}})()
+        self.assertTrue(ratelimit.is_rate_limited(same_client, "xff-key", limit=3, window_seconds=60))
+
+    @patch("django.core.cache.cache.incr", side_effect=Exception("cache down"))
+    def test_fails_open_when_the_cache_backend_is_unreachable(self, mock_incr):
+        request = type("Req", (), {"META": {"REMOTE_ADDR": "10.0.0.1"}})()
+        self.assertFalse(ratelimit.is_rate_limited(request, "test-key", limit=1, window_seconds=60))
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class LoginRateLimitTests(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        self.user = User.objects.create_user("ratelimituser", password="pass12345")
+        Profile.objects.create(user=self.user, display_name="RateLimitUser")
+
+    def test_locks_out_after_repeated_attempts(self):
+        for _ in range(10):
+            resp = self.client.post(reverse("login"), {"username": "ratelimituser", "password": "wrong"})
+            self.assertEqual(resp.status_code, 200)
+        resp = self.client.post(reverse("login"), {"username": "ratelimituser", "password": "pass12345"})
+        self.assertEqual(resp.status_code, 429)
+
+    def test_correct_password_still_works_under_the_limit(self):
+        resp = self.client.post(reverse("login"), {"username": "ratelimituser", "password": "pass12345"})
+        self.assertRedirects(resp, reverse("dashboard"))
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class PasswordChangeRateLimitTests(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        self.user = User.objects.create_user("pwchangeuser", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="PwChangeUser")
+        self.client.login(username="pwchangeuser", password="pass12345")
+
+    def test_my_profile_change_password_locks_out_after_repeated_attempts(self):
+        for _ in range(10):
+            self.client.post(
+                reverse("my_profile"),
+                {"action": "change_password", "current_password": "wrong", "new_password": "x", "confirm_password": "x"},
+            )
+        resp = self.client.post(
+            reverse("my_profile"),
+            {
+                "action": "change_password",
+                "current_password": "pass12345",
+                "new_password": "newpass123",
+                "confirm_password": "newpass123",
+            },
+        )
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.check_password("newpass123"))
+        messages = list(get_messages(resp.wsgi_request))
+        self.assertTrue(any("Too many attempts" in str(m) for m in messages))
+
+    def test_change_credentials_locks_out_after_repeated_attempts(self):
+        self.profile.must_change_credentials = True
+        self.profile.save(update_fields=["must_change_credentials"])
+        for _ in range(10):
+            self.client.post(
+                reverse("change_credentials"),
+                {"username": "", "password": "", "confirm_password": ""},
+            )
+        resp = self.client.post(
+            reverse("change_credentials"),
+            {"username": "newname123", "password": "newpass123", "confirm_password": "newpass123"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        messages = list(get_messages(resp.wsgi_request))
+        self.assertTrue(any("Too many attempts" in str(m) for m in messages))
+        self.assertFalse(User.objects.filter(username="newname123").exists())
+
+
 class ExportCsvViewTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("csvexporter", password="pass12345")
@@ -3348,7 +3461,7 @@ class AdminDashboardVisibilityTests(TestCase):
         self.assertContains(resp, "Server Integrations")
 
     def test_configured_secret_value_never_rendered_in_html(self):
-        InstanceConfig.objects.create(pk=1, trakt_client_secret="super-secret-value")
+        InstanceConfig.objects.create(pk=1, encrypted_trakt_client_secret=crypto.encrypt("super-secret-value"))
         self.client.login(username="owner2", password="pass12345")
         resp = self.client.get(reverse("admin_dashboard"))
         self.assertNotContains(resp, "super-secret-value")
@@ -3390,7 +3503,7 @@ class SettingsConnectedAppsTests(TestCase):
 
     def test_sync_now_button_shown_for_a_connected_provider(self):
         profile = Profile.objects.get(display_name="ConnectedAppsUser")
-        ExternalAccount.objects.create(profile=profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok")
+        ExternalAccount.objects.create(profile=profile, provider=ExternalAccount.Provider.TRAKT, encrypted_access_token=crypto.encrypt("tok"))
         resp = self.client.get(reverse("settings"))
         self.assertContains(resp, reverse("trigger_manual_sync", args=["trakt"]))
         self.assertContains(resp, "Sync now")
@@ -3758,7 +3871,7 @@ class SyncLogTests(TestCase):
         user = User.objects.create_user("watcher", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="Watcher")
         ExternalAccount.objects.create(
-            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok"
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, encrypted_access_token=crypto.encrypt("tok")
         )
 
     @patch("tracker.integrations.trakt.upsert_history_items")
@@ -4324,8 +4437,8 @@ class SyncTokenRefreshTests(TestCase):
         self.account = ExternalAccount.objects.create(
             profile=self.profile,
             provider=ExternalAccount.Provider.TRAKT,
-            access_token="stale-tok",
-            refresh_token="my-refresh",
+            encrypted_access_token=crypto.encrypt("stale-tok"),
+            encrypted_refresh_token=crypto.encrypt("my-refresh"),
             redirect_uri="https://spool.example.com/import/trakt/callback/",
         )
 
@@ -4343,15 +4456,15 @@ class SyncTokenRefreshTests(TestCase):
         mock_refresh.assert_called_once_with("my-refresh", *instance_config.get_trakt_credentials(), "https://spool.example.com/import/trakt/callback/")
         self.assertEqual(mock_fetch.call_count, 2)
         self.account.refresh_from_db()
-        self.assertEqual(self.account.access_token, "fresh-tok")
-        self.assertEqual(self.account.refresh_token, "fresh-refresh")
+        self.assertEqual(self.account.get_access_token(), "fresh-tok")
+        self.assertEqual(self.account.get_refresh_token(), "fresh-refresh")
         log = SyncLog.objects.get(profile=self.profile)
         self.assertEqual(log.status, SyncLog.Status.SUCCESS)
 
     @patch("tracker.integrations.trakt.fetch_history")
     def test_401_without_refresh_token_propagates_and_fails_log(self, mock_fetch):
-        self.account.refresh_token = ""
-        self.account.save(update_fields=["refresh_token"])
+        self.account.set_refresh_token("")
+        self.account.save(update_fields=["encrypted_refresh_token"])
         mock_fetch.side_effect = _http_401()
 
         with self.assertRaises(requests.HTTPError):
@@ -4399,7 +4512,7 @@ class OAuthCallbackRedirectUriTests(TestCase):
         user = User.objects.create_user("connector", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="Connector")
         InstanceConfig.objects.update_or_create(
-            pk=1, defaults={"trakt_client_id": "cid", "trakt_client_secret": "csecret"}
+            pk=1, defaults={"trakt_client_id": "cid", "encrypted_trakt_client_secret": crypto.encrypt("csecret")}
         )
         self.client.login(username="connector", password="pass12345")
 
@@ -4427,7 +4540,7 @@ class OAuthCallbackDataLogTests(TestCase):
         user = User.objects.create_user("connector2", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="Connector2")
         InstanceConfig.objects.update_or_create(
-            pk=1, defaults={"trakt_client_id": "cid", "trakt_client_secret": "csecret"}
+            pk=1, defaults={"trakt_client_id": "cid", "encrypted_trakt_client_secret": crypto.encrypt("csecret")}
         )
         self.client.login(username="connector2", password="pass12345")
 
@@ -4480,7 +4593,7 @@ class IncrementalSyncTests(TestCase):
         user = User.objects.create_user("incremental", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="Incremental")
         self.account = ExternalAccount.objects.create(
-            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok"
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, encrypted_access_token=crypto.encrypt("tok")
         )
 
     @patch("tracker.integrations.trakt.upsert_history_items")
@@ -4806,7 +4919,7 @@ class SchedulingTests(TestCase):
         user = User.objects.create_user("scheduled", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="Scheduled")
         self.account = ExternalAccount.objects.create(
-            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok"
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, encrypted_access_token=crypto.encrypt("tok")
         )
 
     def test_creates_periodic_task_matching_defaults(self):
@@ -4907,7 +5020,7 @@ class BootstrapPeriodicTasksTests(TestCase):
         user = User.objects.create_user("bootscheduled", password="pass12345")
         profile = Profile.objects.create(user=user, display_name="BootScheduled")
         account = ExternalAccount.objects.create(
-            profile=profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok"
+            profile=profile, provider=ExternalAccount.Provider.TRAKT, encrypted_access_token=crypto.encrypt("tok")
         )
         call_command("bootstrap_periodic_tasks")
         self.assertTrue(
@@ -4948,7 +5061,7 @@ class BootstrapPeriodicTasksTests(TestCase):
 
         user = User.objects.create_user("bootscheduled2", password="pass12345")
         profile = Profile.objects.create(user=user, display_name="BootScheduled2")
-        ExternalAccount.objects.create(profile=profile, provider=ExternalAccount.Provider.SIMKL, access_token="tok")
+        ExternalAccount.objects.create(profile=profile, provider=ExternalAccount.Provider.SIMKL, encrypted_access_token=crypto.encrypt("tok"))
         call_command("bootstrap_periodic_tasks")
         call_command("bootstrap_periodic_tasks")
         self.assertEqual(PeriodicTask.objects.filter(task="tracker.tasks.sync_simkl_history").count(), 1)
@@ -5035,7 +5148,7 @@ class SaveSyncScheduleViewTests(TestCase):
         user = User.objects.create_user("scheduleview", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="ScheduleView")
         self.account = ExternalAccount.objects.create(
-            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok"
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, encrypted_access_token=crypto.encrypt("tok")
         )
         self.client.login(username="scheduleview", password="pass12345")
 
@@ -5064,7 +5177,7 @@ class SaveSyncScheduleViewTests(TestCase):
     def test_other_profiles_account_is_not_editable(self):
         other_user = User.objects.create_user("otherschedule", password="pass12345")
         other_profile = Profile.objects.create(user=other_user, display_name="OtherSchedule")
-        ExternalAccount.objects.create(profile=other_profile, provider=ExternalAccount.Provider.SIMKL, access_token="x")
+        ExternalAccount.objects.create(profile=other_profile, provider=ExternalAccount.Provider.SIMKL, encrypted_access_token=crypto.encrypt("x"))
         self.client.logout()
         self.client.login(username="otherschedule", password="pass12345")
         resp = self.client.post(
@@ -5087,7 +5200,7 @@ class TriggerManualSyncViewTests(TestCase):
         user = User.objects.create_user("manualsyncuser", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="ManualSyncUser")
         self.account = ExternalAccount.objects.create(
-            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok"
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, encrypted_access_token=crypto.encrypt("tok")
         )
         self.client.login(username="manualsyncuser", password="pass12345")
 
@@ -5111,7 +5224,7 @@ class TriggerManualSyncViewTests(TestCase):
     def test_other_profiles_account_cannot_be_triggered(self):
         other_user = User.objects.create_user("othermanualsync", password="pass12345")
         other_profile = Profile.objects.create(user=other_user, display_name="OtherManualSync")
-        ExternalAccount.objects.create(profile=other_profile, provider=ExternalAccount.Provider.SIMKL, access_token="x")
+        ExternalAccount.objects.create(profile=other_profile, provider=ExternalAccount.Provider.SIMKL, encrypted_access_token=crypto.encrypt("x"))
         self.client.logout()
         self.client.login(username="othermanualsync", password="pass12345")
         resp = self.client.post(reverse("trigger_manual_sync", args=["trakt"]))
@@ -5781,7 +5894,7 @@ class DisconnectProviderTests(TestCase):
         user = User.objects.create_user("disconnecter", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="Disconnecter")
         self.account = ExternalAccount.objects.create(
-            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok"
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, encrypted_access_token=crypto.encrypt("tok")
         )
         scheduling.ensure_periodic_task(self.account)
         self.client.login(username="disconnecter", password="pass12345")
@@ -5848,7 +5961,7 @@ class DisconnectAndWipeProviderViewTests(TestCase):
         user = User.objects.create_user("wiper", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="Wiper")
         self.account = ExternalAccount.objects.create(
-            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, access_token="tok"
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, encrypted_access_token=crypto.encrypt("tok")
         )
         scheduling.ensure_periodic_task(self.account)
         self.matched_title = Title.objects.create(

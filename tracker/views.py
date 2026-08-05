@@ -28,7 +28,18 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from . import completion, crypto, csv_import, instance_config, recommendations, rewatches, scheduling, selectors, tasks
+from . import (
+    completion,
+    crypto,
+    csv_import,
+    instance_config,
+    ratelimit,
+    recommendations,
+    rewatches,
+    scheduling,
+    selectors,
+    tasks,
+)
 from .integrations import gemini, jikan, nuvio, simkl, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
@@ -2429,9 +2440,17 @@ class SpoolLoginView(auth_views.LoginView):
     default_landing_page (Settings → Appearance) instead of always
     dashboard - only when no explicit ?next= was given/POSTed, same
     precedence Django's own LoginView already gives that a priority over
-    its own default redirect."""
+    its own default redirect. Also rate-limits POSTs per client IP -
+    Django's auth views have no brute-force protection of their own."""
 
     template_name = "tracker/login.html"
+
+    def post(self, request, *args, **kwargs):
+        if ratelimit.is_rate_limited(request, "login", limit=10, window_seconds=300):
+            return HttpResponse(
+                "Too many login attempts. Please wait a few minutes and try again.", status=429
+            )
+        return super().post(request, *args, **kwargs)
 
     def get_default_redirect_url(self):
         profile = Profile.objects.filter(user=self.request.user).first()
@@ -2519,16 +2538,21 @@ def save_instance_config(request):
     # Blank submitted value = "leave as-is", not "clear it" - the form never
     # re-renders an existing secret's real value (see admin_dashboard.html),
     # so a blank field only ever means the admin didn't type a replacement.
-    for field in [
-        "trakt_client_id",
-        "trakt_client_secret",
-        "simkl_client_id",
-        "simkl_client_secret",
-        "tmdb_api_key",
-    ]:
+    for field in ["trakt_client_id", "simkl_client_id"]:
         value = request.POST.get(field, "").strip()
         if value:
             setattr(cfg, field, value)
+    # Secret fields are encrypted at rest (see InstanceConfig's own
+    # get_*/set_* accessors) - set_* handles the encryption, so these
+    # can't go through the same plain setattr loop as the client ids above.
+    for field, setter in [
+        ("trakt_client_secret", cfg.set_trakt_client_secret),
+        ("simkl_client_secret", cfg.set_simkl_client_secret),
+        ("tmdb_api_key", cfg.set_tmdb_api_key),
+    ]:
+        value = request.POST.get(field, "").strip()
+        if value:
+            setter(value)
     cfg.save()
     messages.success(request, "Saved integration credentials.")
     return redirect("admin_dashboard")
@@ -2548,6 +2572,9 @@ def change_credentials(request):
         return redirect("dashboard")
 
     if request.method == "POST":
+        if ratelimit.is_rate_limited(request, "change_credentials", limit=10, window_seconds=300):
+            messages.error(request, "Too many attempts. Please wait a few minutes and try again.")
+            return render(request, "tracker/change_credentials.html", {"profile": profile})
         new_username = request.POST.get("username", "").strip()
         new_password = request.POST.get("password", "")
         confirm_password = request.POST.get("confirm_password", "")
@@ -2633,6 +2660,9 @@ def my_profile(request):
         return redirect("my_profile")
 
     if request.method == "POST" and request.POST.get("action") == "change_password":
+        if ratelimit.is_rate_limited(request, "change_password", limit=10, window_seconds=300):
+            messages.error(request, "Too many attempts. Please wait a few minutes and try again.")
+            return redirect("my_profile")
         current_password = request.POST.get("current_password", "")
         new_password = request.POST.get("new_password", "")
         confirm_password = request.POST.get("confirm_password", "")
@@ -2899,6 +2929,34 @@ def clear_all_notifications(request):
     return _render_notifications_panel(request, profile)
 
 
+_CSV_FORMULA_TRIGGERS = ("=", "+", "-", "@")
+
+
+def _csv_safe(value):
+    """Neutralizes CSV/formula injection (OWASP's "CSV Injection") for a
+    value about to be written to an exported CSV - a title name starting
+    with =/+/-/@ is a formula trigger to Excel/Sheets/LibreOffice when
+    this export is later opened as a spreadsheet, not just text to a
+    plain viewer. A title is the only genuinely free-text field this
+    export writes (it can arrive via CSV/JSON import, unlike the
+    enum/numeric/date columns alongside it) - the ones most likely to
+    carry an attacker-crafted string, since export_csv's own docstring's
+    round-trip guarantee otherwise round-trips *any* title text straight
+    from an import into this file, unmodified. Checked against the
+    leading char after stripping whitespace, not value[0] directly - a
+    leading space/tab before the trigger character still gets treated as
+    a formula by some spreadsheet apps. Only prefixes when actually
+    needed, so the overwhelming majority of titles are untouched and
+    still round-trip through a re-import byte-for-byte - this only
+    changes output for the rare title that already starts with one of
+    these characters."""
+    text = str(value)
+    stripped = text.lstrip()
+    if stripped and stripped[0] in _CSV_FORMULA_TRIGGERS:
+        return "'" + text
+    return value
+
+
 @login_required
 def export_csv(request):
     """Same column names csv_import.py's own COLUMN_ALIASES canonical
@@ -2920,7 +2978,7 @@ def export_csv(request):
     for event in events:
         writer.writerow(
             [
-                event.title.name,
+                _csv_safe(event.title.name),
                 event.title.media_type,
                 event.title.year or "",
                 event.episode.season if event.episode else "",
@@ -3058,16 +3116,16 @@ def oauth_callback(request, provider):
         return redirect("settings")
 
     expires_in = token_data.get("expires_in")
-    account, _ = ExternalAccount.objects.update_or_create(
-        profile=profile,
-        provider=provider,
-        defaults={
-            "access_token": token_data.get("access_token", ""),
-            "refresh_token": token_data.get("refresh_token", ""),
-            "token_expires_at": timezone.now() + timedelta(seconds=expires_in) if expires_in else None,
-            "redirect_uri": redirect_uri,
-        },
-    )
+    # access_token/refresh_token are encrypted at rest (see
+    # ExternalAccount's own set_access_token/set_refresh_token) - update_
+    # or_create's defaults= can't call those, so this fetches-or-creates
+    # first and sets them explicitly instead.
+    account, _ = ExternalAccount.objects.get_or_create(profile=profile, provider=provider)
+    account.set_access_token(token_data.get("access_token", ""))
+    account.set_refresh_token(token_data.get("refresh_token", ""))
+    account.token_expires_at = timezone.now() + timedelta(seconds=expires_in) if expires_in else None
+    account.redirect_uri = redirect_uri
+    account.save(update_fields=["encrypted_access_token", "encrypted_refresh_token", "token_expires_at", "redirect_uri"])
     scheduling.ensure_periodic_task(account)
     # The connection itself (the ExternalAccount row above) must succeed
     # independently of the broker being reachable right now. Confirmed by
@@ -3346,6 +3404,14 @@ def trigger_manual_sync(request, provider):
 
 
 CSV_IMPORT_DIR = os.path.join(django_settings.MEDIA_ROOT, "csv_imports")
+# A real Trakt "Export now" zip for a large, long-tracked library is
+# still just plain-text JSON under the hood - a few MB at most (see
+# _parse_pending_import's own note: ~0.1s to parse a 10k-row export).
+# 50MB is generous headroom over that while still bounding how much an
+# authenticated user can force the server to buffer to disk in one
+# upload - request.FILES has no size cap of its own for multipart file
+# uploads (DATA_UPLOAD_MAX_MEMORY_SIZE only governs non-file POST data).
+MAX_CSV_IMPORT_SIZE = 50 * 1024 * 1024
 
 
 def _discard_pending_csv_import(request):
@@ -3372,6 +3438,9 @@ def import_csv_upload(request):
     upload = request.FILES.get("csv_file")
     if not upload:
         messages.error(request, "Choose a file first.")
+        return redirect("settings")
+    if upload.size > MAX_CSV_IMPORT_SIZE:
+        messages.error(request, f'"{upload.name}" is too large — please upload a file under 50MB.')
         return redirect("settings")
 
     kind = csv_import.detect_kind(upload.name)

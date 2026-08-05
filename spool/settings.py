@@ -200,3 +200,27 @@ TRAKT_CLIENT_SECRET = env("TRAKT_CLIENT_SECRET", default="")
 SIMKL_CLIENT_ID = env("SIMKL_CLIENT_ID", default="")
 SIMKL_CLIENT_SECRET = env("SIMKL_CLIENT_SECRET", default="")
 TMDB_API_KEY = env("TMDB_API_KEY", default="")
+
+
+# Transport security - all opt-in via env var, defaulting to Django's own
+# (off) defaults, so upgrading an existing self-hosted instance never
+# silently changes behavior. A self-hosted install may be plain HTTP on
+# a local network with no reverse proxy at all, in which case forcing
+# these on would make the app unreachable (a Secure cookie is never sent
+# back over plain HTTP) - see docs/CONFIGURATION.md and SECURITY.md for
+# when to turn each of these on. SECURE_PROXY_SSL_HEADER above already
+# makes Django trust X-Forwarded-Proto for is_secure()/these checks, so
+# they work correctly once a real TLS-terminating reverse proxy is in
+# front of the app.
+SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=False)
+CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=False)
+SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=False)
+# 0 (off) until an operator opts in - enabling HSTS on a domain that
+# later needs to fall back to plain HTTP (e.g. TLS cert issue, moving
+# behind a different proxy) locks out browsers that already cached the
+# header for its max-age. include_subdomains/preload are separate flags
+# since turning those on is a stronger, less reversible commitment than
+# HSTS alone (preload lists are especially slow to undo).
+SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", default=False)
+SECURE_HSTS_PRELOAD = env.bool("SECURE_HSTS_PRELOAD", default=False)

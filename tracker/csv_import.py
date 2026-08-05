@@ -54,6 +54,14 @@ COLUMN_ALIASES = {
 }
 FIELDS = list(COLUMN_ALIASES)
 REQUIRED_FIELDS = ["title", "media_type", "watched_at"]
+# Title.name's own max_length - read off the model rather than a second
+# hardcoded 255, so this can't silently drift out of sync with it. An
+# import row's title is free text from the uploaded file (unlike
+# media_type/year/season/episode/rating, which are all validated against
+# a fixed set or parsed as plain integers below) - truncating here means
+# an oversized value never reaches Title.objects.create() at all,
+# instead of relying on the database to reject the insert outright.
+TITLE_MAX_LENGTH = Title._meta.get_field("name").max_length
 
 MEDIA_TYPE_ALIASES = {
     "movie": MediaType.MOVIE,
@@ -171,7 +179,7 @@ def parse_rows(dict_reader, mapping, limit=None):
         rows.append(
             {
                 "row": i,
-                "title": title,
+                "title": title[:TITLE_MAX_LENGTH],
                 "media_type": media_type,
                 "year": int(year_raw) if year_raw.isdigit() else None,
                 "season": int(season_raw) if season_raw.isdigit() else None,
@@ -187,6 +195,19 @@ def parse_rows(dict_reader, mapping, limit=None):
 
 def _looks_like_trakt_history_item(obj):
     return isinstance(obj, dict) and obj.get("type") in ("movie", "episode") and ("movie" in obj or "show" in obj)
+
+
+def _safe_int(value):
+    """Trakt-shaped JSON rows (unlike CSV/generic-JSON's own year_raw/
+    season_raw/episode_raw, which are already digit-checked strings) come
+    straight from the uploaded file with no type guarantee at all - a
+    year/season/episode number that isn't actually int-coercible would
+    otherwise reach Title/Episode's PositiveSmallIntegerField columns
+    unchanged and fail at the database instead of being validated here."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _row_from_trakt_item(item, i):
@@ -205,9 +226,9 @@ def _row_from_trakt_item(item, i):
         ids = m.get("ids") or {}
         return {
             "row": i,
-            "title": m.get("title") or "",
+            "title": (m.get("title") or "")[:TITLE_MAX_LENGTH],
             "media_type": MediaType.MOVIE,
-            "year": m.get("year"),
+            "year": _safe_int(m.get("year")),
             "season": None,
             "episode": None,
             "watched_at": watched_at,
@@ -223,11 +244,11 @@ def _row_from_trakt_item(item, i):
     ids = s.get("ids") or {}
     return {
         "row": i,
-        "title": s.get("title") or "",
+        "title": (s.get("title") or "")[:TITLE_MAX_LENGTH],
         "media_type": MediaType.TV,
-        "year": s.get("year"),
-        "season": e.get("season"),
-        "episode": e.get("number"),
+        "year": _safe_int(s.get("year")),
+        "season": _safe_int(e.get("season")),
+        "episode": _safe_int(e.get("number")),
         "watched_at": watched_at,
         "rating": None,
         "trakt_id": ids.get("trakt"),
@@ -264,7 +285,7 @@ def _generic_row_from_dict(d, i):
     episode_raw = cell("episode")
     return {
         "row": i,
-        "title": title,
+        "title": title[:TITLE_MAX_LENGTH],
         "media_type": media_type,
         "year": int(year_raw) if year_raw.isdigit() else None,
         "season": int(season_raw) if season_raw.isdigit() else None,

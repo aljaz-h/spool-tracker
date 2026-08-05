@@ -8,6 +8,39 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.66.0] - 2026-08-05
+
+### Added
+
+- Rate limiting on login and password/credential-change endpoints (10
+  attempts per 5 minutes per IP) - Django doesn't protect these by
+  default. Fails open if the cache backend is briefly unreachable rather
+  than locking everyone out.
+- CSV/JSON/zip import now enforces a 50MB upload size limit.
+
+### Changed
+
+- Trakt/Simkl OAuth tokens and any Trakt/Simkl/TMDB credentials entered
+  via Settings → Server are now encrypted at rest (previously plaintext
+  columns) - same Fernet convention `crypto.py` already used for Nuvio's
+  refresh token. Existing values are encrypted in place by this upgrade's
+  migration, no action needed.
+- `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SECURE_SSL_REDIRECT`,
+  and HSTS are now configurable via `.env` (all default off, so this
+  doesn't change behavior for existing installs) - see
+  docs/CONFIGURATION.md for when to turn them on.
+- CSV history export neutralizes formula-injection characters
+  (`=`/`+`/`-`/`@`) in exported title names, and CSV/JSON/zip import
+  truncates title length and validates year/season/episode fields before
+  they reach the database.
+- Bumped `cryptography` to 50.0.0 (patches a padding-oracle CVE in a
+  code path this app doesn't use, but worth clearing anyway).
+
+### Security
+
+- Full access-control/IDOR review of owner-only pages and profile-scoped
+  data - no issues found; documented for future reference.
+
 ## [0.65.3] - 2026-08-05
 
 ### Fixed

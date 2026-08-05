@@ -26,6 +26,9 @@ variables with inline comments — this page is the fuller reference.
 | `SIMKL_CLIENT_ID` / `SIMKL_CLIENT_SECRET` | No | Enables Simkl import — see [Importing your data](IMPORTING.md#connecting-trakt--simkl--nuvio). |
 | `TMDB_API_KEY` | No | A free v3 API key from themoviedb.org — enables poster lookup and the Movies & TV / Anime / Calendar pages' live TMDB data. Safe to leave blank; those features just have less to show. |
 | `TIME_ZONE` | No (default `Europe/Ljubljana` in `.env.example`) | Used for scheduling (nightly sync jobs, calendar day boundaries) and display. Set to your own household's time zone, e.g. `America/New_York`. |
+| `SESSION_COOKIE_SECURE` / `CSRF_COOKIE_SECURE` | No (default `False`) | Set both to `True` once Spool is only ever reached over HTTPS — marks the session/CSRF cookies `Secure` so browsers never send them over plain HTTP. Leave `False` for a plain-HTTP/LAN-only setup, or logins will silently fail (the cookie never comes back). |
+| `SECURE_SSL_REDIRECT` | No (default `False`) | Redirects any plain-HTTP request to HTTPS. Only turn this on once HTTPS actually works end-to-end (either terminated by your reverse proxy or directly) — see [SECURITY.md](../SECURITY.md). |
+| `SECURE_HSTS_SECONDS` / `SECURE_HSTS_INCLUDE_SUBDOMAINS` / `SECURE_HSTS_PRELOAD` | No (default `0`/off) | Tells browsers to only ever use HTTPS for this host, for the given number of seconds. Only enable once you're confident you won't need to fall back to plain HTTP — browsers cache this aggressively. |
 
 ## `docker-compose.yml` vs `docker-compose.prod.yml`
 
