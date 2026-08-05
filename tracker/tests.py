@@ -4799,6 +4799,68 @@ class CombinedLogsTests(TestCase):
         self.assertEqual(len(page.object_list), 1)
         self.assertEqual(page.object_list[0]["profile"], self.profile)
 
+    def test_action_type_sync_excludes_every_datalog_row(self):
+        SyncLog.objects.create(profile=self.profile, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.SUCCESS)
+        DataLog.objects.create(profile=self.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.SUCCESS)
+
+        page = selectors.combined_logs(None, action_type="sync")
+
+        self.assertEqual(len(page.object_list), 1)
+        self.assertEqual(page.object_list[0]["action"], "Sync · Trakt")
+
+    def test_action_type_single_datalog_action_excludes_synclog_and_other_actions(self):
+        SyncLog.objects.create(profile=self.profile, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.SUCCESS)
+        DataLog.objects.create(profile=self.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.SUCCESS)
+        DataLog.objects.create(profile=self.profile, action=DataLog.Action.EXPORT, status=DataLog.Status.SUCCESS)
+
+        page = selectors.combined_logs(None, action_type="import")
+
+        self.assertEqual(len(page.object_list), 1)
+        self.assertEqual(page.object_list[0]["action"], "CSV Import")
+
+    def test_action_type_connect_groups_all_three_providers(self):
+        DataLog.objects.create(profile=self.profile, action=DataLog.Action.TRAKT_CONNECT, provider="trakt", status=DataLog.Status.SUCCESS)
+        DataLog.objects.create(profile=self.profile, action=DataLog.Action.SIMKL_CONNECT, provider="simkl", status=DataLog.Status.SUCCESS)
+        DataLog.objects.create(profile=self.profile, action=DataLog.Action.NUVIO_CONNECT, provider="nuvio", status=DataLog.Status.SUCCESS)
+        DataLog.objects.create(profile=self.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.SUCCESS)
+
+        page = selectors.combined_logs(None, action_type="connect")
+
+        self.assertEqual(len(page.object_list), 3)
+
+    def test_provider_filters_across_both_tables(self):
+        SyncLog.objects.create(profile=self.profile, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.SUCCESS)
+        SyncLog.objects.create(profile=self.profile, provider=ExternalAccount.Provider.SIMKL, status=SyncLog.Status.SUCCESS)
+        DataLog.objects.create(profile=self.profile, action=DataLog.Action.TRAKT_CONNECT, provider="trakt", status=DataLog.Status.SUCCESS)
+
+        page = selectors.combined_logs(None, provider="trakt")
+
+        self.assertEqual(len(page.object_list), 2)
+
+    def test_status_filters_across_both_tables(self):
+        SyncLog.objects.create(profile=self.profile, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.FAILED)
+        DataLog.objects.create(profile=self.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.SUCCESS)
+
+        page = selectors.combined_logs(None, status="failed")
+
+        self.assertEqual(len(page.object_list), 1)
+        self.assertEqual(page.object_list[0]["action"], "Sync · Trakt")
+
+    def test_date_range_filters_out_entries_outside_it(self):
+        from datetime import date
+
+        from django.utils import timezone
+
+        in_range = DataLog.objects.create(profile=self.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.SUCCESS)
+        out_of_range = DataLog.objects.create(profile=self.profile, action=DataLog.Action.EXPORT, status=DataLog.Status.SUCCESS)
+        DataLog.objects.filter(pk=out_of_range.pk).update(created_at=timezone.now() - timedelta(days=30))
+
+        today = date.today()
+        page = selectors.combined_logs(None, date_from=today, date_to=today)
+
+        self.assertEqual(len(page.object_list), 1)
+        self.assertEqual(page.object_list[0]["action"], "CSV Import")
+
 
 class SyncLogViewTests(TestCase):
     def setUp(self):
@@ -4859,6 +4921,40 @@ class SyncLogViewTests(TestCase):
         resp = self.client.get(reverse("settings"), {"tab": "logs", "log_sort": "oldest"})
         content = resp.content.decode()
         self.assertLess(content.index("Sync · Trakt"), content.index("Sync · Simkl"))
+
+    def test_log_action_type_filter_narrows_entries(self):
+        DataLog.objects.create(profile=self.owner, action=DataLog.Action.IMPORT, status=DataLog.Status.SUCCESS)
+        self.client.login(username="logowner", password="pass12345")
+        resp = self.client.get(reverse("settings"), {"tab": "logs", "log_action_type": "sync"})
+        actions_shown = {entry["action"] for entry in resp.context["logs_page"].object_list}
+        self.assertEqual(actions_shown, {"Sync · Trakt"})
+
+    def test_log_provider_filter_narrows_entries(self):
+        SyncLog.objects.create(profile=self.owner, provider=ExternalAccount.Provider.SIMKL, status=SyncLog.Status.SUCCESS)
+        self.client.login(username="logowner", password="pass12345")
+        resp = self.client.get(reverse("settings"), {"tab": "logs", "log_provider": "trakt"})
+        actions_shown = {entry["action"] for entry in resp.context["logs_page"].object_list}
+        self.assertEqual(actions_shown, {"Sync · Trakt"})
+
+    def test_log_status_filter_narrows_entries(self):
+        DataLog.objects.create(profile=self.owner, action=DataLog.Action.IMPORT, status=DataLog.Status.FAILED)
+        self.client.login(username="logowner", password="pass12345")
+        resp = self.client.get(reverse("settings"), {"tab": "logs", "log_status": "failed"})
+        actions_shown = {entry["action"] for entry in resp.context["logs_page"].object_list}
+        self.assertEqual(actions_shown, {"CSV Import"})
+
+    def test_invalid_log_date_is_ignored_rather_than_erroring(self):
+        self.client.login(username="logowner", password="pass12345")
+        resp = self.client.get(reverse("settings"), {"tab": "logs", "log_date_from": "not-a-date"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.context["logs_page"].object_list), 1)
+
+    def test_filters_button_shows_active_dot_only_when_a_filter_is_set(self):
+        self.client.login(username="logowner", password="pass12345")
+        resp = self.client.get(reverse("settings"), {"tab": "logs"})
+        self.assertNotContains(resp, "w-1.5 h-1.5 rounded-full bg-primary")
+        resp = self.client.get(reverse("settings"), {"tab": "logs", "log_status": "failed"})
+        self.assertContains(resp, "w-1.5 h-1.5 rounded-full bg-primary")
 
     def test_no_banner_for_a_lone_success(self):
         self.client.login(username="logowner", password="pass12345")
@@ -5928,6 +6024,13 @@ class DisconnectProviderTests(TestCase):
         resp = self.client.post(reverse("disconnect_provider", args=["simkl"]))
         self.assertEqual(resp.status_code, 404)
 
+    def test_logs_a_datalog_entry(self):
+        self.client.post(reverse("disconnect_provider", args=["trakt"]))
+        log = DataLog.objects.get(action=DataLog.Action.DISCONNECT)
+        self.assertEqual(log.profile, self.profile)
+        self.assertEqual(log.provider, "trakt")
+        self.assertEqual(log.status, DataLog.Status.SUCCESS)
+
 
 class ClearWatchHistoryViewTests(TestCase):
     def setUp(self):
@@ -6017,6 +6120,13 @@ class DisconnectAndWipeProviderViewTests(TestCase):
     def test_get_not_allowed(self):
         resp = self.client.get(reverse("disconnect_and_wipe_provider", args=["trakt"]))
         self.assertEqual(resp.status_code, 405)
+
+    def test_logs_a_datalog_entry(self):
+        self.client.post(reverse("disconnect_and_wipe_provider", args=["trakt"]))
+        log = DataLog.objects.get(action=DataLog.Action.DISCONNECT)
+        self.assertEqual(log.profile, self.profile)
+        self.assertEqual(log.provider, "trakt")
+        self.assertEqual(log.status, DataLog.Status.SUCCESS)
 
 
 class ProfilePopupViewTests(TestCase):

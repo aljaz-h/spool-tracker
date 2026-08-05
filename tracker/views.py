@@ -69,6 +69,12 @@ MOVIE_TV_TYPES = [MediaType.MOVIE, MediaType.TV]
 HISTORY_PAGE_SIZE = 150  # rows per page for the most/least-watched title list - one row is already one tile there, no day-grouping involved
 HISTORY_DATES_PER_PAGE = 10  # dates per page for the default day-grouped History view - see _paginate_history_by_day
 LOGS_PAGE_SIZE = 20  # rows per page for Settings' Logs tab - see selectors.combined_logs
+# Settings' Logs tab Provider filter - ExternalAccount.Provider covers
+# trakt/simkl/nuvio (the connectable accounts); TMDB isn't one (just an
+# API key) but backfill_posters/genres/completion tag their DataLog rows
+# with it anyway (see views.MAINTENANCE_TASKS), so it needs to be a
+# choice here too.
+LOG_PROVIDER_CHOICES = list(ExternalAccount.Provider.choices) + [("tmdb", "TMDB")]
 HISTORY_PERIODS = {"today", "yesterday", "7", "30", "365"}
 # "most_watched"/"least_watched" switch History from its usual day-grouped
 # listing to a title-grouped one, ordered by how many WatchEvents (plays -
@@ -2482,6 +2488,19 @@ class SpoolLoginView(auth_views.LoginView):
         return super().get_default_redirect_url()
 
 
+def _parse_log_date(value):
+    """Settings' Logs tab date-range filter - GET params from a plain
+    <input type="date">, but still user-editable text as far as the
+    server's concerned, so an invalid value is ignored (filtered out
+    entirely) rather than raising or silently misbehaving."""
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
 def _settings_page_context(request, profile):
     """Shared context for the merged Settings/My Profile/Admin Dashboard
     page - settings_view, my_profile, and admin_dashboard all render the
@@ -2527,9 +2546,22 @@ def _settings_page_context(request, profile):
                     page_size=LOGS_PAGE_SIZE,
                     profile_id=request.GET.get("log_profile") or None,
                     oldest_first=request.GET.get("log_sort") == "oldest",
+                    action_type=request.GET.get("log_action_type") or None,
+                    provider=request.GET.get("log_provider") or None,
+                    status=request.GET.get("log_status") or None,
+                    date_from=_parse_log_date(request.GET.get("log_date_from")),
+                    date_to=_parse_log_date(request.GET.get("log_date_to")),
                 ),
                 "log_profile_id": request.GET.get("log_profile", ""),
                 "log_sort": request.GET.get("log_sort", "newest"),
+                "log_action_type": request.GET.get("log_action_type", ""),
+                "log_provider": request.GET.get("log_provider", ""),
+                "log_status": request.GET.get("log_status", ""),
+                "log_date_from": request.GET.get("log_date_from", ""),
+                "log_date_to": request.GET.get("log_date_to", ""),
+                "log_action_types": selectors.LOG_ACTION_TYPES,
+                "log_provider_choices": LOG_PROVIDER_CHOICES,
+                "log_status_choices": DataLog.Status.choices,
                 "failure_streaks": selectors.sync_failure_streaks(),
             }
         )
@@ -2968,15 +3000,18 @@ def run_merge_duplicates(request):
     return redirect(f"{reverse('admin_dashboard')}?tab=maintenance")
 
 
-# (task, DataLog.Action, is_async) - "is_async" ones make one TMDB call per
-# title with a deliberate throttle (see each command's own docstring) and
-# can run well past a normal request's timeout for a real library, so they
-# dispatch to Celery instead of running inline like backfill_rewatches.
+# (task, DataLog.Action, is_async, provider) - "is_async" ones make one
+# TMDB call per title with a deliberate throttle (see each command's own
+# docstring) and can run well past a normal request's timeout for a real
+# library, so they dispatch to Celery instead of running inline like
+# backfill_rewatches. provider="tmdb" for the three that actually call
+# TMDB (lets Settings' Logs tab Provider filter find them); rewatches is
+# pure DB work, no provider.
 MAINTENANCE_TASKS = {
-    "backfill_posters": (tasks.run_backfill_posters, DataLog.Action.BACKFILL_POSTERS, True),
-    "backfill_genres": (tasks.run_backfill_genres, DataLog.Action.BACKFILL_GENRES, True),
-    "backfill_completion": (tasks.run_backfill_completion, DataLog.Action.BACKFILL_COMPLETION, True),
-    "backfill_rewatches": (None, DataLog.Action.BACKFILL_REWATCHES, False),
+    "backfill_posters": (tasks.run_backfill_posters, DataLog.Action.BACKFILL_POSTERS, True, "tmdb"),
+    "backfill_genres": (tasks.run_backfill_genres, DataLog.Action.BACKFILL_GENRES, True, "tmdb"),
+    "backfill_completion": (tasks.run_backfill_completion, DataLog.Action.BACKFILL_COMPLETION, True, "tmdb"),
+    "backfill_rewatches": (None, DataLog.Action.BACKFILL_REWATCHES, False, ""),
 }
 
 
@@ -2988,10 +3023,12 @@ def run_maintenance_task(request, task_key):
         raise Http404
     if task_key not in MAINTENANCE_TASKS:
         raise Http404
-    task, action, is_async = MAINTENANCE_TASKS[task_key]
+    task, action, is_async, provider = MAINTENANCE_TASKS[task_key]
 
     if is_async:
-        log = DataLog.objects.create(profile=profile, action=action, status=DataLog.Status.RUNNING)
+        log = DataLog.objects.create(
+            profile=profile, action=action, provider=provider, status=DataLog.Status.RUNNING
+        )
         _dispatch_sync_task_safely(task, [log.id])
         messages.success(request, "Started — check the Logs tab in a bit.")
     else:
@@ -3001,6 +3038,7 @@ def run_maintenance_task(request, task_key):
         DataLog.objects.create(
             profile=profile,
             action=action,
+            provider=provider,
             status=DataLog.Status.SUCCESS,
             detail=(output.splitlines()[-1][:255] if output else ""),
         )
@@ -3297,7 +3335,7 @@ def oauth_callback(request, provider):
     expected_state = request.session.pop(f"{provider}_oauth_state", None)
     if not expected_state or request.GET.get("state") != expected_state:
         DataLog.objects.create(
-            profile=profile, action=connect_action, status=DataLog.Status.FAILED,
+            profile=profile, action=connect_action, provider=provider, status=DataLog.Status.FAILED,
             error_message="Connection request expired or was invalid (state mismatch).",
         )
         messages.error(request, "That connection request expired or was invalid — please try connecting again.")
@@ -3306,7 +3344,7 @@ def oauth_callback(request, provider):
     code = request.GET.get("code")
     if not code:
         DataLog.objects.create(
-            profile=profile, action=connect_action, status=DataLog.Status.FAILED,
+            profile=profile, action=connect_action, provider=provider, status=DataLog.Status.FAILED,
             error_message=f"{provider.title()} didn't return an authorization code.",
         )
         messages.error(request, f"{provider.title()} didn't return an authorization code.")
@@ -3318,7 +3356,7 @@ def oauth_callback(request, provider):
         token_data = PROVIDER_MODULES[provider].exchange_code(code, redirect_uri, client_id, client_secret)
     except requests.RequestException as e:
         DataLog.objects.create(
-            profile=profile, action=connect_action, status=DataLog.Status.FAILED,
+            profile=profile, action=connect_action, provider=provider, status=DataLog.Status.FAILED,
             error_message=str(e)[:500],
         )
         messages.error(request, f"Couldn't complete the {provider.title()} connection — please try again.")
@@ -3345,7 +3383,9 @@ def oauth_callback(request, provider):
     # does. Worst case, a broker hiccup costs nothing worse than "today's
     # sync happens on the next daily beat run instead of immediately."
     _dispatch_sync_task_safely(SYNC_TASKS[provider], [profile.id])
-    DataLog.objects.create(profile=profile, action=connect_action, status=DataLog.Status.SUCCESS, detail="connected")
+    DataLog.objects.create(
+        profile=profile, action=connect_action, provider=provider, status=DataLog.Status.SUCCESS, detail="connected"
+    )
     messages.success(request, f"Connected to {provider.title()} — syncing your history now.")
     return redirect("settings")
 
@@ -3372,7 +3412,11 @@ def _finish_nuvio_connect(profile, email, refresh_token, nuvio_profile):
     scheduling.ensure_periodic_task(connection)
     _dispatch_sync_task_safely(SYNC_TASKS["nuvio"], [profile.id])
     DataLog.objects.create(
-        profile=profile, action=DataLog.Action.NUVIO_CONNECT, status=DataLog.Status.SUCCESS, detail="connected"
+        profile=profile,
+        action=DataLog.Action.NUVIO_CONNECT,
+        provider="nuvio",
+        status=DataLog.Status.SUCCESS,
+        detail="connected",
     )
 
 
@@ -3489,6 +3533,13 @@ def disconnect_provider(request, provider):
     account = _get_provider_account(profile, provider)
     scheduling.remove_periodic_task(account)
     account.delete()
+    DataLog.objects.create(
+        profile=profile,
+        action=DataLog.Action.DISCONNECT,
+        provider=provider,
+        status=DataLog.Status.SUCCESS,
+        detail="disconnected",
+    )
     # Titles/episodes/watch events that sync already created are left in
     # place - disconnecting stops future syncs, it isn't an "undo my import."
     messages.success(request, f"Disconnected {provider.title()}. Your imported history hasn't been removed.")
@@ -3535,6 +3586,13 @@ def disconnect_and_wipe_provider(request, provider):
     deleted, _ = WatchEvent.objects.filter(
         profile=profile, **{f"title__external_ids__{provider}__isnull": False}
     ).delete()
+    DataLog.objects.create(
+        profile=profile,
+        action=DataLog.Action.DISCONNECT,
+        provider=provider,
+        status=DataLog.Status.SUCCESS,
+        detail=f"disconnected and wiped ({deleted} events)",
+    )
     messages.success(
         request,
         f"Disconnected {provider.title()} and removed {deleted} watch event{'s' if deleted != 1 else ''} "

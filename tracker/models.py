@@ -733,6 +733,7 @@ class DataLog(models.Model):
         BACKFILL_GENRES = "backfill_genres", "Backfill Genres"
         BACKFILL_COMPLETION = "backfill_completion", "Backfill Completion"
         BACKFILL_REWATCHES = "backfill_rewatches", "Backfill Rewatches"
+        DISCONNECT = "disconnect", "Disconnect"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"
@@ -741,6 +742,13 @@ class DataLog(models.Model):
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="data_logs")
     action = models.CharField(max_length=20, choices=Action.choices)
+    # Not constrained to ExternalAccount.Provider's choices - also holds
+    # "tmdb" for the backfill_posters/genres/completion actions, which
+    # isn't a connectable account. Blank wherever nothing meaningfully
+    # "belongs" to one provider (import/export/merge_duplicates/
+    # backfill_rewatches). Settings' Logs tab Provider filter is the only
+    # reader (see selectors.combined_logs).
+    provider = models.CharField(max_length=10, blank=True)
     status = models.CharField(max_length=10, choices=Status.choices)
     item_count = models.PositiveIntegerField(null=True, blank=True)
     detail = models.CharField(max_length=255, blank=True)

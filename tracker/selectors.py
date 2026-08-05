@@ -9,6 +9,7 @@ from django.db.models.functions import Coalesce, ExtractHour
 from django.utils import timezone
 
 from .models import (
+    DataLog,
     Episode,
     MediaType,
     Profile,
@@ -19,6 +20,27 @@ from .models import (
     WatchListItem,
     WatchProgress,
 )
+
+# Settings' Logs tab Action Type filter - each bucket is (key, label,
+# matching DataLog.Action values). "sync" is special: None means "match
+# SyncLog rows instead of DataLog" (see combined_logs below), since
+# SyncLog has no "action" of its own to bucket - every row in it already
+# is one kind of action (a sync run). "connect" deliberately groups all
+# three provider-specific *_CONNECT actions into one pill, matching how
+# the panel shows one "Connect" option, not three.
+LOG_ACTION_TYPES = [
+    ("sync", "Sync", None),
+    ("connect", "Connect", [DataLog.Action.TRAKT_CONNECT, DataLog.Action.SIMKL_CONNECT, DataLog.Action.NUVIO_CONNECT]),
+    ("disconnect", "Disconnect", [DataLog.Action.DISCONNECT]),
+    ("import", "CSV Import", [DataLog.Action.IMPORT]),
+    ("export", "CSV Export", [DataLog.Action.EXPORT]),
+    ("merge_duplicates", "Merge Duplicates", [DataLog.Action.MERGE_DUPLICATES]),
+    ("backfill_posters", "Backfill Posters", [DataLog.Action.BACKFILL_POSTERS]),
+    ("backfill_genres", "Backfill Genres", [DataLog.Action.BACKFILL_GENRES]),
+    ("backfill_completion", "Backfill Completion", [DataLog.Action.BACKFILL_COMPLETION]),
+    ("backfill_rewatches", "Backfill Rewatches", [DataLog.Action.BACKFILL_REWATCHES]),
+]
+_LOG_ACTION_TYPE_VALUES = {key: values for key, _label, values in LOG_ACTION_TYPES}
 
 
 def _distinct_watch_dates(profile):
@@ -505,7 +527,18 @@ def sync_failure_streaks():
     return streaks
 
 
-def combined_logs(page_number, page_size=50, cap=1000, profile_id=None, oldest_first=False):
+def combined_logs(
+    page_number,
+    page_size=50,
+    cap=1000,
+    profile_id=None,
+    oldest_first=False,
+    action_type=None,
+    provider=None,
+    status=None,
+    date_from=None,
+    date_to=None,
+):
     """Settings → Logs. Merges SyncLog (recurring background Trakt/Simkl
     syncs) and DataLog (CSV import/export, connect attempts) into one
     chronological feed across every profile - admin-only, optionally
@@ -518,16 +551,41 @@ def combined_logs(page_number, page_size=50, cap=1000, profile_id=None, oldest_f
     so a single user's full history stays reachable even once the
     all-profiles feed exceeds it. SyncLog's RUNNING rows are included
     deliberately, unlike sync_failure_streaks() - a stuck/long-running
-    sync showing "running" is itself useful signal in a raw log view."""
+    sync showing "running" is itself useful signal in a raw log view.
+
+    Every filter below is applied to the querysets before the [:cap]
+    slice, same reasoning as profile_id - the cap should mean "most
+    recent cap rows matching the filter", not "cap first, then filter
+    (possibly to nothing)". action_type/date_from/date_to are trusted to
+    already be validated/parsed by the caller (see views._settings_page_
+    context) since they arrive as free-text GET params a user could
+    hand-edit."""
     from django.core.paginator import Paginator
 
-    from .models import DataLog, SyncLog
+    from .models import SyncLog
 
     sync_logs = SyncLog.objects.select_related("profile").order_by("-started_at")
     data_logs = DataLog.objects.select_related("profile").order_by("-created_at")
     if profile_id:
         sync_logs = sync_logs.filter(profile_id=profile_id)
         data_logs = data_logs.filter(profile_id=profile_id)
+    if action_type == "sync":
+        data_logs = data_logs.none()
+    elif action_type in _LOG_ACTION_TYPE_VALUES:
+        sync_logs = sync_logs.none()
+        data_logs = data_logs.filter(action__in=_LOG_ACTION_TYPE_VALUES[action_type])
+    if provider:
+        sync_logs = sync_logs.filter(provider=provider)
+        data_logs = data_logs.filter(provider=provider)
+    if status:
+        sync_logs = sync_logs.filter(status=status)
+        data_logs = data_logs.filter(status=status)
+    if date_from:
+        sync_logs = sync_logs.filter(started_at__date__gte=date_from)
+        data_logs = data_logs.filter(created_at__date__gte=date_from)
+    if date_to:
+        sync_logs = sync_logs.filter(started_at__date__lte=date_to)
+        data_logs = data_logs.filter(created_at__date__lte=date_to)
 
     entries = [
         {

@@ -704,33 +704,167 @@
           <h3 class="text-lg mb-1">Logs</h3>
           <div class="text-ink-dim text-xs mb-3.5">Trakt/Simkl syncs and connects, CSV imports and exports — every profile, most recent first, admin-only.</div>
 
-          <div class="flex items-center gap-2.5 flex-wrap mb-3.5">
-            <form method="get" class="flex items-center gap-2.5 flex-wrap">
-              <input type="hidden" name="tab" value="logs">
-              <select name="log_profile" onchange="this.form.submit()" class="select select-sm bg-base-100 focus:outline-primary text-xs">
-                <option value="">All profiles</option>
-                {% for p in profiles %}
-                  <option value="{{ p.id }}" {% if log_profile_id == p.id|stringformat:"s" %}selected{% endif %}>{{ p.display_name }}</option>
-                {% endfor %}
-              </select>
-              <select name="log_sort" onchange="this.form.submit()" class="select select-sm bg-base-100 focus:outline-primary text-xs">
-                <option value="newest" {% if log_sort == "newest" %}selected{% endif %}>Newest first</option>
-                <option value="oldest" {% if log_sort == "oldest" %}selected{% endif %}>Oldest first</option>
-              </select>
-            </form>
-            <form
-              hx-post="{% url 'save_log_retention' %}" hx-trigger="change" hx-swap="none"
-              class="flex items-center gap-1.5 ml-auto"
-            >
-              <label class="text-xs text-ink-dim">Keep logs for</label>
-              <input
-                type="number" name="log_retention_days" min="1" max="3650" placeholder="forever"
-                value="{{ cfg.log_retention_days|default_if_none:'' }}"
-                title="Sync/import log entries older than this are deleted by a nightly cleanup job. Blank = keep forever. Doesn't affect the Activity Log."
-                class="input input-sm w-20 bg-base-100 text-xs"
+          <div class="flex items-center justify-between gap-2.5 flex-wrap mb-3.5">
+            {% comment %}
+              Same fixed-position popover pattern as Discover's own
+              Filters button (tracker/templates/tracker/discover.html) -
+              a relative-positioned trigger that fixed-positions the
+              panel under itself via togglePanel(), not a daisyUI drawer
+              (see that file's own comment on why: subpixel-AA blur from
+              the drawer's permanent transform layer).
+            {% endcomment %}
+            <div class="relative" @click.outside="open = false" x-data="{
+              open: false,
+              togglePanel(button) {
+                this.open = !this.open;
+                if (!this.open) return;
+                this.$nextTick(() => {
+                  const rect = button.getBoundingClientRect();
+                  const panel = this.$refs.panel;
+                  const width = 384;
+                  panel.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)) + 'px';
+                  panel.style.top = (rect.bottom + 8) + 'px';
+                });
+              },
+            }">
+              <button type="button" @click="togglePanel($el)" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
+                {% icon "filter" "w-3.5 h-3.5" %}
+                Filters
+                {% if log_profile_id or log_action_type or log_provider or log_status or log_date_from or log_date_to %}
+                  <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+                {% endif %}
+              </button>
+
+              <div x-ref="panel" x-show="open" x-cloak class="fixed w-96 max-h-[75vh] overflow-y-auto bg-base-200 border border-line rounded-lg shadow-lg z-40 flex flex-col">
+                <div class="flex items-center justify-between px-5 pt-5 pb-3">
+                  <h2 class="font-display text-xl">Filters</h2>
+                  <button type="button" @click="open = false" aria-label="Close filters" class="btn btn-sm btn-circle btn-ghost cursor-pointer">
+                    {% icon "x" "w-4 h-4" %}
+                  </button>
+                </div>
+
+                <form
+                  id="logs-filters-form" method="get" class="flex flex-col gap-4 px-5 pb-5"
+                  x-data="{ dateFrom: '{{ log_date_from }}', dateTo: '{{ log_date_to }}' }"
+                >
+                  <input type="hidden" name="tab" value="logs">
+                  <input type="hidden" name="log_sort" value="{{ log_sort }}">
+
+                  <div>
+                    <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Profile</div>
+                    <div class="flex flex-wrap gap-1.5">
+                      <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                        <input type="radio" name="log_profile" value="" class="sr-only" {% if not log_profile_id %}checked{% endif %}>
+                        All profiles
+                      </label>
+                      {% for p in profiles %}
+                        <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                          <input type="radio" name="log_profile" value="{{ p.id }}" class="sr-only" {% if log_profile_id == p.id|stringformat:"s" %}checked{% endif %}>
+                          {{ p.display_name }}
+                        </label>
+                      {% endfor %}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Action Type</div>
+                    <div class="flex flex-wrap gap-1.5">
+                      <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                        <input type="radio" name="log_action_type" value="" class="sr-only" {% if not log_action_type %}checked{% endif %}>
+                        All
+                      </label>
+                      {% for key, label, values in log_action_types %}
+                        <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                          <input type="radio" name="log_action_type" value="{{ key }}" class="sr-only" {% if log_action_type == key %}checked{% endif %}>
+                          {{ label }}
+                        </label>
+                      {% endfor %}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Provider</div>
+                    <div class="flex flex-wrap gap-1.5">
+                      <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                        <input type="radio" name="log_provider" value="" class="sr-only" {% if not log_provider %}checked{% endif %}>
+                        All
+                      </label>
+                      {% for value, provider_label in log_provider_choices %}
+                        <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                          <input type="radio" name="log_provider" value="{{ value }}" class="sr-only" {% if log_provider == value %}checked{% endif %}>
+                          {{ provider_label }}
+                        </label>
+                      {% endfor %}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Status</div>
+                    <div class="flex flex-wrap gap-1.5">
+                      <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                        <input type="radio" name="log_status" value="" class="sr-only" {% if not log_status %}checked{% endif %}>
+                        All
+                      </label>
+                      {% for value, status_label in log_status_choices %}
+                        <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                          <input type="radio" name="log_status" value="{{ value }}" class="sr-only" {% if log_status == value %}checked{% endif %}>
+                          {{ status_label }}
+                        </label>
+                      {% endfor %}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Date Range</div>
+                    <div class="flex items-center gap-2 mb-2">
+                      <input type="date" name="log_date_from" x-model="dateFrom" class="input input-sm bg-base-100 text-xs flex-1">
+                      <span class="text-ink-faint text-xs">–</span>
+                      <input type="date" name="log_date_to" x-model="dateTo" class="input input-sm bg-base-100 text-xs flex-1">
+                    </div>
+                    <div class="flex flex-wrap gap-1.5">
+                      <button type="button" class="btn btn-xs btn-soft" @click="const d = new Date().toISOString().slice(0,10); dateFrom = d; dateTo = d;">Today</button>
+                      <button type="button" class="btn btn-xs btn-soft" @click="const to = new Date(); const from = new Date(); from.setDate(from.getDate() - 6); dateTo = to.toISOString().slice(0,10); dateFrom = from.toISOString().slice(0,10);">Last 7 days</button>
+                      <button type="button" class="btn btn-xs btn-soft" @click="const to = new Date(); const from = new Date(); from.setDate(from.getDate() - 29); dateTo = to.toISOString().slice(0,10); dateFrom = from.toISOString().slice(0,10);">Last 30 days</button>
+                      <button type="button" class="btn btn-xs btn-soft" @click="const now = new Date(); const from = new Date(now.getFullYear(), now.getMonth(), 1); dateTo = now.toISOString().slice(0,10); dateFrom = from.toISOString().slice(0,10);">This month</button>
+                    </div>
+                  </div>
+                </form>
+
+                <div class="sticky bottom-0 px-5 pb-5 pt-4 bg-base-200 border-t border-line flex items-center gap-3">
+                  <button type="submit" form="logs-filters-form" class="btn btn-sm btn-primary flex-1">Apply filters</button>
+                  <a href="?tab=logs{% if log_sort == "oldest" %}&log_sort=oldest{% endif %}" class="btn btn-sm btn-ghost">Clear all</a>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2.5 flex-wrap">
+              <form method="get" class="flex items-center gap-2.5 flex-wrap">
+                <input type="hidden" name="tab" value="logs">
+                <input type="hidden" name="log_profile" value="{{ log_profile_id }}">
+                <input type="hidden" name="log_action_type" value="{{ log_action_type }}">
+                <input type="hidden" name="log_provider" value="{{ log_provider }}">
+                <input type="hidden" name="log_status" value="{{ log_status }}">
+                <input type="hidden" name="log_date_from" value="{{ log_date_from }}">
+                <input type="hidden" name="log_date_to" value="{{ log_date_to }}">
+                <select name="log_sort" onchange="this.form.submit()" class="select select-sm bg-base-100 focus:outline-primary text-xs">
+                  <option value="newest" {% if log_sort == "newest" %}selected{% endif %}>Newest first</option>
+                  <option value="oldest" {% if log_sort == "oldest" %}selected{% endif %}>Oldest first</option>
+                </select>
+              </form>
+              <form
+                hx-post="{% url 'save_log_retention' %}" hx-trigger="change" hx-swap="none"
+                class="flex items-center gap-1.5"
               >
-              <span class="text-xs text-ink-dim">days</span>
-            </form>
+                <label class="text-xs text-ink-dim">Keep logs for</label>
+                <input
+                  type="number" name="log_retention_days" min="1" max="3650" placeholder="forever"
+                  value="{{ cfg.log_retention_days|default_if_none:'' }}"
+                  title="Sync/import log entries older than this are deleted by a nightly cleanup job. Blank = keep forever. Doesn't affect the Activity Log."
+                  class="input input-sm w-20 bg-base-100 text-xs"
+                >
+                <span class="text-xs text-ink-dim">days</span>
+              </form>
+            </div>
           </div>
 
           {% if failure_streaks %}
@@ -832,10 +966,10 @@
               <span class="font-mono text-xs text-ink-faint">Page {{ logs_page.number }} of {{ logs_page.paginator.num_pages }} · {{ logs_page.paginator.count }} entries</span>
               <div class="flex gap-1.5">
                 {% if logs_page.has_previous %}
-                  <a href="?tab=logs&page={{ logs_page.previous_page_number }}{% if log_profile_id %}&log_profile={{ log_profile_id }}{% endif %}{% if log_sort == "oldest" %}&log_sort=oldest{% endif %}" class="px-3 py-1.5 rounded-md border border-line bg-base-100 font-mono text-xs text-ink-dim">‹ Prev</a>
+                  <a href="?tab=logs&page={{ logs_page.previous_page_number }}{% if log_profile_id %}&log_profile={{ log_profile_id }}{% endif %}{% if log_sort == "oldest" %}&log_sort=oldest{% endif %}{% if log_action_type %}&log_action_type={{ log_action_type }}{% endif %}{% if log_provider %}&log_provider={{ log_provider }}{% endif %}{% if log_status %}&log_status={{ log_status }}{% endif %}{% if log_date_from %}&log_date_from={{ log_date_from }}{% endif %}{% if log_date_to %}&log_date_to={{ log_date_to }}{% endif %}" class="px-3 py-1.5 rounded-md border border-line bg-base-100 font-mono text-xs text-ink-dim">‹ Prev</a>
                 {% endif %}
                 {% if logs_page.has_next %}
-                  <a href="?tab=logs&page={{ logs_page.next_page_number }}{% if log_profile_id %}&log_profile={{ log_profile_id }}{% endif %}{% if log_sort == "oldest" %}&log_sort=oldest{% endif %}" class="px-3 py-1.5 rounded-md border border-line bg-base-100 font-mono text-xs text-ink-dim">Next ›</a>
+                  <a href="?tab=logs&page={{ logs_page.next_page_number }}{% if log_profile_id %}&log_profile={{ log_profile_id }}{% endif %}{% if log_sort == "oldest" %}&log_sort=oldest{% endif %}{% if log_action_type %}&log_action_type={{ log_action_type }}{% endif %}{% if log_provider %}&log_provider={{ log_provider }}{% endif %}{% if log_status %}&log_status={{ log_status }}{% endif %}{% if log_date_from %}&log_date_from={{ log_date_from }}{% endif %}{% if log_date_to %}&log_date_to={{ log_date_to }}{% endif %}" class="px-3 py-1.5 rounded-md border border-line bg-base-100 font-mono text-xs text-ink-dim">Next ›</a>
                 {% endif %}
               </div>
             </div>

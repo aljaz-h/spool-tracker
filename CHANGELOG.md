@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.72.0] - 2026-08-05
+
+### Added
+
+- Settings → Logs gets a proper filter panel: a "Filters" button opens a
+  panel with Profile / Action Type / Provider / Status pill filters and a
+  date range (with Today/Last 7 days/Last 30 days/This month presets),
+  replacing the old plain Profile/Sort dropdown pair. Disconnecting
+  Trakt/Simkl/Nuvio is now logged (previously invisible in the Logs tab
+  entirely), and every log entry that relates to a specific provider
+  (including the TMDB-touching backfill maintenance actions) is now
+  taggable and filterable by it.
+
 ## [0.71.0] - 2026-08-05
 
 ### Added
