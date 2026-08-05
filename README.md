@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/aljaz-h/spool-tracker/actions/workflows/docker-publish.yml"><img src="https://github.com/aljaz-h/spool-tracker/actions/workflows/docker-publish.yml/badge.svg" alt="Docker image build status"></a>
-  <img src="https://img.shields.io/badge/Django-5.1-0C4B33?logo=django&logoColor=white" alt="Django 5.1">
+  <img src="https://img.shields.io/badge/Django-5.2%20LTS-0C4B33?logo=django&logoColor=white" alt="Django 5.2 LTS">
   <img src="https://img.shields.io/badge/docker-compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose">
 </p>
 

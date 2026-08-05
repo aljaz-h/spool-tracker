@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.67.0] - 2026-08-05
+
+### Changed
+
+- Upgraded Django 5.1.15 → 5.2.16 LTS. Django 5.1 reached end-of-life on
+  2025-12-03 and stopped receiving security patches; 5.2 is the current
+  LTS release, supported until 2028-04. No code changes were needed -
+  full test suite (1155 tests) passes unchanged, no deprecation warnings.
+
 ## [0.66.0] - 2026-08-05
 
 ### Added
