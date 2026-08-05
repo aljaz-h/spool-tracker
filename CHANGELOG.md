@@ -8,6 +8,23 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.74.0] - 2026-08-06
+
+### Added
+
+- Notifications get a "For you" / "System" toggle to separate release and
+  recommendation notifications from sync-failure/update-available ones,
+  a wider panel, and slightly larger text.
+
+### Changed
+
+- Settings → Logs now updates itself live: a "running" sync/backfill/import
+  row flips to success/failed on its own, no manual refresh.
+- Marking or unmarking a watch (an episode, a whole season, a whole show,
+  or the header's own Watched toggle) now updates the title page's "Your
+  history" card immediately - it used to only refresh on the next full
+  page load.
+
 ## [0.73.0] - 2026-08-05
 
 ### Changed

@@ -1216,15 +1216,24 @@ def title_watched(profile, title):
     return WatchEvent.objects.filter(profile=profile, title=title).exists()
 
 
+def title_watch_history_context(profile, title):
+    """The title detail page's "Your history" card - status line + recent
+    plays - factored out of title_local_context so views that only change
+    watch state (episode_mark_watched and friends) can re-render just this
+    slice for an out-of-band swap without title_local_context's other,
+    unrelated queries (ratings, lists)."""
+    progress = WatchProgress.objects.filter(profile=profile, title=title).select_related("current_episode").first()
+    recent_events = list(
+        WatchEvent.objects.filter(profile=profile, title=title).select_related("episode").order_by("-watched_at")[:10]
+    )
+    return {"progress": progress, "recent_events": recent_events}
+
+
 def title_local_context(profile, title):
     """The title detail page's own-data half - watch/rating/list state -
     kept separate from the TMDB-sourced half (overview/cast/similar,
     fetched directly in the view) since this part never needs a network
     call and stays correct even without a TMDB_API_KEY configured."""
-    progress = WatchProgress.objects.filter(profile=profile, title=title).select_related("current_episode").first()
-    recent_events = list(
-        WatchEvent.objects.filter(profile=profile, title=title).select_related("episode").order_by("-watched_at")[:10]
-    )
     latest_rating = (
         WatchEvent.objects.filter(profile=profile, title=title, user_rating__isnull=False)
         .order_by("-watched_at")
@@ -1237,8 +1246,7 @@ def title_local_context(profile, title):
     )
     watch_count = plain_watch_count(profile, title)
     return {
-        "progress": progress,
-        "recent_events": recent_events,
+        **title_watch_history_context(profile, title),
         "latest_rating": latest_rating,
         "my_lists": my_lists,
         "in_list_ids": in_list_ids,

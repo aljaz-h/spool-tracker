@@ -305,27 +305,7 @@
       {% endif %}
 
       {% if not is_preview %}
-        <div class="bg-base-200 border border-line rounded-2xl p-4">
-          <h2 class="font-display text-lg mb-2.5">Your history</h2>
-          {% if progress %}
-            <div class="text-[12.5px] mb-2">
-              Status: <span class="font-semibold">{{ progress.get_status_display }}</span>
-              {% if progress.current_episode %}— S{{ progress.current_episode.season }}E{{ progress.current_episode.episode }}{% endif %}
-            </div>
-          {% endif %}
-          {% if recent_events %}
-            <div class="flex flex-col gap-1.5">
-              {% for event in recent_events %}
-                <div class="flex justify-between items-center gap-3 text-[12px]">
-                  <span class="font-mono text-ink-dim">{% if event.episode %}S{{ event.episode.season }}E{{ event.episode.episode }}{% else %}Watched{% endif %}</span>
-                  <span class="font-mono text-ink-faint">{{ event.watched_at|timesince }} ago</span>
-                </div>
-              {% endfor %}
-            </div>
-          {% elif not progress %}
-            <div class="text-xs text-ink-faint">Not watched yet.</div>
-          {% endif %}
-        </div>
+        {% include "tracker/partials/title_history_card.html" with progress=progress recent_events=recent_events %}
       {% endif %}
     </div>
   </div>

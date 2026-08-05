@@ -11,6 +11,7 @@ import zoneinfo
 from datetime import date, timedelta
 from io import StringIO
 from itertools import groupby
+from urllib.parse import urlencode
 
 import django
 import requests
@@ -27,6 +28,7 @@ from django.db.models import Count, Max
 from django.db.models.functions import TruncDate
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -1047,6 +1049,18 @@ def _watched_button_template(request):
     return "tracker/partials/poster_card_watched_button.html"
 
 
+def _history_card_oob(request, profile, title):
+    """Appended to an HTMX response body alongside the watched-button
+    fragment so the detail page's "Your history" card (status + recent
+    plays, see title_history_card.html) reflects a watch/unwatch
+    immediately instead of going stale until a full reload."""
+    return render_to_string(
+        "tracker/partials/title_history_card.html",
+        {**selectors.title_watch_history_context(profile, title), "oob": True},
+        request=request,
+    )
+
+
 @login_required
 @require_POST
 def title_mark_watched(request, pk):
@@ -1075,11 +1089,11 @@ def title_mark_watched(request, pk):
     recommendations.mark_title_watched(profile, title)
     if request.headers.get("HX-Request"):
         watch_count = selectors.plain_watch_count(profile, title)
-        return render(
-            request,
-            _watched_button_template(request),
-            {"title": title, "watched": True, "watch_count": watch_count},
-        )
+        template = _watched_button_template(request)
+        response = render(request, template, {"title": title, "watched": True, "watch_count": watch_count})
+        if template == "tracker/partials/title_detail_watched_button.html":
+            response.write(_history_card_oob(request, profile, title))
+        return response
     return redirect("title_detail", pk=pk)
 
 
@@ -1103,11 +1117,13 @@ def title_unmark_watched(request, pk):
         raise Http404
     WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=True).delete()
     if request.headers.get("HX-Request"):
-        return render(
-            request,
-            _watched_button_template(request),
-            {"title": title, "watched": selectors.title_watched(profile, title), "watch_count": 0},
+        template = _watched_button_template(request)
+        response = render(
+            request, template, {"title": title, "watched": selectors.title_watched(profile, title), "watch_count": 0}
         )
+        if template == "tracker/partials/title_detail_watched_button.html":
+            response.write(_history_card_oob(request, profile, title))
+        return response
     return redirect("title_detail", pk=pk)
 
 
@@ -1135,11 +1151,15 @@ def title_unmark_last_watched(request, pk):
         last.delete()
     watch_count = selectors.plain_watch_count(profile, title)
     if request.headers.get("HX-Request"):
-        return render(
+        template = _watched_button_template(request)
+        response = render(
             request,
-            _watched_button_template(request),
+            template,
             {"title": title, "watched": selectors.title_watched(profile, title), "watch_count": watch_count},
         )
+        if template == "tracker/partials/title_detail_watched_button.html":
+            response.write(_history_card_oob(request, profile, title))
+        return response
     return redirect("title_detail", pk=pk)
 
 
@@ -1172,7 +1192,7 @@ def episode_mark_watched(request, pk, season, episode_number):
     completion.sync_show_completion(profile, title)
     completion.sync_watchlist_removal(profile, title)
     recommendations.mark_title_watched(profile, title)
-    return render(
+    response = render(
         request,
         "tracker/partials/episode_watched_button.html",
         {
@@ -1183,6 +1203,8 @@ def episode_mark_watched(request, pk, season, episode_number):
             "id_suffix": request.POST.get("id_suffix", ""),
         },
     )
+    response.write(_history_card_oob(request, profile, title))
+    return response
 
 
 def _mark_episodes_watched_bulk(profile, title, episode_specs):
@@ -1256,7 +1278,9 @@ def title_mark_season_watched(request, pk, season):
     }
     if tmdb_id:
         context.update(_episode_panel_context(request, profile, title, tmdb_id, details, force_season=season))
-    return render(request, "tracker/partials/title_episodes.html", context)
+    response = render(request, "tracker/partials/title_episodes.html", context)
+    response.write(_history_card_oob(request, profile, title))
+    return response
 
 
 @login_required
@@ -1296,7 +1320,9 @@ def title_mark_all_seasons_watched(request, pk):
                 )
         _mark_episodes_watched_bulk(profile, title, episode_specs)
         context.update(_episode_panel_context(request, profile, title, tmdb_id, details))
-    return render(request, "tracker/partials/title_episodes.html", context)
+    response = render(request, "tracker/partials/title_episodes.html", context)
+    response.write(_history_card_oob(request, profile, title))
+    return response
 
 
 @login_required
@@ -2501,6 +2527,52 @@ def _parse_log_date(value):
         return None
 
 
+def _logs_tab_context(request):
+    """Settings' Logs tab data - shared by _settings_page_context (the
+    full page's first load) and logs_table_partial (the self-polling
+    fragment that keeps a "running" row honest without a manual refresh,
+    see settings_logs_table.html). Kept in one place so the filter/sort/
+    page GET params are only ever read once."""
+    log_params = {
+        "log_profile": request.GET.get("log_profile", ""),
+        "log_sort": request.GET.get("log_sort", "newest"),
+        "log_action_type": request.GET.get("log_action_type", ""),
+        "log_provider": request.GET.get("log_provider", ""),
+        "log_status": request.GET.get("log_status", ""),
+        "log_date_from": request.GET.get("log_date_from", ""),
+        "log_date_to": request.GET.get("log_date_to", ""),
+    }
+    if request.GET.get("page"):
+        log_params["page"] = request.GET["page"]
+    logs_page = selectors.combined_logs(
+        request.GET.get("page"),
+        page_size=LOGS_PAGE_SIZE,
+        profile_id=log_params["log_profile"] or None,
+        oldest_first=log_params["log_sort"] == "oldest",
+        action_type=log_params["log_action_type"] or None,
+        provider=log_params["log_provider"] or None,
+        status=log_params["log_status"] or None,
+        date_from=_parse_log_date(log_params["log_date_from"]),
+        date_to=_parse_log_date(log_params["log_date_to"]),
+    )
+    return {
+        "logs_page": logs_page,
+        "logs_has_running": any(entry["status"] == "running" for entry in logs_page.object_list),
+        "logs_query_string": urlencode({k: v for k, v in log_params.items() if v}),
+        "log_profile_id": log_params["log_profile"],
+        "log_sort": log_params["log_sort"],
+        "log_action_type": log_params["log_action_type"],
+        "log_provider": log_params["log_provider"],
+        "log_status": log_params["log_status"],
+        "log_date_from": log_params["log_date_from"],
+        "log_date_to": log_params["log_date_to"],
+        "log_action_types": selectors.LOG_ACTION_TYPES,
+        "log_provider_choices": LOG_PROVIDER_CHOICES,
+        "log_status_choices": DataLog.Status.choices,
+        "failure_streaks": selectors.sync_failure_streaks(),
+    }
+
+
 def _settings_page_context(request, profile):
     """Shared context for the merged Settings/My Profile/Admin Dashboard
     page - settings_view, my_profile, and admin_dashboard all render the
@@ -2541,28 +2613,7 @@ def _settings_page_context(request, profile):
                 "debug": django_settings.DEBUG,
                 "time_zone": django_settings.TIME_ZONE,
                 "audit_log": AdminAuditLogEntry.objects.select_related("actor")[:15],
-                "logs_page": selectors.combined_logs(
-                    request.GET.get("page"),
-                    page_size=LOGS_PAGE_SIZE,
-                    profile_id=request.GET.get("log_profile") or None,
-                    oldest_first=request.GET.get("log_sort") == "oldest",
-                    action_type=request.GET.get("log_action_type") or None,
-                    provider=request.GET.get("log_provider") or None,
-                    status=request.GET.get("log_status") or None,
-                    date_from=_parse_log_date(request.GET.get("log_date_from")),
-                    date_to=_parse_log_date(request.GET.get("log_date_to")),
-                ),
-                "log_profile_id": request.GET.get("log_profile", ""),
-                "log_sort": request.GET.get("log_sort", "newest"),
-                "log_action_type": request.GET.get("log_action_type", ""),
-                "log_provider": request.GET.get("log_provider", ""),
-                "log_status": request.GET.get("log_status", ""),
-                "log_date_from": request.GET.get("log_date_from", ""),
-                "log_date_to": request.GET.get("log_date_to", ""),
-                "log_action_types": selectors.LOG_ACTION_TYPES,
-                "log_provider_choices": LOG_PROVIDER_CHOICES,
-                "log_status_choices": DataLog.Status.choices,
-                "failure_streaks": selectors.sync_failure_streaks(),
+                **_logs_tab_context(request),
             }
         )
     return context
@@ -2582,6 +2633,19 @@ def admin_dashboard(request):
     if profile is None or not profile.is_owner:
         raise Http404
     return render(request, "tracker/settings.html", {**_settings_page_context(request, profile), "active_tab": "profiles"})
+
+
+@login_required
+def logs_table_partial(request):
+    """The Logs tab's self-polling fragment - settings_logs_table.html
+    gives itself hx-trigger="every 4s" whenever a row is still "running",
+    re-requesting this view until a poll comes back with nothing running
+    left, at which point the returned fragment carries no trigger and
+    htmx stops on its own (no JS timer to manage)."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or not profile.is_owner:
+        raise Http404
+    return render(request, "tracker/partials/settings_logs_table.html", _logs_tab_context(request))
 
 
 @login_required

@@ -108,7 +108,7 @@
           this.$nextTick(() => {
             const rect = button.getBoundingClientRect();
             const panel = this.$refs.panel;
-            const width = 320;
+            const width = 384;
             panel.style.left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)) + 'px';
             panel.style.top = (rect.bottom + 8) + 'px';
           });
@@ -127,7 +127,7 @@
             <span class="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-primary text-primary-content text-[10px] font-bold flex items-center justify-center">{{ unread_notification_count }}</span>
           {% endif %}
         </button>
-        <div x-ref="panel" x-show="open" x-cloak class="fixed w-80 bg-base-200 border border-line rounded-lg shadow-lg z-40">
+        <div x-ref="panel" x-show="open" x-cloak class="fixed w-96 bg-base-200 border border-line rounded-lg shadow-lg z-40">
           <div id="notifications-dropdown-content">
             <div class="px-3 py-8 text-center text-ink-faint text-xs">Loading…</div>
           </div>

@@ -2951,6 +2951,30 @@ class NotificationsPanelViewTests(TestCase):
         resp = self.client.get(reverse("notifications_panel"))
         self.assertNotEqual(resp.status_code, 200)
 
+    def test_sync_failed_is_tagged_system_category(self):
+        Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="Trakt sync failed")
+        resp = self.client.get(reverse("notifications_panel"))
+        content = resp.content.decode()
+        message_pos = content.index("Trakt sync failed")
+        x_show_pos = content.rindex('x-show="category', 0, message_pos)
+        self.assertIn("'system'", content[x_show_pos:message_pos])
+
+    def test_upcoming_release_is_tagged_personal_category(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        Notification.objects.create(
+            profile=self.profile, kind=Notification.Kind.UPCOMING_RELEASE, title=title, message="Fathom releases soon"
+        )
+        resp = self.client.get(reverse("notifications_panel"))
+        content = resp.content.decode()
+        message_pos = content.index("Fathom releases soon")
+        x_show_pos = content.rindex('x-show="category', 0, message_pos)
+        self.assertIn("'personal'", content[x_show_pos:message_pos])
+
+    def test_no_category_toggle_shown_when_empty(self):
+        resp = self.client.get(reverse("notifications_panel"))
+        self.assertNotContains(resp, "For you")
+        self.assertNotContains(resp, ">System<")
+
 
 class MarkNotificationReadViewTests(TestCase):
     def setUp(self):
@@ -4737,6 +4761,42 @@ class SyncFailureStreaksTests(TestCase):
         self.assertEqual(streaks[1]["profile"], self.profile)
 
 
+class TitleWatchHistoryContextTests(TestCase):
+    """selectors.title_watch_history_context() - factored out of
+    title_local_context so views that only change watch state can
+    re-render just this slice for an out-of-band swap (see
+    views._history_card_oob) without title_local_context's other,
+    unrelated queries."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.timezone = timezone
+        user = User.objects.create_user("historycontextuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="HistoryContextUser")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+
+    def test_no_progress_and_no_events_when_never_watched(self):
+        context = selectors.title_watch_history_context(self.profile, self.title)
+        self.assertIsNone(context["progress"])
+        self.assertEqual(context["recent_events"], [])
+
+    def test_recent_events_newest_first(self):
+        older = WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now() - timedelta(days=1))
+        newer = WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
+        context = selectors.title_watch_history_context(self.profile, self.title)
+        self.assertEqual(context["recent_events"], [newer, older])
+
+    def test_title_local_context_still_carries_progress_and_recent_events(self):
+        # Regression: title_local_context merges this same data in - make
+        # sure factoring it out didn't drop the keys the detail page
+        # template still reads directly off it.
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
+        context = selectors.title_local_context(self.profile, self.title)
+        self.assertIn("progress", context)
+        self.assertEqual(len(context["recent_events"]), 1)
+
+
 class CombinedLogsTests(TestCase):
     """selectors.combined_logs() - merges SyncLog and DataLog into one
     reverse-chronological, paginated feed for Settings' Logs tab."""
@@ -5021,6 +5081,62 @@ class SyncLogViewTests(TestCase):
         self.client.login(username="logowner", password="pass12345")
         resp = self.client.get(reverse("settings"))
         self.assertNotContains(resp, "fast fail")
+
+
+class LogsTablePartialViewTests(TestCase):
+    """The Logs tab's self-polling fragment (settings_logs_table.html's
+    hx-trigger="every 4s") - logs_table_partial re-renders just the table
+    region, and only keeps polling itself while a row is still running."""
+
+    def setUp(self):
+        owner_user = User.objects.create_user("logspartialowner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=owner_user, display_name="LogsPartialOwner")
+        member_user = User.objects.create_user("logspartialmember", password="pass12345")
+        self.member = Profile.objects.create(user=member_user, display_name="LogsPartialMember")
+
+    def test_requires_login(self):
+        resp = self.client.get(reverse("logs_table_partial"))
+        self.assertNotEqual(resp.status_code, 200)
+
+    def test_non_owner_gets_404(self):
+        self.client.login(username="logspartialmember", password="pass12345")
+        resp = self.client.get(reverse("logs_table_partial"))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_owner_sees_log_entries(self):
+        SyncLog.objects.create(
+            profile=self.owner, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.SUCCESS
+        )
+        self.client.login(username="logspartialowner", password="pass12345")
+        resp = self.client.get(reverse("logs_table_partial"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "success")
+
+    def test_keeps_polling_while_a_row_is_running(self):
+        SyncLog.objects.create(
+            profile=self.owner, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.RUNNING
+        )
+        self.client.login(username="logspartialowner", password="pass12345")
+        resp = self.client.get(reverse("logs_table_partial"))
+        self.assertContains(resp, 'hx-trigger="every 4s"')
+        self.assertContains(resp, reverse("logs_table_partial"))
+
+    def test_stops_polling_once_nothing_is_running(self):
+        SyncLog.objects.create(
+            profile=self.owner, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.SUCCESS
+        )
+        self.client.login(username="logspartialowner", password="pass12345")
+        resp = self.client.get(reverse("logs_table_partial"))
+        self.assertNotContains(resp, "hx-trigger")
+
+    def test_current_filters_carry_through_to_the_polling_url(self):
+        SyncLog.objects.create(
+            profile=self.owner, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.RUNNING
+        )
+        self.client.login(username="logspartialowner", password="pass12345")
+        resp = self.client.get(reverse("logs_table_partial"), {"log_status": "running", "log_sort": "oldest"})
+        self.assertContains(resp, "log_status=running")
+        self.assertContains(resp, "log_sort=oldest")
 
 
 class SchedulingTests(TestCase):
@@ -10805,6 +10921,17 @@ class TitleMarkSeasonWatchedTests(TestCase):
         resp = self.client.get(reverse("title_mark_season_watched", args=[self.title.pk, 1]))
         self.assertEqual(resp.status_code, 405)
 
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_response_includes_the_history_card_oob_fragment(self, mock_season, mock_details, mock_tv_details):
+        # So the detail page's "Your history" card updates live instead
+        # of needing a manual reload - see views._history_card_oob.
+        mock_season.return_value = self._season(["Ep1"])
+        resp = self.client.post(reverse("title_mark_season_watched", args=[self.title.pk, 1]))
+        self.assertContains(resp, 'id="history-card"')
+        self.assertContains(resp, 'hx-swap-oob="true"')
+
 
 class TitleMarkAllSeasonsWatchedTests(TestCase):
     def setUp(self):
@@ -10869,6 +10996,16 @@ class TitleMarkAllSeasonsWatchedTests(TestCase):
     def test_requires_post(self):
         resp = self.client.get(reverse("title_mark_all_seasons_watched", args=[self.title.pk]))
         self.assertEqual(resp.status_code, 405)
+
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_response_includes_the_history_card_oob_fragment(self, mock_season, mock_details, mock_tv_details):
+        mock_details.return_value = self._details(number_of_seasons=1)
+        mock_season.return_value = self._season(["Ep1"])
+        resp = self.client.post(reverse("title_mark_all_seasons_watched", args=[self.title.pk]))
+        self.assertContains(resp, 'id="history-card"')
+        self.assertContains(resp, 'hx-swap-oob="true"')
 
 
 class PreviewEpisodeBrowserTests(TestCase):
@@ -11097,6 +11234,28 @@ class TitleUnmarkWatchedTests(TestCase):
         self.assertContains(resp, "text-success")
         self.assertNotContains(resp, 'title="Mark as watched"')
 
+    def test_detail_page_response_includes_the_history_card_oob_fragment(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
+        resp = self.client.post(
+            reverse("title_unmark_watched", args=[self.title.pk]),
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET=f"watched-popover-detail-{self.title.pk}",
+        )
+        self.assertContains(resp, 'id="history-card"')
+        self.assertContains(resp, 'hx-swap-oob="true"')
+
+    def test_poster_card_response_has_no_history_card_fragment(self):
+        # No #history-card exists in a poster-card grid's DOM at all - an
+        # OOB fragment there would just be dead weight, see
+        # views._watched_button_template's HX-Target dispatch.
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
+        resp = self.client.post(
+            reverse("title_unmark_watched", args=[self.title.pk]),
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET=f"watched-popover-{self.title.pk}",
+        )
+        self.assertNotContains(resp, 'id="history-card"')
+
 
 class TitleUnmarkLastWatchedTests(TestCase):
     """The poster card watched-button popover's "Remove last watched" -
@@ -11145,6 +11304,25 @@ class TitleUnmarkLastWatchedTests(TestCase):
         self.client.logout()
         resp = self.client.post(reverse("title_unmark_last_watched", args=[self.title.pk]))
         self.assertNotEqual(resp.status_code, 200)
+
+    def test_detail_page_response_includes_the_history_card_oob_fragment(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
+        resp = self.client.post(
+            reverse("title_unmark_last_watched", args=[self.title.pk]),
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET=f"watched-popover-detail-{self.title.pk}",
+        )
+        self.assertContains(resp, 'id="history-card"')
+        self.assertContains(resp, 'hx-swap-oob="true"')
+
+    def test_poster_card_response_has_no_history_card_fragment(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
+        resp = self.client.post(
+            reverse("title_unmark_last_watched", args=[self.title.pk]),
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET=f"watched-popover-{self.title.pk}",
+        )
+        self.assertNotContains(resp, 'id="history-card"')
 
 
 class PosterCardWatchedButtonPopoverTests(TestCase):
@@ -11264,6 +11442,23 @@ class WatchedButtonTemplateSelectionTests(TestCase):
         self.assertContains(resp, f'id="watched-popover-{self.title.pk}"')
         self.assertNotContains(resp, f'id="watched-popover-detail-{self.title.pk}"')
 
+    def test_detail_page_click_includes_the_history_card_oob_fragment(self):
+        resp = self.client.post(
+            reverse("title_mark_watched", args=[self.title.pk]),
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET=f"watched-btn-detail-{self.title.pk}",
+        )
+        self.assertContains(resp, 'id="history-card"')
+        self.assertContains(resp, 'hx-swap-oob="true"')
+
+    def test_poster_card_click_has_no_history_card_fragment(self):
+        resp = self.client.post(
+            reverse("title_mark_watched", args=[self.title.pk]),
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET=f"watched-btn-{self.title.pk}",
+        )
+        self.assertNotContains(resp, 'id="history-card"')
+
 
 class EpisodeMarkWatchedTests(TestCase):
     """The episode browser's per-episode watched button."""
@@ -11328,6 +11523,16 @@ class EpisodeMarkWatchedTests(TestCase):
             HTTP_HX_REQUEST="true",
         )
         self.assertContains(resp, f"ep-watched-btn-{self.title.pk}-1-1-m")
+
+    @patch("tracker.integrations.tmdb.get_season_details", return_value=None)
+    def test_response_includes_the_history_card_oob_fragment(self, mock_season):
+        # So the "Your history" status line/recent plays update live -
+        # this view is only ever hit from title_detail.html's episode
+        # browser, so it's always safe to include (see views._history_card_oob).
+        resp = self.client.post(reverse("episode_mark_watched", args=[self.title.pk, 1, 1]), HTTP_HX_REQUEST="true")
+        self.assertContains(resp, 'id="history-card"')
+        self.assertContains(resp, 'hx-swap-oob="true"')
+        self.assertContains(resp, "S1E1")
 
 
 class WatchlistAutoRemovalIntegrationTests(TestCase):

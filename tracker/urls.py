@@ -104,6 +104,7 @@ urlpatterns = [
         name="test_provider_credentials",
     ),
     path("settings/sync-log/", views.sync_log, name="sync_log"),
+    path("settings/logs-table/", views.logs_table_partial, name="logs_table_partial"),
     path("settings/log-retention/", views.save_log_retention, name="save_log_retention"),
     path("settings/profile/<int:profile_id>/reset-password/", views.admin_reset_password, name="admin_reset_password"),
     path("settings/maintenance/merge-duplicates/", views.run_merge_duplicates, name="run_merge_duplicates"),
