@@ -2,7 +2,7 @@
 {# context: item (dict: id, name, poster_url) #}
 <a href="{% url 'collection_detail' item.id %}" class="block">
   <div class="aspect-[2/3] rounded-lg relative overflow-hidden bg-cover bg-center {% if not item.poster_url %}{{ item.id|gradient_class }}{% endif %}"
-       {% if item.poster_url %}style="background-image:url('{{ item.poster_url }}')"{% endif %}>
+       {% if item.poster_url %}style="background-image:url('{{ item.poster_url|poster_size:"w342" }}')"{% endif %}>
     <div class="absolute inset-0 bg-linear-to-t from-black/85 via-black/35 via-55% to-transparent"></div>
     <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">COLLECTION</span>
   </div>

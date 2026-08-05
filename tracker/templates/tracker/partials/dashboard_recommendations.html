@@ -20,7 +20,7 @@ heading/divider left behind.
         <div class="w-[168px] flex-none">
           <div
             class="aspect-[2/3] rounded-lg relative overflow-hidden bg-cover bg-center {% if not rec.title.poster_url %}{{ rec.title.pk|gradient_class }}{% endif %}"
-            {% if rec.title.poster_url %}style="background-image:url('{{ rec.title.poster_url }}')"{% endif %}
+            {% if rec.title.poster_url %}style="background-image:url('{{ rec.title.poster_url|poster_size:"w342" }}')"{% endif %}
           >
             <a href="{% url 'title_detail' rec.title.pk %}" class="absolute inset-0 z-0"></a>
             {% if rec.from_profile.avatar_image %}

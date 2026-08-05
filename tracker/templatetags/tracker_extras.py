@@ -11,6 +11,23 @@ def eq(value, other):
     return value == other
 
 
+@register.filter
+def poster_size(url, width):
+    """Re-points a stored TMDB poster URL at a smaller size than the w500
+    tmdb.py always fetches/stores (IMAGE_BASE) - grid/carousel tiles
+    render at ~110-190px CSS width (discover_tile.html's own grid-cols
+    minmax), so downloading the full w500 wastes bandwidth for the
+    smallest, highest-volume contexts (a browse grid can be dozens of
+    tiles). TMDB's image path is just a fixed-width path segment
+    (/t/p/{size}/...), so this is a URL string swap, not a second fetch
+    or a stored-data change. No-ops (returns url unchanged) for anything
+    that isn't a recognized w500 TMDB URL, so a None/blank/already-
+    resized url never raises or breaks."""
+    if not url or "/t/p/w500/" not in url:
+        return url
+    return url.replace("/t/p/w500/", f"/t/p/{width}/", 1)
+
+
 # The mockup's 8-gradient poster palette (p1..p8), used as a graceful
 # fallback for titles with no poster_url yet — spool-django-handoff.md §4:
 # "keep the CSS as a graceful fallback for titles missing artwork."

@@ -43,7 +43,7 @@
             <a href="{% url 'title_detail' item.title.pk %}" class="flex items-center gap-3 bg-base-300 border border-line rounded-xl p-3 hover:border-primary/40 transition-colors">
               <div
                 class="w-12 aspect-[2/3] rounded-md flex-none bg-cover bg-center {% if not item.title.poster_url %}{{ item.title.pk|gradient_class }}{% endif %}"
-                {% if item.title.poster_url %}style="background-image:url('{{ item.title.poster_url }}')"{% endif %}
+                {% if item.title.poster_url %}style="background-image:url('{{ item.title.poster_url|poster_size:"w185" }}')"{% endif %}
               ></div>
               <div class="min-w-0 flex-1">
                 <div class="text-[13px] font-semibold truncate">{{ item.title.name }}</div>

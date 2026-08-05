@@ -901,7 +901,19 @@ class TmdbFindByImdbIdTests(TestCase):
         self.assertIsNone(tmdb.find_by_imdb_id("tt0137523", MediaType.MOVIE))
 
 
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
 class TmdbDetailsTests(TestCase):
+    """Class-level LocMemCache override (see TmdbDiscoverCachingTests's own
+    docstring for why) - get_movie_details/get_tv_details/get_full_details
+    all route through _list_request's cache now, and several tests below
+    share a tmdb_id, so without this + the cache.clear() in setUp, test
+    order could make one test see another's cached response."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
     def _response(self, data):
         resp = Mock()
         resp.json.return_value = data
@@ -911,7 +923,7 @@ class TmdbDetailsTests(TestCase):
     @override_settings(TMDB_API_KEY="test-key")
     @patch("tracker.integrations.tmdb.requests.get")
     def test_get_movie_details_returns_runtime(self, mock_get):
-        mock_get.return_value = self._response({"runtime": 118})
+        mock_get.return_value = self._response({"id": 42, "runtime": 118})
         details = tmdb.get_movie_details(42)
         self.assertEqual(details["runtime"], 118)
         self.assertIn("https://api.themoviedb.org/3/movie/42", mock_get.call_args.args[0])
@@ -933,6 +945,7 @@ class TmdbDetailsTests(TestCase):
     def test_get_tv_details_parses_episode_count_and_runtime(self, mock_get):
         mock_get.return_value = self._response(
             {
+                "id": 99,
                 "number_of_episodes": 24,
                 "episode_run_time": [24, 25],
                 "seasons": [
@@ -952,7 +965,7 @@ class TmdbDetailsTests(TestCase):
     @override_settings(TMDB_API_KEY="test-key")
     @patch("tracker.integrations.tmdb.requests.get")
     def test_get_tv_details_handles_missing_episode_run_time(self, mock_get):
-        mock_get.return_value = self._response({"number_of_episodes": 24, "seasons": []})
+        mock_get.return_value = self._response({"id": 99, "number_of_episodes": 24, "seasons": []})
         details = tmdb.get_tv_details(99)
         self.assertIsNone(details["episode_run_time"])
 
@@ -6579,6 +6592,42 @@ class WatchTimeBreakdownTests(TestCase):
             {"hours": 0, "days": 0.0, "days_rounded": 0, "hours_display": "0h"},
         )
 
+    def test_bucket_uses_one_conditional_aggregate_query_not_one_per_type(self):
+        """Regression guard: bucket() used to loop over the 3 media types
+        and issue 2 queries each (Sum + Count), 6 per bucket / 12 total -
+        now one aggregate() call per bucket via a conditional Sum/Count,
+        confirmed live on Stats (39 -> 28 total page queries)."""
+        self.assertNumQueries(2, selectors.watch_time_breakdown, self.profile)
+
+
+class StreaksTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("streakwatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="StreakWatcher")
+
+    def test_streaks_matches_the_individual_functions(self):
+        from django.utils import timezone
+
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Movie", year=2020)
+        today = timezone.localdate()
+        for days_ago in range(3):
+            WatchEvent.objects.create(
+                profile=self.profile, title=movie, watched_at=timezone.now() - timedelta(days=days_ago)
+            )
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=timezone.now() - timedelta(days=10))
+
+        current, longest = selectors.streaks(self.profile)
+        self.assertEqual(current, selectors.current_streak(self.profile))
+        self.assertEqual(longest, selectors.longest_streak(self.profile))
+        self.assertEqual((current, longest), (3, 3))
+
+    def test_streaks_issues_one_query_not_two(self):
+        """Regression guard: quick_stats()/stats_overview() used to call
+        current_streak()/longest_streak() separately, each re-fetching
+        and re-deduping the same distinct watched-date data - streaks()
+        computes both off a single .distinct() query."""
+        self.assertNumQueries(1, selectors.streaks, self.profile)
+
     def test_days_rounded_rounds_half_up_to_the_next_day(self):
         # 430.6 days worth of minutes should round UP to 431, not truncate to 430.
         minutes = 430.6 * 24 * 60
@@ -12089,6 +12138,35 @@ class PosterCardListPopoverHtmxBranchTests(TestCase):
         self.assertIn("Mine", [wl.name for wl in resp.context["my_lists"]])
 
 
+class PosterSizeFilterTests(TestCase):
+    """tracker_extras.poster_size - re-points a stored TMDB w500 poster
+    URL at a smaller size for small grid-tile contexts (see the
+    templates it's applied in: discover_tile.html, poster_card.html,
+    etc.)."""
+
+    def test_swaps_the_width_segment(self):
+        from tracker.templatetags.tracker_extras import poster_size
+
+        url = "https://image.tmdb.org/t/p/w500/abc123.jpg"
+        self.assertEqual(poster_size(url, "w185"), "https://image.tmdb.org/t/p/w185/abc123.jpg")
+
+    def test_passes_through_blank_or_none_unchanged(self):
+        from tracker.templatetags.tracker_extras import poster_size
+
+        self.assertEqual(poster_size("", "w185"), "")
+        self.assertIsNone(poster_size(None, "w185"))
+
+    def test_passes_through_non_w500_urls_unchanged(self):
+        """backdrop_url (w1280) and anything else that isn't the app's
+        own stored w500 poster shape is left alone, not mangled."""
+        from tracker.templatetags.tracker_extras import poster_size
+
+        backdrop = "https://image.tmdb.org/t/p/w1280/xyz.jpg"
+        self.assertEqual(poster_size(backdrop, "w185"), backdrop)
+        other = "https://example.com/not-tmdb.jpg"
+        self.assertEqual(poster_size(other, "w185"), other)
+
+
 class ListDetailFiltersTests(TestCase):
     """list_detail's type/period/sort filters (_list_detail_context) -
     History's own filter shape, adapted to a list: period narrows by
@@ -12814,6 +12892,47 @@ class HistoryPaginatesByDateTests(TestCase):
         # to 1 tile - but pagination now counts dates, so this is 1
         # either way; the point is it's dates being counted, not tiles.
         self.assertEqual(context["page_obj"].paginator.count, 1)
+
+    def test_query_count_and_events_fetched_dont_scale_with_total_history_size(self):
+        """_paginate_history_by_day fetches distinct dates + just one
+        page's own events, not the whole profile's history - regression
+        guard for the bug this replaced (list(events) materializing every
+        matching WatchEvent before paginating, confirmed live: ~500ms on
+        a 25k-event profile, the same cost on every page regardless of
+        depth). A large history should cost a small, fixed number of
+        queries and touch only the events actually shown, not scale with
+        how much history exists."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Movie", year=2020)
+        # 60 distinct days' worth of history - comfortably more than
+        # HISTORY_DATES_PER_PAGE (10), so page 1 and a deep page (page 5,
+        # the oldest) are both exercised.
+        for i in range(60):
+            WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now - timedelta(days=i))
+
+        def watchevent_queries(ctx):
+            return [q for q in ctx.captured_queries if "tracker_watchevent" in q["sql"]]
+
+        self.client.login(username="tileuser", password="pass12345")
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(reverse("history"))
+        page_1_we_queries = watchevent_queries(ctx)
+        # Exactly 3: Paginator's own COUNT(*) over the distinct-dates
+        # subquery, the distinct-dates page slice itself, then this
+        # page's events - not one per date and not one that touches
+        # every WatchEvent row regardless of how much history exists.
+        self.assertEqual(len(page_1_we_queries), 3)
+
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(reverse("history"), {"page": 6})
+        # Page 6 (the oldest 10 dates) costs the same as page 1 - not
+        # more, since neither page ever touches the other pages' events.
+        self.assertEqual(len(watchevent_queries(ctx)), len(page_1_we_queries))
+
+        context = views._history_context(self._get_request(page=1), self.profile)
+        self.assertEqual(len(context["day_groups"]), views.HISTORY_DATES_PER_PAGE)
 
     def test_more_than_ten_dates_paginate_at_ten_per_page(self):
         movie = Title.objects.create(media_type=MediaType.MOVIE, name="Movie", year=2020)

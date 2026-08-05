@@ -8,6 +8,29 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.68.0] - 2026-08-05
+
+### Fixed
+
+- History's day-grouped pagination no longer loads a profile's entire
+  watch history into memory before paginating - it now fetches only the
+  distinct watched dates, then just the events on the requested page.
+  Measured on a 25k-event profile: ~580ms → ~77ms per page load (7.5x),
+  and a deep page (e.g. page 50) now costs the same as page 1 instead of
+  scaling with total history size.
+- `get_movie_details`/`get_tv_details` (TMDB runtime/episode-count
+  lookups, called on every TV show detail/episode-browser page view)
+  now go through the same 6h cache every other TMDB lookup already uses
+  - previously an uncached request per page view.
+- Stats page: `current_streak`/`longest_streak` and
+  `watch_time_breakdown` issued redundant per-type queries (12 queries
+  for watch-time breakdown alone); now 2 conditional-aggregate queries.
+  Measured: 39 → 28 queries for one Stats page load.
+- Poster images in grid/carousel tiles (Discover, History, Watchlist,
+  Dashboard, Calendar) now request TMDB's smaller w185/w342 sizes
+  instead of the w500 stored on every title, cutting image payload for
+  the highest-tile-count pages.
+
 ## [0.67.0] - 2026-08-05
 
 ### Changed

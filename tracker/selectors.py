@@ -21,17 +21,27 @@ from .models import (
 )
 
 
-def current_streak(profile):
-    dates = set(WatchEvent.objects.filter(profile=profile).values_list("watched_at__date", flat=True))
-    streak, day = 0, timezone.localdate()
-    while day in dates:
-        streak += 1
+def _distinct_watch_dates(profile):
+    """One row per distinct watched date, deduped at the database level
+    (.distinct()) rather than fetching one row per WatchEvent and
+    deduping in Python via set() - a profile with years of near-daily
+    watching has far fewer distinct days than events (confirmed: 25k
+    events, ~1-1.5k distinct days in practice), so this cuts both the
+    rows transferred and the Python-side work for both streak functions
+    below."""
+    return sorted(WatchEvent.objects.filter(profile=profile).values_list("watched_at__date", flat=True).distinct())
+
+
+def _streak_from_dates(dates):
+    date_set = set(dates)
+    current, day = 0, timezone.localdate()
+    while day in date_set:
+        current += 1
         day -= timedelta(days=1)
-    return streak
+    return current
 
 
-def longest_streak(profile):
-    dates = sorted(set(WatchEvent.objects.filter(profile=profile).values_list("watched_at__date", flat=True)))
+def _longest_streak_from_dates(dates):
     if not dates:
         return 0
     longest = current = 1
@@ -42,6 +52,23 @@ def longest_streak(profile):
         else:
             current = 1
     return longest
+
+
+def current_streak(profile):
+    return _streak_from_dates(_distinct_watch_dates(profile))
+
+
+def longest_streak(profile):
+    return _longest_streak_from_dates(_distinct_watch_dates(profile))
+
+
+def streaks(profile):
+    """current_streak()/longest_streak() combined off a single query -
+    quick_stats()/stats_overview() both need both values together and
+    previously called the two functions separately, each re-fetching and
+    re-deduping the same distinct-dates data."""
+    dates = _distinct_watch_dates(profile)
+    return _streak_from_dates(dates), _longest_streak_from_dates(dates)
 
 
 def continue_watching(profile, media_types=None, limit=8):
@@ -132,12 +159,14 @@ def quick_stats(profile):
         )["total"]
         or 0
     )
+    # Dashboard's streak pill shows both side by side ("N day streak ·
+    # longest N") - streaks() computes both off one shared query instead
+    # of current_streak()/longest_streak() each re-fetching the same
+    # distinct-dates data.
+    streak, longest = streaks(profile)
     return {
-        "streak": current_streak(profile),
-        # Dashboard's streak pill shows both side by side ("N day streak
-        # · longest N") - cheap to compute alongside the current streak
-        # here rather than a second selector call from the view.
-        "longest_streak": longest_streak(profile),
+        "streak": streak,
+        "longest_streak": longest,
         "movies_this_year": movies_this_year,
         "shows_completed": shows_completed,
         # "217d 4h 3m" style, matching the Stats page's own watch-time
@@ -633,7 +662,7 @@ def stats_overview(profile):
     total_hours = round(total_minutes / 60)
     total_watch_days_rounded, total_watch_hours_display = _days_and_hours_display(total_minutes)
 
-    cur, longest = current_streak(profile), longest_streak(profile)
+    cur, longest = streaks(profile)
 
     type_counts = dict(events.values_list("title__media_type").annotate(c=Count("id")).order_by())
     total_events = sum(type_counts.values())
@@ -699,18 +728,27 @@ def watch_time_breakdown(profile):
     from stats_overview() directly rather than this one, to avoid two
     call sites computing what should be the identical lifetime figure."""
 
+    media_types = [MediaType.MOVIE, MediaType.TV, MediaType.ANIME]
+
     def bucket(events):
+        # One aggregate() call with a conditional Sum/Count per media
+        # type, instead of the 3x2 separate queries a per-type loop would
+        # issue - each call site (last_30_days/all_time) previously cost
+        # 6 round trips for what's really one GROUP-BY-shaped question.
+        agg_kwargs = {}
+        for media_type in media_types:
+            agg_kwargs[f"{media_type}_minutes"] = Sum(
+                Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0),
+                filter=Q(title__media_type=media_type),
+            )
+            agg_kwargs[f"{media_type}_count"] = Count("id", filter=Q(title__media_type=media_type))
+        totals = events.aggregate(**agg_kwargs)
+
         result = {}
         combined_minutes = 0
-        for media_type in [MediaType.MOVIE, MediaType.TV, MediaType.ANIME]:
-            type_events = events.filter(title__media_type=media_type)
-            minutes = (
-                type_events.aggregate(
-                    total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0))
-                )["total"]
-                or 0
-            )
-            result[media_type] = {"duration": format_duration(minutes), "count": type_events.count()}
+        for media_type in media_types:
+            minutes = totals[f"{media_type}_minutes"] or 0
+            result[media_type] = {"duration": format_duration(minutes), "count": totals[f"{media_type}_count"] or 0}
             combined_minutes += minutes
         combined_hours = round(combined_minutes / 60)
         days_rounded, hours_display = _days_and_hours_display(combined_minutes)

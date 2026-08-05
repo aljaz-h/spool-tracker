@@ -10,7 +10,7 @@ to avoid triggering navigation.
 <div class="{{ width_class|default:"w-[168px] flex-none" }}{% if progress %} group{% endif %}" {% if progress %}id="watch-progress-card-{{ title.pk }}"{% endif %}>
   <div
     class="aspect-[2/3] rounded-t-lg relative overflow-hidden bg-cover bg-center {% if not title.poster_url %}{{ title.pk|gradient_class }}{% endif %}"
-    {% if title.poster_url %}style="background-image:url('{{ title.poster_url }}')"{% endif %}
+    {% if title.poster_url %}style="background-image:url('{{ title.poster_url|poster_size:"w342" }}')"{% endif %}
   >
     <a href="{% url 'title_detail' title.pk %}" class="absolute inset-0 z-0">
       <span class="absolute top-2 right-2 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ title.media_type|upper }}</span>

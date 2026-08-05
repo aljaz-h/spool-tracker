@@ -11,7 +11,7 @@
     <div class="absolute inset-0 bg-linear-to-r from-base-100 via-base-100/35 to-transparent"></div>
     <div class="relative z-10 h-full flex flex-wrap gap-5 p-6 items-end">
       <div class="w-[110px] aspect-[2/3] flex-none rounded-lg overflow-hidden border border-white/10 bg-cover bg-center {% if not collection.poster_url %}{{ collection.id|gradient_class }}{% endif %}"
-           {% if collection.poster_url %}style="background-image:url('{{ collection.poster_url }}')"{% endif %}>
+           {% if collection.poster_url %}style="background-image:url('{{ collection.poster_url|poster_size:"w185" }}')"{% endif %}>
       </div>
       <div class="min-w-0 flex-1">
         <h1 class="font-display text-3xl md:text-4xl">{{ collection.name }}</h1>

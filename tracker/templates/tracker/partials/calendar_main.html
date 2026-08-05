@@ -49,7 +49,7 @@
           {% for rs in day.items %}
             <div
               class="w-1/3 aspect-[2/3] rounded-sm bg-cover bg-center {% if not rs.title.poster_url %}{{ rs.title.pk|gradient_class }}{% endif %}"
-              {% if rs.title.poster_url %}style="background-image:url('{{ rs.title.poster_url }}')"{% endif %}
+              {% if rs.title.poster_url %}style="background-image:url('{{ rs.title.poster_url|poster_size:"w185" }}')"{% endif %}
             ></div>
           {% endfor %}
         </div>

@@ -117,17 +117,19 @@ def find_by_imdb_id(imdb_id, media_type):
 
 
 def get_movie_details(tmdb_id):
-    """Returns {"runtime": int|None} or None on failure."""
-    api_key = _api_key()
-    if not api_key:
+    """Returns {"runtime": int|None} or None on failure. Routed through
+    _list_request (same 6h cache as every other TMDB lookup here) since
+    completion.py's own runtime backfill already self-limits to once per
+    title (see update_movie_runtime's title.runtime_minutes guard), but
+    this is also called from title_detail's episode panel context on
+    every page view of a show - see get_tv_details below. data.get("id")
+    is None on failure the same way get_full_details checks it - a real
+    TMDB movie/tv object always carries its own id, unlike _list_request's
+    {"results": [], "total_pages": 0} fallback."""
+    data = _list_request(f"movie/{tmdb_id}")
+    if not data or data.get("id") is None:
         return None
-    try:
-        resp = requests.get(f"{API_BASE}/movie/{tmdb_id}", params={"api_key": api_key}, timeout=10)
-        resp.raise_for_status()
-    except requests.RequestException:
-        logger.warning("TMDB movie details failed for id=%s", tmdb_id, exc_info=True)
-        return None
-    return {"runtime": resp.json().get("runtime")}
+    return {"runtime": data.get("runtime")}
 
 
 def get_tv_details(tmdb_id):
@@ -141,17 +143,13 @@ def get_tv_details(tmdb_id):
     page (voted on directly, not a mean of its episodes' own ratings) -
     cheap per-season rating data from this one call, vs. the per-episode
     average get_season_details' episodes would need a whole extra call
-    per season to compute."""
-    api_key = _api_key()
-    if not api_key:
+    per season to compute. Routed through _list_request (same 6h cache
+    as every other TMDB lookup here) - this is called on every page view
+    of a show's detail/episode-browser page (see views._episode_panel_
+    context), previously an uncached request per view."""
+    data = _list_request(f"tv/{tmdb_id}")
+    if not data or data.get("id") is None:
         return None
-    try:
-        resp = requests.get(f"{API_BASE}/tv/{tmdb_id}", params={"api_key": api_key}, timeout=10)
-        resp.raise_for_status()
-    except requests.RequestException:
-        logger.warning("TMDB tv details failed for id=%s", tmdb_id, exc_info=True)
-        return None
-    data = resp.json()
     episode_run_times = data.get("episode_run_time") or []
     return {
         "number_of_episodes": data.get("number_of_episodes"),

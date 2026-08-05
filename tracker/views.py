@@ -22,6 +22,7 @@ from django.contrib.auth.models import User
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Max
+from django.db.models.functions import TruncDate
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -1705,20 +1706,40 @@ def _group_history_by_day(events):
     return groups
 
 
-def _paginate_history_by_day(events, page_number):
+def _paginate_history_by_day(events, page_number, descending):
     """Paginates History by calendar date, not by tile or raw WatchEvent
     row - a "page" is HISTORY_DATES_PER_PAGE dates' worth of history,
     however many tiles that turns out to be (a heavy binge day next to
     several quiet ones is still just as many *dates*, so pages stay
     predictable in a way row/tile counts weren't - see CHANGELOG for the
-    tile-starved-page bug this replaced). Groups the full filtered/sorted
-    event list by day first, then paginates the day-group list itself.
-    Requires the full events list in memory to group before paginating
-    (no DB-level LIMIT/OFFSET here) - fine at this app's personal-history
-    scale, not fine at forum-scale."""
-    full_day_groups = _group_history_by_day(events)
-    page_obj = Paginator(full_day_groups, HISTORY_DATES_PER_PAGE).get_page(page_number)
-    return page_obj, list(page_obj.object_list)
+    tile-starved-page bug this replaced).
+
+    Two queries instead of loading every matching WatchEvent into memory
+    to group-then-paginate: first the distinct watched dates (one row
+    per day, not per event - cheap even across years of history) to
+    figure out which page's worth of *dates* to show, then only the
+    events actually falling on those specific dates. events is the
+    filtered-but-unordered queryset (type/period/title/search already
+    applied by the caller) - ordering is set here rather than by the
+    caller, since a SELECT DISTINCT's ORDER BY must be one of the
+    selected expressions (the distinct-dates query selects the
+    TruncDate'd day, not the raw watched_at the final event fetch orders
+    by)."""
+    order_prefix = "-" if descending else ""
+    dates_qs = (
+        events.annotate(day=TruncDate("watched_at"))
+        .values_list("day", flat=True)
+        .distinct()
+        .order_by(f"{order_prefix}day")
+    )
+    date_page = Paginator(dates_qs, HISTORY_DATES_PER_PAGE).get_page(page_number)
+    page_dates = list(date_page.object_list)
+    page_events = (
+        events.filter(watched_at__date__in=page_dates)
+        .select_related("title", "episode")
+        .order_by(f"{order_prefix}watched_at")
+    )
+    return date_page, _group_history_by_day(list(page_events))
 
 
 def _time_format_str(profile):
@@ -1774,8 +1795,7 @@ def _history_context(request, profile):
                 if r["title_id"] in titles_by_id
             ]
         else:
-            events = events.select_related("title", "episode").order_by("-watched_at" if sort == "new" else "watched_at")
-            page_obj, day_groups = _paginate_history_by_day(list(events), request.GET.get("page"))
+            page_obj, day_groups = _paginate_history_by_day(events, request.GET.get("page"), descending=sort == "new")
 
     query_without_page = request.GET.copy()
     query_without_page.pop("page", None)
