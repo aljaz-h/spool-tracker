@@ -22,8 +22,10 @@ a title they've already watched or listed.
 {% with key=item|tmdb_key %}
 {% with matched_title=discover_title_by_key|get_item:key %}
 <div class="relative {% if item.display_mode == "dim" %}opacity-25 hover:opacity-100 focus-within:opacity-100 transition-opacity{% endif %}">
-  <div class="aspect-[2/3] rounded-t-lg relative overflow-hidden bg-cover bg-center {% if not item.poster_url %}{{ item.tmdb_id|gradient_class }}{% endif %}"
-       {% if item.poster_url %}style="background-image:url('{{ item.poster_url|poster_size:"w342" }}')"{% endif %}>
+  <div class="aspect-[2/3] rounded-t-lg relative overflow-hidden {% if not item.poster_url %}{{ item.tmdb_id|gradient_class }}{% endif %}">
+    {% if item.poster_url %}
+      <img src="{{ item.poster_url|poster_size:"w342" }}" alt="{{ item.name }}" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+    {% endif %}
     <a href="{% url 'title_preview' item.media_type item.tmdb_id %}" class="absolute inset-0 z-0">
       <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ item.media_type|upper }}</span>
       {% if item.vote_average %}

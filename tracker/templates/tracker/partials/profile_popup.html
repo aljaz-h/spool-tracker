@@ -94,8 +94,11 @@
   <div class="space-y-2">
     {% for event in recent_events %}
       <div class="flex items-center gap-2.5 text-[12.5px]">
-        <div class="w-7 h-9 rounded flex-none bg-cover bg-center {% if not event.title.poster_url %}{{ event.title.pk|gradient_class }}{% endif %}"
-             {% if event.title.poster_url %}style="background-image:url('{{ event.title.poster_url|poster_size:"w185" }}')"{% endif %}></div>
+        <div class="w-7 h-9 rounded relative overflow-hidden flex-none {% if not event.title.poster_url %}{{ event.title.pk|gradient_class }}{% endif %}">
+          {% if event.title.poster_url %}
+            <img src="{{ event.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+          {% endif %}
+        </div>
         <div class="min-w-0 flex-1">
           <div class="truncate font-semibold">{{ event.title.name }}{% if event.episode %} — S{{ event.episode.season }}E{{ event.episode.episode }}{% endif %}</div>
           <div class="text-ink-faint font-mono text-[10.5px]">{{ event.watched_at|timesince }} ago</div>

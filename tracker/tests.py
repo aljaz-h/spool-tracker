@@ -8436,6 +8436,25 @@ class DiscoverViewTests(TestCase):
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
+    def test_tile_poster_is_a_lazy_loaded_resized_img(self, mock_discover, mock_genres):
+        """discover_tile.html renders posters as <img loading="lazy">
+        (not a CSS background-image, which can't be lazy-loaded at all)
+        at a smaller TMDB size than the w500 stored on the item."""
+        mock_discover.return_value = {
+            "results": [{
+                "tmdb_id": 1, "media_type": "movie", "name": "Fathom", "year": "2020",
+                "poster_url": "https://image.tmdb.org/t/p/w500/abc.jpg", "vote_average": 7.1,
+            }],
+            "page": 1,
+            "total_pages": 3,
+        }
+        resp = self.client.get(reverse("movies_tv", args=["popular"]))
+        self.assertContains(resp, '<img src="https://image.tmdb.org/t/p/w342/abc.jpg"')
+        self.assertContains(resp, 'loading="lazy"')
+        self.assertNotContains(resp, "background-image:url('https://image.tmdb.org/t/p/w500/abc.jpg')")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
     def test_preferred_language_prefills_the_filter_when_unset_in_the_url(self, mock_discover, mock_genres):
         profile = Profile.objects.get(display_name="DiscoverViewer")
         profile.preferred_language = "ja"
@@ -12462,6 +12481,29 @@ class ToggleListFeaturedTests(TestCase):
         self.client.login(username="featuremember", password="pass12345")
         resp = self.client.get(reverse("dashboard"))
         self.assertNotContains(resp, "Featured Lists")
+
+
+class HistoryTilePosterLazyLoadingTests(TestCase):
+    """history_tile.html renders its poster as <img loading="lazy"> (not
+    a CSS background-image, which can't be lazy-loaded) at a smaller
+    TMDB size than the w500 stored on the title."""
+
+    def test_poster_is_a_lazy_loaded_resized_img(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("historyimguser", password="pass12345")
+        profile = Profile.objects.create(user=user, display_name="HistoryImgUser")
+        self.client.login(username="historyimguser", password="pass12345")
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020,
+            poster_url="https://image.tmdb.org/t/p/w500/abc.jpg",
+        )
+        WatchEvent.objects.create(profile=profile, title=title, watched_at=timezone.now())
+
+        resp = self.client.get(reverse("history"))
+        self.assertContains(resp, '<img src="https://image.tmdb.org/t/p/w342/abc.jpg"')
+        self.assertContains(resp, 'loading="lazy"')
+        self.assertNotContains(resp, "background-image:url('https://image.tmdb.org/t/p/w500/abc.jpg')")
 
 
 class HistoryTitleFilterTests(TestCase):

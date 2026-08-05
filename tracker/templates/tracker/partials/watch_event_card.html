@@ -1,10 +1,10 @@
 {% load tracker_extras %}
 {# context: event (WatchEvent, .still_url/.caption attached by selectors._attach_watch_event_display) - Dashboard's Recently Watched row only; Social Activity uses poster_card.html instead (see dashboard.html) #}
 <a href="{% url 'title_detail' event.title.pk %}" class="w-[220px] flex-none">
-  <div
-    class="aspect-video rounded-lg relative overflow-hidden bg-cover bg-center {% if not event.still_url %}{{ event.title.pk|gradient_class }}{% endif %}"
-    {% if event.still_url %}style="background-image:url('{{ event.still_url }}')"{% endif %}
-  >
+  <div class="aspect-video rounded-lg relative overflow-hidden {% if not event.still_url %}{{ event.title.pk|gradient_class }}{% endif %}">
+    {% if event.still_url %}
+      <img src="{{ event.still_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+    {% endif %}
     <span class="absolute top-2 right-2 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ event.title.media_type|upper }}</span>
     <div class="absolute inset-x-0 bottom-0 p-2.5 bg-gradient-to-t from-black/85 via-black/40 to-transparent">
       <div class="text-[13px] font-semibold text-white truncate">{{ event.title.name }}</div>

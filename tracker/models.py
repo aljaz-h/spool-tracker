@@ -2,6 +2,7 @@ import random
 
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
 
@@ -180,7 +181,16 @@ class Title(models.Model):
 
     class Meta:
         ordering = ["name", "year"]
-        indexes = [models.Index(fields=["media_type"])]
+        indexes = [
+            models.Index(fields=["media_type"]),
+            # Speeds up the search bar's name__icontains scan (an ILIKE
+            # '%...%' a plain btree index can't use, since the leading
+            # wildcard defeats prefix matching) - see the migration that
+            # adds this for why it's wrapped to be a no-op on SQLite
+            # (pg_trgm/GIN are Postgres-only; the app's SQLite dev-
+            # fallback needs to keep migrating cleanly without it).
+            GinIndex(fields=["name"], name="tracker_title_name_trgm", opclasses=["gin_trgm_ops"]),
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.year})"

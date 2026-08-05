@@ -6,8 +6,10 @@
     class="absolute top-1.5 right-1.5 z-20 w-5 h-5 rounded-md bg-black/75 border border-white/20 flex items-center justify-center cursor-pointer"
   ><input type="checkbox" name="event_ids" value="{{ event.id }}" @change="recount()" class="w-3.5 h-3.5 accent-primary"></label>
   <a href="{% url 'title_detail' event.title.pk %}" class="block" @click="if (selecting) $event.preventDefault()">
-    <div class="aspect-[2/3] rounded-lg relative overflow-hidden bg-cover bg-center {% if not event.title.poster_url %}{{ event.title.pk|gradient_class }}{% endif %}"
-         {% if event.title.poster_url %}style="background-image:url('{{ event.title.poster_url|poster_size:"w342" }}')"{% endif %}>
+    <div class="aspect-[2/3] rounded-lg relative overflow-hidden {% if not event.title.poster_url %}{{ event.title.pk|gradient_class }}{% endif %}">
+      {% if event.title.poster_url %}
+        <img src="{{ event.title.poster_url|poster_size:"w342" }}" alt="{{ event.title.name }}" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+      {% endif %}
       <div class="absolute inset-0 bg-linear-to-t from-black/50 to-transparent"></div>
       {% if event.episode %}
         <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 shadow-[0_1px_4px_rgba(0,0,0,0.7)]">S{{ event.episode.season }}:E{{ event.episode.episode }}</span>

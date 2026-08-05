@@ -47,10 +47,11 @@
         {% endcomment %}
         <div class="hidden sm:flex gap-1 mt-1.5">
           {% for rs in day.items %}
-            <div
-              class="w-1/3 aspect-[2/3] rounded-sm bg-cover bg-center {% if not rs.title.poster_url %}{{ rs.title.pk|gradient_class }}{% endif %}"
-              {% if rs.title.poster_url %}style="background-image:url('{{ rs.title.poster_url|poster_size:"w185" }}')"{% endif %}
-            ></div>
+            <div class="w-1/3 aspect-[2/3] rounded-sm relative overflow-hidden {% if not rs.title.poster_url %}{{ rs.title.pk|gradient_class }}{% endif %}">
+              {% if rs.title.poster_url %}
+                <img src="{{ rs.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+              {% endif %}
+            </div>
           {% endfor %}
         </div>
         {% if day.items %}

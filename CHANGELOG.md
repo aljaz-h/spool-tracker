@@ -8,6 +8,26 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.69.0] - 2026-08-05
+
+### Added
+
+- Search now has a trigram GIN index (`pg_trgm`) on title name for
+  Postgres deployments, speeding up the search bar's substring match on
+  larger libraries. Postgres-only - both the extension activation and
+  the index degrade to a no-op/plain index on SQLite automatically
+  (confirmed via `sqlmigrate`), so the dev-fallback path is unaffected.
+
+### Changed
+
+- Poster/backdrop/still images in every grid, carousel, and list context
+  (Discover, History, Watchlist, Dashboard, Calendar, Cast, episode
+  browser) now render as `<img loading="lazy">` instead of a CSS
+  background-image, so images below the fold no longer all load
+  eagerly on page load. Above-the-fold hero images (title/person/
+  collection header posters) are left eager on purpose. Visually
+  verified via screenshot - identical layout, badges, and aspect ratios.
+
 ## [0.68.0] - 2026-08-05
 
 ### Fixed

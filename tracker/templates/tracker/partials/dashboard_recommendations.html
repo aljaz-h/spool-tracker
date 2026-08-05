@@ -18,10 +18,10 @@ heading/divider left behind.
     <div class="flex flex-wrap gap-4">
       {% for rec in received_recommendations %}
         <div class="w-[168px] flex-none">
-          <div
-            class="aspect-[2/3] rounded-lg relative overflow-hidden bg-cover bg-center {% if not rec.title.poster_url %}{{ rec.title.pk|gradient_class }}{% endif %}"
-            {% if rec.title.poster_url %}style="background-image:url('{{ rec.title.poster_url|poster_size:"w342" }}')"{% endif %}
-          >
+          <div class="aspect-[2/3] rounded-lg relative overflow-hidden {% if not rec.title.poster_url %}{{ rec.title.pk|gradient_class }}{% endif %}">
+            {% if rec.title.poster_url %}
+              <img src="{{ rec.title.poster_url|poster_size:"w342" }}" alt="{{ rec.title.name }}" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+            {% endif %}
             <a href="{% url 'title_detail' rec.title.pk %}" class="absolute inset-0 z-0"></a>
             {% if rec.from_profile.avatar_image %}
               <div class="absolute top-2 left-2 z-10 w-6 h-6 rounded-full bg-cover bg-center ring-2 ring-black/40" style="background-image:url('{{ rec.from_profile.avatar_image.url }}')"></div>

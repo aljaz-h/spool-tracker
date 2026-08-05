@@ -93,9 +93,11 @@
       {% for ep in episodes %}
         <div class="bg-base-200 border border-line rounded-lg overflow-hidden flex items-center gap-3 p-2">
           <div
-            class="w-20 h-14 flex-none rounded-md relative overflow-hidden bg-base-300 bg-cover bg-center {% if not ep.still_url %}{{ title.pk|default:preview_tmdb_id|add:ep.episode_number|gradient_class }}{% endif %}"
-            {% if ep.still_url %}style="background-image:url('{{ ep.still_url }}')"{% endif %}
+            class="w-20 h-14 flex-none rounded-md relative overflow-hidden bg-base-300 {% if not ep.still_url %}{{ title.pk|default:preview_tmdb_id|add:ep.episode_number|gradient_class }}{% endif %}"
           >
+            {% if ep.still_url %}
+              <img src="{{ ep.still_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+            {% endif %}
             {% if ep.watched %}
               <span class="absolute inset-0 bg-black/35 flex items-center justify-center text-success text-base" title="Watched">&#10003;</span>
             {% endif %}
@@ -124,9 +126,11 @@
       {% for ep in episodes %}
         <div class="bg-base-200 border border-line rounded-lg overflow-hidden">
           <div
-            class="aspect-video relative bg-base-300 bg-cover bg-center {% if not ep.still_url %}{{ title.pk|default:preview_tmdb_id|add:ep.episode_number|gradient_class }}{% endif %}"
-            {% if ep.still_url %}style="background-image:url('{{ ep.still_url }}')"{% endif %}
+            class="aspect-video relative bg-base-300 {% if not ep.still_url %}{{ title.pk|default:preview_tmdb_id|add:ep.episode_number|gradient_class }}{% endif %}"
           >
+            {% if ep.still_url %}
+              <img src="{{ ep.still_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+            {% endif %}
             <div class="absolute inset-0 bg-linear-to-t from-black/60 to-transparent"></div>
             {% if ep.vote_average %}
               <span class="absolute top-2 left-2 font-mono text-[10px] font-bold bg-black/85 px-1.5 py-0.5 rounded-md shadow-[0_1px_4px_rgba(0,0,0,0.7)]"><span class="text-amber-400">&#9733;</span> <span class="text-white">{{ ep.vote_average|floatformat:1 }}</span></span>
