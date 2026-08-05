@@ -627,6 +627,12 @@ class InstanceConfig(models.Model):
     # self-correcting after an upgrade rather than needing this cleared
     # on deploy.
     latest_known_version = models.CharField(max_length=20, blank=True)
+    # Blank/null = keep forever (the default - matches every install's
+    # behavior before this field existed). Only prunes SyncLog/DataLog -
+    # the operational noise Settings' Logs tab shows - never
+    # AdminAuditLogEntry, which is a security-relevant audit trail meant
+    # to outlive routine sync/import log rows. See tasks.prune_old_logs.
+    log_retention_days = models.PositiveIntegerField(null=True, blank=True)
 
     @classmethod
     def load(cls):

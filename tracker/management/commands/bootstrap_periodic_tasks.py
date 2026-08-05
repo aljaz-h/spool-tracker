@@ -37,3 +37,6 @@ class Command(BaseCommand):
 
         scheduling.ensure_update_check_task()
         self.stdout.write(self.style.SUCCESS("Confirmed the nightly update-check task."))
+
+        scheduling.ensure_log_retention_task()
+        self.stdout.write(self.style.SUCCESS("Confirmed the nightly log-retention task."))

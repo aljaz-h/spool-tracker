@@ -68,6 +68,7 @@ from .models import (
 MOVIE_TV_TYPES = [MediaType.MOVIE, MediaType.TV]
 HISTORY_PAGE_SIZE = 150  # rows per page for the most/least-watched title list - one row is already one tile there, no day-grouping involved
 HISTORY_DATES_PER_PAGE = 10  # dates per page for the default day-grouped History view - see _paginate_history_by_day
+LOGS_PAGE_SIZE = 20  # rows per page for Settings' Logs tab - see selectors.combined_logs
 HISTORY_PERIODS = {"today", "yesterday", "7", "30", "365"}
 # "most_watched"/"least_watched" switch History from its usual day-grouped
 # listing to a title-grouped one, ordered by how many WatchEvents (plays -
@@ -2523,6 +2524,7 @@ def _settings_page_context(request, profile):
                 "audit_log": AdminAuditLogEntry.objects.select_related("actor")[:15],
                 "logs_page": selectors.combined_logs(
                     request.GET.get("page"),
+                    page_size=LOGS_PAGE_SIZE,
                     profile_id=request.GET.get("log_profile") or None,
                     oldest_first=request.GET.get("log_sort") == "oldest",
                 ),
@@ -2628,6 +2630,33 @@ def test_provider_credentials(request, provider):
     else:
         messages.success(request, f"{display_name} connection succeeded{caveat}.")
     return redirect(f"{reverse('admin_dashboard')}?tab=server_integrations")
+
+
+@login_required
+@require_POST
+def save_log_retention(request):
+    """Logs tab's "Keep logs for N days" field - auto-saves on change,
+    same hx-post/hx-trigger=change/204-no-content convention as
+    save_privacy/save_appearance. Blank clears it back to "keep forever"
+    (PositiveIntegerField's null, not 0 - 0 days would mean "delete
+    everything nightly", not "don't prune", so blank has to map to None
+    rather than being coerced to 0). Actual pruning happens nightly via
+    tasks.prune_old_logs - saving this only changes what that task does
+    on its next run, nothing is deleted immediately."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or not profile.is_owner:
+        raise Http404
+    cfg = InstanceConfig.load()
+    raw = request.POST.get("log_retention_days", "").strip()
+    if not raw:
+        cfg.log_retention_days = None
+    else:
+        try:
+            cfg.log_retention_days = max(1, min(3650, int(raw)))
+        except ValueError:
+            return HttpResponse(status=204)
+    cfg.save(update_fields=["log_retention_days"])
+    return HttpResponse(status=204)
 
 
 @login_required

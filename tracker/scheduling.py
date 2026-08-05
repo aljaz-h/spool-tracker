@@ -49,6 +49,7 @@ def remove_periodic_task(account):
 RELEASE_SYNC_TASK_NAME = "sync-release-schedules"
 RELEASE_NOTIFICATIONS_TASK_NAME = "generate-release-notifications"
 UPDATE_CHECK_TASK_NAME = "check-for-new-version"
+LOG_RETENTION_TASK_NAME = "prune-old-logs"
 
 
 def ensure_release_sync_task(hour=3, minute=0):
@@ -101,6 +102,26 @@ def ensure_update_check_task(hour=3, minute=45):
         defaults={
             "crontab": schedule,
             "task": "tracker.tasks.check_for_new_version",
+            "args": "[]",
+            "enabled": True,
+        },
+    )
+
+
+def ensure_log_retention_task(hour=4, minute=15):
+    """(Re)creates the nightly PeriodicTask that prunes SyncLog/DataLog
+    rows past InstanceConfig.log_retention_days (see tasks.prune_old_logs)
+    - unconditionally scheduled, same as the other instance-wide nightly
+    tasks above, regardless of whether retention is actually configured;
+    the task itself is a no-op on a night nothing needs pruning."""
+    schedule, _ = CrontabSchedule.objects.get_or_create(
+        minute=str(minute), hour=str(hour), day_of_week="*", day_of_month="*", month_of_year="*"
+    )
+    PeriodicTask.objects.update_or_create(
+        name=LOG_RETENTION_TASK_NAME,
+        defaults={
+            "crontab": schedule,
+            "task": "tracker.tasks.prune_old_logs",
             "args": "[]",
             "enabled": True,
         },

@@ -13704,3 +13704,148 @@ class RunBackfillCommandTaskTests(TestCase):
         log.refresh_from_db()
         self.assertEqual(log.status, DataLog.Status.FAILED)
         self.assertIn("boom", log.error_message)
+
+
+class LogsPageSizeTests(TestCase):
+    """Settings' Logs tab now paginates at 20/page (views.LOGS_PAGE_SIZE)
+    instead of selectors.combined_logs' own 50 default."""
+
+    def setUp(self):
+        user = User.objects.create_user("logpagesizeowner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=user, display_name="LogPageSizeOwner")
+        for _ in range(25):
+            SyncLog.objects.create(
+                profile=self.owner, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.SUCCESS
+            )
+        self.client.login(username="logpagesizeowner", password="pass12345")
+
+    def test_first_page_shows_20_entries(self):
+        resp = self.client.get(reverse("settings"), {"tab": "logs"})
+        self.assertEqual(len(resp.context["logs_page"].object_list), 20)
+
+    def test_second_page_shows_the_remaining_5(self):
+        resp = self.client.get(reverse("settings"), {"tab": "logs", "page": 2})
+        self.assertEqual(len(resp.context["logs_page"].object_list), 5)
+
+
+class EnsureLogRetentionTaskTests(TestCase):
+    def test_creates_the_single_task_with_defaults(self):
+        scheduling.ensure_log_retention_task()
+        pt = PeriodicTask.objects.get(name=scheduling.LOG_RETENTION_TASK_NAME)
+        self.assertEqual(pt.task, "tracker.tasks.prune_old_logs")
+        self.assertEqual(pt.crontab.hour, "4")
+        self.assertEqual(pt.crontab.minute, "15")
+        self.assertTrue(pt.enabled)
+
+    def test_re_running_updates_rather_than_duplicates(self):
+        scheduling.ensure_log_retention_task()
+        scheduling.ensure_log_retention_task(hour=6)
+        self.assertEqual(PeriodicTask.objects.filter(name=scheduling.LOG_RETENTION_TASK_NAME).count(), 1)
+        pt = PeriodicTask.objects.get(name=scheduling.LOG_RETENTION_TASK_NAME)
+        self.assertEqual(pt.crontab.hour, "6")
+
+
+class PruneOldLogsTaskTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("pruneowner", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="PruneOwner")
+
+    def _old_and_new_logs(self):
+        from django.utils import timezone
+
+        old = timezone.now() - timedelta(days=100)
+        old_sync = SyncLog.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.SUCCESS
+        )
+        SyncLog.objects.filter(pk=old_sync.pk).update(started_at=old)
+        old_data = DataLog.objects.create(
+            profile=self.profile, action=DataLog.Action.EXPORT, status=DataLog.Status.SUCCESS
+        )
+        DataLog.objects.filter(pk=old_data.pk).update(created_at=old)
+        new_sync = SyncLog.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.SIMKL, status=SyncLog.Status.SUCCESS
+        )
+        new_data = DataLog.objects.create(
+            profile=self.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.SUCCESS
+        )
+        return old_sync, old_data, new_sync, new_data
+
+    def test_unset_retention_is_a_no_op(self):
+        self._old_and_new_logs()
+        result = tasks.prune_old_logs()
+        self.assertEqual(result, 0)
+        self.assertEqual(SyncLog.objects.count(), 2)
+        self.assertEqual(DataLog.objects.count(), 2)
+
+    def test_deletes_only_logs_older_than_the_configured_retention(self):
+        old_sync, old_data, new_sync, new_data = self._old_and_new_logs()
+        cfg = InstanceConfig.load()
+        cfg.log_retention_days = 30
+        cfg.save()
+
+        result = tasks.prune_old_logs()
+
+        self.assertEqual(result, 2)
+        self.assertFalse(SyncLog.objects.filter(pk=old_sync.pk).exists())
+        self.assertFalse(DataLog.objects.filter(pk=old_data.pk).exists())
+        self.assertTrue(SyncLog.objects.filter(pk=new_sync.pk).exists())
+        self.assertTrue(DataLog.objects.filter(pk=new_data.pk).exists())
+
+    def test_never_touches_the_audit_log(self):
+        AdminAuditLogEntry.objects.create(
+            actor=self.profile, action=AdminAuditLogEntry.Action.PROFILE_CREATED, target_display_name="X"
+        )
+        from django.utils import timezone
+
+        AdminAuditLogEntry.objects.update(created_at=timezone.now() - timedelta(days=1000))
+        cfg = InstanceConfig.load()
+        cfg.log_retention_days = 1
+        cfg.save()
+
+        tasks.prune_old_logs()
+
+        self.assertEqual(AdminAuditLogEntry.objects.count(), 1)
+
+
+class SaveLogRetentionViewTests(TestCase):
+    def setUp(self):
+        owner_user = User.objects.create_user("logretowner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=owner_user, display_name="LogRetOwner")
+        self.client.login(username="logretowner", password="pass12345")
+
+    def test_saves_a_valid_value(self):
+        self.client.post(reverse("save_log_retention"), {"log_retention_days": "45"})
+        self.assertEqual(InstanceConfig.load().log_retention_days, 45)
+
+    def test_blank_clears_it_to_keep_forever(self):
+        cfg = InstanceConfig.load()
+        cfg.log_retention_days = 30
+        cfg.save()
+        self.client.post(reverse("save_log_retention"), {"log_retention_days": ""})
+        self.assertIsNone(InstanceConfig.load().log_retention_days)
+
+    def test_value_is_clamped_to_the_1_to_3650_range(self):
+        self.client.post(reverse("save_log_retention"), {"log_retention_days": "99999"})
+        self.assertEqual(InstanceConfig.load().log_retention_days, 3650)
+        self.client.post(reverse("save_log_retention"), {"log_retention_days": "0"})
+        self.assertEqual(InstanceConfig.load().log_retention_days, 1)
+
+    def test_non_numeric_value_is_ignored(self):
+        self.client.post(reverse("save_log_retention"), {"log_retention_days": "abc"})
+        self.assertIsNone(InstanceConfig.load().log_retention_days)
+
+    def test_non_owner_gets_404(self):
+        member_user = User.objects.create_user("logretmember", password="pass12345")
+        Profile.objects.create(user=member_user, display_name="LogRetMember")
+        self.client.logout()
+        self.client.login(username="logretmember", password="pass12345")
+        resp = self.client.post(reverse("save_log_retention"), {"log_retention_days": "10"})
+        self.assertEqual(resp.status_code, 404)
+
+
+class BootstrapAlsoRegistersLogRetentionTaskTests(TestCase):
+    def test_registers_the_log_retention_task(self):
+        from django.core.management import call_command
+
+        call_command("bootstrap_periodic_tasks")
+        self.assertTrue(PeriodicTask.objects.filter(name=scheduling.LOG_RETENTION_TASK_NAME).exists())

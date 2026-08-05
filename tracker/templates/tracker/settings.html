@@ -704,19 +704,34 @@
           <h3 class="text-lg mb-1">Logs</h3>
           <div class="text-ink-dim text-xs mb-3.5">Trakt/Simkl syncs and connects, CSV imports and exports — every profile, most recent first, admin-only.</div>
 
-          <form method="get" class="flex items-center gap-2.5 flex-wrap mb-3.5">
-            <input type="hidden" name="tab" value="logs">
-            <select name="log_profile" onchange="this.form.submit()" class="select select-sm bg-base-100 focus:outline-primary text-xs">
-              <option value="">All profiles</option>
-              {% for p in profiles %}
-                <option value="{{ p.id }}" {% if log_profile_id == p.id|stringformat:"s" %}selected{% endif %}>{{ p.display_name }}</option>
-              {% endfor %}
-            </select>
-            <select name="log_sort" onchange="this.form.submit()" class="select select-sm bg-base-100 focus:outline-primary text-xs">
-              <option value="newest" {% if log_sort == "newest" %}selected{% endif %}>Newest first</option>
-              <option value="oldest" {% if log_sort == "oldest" %}selected{% endif %}>Oldest first</option>
-            </select>
-          </form>
+          <div class="flex items-center gap-2.5 flex-wrap mb-3.5">
+            <form method="get" class="flex items-center gap-2.5 flex-wrap">
+              <input type="hidden" name="tab" value="logs">
+              <select name="log_profile" onchange="this.form.submit()" class="select select-sm bg-base-100 focus:outline-primary text-xs">
+                <option value="">All profiles</option>
+                {% for p in profiles %}
+                  <option value="{{ p.id }}" {% if log_profile_id == p.id|stringformat:"s" %}selected{% endif %}>{{ p.display_name }}</option>
+                {% endfor %}
+              </select>
+              <select name="log_sort" onchange="this.form.submit()" class="select select-sm bg-base-100 focus:outline-primary text-xs">
+                <option value="newest" {% if log_sort == "newest" %}selected{% endif %}>Newest first</option>
+                <option value="oldest" {% if log_sort == "oldest" %}selected{% endif %}>Oldest first</option>
+              </select>
+            </form>
+            <form
+              hx-post="{% url 'save_log_retention' %}" hx-trigger="change" hx-swap="none"
+              class="flex items-center gap-1.5 ml-auto"
+            >
+              <label class="text-xs text-ink-dim">Keep logs for</label>
+              <input
+                type="number" name="log_retention_days" min="1" max="3650" placeholder="forever"
+                value="{{ cfg.log_retention_days|default_if_none:'' }}"
+                title="Sync/import log entries older than this are deleted by a nightly cleanup job. Blank = keep forever. Doesn't affect the Activity Log."
+                class="input input-sm w-20 bg-base-100 text-xs"
+              >
+              <span class="text-xs text-ink-dim">days</span>
+            </form>
+          </div>
 
           {% if failure_streaks %}
             <div class="flex flex-col gap-2.5 mb-5">

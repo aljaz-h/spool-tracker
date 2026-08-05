@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.71.0] - 2026-08-05
+
+### Added
+
+- Settings → Logs: a "Keep logs for N days" field (blank = keep forever,
+  the previous behavior) - a nightly job prunes SyncLog/DataLog rows past
+  that age. Never touches the separate Activity Log, which is a security
+  audit trail meant to outlive routine sync/import log rows.
+
+### Changed
+
+- Settings → Logs now paginates at 20 entries per page instead of 50.
+
 ## [0.70.0] - 2026-08-05
 
 ### Added

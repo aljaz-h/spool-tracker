@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from . import csv_import, instance_config, notifications, release_sync, selectors, update_check, version
 from .integrations import nuvio, simkl, trakt
-from .models import DataLog, ExternalAccount, Notification, NuvioConnection, Profile, SyncLog
+from .models import DataLog, ExternalAccount, InstanceConfig, Notification, NuvioConnection, Profile, SyncLog
 
 logger = get_task_logger(__name__)
 
@@ -307,3 +307,24 @@ def run_backfill_genres(data_log_id):
 @shared_task
 def run_backfill_completion(data_log_id):
     _run_backfill_command(data_log_id, "backfill_completion")
+
+
+@shared_task
+def prune_old_logs():
+    """Nightly beat job (see bootstrap_periodic_tasks.py) - deletes
+    SyncLog/DataLog rows older than InstanceConfig.log_retention_days.
+    A no-op when that's unset (the default - "keep forever"). Deliberately
+    never touches AdminAuditLogEntry - see that field's own comment on
+    InstanceConfig for why. Uses started_at/created_at (when the row was
+    written), not any completion time, so a long-stuck RUNNING row still
+    ages out eventually instead of being retained forever by an
+    unreachable finished_at."""
+    retention_days = InstanceConfig.load().log_retention_days
+    if not retention_days:
+        return 0
+    cutoff = timezone.now() - timedelta(days=retention_days)
+    deleted_sync = SyncLog.objects.filter(started_at__lt=cutoff).delete()[0]
+    deleted_data = DataLog.objects.filter(created_at__lt=cutoff).delete()[0]
+    total = deleted_sync + deleted_data
+    logger.info("prune_old_logs: removed %d log entries older than %d days", total, retention_days)
+    return total
