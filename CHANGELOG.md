@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.75.1] - 2026-08-06
+
+### Fixed
+
+- A title matched/imported before this app started recording which TMDB
+  catalog (movie vs. TV) it came from could permanently show as
+  untracked on Trending/Popular/similar/Because You Watched, even though
+  it was correctly marked watched in History. It now matches via its
+  local movie/TV type as a fallback and fixes its own record so this
+  only ever has to happen once per title.
+
 ## [0.75.0] - 2026-08-06
 
 ### Added

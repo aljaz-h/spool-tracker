@@ -12409,6 +12409,55 @@ class DiscoverActionContextSelectorTests(TestCase):
         self.assertEqual(context["discover_title_by_key"]["tv:42"], show)
         self.assertTrue(context["discover_watched"]["tv:42"])
 
+    def test_a_title_missing_tmdb_kind_entirely_still_matches_via_local_media_type(self):
+        # Real reported bug: a title matched/imported before tmdb_kind
+        # existed has a tmdb id but no tmdb_kind at all, so it never
+        # matched here again - it showed watched in History (a plain FK,
+        # no external_ids matching needed) but permanently untracked on
+        # Trending/Popular/similar.
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Obsession", year=2026, external_ids={"tmdb": "42"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        context = selectors.discover_action_context(self.profile, [self._item()])
+        key = "movie:42"
+        self.assertEqual(context["discover_title_by_key"][key], title)
+        self.assertTrue(context["discover_watched"][key])
+
+    def test_matching_via_local_media_type_self_heals_the_missing_tmdb_kind(self):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Obsession", year=2026, external_ids={"tmdb": "42"}
+        )
+        selectors.discover_action_context(self.profile, [self._item()])
+        title.refresh_from_db()
+        self.assertEqual(title.external_ids["tmdb_kind"], "movie")
+
+    def test_missing_tmdb_kind_fallback_still_respects_the_movie_tv_id_collision_guard(self):
+        # The same collision this whole matching scheme exists to prevent
+        # (see test_a_tv_item_does_not_match_an_unrelated_movie_with_the_
+        # same_tmdb_id) must still hold even when tmdb_kind is missing -
+        # a tv item must never match a movie Title just because that
+        # movie also happens to be missing tmdb_kind.
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Die Hard", year=1988, external_ids={"tmdb": "42"})
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at="2024-01-01T00:00:00Z")
+        tv_item = self._item(tmdb_id=42, media_type="tv")
+        context = selectors.discover_action_context(self.profile, [tv_item])
+        self.assertIsNone(context["discover_title_by_key"]["tv:42"])
+        self.assertFalse(context["discover_watched"]["tv:42"])
+
+    def test_missing_tmdb_kind_fallback_matches_anime_for_a_tv_item(self):
+        # Anime is tracked with local media_type="anime" but matched
+        # against TMDB's tv catalog - a "tv" discover item missing
+        # tmdb_kind must still be able to match an anime Title, not just
+        # a plain MediaType.TV one.
+        anime = Title.objects.create(
+            media_type=MediaType.ANIME, name="Bleach", year=2004, external_ids={"tmdb": "42"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=anime, watched_at="2024-01-01T00:00:00Z")
+        tv_item = self._item(tmdb_id=42, media_type="tv")
+        context = selectors.discover_action_context(self.profile, [tv_item])
+        self.assertEqual(context["discover_title_by_key"]["tv:42"], anime)
+
 
 class PersonPersonalStatsSelectorTests(TestCase):
     """person_personal_stats - the person detail page's "N of M watched"/

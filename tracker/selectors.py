@@ -1352,13 +1352,37 @@ def discover_action_context(profile, items):
     poster_card_watched_button.html/poster_card_list_popover.html, the
     same partials a tracked title's own poster card uses, whenever a
     match exists) alongside the usual watched/list-membership dicts.
+
+    Falls back to local media_type when tmdb_kind is missing entirely -
+    titles matched/imported before tmdb_kind existed (or by any path that
+    predates it) have a tmdb id but no tmdb_kind, and would otherwise
+    never match here again, permanently showing as untracked on
+    Trending/Popular/similar even though History shows them watched (a
+    real reported case). Grouping TV and ANIME together for a "tv" item
+    (not just an exact MediaType.TV match) keeps this safe against the
+    exact bug tmdb_kind was added to prevent - a movie and a tv show
+    sharing a raw numeric TMDB id - since both TV and ANIME only ever
+    mean TMDB's tv catalog, never movie. Self-heals the match by writing
+    the now-known tmdb_kind back, so this fallback is only ever needed
+    once per title.
     """
+    local_media_types_for_kind = {"movie": [MediaType.MOVIE], "tv": [MediaType.TV, MediaType.ANIME]}
     matched_title_by_key = {}
     for item in items:
         key = f"{item['media_type']}:{item['tmdb_id']}"
-        matched_title_by_key[key] = Title.objects.filter(
+        match = Title.objects.filter(
             external_ids__tmdb=str(item["tmdb_id"]), external_ids__tmdb_kind=item["media_type"]
         ).first()
+        if match is None:
+            match = Title.objects.filter(
+                external_ids__tmdb=str(item["tmdb_id"]),
+                external_ids__tmdb_kind__isnull=True,
+                media_type__in=local_media_types_for_kind.get(item["media_type"], []),
+            ).first()
+            if match is not None:
+                match.external_ids = {**match.external_ids, "tmdb_kind": item["media_type"]}
+                match.save(update_fields=["external_ids"])
+        matched_title_by_key[key] = match
 
     matched_titles = [t for t in matched_title_by_key.values() if t is not None]
     title_ids = [t.pk for t in matched_titles]
