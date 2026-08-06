@@ -1,5 +1,5 @@
 {% load tracker_extras icons %}
-{# context: title (Title or None - preview titles have no local row yet), seasons, season, episodes (each optionally carrying filler/recap bools - anime only, from Jikan/MyAnimeList, see views._apply_anime_filler_flags - absent entirely rather than False when there's no match/data, which {% if %} already treats as falsy - and release_in, a "In N days/weeks/months" countdown string for a not-yet-aired episode, None once it's aired), season_avg_rating, season_total_runtime (str, format_duration of the selected season's episodes with a known runtime), season_ratings (dict {season_number: TMDB rating}), preview_media_type/preview_tmdb_id (only set when title is None) #}
+{# context: title (Title or None - preview titles have no local row yet), seasons, season, episodes (each optionally carrying filler/recap bools - anime only, from Jikan/MyAnimeList, see views._apply_anime_filler_flags - absent entirely rather than False when there's no match/data, which {% if %} already treats as falsy - and release_in, a "In N days/weeks/months" countdown string for a not-yet-aired episode, None once it's aired), season_avg_rating, season_total_runtime (str, format_duration of the selected season's episodes with a known runtime), season_ratings (dict {season_number: TMDB rating}), season_fully_watched/show_completed (bool - whether the bulk buttons below should show their unmark reverse instead), preview_media_type/preview_tmdb_id (only set when title is None) #}
 <div id="episodes-panel">
   {% if seasons %}
     <div class="flex justify-between items-center flex-wrap gap-3 mb-4">
@@ -14,24 +14,47 @@
             A movie is one item - "watched" is a single fact (see the
             header's own watched button/popover). A show isn't, so
             there's no equivalent single "watched" action for the whole
-            thing here - only season-scoped and whole-show bulk actions,
-            both of which only ever add plays for episodes that don't
-            already have one (a catch-up, not a rewatch-everything).
+            thing here - only season-scoped and whole-show bulk actions.
+            Each one only ever adds plays for episodes that don't already
+            have one (a catch-up, not a rewatch-everything) - once every
+            episode already has one (season_fully_watched/show_completed),
+            the button flips to its own reverse instead, clearing every
+            play in that scope in one action.
           {% endcomment %}
-          <button
-            type="button"
-            hx-post="{% url 'title_mark_season_watched' title.pk season %}"
-            hx-target="#episodes-panel" hx-swap="outerHTML"
-            hx-confirm="Mark every episode of Season {{ season }} of “{{ title.name }}” as watched?"
-            class="bg-base-200 border border-line rounded-lg text-xs font-semibold px-3 py-1.5 text-base-content cursor-pointer hover:bg-base-300 transition-colors"
-          >Mark season watched</button>
-          <button
-            type="button"
-            hx-post="{% url 'title_mark_all_seasons_watched' title.pk %}"
-            hx-target="#episodes-panel" hx-swap="outerHTML"
-            hx-confirm="Mark every episode of every season of “{{ title.name }}” as watched? This can take a moment for shows with many seasons."
-            class="bg-base-200 border border-line rounded-lg text-xs font-semibold px-3 py-1.5 text-base-content cursor-pointer hover:bg-base-300 transition-colors"
-          >Mark all watched</button>
+          {% if season_fully_watched %}
+            <button
+              type="button"
+              hx-post="{% url 'title_unmark_season_watched' title.pk season %}"
+              hx-target="#episodes-panel" hx-swap="outerHTML"
+              hx-confirm="Remove every watched mark for Season {{ season }} of “{{ title.name }}”? This can't be undone."
+              class="bg-error/10 border border-error/30 rounded-lg text-xs font-semibold px-3 py-1.5 text-error cursor-pointer hover:bg-error/20 transition-colors"
+            >Unmark season watched</button>
+          {% else %}
+            <button
+              type="button"
+              hx-post="{% url 'title_mark_season_watched' title.pk season %}"
+              hx-target="#episodes-panel" hx-swap="outerHTML"
+              hx-confirm="Mark every episode of Season {{ season }} of “{{ title.name }}” as watched?"
+              class="bg-base-200 border border-line rounded-lg text-xs font-semibold px-3 py-1.5 text-base-content cursor-pointer hover:bg-base-300 transition-colors"
+            >Mark season watched</button>
+          {% endif %}
+          {% if show_completed %}
+            <button
+              type="button"
+              hx-post="{% url 'title_unmark_all_seasons_watched' title.pk %}"
+              hx-target="#episodes-panel" hx-swap="outerHTML"
+              hx-confirm="Remove every watched mark for every season of “{{ title.name }}”? This can't be undone."
+              class="bg-error/10 border border-error/30 rounded-lg text-xs font-semibold px-3 py-1.5 text-error cursor-pointer hover:bg-error/20 transition-colors"
+            >Unmark all watched</button>
+          {% else %}
+            <button
+              type="button"
+              hx-post="{% url 'title_mark_all_seasons_watched' title.pk %}"
+              hx-target="#episodes-panel" hx-swap="outerHTML"
+              hx-confirm="Mark every episode of every season of “{{ title.name }}” as watched? This can take a moment for shows with many seasons."
+              class="bg-base-200 border border-line rounded-lg text-xs font-semibold px-3 py-1.5 text-base-content cursor-pointer hover:bg-base-300 transition-colors"
+            >Mark all watched</button>
+          {% endif %}
         {% endif %}
 
         <div class="relative" id="season-picker-{{ title.pk|default:preview_tmdb_id }}" x-data="{

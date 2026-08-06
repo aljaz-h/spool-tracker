@@ -737,6 +737,7 @@ def _episode_panel_context(request, profile, title, tmdb_id, details, force_seas
     context = {
         "seasons": [], "season": None, "episodes": [], "season_avg_rating": None,
         "season_ratings": {}, "season_total_runtime": None,
+        "season_fully_watched": False, "show_completed": False,
     }
     number_of_seasons = details["number_of_seasons"] if details else None
     if not number_of_seasons:
@@ -771,6 +772,11 @@ def _episode_panel_context(request, profile, title, tmdb_id, details, force_seas
     if title is not None and title.media_type == MediaType.ANIME and episodes:
         _apply_anime_filler_flags(title, episodes, season, tv_details)
     context["episodes"] = episodes
+    if profile and title:
+        context["season_fully_watched"] = bool(episodes) and all(ep["watched"] for ep in episodes)
+        context["show_completed"] = WatchProgress.objects.filter(
+            profile=profile, title=title, status=WatchProgress.Status.COMPLETED
+        ).exists()
     rated = [ep["vote_average"] for ep in episodes if ep.get("vote_average")]
     context["season_avg_rating"] = round(sum(rated) / len(rated), 1) if rated else None
     runtimes = [ep["runtime"] for ep in episodes if ep.get("runtime")]
@@ -1166,11 +1172,12 @@ def title_unmark_last_watched(request, pk):
 @login_required
 @require_POST
 def episode_mark_watched(request, pk, season, episode_number):
-    """The episode browser's per-episode watched button - materializes the
-    local Episode row (sync/import may already have created one for this
-    exact season/episode) with its TMDB name, then behaves like
-    title_mark_watched: always a new WatchEvent, no "unwatch", a second
-    click logs a rewatch. Always an HTMX fragment - this button only ever
+    """The episode browser's per-episode watched button, and the "Watch
+    again" item in its own watched-state popover menu
+    (episode_watched_menu_panel.html) - always a new WatchEvent, a second
+    play logs a rewatch. The popover's other two items,
+    episode_unmark_last_watched/episode_unmark_all_watched just below,
+    are the reverse. Always an HTMX fragment - this button only ever
     appears inside title_episodes.html."""
     title = get_object_or_404(Title, pk=pk)
     profile = Profile.objects.filter(user=request.user).first()
@@ -1205,6 +1212,72 @@ def episode_mark_watched(request, pk, season, episode_number):
     )
     response.write(_history_card_oob(request, profile, title))
     return response
+
+
+def _episode_watched_button_response(request, profile, title, season, episode_number):
+    """Shared tail of episode_unmark_last_watched/episode_unmark_all_watched -
+    re-renders the button/popover off whatever's left for this episode
+    (episode_mark_watched builds its own response directly instead, since
+    it always knows the answer is watched=True without a query)."""
+    watched = WatchEvent.objects.filter(
+        profile=profile, title=title, episode__season=season, episode__episode=episode_number
+    ).exists()
+    response = render(
+        request,
+        "tracker/partials/episode_watched_button.html",
+        {
+            "title": title,
+            "season": season,
+            "episode_number": episode_number,
+            "watched": watched,
+            "id_suffix": request.POST.get("id_suffix", ""),
+        },
+    )
+    response.write(_history_card_oob(request, profile, title))
+    return response
+
+
+@login_required
+@require_POST
+def episode_unmark_last_watched(request, pk, season, episode_number):
+    """The episode watched popover's "Remove last watched" - undoes a
+    single play of this one episode, the episode-scoped counterpart to
+    title_unmark_last_watched. A no-op (nothing to delete) is harmless,
+    same reasoning as that view."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    last = (
+        WatchEvent.objects.filter(
+            profile=profile, title=title, episode__season=season, episode__episode=episode_number
+        )
+        .order_by("-watched_at")
+        .first()
+    )
+    if last is not None:
+        last.delete()
+    completion.sync_show_completion(profile, title)
+    return _episode_watched_button_response(request, profile, title, season, episode_number)
+
+
+@login_required
+@require_POST
+def episode_unmark_all_watched(request, pk, season, episode_number):
+    """The episode watched popover's "Remove all watched history" - clears
+    every play of this one episode, the episode-scoped counterpart to
+    title_unmark_watched. Unlike that view (plain, episode-less events
+    only), this only ever touches the one named episode - every other
+    episode's history is untouched."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    WatchEvent.objects.filter(
+        profile=profile, title=title, episode__season=season, episode__episode=episode_number
+    ).delete()
+    completion.sync_show_completion(profile, title)
+    return _episode_watched_button_response(request, profile, title, season, episode_number)
 
 
 def _mark_episodes_watched_bulk(profile, title, episode_specs):
@@ -1245,6 +1318,33 @@ def _mark_episodes_watched_bulk(profile, title, episode_specs):
     return created
 
 
+def _render_episodes_panel(request, profile, title, force_season=None, details=None):
+    """Shared tail of every action that leaves the episode browser open on
+    the same title (mark/unmark, single episode or bulk season/show):
+    builds fresh episode-panel context and re-renders title_episodes.html
+    + the "Your history" OOB fragment. `details` lets a caller that
+    already fetched TMDB's full details (e.g. to enumerate every season
+    for a whole-show bulk action) pass it through instead of this
+    re-fetching it."""
+    tmdb_id = title.external_ids.get("tmdb")
+    context = {
+        "title": title,
+        "seasons": [],
+        "season": None,
+        "episodes": [],
+        "season_avg_rating": None,
+        "season_ratings": {},
+        "preview_tmdb_id": None,
+    }
+    if tmdb_id:
+        if details is None:
+            details = tmdb.get_full_details(tmdb.media_type_for(title), tmdb_id)
+        context.update(_episode_panel_context(request, profile, title, tmdb_id, details, force_season=force_season))
+    response = render(request, "tracker/partials/title_episodes.html", context)
+    response.write(_history_card_oob(request, profile, title))
+    return response
+
+
 @login_required
 @require_POST
 def title_mark_season_watched(request, pk, season):
@@ -1267,20 +1367,25 @@ def title_mark_season_watched(request, pk, season):
             profile, title, [(season, ep["episode_number"], ep.get("name") or "") for ep in episodes]
         )
         details = tmdb.get_full_details(tmdb.media_type_for(title), tmdb_id)
-    context = {
-        "title": title,
-        "seasons": [],
-        "season": None,
-        "episodes": [],
-        "season_avg_rating": None,
-        "season_ratings": {},
-        "preview_tmdb_id": None,
-    }
-    if tmdb_id:
-        context.update(_episode_panel_context(request, profile, title, tmdb_id, details, force_season=season))
-    response = render(request, "tracker/partials/title_episodes.html", context)
-    response.write(_history_card_oob(request, profile, title))
-    return response
+    return _render_episodes_panel(request, profile, title, force_season=season, details=details)
+
+
+@login_required
+@require_POST
+def title_unmark_season_watched(request, pk, season):
+    """The episode browser's "Unmark season watched" - shown instead of
+    "Mark season watched" once every episode in this season already has a
+    play (season_fully_watched). The reverse of title_mark_season_watched:
+    clears every play of every episode in this season only - other
+    seasons and the title's own plain (episode-less) watch marks are
+    untouched."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    WatchEvent.objects.filter(profile=profile, title=title, episode__season=season).delete()
+    completion.sync_show_completion(profile, title)
+    return _render_episodes_panel(request, profile, title, force_season=season)
 
 
 @login_required
@@ -1299,15 +1404,7 @@ def title_mark_all_seasons_watched(request, pk):
     if profile is None:
         raise Http404
     tmdb_id = title.external_ids.get("tmdb")
-    context = {
-        "title": title,
-        "seasons": [],
-        "season": None,
-        "episodes": [],
-        "season_avg_rating": None,
-        "season_ratings": {},
-        "preview_tmdb_id": None,
-    }
+    details = None
     if tmdb_id:
         details = tmdb.get_full_details(tmdb.media_type_for(title), tmdb_id)
         number_of_seasons = details["number_of_seasons"] if details else 0
@@ -1319,10 +1416,23 @@ def title_mark_all_seasons_watched(request, pk):
                     (season, ep["episode_number"], ep.get("name") or "") for ep in season_data["episodes"]
                 )
         _mark_episodes_watched_bulk(profile, title, episode_specs)
-        context.update(_episode_panel_context(request, profile, title, tmdb_id, details))
-    response = render(request, "tracker/partials/title_episodes.html", context)
-    response.write(_history_card_oob(request, profile, title))
-    return response
+    return _render_episodes_panel(request, profile, title, details=details)
+
+
+@login_required
+@require_POST
+def title_unmark_all_seasons_watched(request, pk):
+    """The episode browser's "Unmark all watched" - shown instead of
+    "Mark all watched" once the whole show is COMPLETED
+    (show_completed). The reverse of title_mark_all_seasons_watched:
+    clears every episode play across every season."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=False).delete()
+    completion.sync_show_completion(profile, title)
+    return _render_episodes_panel(request, profile, title)
 
 
 @login_required

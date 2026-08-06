@@ -1101,6 +1101,45 @@ class CompletionShowTests(TestCase):
             completion.sync_show_completion(self.profile, title)
         mock_details.assert_not_called()
 
+    def test_downgrades_completed_to_watching_when_an_episode_is_unmarked(self):
+        # Only reachable via an in-app unmark - nothing used to remove
+        # episodes before this, so nothing needed to demote a COMPLETED
+        # show back down until now.
+        self._log_episodes(10)
+        details = {"number_of_episodes": 10, "episode_run_time": 24, "seasons": []}
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            completion.sync_show_completion(self.profile, self.title)
+        WatchEvent.objects.filter(profile=self.profile, title=self.title, episode__episode=10).delete()
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            completion.sync_show_completion(self.profile, self.title)
+        progress = WatchProgress.objects.get(profile=self.profile, title=self.title)
+        self.assertEqual(progress.status, WatchProgress.Status.WATCHING)
+
+    def test_deletes_progress_row_when_every_episode_is_unmarked(self):
+        self._log_episodes(10)
+        details = {"number_of_episodes": 10, "episode_run_time": 24, "seasons": []}
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            completion.sync_show_completion(self.profile, self.title)
+        WatchEvent.objects.filter(profile=self.profile, title=self.title).delete()
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            completion.sync_show_completion(self.profile, self.title)
+        self.assertFalse(WatchProgress.objects.filter(profile=self.profile, title=self.title).exists())
+
+    def test_watching_row_never_completed_is_left_alone_on_partial_count(self):
+        # The downgrade branch only ever touches a row that IS currently
+        # COMPLETED - a show mid-watch via Nuvio's own progress tracking
+        # (position_seconds etc.) shouldn't be reset by this.
+        WatchProgress.objects.create(
+            profile=self.profile, title=self.title, status=WatchProgress.Status.WATCHING, position_seconds=500
+        )
+        self._log_episodes(3)
+        details = {"number_of_episodes": 10, "episode_run_time": 24, "seasons": []}
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            completion.sync_show_completion(self.profile, self.title)
+        progress = WatchProgress.objects.get(profile=self.profile, title=self.title)
+        self.assertEqual(progress.status, WatchProgress.Status.WATCHING)
+        self.assertEqual(progress.position_seconds, 500)
+
     def test_falls_back_to_per_episode_runtime_when_show_level_average_is_missing(self):
         """The bug behind a real user-reported discrepancy: TMDB's
         show-level episode_run_time is empty for plenty of shows even
@@ -10932,6 +10971,96 @@ class TitleMarkSeasonWatchedTests(TestCase):
         self.assertContains(resp, 'id="history-card"')
         self.assertContains(resp, 'hx-swap-oob="true"')
 
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_button_flips_to_unmark_once_the_season_is_fully_watched(self, mock_season, mock_details, mock_tv_details):
+        mock_details.return_value = {
+            "tmdb_id": 99, "media_type": "tv", "name": "Silo", "year": "2023",
+            "overview": "", "tagline": "", "genres": [], "runtime": None,
+            "number_of_seasons": 1, "number_of_episodes": 2,
+            "backdrop_url": None, "poster_url": None, "vote_average": 7.0,
+            "vote_count": 100, "original_language": "en", "status": None,
+        }
+        mock_season.return_value = self._season(["Ep1", "Ep2"])
+        resp = self.client.get(reverse("title_episodes", args=[self.title.pk]), {"season": 1})
+        self.assertContains(resp, "Mark season watched")
+        self.assertNotContains(resp, "Unmark season watched")
+
+        self.client.post(reverse("title_mark_season_watched", args=[self.title.pk, 1]))
+        resp = self.client.get(reverse("title_episodes", args=[self.title.pk]), {"season": 1})
+        self.assertContains(resp, "Unmark season watched")
+        self.assertNotContains(resp, ">Mark season watched<")
+
+
+class TitleUnmarkSeasonWatchedTests(TestCase):
+    """The reverse of title_mark_season_watched - shown instead of it once
+    every episode in the season already has a play."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.timezone = timezone
+        user = User.objects.create_user("seasonunmarker", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="SeasonUnmarker")
+        self.client.login(username="seasonunmarker", password="pass12345")
+        self.title = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99", "tmdb_kind": "tv"},
+        )
+
+    def _watch(self, season, episode_number):
+        ep = Episode.objects.create(title=self.title, season=season, episode=episode_number)
+        WatchEvent.objects.create(profile=self.profile, title=self.title, episode=ep, watched_at=self.timezone.now())
+        return ep
+
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details", return_value=None)
+    def test_clears_every_play_in_the_season(self, mock_season, mock_details, mock_tv_details):
+        self._watch(1, 1)
+        self._watch(1, 2)
+        resp = self.client.post(reverse("title_unmark_season_watched", args=[self.title.pk, 1]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(WatchEvent.objects.filter(profile=self.profile, title=self.title, episode__season=1).exists())
+
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details", return_value=None)
+    def test_leaves_other_seasons_untouched(self, mock_season, mock_details, mock_tv_details):
+        self._watch(1, 1)
+        self._watch(2, 1)
+        self.client.post(reverse("title_unmark_season_watched", args=[self.title.pk, 1]))
+        self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title=self.title, episode__season=2).exists())
+
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details", return_value=None)
+    def test_leaves_another_profiles_plays_untouched(self, mock_season, mock_details, mock_tv_details):
+        other_user = User.objects.create_user("seasonunmarkother", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="SeasonUnmarkOther")
+        ep = Episode.objects.create(title=self.title, season=1, episode=1)
+        other_event = WatchEvent.objects.create(profile=other_profile, title=self.title, episode=ep, watched_at=self.timezone.now())
+        self.client.post(reverse("title_unmark_season_watched", args=[self.title.pk, 1]))
+        self.assertTrue(WatchEvent.objects.filter(pk=other_event.pk).exists())
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("title_unmark_season_watched", args=[self.title.pk, 1]))
+        self.assertNotEqual(resp.status_code, 200)
+
+    def test_requires_post(self):
+        resp = self.client.get(reverse("title_unmark_season_watched", args=[self.title.pk, 1]))
+        self.assertEqual(resp.status_code, 405)
+
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details", return_value=None)
+    def test_response_includes_the_history_card_oob_fragment(self, mock_season, mock_details, mock_tv_details):
+        self._watch(1, 1)
+        resp = self.client.post(reverse("title_unmark_season_watched", args=[self.title.pk, 1]))
+        self.assertContains(resp, 'id="history-card"')
+        self.assertContains(resp, 'hx-swap-oob="true"')
+
 
 class TitleMarkAllSeasonsWatchedTests(TestCase):
     def setUp(self):
@@ -11004,6 +11133,85 @@ class TitleMarkAllSeasonsWatchedTests(TestCase):
         mock_details.return_value = self._details(number_of_seasons=1)
         mock_season.return_value = self._season(["Ep1"])
         resp = self.client.post(reverse("title_mark_all_seasons_watched", args=[self.title.pk]))
+        self.assertContains(resp, 'id="history-card"')
+        self.assertContains(resp, 'hx-swap-oob="true"')
+
+    @patch("tracker.integrations.tmdb.get_tv_details")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_button_flips_to_unmark_once_the_whole_show_is_completed(self, mock_season, mock_details, mock_tv_details):
+        mock_details.return_value = self._details(number_of_seasons=1)
+        mock_season.return_value = self._season(["Ep1", "Ep2"])
+        mock_tv_details.return_value = {"number_of_episodes": 2, "episode_run_time": None, "seasons": []}
+        resp = self.client.get(reverse("title_episodes", args=[self.title.pk]))
+        self.assertContains(resp, "Mark all watched")
+        self.assertNotContains(resp, "Unmark all watched")
+
+        with patch("tracker.completion.tmdb.get_tv_details", return_value={"number_of_episodes": 2, "episode_run_time": None, "seasons": []}):
+            self.client.post(reverse("title_mark_all_seasons_watched", args=[self.title.pk]))
+        resp = self.client.get(reverse("title_episodes", args=[self.title.pk]))
+        self.assertContains(resp, "Unmark all watched")
+        self.assertNotContains(resp, ">Mark all watched<")
+
+
+class TitleUnmarkAllSeasonsWatchedTests(TestCase):
+    """The reverse of title_mark_all_seasons_watched - shown instead of it
+    once the whole show is COMPLETED."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.timezone = timezone
+        user = User.objects.create_user("showunmarker", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ShowUnmarker")
+        self.client.login(username="showunmarker", password="pass12345")
+        self.title = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99", "tmdb_kind": "tv"},
+        )
+
+    def _watch(self, season, episode_number):
+        ep = Episode.objects.create(title=self.title, season=season, episode=episode_number)
+        WatchEvent.objects.create(profile=self.profile, title=self.title, episode=ep, watched_at=self.timezone.now())
+        return ep
+
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details", return_value=None)
+    def test_clears_every_episode_across_every_season(self, mock_season, mock_details, mock_tv_details):
+        self._watch(1, 1)
+        self._watch(2, 1)
+        resp = self.client.post(reverse("title_unmark_all_seasons_watched", args=[self.title.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(WatchEvent.objects.filter(profile=self.profile, title=self.title, episode__isnull=False).exists())
+
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details", return_value=None)
+    def test_downgrades_a_completed_show_via_completion_sync(self, mock_season, mock_details, mock_tv_details):
+        self._watch(1, 1)
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.COMPLETED)
+        with patch(
+            "tracker.completion.tmdb.get_tv_details",
+            return_value={"number_of_episodes": 1, "episode_run_time": None, "seasons": []},
+        ):
+            self.client.post(reverse("title_unmark_all_seasons_watched", args=[self.title.pk]))
+        self.assertFalse(WatchProgress.objects.filter(profile=self.profile, title=self.title).exists())
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("title_unmark_all_seasons_watched", args=[self.title.pk]))
+        self.assertNotEqual(resp.status_code, 200)
+
+    def test_requires_post(self):
+        resp = self.client.get(reverse("title_unmark_all_seasons_watched", args=[self.title.pk]))
+        self.assertEqual(resp.status_code, 405)
+
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details", return_value=None)
+    def test_response_includes_the_history_card_oob_fragment(self, mock_season, mock_details, mock_tv_details):
+        self._watch(1, 1)
+        resp = self.client.post(reverse("title_unmark_all_seasons_watched", args=[self.title.pk]))
         self.assertContains(resp, 'id="history-card"')
         self.assertContains(resp, 'hx-swap-oob="true"')
 
@@ -11533,6 +11741,133 @@ class EpisodeMarkWatchedTests(TestCase):
         self.assertContains(resp, 'id="history-card"')
         self.assertContains(resp, 'hx-swap-oob="true"')
         self.assertContains(resp, "S1E1")
+
+    @patch("tracker.integrations.tmdb.get_season_details", return_value=None)
+    def test_watched_state_renders_a_popover_not_a_plain_rewatch_button(self, mock_season):
+        # Once watched, the checkmark becomes a popover trigger
+        # (episode_watched_menu_panel.html) instead of blindly logging
+        # another play on a second click.
+        resp = self.client.post(reverse("episode_mark_watched", args=[self.title.pk, 1, 1]), HTTP_HX_REQUEST="true")
+        self.assertContains(resp, "Remove last watched")
+        self.assertContains(resp, "Remove all watched history")
+        self.assertContains(resp, "Watch again")
+
+
+class EpisodeUnmarkLastWatchedTests(TestCase):
+    """The episode watched popover's "Remove last watched" - the
+    episode-scoped counterpart to title_unmark_last_watched."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.timezone = timezone
+        user = User.objects.create_user("episodeunmarker", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="EpisodeUnmarker")
+        self.client.login(username="episodeunmarker", password="pass12345")
+        self.title = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99", "tmdb_kind": "tv"}
+        )
+        self.episode = Episode.objects.create(title=self.title, season=1, episode=1)
+
+    def test_removes_only_the_most_recent_play(self):
+        older = WatchEvent.objects.create(
+            profile=self.profile, title=self.title, episode=self.episode, watched_at=self.timezone.now() - timedelta(days=1)
+        )
+        newer = WatchEvent.objects.create(
+            profile=self.profile, title=self.title, episode=self.episode, watched_at=self.timezone.now()
+        )
+        resp = self.client.post(reverse("episode_unmark_last_watched", args=[self.title.pk, 1, 1]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(WatchEvent.objects.filter(pk=older.pk).exists())
+        self.assertFalse(WatchEvent.objects.filter(pk=newer.pk).exists())
+
+    def test_leaves_other_episodes_untouched(self):
+        other_episode = Episode.objects.create(title=self.title, season=1, episode=2)
+        WatchEvent.objects.create(profile=self.profile, title=self.title, episode=self.episode, watched_at=self.timezone.now())
+        other_event = WatchEvent.objects.create(profile=self.profile, title=self.title, episode=other_episode, watched_at=self.timezone.now())
+        self.client.post(reverse("episode_unmark_last_watched", args=[self.title.pk, 1, 1]))
+        self.assertTrue(WatchEvent.objects.filter(pk=other_event.pk).exists())
+
+    def test_removing_the_only_play_leaves_the_episode_unwatched(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, episode=self.episode, watched_at=self.timezone.now())
+        resp = self.client.post(reverse("episode_unmark_last_watched", args=[self.title.pk, 1, 1]))
+        self.assertNotContains(resp, "bg-success")
+        self.assertContains(resp, "Mark as watched")
+
+    def test_no_op_when_nothing_to_remove(self):
+        resp = self.client.post(reverse("episode_unmark_last_watched", args=[self.title.pk, 1, 1]))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_requires_get_is_rejected(self):
+        resp = self.client.get(reverse("episode_unmark_last_watched", args=[self.title.pk, 1, 1]))
+        self.assertEqual(resp.status_code, 405)
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("episode_unmark_last_watched", args=[self.title.pk, 1, 1]))
+        self.assertNotEqual(resp.status_code, 200)
+
+    def test_response_includes_the_history_card_oob_fragment(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, episode=self.episode, watched_at=self.timezone.now())
+        resp = self.client.post(reverse("episode_unmark_last_watched", args=[self.title.pk, 1, 1]))
+        self.assertContains(resp, 'id="history-card"')
+        self.assertContains(resp, 'hx-swap-oob="true"')
+
+
+class EpisodeUnmarkAllWatchedTests(TestCase):
+    """The episode watched popover's "Remove all watched history" - the
+    episode-scoped counterpart to title_unmark_watched."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.timezone = timezone
+        user = User.objects.create_user("episodeunmarkalluser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="EpisodeUnmarkAllUser")
+        self.client.login(username="episodeunmarkalluser", password="pass12345")
+        self.title = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99", "tmdb_kind": "tv"}
+        )
+        self.episode = Episode.objects.create(title=self.title, season=1, episode=1)
+
+    def test_removes_every_play_of_the_episode(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, episode=self.episode, watched_at=self.timezone.now() - timedelta(days=1))
+        WatchEvent.objects.create(profile=self.profile, title=self.title, episode=self.episode, watched_at=self.timezone.now())
+        resp = self.client.post(reverse("episode_unmark_all_watched", args=[self.title.pk, 1, 1]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(WatchEvent.objects.filter(profile=self.profile, title=self.title, episode=self.episode).count(), 0)
+
+    def test_leaves_another_profiles_plays_untouched(self):
+        other_user = User.objects.create_user("episodeunmarkallother", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="EpisodeUnmarkAllOther")
+        other_event = WatchEvent.objects.create(profile=other_profile, title=self.title, episode=self.episode, watched_at=self.timezone.now())
+        self.client.post(reverse("episode_unmark_all_watched", args=[self.title.pk, 1, 1]))
+        self.assertTrue(WatchEvent.objects.filter(pk=other_event.pk).exists())
+
+    def test_downgrades_a_completed_show(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, episode=self.episode, watched_at=self.timezone.now())
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.COMPLETED)
+        with patch(
+            "tracker.completion.tmdb.get_tv_details",
+            return_value={"number_of_episodes": 1, "episode_run_time": None, "seasons": []},
+        ):
+            self.client.post(reverse("episode_unmark_all_watched", args=[self.title.pk, 1, 1]))
+        self.assertFalse(WatchProgress.objects.filter(profile=self.profile, title=self.title).exists())
+
+    def test_requires_get_is_rejected(self):
+        resp = self.client.get(reverse("episode_unmark_all_watched", args=[self.title.pk, 1, 1]))
+        self.assertEqual(resp.status_code, 405)
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("episode_unmark_all_watched", args=[self.title.pk, 1, 1]))
+        self.assertNotEqual(resp.status_code, 200)
+
+    def test_response_includes_the_history_card_oob_fragment(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, episode=self.episode, watched_at=self.timezone.now())
+        resp = self.client.post(reverse("episode_unmark_all_watched", args=[self.title.pk, 1, 1]))
+        self.assertContains(resp, 'id="history-card"')
+        self.assertContains(resp, 'hx-swap-oob="true"')
 
 
 class WatchlistAutoRemovalIntegrationTests(TestCase):

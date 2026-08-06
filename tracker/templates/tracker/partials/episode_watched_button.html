@@ -1,5 +1,40 @@
 {% load icons %}
 {# context: title, season, episode_number, watched (bool), id_suffix (str, optional - disambiguates the id when this partial renders more than once for the same episode, e.g. title_episodes.html's separate mobile/desktop layouts) #}
+{% if watched %}
+<div
+  class="relative flex-none"
+  id="ep-watched-wrap-{{ title.pk }}-{{ season }}-{{ episode_number }}{{ id_suffix }}"
+  x-data="{
+    open: false,
+    togglePanel(button) {
+      this.open = !this.open;
+      if (!this.open) return;
+      this.$nextTick(() => {
+        const rect = button.getBoundingClientRect();
+        const panel = this.$refs.panel;
+        const width = 224;
+        panel.style.left = Math.min(rect.left, window.innerWidth - width - 8) + 'px';
+        panel.style.top = (rect.bottom + 6) + 'px';
+      });
+    },
+  }"
+>
+  <button
+    type="button"
+    id="ep-watched-btn-{{ title.pk }}-{{ season }}-{{ episode_number }}{{ id_suffix }}"
+    @click="togglePanel($el)"
+    title="Watched — manage plays"
+    class="w-10 self-stretch min-h-8 rounded-md flex items-center justify-center border transition-colors flex-none bg-success/90 border-success/60 text-success-content"
+  >{% icon "check" "w-4 h-4" %}</button>
+  <div
+    x-ref="panel"
+    x-show="open" x-cloak x-transition @click.outside="open = false"
+    class="fixed z-50 w-56 bg-base-200 border border-line rounded-xl p-2 shadow-xl"
+  >
+    {% include "tracker/partials/episode_watched_menu_panel.html" with title=title season=season episode_number=episode_number id_suffix=id_suffix %}
+  </div>
+</div>
+{% else %}
 <button
   type="button"
   id="ep-watched-btn-{{ title.pk }}-{{ season }}-{{ episode_number }}{{ id_suffix }}"
@@ -7,8 +42,7 @@
   hx-target="#ep-watched-btn-{{ title.pk }}-{{ season }}-{{ episode_number }}{{ id_suffix }}"
   hx-swap="outerHTML"
   hx-vals='{"id_suffix": "{{ id_suffix }}"}'
-  {% if watched %}hx-confirm="Log another watch of S{{ season }}E{{ episode_number }}?"{% endif %}
-  title="{% if watched %}Watched — log another watch{% else %}Mark as watched{% endif %}"
-  class="w-10 self-stretch min-h-8 rounded-md flex items-center justify-center border transition-colors flex-none
-    {% if watched %}bg-success/90 border-success/60 text-success-content{% else %}bg-black/55 border-white/15 text-white/85 hover:bg-black/75 hover:border-white/30{% endif %}"
+  title="Mark as watched"
+  class="w-10 self-stretch min-h-8 rounded-md flex items-center justify-center border transition-colors flex-none bg-black/55 border-white/15 text-white/85 hover:bg-black/75 hover:border-white/30"
 >{% icon "check" "w-4 h-4" %}</button>
+{% endif %}

@@ -22,14 +22,34 @@ urlpatterns = [
         name="episode_mark_watched",
     ),
     path(
+        "titles/<int:pk>/episodes/<int:season>/<int:episode_number>/unmark-last-watched/",
+        views.episode_unmark_last_watched,
+        name="episode_unmark_last_watched",
+    ),
+    path(
+        "titles/<int:pk>/episodes/<int:season>/<int:episode_number>/unmark-watched/",
+        views.episode_unmark_all_watched,
+        name="episode_unmark_all_watched",
+    ),
+    path(
         "titles/<int:pk>/episodes/<int:season>/mark-season-watched/",
         views.title_mark_season_watched,
         name="title_mark_season_watched",
     ),
     path(
+        "titles/<int:pk>/episodes/<int:season>/unmark-season-watched/",
+        views.title_unmark_season_watched,
+        name="title_unmark_season_watched",
+    ),
+    path(
         "titles/<int:pk>/mark-all-seasons-watched/",
         views.title_mark_all_seasons_watched,
         name="title_mark_all_seasons_watched",
+    ),
+    path(
+        "titles/<int:pk>/unmark-all-seasons-watched/",
+        views.title_unmark_all_seasons_watched,
+        name="title_unmark_all_seasons_watched",
     ),
     path("titles/<int:pk>/rate/", views.title_rate, name="title_rate"),
     path("titles/<int:pk>/recommend/", views.send_recommendation, name="send_recommendation"),

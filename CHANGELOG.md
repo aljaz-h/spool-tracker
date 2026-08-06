@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.75.0] - 2026-08-06
+
+### Added
+
+- The episode browser's watched checkmark now offers a menu once an
+  episode is watched (View history plays / Watch again / Remove last
+  watched / Remove all watched history), instead of blindly logging
+  another play on every click - undoing a watch no longer requires going
+  to History.
+- "Mark season watched" / "Mark all watched" flip to "Unmark season
+  watched" / "Unmark all watched" once every episode in that scope is
+  already watched, clearing every play in one action.
+
 ## [0.74.0] - 2026-08-06
 
 ### Added

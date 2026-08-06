@@ -89,6 +89,19 @@ def sync_show_completion(profile, title):
         WatchProgress.objects.update_or_create(
             profile=profile, title=title, defaults={"status": WatchProgress.Status.COMPLETED}
         )
+    elif watched_episode_count == 0:
+        # Only ever reachable via an in-app unmark (nothing used to remove
+        # episodes before) - a title that was never COMPLETED, or is
+        # currently WATCHING from Nuvio's own progress tracking, is left
+        # alone; this only cleans up a COMPLETED row that no longer
+        # qualifies at all.
+        WatchProgress.objects.filter(
+            profile=profile, title=title, status=WatchProgress.Status.COMPLETED
+        ).delete()
+    else:
+        WatchProgress.objects.filter(profile=profile, title=title, status=WatchProgress.Status.COMPLETED).update(
+            status=WatchProgress.Status.WATCHING
+        )
 
 
 def sync_watchlist_removal(profile, title):
