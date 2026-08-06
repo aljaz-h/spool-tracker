@@ -36,3 +36,8 @@ def get_credentials(provider):
 def get_tmdb_api_key():
     cfg = InstanceConfig.load()
     return cfg.get_tmdb_api_key() or settings.TMDB_API_KEY
+
+
+def get_mdblist_api_key():
+    cfg = InstanceConfig.load()
+    return cfg.get_mdblist_api_key() or settings.MDBLIST_API_KEY

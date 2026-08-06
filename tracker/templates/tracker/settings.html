@@ -565,6 +565,16 @@
               title="Makes a live request to TMDB using the value above (without saving it) - fully validates the key"
               class="btn btn-xs btn-outline gap-1"
             >{% icon "circle-help" "w-3.5 h-3.5" %} Test TMDB connection</button>
+            <div>
+              <label class="block text-xs text-ink-dim mb-1">MDBList API Key {% if mdblist_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
+              <input type="password" name="mdblist_api_key" placeholder="{% if mdblist_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
+            </div>
+            <div class="text-ink-dim text-[11px] -mt-2">Optional - adds IMDb/Rotten Tomatoes/Metacritic/etc pills to a title's page alongside its TMDB rating. Get a free key at mdblist.com/api.</div>
+            <button
+              type="submit" formaction="{% url 'test_provider_credentials' 'mdblist' %}"
+              title="Makes a live request to MDBList using the value above (without saving it) - fully validates the key"
+              class="btn btn-xs btn-outline gap-1"
+            >{% icon "circle-help" "w-3.5 h-3.5" %} Test MDBList connection</button>
             <button type="submit" class="btn btn-sm btn-soft w-full">Save</button>
           </form>
           <a href="#" @click.prevent="setTab('logs')" class="block text-center text-xs text-ink-dim hover:text-base-content mt-3.5 pt-3.5 border-t border-line">View Logs →</a>

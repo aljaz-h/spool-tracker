@@ -45,7 +45,7 @@ from . import (
     selectors,
     tasks,
 )
-from .integrations import gemini, jikan, nuvio, simkl, tmdb, trakt
+from .integrations import gemini, jikan, mdblist, nuvio, simkl, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
@@ -60,6 +60,7 @@ from .models import (
     Profile,
     Recommendation,
     Title,
+    TitleRatingsCache,
     WatchEvent,
     WatchList,
     WatchListItem,
@@ -674,6 +675,62 @@ def _anime_jikan_context(title):
     }
 
 
+# Known MDBList source -> (display label, pill CSS class). Deliberately
+# not exhaustive - MDBList can add providers over time, so any source not
+# listed here still renders via the fallback branch in _mdblist_pills
+# rather than being dropped or raising.
+_MDBLIST_SOURCE_META = {
+    "imdb": ("IMDb", "bg-imdb/15 text-imdb"),
+    "tomatoes": ("RT", "bg-rt/15 text-rt"),
+    "rottentomatoes": ("RT", "bg-rt/15 text-rt"),
+    "metacritic": ("Metacritic", "bg-metacritic/15 text-metacritic"),
+    "trakt": ("Trakt", "bg-trakt/15 text-trakt"),
+    "tmdb": ("TMDB", "bg-tmdb/15 text-tmdb"),
+}
+
+
+def _mdblist_pills(ratings):
+    """Turns MDBList's raw per-source ratings list (see
+    integrations/mdblist.py) into ready-to-render pills - always displayed
+    via MDBList's own normalized 0-100 "score" (falling back to the
+    provider-native "value" only if score is missing), since providers mix
+    wildly different native scales (IMDb 0-10, Rotten Tomatoes/Metacritic
+    0-100, Letterboxd 0-5, ...) and guessing the right per-provider
+    formatting is exactly what MDBList's own normalized field exists to
+    avoid."""
+    pills = []
+    for r in ratings:
+        source = r.get("source") or ""
+        label, css_class = _MDBLIST_SOURCE_META.get(
+            source, (source.replace("_", " ").title() or "?", "bg-base-300 text-ink-dim")
+        )
+        display = r.get("score")
+        display = round(display) if display is not None else r.get("value")
+        if display is None:
+            continue
+        pills.append({"label": label, "css_class": css_class, "display": display})
+    return pills
+
+
+def _mdblist_ratings_context(title):
+    """Supplementary IMDb/Rotten Tomatoes/Metacritic/etc pills for the
+    detail hero (see partials/pill_badges.html) - lazily populated the
+    first time this title is viewed, never fetched synchronously in this
+    request (see tasks.fetch_mdblist_ratings's own docstring for why).
+    Returns whatever's already cached (possibly stale, shown anyway) while
+    any needed background refresh runs. No tmdb id means nothing to look
+    up, so nothing is ever queued for a title that could never match."""
+    if not title.external_ids.get("tmdb"):
+        return {"mdblist_ratings": []}
+    cache = TitleRatingsCache.objects.filter(title=title).first()
+    if cache is None:
+        _dispatch_sync_task_safely(tasks.fetch_mdblist_ratings, [title.pk])
+        return {"mdblist_ratings": []}
+    if cache.next_refresh_at is None or cache.next_refresh_at <= timezone.now():
+        _dispatch_sync_task_safely(tasks.fetch_mdblist_ratings, [title.pk])
+    return {"mdblist_ratings": _mdblist_pills(cache.ratings)}
+
+
 def _apply_anime_filler_flags(title, episodes, season, tv_details):
     """Overlays Jikan's (MyAnimeList) per-episode filler/recap flags onto
     TMDB's season-relative episode list - TMDB has no filler data of its
@@ -818,6 +875,7 @@ def title_detail(request, pk):
         "watch_providers": watch_providers,
         "status_badge": tmdb.status_badge(details["status"]) if details else None,
         "release_info": _release_info(details),
+        "tmdb_score": details.get("vote_average") if details else None,
         "is_preview": False,
         "preview_media_type": None,
         "preview_tmdb_id": None,
@@ -826,11 +884,27 @@ def title_detail(request, pk):
         **episode_context,
         **_recommend_context(profile, title),
         **_anime_jikan_context(title),
+        **_mdblist_ratings_context(title),
     }
     if profile is not None and similar:
         context.update(selectors.discover_action_context(profile, similar))
     context["star_fill"] = _star_fill(context["latest_rating"])
     return render(request, "tracker/title_detail.html", context)
+
+
+@login_required
+@require_POST
+def title_refresh_mdblist_ratings(request, pk):
+    """The rating row's admin-only "Refresh now" action - force-fetches
+    regardless of TitleRatingsCache.next_refresh_at (still queued, not
+    synchronous - see tasks.fetch_mdblist_ratings)."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or not profile.is_owner:
+        raise Http404
+    _dispatch_sync_task_safely(tasks.fetch_mdblist_ratings, [title.pk, True])
+    messages.success(request, "MDBList refresh queued - reload in a moment.")
+    return redirect("title_detail", pk=title.pk)
 
 
 def _recommend_context(profile, title):
@@ -2718,6 +2792,7 @@ def _settings_page_context(request, profile):
                 "profiles": Profile.objects.select_related("user").all(),
                 "cfg": InstanceConfig.load(),
                 "tmdb_configured": bool(instance_config.get_tmdb_api_key()),
+                "mdblist_configured": bool(instance_config.get_mdblist_api_key()),
                 "django_version": ".".join(map(str, django.VERSION[:3])),
                 "db_engine": db_engine,
                 "debug": django_settings.DEBUG,
@@ -2779,6 +2854,7 @@ def save_instance_config(request):
         ("trakt_client_secret", cfg.set_trakt_client_secret),
         ("simkl_client_secret", cfg.set_simkl_client_secret),
         ("tmdb_api_key", cfg.set_tmdb_api_key),
+        ("mdblist_api_key", cfg.set_mdblist_api_key),
     ]:
         value = request.POST.get(field, "").strip()
         if value:
@@ -2803,7 +2879,7 @@ def test_provider_credentials(request, provider):
     # str.title() would mangle "TMDB" to "Tmdb" - an explicit display name
     # per provider instead, same reasoning as get_provider_display() on
     # ExternalAccount.Provider elsewhere in this file.
-    display_names = {"trakt": "Trakt", "simkl": "Simkl", "tmdb": "TMDB"}
+    display_names = {"trakt": "Trakt", "simkl": "Simkl", "tmdb": "TMDB", "mdblist": "MDBList"}
     if provider not in display_names:
         raise Http404
     display_name = display_names[provider]
@@ -2814,6 +2890,9 @@ def test_provider_credentials(request, provider):
     elif provider == "simkl":
         credential = request.POST.get("simkl_client_id", "").strip() or instance_config.get_simkl_credentials()[0]
         caveat = " (best effort - Simkl's API beyond OAuth isn't fully documented, see Server Integrations)"
+    elif provider == "mdblist":
+        credential = request.POST.get("mdblist_api_key", "").strip() or instance_config.get_mdblist_api_key()
+        caveat = ""
     else:
         credential = request.POST.get("tmdb_api_key", "").strip() or instance_config.get_tmdb_api_key()
         caveat = ""
@@ -2827,6 +2906,8 @@ def test_provider_credentials(request, provider):
             trakt.test_credentials(credential)
         elif provider == "simkl":
             simkl.test_credentials(credential)
+        elif provider == "mdblist":
+            mdblist.test_api_key(credential)
         elif not tmdb.test_api_key(credential):
             raise requests.RequestException("TMDB reported the key as invalid")
     except requests.RequestException as e:

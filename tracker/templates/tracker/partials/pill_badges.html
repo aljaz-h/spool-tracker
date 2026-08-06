@@ -1,5 +1,11 @@
-{# context: ratings (ExternalRating iterable), user_rating (int|None) #}
+{# context: ratings (ExternalRating iterable), user_rating (int|None), tmdb_score (float|None), mdblist_ratings (list of {label,css_class,display}) #}
 <div class="flex gap-1.5 flex-wrap mb-1.5">
+  {% if tmdb_score %}
+    <span class="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-tmdb/15 text-tmdb">TMDB {{ tmdb_score|floatformat:1 }}</span>
+  {% endif %}
+  {% for p in mdblist_ratings %}
+    <span class="font-mono text-[10.5px] px-1.5 py-0.5 rounded {{ p.css_class }}">{{ p.label }} {{ p.display }}</span>
+  {% endfor %}
   {% for r in ratings %}
     <span class="font-mono text-[10.5px] px-1.5 py-0.5 rounded
       {% if r.source == 'imdb' %}bg-imdb/15 text-imdb

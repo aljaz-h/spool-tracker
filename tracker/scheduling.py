@@ -50,6 +50,7 @@ RELEASE_SYNC_TASK_NAME = "sync-release-schedules"
 RELEASE_NOTIFICATIONS_TASK_NAME = "generate-release-notifications"
 UPDATE_CHECK_TASK_NAME = "check-for-new-version"
 LOG_RETENTION_TASK_NAME = "prune-old-logs"
+MDBLIST_REFRESH_TASK_NAME = "queue-due-mdblist-refreshes"
 
 
 def ensure_release_sync_task(hour=3, minute=0):
@@ -122,6 +123,27 @@ def ensure_log_retention_task(hour=4, minute=15):
         defaults={
             "crontab": schedule,
             "task": "tracker.tasks.prune_old_logs",
+            "args": "[]",
+            "enabled": True,
+        },
+    )
+
+
+def ensure_mdblist_refresh_task():
+    """(Re)creates the hourly PeriodicTask that queues only the
+    TitleRatingsCache rows whose next_refresh_at has passed (see
+    tasks.queue_due_mdblist_refreshes) - hourly rather than nightly like
+    the other instance-wide tasks above, since the shortest refresh tier
+    (upcoming/newly-released titles) is measured in a couple of days, not
+    weeks, so a once-a-day sweep would be too coarse to hit those on time."""
+    schedule, _ = CrontabSchedule.objects.get_or_create(
+        minute="0", hour="*", day_of_week="*", day_of_month="*", month_of_year="*"
+    )
+    PeriodicTask.objects.update_or_create(
+        name=MDBLIST_REFRESH_TASK_NAME,
+        defaults={
+            "crontab": schedule,
+            "task": "tracker.tasks.queue_due_mdblist_refreshes",
             "args": "[]",
             "enabled": True,
         },

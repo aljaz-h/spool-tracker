@@ -61,6 +61,8 @@
   --color-rt: #fa5a3d;
   --color-trakt: #ed4a50;
   --color-mal: #2e51a2;
+  --color-tmdb: #01b4e4;
+  --color-metacritic: #ffcc33;
 
   /* No custom radius tokens: Tailwind's built-in rounded-sm (4px) /
      rounded-lg (8px) / rounded-2xl (16px) already match the mockup's

@@ -1,16 +1,27 @@
 import os
-from datetime import timedelta
+from datetime import date, timedelta
 from io import StringIO
 
 import requests
 from celery import shared_task
 from celery.utils.log import get_task_logger
+from django.conf import settings as django_settings
 from django.core.management import call_command
 from django.utils import timezone
 
 from . import csv_import, instance_config, notifications, release_sync, selectors, update_check, version
-from .integrations import nuvio, simkl, trakt
-from .models import DataLog, ExternalAccount, InstanceConfig, Notification, NuvioConnection, Profile, SyncLog
+from .integrations import mdblist, nuvio, simkl, tmdb, trakt
+from .models import (
+    DataLog,
+    ExternalAccount,
+    InstanceConfig,
+    Notification,
+    NuvioConnection,
+    Profile,
+    SyncLog,
+    Title,
+    TitleRatingsCache,
+)
 
 logger = get_task_logger(__name__)
 
@@ -328,3 +339,162 @@ def prune_old_logs():
     total = deleted_sync + deleted_data
     logger.info("prune_old_logs: removed %d log entries older than %d days", total, retention_days)
     return total
+
+
+def _mdblist_system_profile():
+    """Attaches quota-pause/failure DataLog rows (raised from a background
+    task with no requesting user) to the instance owner - the same "no
+    specific user" convention _settings_page_context's own
+    other_owner_exists check relies on elsewhere in this app."""
+    return Profile.objects.filter(user__is_superuser=True).order_by("pk").first()
+
+
+def _roll_mdblist_quota(cfg):
+    """Rolls InstanceConfig's self-tracked daily counter over to today/0 the
+    first time it's checked past UTC midnight - no separate reset job
+    needed. Mutates cfg in place; caller saves."""
+    today = timezone.now().date()
+    if cfg.mdblist_quota_date != today:
+        cfg.mdblist_quota_date = today
+        cfg.mdblist_quota_count = 0
+
+
+def _mdblist_quota_ok(cfg):
+    """Whether there's still budget for one more request, after rolling the
+    counter over. Also treats MDBList's own last-seen X-RateLimit-Remaining
+    as a backstop - if that ever reported 0, pause regardless of our own
+    count."""
+    if cfg.mdblist_rate_limit_remaining == 0:
+        return False
+    return cfg.mdblist_quota_count < django_settings.MDBLIST_QUOTA_PAUSE_AT
+
+
+def _log_mdblist_quota_pause(cfg, profile):
+    today = timezone.now().date()
+    if cfg.mdblist_quota_pause_logged_date == today:
+        return
+    cfg.mdblist_quota_pause_logged_date = today
+    if profile is not None:
+        DataLog.objects.create(
+            profile=profile,
+            action=DataLog.Action.MDBLIST_REFRESH,
+            provider="mdblist",
+            status=DataLog.Status.FAILED,
+            detail=f"Paused for the day - {cfg.mdblist_quota_count}/{django_settings.MDBLIST_QUOTA_PAUSE_AT} requests used.",
+        )
+    logger.info("fetch_mdblist_ratings: quota paused for the day (%d requests used)", cfg.mdblist_quota_count)
+
+
+def _classify_next_refresh(release_date_str, vote_count, ratings):
+    """Tiered refresh schedule (see the plan/README) - a title's next
+    next_refresh_at depends on its release recency and popularity, not a
+    flat TTL, so a long-since-settled older title isn't refetched nearly
+    as often as an upcoming or newly-released one. Checked in this order
+    (not the table's row order) so a title that's both newly released and
+    low-vote-count gets the tighter "newly released" cadence, not the
+    looser "obscure" one."""
+    now = timezone.now()
+    if not ratings:
+        return now + timedelta(days=django_settings.MDBLIST_REFRESH_NOT_FOUND_DAYS)
+
+    release_date = None
+    if release_date_str:
+        try:
+            release_date = date.fromisoformat(release_date_str)
+        except ValueError:
+            release_date = None
+
+    if release_date is not None:
+        if release_date > now.date():
+            return now + timedelta(days=django_settings.MDBLIST_REFRESH_UPCOMING_DAYS)
+        if (now.date() - release_date).days <= django_settings.MDBLIST_NEWLY_RELEASED_DAYS:
+            return now + timedelta(days=django_settings.MDBLIST_REFRESH_NEW_DAYS)
+
+    if vote_count is not None and vote_count < django_settings.MDBLIST_OBSCURE_VOTE_THRESHOLD:
+        return now + timedelta(days=django_settings.MDBLIST_REFRESH_OBSCURE_DAYS)
+
+    return now + timedelta(days=django_settings.MDBLIST_REFRESH_OLDER_DAYS)
+
+
+@shared_task
+def fetch_mdblist_ratings(title_id, force=False):
+    """Populates/refreshes TitleRatingsCache for one title - queued lazily
+    by views._mdblist_ratings_context the first time a title is actually
+    viewed, or by queue_due_mdblist_refreshes once its next_refresh_at has
+    passed. Never called synchronously from a request - see that view's
+    own comment for why. force=True (the admin "Refresh now" action) skips
+    the quota gate but still spends/records a real request."""
+    try:
+        title = Title.objects.get(pk=title_id)
+    except Title.DoesNotExist:
+        return
+
+    tmdb_id = title.external_ids.get("tmdb")
+    if not tmdb_id:
+        return
+
+    cfg = InstanceConfig.load()
+    _roll_mdblist_quota(cfg)
+    if not force and not _mdblist_quota_ok(cfg):
+        _log_mdblist_quota_pause(cfg, _mdblist_system_profile())
+        cfg.save(update_fields=["mdblist_quota_date", "mdblist_quota_count", "mdblist_quota_pause_logged_date"])
+        return
+    cfg.save(update_fields=["mdblist_quota_date", "mdblist_quota_count"])
+
+    tmdb_media_type = tmdb.media_type_for(title)
+    details = tmdb.get_full_details(tmdb_media_type, tmdb_id) or {}
+    release_date_str = details.get("release_date") or details.get("first_air_date")
+    vote_count = details.get("vote_count")
+
+    result = mdblist.fetch_ratings(tmdb_media_type, tmdb_id)
+
+    cfg.mdblist_quota_count += 1
+    if result["remaining"] is not None:
+        cfg.mdblist_rate_limit_remaining = result["remaining"]
+    cfg.save(update_fields=["mdblist_quota_count", "mdblist_rate_limit_remaining"])
+
+    now = timezone.now()
+    if result["status"] in ("ok", "not_found"):
+        TitleRatingsCache.objects.update_or_create(
+            title=title,
+            defaults={
+                "ratings": result["ratings"],
+                "fetch_attempted": True,
+                "last_fetched_at": now,
+                "next_refresh_at": _classify_next_refresh(release_date_str, vote_count, result["ratings"]),
+            },
+        )
+        return
+
+    # rate_limited/error - record the attempt and retry soon, but don't
+    # clobber an existing good payload with an empty one.
+    profile = _mdblist_system_profile()
+    if profile is not None:
+        DataLog.objects.create(
+            profile=profile,
+            action=DataLog.Action.MDBLIST_REFRESH,
+            provider="mdblist",
+            status=DataLog.Status.FAILED,
+            detail=f"{result['status']} fetching ratings for {title}"[:255],
+        )
+    cache, _ = TitleRatingsCache.objects.get_or_create(title=title)
+    cache.fetch_attempted = True
+    cache.next_refresh_at = now + timedelta(hours=6)
+    cache.save(update_fields=["fetch_attempted", "next_refresh_at"])
+
+
+@shared_task
+def queue_due_mdblist_refreshes():
+    """Hourly beat job (see scheduling.ensure_mdblist_refresh_task) - only
+    ever queues titles whose own next_refresh_at has actually passed,
+    never a scan-everything-on-a-timer sweep. Capped per run so one sweep
+    can't itself blow the daily quota; whatever's left over gets picked up
+    on the next hourly run."""
+    due_ids = TitleRatingsCache.objects.filter(next_refresh_at__lte=timezone.now()).values_list(
+        "title_id", flat=True
+    )[:200]
+    count = 0
+    for title_id in due_ids:
+        fetch_mdblist_ratings.delay(title_id)
+        count += 1
+    return count

@@ -200,6 +200,23 @@ TRAKT_CLIENT_SECRET = env("TRAKT_CLIENT_SECRET", default="")
 SIMKL_CLIENT_ID = env("SIMKL_CLIENT_ID", default="")
 SIMKL_CLIENT_SECRET = env("SIMKL_CLIENT_SECRET", default="")
 TMDB_API_KEY = env("TMDB_API_KEY", default="")
+MDBLIST_API_KEY = env("MDBLIST_API_KEY", default="")
+
+# MDBList supplementary-ratings tuning (tracker/tasks.py fetch_mdblist_ratings/
+# _classify_next_refresh) - tunable without a code change since the right
+# values depend on real usage/quota data the admin won't have until this has
+# been running a while.
+MDBLIST_NEWLY_RELEASED_DAYS = env.int("MDBLIST_NEWLY_RELEASED_DAYS", default=90)
+MDBLIST_OBSCURE_VOTE_THRESHOLD = env.int("MDBLIST_OBSCURE_VOTE_THRESHOLD", default=500)
+MDBLIST_REFRESH_UPCOMING_DAYS = env.int("MDBLIST_REFRESH_UPCOMING_DAYS", default=2)
+MDBLIST_REFRESH_NEW_DAYS = env.int("MDBLIST_REFRESH_NEW_DAYS", default=2)
+MDBLIST_REFRESH_OLDER_DAYS = env.int("MDBLIST_REFRESH_OLDER_DAYS", default=21)
+MDBLIST_REFRESH_OBSCURE_DAYS = env.int("MDBLIST_REFRESH_OBSCURE_DAYS", default=10)
+MDBLIST_REFRESH_NOT_FOUND_DAYS = env.int("MDBLIST_REFRESH_NOT_FOUND_DAYS", default=30)
+# Free tier is 1,000 requests/day - pause a bit early (950) rather than
+# racing the exact limit.
+MDBLIST_DAILY_QUOTA = env.int("MDBLIST_DAILY_QUOTA", default=1000)
+MDBLIST_QUOTA_PAUSE_AT = env.int("MDBLIST_QUOTA_PAUSE_AT", default=950)
 
 
 # Transport security - all opt-in via env var, defaulting to Django's own

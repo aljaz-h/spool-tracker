@@ -8,6 +8,22 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.76.0] - 2026-08-07
+
+### Added
+
+- Optional supplementary ratings from [MDBList](https://mdblist.com) (IMDb,
+  Rotten Tomatoes, Metacritic, and more) alongside the TMDB rating on a
+  title's page. Configure a free MDBList API key in Admin Dashboard →
+  Server Integrations to enable it; leave it blank to keep showing the
+  TMDB rating only. Ratings are fetched lazily (only for titles someone
+  actually opens, never the whole catalog at once) as a background job so
+  a page load never waits on it, refreshed on a schedule that adapts to
+  how recent and how popular a title is, and respect MDBList's free-tier
+  daily request quota (pausing for the day and logging it to Settings →
+  Logs if ever close to the limit). Admins can also force an immediate
+  refresh from a title's page.
+
 ## [0.75.1] - 2026-08-06
 
 ### Fixed

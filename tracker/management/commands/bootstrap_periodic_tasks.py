@@ -40,3 +40,6 @@ class Command(BaseCommand):
 
         scheduling.ensure_log_retention_task()
         self.stdout.write(self.style.SUCCESS("Confirmed the nightly log-retention task."))
+
+        scheduling.ensure_mdblist_refresh_task()
+        self.stdout.write(self.style.SUCCESS("Confirmed the hourly MDBList ratings-refresh task."))

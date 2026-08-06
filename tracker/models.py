@@ -235,6 +235,30 @@ class ExternalRating(models.Model):
         return f"{self.title} · {self.source}={self.score}"
 
 
+class TitleRatingsCache(models.Model):
+    """One row per title, lazily populated the first time anyone views it
+    (see views._mdblist_ratings_context) - MDBList's raw ratings payload
+    plus enough bookkeeping to drive the tiered refresh schedule (see
+    tasks.fetch_mdblist_ratings/_classify_next_refresh) without ever
+    scanning the whole catalog on a timer. Never bulk pre-fetched."""
+
+    title = models.OneToOneField(Title, on_delete=models.CASCADE, related_name="ratings_cache")
+    # [{"source": "imdb", "value": 7.8, "score": 78, "votes": 12345, "url": "..."}, ...]
+    # straight from MDBList's own response shape - rendered by
+    # partials/pill_badges.html via a data-driven loop, not a hardcoded
+    # per-source list, since MDBList's provider set can grow.
+    ratings = models.JSONField(default=list, blank=True)
+    # False only ever means "never actually called the API yet" (e.g. still
+    # queued, or paused for quota) - distinct from a completed fetch that
+    # found nothing, which sets this True with an empty ratings list.
+    fetch_attempted = models.BooleanField(default=False)
+    last_fetched_at = models.DateTimeField(null=True, blank=True)
+    next_refresh_at = models.DateTimeField(null=True, blank=True, db_index=True)
+
+    def __str__(self):
+        return f"{self.title} ratings cache"
+
+
 class WatchEvent(models.Model):
     """One row = one movie watched, or one episode watched. Single source of
     truth for History, streaks, the heatmap, and stats (spool-product-spec.md §2)."""
@@ -620,6 +644,20 @@ class InstanceConfig(models.Model):
     simkl_client_id = models.CharField(max_length=255, blank=True)
     encrypted_simkl_client_secret = models.TextField(blank=True, default="")
     encrypted_tmdb_api_key = models.TextField(blank=True, default="")
+    encrypted_mdblist_api_key = models.TextField(blank=True, default="")
+    # Self-tracked daily request counter for MDBList's free-tier quota (see
+    # tasks.fetch_mdblist_ratings) - rolled over to today/0 the first time
+    # it's checked past UTC midnight, rather than on a timer, so a quiet
+    # instance doesn't need a dedicated reset job. mdblist_rate_limit_remaining
+    # mirrors the X-RateLimit-Remaining header MDBList itself returns on
+    # every response - read as a sanity backstop (pause immediately if it
+    # ever reports 0) independent of whether our own count agrees.
+    mdblist_quota_date = models.DateField(null=True, blank=True)
+    mdblist_quota_count = models.PositiveIntegerField(default=0)
+    mdblist_rate_limit_remaining = models.PositiveIntegerField(null=True, blank=True)
+    # Guards the quota-paused DataLog entry to once per day instead of once
+    # per skipped title - see tasks.fetch_mdblist_ratings.
+    mdblist_quota_pause_logged_date = models.DateField(null=True, blank=True)
     # Set by tasks.check_for_new_version (see tracker/update_check.py) -
     # the newest VERSION seen on the repo as of the last nightly check.
     # Read back through update_check.available_version(), which only
@@ -674,6 +712,18 @@ class InstanceConfig(models.Model):
         from . import crypto
 
         self.encrypted_tmdb_api_key = crypto.encrypt(plaintext) if plaintext else ""
+
+    def get_mdblist_api_key(self):
+        if not self.encrypted_mdblist_api_key:
+            return ""
+        from . import crypto
+
+        return crypto.decrypt(self.encrypted_mdblist_api_key)
+
+    def set_mdblist_api_key(self, plaintext):
+        from . import crypto
+
+        self.encrypted_mdblist_api_key = crypto.encrypt(plaintext) if plaintext else ""
 
     def __str__(self):
         return "Instance configuration"
@@ -734,6 +784,7 @@ class DataLog(models.Model):
         BACKFILL_COMPLETION = "backfill_completion", "Backfill Completion"
         BACKFILL_REWATCHES = "backfill_rewatches", "Backfill Rewatches"
         DISCONNECT = "disconnect", "Disconnect"
+        MDBLIST_REFRESH = "mdblist_refresh", "MDBList Refresh"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"

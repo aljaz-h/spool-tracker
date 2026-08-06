@@ -17,6 +17,11 @@ urlpatterns = [
     path("titles/<int:pk>/unmark-watched/", views.title_unmark_watched, name="title_unmark_watched"),
     path("titles/<int:pk>/unmark-last-watched/", views.title_unmark_last_watched, name="title_unmark_last_watched"),
     path(
+        "titles/<int:pk>/refresh-mdblist-ratings/",
+        views.title_refresh_mdblist_ratings,
+        name="title_refresh_mdblist_ratings",
+    ),
+    path(
         "titles/<int:pk>/episodes/<int:season>/<int:episode_number>/mark-watched/",
         views.episode_mark_watched,
         name="episode_mark_watched",

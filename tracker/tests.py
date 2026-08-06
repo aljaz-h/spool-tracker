@@ -17,7 +17,7 @@ from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
 from . import completion, crypto, csv_import, instance_config, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, update_check, views
-from .integrations import gemini, jikan, nuvio, tmdb, trakt
+from .integrations import gemini, jikan, mdblist, nuvio, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
@@ -35,6 +35,7 @@ from .models import (
     ReleaseSchedule,
     SyncLog,
     Title,
+    TitleRatingsCache,
     WatchEvent,
     WatchList,
     WatchListItem,
@@ -2829,6 +2830,21 @@ class SaveInstanceConfigViewTests(TestCase):
         cfg = InstanceConfig.load()
         self.assertEqual(cfg.trakt_client_id, "existing-id")
         self.assertEqual(cfg.simkl_client_id, "new-simkl")
+
+    def test_owner_can_save_mdblist_key(self):
+        self.client.login(username="owner", password="pass12345")
+        self.client.post(reverse("save_instance_config"), {"mdblist_api_key": "new-mdblist-key"})
+        cfg = InstanceConfig.load()
+        self.assertEqual(cfg.get_mdblist_api_key(), "new-mdblist-key")
+
+    def test_blank_mdblist_key_does_not_clear_existing_value(self):
+        cfg = InstanceConfig.load()
+        cfg.set_mdblist_api_key("existing-key")
+        cfg.save()
+        self.client.login(username="owner", password="pass12345")
+        self.client.post(reverse("save_instance_config"), {"mdblist_api_key": ""})
+        cfg.refresh_from_db()
+        self.assertEqual(cfg.get_mdblist_api_key(), "existing-key")
 
 
 class SaveAppearanceViewTests(TestCase):
@@ -9920,6 +9936,13 @@ class TitleDetailViewTests(TestCase):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
             patcher.start()
             self.addCleanup(patcher.stop)
+        # title_detail also queues an MDBList ratings fetch for any title
+        # with a tmdb id (which every title in this class has) - patched
+        # unconditionally like the above so no test here needs its own
+        # mock just to avoid a real background dispatch attempt.
+        dispatch_patcher = patch("tracker.views._dispatch_sync_task_safely")
+        self.mock_dispatch = dispatch_patcher.start()
+        self.addCleanup(dispatch_patcher.stop)
 
     def _details(self, **overrides):
         base = {
@@ -10176,6 +10199,13 @@ class TitleEpisodeBrowserTests(TestCase):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
             patcher.start()
             self.addCleanup(patcher.stop)
+        # title_detail also queues an MDBList ratings fetch for this
+        # title (it has a tmdb id) - patched unconditionally so no test
+        # here needs its own mock just to avoid a real background dispatch
+        # attempt (see TitleDetailViewTests' own setUp for the same).
+        dispatch_patcher = patch("tracker.views._dispatch_sync_task_safely")
+        dispatch_patcher.start()
+        self.addCleanup(dispatch_patcher.stop)
 
     def _details(self, number_of_seasons=3):
         return {
@@ -10593,6 +10623,9 @@ class AnimeFillerBadgeTests(TestCase):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
             patcher.start()
             self.addCleanup(patcher.stop)
+        dispatch_patcher = patch("tracker.views._dispatch_sync_task_safely")
+        dispatch_patcher.start()
+        self.addCleanup(dispatch_patcher.stop)
 
     def _details(self, number_of_seasons=2):
         return {
@@ -10768,6 +10801,9 @@ class AnimeJikanDetailContextTests(TestCase):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
             patcher.start()
             self.addCleanup(patcher.stop)
+        dispatch_patcher = patch("tracker.views._dispatch_sync_task_safely")
+        dispatch_patcher.start()
+        self.addCleanup(dispatch_patcher.stop)
 
     def _details(self):
         return {
@@ -10874,6 +10910,494 @@ class AnimeJikanDetailContextTests(TestCase):
         show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
         self.client.get(reverse("title_detail", args=[show.pk]))
         mock_jikan_details.assert_not_called()
+
+
+class MdblistFetchRatingsIntegrationTests(TestCase):
+    """tracker/integrations/mdblist.py - mocked at the requests.get level,
+    same pattern as TmdbFindMatchTests/JikanFindMatchTests."""
+
+    def setUp(self):
+        cfg = InstanceConfig.load()
+        cfg.set_mdblist_api_key("a-real-key")
+        cfg.save()
+
+    def _response(self, json_data=None, status_code=200, headers=None):
+        resp = Mock()
+        resp.status_code = status_code
+        resp.ok = status_code < 400
+        resp.headers = headers or {}
+        resp.json.return_value = json_data or {}
+        return resp
+
+    @patch("tracker.integrations.mdblist.requests.get")
+    def test_ok_parses_ratings_and_rate_limit_headers(self, mock_get):
+        mock_get.return_value = self._response(
+            {"ratings": [{"source": "imdb", "value": 7.8, "score": 78, "votes": 12345, "url": "x"}]},
+            headers={"X-RateLimit-Remaining": "42", "X-RateLimit-Reset": "1700000000"},
+        )
+        result = mdblist.fetch_ratings("movie", 550)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["ratings"][0]["source"], "imdb")
+        self.assertEqual(result["remaining"], 42)
+        self.assertEqual(result["reset_epoch"], 1700000000)
+        mock_get.assert_called_once_with(
+            "https://api.mdblist.com/tmdb/movie/550", params={"apikey": "a-real-key"}, timeout=10
+        )
+
+    @patch("tracker.integrations.mdblist.requests.get")
+    def test_tv_media_type_maps_to_show_path(self, mock_get):
+        mock_get.return_value = self._response({"ratings": []})
+        mdblist.fetch_ratings("tv", 100)
+        self.assertEqual(mock_get.call_args.args[0], "https://api.mdblist.com/tmdb/show/100")
+
+    @patch("tracker.integrations.mdblist.requests.get")
+    def test_ok_with_empty_ratings_is_a_real_result_not_an_error(self, mock_get):
+        mock_get.return_value = self._response({"ratings": []})
+        result = mdblist.fetch_ratings("movie", 550)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["ratings"], [])
+
+    @patch("tracker.integrations.mdblist.requests.get")
+    def test_404_is_not_found(self, mock_get):
+        mock_get.return_value = self._response(status_code=404)
+        result = mdblist.fetch_ratings("movie", 550)
+        self.assertEqual(result["status"], "not_found")
+
+    @patch("tracker.integrations.mdblist.requests.get")
+    def test_429_is_rate_limited(self, mock_get):
+        mock_get.return_value = self._response(status_code=429)
+        result = mdblist.fetch_ratings("movie", 550)
+        self.assertEqual(result["status"], "rate_limited")
+
+    @patch("tracker.integrations.mdblist.requests.get")
+    def test_other_http_error_is_a_generic_error(self, mock_get):
+        mock_get.return_value = self._response(status_code=500)
+        result = mdblist.fetch_ratings("movie", 550)
+        self.assertEqual(result["status"], "error")
+
+    @patch("tracker.integrations.mdblist.requests.get", side_effect=requests.RequestException("boom"))
+    def test_network_failure_is_a_generic_error(self, mock_get):
+        result = mdblist.fetch_ratings("movie", 550)
+        self.assertEqual(result["status"], "error")
+
+    def test_no_api_key_configured_is_an_error_without_a_request(self):
+        cfg = InstanceConfig.load()
+        cfg.encrypted_mdblist_api_key = ""
+        cfg.save()
+        with patch("tracker.integrations.mdblist.requests.get") as mock_get:
+            result = mdblist.fetch_ratings("movie", 550)
+            mock_get.assert_not_called()
+        self.assertEqual(result["status"], "error")
+
+    @patch("tracker.integrations.mdblist.requests.get")
+    def test_test_api_key_raises_on_failure(self, mock_get):
+        resp = Mock()
+        resp.raise_for_status.side_effect = requests.HTTPError(response=resp)
+        mock_get.return_value = resp
+        with self.assertRaises(requests.HTTPError):
+            mdblist.test_api_key("bad-key")
+
+    @patch("tracker.integrations.mdblist.requests.get")
+    def test_test_api_key_succeeds_on_a_clean_200(self, mock_get):
+        resp = Mock()
+        resp.raise_for_status = Mock()
+        mock_get.return_value = resp
+        self.assertTrue(mdblist.test_api_key("good-key"))
+
+
+class ClassifyMdblistNextRefreshTests(TestCase):
+    """tasks._classify_next_refresh - the tiered refresh schedule, checked
+    in priority order (not_found > upcoming > newly-released > obscure >
+    older) so a title matching more than one tier gets the tightest
+    applicable cadence."""
+
+    def _today_iso(self, days_offset=0):
+        from django.utils import timezone
+
+        return (timezone.now().date() + timedelta(days=days_offset)).isoformat()
+
+    def test_no_ratings_uses_not_found_interval(self):
+        next_refresh = tasks._classify_next_refresh(self._today_iso(-10), 1000, [])
+        from django.utils import timezone
+
+        self.assertAlmostEqual(
+            (next_refresh - timezone.now()).days, django_settings.MDBLIST_REFRESH_NOT_FOUND_DAYS, delta=1
+        )
+
+    def test_future_release_date_uses_upcoming_interval(self):
+        from django.utils import timezone
+
+        next_refresh = tasks._classify_next_refresh(self._today_iso(30), None, [{"source": "imdb"}])
+        self.assertAlmostEqual(
+            (next_refresh - timezone.now()).days, django_settings.MDBLIST_REFRESH_UPCOMING_DAYS, delta=1
+        )
+
+    def test_recently_released_uses_new_interval(self):
+        from django.utils import timezone
+
+        next_refresh = tasks._classify_next_refresh(self._today_iso(-10), 1000, [{"source": "imdb"}])
+        self.assertAlmostEqual(
+            (next_refresh - timezone.now()).days, django_settings.MDBLIST_REFRESH_NEW_DAYS, delta=1
+        )
+
+    def test_low_vote_count_older_title_uses_obscure_interval(self):
+        from django.utils import timezone
+
+        old_date = self._today_iso(-(django_settings.MDBLIST_NEWLY_RELEASED_DAYS + 30))
+        next_refresh = tasks._classify_next_refresh(old_date, 10, [{"source": "imdb"}])
+        self.assertAlmostEqual(
+            (next_refresh - timezone.now()).days, django_settings.MDBLIST_REFRESH_OBSCURE_DAYS, delta=1
+        )
+
+    def test_popular_older_title_uses_older_interval(self):
+        from django.utils import timezone
+
+        old_date = self._today_iso(-(django_settings.MDBLIST_NEWLY_RELEASED_DAYS + 30))
+        next_refresh = tasks._classify_next_refresh(old_date, 100000, [{"source": "imdb"}])
+        self.assertAlmostEqual(
+            (next_refresh - timezone.now()).days, django_settings.MDBLIST_REFRESH_OLDER_DAYS, delta=1
+        )
+
+    def test_missing_release_date_falls_back_to_vote_count_rules(self):
+        from django.utils import timezone
+
+        next_refresh = tasks._classify_next_refresh(None, 100000, [{"source": "imdb"}])
+        self.assertAlmostEqual(
+            (next_refresh - timezone.now()).days, django_settings.MDBLIST_REFRESH_OLDER_DAYS, delta=1
+        )
+
+    def test_unparseable_release_date_does_not_raise(self):
+        next_refresh = tasks._classify_next_refresh("not-a-date", 100000, [{"source": "imdb"}])
+        self.assertIsNotNone(next_refresh)
+
+
+class FetchMdblistRatingsTaskTests(TestCase):
+    def setUp(self):
+        self.title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fight Club", year=1999, external_ids={"tmdb": "550", "tmdb_kind": "movie"}
+        )
+        cfg = InstanceConfig.load()
+        cfg.set_mdblist_api_key("a-real-key")
+        cfg.save()
+
+    def _details(self, **overrides):
+        base = {"release_date": "1999-10-15", "vote_count": 30000}
+        base.update(overrides)
+        return base
+
+    @patch("tracker.integrations.mdblist.fetch_ratings")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_no_op_without_a_tmdb_id(self, mock_details, mock_fetch):
+        untracked = Title.objects.create(media_type=MediaType.MOVIE, name="No TMDB", year=2020)
+        tasks.fetch_mdblist_ratings(untracked.pk)
+        mock_details.assert_not_called()
+        mock_fetch.assert_not_called()
+        self.assertFalse(TitleRatingsCache.objects.filter(title=untracked).exists())
+
+    @patch("tracker.integrations.mdblist.fetch_ratings")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_success_creates_the_cache_row(self, mock_details, mock_fetch):
+        mock_details.return_value = self._details()
+        mock_fetch.return_value = {
+            "status": "ok",
+            "ratings": [{"source": "imdb", "value": 8.8, "score": 88}],
+            "remaining": 900,
+            "reset_epoch": None,
+        }
+        tasks.fetch_mdblist_ratings(self.title.pk)
+        cache = TitleRatingsCache.objects.get(title=self.title)
+        self.assertEqual(cache.ratings, [{"source": "imdb", "value": 8.8, "score": 88}])
+        self.assertTrue(cache.fetch_attempted)
+        self.assertIsNotNone(cache.last_fetched_at)
+        self.assertIsNotNone(cache.next_refresh_at)
+
+    @patch("tracker.integrations.mdblist.fetch_ratings")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_success_updates_an_existing_cache_row(self, mock_details, mock_fetch):
+        TitleRatingsCache.objects.create(title=self.title, ratings=[{"source": "imdb", "value": 1.0}])
+        mock_details.return_value = self._details()
+        mock_fetch.return_value = {"status": "ok", "ratings": [{"source": "imdb", "value": 9.0}], "remaining": 900, "reset_epoch": None}
+        tasks.fetch_mdblist_ratings(self.title.pk)
+        self.assertEqual(TitleRatingsCache.objects.count(), 1)
+        cache = TitleRatingsCache.objects.get(title=self.title)
+        self.assertEqual(cache.ratings, [{"source": "imdb", "value": 9.0}])
+
+    @patch("tracker.integrations.mdblist.fetch_ratings")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_error_does_not_clobber_an_existing_good_payload(self, mock_details, mock_fetch):
+        existing = [{"source": "imdb", "value": 8.8}]
+        TitleRatingsCache.objects.create(title=self.title, ratings=existing, fetch_attempted=True)
+        mock_details.return_value = self._details()
+        mock_fetch.return_value = {"status": "error", "ratings": [], "remaining": None, "reset_epoch": None}
+        tasks.fetch_mdblist_ratings(self.title.pk)
+        cache = TitleRatingsCache.objects.get(title=self.title)
+        self.assertEqual(cache.ratings, existing)
+        self.assertTrue(cache.fetch_attempted)
+
+    @patch("tracker.integrations.mdblist.fetch_ratings")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_error_logs_a_failure_and_schedules_a_short_retry(self, mock_details, mock_fetch):
+        from django.utils import timezone
+
+        mock_details.return_value = self._details()
+        mock_fetch.return_value = {"status": "rate_limited", "ratings": [], "remaining": 0, "reset_epoch": None}
+        owner_user = User.objects.create_user("mdbowner", password="pass12345", is_superuser=True)
+        Profile.objects.create(user=owner_user, display_name="MdbOwner")
+        tasks.fetch_mdblist_ratings(self.title.pk)
+        log = DataLog.objects.filter(action=DataLog.Action.MDBLIST_REFRESH).first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.status, DataLog.Status.FAILED)
+        cache = TitleRatingsCache.objects.get(title=self.title)
+        self.assertLess(cache.next_refresh_at, timezone.now() + timedelta(hours=7))
+
+    @patch("tracker.integrations.mdblist.fetch_ratings")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_quota_counter_increments_on_every_attempt(self, mock_details, mock_fetch):
+        mock_details.return_value = self._details()
+        mock_fetch.return_value = {"status": "ok", "ratings": [], "remaining": 900, "reset_epoch": None}
+        tasks.fetch_mdblist_ratings(self.title.pk)
+        cfg = InstanceConfig.load()
+        self.assertEqual(cfg.mdblist_quota_count, 1)
+        self.assertEqual(cfg.mdblist_rate_limit_remaining, 900)
+
+    @patch("tracker.integrations.mdblist.fetch_ratings")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_quota_paused_skips_the_api_call_and_logs_once_per_day(self, mock_details, mock_fetch):
+        owner_user = User.objects.create_user("mdbowner2", password="pass12345", is_superuser=True)
+        Profile.objects.create(user=owner_user, display_name="MdbOwner2")
+        cfg = InstanceConfig.load()
+        cfg.mdblist_quota_count = django_settings.MDBLIST_QUOTA_PAUSE_AT
+        from django.utils import timezone
+
+        cfg.mdblist_quota_date = timezone.now().date()
+        cfg.save()
+
+        other_title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Other", year=2020, external_ids={"tmdb": "551", "tmdb_kind": "movie"}
+        )
+        tasks.fetch_mdblist_ratings(self.title.pk)
+        tasks.fetch_mdblist_ratings(other_title.pk)
+
+        mock_fetch.assert_not_called()
+        mock_details.assert_not_called()
+        self.assertEqual(DataLog.objects.filter(action=DataLog.Action.MDBLIST_REFRESH).count(), 1)
+
+    @patch("tracker.integrations.mdblist.fetch_ratings")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_quota_rolls_over_on_a_new_day(self, mock_details, mock_fetch):
+        from django.utils import timezone
+
+        mock_details.return_value = self._details()
+        mock_fetch.return_value = {"status": "ok", "ratings": [], "remaining": 900, "reset_epoch": None}
+        cfg = InstanceConfig.load()
+        cfg.mdblist_quota_count = django_settings.MDBLIST_QUOTA_PAUSE_AT
+        cfg.mdblist_quota_date = timezone.now().date() - timedelta(days=1)
+        cfg.save()
+        tasks.fetch_mdblist_ratings(self.title.pk)
+        cfg.refresh_from_db()
+        self.assertEqual(cfg.mdblist_quota_count, 1)
+        self.assertEqual(cfg.mdblist_quota_date, timezone.now().date())
+
+    @patch("tracker.integrations.mdblist.fetch_ratings")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_force_bypasses_the_quota_pause(self, mock_details, mock_fetch):
+        from django.utils import timezone
+
+        mock_details.return_value = self._details()
+        mock_fetch.return_value = {"status": "ok", "ratings": [], "remaining": 900, "reset_epoch": None}
+        cfg = InstanceConfig.load()
+        cfg.mdblist_quota_count = django_settings.MDBLIST_QUOTA_PAUSE_AT
+        cfg.mdblist_quota_date = timezone.now().date()
+        cfg.save()
+        tasks.fetch_mdblist_ratings(self.title.pk, force=True)
+        mock_fetch.assert_called_once()
+
+
+class QueueDueMdblistRefreshesTaskTests(TestCase):
+    def setUp(self):
+        self.title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Due Title", year=2020, external_ids={"tmdb": "1", "tmdb_kind": "movie"}
+        )
+
+    @patch("tracker.tasks.fetch_mdblist_ratings.delay")
+    def test_only_queues_rows_past_their_next_refresh_at(self, mock_delay):
+        from django.utils import timezone
+
+        due = TitleRatingsCache.objects.create(title=self.title, next_refresh_at=timezone.now() - timedelta(hours=1))
+        not_due_title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Not Due", year=2020, external_ids={"tmdb": "2", "tmdb_kind": "movie"}
+        )
+        TitleRatingsCache.objects.create(title=not_due_title, next_refresh_at=timezone.now() + timedelta(hours=1))
+
+        count = tasks.queue_due_mdblist_refreshes()
+
+        self.assertEqual(count, 1)
+        mock_delay.assert_called_once_with(due.title_id)
+
+    @patch("tracker.tasks.fetch_mdblist_ratings.delay")
+    def test_caps_at_200_per_run(self, mock_delay):
+        from django.utils import timezone
+
+        past = timezone.now() - timedelta(hours=1)
+        for i in range(205):
+            t = Title.objects.create(media_type=MediaType.MOVIE, name=f"T{i}", year=2020, external_ids={"tmdb": str(i + 100)})
+            TitleRatingsCache.objects.create(title=t, next_refresh_at=past)
+        count = tasks.queue_due_mdblist_refreshes()
+        self.assertEqual(count, 200)
+
+
+class MdblistRatingsContextTests(TestCase):
+    """views._mdblist_ratings_context, exercised through title_detail -
+    the only thing that ever populates TitleRatingsCache. Every case
+    patches _dispatch_sync_task_safely (see TitleDetailViewTests' own
+    setUp comment) rather than letting a real background dispatch attempt
+    happen, so these assert exactly what was queued."""
+
+    def setUp(self):
+        user = User.objects.create_user("mdblistviewer", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="MdblistViewer")
+        self.client.login(username="mdblistviewer", password="pass12345")
+        self.title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        for name, default in (("get_director", None), ("get_watch_providers", []), ("get_season_details", None)):
+            patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _details(self, **overrides):
+        base = {
+            "tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020",
+            "overview": "A movie.", "tagline": "", "genres": ["Drama"], "runtime": 100,
+            "number_of_seasons": None, "number_of_episodes": None,
+            "backdrop_url": None, "poster_url": None, "vote_average": 7.4,
+            "vote_count": 100, "original_language": "en", "status": None,
+        }
+        base.update(overrides)
+        return base
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_missing_cache_queues_a_fetch_and_shows_no_mdblist_pills(self, mock_details, mock_credits, mock_similar, mock_dispatch):
+        mock_details.return_value = self._details()
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        mock_dispatch.assert_called_once_with(tasks.fetch_mdblist_ratings, [self.title.pk])
+        self.assertEqual(resp.context["mdblist_ratings"], [])
+        # TMDB's own rating still shows regardless of MDBList state.
+        self.assertContains(resp, "TMDB 7.4")
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_no_tmdb_id_never_queues_anything(self, mock_details, mock_credits, mock_similar, mock_dispatch):
+        untracked = Title.objects.create(media_type=MediaType.MOVIE, name="No TMDB", year=2021)
+        self.client.get(reverse("title_detail", args=[untracked.pk]))
+        mock_dispatch.assert_not_called()
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_fresh_cache_does_not_queue_and_shows_cached_pills(self, mock_details, mock_credits, mock_similar, mock_dispatch):
+        from django.utils import timezone
+
+        mock_details.return_value = self._details()
+        TitleRatingsCache.objects.create(
+            title=self.title,
+            ratings=[{"source": "imdb", "value": 8.1, "score": 81}],
+            fetch_attempted=True,
+            next_refresh_at=timezone.now() + timedelta(days=1),
+        )
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        mock_dispatch.assert_not_called()
+        self.assertContains(resp, "IMDb 81")
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_stale_cache_queues_a_refresh_but_still_shows_the_stale_pills(self, mock_details, mock_credits, mock_similar, mock_dispatch):
+        from django.utils import timezone
+
+        mock_details.return_value = self._details()
+        TitleRatingsCache.objects.create(
+            title=self.title,
+            ratings=[{"source": "imdb", "value": 8.1, "score": 81}],
+            fetch_attempted=True,
+            next_refresh_at=timezone.now() - timedelta(hours=1),
+        )
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        mock_dispatch.assert_called_once_with(tasks.fetch_mdblist_ratings, [self.title.pk])
+        self.assertContains(resp, "IMDb 81")
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_unrecognized_mdblist_source_still_renders_with_a_generic_label(
+        self, mock_details, mock_credits, mock_similar, mock_dispatch
+    ):
+        from django.utils import timezone
+
+        mock_details.return_value = self._details()
+        TitleRatingsCache.objects.create(
+            title=self.title,
+            ratings=[{"source": "some_new_provider", "value": 5.0, "score": 50}],
+            fetch_attempted=True,
+            next_refresh_at=timezone.now() + timedelta(days=1),
+        )
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Some New Provider 50")
+
+
+class TitleRefreshMdblistRatingsViewTests(TestCase):
+    def setUp(self):
+        self.title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_owner_can_force_refresh(self, mock_dispatch):
+        owner_user = User.objects.create_user("refreshowner", password="pass12345", is_superuser=True)
+        Profile.objects.create(user=owner_user, display_name="RefreshOwner")
+        self.client.login(username="refreshowner", password="pass12345")
+        resp = self.client.post(reverse("title_refresh_mdblist_ratings", args=[self.title.pk]))
+        mock_dispatch.assert_called_once_with(tasks.fetch_mdblist_ratings, [self.title.pk, True])
+        messages = list(get_messages(resp.wsgi_request))
+        self.assertTrue(any("MDBList refresh queued" in str(m) for m in messages))
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_non_owner_gets_404(self, mock_dispatch):
+        member_user = User.objects.create_user("refreshmember", password="pass12345")
+        Profile.objects.create(user=member_user, display_name="RefreshMember")
+        self.client.login(username="refreshmember", password="pass12345")
+        resp = self.client.post(reverse("title_refresh_mdblist_ratings", args=[self.title.pk]))
+        self.assertEqual(resp.status_code, 404)
+        mock_dispatch.assert_not_called()
+
+    def test_get_not_allowed(self):
+        owner_user = User.objects.create_user("refreshowner2", password="pass12345", is_superuser=True)
+        Profile.objects.create(user=owner_user, display_name="RefreshOwner2")
+        self.client.login(username="refreshowner2", password="pass12345")
+        resp = self.client.get(reverse("title_refresh_mdblist_ratings", args=[self.title.pk]))
+        self.assertEqual(resp.status_code, 405)
+
+
+class EnsureMdblistRefreshTaskTests(TestCase):
+    def test_creates_periodic_task(self):
+        scheduling.ensure_mdblist_refresh_task()
+        task = PeriodicTask.objects.get(name=scheduling.MDBLIST_REFRESH_TASK_NAME)
+        self.assertEqual(task.task, "tracker.tasks.queue_due_mdblist_refreshes")
+        self.assertTrue(task.enabled)
+
+    def test_idempotent(self):
+        scheduling.ensure_mdblist_refresh_task()
+        scheduling.ensure_mdblist_refresh_task()
+        self.assertEqual(PeriodicTask.objects.filter(name=scheduling.MDBLIST_REFRESH_TASK_NAME).count(), 1)
 
 
 class TitleMarkSeasonWatchedTests(TestCase):
@@ -12586,6 +13110,9 @@ class TitleDetailCastRowPersonLinksTests(TestCase):
         )
         patcher.start()
         self.addCleanup(patcher.stop)
+        dispatch_patcher = patch("tracker.views._dispatch_sync_task_safely")
+        dispatch_patcher.start()
+        self.addCleanup(dispatch_patcher.stop)
 
     @patch("tracker.integrations.tmdb.get_director", return_value=None)
     @patch("tracker.integrations.tmdb.get_credits")
@@ -14178,6 +14705,19 @@ class TestProviderCredentialsViewTests(TestCase):
         mock_get.return_value = self._response({"success": False})
         resp = self.client.post(reverse("test_provider_credentials", args=["tmdb"]), {"tmdb_api_key": "bad"}, follow=True)
         self.assertContains(resp, "TMDB connection failed")
+
+    @patch("tracker.integrations.mdblist.requests.get")
+    def test_mdblist_success(self, mock_get):
+        mock_get.return_value = self._response({"ratings": []})
+        resp = self.client.post(reverse("test_provider_credentials", args=["mdblist"]), {"mdblist_api_key": "abc"}, follow=True)
+        self.assertContains(resp, "MDBList connection succeeded")
+
+    @patch("tracker.integrations.mdblist.requests.get")
+    def test_mdblist_failure_reports_the_status_code(self, mock_get):
+        mock_get.return_value = self._response({}, status_code=401)
+        resp = self.client.post(reverse("test_provider_credentials", args=["mdblist"]), {"mdblist_api_key": "bad"}, follow=True)
+        self.assertContains(resp, "MDBList connection failed")
+        self.assertContains(resp, "401")
 
     def test_blank_field_falls_back_to_the_saved_credential(self):
         cfg = InstanceConfig.load()
