@@ -128,6 +128,11 @@ urlpatterns = [
         views.test_provider_credentials,
         name="test_provider_credentials",
     ),
+    path(
+        "settings/integrations/clear/<str:provider>/",
+        views.clear_instance_config_field,
+        name="clear_instance_config_field",
+    ),
     path("settings/sync-log/", views.sync_log, name="sync_log"),
     path("settings/logs-table/", views.logs_table_partial, name="logs_table_partial"),
     path("settings/log-retention/", views.save_log_retention, name="save_log_retention"),

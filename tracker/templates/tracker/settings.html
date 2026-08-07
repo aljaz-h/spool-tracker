@@ -535,14 +535,19 @@
           <form method="post" action="{% url 'save_instance_config' %}" class="space-y-3">
             {% csrf_token %}
             <div>
-              <label class="block text-xs text-ink-dim mb-1">Trakt Client ID {% if trakt_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
-              <input type="text" name="trakt_client_id" placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-xs text-ink-dim">Trakt Client ID {% if trakt_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
+                {% if trakt_configured %}
+                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'trakt' %}" onclick="return confirm('Clear the stored Trakt client ID and secret? Spool will fall back to the server .env values, if any.');" class="text-[11px] text-ink-faint hover:text-error underline">Clear</button>
+                {% endif %}
+              </div>
+              <input type="text" name="trakt_client_id" value="{{ integration_field_values.trakt_client_id|default:'' }}" @keydown.enter.prevent placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
             </div>
             <div>
               <label class="block text-xs text-ink-dim mb-1">Trakt Client Secret</label>
               <div class="flex gap-1.5">
                 <div class="relative flex-1">
-                  <input :type="showTraktSecret ? 'text' : 'password'" name="trakt_client_secret" placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
+                  <input :type="showTraktSecret ? 'text' : 'password'" name="trakt_client_secret" value="{{ integration_field_values.trakt_client_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
                   <button type="button" @click="showTraktSecret = !showTraktSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
                     <span x-show="!showTraktSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
                     <span x-show="showTraktSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
@@ -556,14 +561,19 @@
               </div>
             </div>
             <div>
-              <label class="block text-xs text-ink-dim mb-1">Simkl Client ID {% if simkl_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
-              <input type="text" name="simkl_client_id" placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-xs text-ink-dim">Simkl Client ID {% if simkl_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
+                {% if simkl_configured %}
+                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'simkl' %}" onclick="return confirm('Clear the stored Simkl client ID and secret? Spool will fall back to the server .env values, if any.');" class="text-[11px] text-ink-faint hover:text-error underline">Clear</button>
+                {% endif %}
+              </div>
+              <input type="text" name="simkl_client_id" value="{{ integration_field_values.simkl_client_id|default:'' }}" @keydown.enter.prevent placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
             </div>
             <div>
               <label class="block text-xs text-ink-dim mb-1">Simkl Client Secret</label>
               <div class="flex gap-1.5">
                 <div class="relative flex-1">
-                  <input :type="showSimklSecret ? 'text' : 'password'" name="simkl_client_secret" placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
+                  <input :type="showSimklSecret ? 'text' : 'password'" name="simkl_client_secret" value="{{ integration_field_values.simkl_client_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
                   <button type="button" @click="showSimklSecret = !showSimklSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
                     <span x-show="!showSimklSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
                     <span x-show="showSimklSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
@@ -577,10 +587,15 @@
               </div>
             </div>
             <div>
-              <label class="block text-xs text-ink-dim mb-1">TMDB API Key {% if tmdb_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-xs text-ink-dim">TMDB API Key {% if tmdb_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
+                {% if tmdb_configured %}
+                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'tmdb' %}" onclick="return confirm('Clear the stored TMDB API key? Spool will fall back to the server .env value, if any.');" class="text-[11px] text-ink-faint hover:text-error underline">Clear</button>
+                {% endif %}
+              </div>
               <div class="flex gap-1.5">
                 <div class="relative flex-1">
-                  <input :type="showTmdb ? 'text' : 'password'" name="tmdb_api_key" placeholder="{% if tmdb_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
+                  <input :type="showTmdb ? 'text' : 'password'" name="tmdb_api_key" value="{{ integration_field_values.tmdb_api_key|default:'' }}" @keydown.enter.prevent placeholder="{% if tmdb_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
                   <button type="button" @click="showTmdb = !showTmdb" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
                     <span x-show="!showTmdb">{% icon "eye" "w-3.5 h-3.5" %}</span>
                     <span x-show="showTmdb" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
@@ -594,10 +609,15 @@
               </div>
             </div>
             <div>
-              <label class="block text-xs text-ink-dim mb-1">MDBList API Key {% if mdblist_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-xs text-ink-dim">MDBList API Key {% if mdblist_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
+                {% if mdblist_configured %}
+                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'mdblist' %}" onclick="return confirm('Clear the stored MDBList API key? This turns off supplementary ratings on title pages until a new key is set.');" class="text-[11px] text-ink-faint hover:text-error underline">Clear</button>
+                {% endif %}
+              </div>
               <div class="flex gap-1.5">
                 <div class="relative flex-1">
-                  <input :type="showMdblist ? 'text' : 'password'" name="mdblist_api_key" placeholder="{% if mdblist_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
+                  <input :type="showMdblist ? 'text' : 'password'" name="mdblist_api_key" value="{{ integration_field_values.mdblist_api_key|default:'' }}" @keydown.enter.prevent placeholder="{% if mdblist_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
                   <button type="button" @click="showMdblist = !showMdblist" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
                     <span x-show="!showMdblist">{% icon "eye" "w-3.5 h-3.5" %}</span>
                     <span x-show="showMdblist" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
@@ -609,7 +629,7 @@
                   class="btn btn-sm btn-soft shrink-0"
                 >Test</button>
               </div>
-              <div class="text-ink-dim text-[11px] mt-1">Optional - adds IMDb/Rotten Tomatoes/Metacritic/etc pills to a title's page alongside its TMDB rating. Get a free key at mdblist.com/api.</div>
+              <div class="text-ink-dim text-[11px] mt-1">Optional - adds IMDb/Rotten Tomatoes/Metacritic/Trakt pills to a title's page. Get a free key at mdblist.com/api.</div>
             </div>
             <button type="submit" class="btn btn-sm btn-soft w-full">Save</button>
           </form>

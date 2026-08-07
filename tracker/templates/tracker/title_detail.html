@@ -117,14 +117,9 @@
   <div class="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8 mb-8">
     <div class="min-w-0">
 
-      {% if details.overview %}
-        <h2 class="font-display text-xl mb-3">Description</h2>
-        <p class="max-w-3xl text-[14px] leading-relaxed text-ink-dim mb-6">{{ details.overview }}</p>
-      {% endif %}
-
       {% if not is_preview %}
-        <div class="mb-6 flex items-center gap-2">
-          {% include "tracker/partials/pill_badges.html" with ratings=title.ratings.all user_rating=latest_rating tmdb_score=tmdb_score mdblist_ratings=mdblist_ratings %}
+        <div class="mb-3 flex items-center gap-2">
+          {% include "tracker/partials/pill_badges.html" with ratings=title.ratings.all user_rating=latest_rating mdblist_ratings=mdblist_ratings %}
           {% if profile.is_owner %}
             <form method="post" action="{% url 'title_refresh_mdblist_ratings' title.pk %}">
               {% csrf_token %}
@@ -132,6 +127,11 @@
             </form>
           {% endif %}
         </div>
+      {% endif %}
+
+      {% if details.overview %}
+        <h2 class="font-display text-xl mb-3">Description</h2>
+        <p class="max-w-3xl text-[14px] leading-relaxed text-ink-dim mb-6">{{ details.overview }}</p>
       {% endif %}
 
       {% if director or cast %}

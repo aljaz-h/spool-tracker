@@ -8,6 +8,35 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.77.0] - 2026-08-07
+
+### Added
+
+- A "Clear" link next to each configured Trakt/Simkl/TMDB/MDBList
+  credential in Server Integrations, for actually removing a
+  server-stored override (a blank field there always meant "leave
+  unchanged", so there was previously no way to fall back to the
+  server's .env value once a credential had been saved from the UI).
+
+### Fixed
+
+- Pressing Enter in any Server Integrations field used to submit the
+  form via whichever "Test connection" button happened to be first on
+  the page, regardless of which field you were actually in - e.g. typing
+  an MDBList key and hitting Enter would test Trakt instead. Enter no
+  longer implicitly submits any of these fields.
+- Saving or testing a credential re-rendered the field blank, which
+  looked like the value had been deleted even though it was saved (or,
+  for Test, was never meant to be saved in the first place). Both now
+  show back exactly what was just submitted.
+
+### Changed
+
+- A title's rating row now shows only IMDb/Rotten Tomatoes/Metacritic/
+  Trakt (via MDBList) as icons instead of text labels, moved above the
+  description instead of below it, and no longer duplicates the TMDB
+  rating shown elsewhere on the page.
+
 ## [0.76.2] - 2026-08-07
 
 ### Changed

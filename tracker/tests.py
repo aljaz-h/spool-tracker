@@ -2846,6 +2846,87 @@ class SaveInstanceConfigViewTests(TestCase):
         cfg.refresh_from_db()
         self.assertEqual(cfg.get_mdblist_api_key(), "existing-key")
 
+    def test_renders_the_integrations_tab_in_place_instead_of_redirecting(self):
+        # Regression: this used to redirect, which meant the value the
+        # admin just typed always vanished from the field on the next
+        # render - reported live as "it looks like it deleted my key".
+        self.client.login(username="owner", password="pass12345")
+        resp = self.client.post(reverse("save_instance_config"), {"mdblist_api_key": "just-typed-key"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "just-typed-key")
+        self.assertEqual(resp.context["active_tab"], "server_integrations")
+
+    def test_only_the_submitted_fields_are_echoed_back(self):
+        self.client.login(username="owner", password="pass12345")
+        resp = self.client.post(reverse("save_instance_config"), {"mdblist_api_key": "just-typed-key"})
+        self.assertEqual(resp.context["integration_field_values"], {"mdblist_api_key": "just-typed-key"})
+
+
+class ClearInstanceConfigFieldViewTests(TestCase):
+    def setUp(self):
+        owner_user = User.objects.create_user("clearowner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=owner_user, display_name="ClearOwner")
+        member_user = User.objects.create_user("clearmember", password="pass12345")
+        self.member = Profile.objects.create(user=member_user, display_name="ClearMember")
+        self.cfg = InstanceConfig.load()
+        self.cfg.trakt_client_id = "trakt-id"
+        self.cfg.set_trakt_client_secret("trakt-secret")
+        self.cfg.simkl_client_id = "simkl-id"
+        self.cfg.set_simkl_client_secret("simkl-secret")
+        self.cfg.set_tmdb_api_key("tmdb-key")
+        self.cfg.set_mdblist_api_key("mdblist-key")
+        self.cfg.save()
+
+    def test_non_owner_gets_404(self):
+        self.client.login(username="clearmember", password="pass12345")
+        resp = self.client.post(reverse("clear_instance_config_field", args=["trakt"]))
+        self.assertEqual(resp.status_code, 404)
+        self.cfg.refresh_from_db()
+        self.assertEqual(self.cfg.trakt_client_id, "trakt-id")
+
+    def test_unknown_provider_404s(self):
+        self.client.login(username="clearowner", password="pass12345")
+        resp = self.client.post(reverse("clear_instance_config_field", args=["bogus"]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_clearing_trakt_removes_both_id_and_secret(self):
+        self.client.login(username="clearowner", password="pass12345")
+        self.client.post(reverse("clear_instance_config_field", args=["trakt"]))
+        self.cfg.refresh_from_db()
+        self.assertEqual(self.cfg.trakt_client_id, "")
+        self.assertEqual(self.cfg.get_trakt_client_secret(), "")
+        # Untouched.
+        self.assertEqual(self.cfg.simkl_client_id, "simkl-id")
+
+    def test_clearing_simkl_removes_both_id_and_secret(self):
+        self.client.login(username="clearowner", password="pass12345")
+        self.client.post(reverse("clear_instance_config_field", args=["simkl"]))
+        self.cfg.refresh_from_db()
+        self.assertEqual(self.cfg.simkl_client_id, "")
+        self.assertEqual(self.cfg.get_simkl_client_secret(), "")
+
+    def test_clearing_tmdb_key(self):
+        self.client.login(username="clearowner", password="pass12345")
+        self.client.post(reverse("clear_instance_config_field", args=["tmdb"]))
+        self.cfg.refresh_from_db()
+        self.assertEqual(self.cfg.get_tmdb_api_key(), "")
+
+    def test_clearing_mdblist_key(self):
+        self.client.login(username="clearowner", password="pass12345")
+        resp = self.client.post(reverse("clear_instance_config_field", args=["mdblist"]))
+        self.cfg.refresh_from_db()
+        self.assertEqual(self.cfg.get_mdblist_api_key(), "")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Cleared MDBList credentials")
+
+    def test_env_fallback_takes_over_once_cleared(self):
+        with override_settings(TRAKT_CLIENT_ID="env-id", TRAKT_CLIENT_SECRET="env-secret"):
+            self.client.login(username="clearowner", password="pass12345")
+            self.client.post(reverse("clear_instance_config_field", args=["trakt"]))
+            client_id, client_secret = instance_config.get_trakt_credentials()
+            self.assertEqual(client_id, "env-id")
+            self.assertEqual(client_secret, "env-secret")
+
 
 class SaveAppearanceViewTests(TestCase):
     def setUp(self):
@@ -3562,6 +3643,32 @@ class AdminDashboardVisibilityTests(TestCase):
         self.client.login(username="owner2", password="pass12345")
         resp = self.client.get(reverse("admin_dashboard"))
         self.assertContains(resp, f"v{update_check.APP_VERSION}")
+
+    def test_integration_inputs_block_implicit_enter_submission(self):
+        # Regression: this form has several submit buttons with different
+        # formactions (Test x4, Save); pressing Enter in any field used to
+        # implicitly submit via the *first* one (Trakt's Test button)
+        # regardless of which field the admin was actually in - reported
+        # live as testing MDBList triggering a "Trakt not configured"
+        # error instead.
+        self.client.login(username="owner2", password="pass12345")
+        resp = self.client.get(reverse("admin_dashboard"))
+        content = resp.content.decode()
+        for field in ["trakt_client_id", "trakt_client_secret", "simkl_client_id", "simkl_client_secret", "tmdb_api_key", "mdblist_api_key"]:
+            field_pos = content.index(f'name="{field}"')
+            tag_end = content.index(">", field_pos)
+            surrounding = content[field_pos:tag_end]
+            self.assertIn("@keydown.enter.prevent", surrounding, f"{field} input is missing the Enter-key guard")
+
+    @override_settings(TMDB_API_KEY="", MDBLIST_API_KEY="")
+    def test_clear_link_only_shown_for_configured_credentials(self):
+        InstanceConfig.objects.create(pk=1, trakt_client_id="an-id")
+        self.client.login(username="owner2", password="pass12345")
+        resp = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(resp, reverse("clear_instance_config_field", args=["trakt"]))
+        self.assertNotContains(resp, reverse("clear_instance_config_field", args=["simkl"]))
+        self.assertNotContains(resp, reverse("clear_instance_config_field", args=["tmdb"]))
+        self.assertNotContains(resp, reverse("clear_instance_config_field", args=["mdblist"]))
 
 
 class SettingsConnectedAppsTests(TestCase):
@@ -11246,6 +11353,40 @@ class QueueDueMdblistRefreshesTaskTests(TestCase):
         self.assertEqual(count, 200)
 
 
+class MdblistPillsHelperTests(TestCase):
+    """views._mdblist_pills - direct unit tests for the allowlist/icon
+    mapping, since MdblistRatingsContextTests below only ever exercises
+    the imdb branch through a full title_detail render."""
+
+    def test_maps_each_allowed_source_to_its_label_and_icon(self):
+        pills = views._mdblist_pills([
+            {"source": "imdb", "score": 81},
+            {"source": "tomatoes", "score": 92},
+            {"source": "metacritic", "score": 74},
+            {"source": "trakt", "score": 88},
+        ])
+        self.assertEqual(
+            [(p["label"], p["icon"], p["display"]) for p in pills],
+            [("IMDb", "imdb", 81), ("Rotten Tomatoes", "rt", 92), ("Metacritic", "metacritic", 74), ("Trakt", "trakt", 88)],
+        )
+
+    def test_rottentomatoes_alias_maps_to_the_same_rt_icon(self):
+        pills = views._mdblist_pills([{"source": "rottentomatoes", "score": 92}])
+        self.assertEqual(pills[0]["icon"], "rt")
+
+    def test_falls_back_to_native_value_when_score_missing(self):
+        pills = views._mdblist_pills([{"source": "imdb", "value": 8.1}])
+        self.assertEqual(pills[0]["display"], 8.1)
+
+    def test_entry_with_neither_score_nor_value_is_skipped(self):
+        pills = views._mdblist_pills([{"source": "imdb"}])
+        self.assertEqual(pills, [])
+
+    def test_unknown_source_is_skipped(self):
+        pills = views._mdblist_pills([{"source": "letterboxd", "score": 70}])
+        self.assertEqual(pills, [])
+
+
 class MdblistRatingsContextTests(TestCase):
     """views._mdblist_ratings_context, exercised through title_detail -
     the only thing that ever populates TitleRatingsCache. Every case
@@ -11285,8 +11426,6 @@ class MdblistRatingsContextTests(TestCase):
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         mock_dispatch.assert_called_once_with(tasks.fetch_mdblist_ratings, [self.title.pk])
         self.assertEqual(resp.context["mdblist_ratings"], [])
-        # TMDB's own rating still shows regardless of MDBList state.
-        self.assertContains(resp, "TMDB 7.4")
 
     @patch("tracker.views._dispatch_sync_task_safely")
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
@@ -11313,7 +11452,8 @@ class MdblistRatingsContextTests(TestCase):
         )
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         mock_dispatch.assert_not_called()
-        self.assertContains(resp, "IMDb 81")
+        self.assertEqual(resp.context["mdblist_ratings"], [{"label": "IMDb", "css_class": "bg-imdb/15 text-imdb", "icon": "imdb", "display": 81}])
+        self.assertContains(resp, "81")
 
     @patch("tracker.views._dispatch_sync_task_safely")
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
@@ -11331,27 +11471,36 @@ class MdblistRatingsContextTests(TestCase):
         )
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         mock_dispatch.assert_called_once_with(tasks.fetch_mdblist_ratings, [self.title.pk])
-        self.assertContains(resp, "IMDb 81")
+        self.assertEqual(resp.context["mdblist_ratings"][0]["display"], 81)
 
     @patch("tracker.views._dispatch_sync_task_safely")
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
     @patch("tracker.integrations.tmdb.get_full_details")
-    def test_unrecognized_mdblist_source_still_renders_with_a_generic_label(
-        self, mock_details, mock_credits, mock_similar, mock_dispatch
-    ):
+    def test_sources_outside_the_allowlist_are_dropped_entirely(self, mock_details, mock_credits, mock_similar, mock_dispatch):
+        """metacriticuser/letterboxd/rogerebert/tmdb aren't wanted here
+        (the TMDB rating has its own display elsewhere already) - unlike
+        an earlier design, an unrecognized source is silently skipped,
+        not shown with a generic fallback label."""
         from django.utils import timezone
 
         mock_details.return_value = self._details()
         TitleRatingsCache.objects.create(
             title=self.title,
-            ratings=[{"source": "some_new_provider", "value": 5.0, "score": 50}],
+            ratings=[
+                {"source": "metacriticuser", "value": 5.0, "score": 50},
+                {"source": "letterboxd", "value": 3.5, "score": 70},
+                {"source": "rogerebert", "value": 2.0, "score": 40},
+                {"source": "tmdb", "value": 7.4, "score": 74},
+                {"source": "imdb", "value": 8.1, "score": 81},
+            ],
             fetch_attempted=True,
             next_refresh_at=timezone.now() + timedelta(days=1),
         )
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "Some New Provider 50")
+        sources_shown = [p["label"] for p in resp.context["mdblist_ratings"]]
+        self.assertEqual(sources_shown, ["IMDb"])
 
 
 class TitleRefreshMdblistRatingsViewTests(TestCase):
@@ -14718,6 +14867,25 @@ class TestProviderCredentialsViewTests(TestCase):
         resp = self.client.post(reverse("test_provider_credentials", args=["mdblist"]), {"mdblist_api_key": "bad"}, follow=True)
         self.assertContains(resp, "MDBList connection failed")
         self.assertContains(resp, "401")
+
+    @patch("tracker.integrations.mdblist.requests.get")
+    def test_successful_test_echoes_the_tested_value_back_into_the_field(self, mock_get):
+        # Regression: this used to redirect (a fresh GET, which never
+        # shows a saved secret) - reported live as "it deletes the key"
+        # even though nothing was ever saved in the first place.
+        mock_get.return_value = self._response({"ratings": []})
+        resp = self.client.post(reverse("test_provider_credentials", args=["mdblist"]), {"mdblist_api_key": "just-typed"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "just-typed")
+
+    @patch("tracker.integrations.trakt.requests.get")
+    def test_only_the_field_just_tested_is_echoed_back_not_other_providers(self, mock_get):
+        mock_get.return_value = self._response({})
+        cfg = InstanceConfig.load()
+        cfg.set_mdblist_api_key("unrelated-saved-key")
+        cfg.save()
+        resp = self.client.post(reverse("test_provider_credentials", args=["trakt"]), {"trakt_client_id": "abc"})
+        self.assertEqual(resp.context["integration_field_values"], {"trakt_client_id": "abc"})
 
     def test_blank_field_falls_back_to_the_saved_credential(self):
         cfg = InstanceConfig.load()

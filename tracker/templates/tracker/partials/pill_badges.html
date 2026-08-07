@@ -1,17 +1,16 @@
-{# context: ratings (ExternalRating iterable), user_rating (int|None), tmdb_score (float|None), mdblist_ratings (list of {label,css_class,display}) #}
+{% load icons %}
+{# context: ratings (ExternalRating iterable), user_rating (int|None), mdblist_ratings (list of {label,css_class,icon,display}) #}
 <div class="flex gap-1.5 flex-wrap mb-1.5">
-  {% if tmdb_score %}
-    <span class="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-tmdb/15 text-tmdb">TMDB {{ tmdb_score|floatformat:1 }}</span>
-  {% endif %}
   {% for p in mdblist_ratings %}
-    <span class="font-mono text-[10.5px] px-1.5 py-0.5 rounded {{ p.css_class }}">{{ p.label }} {{ p.display }}</span>
+    <span class="inline-flex items-center gap-1 font-mono text-[10.5px] px-1.5 py-0.5 rounded {{ p.css_class }}" title="{{ p.label }}">{% icon p.icon "w-3 h-3" %} {{ p.display }}</span>
   {% endfor %}
   {% for r in ratings %}
-    <span class="font-mono text-[10.5px] px-1.5 py-0.5 rounded
+    <span class="inline-flex items-center gap-1 font-mono text-[10.5px] px-1.5 py-0.5 rounded
       {% if r.source == 'imdb' %}bg-imdb/15 text-imdb
       {% elif r.source == 'rt' %}bg-rt/15 text-rt
       {% elif r.source == 'trakt' %}bg-trakt/15 text-trakt
-      {% elif r.source == 'mal' %}bg-mal/15 text-mal{% endif %}">{{ r.get_source_display }} {{ r.score }}</span>
+      {% elif r.source == 'mal' %}bg-mal/15 text-mal{% endif %}" title="{{ r.get_source_display }}">
+      {% if r.source == 'imdb' %}{% icon "imdb" "w-3 h-3" %}{% elif r.source == 'rt' %}{% icon "rt" "w-3 h-3" %}{% elif r.source == 'trakt' %}{% icon "trakt" "w-3 h-3" %}{% else %}{{ r.get_source_display }}{% endif %} {{ r.score }}</span>
   {% endfor %}
   {% if user_rating %}
     <span class="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-primary/15 text-primary">★ {{ user_rating }}</span>

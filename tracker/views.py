@@ -675,17 +675,19 @@ def _anime_jikan_context(title):
     }
 
 
-# Known MDBList source -> (display label, pill CSS class). Deliberately
-# not exhaustive - MDBList can add providers over time, so any source not
-# listed here still renders via the fallback branch in _mdblist_pills
-# rather than being dropped or raising.
+# Known MDBList source -> (display label, pill CSS class, vendored icon
+# name in static/icons/). Deliberately an allowlist, not "every source
+# MDBList returns" - the TMDB rating already has its own dedicated
+# display elsewhere in the app, and MDBList's less mainstream sources
+# (Letterboxd, RogerEbert, the separate Metacritic *user*-score variant)
+# aren't wanted here, so any source not listed is silently skipped
+# instead of showing with a generic fallback.
 _MDBLIST_SOURCE_META = {
-    "imdb": ("IMDb", "bg-imdb/15 text-imdb"),
-    "tomatoes": ("RT", "bg-rt/15 text-rt"),
-    "rottentomatoes": ("RT", "bg-rt/15 text-rt"),
-    "metacritic": ("Metacritic", "bg-metacritic/15 text-metacritic"),
-    "trakt": ("Trakt", "bg-trakt/15 text-trakt"),
-    "tmdb": ("TMDB", "bg-tmdb/15 text-tmdb"),
+    "imdb": ("IMDb", "bg-imdb/15 text-imdb", "imdb"),
+    "tomatoes": ("Rotten Tomatoes", "bg-rt/15 text-rt", "rt"),
+    "rottentomatoes": ("Rotten Tomatoes", "bg-rt/15 text-rt", "rt"),
+    "metacritic": ("Metacritic", "bg-metacritic/15 text-metacritic", "metacritic"),
+    "trakt": ("Trakt", "bg-trakt/15 text-trakt", "trakt"),
 }
 
 
@@ -700,15 +702,15 @@ def _mdblist_pills(ratings):
     avoid."""
     pills = []
     for r in ratings:
-        source = r.get("source") or ""
-        label, css_class = _MDBLIST_SOURCE_META.get(
-            source, (source.replace("_", " ").title() or "?", "bg-base-300 text-ink-dim")
-        )
+        meta = _MDBLIST_SOURCE_META.get(r.get("source") or "")
+        if meta is None:
+            continue
+        label, css_class, icon = meta
         display = r.get("score")
         display = round(display) if display is not None else r.get("value")
         if display is None:
             continue
-        pills.append({"label": label, "css_class": css_class, "display": display})
+        pills.append({"label": label, "css_class": css_class, "icon": icon, "display": display})
     return pills
 
 
@@ -875,7 +877,6 @@ def title_detail(request, pk):
         "watch_providers": watch_providers,
         "status_badge": tmdb.status_badge(details["status"]) if details else None,
         "release_info": _release_info(details),
-        "tmdb_score": details.get("vote_average") if details else None,
         "is_preview": False,
         "preview_media_type": None,
         "preview_tmdb_id": None,
@@ -2833,6 +2834,33 @@ def logs_table_partial(request):
     return render(request, "tracker/partials/settings_logs_table.html", _logs_tab_context(request))
 
 
+_INSTANCE_CONFIG_FIELDS = [
+    "trakt_client_id", "trakt_client_secret",
+    "simkl_client_id", "simkl_client_secret",
+    "tmdb_api_key", "mdblist_api_key",
+]
+_INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES = {"trakt": "Trakt", "simkl": "Simkl", "tmdb": "TMDB", "mdblist": "MDBList"}
+
+
+def _render_server_integrations(request, profile):
+    """Re-renders the Server Integrations tab in place instead of
+    redirecting, echoing back whatever fields were actually part of this
+    POST (save/test/clear) - a fresh GET still never shows a previously-
+    stored secret (see InstanceConfig's own docstring for why), but
+    without this, saving or testing a field the admin just typed into
+    made it look like the value had vanished, even though nothing was
+    lost - blank only ever means "leave unchanged" here, not "clear"
+    (reported live: exactly this confusion, twice - once after Test,
+    once after Save)."""
+    field_values = {f: v for f in _INSTANCE_CONFIG_FIELDS if (v := request.POST.get(f, "").strip())}
+    context = {
+        **_settings_page_context(request, profile),
+        "active_tab": "server_integrations",
+        "integration_field_values": field_values,
+    }
+    return render(request, "tracker/settings.html", context)
+
+
 @login_required
 @require_POST
 def save_instance_config(request):
@@ -2840,9 +2868,10 @@ def save_instance_config(request):
     if profile is None or not profile.is_owner:
         raise Http404
     cfg = InstanceConfig.load()
-    # Blank submitted value = "leave as-is", not "clear it" - the form never
-    # re-renders an existing secret's real value (see admin_dashboard.html),
-    # so a blank field only ever means the admin didn't type a replacement.
+    # Blank submitted value = "leave as-is", not "clear it" (see
+    # clear_instance_config_field for the explicit way to actually clear
+    # a field) - a blank field only ever means the admin didn't type a
+    # replacement.
     for field in ["trakt_client_id", "simkl_client_id"]:
         value = request.POST.get(field, "").strip()
         if value:
@@ -2861,7 +2890,38 @@ def save_instance_config(request):
             setter(value)
     cfg.save()
     messages.success(request, "Saved integration credentials.")
-    return redirect(f"{reverse('admin_dashboard')}?tab=server_integrations")
+    return _render_server_integrations(request, profile)
+
+
+@login_required
+@require_POST
+def clear_instance_config_field(request, provider):
+    """Server Integrations' "Clear" links - the only way to actually blank
+    a previously-saved credential, since a blank field on the main form
+    always means "leave unchanged" (see save_instance_config). Clears the
+    id+secret together for Trakt/Simkl (a client id without its secret,
+    or vice versa, isn't usable on its own) - falls back to whatever's in
+    .env afterward, same as if it had never been set in the database."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or not profile.is_owner:
+        raise Http404
+    if provider not in _INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES:
+        raise Http404
+
+    cfg = InstanceConfig.load()
+    if provider == "trakt":
+        cfg.trakt_client_id = ""
+        cfg.set_trakt_client_secret("")
+    elif provider == "simkl":
+        cfg.simkl_client_id = ""
+        cfg.set_simkl_client_secret("")
+    elif provider == "tmdb":
+        cfg.set_tmdb_api_key("")
+    else:
+        cfg.set_mdblist_api_key("")
+    cfg.save()
+    messages.success(request, f"Cleared {_INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES[provider]} credentials.")
+    return _render_server_integrations(request, profile)
 
 
 @login_required
@@ -2876,13 +2936,9 @@ def test_provider_credentials(request, provider):
     if profile is None or not profile.is_owner:
         raise Http404
 
-    # str.title() would mangle "TMDB" to "Tmdb" - an explicit display name
-    # per provider instead, same reasoning as get_provider_display() on
-    # ExternalAccount.Provider elsewhere in this file.
-    display_names = {"trakt": "Trakt", "simkl": "Simkl", "tmdb": "TMDB", "mdblist": "MDBList"}
-    if provider not in display_names:
+    if provider not in _INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES:
         raise Http404
-    display_name = display_names[provider]
+    display_name = _INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES[provider]
 
     if provider == "trakt":
         credential = request.POST.get("trakt_client_id", "").strip() or instance_config.get_trakt_credentials()[0]
@@ -2899,7 +2955,7 @@ def test_provider_credentials(request, provider):
 
     if not credential:
         messages.error(request, f"No {display_name} credentials to test - fill in a value first.")
-        return redirect(f"{reverse('admin_dashboard')}?tab=server_integrations")
+        return _render_server_integrations(request, profile)
 
     try:
         if provider == "trakt":
@@ -2916,7 +2972,7 @@ def test_provider_credentials(request, provider):
         messages.error(request, f"{display_name} connection failed ({reason}).")
     else:
         messages.success(request, f"{display_name} connection succeeded{caveat}.")
-    return redirect(f"{reverse('admin_dashboard')}?tab=server_integrations")
+    return _render_server_integrations(request, profile)
 
 
 @login_required
