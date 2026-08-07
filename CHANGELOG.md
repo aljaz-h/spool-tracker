@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.76.1] - 2026-08-07
+
+### Changed
+
+- Server Integrations' "Test connection" buttons moved inline next to
+  each field instead of sitting below it, and every secret/API key field
+  gets an eye icon to reveal what you typed without needing to retype it.
+
 ## [0.76.0] - 2026-08-07
 
 ### Added

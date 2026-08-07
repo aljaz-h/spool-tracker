@@ -525,7 +525,11 @@
         </div>
 
         {# ==================== ADMIN: SERVER INTEGRATIONS ==================== #}
-        <div x-show="tab === 'server_integrations'" x-cloak class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl">
+        <div
+          x-show="tab === 'server_integrations'" x-cloak
+          x-data="{ showTraktSecret: false, showSimklSecret: false, showTmdb: false, showMdblist: false }"
+          class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl"
+        >
           <h3 class="text-lg mb-1">Server Integrations</h3>
           <div class="text-ink-dim text-xs mb-3.5">Overrides the server's .env values for Trakt/Simkl/TMDB — leave a field blank to keep what's already set.</div>
           <form method="post" action="{% url 'save_instance_config' %}" class="space-y-3">
@@ -536,45 +540,77 @@
             </div>
             <div>
               <label class="block text-xs text-ink-dim mb-1">Trakt Client Secret</label>
-              <input type="password" name="trakt_client_secret" placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
+              <div class="flex gap-1.5">
+                <div class="relative flex-1">
+                  <input :type="showTraktSecret ? 'text' : 'password'" name="trakt_client_secret" placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
+                  <button type="button" @click="showTraktSecret = !showTraktSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                    <span x-show="!showTraktSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                    <span x-show="showTraktSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                  </button>
+                </div>
+                <button
+                  type="submit" formaction="{% url 'test_provider_credentials' 'trakt' %}"
+                  title="Makes a live request to Trakt using the values above (without saving them) - only confirms the client ID is live, since Trakt doesn't check the secret outside the OAuth flow"
+                  class="btn btn-xs btn-outline shrink-0"
+                >Test</button>
+              </div>
             </div>
-            <button
-              type="submit" formaction="{% url 'test_provider_credentials' 'trakt' %}"
-              title="Makes a live request to Trakt using the values above (without saving them) - only confirms the client ID is live, since Trakt doesn't check the secret outside the OAuth flow"
-              class="btn btn-xs btn-outline gap-1"
-            >{% icon "circle-help" "w-3.5 h-3.5" %} Test Trakt connection</button>
             <div>
               <label class="block text-xs text-ink-dim mb-1">Simkl Client ID {% if simkl_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
               <input type="text" name="simkl_client_id" placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
             </div>
             <div>
               <label class="block text-xs text-ink-dim mb-1">Simkl Client Secret</label>
-              <input type="password" name="simkl_client_secret" placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
+              <div class="flex gap-1.5">
+                <div class="relative flex-1">
+                  <input :type="showSimklSecret ? 'text' : 'password'" name="simkl_client_secret" placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
+                  <button type="button" @click="showSimklSecret = !showSimklSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                    <span x-show="!showSimklSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                    <span x-show="showSimklSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                  </button>
+                </div>
+                <button
+                  type="submit" formaction="{% url 'test_provider_credentials' 'simkl' %}"
+                  title="Makes a live request to Simkl using the values above (without saving them) - best effort, Simkl's API beyond OAuth isn't fully documented"
+                  class="btn btn-xs btn-outline shrink-0"
+                >Test</button>
+              </div>
             </div>
-            <button
-              type="submit" formaction="{% url 'test_provider_credentials' 'simkl' %}"
-              title="Makes a live request to Simkl using the values above (without saving them) - best effort, Simkl's API beyond OAuth isn't fully documented"
-              class="btn btn-xs btn-outline gap-1"
-            >{% icon "circle-help" "w-3.5 h-3.5" %} Test Simkl connection</button>
             <div>
               <label class="block text-xs text-ink-dim mb-1">TMDB API Key {% if tmdb_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
-              <input type="password" name="tmdb_api_key" placeholder="{% if tmdb_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
+              <div class="flex gap-1.5">
+                <div class="relative flex-1">
+                  <input :type="showTmdb ? 'text' : 'password'" name="tmdb_api_key" placeholder="{% if tmdb_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
+                  <button type="button" @click="showTmdb = !showTmdb" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                    <span x-show="!showTmdb">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                    <span x-show="showTmdb" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                  </button>
+                </div>
+                <button
+                  type="submit" formaction="{% url 'test_provider_credentials' 'tmdb' %}"
+                  title="Makes a live request to TMDB using the value above (without saving it) - fully validates the key"
+                  class="btn btn-xs btn-outline shrink-0"
+                >Test</button>
+              </div>
             </div>
-            <button
-              type="submit" formaction="{% url 'test_provider_credentials' 'tmdb' %}"
-              title="Makes a live request to TMDB using the value above (without saving it) - fully validates the key"
-              class="btn btn-xs btn-outline gap-1"
-            >{% icon "circle-help" "w-3.5 h-3.5" %} Test TMDB connection</button>
             <div>
               <label class="block text-xs text-ink-dim mb-1">MDBList API Key {% if mdblist_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
-              <input type="password" name="mdblist_api_key" placeholder="{% if mdblist_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
+              <div class="flex gap-1.5">
+                <div class="relative flex-1">
+                  <input :type="showMdblist ? 'text' : 'password'" name="mdblist_api_key" placeholder="{% if mdblist_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
+                  <button type="button" @click="showMdblist = !showMdblist" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                    <span x-show="!showMdblist">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                    <span x-show="showMdblist" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                  </button>
+                </div>
+                <button
+                  type="submit" formaction="{% url 'test_provider_credentials' 'mdblist' %}"
+                  title="Makes a live request to MDBList using the value above (without saving it) - fully validates the key"
+                  class="btn btn-xs btn-outline shrink-0"
+                >Test</button>
+              </div>
+              <div class="text-ink-dim text-[11px] mt-1">Optional - adds IMDb/Rotten Tomatoes/Metacritic/etc pills to a title's page alongside its TMDB rating. Get a free key at mdblist.com/api.</div>
             </div>
-            <div class="text-ink-dim text-[11px] -mt-2">Optional - adds IMDb/Rotten Tomatoes/Metacritic/etc pills to a title's page alongside its TMDB rating. Get a free key at mdblist.com/api.</div>
-            <button
-              type="submit" formaction="{% url 'test_provider_credentials' 'mdblist' %}"
-              title="Makes a live request to MDBList using the value above (without saving it) - fully validates the key"
-              class="btn btn-xs btn-outline gap-1"
-            >{% icon "circle-help" "w-3.5 h-3.5" %} Test MDBList connection</button>
             <button type="submit" class="btn btn-sm btn-soft w-full">Save</button>
           </form>
           <a href="#" @click.prevent="setTab('logs')" class="block text-center text-xs text-ink-dim hover:text-base-content mt-3.5 pt-3.5 border-t border-line">View Logs →</a>
