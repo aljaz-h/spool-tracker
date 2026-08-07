@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.76.2] - 2026-08-07
+
+### Changed
+
+- Server Integrations' inline "Test" buttons now match the height of
+  their input field and use the app's regular soft-button style instead
+  of a bold outline that didn't match the rest of the design.
+
 ## [0.76.1] - 2026-08-07
 
 ### Changed
