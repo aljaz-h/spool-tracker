@@ -11390,18 +11390,18 @@ class MdblistPillsHelperTests(TestCase):
             {"source": "trakt", "value": 8.8, "score": 88},
         ])
         self.assertEqual(
-            [(p["label"], p["dot_class"], p["display"], p["unit"]) for p in pills],
+            [(p["label"], p["icon"], p["icon_class"], p["display"], p["unit"]) for p in pills],
             [
-                ("IMDb", "bg-imdb", "8.1", "/10"),
-                ("RT", "bg-rt", "92", "%"),
-                ("Metacritic", "bg-metacritic", "74", "/100"),
-                ("Trakt", "bg-trakt", "8.8", "/10"),
+                ("IMDb", "imdb", "text-imdb", "8.1", "/10"),
+                ("RT", "rt", "text-rt", "92", "%"),
+                ("Metacritic", "metacritic", "text-metacritic", "74", "/100"),
+                ("Trakt", "trakt", "text-trakt", "8.8", "/10"),
             ],
         )
 
-    def test_rottentomatoes_alias_maps_to_the_same_rt_dot(self):
+    def test_rottentomatoes_alias_maps_to_the_same_rt_icon(self):
         pills = views._mdblist_pills([{"source": "rottentomatoes", "value": 92}])
-        self.assertEqual(pills[0]["dot_class"], "bg-rt")
+        self.assertEqual(pills[0]["icon"], "rt")
 
     def test_entry_missing_the_native_value_is_skipped(self):
         # score alone isn't enough - the native value is what's needed to
@@ -11424,7 +11424,7 @@ class TmdbPillHelperTests(TestCase):
 
     def test_formats_to_one_decimal_out_of_10(self):
         pill = views._tmdb_pill({"vote_average": 7.421})
-        self.assertEqual(pill, {"label": "TMDB", "dot_class": "bg-tmdb", "display": "7.4", "unit": "/10"})
+        self.assertEqual(pill, {"label": "TMDB", "icon": "tmdb", "icon_class": "text-tmdb", "display": "7.4", "unit": "/10"})
 
 
 class MdblistRatingsContextTests(TestCase):
@@ -11469,7 +11469,7 @@ class MdblistRatingsContextTests(TestCase):
         self.assertTrue(resp.context["mdblist_pending"])
         self.assertContains(resp, "hx-trigger=\"every 3s\"")
         # TMDB's own rating (always-on, unrelated to MDBList) still shows.
-        self.assertEqual(resp.context["tmdb_pill"], {"label": "TMDB", "dot_class": "bg-tmdb", "display": "7.4", "unit": "/10"})
+        self.assertEqual(resp.context["tmdb_pill"], {"label": "TMDB", "icon": "tmdb", "icon_class": "text-tmdb", "display": "7.4", "unit": "/10"})
         self.assertContains(resp, "7.4")
 
     @patch("tracker.views._dispatch_sync_task_safely")
@@ -11497,7 +11497,7 @@ class MdblistRatingsContextTests(TestCase):
         )
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         mock_dispatch.assert_not_called()
-        self.assertEqual(resp.context["mdblist_ratings"], [{"label": "IMDb", "dot_class": "bg-imdb", "display": "8.1", "unit": "/10"}])
+        self.assertEqual(resp.context["mdblist_ratings"], [{"label": "IMDb", "icon": "imdb", "icon_class": "text-imdb", "display": "8.1", "unit": "/10"}])
         self.assertFalse(resp.context["mdblist_pending"])
         self.assertNotContains(resp, "hx-trigger")
         self.assertContains(resp, "8.1")

@@ -675,22 +675,23 @@ def _anime_jikan_context(title):
     }
 
 
-# Known MDBList source -> (display label, dot-accent CSS class, native
-# scale). Deliberately an allowlist, not "every source MDBList returns" -
-# MDBList's less mainstream sources (Letterboxd, RogerEbert, the separate
-# Metacritic *user*-score variant) aren't wanted here, so any source not
-# listed is silently skipped instead of showing with a generic fallback.
+# Known MDBList source -> (display label, vendored icon name in
+# static/icons/, icon tint class, native scale). Deliberately an
+# allowlist, not "every source MDBList returns" - MDBList's less
+# mainstream sources (Letterboxd, RogerEbert, the separate Metacritic
+# *user*-score variant) aren't wanted here, so any source not listed is
+# silently skipped instead of showing with a generic fallback.
 # Formatted via each provider's own native scale (not MDBList's separate
 # normalized 0-100 "score") since a quick, at-a-glance "8.2/10" or "87%"
 # reads better than a bare unlabeled number, and IMDb/Trakt are both
 # 0-10 while Rotten Tomatoes/Metacritic are both 0-100 - two scales, not
 # worth guessing wrong per-provider beyond that.
 _MDBLIST_SOURCE_META = {
-    "imdb": ("IMDb", "bg-imdb", "decimal_10"),
-    "tomatoes": ("RT", "bg-rt", "percent"),
-    "rottentomatoes": ("RT", "bg-rt", "percent"),
-    "metacritic": ("Metacritic", "bg-metacritic", "out_of_100"),
-    "trakt": ("Trakt", "bg-trakt", "decimal_10"),
+    "imdb": ("IMDb", "imdb", "text-imdb", "decimal_10"),
+    "tomatoes": ("RT", "rt", "text-rt", "percent"),
+    "rottentomatoes": ("RT", "rt", "text-rt", "percent"),
+    "metacritic": ("Metacritic", "metacritic", "text-metacritic", "out_of_100"),
+    "trakt": ("Trakt", "trakt", "text-trakt", "decimal_10"),
 }
 _MDBLIST_FORMATTERS = {
     "decimal_10": lambda v: (f"{v:.1f}", "/10"),
@@ -710,9 +711,9 @@ def _mdblist_pills(ratings):
         value = r.get("value")
         if meta is None or value is None:
             continue
-        label, dot_class, fmt_key = meta
+        label, icon, icon_class, fmt_key = meta
         display, unit = _MDBLIST_FORMATTERS[fmt_key](value)
-        pills.append({"label": label, "dot_class": dot_class, "display": display, "unit": unit})
+        pills.append({"label": label, "icon": icon, "icon_class": icon_class, "display": display, "unit": unit})
     return pills
 
 
@@ -724,7 +725,10 @@ def _tmdb_pill(details):
     number twice."""
     if not details or details.get("vote_average") is None:
         return None
-    return {"label": "TMDB", "dot_class": "bg-tmdb", "display": f"{details['vote_average']:.1f}", "unit": "/10"}
+    return {
+        "label": "TMDB", "icon": "tmdb", "icon_class": "text-tmdb",
+        "display": f"{details['vote_average']:.1f}", "unit": "/10",
+    }
 
 
 def _mdblist_ratings_context(title):

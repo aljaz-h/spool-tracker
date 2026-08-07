@@ -1,33 +1,32 @@
-{# context: ratings (ExternalRating iterable), user_rating (int|None), tmdb_pill ({label,dot_class,display,unit}|None), mdblist_ratings (list of {label,dot_class,display,unit}) #}
-<div class="flex gap-1.5 flex-wrap mb-1.5">
+{% load icons %}
+{# context: ratings (ExternalRating iterable), user_rating (int|None), tmdb_pill ({label,icon,icon_class,display,unit}|None), mdblist_ratings (list of {label,icon,icon_class,display,unit}) #}
+<div class="flex gap-2 flex-wrap mb-2">
   {% if tmdb_pill %}
-    <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-line bg-base-300/60 font-mono text-[10.5px]">
-      <span class="w-1.5 h-1.5 rounded-full shrink-0 {{ tmdb_pill.dot_class }}"></span>
+    <span class="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-line bg-base-300/60 font-mono text-xs">
+      <span class="{{ tmdb_pill.icon_class }} shrink-0">{% icon tmdb_pill.icon "w-4 h-4" %}</span>
       <span class="text-ink-dim">{{ tmdb_pill.label }}</span>
       <span class="font-semibold text-base-content">{{ tmdb_pill.display }}</span>
       <span class="text-ink-faint">{{ tmdb_pill.unit }}</span>
     </span>
   {% endif %}
   {% for p in mdblist_ratings %}
-    <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-line bg-base-300/60 font-mono text-[10.5px]">
-      <span class="w-1.5 h-1.5 rounded-full shrink-0 {{ p.dot_class }}"></span>
+    <span class="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-line bg-base-300/60 font-mono text-xs">
+      <span class="{{ p.icon_class }} shrink-0">{% icon p.icon "w-4 h-4" %}</span>
       <span class="text-ink-dim">{{ p.label }}</span>
       <span class="font-semibold text-base-content">{{ p.display }}</span>
       <span class="text-ink-faint">{{ p.unit }}</span>
     </span>
   {% endfor %}
   {% for r in ratings %}
-    <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-line bg-base-300/60 font-mono text-[10.5px]">
-      <span class="w-1.5 h-1.5 rounded-full shrink-0
-        {% if r.source == 'imdb' %}bg-imdb
-        {% elif r.source == 'rt' %}bg-rt
-        {% elif r.source == 'trakt' %}bg-trakt
-        {% elif r.source == 'mal' %}bg-mal{% endif %}"></span>
-      <span class="text-ink-dim">{{ r.get_source_display }}</span>
+    <span class="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-line bg-base-300/60 font-mono text-xs">
+      {% if r.source == 'imdb' %}<span class="text-imdb shrink-0">{% icon "imdb" "w-4 h-4" %}</span>
+      {% elif r.source == 'rt' %}<span class="text-rt shrink-0">{% icon "rt" "w-4 h-4" %}</span>
+      {% elif r.source == 'trakt' %}<span class="text-trakt shrink-0">{% icon "trakt" "w-4 h-4" %}</span>
+      {% else %}<span class="text-ink-dim">{{ r.get_source_display }}</span>{% endif %}
       <span class="font-semibold text-base-content">{{ r.score }}</span>
     </span>
   {% endfor %}
   {% if user_rating %}
-    <span class="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-primary/15 text-primary">★ {{ user_rating }}</span>
+    <span class="font-mono text-xs px-2.5 py-1.5 rounded-lg bg-primary/15 text-primary">★ {{ user_rating }}</span>
   {% endif %}
 </div>

@@ -8,6 +8,13 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.78.1] - 2026-08-07
+
+### Changed
+
+- Rating pills are bigger and show each service's actual logo (TMDB,
+  IMDb, Rotten Tomatoes, Metacritic, Trakt) instead of a plain color dot.
+
 ## [0.78.0] - 2026-08-07
 
 ### Changed
