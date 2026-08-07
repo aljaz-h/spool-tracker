@@ -22,6 +22,11 @@ urlpatterns = [
         name="title_refresh_mdblist_ratings",
     ),
     path(
+        "titles/<int:pk>/rating-pills/",
+        views.title_rating_pills_partial,
+        name="title_rating_pills_partial",
+    ),
+    path(
         "titles/<int:pk>/episodes/<int:season>/<int:episode_number>/mark-watched/",
         views.episode_mark_watched,
         name="episode_mark_watched",

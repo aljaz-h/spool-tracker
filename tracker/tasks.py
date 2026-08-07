@@ -438,6 +438,15 @@ def fetch_mdblist_ratings(title_id, force=False):
     if not force and not _mdblist_quota_ok(cfg):
         _log_mdblist_quota_pause(cfg, _mdblist_system_profile())
         cfg.save(update_fields=["mdblist_quota_date", "mdblist_quota_count", "mdblist_quota_pause_logged_date"])
+        # Still leaves a (fetch_attempted=False) row behind if this title
+        # has never been cached at all - views.title_rating_pills_partial
+        # self-polls while no row exists yet, and quota being paused for
+        # the rest of the day shouldn't turn that into an infinite poll.
+        # A short retry (not the full tier) picks it back up once quota
+        # allows again, same as the rate_limited/error branch below.
+        TitleRatingsCache.objects.get_or_create(
+            title=title, defaults={"next_refresh_at": timezone.now() + timedelta(hours=1)}
+        )
         return
     cfg.save(update_fields=["mdblist_quota_date", "mdblist_quota_count"])
 

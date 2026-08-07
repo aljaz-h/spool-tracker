@@ -10963,7 +10963,8 @@ class AnimeJikanDetailContextTests(TestCase):
         resp = self.client.get(reverse("title_detail", args=[self.anime.pk]))
         rating = ExternalRating.objects.get(title=self.anime, source=ExternalRating.Source.MAL)
         self.assertEqual(rating.score, "8.0")
-        self.assertContains(resp, "MAL 8.0")
+        self.assertContains(resp, "MAL")
+        self.assertContains(resp, "8.0")
 
     @patch("tracker.integrations.jikan.get_episode_filler_map", return_value={})
     @patch("tracker.integrations.jikan.get_anime_details")
@@ -11291,6 +11292,29 @@ class FetchMdblistRatingsTaskTests(TestCase):
 
     @patch("tracker.integrations.mdblist.fetch_ratings")
     @patch("tracker.integrations.tmdb.get_full_details")
+    def test_quota_paused_still_leaves_a_stub_cache_row_for_a_never_fetched_title(self, mock_details, mock_fetch):
+        # Otherwise a title with no row at all stays "pending" forever
+        # while quota is paused - title_rating_pills_partial's self-poll
+        # (see views.py) would then poll indefinitely instead of settling
+        # on "nothing yet, try again later".
+        owner_user = User.objects.create_user("mdbowner3", password="pass12345", is_superuser=True)
+        Profile.objects.create(user=owner_user, display_name="MdbOwner3")
+        cfg = InstanceConfig.load()
+        cfg.mdblist_quota_count = django_settings.MDBLIST_QUOTA_PAUSE_AT
+        from django.utils import timezone
+
+        cfg.mdblist_quota_date = timezone.now().date()
+        cfg.save()
+
+        self.assertFalse(TitleRatingsCache.objects.filter(title=self.title).exists())
+        tasks.fetch_mdblist_ratings(self.title.pk)
+        cache = TitleRatingsCache.objects.get(title=self.title)
+        self.assertEqual(cache.ratings, [])
+        self.assertFalse(cache.fetch_attempted)
+        self.assertLess(cache.next_refresh_at, timezone.now() + timedelta(hours=2))
+
+    @patch("tracker.integrations.mdblist.fetch_ratings")
+    @patch("tracker.integrations.tmdb.get_full_details")
     def test_quota_rolls_over_on_a_new_day(self, mock_details, mock_fetch):
         from django.utils import timezone
 
@@ -11354,37 +11378,53 @@ class QueueDueMdblistRefreshesTaskTests(TestCase):
 
 
 class MdblistPillsHelperTests(TestCase):
-    """views._mdblist_pills - direct unit tests for the allowlist/icon
-    mapping, since MdblistRatingsContextTests below only ever exercises
-    the imdb branch through a full title_detail render."""
+    """views._mdblist_pills - direct unit tests for the allowlist/native-
+    scale formatting, since MdblistRatingsContextTests below only ever
+    exercises the imdb branch through a full title_detail render."""
 
-    def test_maps_each_allowed_source_to_its_label_and_icon(self):
+    def test_maps_each_allowed_source_to_its_label_and_native_formatting(self):
         pills = views._mdblist_pills([
-            {"source": "imdb", "score": 81},
-            {"source": "tomatoes", "score": 92},
-            {"source": "metacritic", "score": 74},
-            {"source": "trakt", "score": 88},
+            {"source": "imdb", "value": 8.1, "score": 81},
+            {"source": "tomatoes", "value": 92, "score": 92},
+            {"source": "metacritic", "value": 74, "score": 74},
+            {"source": "trakt", "value": 8.8, "score": 88},
         ])
         self.assertEqual(
-            [(p["label"], p["icon"], p["display"]) for p in pills],
-            [("IMDb", "imdb", 81), ("Rotten Tomatoes", "rt", 92), ("Metacritic", "metacritic", 74), ("Trakt", "trakt", 88)],
+            [(p["label"], p["dot_class"], p["display"], p["unit"]) for p in pills],
+            [
+                ("IMDb", "bg-imdb", "8.1", "/10"),
+                ("RT", "bg-rt", "92", "%"),
+                ("Metacritic", "bg-metacritic", "74", "/100"),
+                ("Trakt", "bg-trakt", "8.8", "/10"),
+            ],
         )
 
-    def test_rottentomatoes_alias_maps_to_the_same_rt_icon(self):
-        pills = views._mdblist_pills([{"source": "rottentomatoes", "score": 92}])
-        self.assertEqual(pills[0]["icon"], "rt")
+    def test_rottentomatoes_alias_maps_to_the_same_rt_dot(self):
+        pills = views._mdblist_pills([{"source": "rottentomatoes", "value": 92}])
+        self.assertEqual(pills[0]["dot_class"], "bg-rt")
 
-    def test_falls_back_to_native_value_when_score_missing(self):
-        pills = views._mdblist_pills([{"source": "imdb", "value": 8.1}])
-        self.assertEqual(pills[0]["display"], 8.1)
-
-    def test_entry_with_neither_score_nor_value_is_skipped(self):
-        pills = views._mdblist_pills([{"source": "imdb"}])
+    def test_entry_missing_the_native_value_is_skipped(self):
+        # score alone isn't enough - the native value is what's needed to
+        # format correctly per-provider (an IMDb "score" of 81 out of
+        # MDBList's own normalized 100 doesn't map cleanly onto "/10").
+        pills = views._mdblist_pills([{"source": "imdb", "score": 81}])
         self.assertEqual(pills, [])
 
     def test_unknown_source_is_skipped(self):
-        pills = views._mdblist_pills([{"source": "letterboxd", "score": 70}])
+        pills = views._mdblist_pills([{"source": "letterboxd", "value": 3.5}])
         self.assertEqual(pills, [])
+
+
+class TmdbPillHelperTests(TestCase):
+    def test_returns_none_without_details(self):
+        self.assertIsNone(views._tmdb_pill(None))
+
+    def test_returns_none_without_a_vote_average(self):
+        self.assertIsNone(views._tmdb_pill({"vote_average": None}))
+
+    def test_formats_to_one_decimal_out_of_10(self):
+        pill = views._tmdb_pill({"vote_average": 7.421})
+        self.assertEqual(pill, {"label": "TMDB", "dot_class": "bg-tmdb", "display": "7.4", "unit": "/10"})
 
 
 class MdblistRatingsContextTests(TestCase):
@@ -11426,6 +11466,11 @@ class MdblistRatingsContextTests(TestCase):
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         mock_dispatch.assert_called_once_with(tasks.fetch_mdblist_ratings, [self.title.pk])
         self.assertEqual(resp.context["mdblist_ratings"], [])
+        self.assertTrue(resp.context["mdblist_pending"])
+        self.assertContains(resp, "hx-trigger=\"every 3s\"")
+        # TMDB's own rating (always-on, unrelated to MDBList) still shows.
+        self.assertEqual(resp.context["tmdb_pill"], {"label": "TMDB", "dot_class": "bg-tmdb", "display": "7.4", "unit": "/10"})
+        self.assertContains(resp, "7.4")
 
     @patch("tracker.views._dispatch_sync_task_safely")
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
@@ -11452,8 +11497,10 @@ class MdblistRatingsContextTests(TestCase):
         )
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         mock_dispatch.assert_not_called()
-        self.assertEqual(resp.context["mdblist_ratings"], [{"label": "IMDb", "css_class": "bg-imdb/15 text-imdb", "icon": "imdb", "display": 81}])
-        self.assertContains(resp, "81")
+        self.assertEqual(resp.context["mdblist_ratings"], [{"label": "IMDb", "dot_class": "bg-imdb", "display": "8.1", "unit": "/10"}])
+        self.assertFalse(resp.context["mdblist_pending"])
+        self.assertNotContains(resp, "hx-trigger")
+        self.assertContains(resp, "8.1")
 
     @patch("tracker.views._dispatch_sync_task_safely")
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
@@ -11471,7 +11518,7 @@ class MdblistRatingsContextTests(TestCase):
         )
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         mock_dispatch.assert_called_once_with(tasks.fetch_mdblist_ratings, [self.title.pk])
-        self.assertEqual(resp.context["mdblist_ratings"][0]["display"], 81)
+        self.assertEqual(resp.context["mdblist_ratings"][0]["display"], "8.1")
 
     @patch("tracker.views._dispatch_sync_task_safely")
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
@@ -11534,6 +11581,50 @@ class TitleRefreshMdblistRatingsViewTests(TestCase):
         self.client.login(username="refreshowner2", password="pass12345")
         resp = self.client.get(reverse("title_refresh_mdblist_ratings", args=[self.title.pk]))
         self.assertEqual(resp.status_code, 405)
+
+
+class TitleRatingPillsPartialViewTests(TestCase):
+    """title_rating_pills.html's own self-poll target - views.py always
+    reads current TitleRatingsCache state here, never dispatches a fetch
+    (see _mdblist_ratings_display's own docstring for why a poll must
+    stay read-only)."""
+
+    def setUp(self):
+        user = User.objects.create_user("pillspolluser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="PillsPollUser")
+        self.client.login(username="pillspolluser", password="pass12345")
+        self.title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value={"vote_average": 7.4})
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_no_cache_row_yet_keeps_polling(self, mock_dispatch, mock_details):
+        resp = self.client.get(reverse("title_rating_pills_partial", args=[self.title.pk]))
+        self.assertEqual(resp.status_code, 200)
+        mock_dispatch.assert_not_called()
+        self.assertContains(resp, "hx-trigger=\"every 3s\"")
+        self.assertContains(resp, "7.4")
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value={"vote_average": 7.4})
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_cache_row_present_stops_polling(self, mock_dispatch, mock_details):
+        from django.utils import timezone
+
+        TitleRatingsCache.objects.create(
+            title=self.title,
+            ratings=[{"source": "imdb", "value": 8.1}],
+            fetch_attempted=True,
+            next_refresh_at=timezone.now() + timedelta(days=1),
+        )
+        resp = self.client.get(reverse("title_rating_pills_partial", args=[self.title.pk]))
+        mock_dispatch.assert_not_called()
+        self.assertNotContains(resp, "hx-trigger")
+        self.assertContains(resp, "8.1")
+
+    def test_404s_for_nonexistent_title(self):
+        resp = self.client.get(reverse("title_rating_pills_partial", args=[999999]))
+        self.assertEqual(resp.status_code, 404)
 
 
 class EnsureMdblistRefreshTaskTests(TestCase):

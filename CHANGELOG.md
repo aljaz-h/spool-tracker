@@ -8,6 +8,24 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.78.0] - 2026-08-07
+
+### Changed
+
+- Rating pills redesigned to match the rest of the page: muted, bordered,
+  no solid color fills, with a small colored dot as the only accent.
+  Each provider now shows on its own native scale (IMDb/Trakt out of 10,
+  Metacritic out of 100, Rotten Tomatoes as a percentage) instead of
+  MDBList's normalized score, and the always-on TMDB rating (from
+  Spool's own TMDB integration, not MDBList's) is back as the first
+  pill.
+
+### Added
+
+- The rating row now fills itself in automatically once a title's first-
+  ever MDBList fetch completes, instead of requiring a manual page
+  reload to see it.
+
 ## [0.77.0] - 2026-08-07
 
 ### Added

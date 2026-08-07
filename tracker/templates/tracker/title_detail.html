@@ -1,5 +1,5 @@
 {% extends "tracker/base.html" %}
-{% load tracker_extras icons %}
+{% load tracker_extras %}
 {% block title %}{{ display_name }} · Spool{% endblock %}
 {% block content %}
 
@@ -118,15 +118,7 @@
     <div class="min-w-0">
 
       {% if not is_preview %}
-        <div class="mb-3 flex items-center gap-2">
-          {% include "tracker/partials/pill_badges.html" with ratings=title.ratings.all user_rating=latest_rating mdblist_ratings=mdblist_ratings %}
-          {% if profile.is_owner %}
-            <form method="post" action="{% url 'title_refresh_mdblist_ratings' title.pk %}">
-              {% csrf_token %}
-              <button type="submit" title="Force-refresh MDBList ratings now, ignoring the usual schedule" class="text-ink-faint hover:text-base-content -mt-1.5">{% icon "refresh-cw" "w-3 h-3" %}</button>
-            </form>
-          {% endif %}
-        </div>
+        {% include "tracker/partials/title_rating_pills.html" %}
       {% endif %}
 
       {% if details.overview %}

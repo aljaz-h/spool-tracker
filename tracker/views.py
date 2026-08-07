@@ -675,43 +675,56 @@ def _anime_jikan_context(title):
     }
 
 
-# Known MDBList source -> (display label, pill CSS class, vendored icon
-# name in static/icons/). Deliberately an allowlist, not "every source
-# MDBList returns" - the TMDB rating already has its own dedicated
-# display elsewhere in the app, and MDBList's less mainstream sources
-# (Letterboxd, RogerEbert, the separate Metacritic *user*-score variant)
-# aren't wanted here, so any source not listed is silently skipped
-# instead of showing with a generic fallback.
+# Known MDBList source -> (display label, dot-accent CSS class, native
+# scale). Deliberately an allowlist, not "every source MDBList returns" -
+# MDBList's less mainstream sources (Letterboxd, RogerEbert, the separate
+# Metacritic *user*-score variant) aren't wanted here, so any source not
+# listed is silently skipped instead of showing with a generic fallback.
+# Formatted via each provider's own native scale (not MDBList's separate
+# normalized 0-100 "score") since a quick, at-a-glance "8.2/10" or "87%"
+# reads better than a bare unlabeled number, and IMDb/Trakt are both
+# 0-10 while Rotten Tomatoes/Metacritic are both 0-100 - two scales, not
+# worth guessing wrong per-provider beyond that.
 _MDBLIST_SOURCE_META = {
-    "imdb": ("IMDb", "bg-imdb/15 text-imdb", "imdb"),
-    "tomatoes": ("Rotten Tomatoes", "bg-rt/15 text-rt", "rt"),
-    "rottentomatoes": ("Rotten Tomatoes", "bg-rt/15 text-rt", "rt"),
-    "metacritic": ("Metacritic", "bg-metacritic/15 text-metacritic", "metacritic"),
-    "trakt": ("Trakt", "bg-trakt/15 text-trakt", "trakt"),
+    "imdb": ("IMDb", "bg-imdb", "decimal_10"),
+    "tomatoes": ("RT", "bg-rt", "percent"),
+    "rottentomatoes": ("RT", "bg-rt", "percent"),
+    "metacritic": ("Metacritic", "bg-metacritic", "out_of_100"),
+    "trakt": ("Trakt", "bg-trakt", "decimal_10"),
+}
+_MDBLIST_FORMATTERS = {
+    "decimal_10": lambda v: (f"{v:.1f}", "/10"),
+    "out_of_100": lambda v: (f"{round(v)}", "/100"),
+    "percent": lambda v: (f"{round(v)}", "%"),
 }
 
 
 def _mdblist_pills(ratings):
     """Turns MDBList's raw per-source ratings list (see
-    integrations/mdblist.py) into ready-to-render pills - always displayed
-    via MDBList's own normalized 0-100 "score" (falling back to the
-    provider-native "value" only if score is missing), since providers mix
-    wildly different native scales (IMDb 0-10, Rotten Tomatoes/Metacritic
-    0-100, Letterboxd 0-5, ...) and guessing the right per-provider
-    formatting is exactly what MDBList's own normalized field exists to
-    avoid."""
+    integrations/mdblist.py) into ready-to-render pills, one per allowed
+    source, formatted on that provider's own native scale (see
+    _MDBLIST_SOURCE_META)."""
     pills = []
     for r in ratings:
         meta = _MDBLIST_SOURCE_META.get(r.get("source") or "")
-        if meta is None:
+        value = r.get("value")
+        if meta is None or value is None:
             continue
-        label, css_class, icon = meta
-        display = r.get("score")
-        display = round(display) if display is not None else r.get("value")
-        if display is None:
-            continue
-        pills.append({"label": label, "css_class": css_class, "icon": icon, "display": display})
+        label, dot_class, fmt_key = meta
+        display, unit = _MDBLIST_FORMATTERS[fmt_key](value)
+        pills.append({"label": label, "dot_class": dot_class, "display": display, "unit": unit})
     return pills
+
+
+def _tmdb_pill(details):
+    """The always-on TMDB rating pill - from Spool's own existing TMDB
+    integration (details.vote_average, already fetched for every page
+    render regardless of whether MDBList is configured at all), not from
+    MDBList's own "tmdb" field - showing both would just be the same
+    number twice."""
+    if not details or details.get("vote_average") is None:
+        return None
+    return {"label": "TMDB", "dot_class": "bg-tmdb", "display": f"{details['vote_average']:.1f}", "unit": "/10"}
 
 
 def _mdblist_ratings_context(title):
@@ -721,16 +734,57 @@ def _mdblist_ratings_context(title):
     request (see tasks.fetch_mdblist_ratings's own docstring for why).
     Returns whatever's already cached (possibly stale, shown anyway) while
     any needed background refresh runs. No tmdb id means nothing to look
-    up, so nothing is ever queued for a title that could never match."""
+    up, so nothing is ever queued for a title that could never match.
+
+    mdblist_pending is True only for "no TitleRatingsCache row exists at
+    all yet" - the one case with nothing to show at all - and is what
+    partials/title_rating_pills.html uses to decide whether to self-poll
+    (see title_rating_pills_partial) until the queued fetch above lands,
+    rather than making every visitor manually reload to see ratings that
+    typically finish populating within a second or two."""
     if not title.external_ids.get("tmdb"):
-        return {"mdblist_ratings": []}
+        return {"mdblist_ratings": [], "mdblist_pending": False}
     cache = TitleRatingsCache.objects.filter(title=title).first()
     if cache is None:
         _dispatch_sync_task_safely(tasks.fetch_mdblist_ratings, [title.pk])
-        return {"mdblist_ratings": []}
+        return {"mdblist_ratings": [], "mdblist_pending": True}
     if cache.next_refresh_at is None or cache.next_refresh_at <= timezone.now():
         _dispatch_sync_task_safely(tasks.fetch_mdblist_ratings, [title.pk])
-    return {"mdblist_ratings": _mdblist_pills(cache.ratings)}
+    return {"mdblist_ratings": _mdblist_pills(cache.ratings), "mdblist_pending": False}
+
+
+def _mdblist_ratings_display(title):
+    """Read-only counterpart to _mdblist_ratings_context, for
+    title_rating_pills_partial's self-poll re-renders - checks the
+    current cache state without ever re-dispatching a fetch (the initial
+    page render already did that; re-dispatching on every poll tick would
+    queue a duplicate fetch for as long as the title stays pending)."""
+    if not title.external_ids.get("tmdb"):
+        return {"mdblist_ratings": [], "mdblist_pending": False}
+    cache = TitleRatingsCache.objects.filter(title=title).first()
+    if cache is None:
+        return {"mdblist_ratings": [], "mdblist_pending": True}
+    return {"mdblist_ratings": _mdblist_pills(cache.ratings), "mdblist_pending": False}
+
+
+@login_required
+def title_rating_pills_partial(request, pk):
+    """partials/title_rating_pills.html's own self-poll target - lets the
+    rating row fill itself in once the background fetch queued by the
+    first view lands, instead of requiring a manual page reload to see
+    ratings that typically finish within a second or two."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    tmdb_id = title.external_ids.get("tmdb")
+    details = tmdb.get_full_details(tmdb.media_type_for(title), tmdb_id) if tmdb_id else None
+    context = {
+        "title": title,
+        "profile": profile,
+        "latest_rating": selectors.title_local_context(profile, title)["latest_rating"] if profile else None,
+        "tmdb_pill": _tmdb_pill(details),
+        **_mdblist_ratings_display(title),
+    }
+    return render(request, "tracker/partials/title_rating_pills.html", context)
 
 
 def _apply_anime_filler_flags(title, episodes, season, tv_details):
@@ -877,6 +931,7 @@ def title_detail(request, pk):
         "watch_providers": watch_providers,
         "status_badge": tmdb.status_badge(details["status"]) if details else None,
         "release_info": _release_info(details),
+        "tmdb_pill": _tmdb_pill(details),
         "is_preview": False,
         "preview_media_type": None,
         "preview_tmdb_id": None,
