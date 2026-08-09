@@ -9127,6 +9127,10 @@ class DiscoverViewTests(TestCase):
         self.assertNotContains(resp, "text-success")
         self.assertNotContains(resp, 'hx-confirm="')
         self.assertContains(resp, reverse("title_preview_mark_watched", args=["movie", 42]))
+        self.assertContains(resp, 'id="watched-btn-preview-movie-42"')
+        self.assertContains(resp, "Watched now")
+        self.assertContains(resp, "On release date")
+        self.assertContains(resp, "Other date")
 
 
 class SearchViewTests(TestCase):
@@ -10149,6 +10153,16 @@ class TitleDetailViewTests(TestCase):
         self.assertContains(resp, reverse("title_mark_watched", args=[never_watched.pk]))
         self.assertNotContains(resp, "Remove your watched mark for")
 
+    def test_header_offers_watched_now_release_date_and_custom_date_before_any_watch(self):
+        # The first-watch popover (first_watch_menu_panel.html), not an
+        # instant one-click watch mark - see views._resolve_watched_at.
+        never_watched = Title.objects.create(media_type=MediaType.MOVIE, name="Never Watched", year=2021)
+        resp = self.client.get(reverse("title_detail", args=[never_watched.pk]))
+        self.assertContains(resp, "Watched now")
+        self.assertContains(resp, "On release date")
+        self.assertContains(resp, "Other date")
+        self.assertContains(resp, 'name="custom_datetime"')
+
     def test_header_shows_watched_toggle_once_a_plain_watch_exists(self):
         from django.utils import timezone
 
@@ -10533,6 +10547,24 @@ class TitleEpisodeBrowserTests(TestCase):
         self.assertEqual([e["watched"] for e in episodes], [False, True, False])
         self.assertTrue(episodes[-1]["is_finale"])
         self.assertNotIn("is_finale", episodes[0])
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_unwatched_episode_offers_the_first_watch_popover(
+        self, mock_details, mock_credits, mock_similar, mock_season
+    ):
+        # Not an instant one-click watch mark - see views._resolve_watched_at
+        # and first_watch_menu_panel.html.
+        mock_details.return_value = self._details()
+        mock_season.return_value = self._season(["Ep1"])
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, f'id="ep-watched-btn-{self.title.pk}-1-1"')
+        self.assertContains(resp, "Watched now")
+        self.assertContains(resp, "On release date")
+        self.assertContains(resp, "Other date")
+        self.assertNotContains(resp, "Watch again")
 
     @patch("tracker.integrations.tmdb.get_season_details")
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
@@ -12198,6 +12230,101 @@ class PreviewEpisodeBrowserTests(TestCase):
         mock_season.assert_called_once_with(500, 2)
 
 
+class ReleaseDateForHelperTests(TestCase):
+    """views._release_date_for - the first-watch popover's "On release
+    date" lookup, only ever called once that option is actually chosen
+    (see views._resolve_watched_at)."""
+
+    def test_no_tmdb_id_returns_none(self):
+        self.assertIsNone(views._release_date_for("movie", None))
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    def test_returns_none_when_tmdb_has_nothing(self, mock_details):
+        self.assertIsNone(views._release_date_for("movie", "42"))
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_movie_uses_release_date(self, mock_details):
+        from datetime import date
+
+        mock_details.return_value = {"release_date": "2008-05-02", "first_air_date": None}
+        self.assertEqual(views._release_date_for("movie", "42"), date(2008, 5, 2))
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_tv_uses_first_air_date_not_release_date(self, mock_details):
+        from datetime import date
+
+        mock_details.return_value = {"release_date": None, "first_air_date": "2022-01-01"}
+        self.assertEqual(views._release_date_for("tv", "99"), date(2022, 1, 1))
+
+
+class ResolveWatchedAtHelperTests(TestCase):
+    """views._resolve_watched_at - turns the first-watch popover's chosen
+    option into an aware watched_at. Exercised directly (a bare object
+    standing in for request, since only request.POST.get is ever read)
+    to keep timezone assertions independent of ProfileTimezoneMiddleware's
+    per-request activation."""
+
+    def _request(self, **post):
+        return type("FakeRequest", (), {"POST": post})()
+
+    def test_defaults_to_now_when_when_is_missing(self):
+        from django.utils import timezone
+
+        before = timezone.now()
+        result = views._resolve_watched_at(self._request(), lambda: None)
+        after = timezone.now()
+        self.assertTrue(before <= result <= after)
+
+    def test_when_now_never_calls_the_release_date_fn(self):
+        calls = []
+        views._resolve_watched_at(self._request(when="now"), lambda: calls.append(1))
+        self.assertEqual(calls, [])
+
+    def test_when_release_uses_midnight_of_the_given_date(self):
+        from datetime import date, time
+
+        from django.utils import timezone
+
+        result = views._resolve_watched_at(self._request(when="release"), lambda: date(2008, 5, 2))
+        localized = timezone.localtime(result)
+        self.assertEqual(localized.date(), date(2008, 5, 2))
+        self.assertEqual(localized.time(), time(0, 0))
+
+    def test_when_release_falls_back_to_now_if_the_date_is_unknown(self):
+        from django.utils import timezone
+
+        before = timezone.now()
+        result = views._resolve_watched_at(self._request(when="release"), lambda: None)
+        after = timezone.now()
+        self.assertTrue(before <= result <= after)
+
+    def test_when_custom_parses_the_given_datetime(self):
+        from django.utils import timezone
+
+        result = views._resolve_watched_at(
+            self._request(when="custom", custom_datetime="2019-03-04T10:30"), lambda: None
+        )
+        self.assertEqual(timezone.localtime(result).strftime("%Y-%m-%dT%H:%M"), "2019-03-04T10:30")
+
+    def test_when_custom_falls_back_to_now_if_malformed(self):
+        from django.utils import timezone
+
+        before = timezone.now()
+        result = views._resolve_watched_at(
+            self._request(when="custom", custom_datetime="not-a-date"), lambda: None
+        )
+        after = timezone.now()
+        self.assertTrue(before <= result <= after)
+
+    def test_when_custom_falls_back_to_now_if_missing(self):
+        from django.utils import timezone
+
+        before = timezone.now()
+        result = views._resolve_watched_at(self._request(when="custom"), lambda: None)
+        after = timezone.now()
+        self.assertTrue(before <= result <= after)
+
+
 class TitleMarkWatchedAndRateTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("tracker_user", password="pass12345")
@@ -12271,6 +12398,59 @@ class TitleMarkWatchedAndRateTests(TestCase):
         self.client.logout()
         resp = self.client.post(reverse("title_mark_watched", args=[self.title.pk]))
         self.assertNotEqual(resp.status_code, 200)
+
+    def test_mark_watched_when_now_never_calls_tmdb(self):
+        # The overwhelming majority of clicks - a lookup here would put a
+        # TMDB round trip on the hot path of every ordinary watch.
+        with patch("tracker.integrations.tmdb.get_full_details") as mock_details:
+            self.client.post(reverse("title_mark_watched", args=[self.title.pk]), {"when": "now"})
+        mock_details.assert_not_called()
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_mark_watched_on_release_date_uses_the_movies_release_date(self, mock_details):
+        from datetime import date
+
+        from django.utils import timezone
+
+        self.title.external_ids = {"tmdb": "42", "tmdb_kind": "movie"}
+        self.title.save(update_fields=["external_ids"])
+        mock_details.return_value = {"release_date": "2008-05-02", "first_air_date": None}
+        self.client.post(reverse("title_mark_watched", args=[self.title.pk]), {"when": "release"})
+        event = WatchEvent.objects.get(profile=self.profile, title=self.title)
+        self.assertEqual(timezone.localtime(event.watched_at).date(), date(2008, 5, 2))
+        mock_details.assert_called_once_with("movie", "42")
+
+    def test_mark_watched_on_release_date_falls_back_to_now_when_unknown(self):
+        # No tmdb id at all on this title - nothing to look up.
+        from django.utils import timezone
+
+        before = timezone.now()
+        self.client.post(reverse("title_mark_watched", args=[self.title.pk]), {"when": "release"})
+        after = timezone.now()
+        event = WatchEvent.objects.get(profile=self.profile, title=self.title)
+        self.assertTrue(before <= event.watched_at <= after)
+
+    def test_mark_watched_with_a_custom_datetime(self):
+        from django.utils import timezone
+
+        self.client.post(
+            reverse("title_mark_watched", args=[self.title.pk]),
+            {"when": "custom", "custom_datetime": "2015-06-07T08:09"},
+        )
+        event = WatchEvent.objects.get(profile=self.profile, title=self.title)
+        self.assertEqual(timezone.localtime(event.watched_at).strftime("%Y-%m-%dT%H:%M"), "2015-06-07T08:09")
+
+    def test_mark_watched_with_a_malformed_custom_datetime_falls_back_to_now(self):
+        from django.utils import timezone
+
+        before = timezone.now()
+        self.client.post(
+            reverse("title_mark_watched", args=[self.title.pk]),
+            {"when": "custom", "custom_datetime": "not-a-date"},
+        )
+        after = timezone.now()
+        event = WatchEvent.objects.get(profile=self.profile, title=self.title)
+        self.assertTrue(before <= event.watched_at <= after)
 
 
 class TitleUnmarkWatchedTests(TestCase):
@@ -12459,10 +12639,16 @@ class PosterCardWatchedButtonPopoverTests(TestCase):
         self.watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
         WatchListItem.objects.create(watchlist=self.watchlist, title=self.title)
 
-    def test_unwatched_title_has_no_popover(self):
+    def test_unwatched_title_shows_the_first_watch_popover_not_the_watched_menu(self):
+        # Not an instant one-click watch mark - see views._resolve_watched_at
+        # and first_watch_menu_panel.html.
         resp = self.client.get(reverse("list_detail", args=[self.watchlist.pk]))
         self.assertNotContains(resp, "Remove all watched history")
+        self.assertNotContains(resp, "Mark as watched again")
         self.assertContains(resp, f'hx-post="{reverse("title_mark_watched", args=[self.title.pk])}"')
+        self.assertContains(resp, "Watched now")
+        self.assertContains(resp, "On release date")
+        self.assertContains(resp, "Other date")
 
     def test_watched_once_shows_popover_with_no_count_badge(self):
         WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
@@ -12619,6 +12805,42 @@ class EpisodeMarkWatchedTests(TestCase):
         self.assertEqual(len(events), 2)
         self.assertFalse(events[0].is_rewatch)
         self.assertTrue(events[1].is_rewatch)
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_on_release_date_uses_the_episodes_own_air_date(self, mock_season):
+        from datetime import date
+
+        from django.utils import timezone
+
+        mock_season.return_value = {
+            "episodes": [{"episode_number": 1, "name": "Freedom Day", "air_date": "2023-05-01"}]
+        }
+        self.client.post(reverse("episode_mark_watched", args=[self.title.pk, 1, 1]), {"when": "release"})
+        event = WatchEvent.objects.get(profile=self.profile, title=self.title)
+        self.assertEqual(timezone.localtime(event.watched_at).date(), date(2023, 5, 1))
+        # Only the one call already needed for ep_name - no second lookup.
+        mock_season.assert_called_once()
+
+    @patch("tracker.integrations.tmdb.get_season_details", return_value=None)
+    def test_on_release_date_falls_back_to_now_when_air_date_unknown(self, mock_season):
+        from django.utils import timezone
+
+        before = timezone.now()
+        self.client.post(reverse("episode_mark_watched", args=[self.title.pk, 1, 1]), {"when": "release"})
+        after = timezone.now()
+        event = WatchEvent.objects.get(profile=self.profile, title=self.title)
+        self.assertTrue(before <= event.watched_at <= after)
+
+    @patch("tracker.integrations.tmdb.get_season_details", return_value=None)
+    def test_with_a_custom_datetime(self, mock_season):
+        from django.utils import timezone
+
+        self.client.post(
+            reverse("episode_mark_watched", args=[self.title.pk, 1, 1]),
+            {"when": "custom", "custom_datetime": "2021-11-12T20:00"},
+        )
+        event = WatchEvent.objects.get(profile=self.profile, title=self.title)
+        self.assertEqual(timezone.localtime(event.watched_at).strftime("%Y-%m-%dT%H:%M"), "2021-11-12T20:00")
 
     def test_requires_get_is_rejected(self):
         resp = self.client.get(reverse("episode_mark_watched", args=[self.title.pk, 1, 1]))
@@ -12914,6 +13136,17 @@ class TitlePreviewViewTests(TestCase):
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
     @patch("tracker.integrations.tmdb.get_full_details")
+    def test_header_offers_watched_now_release_date_and_custom_date(self, mock_details, mock_credits, mock_similar):
+        mock_details.return_value = self._details()
+        resp = self.client.get(reverse("title_preview", args=["movie", 42]))
+        self.assertContains(resp, '<button type="submit" name="when" value="now"')
+        self.assertContains(resp, '<button type="submit" name="when" value="release"')
+        self.assertContains(resp, '<button type="submit" name="when" value="custom"')
+        self.assertContains(resp, 'name="custom_datetime"')
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
     def test_shows_a_status_badge_for_an_upcoming_movie(self, mock_details, mock_credits, mock_similar):
         mock_details.return_value = self._details(status="Planned")
         resp = self.client.get(reverse("title_preview", args=["movie", 42]))
@@ -13077,6 +13310,31 @@ class TitlePreviewViewTests(TestCase):
         self.client.logout()
         resp = self.client.post(reverse("title_preview_mark_watched", args=["movie", 42]))
         self.assertNotEqual(resp.status_code, 200)
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_mark_watched_on_release_date_uses_the_movies_release_date(self, mock_details):
+        from datetime import date
+
+        from django.utils import timezone
+
+        mock_details.return_value = self._details(release_date="2008-05-02")
+        self.client.post(reverse("title_preview_mark_watched", args=["movie", 42]), {"when": "release"})
+        title = Title.objects.get(external_ids__tmdb="42")
+        event = WatchEvent.objects.get(profile=self.profile, title=title)
+        self.assertEqual(timezone.localtime(event.watched_at).date(), date(2008, 5, 2))
+
+    def test_mark_watched_with_a_custom_datetime(self):
+        from django.utils import timezone
+
+        with patch("tracker.integrations.tmdb.get_full_details") as mock_details:
+            mock_details.return_value = self._details()
+            self.client.post(
+                reverse("title_preview_mark_watched", args=["movie", 42]),
+                {"when": "custom", "custom_datetime": "2017-08-09T12:00"},
+            )
+        title = Title.objects.get(external_ids__tmdb="42")
+        event = WatchEvent.objects.get(profile=self.profile, title=title)
+        self.assertEqual(timezone.localtime(event.watched_at).strftime("%Y-%m-%dT%H:%M"), "2017-08-09T12:00")
 
     @patch("tracker.integrations.tmdb.get_full_details")
     def test_add_to_list_materializes_the_title_and_adds_it(self, mock_details):

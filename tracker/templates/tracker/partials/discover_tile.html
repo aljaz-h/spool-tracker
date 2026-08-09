@@ -38,7 +38,7 @@ a title they've already watched or listed.
       {% include "tracker/partials/poster_card_watched_button.html" with title=matched_title watched=discover_watched|get_item:key watch_count=discover_watch_count|get_item:key %}
       {% include "tracker/partials/poster_card_list_popover.html" with title=matched_title my_lists=my_lists in_list_ids=discover_list_membership|get_item:key %}
     {% else %}
-      {% include "tracker/partials/discover_tile_watched_button.html" with media_type=item.media_type tmdb_id=item.tmdb_id %}
+      {% include "tracker/partials/discover_tile_watched_button.html" with media_type=item.media_type tmdb_id=item.tmdb_id name=item.name %}
       {% include "tracker/partials/discover_tile_list_popover.html" with media_type=item.media_type tmdb_id=item.tmdb_id my_lists=my_lists %}
     {% endif %}
   </div>

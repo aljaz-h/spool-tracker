@@ -1,0 +1,70 @@
+{% load icons %}
+{# context: mark_watched_url (resolved endpoint for this title/episode), title (Title|None, for its .name), name (str, optional - a not-yet-tracked preview item's own name, used instead of title.name when there's no Title yet), season/episode_number (int, optional - episode rows only), id_suffix (str, optional - episode rows only, harmless elsewhere) - the never-watched popover, offering when to log this first play at: right now, the title's/episode's TMDB release/air date, or a picked date and time. Alpine's showCustom (declared alongside the wrapper's own `open`, same ambient x-data pattern watched_menu_panel.html's close button already relies on) toggles between the three-choice menu and an inline custom date/time sub-form, both living in this one panel. "On release date" always shows regardless of whether a release/air date is actually known yet - resolving it is deferred to the POST itself (views._release_date_for), so rendering this never needs its own TMDB lookup just to decide whether to show the option. #}
+<div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1 border-b border-line">
+  <div class="min-w-0">
+    <div class="font-semibold text-sm">Mark as watched</div>
+    <div class="text-xs text-ink-faint truncate">{% if season %}S{{ season }}E{{ episode_number }} · {% endif %}{% firstof title.name name %}</div>
+  </div>
+  <button type="button" @click="open = false; showCustom = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 flex-none">{% icon "x" "w-4 h-4" %}</button>
+</div>
+
+<div x-show="!showCustom">
+  <button
+    type="button"
+    hx-post="{{ mark_watched_url }}"
+    hx-vals='{"when": "now", "id_suffix": "{{ id_suffix|default:"" }}"}'
+    hx-target="closest div.relative"
+    hx-swap="outerHTML"
+    class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
+  >
+    <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "check" "w-4 h-4" %}</span>
+    <span class="min-w-0">
+      <span class="block text-[13px] font-semibold">Watched now</span>
+      <span class="block text-[11px] text-ink-faint">Log it at the current date and time</span>
+    </span>
+  </button>
+
+  <button
+    type="button"
+    hx-post="{{ mark_watched_url }}"
+    hx-vals='{"when": "release", "id_suffix": "{{ id_suffix|default:"" }}"}'
+    hx-target="closest div.relative"
+    hx-swap="outerHTML"
+    class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
+  >
+    <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "calendar-days" "w-4 h-4" %}</span>
+    <span class="min-w-0">
+      <span class="block text-[13px] font-semibold">On release date</span>
+      <span class="block text-[11px] text-ink-faint">Log it on the day it came out</span>
+    </span>
+  </button>
+
+  <button
+    type="button"
+    @click="showCustom = true"
+    class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
+  >
+    <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "clock" "w-4 h-4" %}</span>
+    <span class="min-w-0">
+      <span class="block text-[13px] font-semibold">Other date</span>
+      <span class="block text-[11px] text-ink-faint">Pick a custom date and time</span>
+    </span>
+  </button>
+</div>
+
+<div x-show="showCustom" class="px-2 pb-1 pt-1">
+  <label class="block text-[11px] text-ink-faint mb-1">Watched at</label>
+  <input type="datetime-local" name="custom_datetime" value="{% now 'Y-m-d\TH:i' %}" @keydown.enter.prevent class="input input-sm w-full mb-2">
+  <div class="flex gap-1.5">
+    <button type="button" @click="showCustom = false" class="btn btn-xs btn-soft flex-1">Back</button>
+    <button
+      type="button"
+      hx-post="{{ mark_watched_url }}"
+      hx-vals='{"when": "custom", "id_suffix": "{{ id_suffix|default:"" }}"}'
+      hx-include="closest .first-watch-panel"
+      hx-target="closest div.relative"
+      hx-swap="outerHTML"
+      class="btn btn-xs btn-primary flex-1"
+    >Confirm</button>
+  </div>
+</div>

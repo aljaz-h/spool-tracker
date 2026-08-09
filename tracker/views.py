@@ -545,6 +545,54 @@ def _parse_tmdb_date(value):
         return None
 
 
+def _release_date_for(media_type, tmdb_id):
+    """The date to offer as "On release date" in the first-watch popover
+    (see first_watch_menu_panel.html) - a movie's release_date, or a
+    show's first_air_date when marking a whole show watched at the
+    title level (title_mark_watched creates the same plain event for a
+    show as for a movie - see its own docstring). None if there's no
+    tmdb id or TMDB has nothing for it; the caller (_resolve_watched_at)
+    falls back to "now" in that case rather than erroring, since the
+    popover always offers this option regardless of whether a date
+    actually turns out to be known (resolving it here, only once
+    "release" is actually chosen, avoids a TMDB lookup on every
+    never-watched poster card just to decide whether to show the
+    option)."""
+    if not tmdb_id:
+        return None
+    details = tmdb.get_full_details(media_type, tmdb_id)
+    if not details:
+        return None
+    date_str = details.get("release_date") if media_type == "movie" else details.get("first_air_date")
+    return _parse_tmdb_date(date_str)
+
+
+def _resolve_watched_at(request, release_date_fn):
+    """Turns the first-watch popover's chosen option (POST "when": "now"
+    (default) / "release" / "custom") into an aware watched_at for a new
+    WatchEvent. release_date_fn is called only for "release" (never for
+    "now"/"custom") so a plain "watched now" click - the overwhelming
+    majority - never costs a TMDB lookup; falls back to "now" if that
+    still comes back None (unknown release date). "custom" reads an
+    HTML datetime-local input ("YYYY-MM-DDTHH:MM", no timezone of its
+    own - interpreted in the profile's own active timezone, same as
+    every other date already shown to them) and also falls back to
+    "now" on anything missing/malformed rather than erroring - this is
+    a logging convenience, not critical data."""
+    when = request.POST.get("when", "now")
+    if when == "release":
+        release_date = release_date_fn()
+        if release_date is not None:
+            return timezone.make_aware(timezone.datetime.combine(release_date, timezone.datetime.min.time()))
+    elif when == "custom":
+        try:
+            naive = timezone.datetime.fromisoformat(request.POST.get("custom_datetime", ""))
+            return timezone.make_aware(naive)
+        except ValueError:
+            pass
+    return timezone.now()
+
+
 def _episode_release_label(air_date_str):
     """Countdown pill for an episode browser tile with a still-upcoming
     air date - "Today"/"Tomorrow", "In N days" under two weeks out,
@@ -1200,10 +1248,11 @@ def _watched_button_template(request):
     panel (see watched_menu_panel.html). The menu's own POST buttons
     target "closest div.relative" (whichever wrapper is actually
     present), so HTMX's resolved HX-Target header tells us which one
-    that was - the detail page's wrapper/bare-button ids are both
-    prefixed "watched-*-detail-" specifically so this can tell them
-    apart (the bare-button prefix matters too, for the very first
-    "+ Mark as Watched" click before there's a popover wrapper at all)."""
+    that was - the detail page's wrapper ids are both prefixed
+    "watched-*-detail-" specifically so this can tell them apart, both
+    for the already-watched popover and the never-watched first-watch
+    popover (first_watch_menu_panel.html), which uses this same id
+    contract on its own wrapper."""
     hx_target = request.headers.get("HX-Target", "")
     if hx_target.startswith("watched-popover-detail-") or hx_target.startswith("watched-btn-detail-"):
         return "tracker/partials/title_detail_watched_button.html"
@@ -1229,8 +1278,12 @@ def title_mark_watched(request, pk):
     own header button (unwatched state) and the poster card action bar's
     watched button (HTMX, everywhere a poster card renders) - a plain,
     episode-less WatchEvent (same shape History/the activity feed already
-    render as "watched <title>" with no episode). Always creates a new
-    WatchEvent, a second click logs a rewatch - there's still no
+    render as "watched <title>" with no episode). watched_at comes from
+    _resolve_watched_at - "now" for a rewatch (the popover's own "Watched
+    now" item, or any other caller that doesn't pass "when" at all), or
+    the release date/a picked date for a genuinely first watch (see
+    first_watch_menu_panel.html, the only place "when" varies). Always
+    creates a new WatchEvent, a second click logs a rewatch - there's still no
     "unwatch" *here*; that's title_unmark_watched/title_unmark_last_watched,
     deliberately separate endpoints (see title_local_context's is_watched,
     and the poster card's own watched-button popover once selectors.title_watched
@@ -1244,7 +1297,9 @@ def title_mark_watched(request, pk):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
-    WatchEvent.objects.create(profile=profile, title=title, watched_at=timezone.now())
+    tmdb_media_type = tmdb.media_type_for(title)
+    watched_at = _resolve_watched_at(request, lambda: _release_date_for(tmdb_media_type, title.external_ids.get("tmdb")))
+    WatchEvent.objects.create(profile=profile, title=title, watched_at=watched_at)
     rewatches.recompute_is_rewatch(profile, title, None)
     completion.sync_watchlist_removal(profile, title)
     recommendations.mark_title_watched(profile, title)
@@ -1333,23 +1388,30 @@ def episode_mark_watched(request, pk, season, episode_number):
     play logs a rewatch. The popover's other two items,
     episode_unmark_last_watched/episode_unmark_all_watched just below,
     are the reverse. Always an HTMX fragment - this button only ever
-    appears inside title_episodes.html."""
+    appears inside title_episodes.html. watched_at comes from
+    _resolve_watched_at - see title_mark_watched's own docstring; here
+    the release date option is the episode's own air_date, read off the
+    same already-fetched season_data used for ep_name below (no extra
+    TMDB call either way)."""
     title = get_object_or_404(Title, pk=pk)
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
     ep_name = ""
+    ep_air_date = None
     tmdb_id = title.external_ids.get("tmdb")
     if tmdb_id:
         season_data = tmdb.get_season_details(tmdb_id, season)
         if season_data:
-            ep_name = next(
-                (e["name"] for e in season_data["episodes"] if e["episode_number"] == episode_number), ""
-            )
+            ep = next((e for e in season_data["episodes"] if e["episode_number"] == episode_number), None)
+            if ep:
+                ep_name = ep["name"]
+                ep_air_date = _parse_tmdb_date(ep.get("air_date"))
     episode, _ = Episode.objects.get_or_create(
         title=title, season=season, episode=episode_number, defaults={"name": ep_name}
     )
-    WatchEvent.objects.create(profile=profile, title=title, episode=episode, watched_at=timezone.now())
+    watched_at = _resolve_watched_at(request, lambda: ep_air_date)
+    WatchEvent.objects.create(profile=profile, title=title, episode=episode, watched_at=watched_at)
     rewatches.recompute_is_rewatch(profile, title, episode)
     completion.sync_show_completion(profile, title)
     completion.sync_watchlist_removal(profile, title)
@@ -1870,13 +1932,15 @@ def title_preview_add_to_watchlist(request, media_type, tmdb_id):
 @require_POST
 def title_preview_mark_watched(request, media_type, tmdb_id):
     """The Discover grid's watched button (HTMX, no local Title row yet)
-    AND the preview page's own header "Mark as Watched" button (a plain
-    form post - previously the preview page only offered "Add to
+    AND the preview page's own header "Mark as Watched" popover (a plain
+    form post, each menu item its own name="when" submit button rather
+    than HTMX - previously the preview page only offered "Add to
     Watchlist", with no independent way to log a watch for something
     you'd already seen elsewhere) - materializes the title (see
     _get_or_create_preview_title), then behaves exactly like
-    title_mark_watched from then on. HTMX gets the fragment back in
-    place; a plain post redirects to the real detail page, same as
+    title_mark_watched from then on, including watched_at resolution
+    (see _resolve_watched_at). HTMX gets the fragment back in place; a
+    plain post redirects to the real detail page, same as
     title_preview_add_to_watchlist."""
     if media_type not in ("movie", "tv"):
         raise Http404
@@ -1886,7 +1950,8 @@ def title_preview_mark_watched(request, media_type, tmdb_id):
     title = _get_or_create_preview_title(media_type, tmdb_id)
     if title is None:
         raise Http404
-    WatchEvent.objects.create(profile=profile, title=title, watched_at=timezone.now())
+    watched_at = _resolve_watched_at(request, lambda: _release_date_for(media_type, tmdb_id))
+    WatchEvent.objects.create(profile=profile, title=title, watched_at=watched_at)
     rewatches.recompute_is_rewatch(profile, title, None)
     completion.sync_watchlist_removal(profile, title)
     recommendations.mark_title_watched(profile, title)

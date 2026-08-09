@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.80.0] - 2026-08-09
+
+### Added
+
+- Marking something as watched for the very first time now opens a
+  popover asking when: "Watched now", "On release date" (the movie's
+  release date or the episode's air date), or "Other date" (a custom
+  date and time). Applies everywhere a "mark as watched" checkmark
+  appears - poster cards, the title detail header, the episode browser,
+  and not-yet-tracked Discover items. Already-watched content keeps the
+  existing rewatch/undo popover unchanged - this only replaces the old
+  silent instant-log-at-"now" behavior for a genuinely first watch.
+
 ## [0.79.1] - 2026-08-09
 
 ### Changed

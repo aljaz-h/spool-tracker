@@ -100,10 +100,62 @@
         {% endcomment %}
         {% if is_preview and preview_media_type == "movie" %}
           <div class="flex flex-wrap items-center gap-5 mt-4 p-3 rounded-xl bg-base-100/50 border border-line/70 w-fit">
-            <form method="post" action="{% url 'title_preview_mark_watched' preview_media_type preview_tmdb_id %}">
-              {% csrf_token %}
-              <button type="submit" class="btn btn-primary btn-sm">+ Mark as Watched</button>
-            </form>
+            {% comment %}
+              Not-yet-tracked, so this is a plain (non-HTMX) form - a
+              real page load, unlike every other first-watch popover in
+              the app - each menu item is its own name="when" submit
+              button rather than an hx-post, so no client-side JS is
+              needed to route the click to the right option. Still
+              materializes + redirects to the real title_detail
+              afterward exactly like the old single-button version did
+              (see views.title_preview_mark_watched) - the rest of this
+              preview page (Lists, similar items' own list-popovers, ...)
+              stays untracked-shaped until then, so swapping just this
+              header in place via HTMX would leave the page inconsistent.
+            {% endcomment %}
+            <div class="relative" x-data="{ open: false, showCustom: false }">
+              <button type="button" @click="open = !open" class="btn btn-primary btn-sm">+ Mark as Watched</button>
+              <div
+                x-show="open" x-cloak x-transition @click.outside="open = false"
+                class="absolute z-50 top-full mt-1.5 left-0 w-72 bg-base-200 border border-line rounded-xl p-2 shadow-xl"
+              >
+                <form method="post" action="{% url 'title_preview_mark_watched' preview_media_type preview_tmdb_id %}">
+                  {% csrf_token %}
+                  <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1 border-b border-line">
+                    <div class="font-semibold text-sm">Mark as watched</div>
+                    <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5">&times;</button>
+                  </div>
+                  <div x-show="!showCustom">
+                    <button type="submit" name="when" value="now" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
+                      <span class="min-w-0">
+                        <span class="block text-[13px] font-semibold">Watched now</span>
+                        <span class="block text-[11px] text-ink-faint">Log it at the current date and time</span>
+                      </span>
+                    </button>
+                    <button type="submit" name="when" value="release" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
+                      <span class="min-w-0">
+                        <span class="block text-[13px] font-semibold">On release date</span>
+                        <span class="block text-[11px] text-ink-faint">Log it on the day it came out</span>
+                      </span>
+                    </button>
+                    <button type="button" @click="showCustom = true" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
+                      <span class="min-w-0">
+                        <span class="block text-[13px] font-semibold">Other date</span>
+                        <span class="block text-[11px] text-ink-faint">Pick a custom date and time</span>
+                      </span>
+                    </button>
+                  </div>
+                  <div x-show="showCustom" class="px-2 pb-1 pt-1">
+                    <label class="block text-[11px] text-ink-faint mb-1">Watched at</label>
+                    <input type="datetime-local" name="custom_datetime" value="{% now 'Y-m-d\TH:i' %}" @keydown.enter.prevent class="input input-sm w-full mb-2">
+                    <div class="flex gap-1.5">
+                      <button type="button" @click="showCustom = false" class="btn btn-xs btn-soft flex-1">Back</button>
+                      <button type="submit" name="when" value="custom" class="btn btn-xs btn-primary flex-1">Confirm</button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+            </div>
           </div>
         {% elif not is_preview and title.media_type == "movie" %}
           <div class="flex flex-wrap items-center gap-5 mt-4 p-3 rounded-xl bg-base-100/50 border border-line/70 w-fit">

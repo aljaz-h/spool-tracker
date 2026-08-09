@@ -4,12 +4,13 @@
 title_detail's own header "Watched" control - same underlying actions
 as poster_card_watched_button.html (grids), just styled/positioned for
 a header sitting near the top of the page (drop-down, not drop-up) and
-with a text-labeled pill trigger instead of a compact icon square. The
-menu itself (watched_menu_panel.html) is the exact same include either
-way. The wrapper's "watched-popover-detail-" id prefix is what lets
-views._watched_button_template tell the two contexts apart via HTMX's
-HX-Target header, so this exact partial (not the grid one) comes back
-after a menu action taken from here.
+with a text-labeled pill trigger instead of a compact icon square. Both
+menus themselves (watched_menu_panel.html / first_watch_menu_panel.html)
+are the exact same includes either way. The wrapper's
+"watched-popover-detail-"/"watched-btn-detail-" id prefixes are what
+let views._watched_button_template tell the two contexts apart via
+HTMX's HX-Target header, so this exact partial (not the grid one) comes
+back after a menu action taken from here.
 {% endcomment %}
 {% if watch_count > 0 %}
 <div class="relative" id="watched-popover-detail-{{ title.pk }}" x-data="{
@@ -41,12 +42,30 @@ after a menu action taken from here.
   </div>
 </div>
 {% else %}
-<button
-  type="button"
-  id="watched-btn-detail-{{ title.pk }}"
-  hx-post="{% url 'title_mark_watched' title.pk %}"
-  hx-target="#watched-btn-detail-{{ title.pk }}"
-  hx-swap="outerHTML"
-  class="btn btn-primary btn-sm"
->+ Mark as Watched</button>
+<div class="relative" id="watched-btn-detail-{{ title.pk }}" x-data="{
+  open: false,
+  showCustom: false,
+  togglePanel(button) {
+    this.open = !this.open;
+    if (!this.open) return;
+    this.showCustom = false;
+    this.$nextTick(() => {
+      const rect = button.getBoundingClientRect();
+      const panel = this.$refs.panel;
+      const width = 288;
+      panel.style.left = Math.min(rect.left, window.innerWidth - width - 8) + 'px';
+      panel.style.top = (rect.bottom + 6) + 'px';
+    });
+  },
+}">
+  <button type="button" @click="togglePanel($el)" class="btn btn-primary btn-sm">+ Mark as Watched</button>
+  <div
+    x-ref="panel"
+    x-show="open" x-cloak x-transition @click.outside="open = false"
+    class="first-watch-panel fixed z-50 w-72 bg-base-200 border border-line rounded-xl p-2 shadow-xl"
+  >
+    {% url 'title_mark_watched' title.pk as mark_watched_url %}
+    {% include "tracker/partials/first_watch_menu_panel.html" with mark_watched_url=mark_watched_url title=title %}
+  </div>
+</div>
 {% endif %}

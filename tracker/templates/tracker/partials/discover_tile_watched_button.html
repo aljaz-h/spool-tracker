@@ -1,10 +1,33 @@
 {% load icons %}
-{# context: media_type (str), tmdb_id (int) - a not-yet-tracked preview title, always renders the unwatched state (see title_preview_mark_watched) #}
-<button
-  type="button"
-  hx-post="{% url 'title_preview_mark_watched' media_type tmdb_id %}"
-  hx-target="this"
-  hx-swap="outerHTML"
-  title="Mark as watched"
-  class="flex-1 h-9 flex items-center justify-center text-white/75 hover:text-white hover:bg-white/10 transition-colors"
->{% icon "check" "w-4 h-4" %}</button>
+{# context: media_type (str), tmdb_id (int), name (str, optional) - a not-yet-tracked preview title, always renders the unwatched state (see title_preview_mark_watched). Once the popover's own POST materializes the Title, the server's HX-Request response swaps in poster_card_watched_button.html's own (differently-shaped) "already watched" markup in its place - see title_preview_mark_watched's own docstring. #}
+<div class="relative flex-1" id="watched-btn-preview-{{ media_type }}-{{ tmdb_id }}" x-data="{
+  open: false,
+  showCustom: false,
+  togglePanel(button) {
+    this.open = !this.open;
+    if (!this.open) return;
+    this.showCustom = false;
+    this.$nextTick(() => {
+      const rect = button.getBoundingClientRect();
+      const panel = this.$refs.panel;
+      const width = 288;
+      panel.style.left = Math.min(rect.left, window.innerWidth - width - 8) + 'px';
+      panel.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
+    });
+  },
+}">
+  <button
+    type="button"
+    @click="togglePanel($el)"
+    title="Mark as watched"
+    class="w-full h-9 flex items-center justify-center text-white/75 hover:text-white hover:bg-white/10 transition-colors"
+  >{% icon "check" "w-4 h-4" %}</button>
+  <div
+    x-ref="panel"
+    x-show="open" x-cloak x-transition @click.outside="open = false"
+    class="first-watch-panel fixed z-50 w-72 bg-base-200 border border-line rounded-xl p-2 shadow-xl"
+  >
+    {% url 'title_preview_mark_watched' media_type tmdb_id as mark_watched_url %}
+    {% include "tracker/partials/first_watch_menu_panel.html" with mark_watched_url=mark_watched_url name=name %}
+  </div>
+</div>
