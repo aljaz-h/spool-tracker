@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.79.1] - 2026-08-09
+
+### Changed
+
+- The Collection row now includes the movie you're currently viewing
+  alongside its siblings, instead of omitting it - e.g. viewing Iron Man
+  2 now shows all three Iron Man movies, not just 1 and 3.
+
 ## [0.79.0] - 2026-08-09
 
 ### Added

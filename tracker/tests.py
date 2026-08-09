@@ -10311,16 +10311,18 @@ class TitleDetailViewTests(TestCase):
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
     @patch("tracker.integrations.tmdb.get_full_details")
-    def test_collection_row_excludes_the_currently_viewed_movie(
+    def test_collection_row_includes_the_currently_viewed_movie(
         self, mock_details, mock_credits, mock_similar, mock_collection
     ):
+        # The whole trilogy, including the one entry the user is already
+        # looking at (Fathom, tmdb_id 42) - not just its siblings.
         mock_details.return_value = self._details(collection_id=131292)
         mock_collection.return_value = {
             "id": 131292, "name": "Iron Man Collection", "overview": "", "poster_url": None,
             "backdrop_url": None, "parts": self._collection_parts(),
         }
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertEqual([p["tmdb_id"] for p in resp.context["collection_parts"]], [1726, 10138])
+        self.assertEqual([p["tmdb_id"] for p in resp.context["collection_parts"]], [1726, 42, 10138])
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -10337,9 +10339,12 @@ class TitleDetailViewTests(TestCase):
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
     @patch("tracker.integrations.tmdb.get_full_details")
-    def test_no_collection_row_when_the_current_movie_is_the_only_part(
+    def test_no_collection_row_when_the_movie_is_the_collections_only_part(
         self, mock_details, mock_credits, mock_similar, mock_collection
     ):
+        # A "collection" with just the one movie in it isn't worth a row -
+        # nothing to gain from a tile that just links to the page you're
+        # already on.
         mock_details.return_value = self._details(collection_id=131292)
         mock_collection.return_value = {
             "id": 131292, "name": "Solo Collection", "overview": "", "poster_url": None, "backdrop_url": None,
@@ -12919,7 +12924,7 @@ class TitlePreviewViewTests(TestCase):
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
     @patch("tracker.integrations.tmdb.get_full_details")
-    def test_shows_a_collection_row_excluding_the_previewed_movie_itself(
+    def test_shows_a_collection_row_including_the_previewed_movie_itself(
         self, mock_details, mock_credits, mock_similar, mock_collection
     ):
         mock_details.return_value = self._details(collection_id=131292)
@@ -12939,7 +12944,7 @@ class TitlePreviewViewTests(TestCase):
         }
         resp = self.client.get(reverse("title_preview", args=["movie", 42]))
         self.assertContains(resp, '<h2 class="font-display text-xl mb-3">Collection</h2>')
-        self.assertEqual([p["tmdb_id"] for p in resp.context["collection_parts"]], [10138])
+        self.assertEqual([p["tmdb_id"] for p in resp.context["collection_parts"]], [42, 10138])
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])

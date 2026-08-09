@@ -731,23 +731,22 @@ def _tmdb_pill(details):
     }
 
 
-def _collection_context(details, tmdb_id):
-    """The detail page's "Collection" row (Iron Man 2 -> Iron Man 1/3,
+def _collection_context(details):
+    """The detail page's "Collection" row (Iron Man 2 -> Iron Man 1/2/3,
     Indiana Jones, ...) - movie-only, since TV has no franchise-grouping
     concept in TMDB's data at all (get_full_details' own collection_id is
-    always None for a show). The viewed movie itself is filtered back out
-    of its own collection's parts - nothing to gain from a tile that just
-    links to the page you're already on."""
+    always None for a show). Includes the viewed movie itself alongside
+    its siblings, so the row reads as "here's the whole trilogy" rather
+    than omitting the one entry the user is already looking at. Only
+    shown when the collection actually has more than one part - a
+    "collection" of just the movie itself isn't worth a row."""
     collection_id = details.get("collection_id") if details else None
     if not collection_id:
         return {"collection_name": None, "collection_parts": []}
     collection = tmdb.get_collection_details(collection_id)
-    if not collection:
+    if not collection or len(collection["parts"]) < 2:
         return {"collection_name": None, "collection_parts": []}
-    parts = [p for p in collection["parts"] if p["tmdb_id"] != int(tmdb_id)]
-    if not parts:
-        return {"collection_name": None, "collection_parts": []}
-    return {"collection_name": collection["name"], "collection_parts": parts}
+    return {"collection_name": collection["name"], "collection_parts": collection["parts"]}
 
 
 def _mdblist_ratings_context(title):
@@ -943,7 +942,7 @@ def title_detail(request, pk):
         episode_context = _episode_panel_context(request, profile, title, tmdb_id, details)
 
     local_context = selectors.title_local_context(profile, title)
-    collection_context = _collection_context(details, tmdb_id) if tmdb_id else {"collection_name": None, "collection_parts": []}
+    collection_context = _collection_context(details) if tmdb_id else {"collection_name": None, "collection_parts": []}
     context = {
         "profile": profile,
         "title": title,
@@ -1669,7 +1668,7 @@ def title_preview(request, media_type, tmdb_id):
         "in_list_ids": set(),
         **_preview_recommend_context(profile),
         **_episode_panel_context(request, profile, None, tmdb_id, details),
-        **_collection_context(details, tmdb_id),
+        **_collection_context(details),
     }
     discover_items = context["similar"] + context["collection_parts"]
     if profile is not None and discover_items:
