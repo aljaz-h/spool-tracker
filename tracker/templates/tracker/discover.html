@@ -110,7 +110,7 @@
                     <div class="relative">
                       <div class="flex flex-wrap gap-1.5 max-h-56 overflow-y-auto p-2 border border-line rounded-lg bg-base-100">
                         {% for g in genres %}
-                          <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                          <label class="text-xs font-medium bg-base-100 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
                             <input type="checkbox" name="genre" value="{{ g.id }}" class="sr-only" {% if g.id in selected_genres %}checked{% endif %}>
                             {{ g.name }}
                           </label>
@@ -132,7 +132,7 @@
                   <div class="pb-3">
                     <div class="flex flex-wrap gap-1.5">
                       {% for decade_start, is_current in decade_options %}
-                        <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                        <label class="text-xs font-medium bg-base-100 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
                           <input type="checkbox" name="decade" value="{{ decade_start }}" class="sr-only" {% if decade_start in selected_decades %}checked{% endif %}>
                           {{ decade_start }}s{% if is_current %} <span class="opacity-70">(so far)</span>{% endif %}
                         </label>
@@ -156,7 +156,7 @@
                   <div class="pb-3">
                     <div class="grid grid-cols-2 gap-1.5">
                       {% for bucket_key, bucket_label, bucket_from, bucket_to in runtime_buckets %}
-                        <label class="text-xs font-medium text-center bg-base-200 text-ink-dim border border-line rounded-lg px-3 py-2 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                        <label class="text-xs font-medium text-center bg-base-100 text-ink-dim border border-line rounded-lg px-3 py-2 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
                           <input type="radio" name="runtime_bucket" value="{{ bucket_key }}" class="sr-only" {% if selected_runtime_bucket == bucket_key %}checked{% endif %}>
                           {{ bucket_label }}
                         </label>

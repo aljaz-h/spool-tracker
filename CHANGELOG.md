@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.81.1] - 2026-08-09
+
+### Changed
+
+- Genre/Year/Runtime pills in the Filters panel use a darker unselected
+  background (matching the Language/Availability/Age Rating dropdowns)
+  instead of the lighter shade that blended into the panel itself.
+
 ## [0.81.0] - 2026-08-09
 
 ### Changed
