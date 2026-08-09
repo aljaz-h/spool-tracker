@@ -9,72 +9,8 @@
   </div>
 
   <div x-data="{ selecting: false, selectedCount: 0, recount() { this.selectedCount = [...document.querySelectorAll('[name=event_ids]:checked')].reduce((sum, cb) => sum + cb.value.split(',').length, 0) } }">
-    <div class="drawer drawer-end">
-      <input id="history-filters-drawer" type="checkbox" class="drawer-toggle" />
-      <div class="drawer-content">
-        <div id="history-page">
-          {% include "tracker/partials/history_toolbar_and_content.html" %}
-        </div>
-      </div>
-
-      <div class="drawer-side z-50">
-        <label for="history-filters-drawer" aria-label="close filters" class="drawer-overlay bg-black/60"></label>
-        <div class="w-full max-w-xs min-h-full overflow-y-auto bg-base-300 border-l border-line shadow-2xl p-5 flex flex-col gap-5">
-          <div class="flex items-center justify-between">
-            <h2 class="font-display text-xl">Filters</h2>
-            <label for="history-filters-drawer" aria-label="close filters" class="btn btn-sm btn-circle btn-ghost cursor-pointer">
-              {% icon "x" "w-4 h-4" %}
-            </label>
-          </div>
-
-          <div>
-            <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Period</div>
-            {% comment %}
-              These two selects live outside the toolbar's own <form> (the
-              drawer-side panel has to be a direct sibling of the drawer
-              checkbox for daisyUI's CSS-only open/close to work, which
-              rules out nesting one <form> around both) - hx-include pulls
-              the toolbar's current type/search/title values in by name
-              instead, same instant-apply behavior as every other control
-              here. Targets #history-page (not just #history-content) so
-              the Filters button's own dot and the type toggle both refresh
-              along with the results - see history_toolbar_and_content.html.
-            {% endcomment %}
-            <select
-              name="period"
-              hx-get="{{ history_base_url }}"
-              hx-target="#history-page"
-              hx-push-url="true"
-              hx-include="[name='type']:checked,[name='q'],[name='title']"
-              class="select select-sm w-full bg-base-100 focus:outline-primary"
-            >
-              <option value="all" {% if period == "all" %}selected{% endif %}>All time</option>
-              <option value="today" {% if period == "today" %}selected{% endif %}>Today</option>
-              <option value="yesterday" {% if period == "yesterday" %}selected{% endif %}>Yesterday</option>
-              <option value="7" {% if period == "7" %}selected{% endif %}>Last 7 days</option>
-              <option value="30" {% if period == "30" %}selected{% endif %}>Last 30 days</option>
-              <option value="365" {% if period == "365" %}selected{% endif %}>Last year</option>
-            </select>
-          </div>
-
-          <div>
-            <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Sort</div>
-            <select
-              name="sort"
-              hx-get="{{ history_base_url }}"
-              hx-target="#history-page"
-              hx-push-url="true"
-              hx-include="[name='type']:checked,[name='q'],[name='title']"
-              class="select select-sm w-full bg-base-100 focus:outline-primary"
-            >
-              <option value="new" {% if sort == "new" %}selected{% endif %}>Newest first</option>
-              <option value="old" {% if sort == "old" %}selected{% endif %}>Oldest first</option>
-              <option value="most_watched" {% if sort == "most_watched" %}selected{% endif %}>Most watched</option>
-              <option value="least_watched" {% if sort == "least_watched" %}selected{% endif %}>Least watched</option>
-            </select>
-          </div>
-        </div>
-      </div>
+    <div id="history-page">
+      {% include "tracker/partials/history_toolbar_and_content.html" %}
     </div>
 
     {% if is_own_history and not grouped_by_watch_count %}

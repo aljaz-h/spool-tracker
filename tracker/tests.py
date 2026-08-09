@@ -7795,6 +7795,95 @@ class TmdbDiscoverTests(TestCase):
         self.assertEqual(params["primary_release_date.gte"], "2030-01-01")
 
 
+class TmdbDecadesThroughNowTests(TestCase):
+    def test_starts_at_1950_and_ends_at_the_current_decade(self):
+        import datetime
+
+        decades = tmdb.decades_through_now()
+        current_decade_start = (datetime.date.today().year // 10) * 10
+        self.assertEqual(decades[0], (1950, False))
+        self.assertEqual(decades[-1], (current_decade_start, True))
+
+    def test_only_the_current_decade_is_flagged(self):
+        decades = tmdb.decades_through_now()
+        flagged = [start for start, is_current in decades if is_current]
+        self.assertEqual(len(flagged), 1)
+
+    def test_decades_are_contiguous_by_10s(self):
+        decades = tmdb.decades_through_now()
+        starts = [start for start, _ in decades]
+        self.assertEqual(starts, list(range(1950, starts[-1] + 1, 10)))
+
+
+class TmdbDiscoverByDecadesTests(TestCase):
+    """discover_by_decades - Year filter's genre-style multi-select
+    ("1980s or 2020s"), implemented as one real discover() call per
+    decade merged together, since TMDB's date params can't OR disjoint
+    ranges the way with_genres can OR ids. tmdb.discover() itself is
+    mocked throughout (not requests.get) - its own internal multi-page
+    fetch loop is discover()'s own concern (see TmdbDiscoverTests),
+    unrelated to the merge/dedupe/sort logic under test here."""
+
+    def test_no_decades_passes_through_to_a_single_plain_discover_call(self):
+        with patch("tracker.integrations.tmdb.discover") as mock_discover:
+            mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+            tmdb.discover_by_decades("movie", category="popular", page=1, decades=[], genre_ids=[28])
+        mock_discover.assert_called_once_with("movie", category="popular", page=1, genre_ids=[28])
+
+    def test_one_decade_is_still_a_single_call_with_an_exact_range(self):
+        with patch("tracker.integrations.tmdb.discover") as mock_discover:
+            mock_discover.return_value = {"results": [], "page": 1, "total_pages": 3}
+            page = tmdb.discover_by_decades("movie", category="popular", page=1, decades=[1980])
+        mock_discover.assert_called_once_with("movie", category="popular", page=1, year_from=1980, year_to=1989)
+        self.assertEqual(page["total_pages"], 3)
+
+    def _normalized(self, tmdb_id):
+        return {
+            "tmdb_id": tmdb_id, "media_type": "movie", "is_anime": False, "name": f"Movie {tmdb_id}",
+            "year": "2000", "poster_url": None, "vote_average": 0, "overview": "",
+        }
+
+    def test_multiple_decades_interleave_round_robin_and_dedupe(self):
+        # Movie 2 shows up in both decade-scoped calls (e.g. a wide/odd
+        # release-date edge case) - must appear exactly once in the merge.
+        # Round-robin (not a flat popularity/rating sort) so neither
+        # decade can bury the other on the first page - see the
+        # function's own docstring for why a sorted merge was rejected.
+        with patch("tracker.integrations.tmdb.discover") as mock_discover:
+            mock_discover.side_effect = [
+                {"results": [self._normalized(1), self._normalized(2)], "page": 1, "total_pages": 2},
+                {"results": [self._normalized(3), self._normalized(2), self._normalized(4)], "page": 1, "total_pages": 5},
+            ]
+            page = tmdb.discover_by_decades("movie", category="popular", page=1, decades=[1980, 2020])
+        ids = [r["tmdb_id"] for r in page["results"]]
+        self.assertEqual(len(ids), 4)
+        self.assertEqual(set(ids), {1, 2, 3, 4})
+        # 1 (1980s #1), 3 (2020s #1), 2 (1980s #2), 4 (2020s #2, since the
+        # 2020s' own "2" was already seen from the 1980s call and skipped).
+        self.assertEqual(ids, [1, 3, 2, 4])
+        # Approximated as the largest of the per-decade estimates.
+        self.assertEqual(page["total_pages"], 5)
+
+    def test_multiple_decades_each_get_their_own_year_range(self):
+        with patch("tracker.integrations.tmdb.discover") as mock_discover:
+            mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+            tmdb.discover_by_decades("movie", category="popular", page=1, decades=[1980, 2020])
+        called_ranges = [(c.kwargs["year_from"], c.kwargs["year_to"]) for c in mock_discover.call_args_list]
+        self.assertEqual(set(called_ranges), {(1980, 1989), (2020, 2029)})
+
+    def test_a_decade_with_fewer_results_does_not_break_the_interleave(self):
+        # zip_longest, not zip - a decade running out of results early
+        # shouldn't truncate the merge, just stop contributing its own
+        # slot each round.
+        with patch("tracker.integrations.tmdb.discover") as mock_discover:
+            mock_discover.side_effect = [
+                {"results": [self._normalized(1)], "page": 1, "total_pages": 1},
+                {"results": [self._normalized(2), self._normalized(3)], "page": 1, "total_pages": 1},
+            ]
+            page = tmdb.discover_by_decades("movie", category="popular", page=1, decades=[1980, 2020])
+        self.assertEqual([r["tmdb_id"] for r in page["results"]], [1, 2, 3])
+
+
 @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
 class TmdbSearchTests(TestCase):
     def setUp(self):
@@ -8844,6 +8933,71 @@ class DiscoverViewTests(TestCase):
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
+    def test_runtime_bucket_maps_to_the_matching_range(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"runtime_bucket": "90_120"})
+        self.assertEqual(mock_discover.call_args.kwargs["runtime_from"], 90)
+        self.assertEqual(mock_discover.call_args.kwargs["runtime_to"], 120)
+        self.assertEqual(resp.context["selected_runtime_bucket"], "90_120")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_under_90_bucket_has_no_lower_bound(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        self.client.get(reverse("movies_tv", args=["popular"]), {"runtime_bucket": "under_90"})
+        self.assertIsNone(mock_discover.call_args.kwargs["runtime_from"])
+        self.assertEqual(mock_discover.call_args.kwargs["runtime_to"], 89)
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_150_plus_bucket_has_no_upper_bound(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        self.client.get(reverse("movies_tv", args=["popular"]), {"runtime_bucket": "150_plus"})
+        self.assertEqual(mock_discover.call_args.kwargs["runtime_from"], 151)
+        self.assertIsNone(mock_discover.call_args.kwargs["runtime_to"])
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_no_runtime_bucket_means_no_runtime_filter(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies_tv", args=["popular"]))
+        self.assertIsNone(mock_discover.call_args.kwargs["runtime_from"])
+        self.assertIsNone(mock_discover.call_args.kwargs["runtime_to"])
+        self.assertEqual(resp.context["selected_runtime_bucket"], "")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_invalid_runtime_bucket_falls_back_to_no_filter(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"runtime_bucket": "bogus"})
+        self.assertIsNone(mock_discover.call_args.kwargs["runtime_from"])
+        self.assertIsNone(mock_discover.call_args.kwargs["runtime_to"])
+        self.assertEqual(resp.context["selected_runtime_bucket"], "")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover_by_decades")
+    def test_decade_filter_parsed_from_query_params(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"decade": ["1980", "2020"]})
+        self.assertEqual(mock_discover.call_args.kwargs["decades"], [1980, 2020])
+        self.assertEqual(resp.context["selected_decades"], {1980, 2020})
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover_by_decades")
+    def test_no_decade_means_an_empty_decades_list(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        self.client.get(reverse("movies_tv", args=["popular"]))
+        self.assertEqual(mock_discover.call_args.kwargs["decades"], [])
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover_by_decades")
+    def test_non_numeric_decade_values_are_dropped(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        self.client.get(reverse("movies_tv", args=["popular"]), {"decade": ["1980", "bogus"]})
+        self.assertEqual(mock_discover.call_args.kwargs["decades"], [1980])
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
     def test_renders_200_with_results(self, mock_discover, mock_genres):
         mock_discover.return_value = {
             "results": [{"tmdb_id": 1, "media_type": "movie", "name": "Fathom", "year": "2020",
@@ -9113,6 +9267,42 @@ class DiscoverViewTests(TestCase):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
         resp = self.client.get(reverse("movies_tv", args=["trending"]), {"genre": ["28"]})
         self.assertContains(resp, 'w-1.5 h-1.5 rounded-full bg-primary')
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover_by_decades")
+    def test_an_active_decade_filter_lights_up_the_filters_dot(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies_tv", args=["trending"]), {"decade": ["1980"]})
+        self.assertContains(resp, 'w-1.5 h-1.5 rounded-full bg-primary')
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_an_active_runtime_bucket_lights_up_the_filters_dot(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies_tv", args=["trending"]), {"runtime_bucket": "under_90"})
+        self.assertContains(resp, 'w-1.5 h-1.5 rounded-full bg-primary')
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_year_chip_row_shows_every_decade_through_the_current_one(self, mock_discover, mock_genres):
+        import datetime
+
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies_tv", args=["trending"]))
+        current_decade_start = (datetime.date.today().year // 10) * 10
+        self.assertContains(resp, '<input type="checkbox" name="decade" value="1950"')
+        self.assertContains(resp, f'<input type="checkbox" name="decade" value="{current_decade_start}"')
+        self.assertContains(resp, "(so far)")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_runtime_row_shows_all_four_buckets(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies_tv", args=["trending"]))
+        self.assertContains(resp, "Under 90 min")
+        self.assertContains(resp, "90–120 min")
+        self.assertContains(resp, "2–2.5h")
+        self.assertContains(resp, "150 min+")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
@@ -14527,9 +14717,10 @@ class HistorySearchAndMostWatchedTests(TestCase):
         resp = self.client.get(reverse("history"), {"sort": "most_watched"})
         self.assertNotContains(resp, "selecting = !selecting")
 
-    def test_filters_drawer_contains_period_and_sort(self):
+    def test_filters_panel_contains_period_and_sort(self):
         resp = self.client.get(reverse("history"))
-        self.assertContains(resp, "history-filters-drawer")
+        self.assertContains(resp, 'name="period"')
+        self.assertContains(resp, 'name="sort"')
         self.assertContains(resp, "Most watched")
         self.assertContains(resp, "Least watched")
 
@@ -14538,10 +14729,11 @@ class HistoryToolbarStaysInSyncTests(TestCase):
     """A type/period/sort/search change has to refresh the toolbar
     itself, not just the results below it - otherwise the Filters
     button's own active-filter dot and the type toggle's checked state
-    go stale (a period picked in the drawer wouldn't even survive
-    switching the type toggle, since the toolbar's own <form> never
-    carried period/sort in the first place - see views.history's
-    HX-Target branching and history_toolbar_and_content.html)."""
+    go stale. period/sort live in the same Alpine popover/<form> as
+    type/search now (see history_toolbar_and_content.html) - a plain
+    positioned popover, same pattern as Discover's own Filters panel,
+    replacing the old daisyUI CSS-only drawer (which forced period/sort
+    into a separate DOM branch, bridged back in via hx-include)."""
 
     def setUp(self):
         user = User.objects.create_user("toolbarsyncuser", password="pass12345")
@@ -14562,29 +14754,26 @@ class HistoryToolbarStaysInSyncTests(TestCase):
         )
         self.assertNotContains(resp, "<form")
 
-    def test_toolbar_form_pulls_period_and_sort_in_from_the_drawer(self):
-        # The actual regression: period/sort live outside the toolbar's
-        # <form> (in the drawer, for daisyUI's CSS-only open/close - see
-        # history.html), so without this hx-include, a type-radio click
-        # or search keystroke - fields the form DOES own - would silently
-        # submit without whatever period/sort had been picked, resetting
-        # them to the server's defaults. Can't drive an actual browser
-        # click here, so this guards the wiring the fix depends on.
+    def test_period_and_sort_live_inside_the_toolbars_own_form_no_hx_include_needed(self):
+        # The old daisyUI drawer forced period/sort into a separate DOM
+        # branch from the toolbar's own <form> (drawer-side had to be a
+        # literal sibling of the drawer checkbox), bridged back together
+        # with hx-include in both directions. The Alpine popover has no
+        # such constraint, so period/sort are now genuine fields of the
+        # same <form> - neither of the old bridging hx-includes should
+        # remain (a *different* hx-include, on the bulk-delete button
+        # further down the page, is unrelated and stays).
         resp = self.client.get(reverse("history"))
-        self.assertContains(resp, "hx-include=\"[name='period'],[name='sort']\"")
-
-    def test_drawer_selects_pull_type_search_and_title_in_from_the_toolbar(self):
-        resp = self.client.get(reverse("history"))
-        self.assertContains(resp, "hx-include=\"[name='type']:checked,[name='q'],[name='title']\"")
+        self.assertNotContains(resp, "hx-include=\"[name='period'],[name='sort']\"")
+        self.assertNotContains(resp, "hx-include=\"[name='type']:checked,[name='q'],[name='title']\"")
+        content = resp.content.decode()
+        form_start = content.index('hx-get="/history/"')
+        form_end = content.index("</form>", form_start)
+        form_html = content[form_start:form_end]
+        self.assertIn('name="period"', form_html)
+        self.assertIn('name="sort"', form_html)
 
     def test_switching_type_preserves_an_applied_period_and_sort(self):
-        # One level down from the two hx-include tests above: given the
-        # query string HTMX *would* now send (period/sort included, per
-        # those wires), the server-rendered response actually carries
-        # them through - the period/sort <select>s themselves live in
-        # the drawer (history.html), not in this HX-Target="history-page"
-        # partial, so it's the context values (what the drawer would
-        # re-render from on the next full page load) that matter here.
         resp = self.client.get(
             reverse("history"),
             {"type": "movie", "period": "7", "sort": "old"},
@@ -14595,7 +14784,7 @@ class HistoryToolbarStaysInSyncTests(TestCase):
         self.assertEqual(resp.context["sort"], "old")
         self.assertContains(resp, 'value="movie" class="hidden" checked')
 
-    def test_full_page_load_re_selects_the_applied_period_and_sort_in_the_drawer(self):
+    def test_full_page_load_re_selects_the_applied_period_and_sort(self):
         resp = self.client.get(reverse("history"), {"period": "7", "sort": "old"})
         self.assertContains(resp, 'value="7" selected')
         self.assertContains(resp, 'value="old" selected')

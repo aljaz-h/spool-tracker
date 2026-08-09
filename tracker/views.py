@@ -120,6 +120,21 @@ DISCOVER_AVAILABILITY_LABELS = [
     ("streaming", "Streaming now"),
     ("digital", "All digital releases"),
 ]
+# The Filters panel's Runtime row - 4 single-select preset bands instead of
+# a free dual-range slider (a runtime is one number, so "under 90 or over
+# 150" doesn't need genre-style multi-select the way Year's decades do -
+# see tmdb.discover_by_decades' own docstring for why Year is different).
+# (key, label, runtime_from, runtime_to) - runtime_from/to feed straight
+# into tmdb.discover()'s own existing with_runtime.gte/.lte params, so no
+# changes needed there; only how the panel collects the two numbers
+# changed. Bounds are non-overlapping (120min lands in the "2-2.5h" band,
+# not "90-120min") so a title can only ever match exactly one.
+DISCOVER_RUNTIME_BUCKETS = [
+    ("under_90", "Under 90 min", None, 89),
+    ("90_120", "90–120 min", 90, 120),
+    ("120_150", "2–2.5h", 121, 150),
+    ("150_plus", "150 min+", 151, None),
+]
 
 # Settings → Appearance's personal Timezone dropdown (Profile.timezone,
 # activated per-request by middleware.ProfileTimezoneMiddleware). Sourced
@@ -345,12 +360,19 @@ def discover(request, media_type, category):
     selected_availability = request.GET.get("availability", "")
     if selected_availability not in tmdb.AVAILABILITY_CHOICES:
         selected_availability = ""
+    selected_runtime_bucket = request.GET.get("runtime_bucket", "")
+    runtime_from = runtime_to = None
+    for bucket_key, _, bucket_from, bucket_to in DISCOVER_RUNTIME_BUCKETS:
+        if bucket_key == selected_runtime_bucket:
+            runtime_from, runtime_to = bucket_from, bucket_to
+            break
+    else:
+        selected_runtime_bucket = ""
+    decades = sorted({int(d) for d in request.GET.getlist("decade") if d.isdigit()})
     filters = {
         "genre_ids": genre_ids,
-        "year_from": _discover_int_param(request, "year_from"),
-        "year_to": _discover_int_param(request, "year_to"),
-        "runtime_from": _discover_int_param(request, "runtime_from"),
-        "runtime_to": _discover_int_param(request, "runtime_to"),
+        "runtime_from": runtime_from,
+        "runtime_to": runtime_to,
         "rating_from": _discover_int_param(request, "rating_from"),
         "rating_to": _discover_int_param(request, "rating_to"),
         "original_language": request.GET.get("language", default_language) or None,
@@ -370,7 +392,7 @@ def discover(request, media_type, category):
 
     # TMDB refuses page requests beyond 500 regardless of total_pages.
     page_num = min(_discover_int_param(request, "page") or 1, 500)
-    page = tmdb.discover(tmdb_media_type, category=category, page=page_num, **filters)
+    page = tmdb.discover_by_decades(tmdb_media_type, category=category, page=page_num, decades=decades, **filters)
 
     query_without_page = request.GET.copy()
     query_without_page.pop("page", None)
@@ -387,6 +409,10 @@ def discover(request, media_type, category):
         "total_pages": min(page["total_pages"], 500),
         "genres": tmdb.genres(tmdb_media_type),
         "selected_genres": set(genre_ids),
+        "decade_options": tmdb.decades_through_now(),
+        "selected_decades": set(decades),
+        "runtime_buckets": DISCOVER_RUNTIME_BUCKETS,
+        "selected_runtime_bucket": selected_runtime_bucket,
         "languages": DISCOVER_LANGUAGES,
         "selected_language": filters["original_language"] or "",
         "certifications": tmdb.MOVIE_CERTIFICATIONS,

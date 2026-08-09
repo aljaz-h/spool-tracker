@@ -1,19 +1,10 @@
 {% load icons %}
-{# context: same as history.html's own top-level context - this is the "everything that needs to stay in sync with the current filters" region: the toolbar (type toggle, search, Filters button + its active-filter dot, Select toggle) and the results below it. Swapped as one unit (not just #history-content) so the Filters dot and the type toggle's checked state never go stale after a period/sort/search change - see history.html's own comment on why period/sort live outside this form entirely. #}
+{# context: same as history.html's own top-level context - this is the "everything that needs to stay in sync with the current filters" region: the toolbar (type toggle, search, Filters button + its active-filter dot, Select toggle) and the results below it. Swapped as one unit (not just #history-content) so the Filters dot and the type toggle's checked state never go stale after a period/sort/search change. #}
 <form
   hx-get="{{ history_base_url }}"
   hx-target="#history-page"
   hx-trigger="change"
   hx-push-url="true"
-  hx-include="[name='period'],[name='sort']"
-  {% comment %}
-    period/sort live in the drawer, outside this form (see history.html)
-    - without this hx-include, clicking a type radio or typing a search
-    only ever submitted this form's OWN fields (type/q/title), silently
-    dropping whatever period/sort had been picked in the drawer. This is
-    the other half of the fix; the drawer's own selects already pull
-    type/q/title in the same way, in the opposite direction.
-  {% endcomment %}
   class="flex justify-between items-center flex-wrap gap-3 mb-5"
 >
   <div class="flex items-center gap-3 flex-wrap">
@@ -59,13 +50,70 @@
   </div>
   <input type="hidden" name="title" value="{{ title_filter.pk|default:"" }}">
   <div class="flex gap-2.5 flex-wrap items-center">
-    <label for="history-filters-drawer" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
-      {% icon "filter" "w-3.5 h-3.5" %}
-      Filters
-      {% if period != "all" or sort != "new" %}
-        <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
-      {% endif %}
-    </label>
+    {% comment %}
+      Same Alpine popover pattern as Discover's own Filters panel (see
+      discover.html's own comment for why this isn't a daisyUI drawer -
+      the permanent will-change:transform daisyUI's .drawer-side sets
+      blurs text on Windows Chrome/Edge). Period/sort now live right
+      inside this same <form> as type/search/title - the old drawer
+      needed them split out into a separate DOM branch (daisyUI's
+      CSS-only drawer requires drawer-side to be a literal sibling of
+      the drawer checkbox, which ruled out one shared <form>, hence the
+      old hx-include bridging both directions); a plain Alpine popover
+      has no such constraint.
+    {% endcomment %}
+    <div class="relative" @click.outside="open = false" x-data="{
+      open: false,
+      togglePanel(button) {
+        this.open = !this.open;
+        if (!this.open) return;
+        this.$nextTick(() => {
+          const rect = button.getBoundingClientRect();
+          const panel = this.$refs.panel;
+          const width = 224;
+          panel.style.left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)) + 'px';
+          panel.style.top = (rect.bottom + 8) + 'px';
+        });
+      },
+    }">
+      <button type="button" @click="togglePanel($el)" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
+        {% icon "filter" "w-3.5 h-3.5" %}
+        Filters
+        {% if period != "all" or sort != "new" %}
+          <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+        {% endif %}
+      </button>
+      <div x-ref="panel" x-show="open" x-cloak class="fixed w-56 bg-base-200 border border-line rounded-lg shadow-lg z-40 flex flex-col">
+        <div class="flex items-center justify-between px-4 pt-4 pb-2">
+          <h2 class="font-display text-lg">Filters</h2>
+          <button type="button" @click="open = false" aria-label="Close filters" class="btn btn-xs btn-circle btn-ghost cursor-pointer">
+            {% icon "x" "w-3.5 h-3.5" %}
+          </button>
+        </div>
+        <div class="flex flex-col gap-4 px-4 pb-4">
+          <div>
+            <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Period</div>
+            <select name="period" class="select select-sm w-full bg-base-100 focus:outline-primary">
+              <option value="all" {% if period == "all" %}selected{% endif %}>All time</option>
+              <option value="today" {% if period == "today" %}selected{% endif %}>Today</option>
+              <option value="yesterday" {% if period == "yesterday" %}selected{% endif %}>Yesterday</option>
+              <option value="7" {% if period == "7" %}selected{% endif %}>Last 7 days</option>
+              <option value="30" {% if period == "30" %}selected{% endif %}>Last 30 days</option>
+              <option value="365" {% if period == "365" %}selected{% endif %}>Last year</option>
+            </select>
+          </div>
+          <div>
+            <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Sort</div>
+            <select name="sort" class="select select-sm w-full bg-base-100 focus:outline-primary">
+              <option value="new" {% if sort == "new" %}selected{% endif %}>Newest first</option>
+              <option value="old" {% if sort == "old" %}selected{% endif %}>Oldest first</option>
+              <option value="most_watched" {% if sort == "most_watched" %}selected{% endif %}>Most watched</option>
+              <option value="least_watched" {% if sort == "least_watched" %}selected{% endif %}>Least watched</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
     {% if is_own_history and not grouped_by_watch_count %}
       <button
         type="button"

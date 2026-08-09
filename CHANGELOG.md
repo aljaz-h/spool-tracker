@@ -8,7 +8,25 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
-## [0.80.0] - 2026-08-09
+## [0.81.0] - 2026-08-09
+
+### Changed
+
+- Movies & TV / Anime Filters panel: Runtime is now 4 toggle buttons
+  (Under 90 min / 90-120 min / 2-2.5h / 150 min+) instead of a slider,
+  and Year is now a multi-select decade chip row (1950s-2020s, same
+  chip style as Genres) instead of a slider - picking several decades
+  at once (e.g. 1980s and 2020s) shows a genuine interleaved mix of
+  both rather than one burying the other.
+- History's Filters button now opens the same dropdown popover style as
+  every other page's Filters panel, replacing the old slide-in drawer.
+
+### Added
+
+- `tmdb.discover_by_decades()` - merges one `/discover` call per
+  selected decade (TMDB's date filters can't OR disjoint ranges the
+  way genre filters can), interleaved round-robin so no single decade
+  dominates the results.
 
 ### Added
 

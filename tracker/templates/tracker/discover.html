@@ -69,7 +69,7 @@
         <button type="button" @click="togglePanel($el)" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
           {% icon "filter" "w-3.5 h-3.5" %}
           Filters
-          {% if selected_genres or request.GET.year_from or request.GET.year_to or request.GET.runtime_from or request.GET.runtime_to or request.GET.rating_from or request.GET.rating_to or selected_language or selected_certification or selected_status or selected_availability %}
+          {% if selected_genres or selected_decades or selected_runtime_bucket or request.GET.rating_from or request.GET.rating_to or selected_language or selected_certification or selected_status or selected_availability %}
             <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
           {% endif %}
         </button>
@@ -82,18 +82,12 @@
             </button>
           </div>
 
-          {% now "Y" as current_year %}
-          {% with max_year=current_year|add:2 %}
           <div class="flex flex-col gap-5 px-5 pb-5">
           <form
             id="discover-filters-form"
             method="get"
             class="flex flex-col gap-5"
             x-data="{
-              yearFrom: {{ request.GET.year_from|default:1950 }},
-              yearTo: {{ request.GET.year_to|default:max_year }},
-              runtimeFrom: {{ request.GET.runtime_from|default:0 }},
-              runtimeTo: {{ request.GET.runtime_to|default:400 }},
               ratingFrom: {{ request.GET.rating_from|default:0 }},
               ratingTo: {{ request.GET.rating_to|default:10 }},
             }"
@@ -127,29 +121,47 @@
                   </div>
                 </details>
 
-                <details class="group" {% if request.GET.year_from or request.GET.year_to %}open{% endif %}>
+                <details class="group" {% if selected_decades %}open{% endif %}>
                   <summary class="flex items-center justify-between gap-3 py-2.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
                     <span class="text-sm font-medium">Year</span>
                     <span class="flex items-center gap-2 text-xs text-ink-faint font-mono">
-                      <span><span x-text="yearFrom"></span>–<span x-text="yearTo"></span></span>
+                      {% if selected_decades %}{{ selected_decades|length }} selected{% else %}Any{% endif %}
                       {% icon "chevron-down" "w-3.5 h-3.5 text-ink-dim transition-transform group-open:rotate-180" %}
                     </span>
                   </summary>
-                  <div class="pb-4 pt-1">
-                    {% include "tracker/partials/dual_range_slider.html" with label="" name_from="year_from" name_to="year_to" min=1950 max=max_year from_var="yearFrom" to_var="yearTo" suffix="" %}
+                  <div class="pb-3">
+                    <div class="flex flex-wrap gap-1.5">
+                      {% for decade_start, is_current in decade_options %}
+                        <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                          <input type="checkbox" name="decade" value="{{ decade_start }}" class="sr-only" {% if decade_start in selected_decades %}checked{% endif %}>
+                          {{ decade_start }}s{% if is_current %} <span class="opacity-70">(so far)</span>{% endif %}
+                        </label>
+                      {% endfor %}
+                    </div>
                   </div>
                 </details>
 
-                <details class="group" {% if request.GET.runtime_from or request.GET.runtime_to %}open{% endif %}>
+                <details class="group" {% if selected_runtime_bucket %}open{% endif %}>
                   <summary class="flex items-center justify-between gap-3 py-2.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
                     <span class="text-sm font-medium">Runtime</span>
                     <span class="flex items-center gap-2 text-xs text-ink-faint font-mono">
-                      <span><span x-text="runtimeFrom"></span>–<span x-text="runtimeTo"></span>m</span>
+                      {% if selected_runtime_bucket %}
+                        {% for bucket_key, bucket_label, bucket_from, bucket_to in runtime_buckets %}
+                          {% if bucket_key == selected_runtime_bucket %}{{ bucket_label }}{% endif %}
+                        {% endfor %}
+                      {% else %}Any{% endif %}
                       {% icon "chevron-down" "w-3.5 h-3.5 text-ink-dim transition-transform group-open:rotate-180" %}
                     </span>
                   </summary>
-                  <div class="pb-4 pt-1">
-                    {% include "tracker/partials/dual_range_slider.html" with label="" name_from="runtime_from" name_to="runtime_to" min=0 max=400 step=5 from_var="runtimeFrom" to_var="runtimeTo" suffix="m" %}
+                  <div class="pb-3">
+                    <div class="grid grid-cols-2 gap-1.5">
+                      {% for bucket_key, bucket_label, bucket_from, bucket_to in runtime_buckets %}
+                        <label class="text-xs font-medium text-center bg-base-200 text-ink-dim border border-line rounded-lg px-3 py-2 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                          <input type="radio" name="runtime_bucket" value="{{ bucket_key }}" class="sr-only" {% if selected_runtime_bucket == bucket_key %}checked{% endif %}>
+                          {{ bucket_label }}
+                        </label>
+                      {% endfor %}
+                    </div>
                   </div>
                 </details>
 
@@ -303,7 +315,6 @@
             <button type="submit" form="discover-filters-form" class="btn btn-sm btn-primary flex-1">Apply filters</button>
             <a href="?type={{ media_type }}" class="btn btn-sm btn-ghost">Clear all</a>
           </div>
-          {% endwith %}
         </div>
       </div>
     {% endif %}

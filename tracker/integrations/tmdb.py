@@ -16,6 +16,7 @@ it's attached to.
 """
 
 import hashlib
+import itertools
 import json
 import logging
 import re
@@ -555,6 +556,89 @@ def discover(media_type, category="popular", page=1, genre_ids=None, year_from=N
         "page": page,
         "total_pages": -(-total_pages_raw // RESULTS_PAGE_SIZE) if total_pages_raw else 0,
     }
+
+
+# Earliest decade offered by the Year filter's chip row (discover.html) -
+# TMDB's own catalog thins out well before this for anything reliably
+# discoverable, so there's no real value in reaching further back.
+DECADE_START = 1950
+
+
+def decades_through_now():
+    """[(decade_start, is_current), ...] from DECADE_START through the
+    decade containing today - e.g. (1950, False), (1960, False), ...,
+    (2020, True) as of 2026. Computed per call (not hardcoded) so a new
+    decade appears in the Year filter on its own once the calendar rolls
+    into it, and is_current lets the template label that one "(so far)"
+    rather than reading like a decade that's already finished."""
+    import datetime
+
+    current_decade_start = (datetime.date.today().year // 10) * 10
+    return [(start, start == current_decade_start) for start in range(DECADE_START, current_decade_start + 1, 10)]
+
+
+def discover_by_decades(media_type, category="popular", page=1, decades=None, **filters):
+    """discover()'s own Year filter, widened to accept several *disjoint*
+    decades at once (Genre-style OR - "1980s or 2020s") instead of
+    discover()'s single contiguous year_from/year_to range, which
+    can't express that: TMDB's /discover has no OR-of-date-ranges param
+    the way with_genres has an OR-of-ids one (see discover()'s own
+    with_genres line), so >1 decade means one real /discover call per
+    decade, merged and deduped here - the same "no single-call solution
+    exists, so issue N calls and merge" shape collections() above already
+    uses, just keyed on decade instead of per-movie detail lookups.
+
+    0 or 1 decades - by far the common case, since most people never
+    touch Year at all, and picking exactly one decade is still just an
+    ordinary year range - both cost exactly one real discover() call
+    with exact pagination, identical to calling discover() directly (no
+    merge overhead, no approximation). Only 2+ decades at once pays for
+    the extra calls and an approximated total_pages: each decade's own
+    total_pages is already just an estimate (see discover()'s own
+    docstring), and there's no way to know the *combined* filter's true
+    result count without exhausting every decade's every page, so this
+    takes the largest of the per-decade estimates - undercounts rather
+    than overcounts, so pagination runs out a little early rather than
+    offering a "page 40" that comes back empty.
+
+    Results are round-robin interleaved across decades (one from 1980s,
+    one from 2020s, one from 1980s, ...) rather than pooled and sorted
+    by popularity/rating - a flat popularity sort would let a recency-
+    biased decade (TMDB's own "popularity" score heavily favors current
+    releases) bury an older one entirely off the first page, which
+    defeats the point of picking "1980s and 2020s" for an actual mix of
+    both - confirmed live: an early popularity-sorted version returned a
+    page of nothing but current-year movies despite 1980 being selected
+    too. Each decade's own results stay in TMDB's own per-category order
+    internally; only the interleaving is done here."""
+    if not decades:
+        return discover(media_type, category=category, page=page, **filters)
+    if len(decades) == 1:
+        decade = decades[0]
+        return discover(media_type, category=category, page=page, year_from=decade, year_to=decade + 9, **filters)
+
+    per_decade_results = []
+    total_pages_estimate = 0
+    for decade in decades:
+        decade_page = discover(
+            media_type, category=category, page=page, year_from=decade, year_to=decade + 9, **filters
+        )
+        total_pages_estimate = max(total_pages_estimate, decade_page["total_pages"])
+        per_decade_results.append(decade_page["results"])
+
+    seen = set()
+    results = []
+    for row in itertools.zip_longest(*per_decade_results):
+        for item in row:
+            if item is None:
+                continue
+            key = (item["tmdb_id"], item["media_type"])
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append(item)
+
+    return {"results": results, "page": page, "total_pages": total_pages_estimate}
 
 
 # Movie franchises (John Wick, Indiana Jones, ...) for the Movies & TV
