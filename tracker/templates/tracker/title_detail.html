@@ -208,6 +208,17 @@
 
       {% include "tracker/partials/title_episodes.html" %}
 
+      {% if collection_parts %}
+        <h2 class="font-display text-xl mb-3">Collection</h2>
+        <div class="flex gap-3 overflow-x-auto scroll-row pb-2 mb-2">
+          {% for item in collection_parts %}
+            <div class="w-[130px] sm:w-[168px] flex-none">
+              {% include "tracker/partials/discover_tile.html" with item=item %}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
       {% if similar %}
         <h2 class="font-display text-xl mb-3">If you like this, check out</h2>
         <div class="flex gap-3 overflow-x-auto scroll-row pb-2 mb-2">

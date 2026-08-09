@@ -709,8 +709,12 @@ def get_full_details(media_type, tmdb_id):
     normalized to None here since "$0" reads as data, not "no data"),
     "production_companies": [str,...], "countries": [str,...] (movie:
     full names from production_countries; tv has no equivalent field,
-    only origin_country's ISO codes)} or None if nothing came back (no
-    api key, bad id, network error)."""
+    only origin_country's ISO codes), "collection_id": int|None (movie
+    only - TMDB's belongs_to_collection, e.g. "Iron Man Collection"; tv
+    has no franchise-grouping concept at all, so this is always None for
+    a show. Feed straight into get_collection_details() for the other
+    entries)} or None if nothing came back (no api key, bad id, network
+    error)."""
     is_movie = media_type == "movie"
     append = "release_dates" if is_movie else "content_ratings"
     data = _list_request(f"{media_type}/{tmdb_id}", {"append_to_response": append})
@@ -769,6 +773,7 @@ def get_full_details(media_type, tmdb_id):
             if is_movie
             else (data.get("origin_country") or [])
         ),
+        "collection_id": (data.get("belongs_to_collection") or {}).get("id") if is_movie else None,
     }
 
 

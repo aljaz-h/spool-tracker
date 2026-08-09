@@ -731,6 +731,25 @@ def _tmdb_pill(details):
     }
 
 
+def _collection_context(details, tmdb_id):
+    """The detail page's "Collection" row (Iron Man 2 -> Iron Man 1/3,
+    Indiana Jones, ...) - movie-only, since TV has no franchise-grouping
+    concept in TMDB's data at all (get_full_details' own collection_id is
+    always None for a show). The viewed movie itself is filtered back out
+    of its own collection's parts - nothing to gain from a tile that just
+    links to the page you're already on."""
+    collection_id = details.get("collection_id") if details else None
+    if not collection_id:
+        return {"collection_name": None, "collection_parts": []}
+    collection = tmdb.get_collection_details(collection_id)
+    if not collection:
+        return {"collection_name": None, "collection_parts": []}
+    parts = [p for p in collection["parts"] if p["tmdb_id"] != int(tmdb_id)]
+    if not parts:
+        return {"collection_name": None, "collection_parts": []}
+    return {"collection_name": collection["name"], "collection_parts": parts}
+
+
 def _mdblist_ratings_context(title):
     """Supplementary IMDb/Rotten Tomatoes/Metacritic/etc pills for the
     detail hero (see partials/pill_badges.html) - lazily populated the
@@ -924,6 +943,7 @@ def title_detail(request, pk):
         episode_context = _episode_panel_context(request, profile, title, tmdb_id, details)
 
     local_context = selectors.title_local_context(profile, title)
+    collection_context = _collection_context(details, tmdb_id) if tmdb_id else {"collection_name": None, "collection_parts": []}
     context = {
         "profile": profile,
         "title": title,
@@ -945,9 +965,11 @@ def title_detail(request, pk):
         **_recommend_context(profile, title),
         **_anime_jikan_context(title),
         **_mdblist_ratings_context(title),
+        **collection_context,
     }
-    if profile is not None and similar:
-        context.update(selectors.discover_action_context(profile, similar))
+    discover_items = (similar or []) + collection_context["collection_parts"]
+    if profile is not None and discover_items:
+        context.update(selectors.discover_action_context(profile, discover_items))
     context["star_fill"] = _star_fill(context["latest_rating"])
     return render(request, "tracker/title_detail.html", context)
 
@@ -1640,16 +1662,18 @@ def title_preview(request, media_type, tmdb_id):
         "latest_rating": None,
         # Drives this page's own "Lists" card (every chip starts unfilled -
         # there's no local Title yet, so in_list_ids is always empty here;
-        # see title_preview_add_to_list) as well as the "similar" grid's
-        # discover_tile.html includes below, whose own list-picker popovers
-        # are for those (also not-yet-tracked) titles.
+        # see title_preview_add_to_list) as well as the "similar"/
+        # "Collection" grids' discover_tile.html includes below, whose own
+        # list-picker popovers are for those (also not-yet-tracked) titles.
         "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
         "in_list_ids": set(),
         **_preview_recommend_context(profile),
         **_episode_panel_context(request, profile, None, tmdb_id, details),
+        **_collection_context(details, tmdb_id),
     }
-    if profile is not None and context["similar"]:
-        context.update(selectors.discover_action_context(profile, context["similar"]))
+    discover_items = context["similar"] + context["collection_parts"]
+    if profile is not None and discover_items:
+        context.update(selectors.discover_action_context(profile, discover_items))
     return render(request, "tracker/title_detail.html", context)
 
 

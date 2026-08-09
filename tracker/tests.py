@@ -8282,6 +8282,39 @@ class TmdbDetailPageTests(TestCase):
         self.assertIsNone(details["revenue"])
 
     @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_full_details_movie_includes_collection_id(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 42, "title": "Iron Man 2", "release_date": "2010-05-07", "genres": [],
+                "belongs_to_collection": {"id": 131292, "name": "Iron Man Collection"},
+            }
+        )
+        details = tmdb.get_full_details("movie", 42)
+        self.assertEqual(details["collection_id"], 131292)
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_full_details_movie_no_collection_is_none(self, mock_get):
+        mock_get.return_value = self._response(
+            {"id": 42, "title": "Fathom", "release_date": "2020-05-01", "genres": []}
+        )
+        details = tmdb.get_full_details("movie", 42)
+        self.assertIsNone(details["collection_id"])
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_get_full_details_tv_collection_id_always_none(self, mock_get):
+        # TV has no franchise-grouping concept in TMDB's data at all - even
+        # a stray belongs_to_collection-shaped field on a tv payload
+        # (which TMDB never actually sends) must not leak through.
+        mock_get.return_value = self._response(
+            {
+                "id": 99, "name": "Cinder Street", "first_air_date": "2022-01-01", "genres": [],
+                "belongs_to_collection": {"id": 1, "name": "Shouldn't apply to TV"},
+            }
+        )
+        details = tmdb.get_full_details("tv", 99)
+        self.assertIsNone(details["collection_id"])
+
+    @patch("tracker.integrations.tmdb.requests.get")
     def test_get_full_details_tv_has_no_budget_or_revenue_but_has_origin_country(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -10238,6 +10271,114 @@ class TitleDetailViewTests(TestCase):
         mock_details.return_value = self._details(release_date=None)
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         self.assertIsNone(resp.context["release_info"])
+
+    def _collection_parts(self):
+        return [
+            {
+                "tmdb_id": 1726, "media_type": "movie", "name": "Iron Man", "year": "2008",
+                "poster_url": None, "vote_average": 7.9, "overview": "",
+            },
+            # tmdb_id 42 matches self.title's own tmdb id - the currently
+            # viewed movie, expected to be filtered back out of its own row.
+            {
+                "tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020",
+                "poster_url": None, "vote_average": 7.0, "overview": "",
+            },
+            {
+                "tmdb_id": 10138, "media_type": "movie", "name": "Iron Man 3", "year": "2013",
+                "poster_url": None, "vote_average": 6.8, "overview": "",
+            },
+        ]
+
+    @patch("tracker.integrations.tmdb.get_collection_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_shows_a_collection_row_when_the_movie_belongs_to_one(
+        self, mock_details, mock_credits, mock_similar, mock_collection
+    ):
+        mock_details.return_value = self._details(collection_id=131292)
+        mock_collection.return_value = {
+            "id": 131292, "name": "Iron Man Collection", "overview": "", "poster_url": None,
+            "backdrop_url": None, "parts": self._collection_parts(),
+        }
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, '<h2 class="font-display text-xl mb-3">Collection</h2>')
+        self.assertContains(resp, "Iron Man 3")
+        mock_collection.assert_called_once_with(131292)
+
+    @patch("tracker.integrations.tmdb.get_collection_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_collection_row_excludes_the_currently_viewed_movie(
+        self, mock_details, mock_credits, mock_similar, mock_collection
+    ):
+        mock_details.return_value = self._details(collection_id=131292)
+        mock_collection.return_value = {
+            "id": 131292, "name": "Iron Man Collection", "overview": "", "poster_url": None,
+            "backdrop_url": None, "parts": self._collection_parts(),
+        }
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertEqual([p["tmdb_id"] for p in resp.context["collection_parts"]], [1726, 10138])
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_no_collection_row_when_the_movie_belongs_to_no_collection(self, mock_details, mock_credits, mock_similar):
+        # collection_id=None short-circuits before ever calling
+        # get_collection_details - no mock needed to prove no HTTP call.
+        mock_details.return_value = self._details(collection_id=None)
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertEqual(resp.context["collection_parts"], [])
+        self.assertNotContains(resp, '<h2 class="font-display text-xl mb-3">Collection</h2>')
+
+    @patch("tracker.integrations.tmdb.get_collection_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_no_collection_row_when_the_current_movie_is_the_only_part(
+        self, mock_details, mock_credits, mock_similar, mock_collection
+    ):
+        mock_details.return_value = self._details(collection_id=131292)
+        mock_collection.return_value = {
+            "id": 131292, "name": "Solo Collection", "overview": "", "poster_url": None, "backdrop_url": None,
+            "parts": [{
+                "tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020",
+                "poster_url": None, "vote_average": 7.0, "overview": "",
+            }],
+        }
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertEqual(resp.context["collection_parts"], [])
+
+    @patch("tracker.integrations.tmdb.get_collection_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_no_collection_row_when_the_collection_lookup_fails(
+        self, mock_details, mock_credits, mock_similar, mock_collection
+    ):
+        mock_details.return_value = self._details(collection_id=131292)
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context["collection_parts"], [])
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_no_collection_row_for_a_show(self, mock_details, mock_credits, mock_similar):
+        # TV has no franchise-grouping concept in TMDB's data - collection_id
+        # is always None for a show (see get_full_details), so this never
+        # even attempts a collection lookup.
+        show = Title.objects.create(
+            media_type=MediaType.TV, name="Cinder Street", year=2022,
+            external_ids={"tmdb": "99", "tmdb_kind": "tv"},
+        )
+        mock_details.return_value = self._details(
+            tmdb_id=99, media_type="tv", name="Cinder Street", collection_id=None
+        )
+        resp = self.client.get(reverse("title_detail", args=[show.pk]))
+        self.assertEqual(resp.context["collection_parts"], [])
 
 
 class EpisodeReleaseLabelTests(TestCase):
@@ -12773,6 +12914,41 @@ class TitlePreviewViewTests(TestCase):
         resp = self.client.get(reverse("title_preview", args=["movie", 42]))
         self.assertEqual(resp.context["status_badge"], {"label": "Upcoming", "color": "info"})
         self.assertContains(resp, "Upcoming")
+
+    @patch("tracker.integrations.tmdb.get_collection_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_shows_a_collection_row_excluding_the_previewed_movie_itself(
+        self, mock_details, mock_credits, mock_similar, mock_collection
+    ):
+        mock_details.return_value = self._details(collection_id=131292)
+        mock_collection.return_value = {
+            "id": 131292, "name": "Iron Man Collection", "overview": "", "poster_url": None,
+            "backdrop_url": None,
+            "parts": [
+                {
+                    "tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020",
+                    "poster_url": None, "vote_average": 7.0, "overview": "",
+                },
+                {
+                    "tmdb_id": 10138, "media_type": "movie", "name": "Iron Man 3", "year": "2013",
+                    "poster_url": None, "vote_average": 6.8, "overview": "",
+                },
+            ],
+        }
+        resp = self.client.get(reverse("title_preview", args=["movie", 42]))
+        self.assertContains(resp, '<h2 class="font-display text-xl mb-3">Collection</h2>')
+        self.assertEqual([p["tmdb_id"] for p in resp.context["collection_parts"]], [10138])
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_no_collection_row_when_the_movie_belongs_to_no_collection(self, mock_details, mock_credits, mock_similar):
+        mock_details.return_value = self._details(collection_id=None)
+        resp = self.client.get(reverse("title_preview", args=["movie", 42]))
+        self.assertEqual(resp.context["collection_parts"], [])
+        self.assertNotContains(resp, '<h2 class="font-display text-xl mb-3">Collection</h2>')
 
     def test_redirects_to_real_detail_page_if_already_tracked(self):
         title = Title.objects.create(

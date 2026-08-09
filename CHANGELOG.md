@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.79.0] - 2026-08-09
+
+### Added
+
+- A "Collection" row on a movie's detail/preview page (e.g. Iron Man 2
+  showing Iron Man 1 and 3 below it), sourced from TMDB - shown above "If
+  you like this, check out" whenever the movie belongs to a franchise
+  with other entries. TV/anime shows have no franchise-grouping concept
+  in TMDB's data, so this only ever appears for movies.
+
 ## [0.78.1] - 2026-08-07
 
 ### Changed
