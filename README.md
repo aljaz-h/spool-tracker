@@ -16,6 +16,11 @@
   under five minutes.
 </p>
 
+> **Why not just use Trakt or Simkl?** Your watch history stays on your
+> own server instead of a third party's — no account limits, no ads, no
+> paywalled features, and multiple household members can share one
+> instance without separate paid accounts each.
+
 ## Screenshots
 
 Every screenshot below is a real render of the app against seeded demo
