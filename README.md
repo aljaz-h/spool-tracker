@@ -10,7 +10,7 @@
 
 <p align="center">
   Track what your household watches — movies, TV, and anime — on your own
-  server, not someone else's. A self-hosted Trakt/Simkl/Yamtrack
+  server, not someone else's. A self-hosted Trakt/Simkl
   alternative: Django + Postgres + Redis/Celery, server-rendered with HTMX,
   shipped as a five-container Docker Compose stack you can be running in
   under five minutes.
