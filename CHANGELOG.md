@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.82.2] - 2026-08-09
+
+### Fixed
+
+- The header bell's unread-count badge now updates immediately after
+  marking a notification (or all of them) read, or clearing them all -
+  it previously only refreshed on a full page reload, since it lives
+  outside the notifications dropdown's own swapped region.
+
 ## [0.82.1] - 2026-08-09
 
 ### Changed

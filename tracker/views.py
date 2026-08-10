@@ -3620,9 +3620,25 @@ def save_notifications(request):
     return HttpResponse(status=204)
 
 
+def _notifications_badge_oob(request, profile):
+    """Appended to an HTMX response body alongside the notifications
+    panel fragment so the header bell's unread-count badge - outside
+    the panel's own hx-target, and otherwise only ever refreshed by a
+    full page reload - updates immediately after mark-as-read/mark-all/
+    clear-all (see notification_badge.html's own docstring)."""
+    count = Notification.objects.filter(profile=profile, read=False).count()
+    return render_to_string(
+        "tracker/partials/notification_badge.html",
+        {"unread_notification_count": count, "oob": True},
+        request=request,
+    )
+
+
 def _render_notifications_panel(request, profile):
     items = list(Notification.objects.filter(profile=profile).select_related("title")[:20])
-    return render(request, "tracker/partials/notifications_panel.html", {"notifications": items})
+    response = render(request, "tracker/partials/notifications_panel.html", {"notifications": items})
+    response.write(_notifications_badge_oob(request, profile))
+    return response
 
 
 @login_required

@@ -3142,6 +3142,21 @@ class MarkNotificationReadViewTests(TestCase):
         resp = self.client.post(reverse("mark_notification_read", args=[self.notification.pk]))
         self.assertNotEqual(resp.status_code, 200)
 
+    def test_response_includes_an_oob_badge_update(self):
+        # The header bell's badge lives outside #notifications-panel (this
+        # view's own hx-target), so it needs its own out-of-band fragment
+        # to update without a full page reload - see
+        # views._notifications_badge_oob.
+        Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="Still unread")
+        resp = self.client.post(reverse("mark_notification_read", args=[self.notification.pk]))
+        self.assertContains(resp, 'id="notifications-badge" hx-swap-oob="true"')
+        # One notification (the one just created) is still unread.
+        self.assertContains(resp, ">1<")
+
+    def test_oob_badge_disappears_once_nothing_is_unread(self):
+        resp = self.client.post(reverse("mark_notification_read", args=[self.notification.pk]))
+        self.assertContains(resp, 'id="notifications-badge" hx-swap-oob="true"></span>')
+
 
 class MarkAllNotificationsReadViewTests(TestCase):
     def setUp(self):
@@ -3162,6 +3177,12 @@ class MarkAllNotificationsReadViewTests(TestCase):
         self.client.post(reverse("mark_all_notifications_read"))
         others.refresh_from_db()
         self.assertFalse(others.read)
+
+    def test_badge_clears_via_an_oob_fragment(self):
+        Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="One")
+        Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="Two")
+        resp = self.client.post(reverse("mark_all_notifications_read"))
+        self.assertContains(resp, 'id="notifications-badge" hx-swap-oob="true"></span>')
 
 
 class ClearAllNotificationsViewTests(TestCase):
@@ -3191,6 +3212,11 @@ class ClearAllNotificationsViewTests(TestCase):
     def test_requires_post(self):
         resp = self.client.get(reverse("clear_all_notifications"))
         self.assertEqual(resp.status_code, 405)
+
+    def test_badge_clears_via_an_oob_fragment(self):
+        Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="One")
+        resp = self.client.post(reverse("clear_all_notifications"))
+        self.assertContains(resp, 'id="notifications-badge" hx-swap-oob="true"></span>')
 
 
 class UnreadNotificationCountContextTests(TestCase):

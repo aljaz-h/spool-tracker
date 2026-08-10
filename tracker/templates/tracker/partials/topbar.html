@@ -123,9 +123,7 @@
           class="relative w-9 h-9 flex-none rounded-lg border border-line bg-base-200 flex items-center justify-center text-ink-dim hover:text-base-content hover:border-primary"
         >
           {% icon "bell" "w-[17px] h-[17px]" %}
-          {% if unread_notification_count %}
-            <span class="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-primary text-primary-content text-[10px] font-bold flex items-center justify-center">{{ unread_notification_count }}</span>
-          {% endif %}
+          {% include "tracker/partials/notification_badge.html" %}
         </button>
         <div x-ref="panel" x-show="open" x-cloak class="fixed w-96 bg-base-200 border border-line rounded-lg shadow-lg z-40">
           <div id="notifications-dropdown-content">
