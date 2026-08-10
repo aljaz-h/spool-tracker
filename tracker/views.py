@@ -2865,6 +2865,20 @@ class SpoolLoginView(auth_views.LoginView):
             )
         return super().post(request, *args, **kwargs)
 
+    def form_valid(self, form):
+        """"Keep me signed in" (checked by default, matching this app's
+        prior no-checkbox-at-all behavior) keeps Django's own persistent
+        session (SESSION_COOKIE_AGE, 2 weeks by default) - unchecking it
+        is the only way to opt into the browser-close-expires session
+        Django's set_expiry(0) gives, since SESSION_EXPIRE_AT_BROWSER_CLOSE
+        isn't set globally (every other login flow - bootstrap_admin's
+        first-run account, etc. - still wants the normal persistent
+        session by default)."""
+        response = super().form_valid(form)
+        if not self.request.POST.get("remember_me"):
+            self.request.session.set_expiry(0)
+        return response
+
     def get_default_redirect_url(self):
         profile = Profile.objects.filter(user=self.request.user).first()
         if profile is not None:

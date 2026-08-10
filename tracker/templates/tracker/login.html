@@ -1,4 +1,4 @@
-{% load static %}
+{% load static icons %}
 <!doctype html>
 <html lang="en" data-theme="spool">
 <head>
@@ -8,9 +8,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Public+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'dist/app.css' %}">
+  <script defer src="{% static 'vendor/alpinejs.js' %}"></script>
 </head>
-<body class="bg-base-100 text-base-content min-h-screen flex items-center justify-center p-6">
-  <div class="w-full max-w-sm bg-base-200 border border-line rounded-2xl p-8">
+<body class="bg-base-100 text-base-content min-h-screen flex flex-col items-center justify-center p-6">
+  <div class="w-full max-w-sm bg-base-200 border border-line rounded-2xl p-8" x-data="{ showPassword: false }">
     <div class="font-display text-3xl text-marquee tracking-wide">SPOOL</div>
     <p class="text-ink-dim text-sm mt-1 mb-6">Sign in to your household</p>
 
@@ -19,15 +20,47 @@
       {% if form.errors %}
         <p class="text-error text-sm mb-3">Incorrect username or password.</p>
       {% endif %}
+
       <label class="block text-xs text-ink-dim mb-1" for="id_username">Username</label>
-      <input type="text" name="username" id="id_username" autofocus required
-             class="input w-full mb-4 bg-base-100">
+      <input
+        type="text" name="username" id="id_username" autofocus required placeholder="e.g. jordan"
+        class="input w-full mb-4 bg-base-100"
+      >
+
       <label class="block text-xs text-ink-dim mb-1" for="id_password">Password</label>
-      <input type="password" name="password" id="id_password" required
-             class="input w-full mb-6 bg-base-100">
+      <div class="relative mb-4">
+        <input
+          :type="showPassword ? 'text' : 'password'" name="password" id="id_password" required
+          class="input w-full bg-base-100 pr-10"
+        >
+        <button
+          type="button" @click="showPassword = !showPassword" tabindex="-1" title="Show/hide password"
+          class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content"
+        >
+          <span x-show="!showPassword">{% icon "eye" "w-4 h-4" %}</span>
+          <span x-show="showPassword" x-cloak>{% icon "eye-off" "w-4 h-4" %}</span>
+        </button>
+      </div>
+
+      <div class="flex items-center justify-between mb-5">
+        <label class="flex items-center gap-2 text-xs text-ink-dim cursor-pointer">
+          <input type="checkbox" name="remember_me" checked class="checkbox checkbox-sm checkbox-primary">
+          Keep me signed in
+        </label>
+        <span class="text-xs text-ink-dim">Need access?</span>
+      </div>
+
       <input type="hidden" name="next" value="{{ next }}">
       <button type="submit" class="btn btn-primary w-full">Sign in</button>
     </form>
+
+    <div class="border-t border-dashed border-line my-5"></div>
+
+    <p class="text-center text-xs text-ink-dim">Locked out? Ask a household admin to reset your password.</p>
+  </div>
+
+  <div class="mt-4 text-center text-[11px] text-ink-faint font-mono">
+    spool.tracker &middot; v{{ app_version }} &middot; self-hosted
   </div>
 </body>
 </html>

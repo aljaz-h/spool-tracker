@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.82.0] - 2026-08-09
+
+### Added
+
+- Redesigned the sign-in page: a "Keep me signed in" checkbox (checked
+  by default; unchecking it expires the session at browser close
+  instead of the usual 2 weeks), a password visibility toggle, "Need
+  access?" / "Locked out? Ask a household admin to reset your
+  password." in place of an email-based reset flow this self-hosted
+  app has no SMTP for, and a footer showing the instance's version
+  (`spool.tracker · vX.Y.Z · self-hosted`).
+
 ## [0.81.1] - 2026-08-09
 
 ### Changed

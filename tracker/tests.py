@@ -3245,6 +3245,65 @@ class SpoolLoginRedirectTests(TestCase):
         self.assertRedirects(resp, reverse("history"))
 
 
+class SpoolLoginRememberMeTests(TestCase):
+    """"Keep me signed in" - checked by default (matching the prior,
+    checkbox-less behavior of always keeping the persistent session),
+    unchecking it opts into Django's own browser-close expiry instead."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("rememberuser", password="pass12345")
+        Profile.objects.create(user=self.user, display_name="RememberUser")
+
+    def test_checked_keeps_the_persistent_session(self):
+        self.client.post(reverse("login"), {"username": "rememberuser", "password": "pass12345", "remember_me": "on"})
+        self.assertNotEqual(self.client.session.get_expiry_age(), 0)
+        self.assertFalse(self.client.session.get_expire_at_browser_close())
+
+    def test_unchecked_expires_the_session_at_browser_close(self):
+        self.client.post(reverse("login"), {"username": "rememberuser", "password": "pass12345"})
+        self.assertTrue(self.client.session.get_expire_at_browser_close())
+
+    def test_failed_login_does_not_touch_session_expiry(self):
+        # form_valid only runs on success - a wrong password shouldn't
+        # silently mark whatever (anonymous) session exists as expiring
+        # at browser close.
+        resp = self.client.post(reverse("login"), {"username": "rememberuser", "password": "wrong"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.context["user"].is_authenticated)
+
+
+class LoginPageTemplateTests(TestCase):
+    def test_shows_keep_me_signed_in_checked_by_default(self):
+        resp = self.client.get(reverse("login"))
+        self.assertContains(resp, 'name="remember_me"')
+        self.assertContains(resp, "Keep me signed in")
+        content = resp.content.decode()
+        checkbox_pos = content.index('name="remember_me"')
+        tag_end = content.index(">", checkbox_pos)
+        self.assertIn("checked", content[checkbox_pos:tag_end])
+
+    def test_shows_need_access_and_locked_out_copy_instead_of_a_reset_flow(self):
+        resp = self.client.get(reverse("login"))
+        self.assertContains(resp, "Need access?")
+        self.assertContains(resp, "Locked out? Ask a household admin to reset your password.")
+
+    def test_password_field_has_a_visibility_toggle(self):
+        resp = self.client.get(reverse("login"))
+        self.assertContains(resp, "showPassword")
+        self.assertContains(resp, 'name="password"')
+
+    def test_footer_shows_the_app_version(self):
+        from tracker.version import APP_VERSION
+
+        resp = self.client.get(reverse("login"))
+        self.assertContains(resp, f"v{APP_VERSION}")
+        self.assertContains(resp, "self-hosted")
+
+    def test_username_field_has_a_placeholder(self):
+        resp = self.client.get(reverse("login"))
+        self.assertContains(resp, 'placeholder="e.g. jordan"')
+
+
 @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
 class RateLimitTests(TestCase):
     """tracker/ratelimit.py - the cache-backed brute-force guard on login
