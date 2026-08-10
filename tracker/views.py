@@ -130,10 +130,10 @@ DISCOVER_AVAILABILITY_LABELS = [
 # changed. Bounds are non-overlapping (120min lands in the "2-2.5h" band,
 # not "90-120min") so a title can only ever match exactly one.
 DISCOVER_RUNTIME_BUCKETS = [
-    ("under_90", "Under 90 min", None, 89),
+    ("under_90", "< 90min", None, 89),
     ("90_120", "90–120 min", 90, 120),
-    ("120_150", "2–2.5h", 121, 150),
-    ("150_plus", "150 min+", 151, None),
+    ("120_150", "120–150min", 121, 150),
+    ("150_plus", ">150min", 151, None),
 ]
 
 # Settings → Appearance's personal Timezone dropdown (Profile.timezone,

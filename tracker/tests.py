@@ -9358,10 +9358,10 @@ class DiscoverViewTests(TestCase):
     def test_runtime_row_shows_all_four_buckets(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
         resp = self.client.get(reverse("movies_tv", args=["trending"]))
-        self.assertContains(resp, "Under 90 min")
+        self.assertContains(resp, "&lt; 90min")
         self.assertContains(resp, "90–120 min")
-        self.assertContains(resp, "2–2.5h")
-        self.assertContains(resp, "150 min+")
+        self.assertContains(resp, "120–150min")
+        self.assertContains(resp, "&gt;150min")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")

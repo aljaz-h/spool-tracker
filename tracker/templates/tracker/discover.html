@@ -107,16 +107,13 @@
                     </span>
                   </summary>
                   <div class="pb-3">
-                    <div class="relative">
-                      <div class="flex flex-wrap gap-1.5 max-h-56 overflow-y-auto p-2 border border-line rounded-lg bg-base-100">
-                        {% for g in genres %}
-                          <label class="text-xs font-medium bg-base-100 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
-                            <input type="checkbox" name="genre" value="{{ g.id }}" class="sr-only" {% if g.id in selected_genres %}checked{% endif %}>
-                            {{ g.name }}
-                          </label>
-                        {% endfor %}
-                      </div>
-                      <div class="pointer-events-none absolute inset-x-1 bottom-1 h-5 rounded-b-lg bg-gradient-to-t from-base-100 to-transparent"></div>
+                    <div class="flex flex-wrap gap-1.5">
+                      {% for g in genres %}
+                        <label class="text-xs font-medium bg-base-100 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                          <input type="checkbox" name="genre" value="{{ g.id }}" class="sr-only" {% if g.id in selected_genres %}checked{% endif %}>
+                          {{ g.name }}
+                        </label>
+                      {% endfor %}
                     </div>
                   </div>
                 </details>

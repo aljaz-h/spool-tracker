@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.82.1] - 2026-08-09
+
+### Changed
+
+- Runtime bucket labels shortened to `< 90min` / `90-120 min` /
+  `120-150min` / `>150min`.
+- Genres in the Filters panel no longer scroll in a boxed sub-container
+  - they wrap freely, same as the Year decade chips.
+
 ## [0.82.0] - 2026-08-09
 
 ### Added
