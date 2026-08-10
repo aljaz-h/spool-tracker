@@ -116,12 +116,3 @@ docker compose up -d
 
 No Dockerfile, no Node/npm, no build step on the VPS — just pulls the
 published image.
-
-**GHCR image visibility:** the first time the workflow runs, the package
-it creates may default to private, which means `docker compose up -d`
-will fail to pull with an auth error. Go to the repo on GitHub → the
-"Packages" link in the right sidebar → the `spool-tracker` package →
-Package settings → change visibility to Public (there's no secret code in
-the image, so this is safe). Alternatively, keep it private and
-`docker login ghcr.io` on the VPS with a personal access token that has
-`read:packages` scope.
