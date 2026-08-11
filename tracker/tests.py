@@ -2734,6 +2734,73 @@ class UpNextBroadeningTests(TestCase):
         self.assertEqual(len(matching), 1)
 
 
+class UpNextSameDayGroupingTests(TestCase):
+    """Multiple episodes of the same title releasing on the same day (a
+    full-season drop) collapse into a single up_next() card instead of
+    each eating one of the limited slots."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("upnextgroup", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="UpNextGroup")
+        self.title = Title.objects.create(media_type=MediaType.TV, name="Reacher", year=2022)
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.WATCHING)
+        self.release_date = timezone.now() + timedelta(days=1)
+        for ep_num in (1, 2, 3):
+            episode = Episode.objects.create(title=self.title, season=4, episode=ep_num)
+            ReleaseSchedule.objects.create(
+                title=self.title,
+                episode=episode,
+                release_type=ReleaseSchedule.ReleaseType.EPISODE,
+                release_date=self.release_date + timedelta(minutes=ep_num),
+            )
+
+    def test_same_day_episodes_collapse_into_one_item(self):
+        items = selectors.up_next(self.profile)
+        matching = [item for item in items if item["title"] == self.title]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0]["count"], 3)
+
+    def test_caption_shows_the_contiguous_episode_range(self):
+        items = selectors.up_next(self.profile)
+        item = next(item for item in items if item["title"] == self.title)
+        self.assertEqual(item["caption"], "Season 4, Episode 1-3")
+
+    def test_noncontiguous_episode_numbers_are_listed(self):
+        ReleaseSchedule.objects.filter(title=self.title, episode__episode=2).delete()
+        items = selectors.up_next(self.profile)
+        item = next(item for item in items if item["title"] == self.title)
+        self.assertEqual(item["caption"], "Season 4, Episodes 1, 3")
+
+    def test_grouping_does_not_starve_other_titles_out_of_the_limit(self):
+        other = Title.objects.create(media_type=MediaType.TV, name="X-Men '97", year=2024)
+        WatchProgress.objects.create(profile=self.profile, title=other, status=WatchProgress.Status.WATCHING)
+        ReleaseSchedule.objects.create(
+            title=other,
+            release_type=ReleaseSchedule.ReleaseType.EPISODE,
+            release_date=self.release_date + timedelta(minutes=10),
+        )
+        items = selectors.up_next(self.profile, limit=3)
+        titles = [item["title"] for item in items]
+        self.assertIn(self.title, titles)
+        self.assertIn(other, titles)
+
+    def test_single_episode_release_has_count_one_and_no_range(self):
+        solo = Title.objects.create(media_type=MediaType.TV, name="Solo Show", year=2024)
+        WatchProgress.objects.create(profile=self.profile, title=solo, status=WatchProgress.Status.WATCHING)
+        episode = Episode.objects.create(title=solo, season=1, episode=5)
+        ReleaseSchedule.objects.create(
+            title=solo,
+            episode=episode,
+            release_type=ReleaseSchedule.ReleaseType.EPISODE,
+            release_date=self.release_date,
+        )
+        item = next(item for item in selectors.up_next(self.profile, limit=10) if item["title"] == solo)
+        self.assertEqual(item["count"], 1)
+        self.assertEqual(item["caption"], "Season 1, Episode 5")
+
+
 class AppVersionTests(TestCase):
     def test_version_module_reads_the_version_file(self):
         from tracker.version import APP_VERSION
@@ -10138,6 +10205,43 @@ class RecentlyWatchedStillImageTests(TestCase):
         self.assertEqual(events[0].still_url, "https://example.com/movie.jpg")
         self.assertIsNone(events[0].caption)
 
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_caption_falls_back_to_tmdbs_episode_name_when_local_name_is_blank(self, mock_season):
+        from django.utils import timezone
+
+        mock_season.return_value = {
+            "episodes": [{"episode_number": 9, "still_url": None, "name": "Red John's Rules"}]
+        }
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="The Mentalist", year=2008, external_ids={"tmdb": "557", "tmdb_kind": "tv"}
+        )
+        episode = Episode.objects.create(title=title, season=1, episode=9)
+        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
+        events = selectors.recently_watched(self.profile, [MediaType.TV])
+        self.assertEqual(events[0].caption, "S1E9 · Red John's Rules")
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_caption_prefers_the_locally_stored_episode_name_over_tmdbs(self, mock_season):
+        from django.utils import timezone
+
+        mock_season.return_value = {"episodes": [{"episode_number": 1, "still_url": None, "name": "TMDB Name"}]}
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Has Local Name", year=2020, external_ids={"tmdb": "558", "tmdb_kind": "tv"}
+        )
+        episode = Episode.objects.create(title=title, season=1, episode=1, name="Local Name")
+        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
+        events = selectors.recently_watched(self.profile, [MediaType.TV])
+        self.assertEqual(events[0].caption, "S1E1 · Local Name")
+
+    def test_caption_has_no_episode_name_when_neither_source_has_one(self):
+        from django.utils import timezone
+
+        title = Title.objects.create(media_type=MediaType.TV, name="No Name Anywhere", year=2020)
+        episode = Episode.objects.create(title=title, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
+        events = selectors.recently_watched(self.profile, [MediaType.TV])
+        self.assertEqual(events[0].caption, "S1E1")
+
 
 class ActivityFeedGroupingTests(TestCase):
     """A binge (many consecutive same-profile/same-title episode watches)
@@ -13509,6 +13613,17 @@ class TitlePreviewViewTests(TestCase):
         self.assertTrue(resp.context["is_preview"])
         self.assertContains(resp, "Fathom")
         self.assertContains(resp, "Lists")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_shows_the_tmdb_rating_pill_even_though_nothing_is_tracked_yet(
+        self, mock_details, mock_credits, mock_similar
+    ):
+        mock_details.return_value = self._details(vote_average=7.421)
+        resp = self.client.get(reverse("title_preview", args=["movie", 42]))
+        self.assertEqual(resp.context["tmdb_pill"]["display"], "7.4")
+        self.assertContains(resp, "7.4")
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])

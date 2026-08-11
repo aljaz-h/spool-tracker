@@ -169,9 +169,7 @@
   <div class="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8 mb-8">
     <div class="min-w-0">
 
-      {% if not is_preview %}
-        {% include "tracker/partials/title_rating_pills.html" %}
-      {% endif %}
+      {% include "tracker/partials/title_rating_pills.html" %}
 
       {% if details.overview %}
         <h2 class="font-display text-xl mb-3">Description</h2>

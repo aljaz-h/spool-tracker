@@ -8,6 +8,22 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.84.0] - 2026-08-11
+
+### Added
+
+- A movie/TV/anime's TMDB rating now shows on its preview page too, not
+  only after it's been added to a list or watched.
+
+### Changed
+
+- Dashboard's "Up Next" card now collapses multiple episodes of the same
+  show releasing on the same day (e.g. a full-season drop) into one card
+  with a "N×" count and an episode-range caption, instead of each one
+  eating a separate slot.
+- Dashboard's "Recently Watched" cards are bigger, and now fall back to
+  TMDB's episode name when the locally stored one is blank.
+
 ## [0.83.2] - 2026-08-11
 
 ### Changed

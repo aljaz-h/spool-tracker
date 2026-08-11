@@ -1740,6 +1740,13 @@ def title_preview(request, media_type, tmdb_id):
         "watch_providers": tmdb.get_watch_providers(media_type, tmdb_id),
         "status_badge": tmdb.status_badge(details["status"]),
         "release_info": _release_info(details),
+        "tmdb_pill": _tmdb_pill(details),
+        # No local Title row yet, so there's nothing to look up in
+        # TitleRatingsCache (see _mdblist_ratings_context) - a preview
+        # only ever shows the always-on TMDB pill above, not the
+        # supplementary IMDb/RT/Metacritic/Trakt row.
+        "mdblist_ratings": [],
+        "mdblist_pending": False,
         "is_preview": True,
         "preview_media_type": media_type,
         "preview_tmdb_id": tmdb_id,

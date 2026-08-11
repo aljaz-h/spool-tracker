@@ -148,6 +148,22 @@ def _when_label(release_date):
     return f"{d.strftime('%b').upper()} {d.day}"
 
 
+def _episode_range_caption(episodes):
+    """Caption for 2+ episodes of the same title releasing on the same
+    day (e.g. a full-season drop) - "Season 4, Episode 1-3" when the
+    numbers are contiguous, a comma list when they aren't, and an
+    explicit S/E per episode in the (rare) case they span more than one
+    season."""
+    episodes = sorted(episodes, key=lambda e: (e.season, e.episode))
+    if len({e.season for e in episodes}) > 1:
+        return ", ".join(f"S{e.season}E{e.episode}" for e in episodes)
+    numbers = [e.episode for e in episodes]
+    season = episodes[0].season
+    if numbers == list(range(numbers[0], numbers[-1] + 1)):
+        return f"Season {season}, Episode {numbers[0]}-{numbers[-1]}"
+    return f"Season {season}, Episodes " + ", ".join(str(n) for n in numbers)
+
+
 def up_next(profile, limit=3):
     """Dashboard's "Up Next" card. Matches calendar_releases()'s default
     scope - any WatchProgress status, or plain watch history, not just
@@ -156,7 +172,15 @@ def up_next(profile, limit=3):
     old WatchProgress-only query: WatchProgress is at most one row per
     profile+title, but WatchEvent isn't (every episode watched is its own
     row), so joining through it can multiply-match the same
-    ReleaseSchedule row once per watch event without it."""
+    ReleaseSchedule row once per watch event without it.
+
+    Multiple episodes of the same title releasing on the same calendar
+    day (a full-season drop) are collapsed into a single card with a
+    "xN" count and an episode-range caption, instead of one card per
+    episode eating the whole limit - fetches limit * _FETCH_MULTIPLIER
+    raw rows before grouping so a same-day batch doesn't starve later
+    titles out of the final limit slots."""
+    _FETCH_MULTIPLIER = 20
     qs = (
         ReleaseSchedule.objects.filter(
             Q(title__watch_progress__profile=profile) | Q(title__watch_events__profile=profile),
@@ -164,15 +188,42 @@ def up_next(profile, limit=3):
         )
         .select_related("title", "episode")
         .order_by("release_date")
-        .distinct()[:limit]
+        .distinct()[: limit * _FETCH_MULTIPLIER]
     )
-    items = []
+    groups = []
+    group_index = {}
     for rs in qs:
-        if rs.episode:
-            caption = f"Season {rs.episode.season}, Episode {rs.episode.episode}"
+        key = (rs.title_id, timezone.localtime(rs.release_date).date())
+        if key in group_index:
+            groups[group_index[key]]["episodes"].append(rs.episode)
         else:
-            caption = rs.get_release_type_display()
-        items.append({"title": rs.title, "caption": caption, "when": _when_label(rs.release_date)})
+            group_index[key] = len(groups)
+            groups.append(
+                {
+                    "title": rs.title,
+                    "release_date": rs.release_date,
+                    "release_type_display": rs.get_release_type_display(),
+                    "episodes": [rs.episode] if rs.episode else [],
+                }
+            )
+
+    items = []
+    for group in groups[:limit]:
+        episodes = group["episodes"]
+        if len(episodes) > 1:
+            caption = _episode_range_caption(episodes)
+        elif episodes:
+            caption = f"Season {episodes[0].season}, Episode {episodes[0].episode}"
+        else:
+            caption = group["release_type_display"]
+        items.append(
+            {
+                "title": group["title"],
+                "caption": caption,
+                "when": _when_label(group["release_date"]),
+                "count": len(episodes) or 1,
+            }
+        )
     return items
 
 
@@ -367,18 +418,26 @@ def _attach_watch_event_display(events):
             event.still_url = event.title.poster_url or None
             event.caption = None
             continue
-        event.caption = f"S{ep.season}E{ep.episode}" + (f" · {ep.name}" if ep.name else "")
         tmdb_id = event.title.external_ids.get("tmdb")
         cache_key = (tmdb_id, ep.season)
         if tmdb_id and cache_key not in season_cache:
             season_cache[cache_key] = tmdb_integration.get_season_details(tmdb_id, ep.season)
         season_data = season_cache.get(cache_key) or {}
         still_url = None
+        tmdb_name = None
         for ep_data in season_data.get("episodes") or []:
             if ep_data.get("episode_number") == ep.episode:
                 still_url = ep_data.get("still_url")
+                tmdb_name = ep_data.get("name")
                 break
         event.still_url = still_url or event.title.poster_url or None
+        # ep.name is only ever populated by the Trakt/Simkl calendar sync
+        # (spool-handoff-addendum.md §1) - watch history imported from
+        # elsewhere (CSV, older syncs) leaves it blank, so this falls back
+        # to the name in the TMDB season data already fetched above for
+        # the still image, rather than showing no episode name at all.
+        name = ep.name or tmdb_name
+        event.caption = f"S{ep.season}E{ep.episode}" + (f" · {name}" if name else "")
 
 
 def recently_watched(profile, media_types, limit=12):

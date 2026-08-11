@@ -48,7 +48,12 @@
               </div>
               <div class="min-w-0 flex-1">
                 <div class="text-[13px] font-semibold truncate">{{ item.title.name }}</div>
-                <div class="text-xs text-ink-dim truncate">{{ item.caption }}</div>
+                <div class="flex items-center gap-1.5 text-xs text-ink-dim truncate">
+                  {% if item.count > 1 %}
+                    <span class="font-mono text-[9.5px] font-bold bg-primary/90 text-primary-content px-1.5 py-0.5 rounded flex-none">{{ item.count }}&times;</span>
+                  {% endif %}
+                  <span class="truncate">{{ item.caption }}</span>
+                </div>
                 <div class="font-mono text-[11px] font-semibold mt-0.5 {% if item.when == "TODAY" or item.when == "TOMORROW" %}text-primary{% else %}text-base-content{% endif %}">{{ item.when }}</div>
               </div>
             </a>
