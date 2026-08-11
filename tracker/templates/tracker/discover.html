@@ -373,7 +373,14 @@
         {% if is_collections %}
           {% include "tracker/partials/collection_tile.html" with item=item %}
         {% else %}
-          {% include "tracker/partials/discover_tile.html" with item=item %}
+          {% comment %}
+            hide_type_badge=True - every tile on this page is already
+            the one media type the Movies/TV toggle (or, for Anime,
+            always "tv" - see views.discover) picked, so the per-tile
+            MOVIE/TV label would just repeat what the page's own
+            toggle/heading already says.
+          {% endcomment %}
+          {% include "tracker/partials/discover_tile.html" with item=item hide_type_badge=True %}
         {% endif %}
       {% endfor %}
     </div>

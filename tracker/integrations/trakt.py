@@ -256,13 +256,24 @@ def upsert_history_items(profile, items):
         else:
             continue
 
-        already_logged = WatchEvent.objects.filter(
+        existing = WatchEvent.objects.filter(
             profile=profile, title=title, episode=episode, watched_at=watched_at
-        ).exists()
-        if not already_logged:
-            WatchEvent.objects.create(profile=profile, title=title, episode=episode, watched_at=watched_at)
+        ).first()
+        if existing is None:
+            WatchEvent.objects.create(
+                profile=profile, title=title, episode=episode, watched_at=watched_at,
+                source=WatchEvent.Source.TRAKT,
+            )
             created += 1
             touched_watch_keys.add((title.id, episode.id if episode else None))
+        elif not existing.source:
+            # Every sync re-pulls the whole history (no incremental
+            # cursor - see this function's own docstring), so this is how
+            # rows logged before the source field existed get backfilled
+            # with the marker on the next sync, without a one-off
+            # migration/management command - same as nuvio.py's own dedup.
+            existing.source = WatchEvent.Source.TRAKT
+            existing.save(update_fields=["source"])
 
     for title_id, episode_id in touched_watch_keys:
         rewatches.recompute_is_rewatch(

@@ -55,8 +55,19 @@ def _distinct_watch_dates(profile):
 
 
 def _streak_from_dates(dates):
+    """Counts backward from the most recent day that's still "alive" -
+    today itself if it already has a watch, otherwise yesterday (today
+    isn't over yet, so not having watched something *yet* today isn't a
+    missed day). Anchoring unconditionally to today (the previous
+    version) meant the streak reported 0 for anyone who simply hadn't
+    watched anything yet on a given day, even with an unbroken run
+    through yesterday - confirmed as a real user-reported bug, not just
+    a hypothetical edge case. Only two genuinely missed days in a row
+    (nothing today or yesterday) actually breaks the streak now."""
     date_set = set(dates)
-    current, day = 0, timezone.localdate()
+    today = timezone.localdate()
+    day = today if today in date_set else today - timedelta(days=1)
+    current = 0
     while day in date_set:
         current += 1
         day -= timedelta(days=1)

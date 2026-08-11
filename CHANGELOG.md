@@ -8,6 +8,30 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.83.0] - 2026-08-11
+
+### Fixed
+
+- The streak counter no longer resets to 0 just because you haven't
+  watched anything *yet* today - it only breaks once both today and
+  yesterday are missed, instead of requiring today's watch before it'll
+  show any streak at all.
+
+### Added
+
+- History's binge-grouped episode tiles now show a sync-source badge
+  (N/S/T) next to the play-count badge on the poster, not below the
+  title - and it now covers Simkl- and Trakt-synced rows too, not just
+  Nuvio. Rows added directly in Spool still get no badge at all.
+
+### Changed
+
+- Removed the MOVIE/TV badge from Movies & TV/Anime's own grid tiles -
+  every tile there is already the one type the page's toggle/category
+  picked, so the label was redundant. Still shown everywhere else
+  (Dashboard, search, a title's Collection/similar row, ...) where a
+  grid can mix movies and shows.
+
 ## [0.82.3] - 2026-08-11
 
 ### Fixed

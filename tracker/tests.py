@@ -7094,6 +7094,30 @@ class StreaksTests(TestCase):
         self.assertEqual(longest, selectors.longest_streak(self.profile))
         self.assertEqual((current, longest), (3, 3))
 
+    def test_streak_survives_when_todays_watch_hasnt_happened_yet(self):
+        # The reported bug: an unbroken run through yesterday must still
+        # count as a live streak even before today's own watch happens -
+        # today isn't over yet, so "nothing logged yet today" isn't the
+        # same as "missed a day."
+        from django.utils import timezone
+
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Movie", year=2020)
+        for days_ago in range(1, 8):
+            WatchEvent.objects.create(
+                profile=self.profile, title=movie, watched_at=timezone.now() - timedelta(days=days_ago)
+            )
+        self.assertEqual(selectors.current_streak(self.profile), 7)
+
+    def test_streak_breaks_once_both_today_and_yesterday_are_missed(self):
+        from django.utils import timezone
+
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Movie", year=2020)
+        for days_ago in range(2, 9):
+            WatchEvent.objects.create(
+                profile=self.profile, title=movie, watched_at=timezone.now() - timedelta(days=days_ago)
+            )
+        self.assertEqual(selectors.current_streak(self.profile), 0)
+
     def test_streaks_issues_one_query_not_two(self):
         """Regression guard: quick_stats()/stats_overview() used to call
         current_streak()/longest_streak() separately, each re-fetching
@@ -7602,6 +7626,71 @@ class RewatchImportWiringTests(TestCase):
         events = WatchEvent.objects.filter(profile=self.profile)
         self.assertEqual(events.count(), 1)
         self.assertFalse(events.first().is_rewatch)
+
+
+class TraktSimklUpsertHistorySourceTagTests(TestCase):
+    """WatchEvent.source gets tagged trakt/simkl on sync, same marker
+    nuvio.upsert_history_items already sets - see WatchEvent.Source and
+    History's own sync_sources badge (views._build_episode_group)."""
+
+    def setUp(self):
+        user = User.objects.create_user("historysourcetagger", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="HistorySourceTagger")
+
+    @patch("tracker.integrations.tmdb.find_match", return_value=None)
+    def test_trakt_sync_tags_a_new_event(self, mock_find_match):
+        items = [{
+            "type": "movie", "watched_at": "2024-01-01T00:00:00.000Z",
+            "movie": {"title": "Fathom", "year": 2020, "ids": {"trakt": 1}},
+        }]
+        trakt.upsert_history_items(self.profile, items)
+        event = WatchEvent.objects.get(profile=self.profile)
+        self.assertEqual(event.source, WatchEvent.Source.TRAKT)
+
+    @patch("tracker.integrations.tmdb.find_match", return_value=None)
+    def test_simkl_sync_tags_a_new_event(self, mock_find_match):
+        from tracker.integrations import simkl
+
+        items = [{
+            "type": "movie", "watched_at": "2024-01-01T00:00:00.000Z",
+            "movie": {"title": "Fathom", "year": 2020, "ids": {"simkl": 1}},
+        }]
+        simkl.upsert_history_items(self.profile, items)
+        event = WatchEvent.objects.get(profile=self.profile)
+        self.assertEqual(event.source, WatchEvent.Source.SIMKL)
+
+    @patch("tracker.integrations.tmdb.find_match", return_value=None)
+    def test_trakt_resync_backfills_a_pre_existing_blank_source_event(self, mock_find_match):
+        # Same dedup key (title/episode/watched_at) as an event logged
+        # before this field existed - the next sync should tag it
+        # in-place, without duplicating the row.
+        items = [{
+            "type": "movie", "watched_at": "2024-01-01T00:00:00.000Z",
+            "movie": {"title": "Fathom", "year": 2020, "ids": {"trakt": 1}},
+        }]
+        trakt.upsert_history_items(self.profile, items)
+        event = WatchEvent.objects.get(profile=self.profile)
+        event.source = ""
+        event.save(update_fields=["source"])
+        created = trakt.upsert_history_items(self.profile, items)
+        self.assertEqual(created, 0)
+        event.refresh_from_db()
+        self.assertEqual(event.source, WatchEvent.Source.TRAKT)
+        self.assertEqual(WatchEvent.objects.filter(profile=self.profile).count(), 1)
+
+    @patch("tracker.integrations.tmdb.find_match", return_value=None)
+    def test_trakt_resync_does_not_overwrite_a_different_existing_source(self, mock_find_match):
+        items = [{
+            "type": "movie", "watched_at": "2024-01-01T00:00:00.000Z",
+            "movie": {"title": "Fathom", "year": 2020, "ids": {"trakt": 1}},
+        }]
+        trakt.upsert_history_items(self.profile, items)
+        event = WatchEvent.objects.get(profile=self.profile)
+        event.source = WatchEvent.Source.NUVIO
+        event.save(update_fields=["source"])
+        trakt.upsert_history_items(self.profile, items)
+        event.refresh_from_db()
+        self.assertEqual(event.source, WatchEvent.Source.NUVIO)
 
 
 class BackfillRewatchesCommandTests(TestCase):
@@ -9096,6 +9185,21 @@ class DiscoverViewTests(TestCase):
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
+    def test_tiles_have_no_media_type_badge(self, mock_discover, mock_genres):
+        # Every tile on this page is already the one type the Movies/TV
+        # toggle picked (or, for Anime, always "tv") - the per-tile
+        # MOVIE/TV label would just repeat the page's own toggle/heading.
+        mock_discover.return_value = {
+            "results": [{"tmdb_id": 1, "media_type": "movie", "name": "Fathom", "year": "2020",
+                         "poster_url": None, "vote_average": 7.1}],
+            "page": 1,
+            "total_pages": 1,
+        }
+        resp = self.client.get(reverse("movies_tv", args=["popular"]))
+        self.assertNotContains(resp, ">MOVIE<")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
     def test_tile_poster_is_a_lazy_loaded_resized_img(self, mock_discover, mock_genres):
         """discover_tile.html renders posters as <img loading="lazy">
         (not a CSS background-image, which can't be lazy-loaded at all)
@@ -9460,6 +9564,17 @@ class SearchViewTests(TestCase):
         }
         resp = self.client.get(reverse("search"), {"q": "fathom"})
         self.assertContains(resp, "Fathom")
+
+    @patch("tracker.integrations.tmdb.search")
+    def test_results_keep_the_media_type_badge(self, mock_search):
+        # Unlike Movies & TV/Anime's own grid, search results mix movies
+        # and shows in one list, so the per-tile label still earns its
+        # keep here - see discover_tile.html's own hide_type_badge.
+        mock_search.return_value = {
+            "results": [{"tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020", "poster_url": None, "vote_average": 7.5, "overview": ""}]
+        }
+        resp = self.client.get(reverse("search"), {"q": "fathom"})
+        self.assertContains(resp, ">MOVIE<")
 
     @patch("tracker.integrations.tmdb.search")
     def test_tmdb_results_already_tracked_are_excluded(self, mock_search):
@@ -15003,7 +15118,7 @@ class HistoryConsecutiveEpisodeGroupingTests(TestCase):
         self.assertContains(resp, "3 episodes")
         self.assertContains(resp, "S1E1–S1E3")
 
-    def test_group_is_flagged_nuvio_when_every_event_came_from_nuvio_sync(self):
+    def test_group_lists_the_source_when_every_event_came_from_the_same_sync(self):
         events = [
             WatchEvent.objects.create(
                 profile=self.profile, title=self.show,
@@ -15013,14 +15128,14 @@ class HistoryConsecutiveEpisodeGroupingTests(TestCase):
             for i in range(1, 4)
         ]
         grouped = views._group_consecutive_episodes(events)
-        self.assertTrue(grouped[0]["has_nuvio_source"])
+        self.assertEqual(grouped[0]["sync_sources"], ["nuvio"])
 
-    def test_group_is_not_flagged_nuvio_when_events_are_manual(self):
+    def test_group_has_no_sources_when_events_are_manual(self):
         events = [self._watch(episode_num=i, minutes_ago=(20 - i)) for i in range(1, 4)]
         grouped = views._group_consecutive_episodes(events)
-        self.assertFalse(grouped[0]["has_nuvio_source"])
+        self.assertEqual(grouped[0]["sync_sources"], [])
 
-    def test_group_is_flagged_nuvio_when_any_one_event_came_from_nuvio_sync(self):
+    def test_group_lists_the_source_when_any_one_event_came_from_that_sync(self):
         events = [
             self._watch(episode_num=1, minutes_ago=20),
             WatchEvent.objects.create(
@@ -15030,13 +15145,29 @@ class HistoryConsecutiveEpisodeGroupingTests(TestCase):
             ),
         ]
         grouped = views._group_consecutive_episodes(events)
-        self.assertTrue(grouped[0]["has_nuvio_source"])
+        self.assertEqual(grouped[0]["sync_sources"], ["nuvio"])
+
+    def test_group_lists_every_distinct_source_present(self):
+        events = [
+            WatchEvent.objects.create(
+                profile=self.profile, title=self.show,
+                episode=Episode.objects.create(title=self.show, season=1, episode=1),
+                watched_at=self.now - timedelta(minutes=10), source=WatchEvent.Source.NUVIO,
+            ),
+            WatchEvent.objects.create(
+                profile=self.profile, title=self.show,
+                episode=Episode.objects.create(title=self.show, season=1, episode=2),
+                watched_at=self.now - timedelta(minutes=9), source=WatchEvent.Source.TRAKT,
+            ),
+        ]
+        grouped = views._group_consecutive_episodes(events)
+        self.assertEqual(grouped[0]["sync_sources"], ["nuvio", "trakt"])
 
 
 class HistoryNuvioSourceMarkerTests(TestCase):
-    """A small, deliberately temporary visual marker (see CHANGELOG) so
-    Nuvio-synced rows are distinguishable from manually-logged ones while
-    debugging that integration - not a general provenance display."""
+    """A small visual marker distinguishing rows synced/imported from a
+    third-party app (Nuvio/Simkl/Trakt - see WatchEvent.Source) from
+    ones logged directly in Spool, which stay unmarked."""
 
     def setUp(self):
         from django.utils import timezone
@@ -15054,11 +15185,29 @@ class HistoryNuvioSourceMarkerTests(TestCase):
         resp = self.client.get(reverse("history"))
         self.assertContains(resp, "Added by Nuvio sync")
 
+    def test_a_simkl_synced_single_watch_shows_the_marker(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchEvent.objects.create(
+            profile=self.profile, title=movie, watched_at=self.now, source=WatchEvent.Source.SIMKL
+        )
+        resp = self.client.get(reverse("history"))
+        self.assertContains(resp, "Added by Simkl sync")
+
+    def test_a_trakt_synced_single_watch_shows_the_marker(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchEvent.objects.create(
+            profile=self.profile, title=movie, watched_at=self.now, source=WatchEvent.Source.TRAKT
+        )
+        resp = self.client.get(reverse("history"))
+        self.assertContains(resp, "Added by Trakt sync")
+
     def test_a_manually_logged_single_watch_does_not_show_the_marker(self):
         movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
         WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now)
         resp = self.client.get(reverse("history"))
         self.assertNotContains(resp, "Added by Nuvio sync")
+        self.assertNotContains(resp, "Added by Simkl sync")
+        self.assertNotContains(resp, "Added by Trakt sync")
 
     def test_a_nuvio_synced_episode_binge_group_shows_the_marker(self):
         show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
@@ -15071,6 +15220,17 @@ class HistoryNuvioSourceMarkerTests(TestCase):
         resp = self.client.get(reverse("history"))
         self.assertContains(resp, "Added by Nuvio sync")
 
+    def test_a_trakt_synced_episode_binge_group_shows_the_marker(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
+        for i in range(1, 4):
+            ep = Episode.objects.create(title=show, season=1, episode=i)
+            WatchEvent.objects.create(
+                profile=self.profile, title=show, episode=ep,
+                watched_at=self.now - timedelta(minutes=(10 - i)), source=WatchEvent.Source.TRAKT,
+            )
+        resp = self.client.get(reverse("history"))
+        self.assertContains(resp, "Added by Trakt sync")
+
     def test_a_manually_logged_episode_binge_group_does_not_show_the_marker(self):
         show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
         for i in range(1, 4):
@@ -15080,6 +15240,8 @@ class HistoryNuvioSourceMarkerTests(TestCase):
             )
         resp = self.client.get(reverse("history"))
         self.assertNotContains(resp, "Added by Nuvio sync")
+        self.assertNotContains(resp, "Added by Simkl sync")
+        self.assertNotContains(resp, "Added by Trakt sync")
 
 
 class HistoryPaginatesByDateTests(TestCase):

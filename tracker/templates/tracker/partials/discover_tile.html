@@ -1,5 +1,5 @@
 {% load tracker_extras %}
-{# context: item (dict: tmdb_id, media_type, name, year, poster_url, vote_average, optional display_mode), my_lists (list of WatchList, for the list-picker popover), discover_title_by_key/discover_watched/discover_watch_count/discover_list_membership from selectors.discover_action_context() #}
+{# context: item (dict: tmdb_id, media_type, name, year, poster_url, vote_average, optional display_mode), my_lists (list of WatchList, for the list-picker popover), discover_title_by_key/discover_watched/discover_watch_count/discover_list_membership from selectors.discover_action_context(), hide_type_badge (bool, optional - Movies & TV/Anime's own grid passes this, since every tile on that page is already the one type the toggle/category picked; every other renderer of this partial (Dashboard, search, a title's Collection/similar row, a person's filmography, ...) mixes movies and shows in the same grid and still needs the label) #}
 {% comment %}
 Same two-anchor structure as poster_card.html (image box + text block,
 each their own <a>, action bar as a sibling of the image anchor) - see
@@ -27,7 +27,9 @@ a title they've already watched or listed.
       <img src="{{ item.poster_url|poster_size:"w342" }}" alt="{{ item.name }}" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
     {% endif %}
     <a href="{% url 'title_preview' item.media_type item.tmdb_id %}" class="absolute inset-0 z-0">
-      <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ item.media_type|upper }}</span>
+      {% if not hide_type_badge %}
+        <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ item.media_type|upper }}</span>
+      {% endif %}
       {% if item.vote_average %}
         <span class="absolute top-1.5 right-1.5 z-10 font-mono text-[11px] font-bold bg-black/85 px-2 py-1 rounded-md shadow-[0_1px_4px_rgba(0,0,0,0.7)]"><span class="text-amber-400">&#9733;</span> <span class="text-white">{{ item.vote_average|floatformat:1 }}</span></span>
       {% endif %}

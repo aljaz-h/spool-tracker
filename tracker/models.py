@@ -264,12 +264,16 @@ class WatchEvent(models.Model):
     truth for History, streaks, the heatmap, and stats (spool-product-spec.md §2)."""
 
     class Source(models.TextChoices):
-        # Deliberately Nuvio-only for now (user asked for a way to spot
-        # Nuvio-synced rows in History while debugging that integration) -
-        # not a general provenance system, so manual entries, CSV imports,
-        # and Trakt/Simkl syncs all just leave this blank rather than each
-        # getting their own choice.
+        # A row's third-party sync origin, for History's own small badge
+        # marking rows that came from an external app rather than being
+        # logged directly in Spool - not a general provenance system, so
+        # manual entries and CSV imports still just leave this blank
+        # (no badge) rather than getting their own choice. Not a DB
+        # migration - CharField choices aren't enforced at the schema
+        # level, so adding a new one here is safe on its own.
         NUVIO = "nuvio", "Nuvio"
+        SIMKL = "simkl", "Simkl"
+        TRAKT = "trakt", "Trakt"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="watch_events")
     title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="watch_events")
