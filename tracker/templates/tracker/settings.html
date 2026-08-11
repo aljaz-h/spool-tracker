@@ -66,8 +66,10 @@
         x-data="{
           color: '{{ profile.avatar_color }}',
           photoPreview: null,
+          fileName: null,
           onFileChange(e) {
             const file = e.target.files[0];
+            this.fileName = file ? file.name : null;
             if (!file) { this.photoPreview = null; return; }
             const reader = new FileReader();
             reader.onload = () => { this.photoPreview = reader.result; };
@@ -120,7 +122,11 @@
 
             <label class="block text-xs text-ink-dim mb-2">Photo</label>
             <div class="flex items-center gap-2 mb-1.5">
-              <input type="file" name="avatar_image" accept="image/png,image/jpeg,image/webp" @change="onFileChange($event)" class="file-input file-input-sm flex-1 bg-base-100">
+              <label class="flex-1 flex items-stretch h-8 rounded-lg border border-line bg-base-100 overflow-hidden cursor-pointer hover:border-primary transition-colors">
+                <span class="flex items-center px-3 text-xs font-semibold bg-base-300 text-ink-dim flex-none">Choose File</span>
+                <span class="flex items-center px-3 text-xs text-ink-faint truncate" x-text="fileName || 'No file chosen'"></span>
+                <input type="file" name="avatar_image" accept="image/png,image/jpeg,image/webp" @change="onFileChange($event)" class="hidden">
+              </label>
               {% if profile.avatar_image %}
                 <button type="submit" name="remove_photo" value="1" title="Remove photo" class="btn btn-sm btn-square bg-base-300 border-line text-error hover:bg-error hover:text-error-content hover:border-error flex-none">
                   {% icon "trash-2" "w-4 h-4" %}

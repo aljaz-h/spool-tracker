@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.83.2] - 2026-08-11
+
+### Changed
+
+- The profile photo upload's file picker is now custom-styled to match
+  the rest of the site instead of the browser's default "Choose File"
+  button.
+- A friend's profile popup now shows "Member since" next to their role,
+  matching what's already shown on your own Account settings page.
+
 ## [0.83.1] - 2026-08-11
 
 ### Changed

@@ -7,7 +7,11 @@
   {% endif %}
   <div>
     <div class="text-lg font-semibold">{{ target.display_name }}</div>
-    <div class="text-xs text-ink-dim font-mono">{% if target.is_owner %}Owner{% else %}Member{% endif %}</div>
+    <div class="flex items-center gap-2 text-xs text-ink-dim font-mono">
+      <span>{% if target.is_owner %}Owner{% else %}Member{% endif %}</span>
+      <span class="text-ink-faint">&middot;</span>
+      <span>Member since {{ target.created_at|date:"F Y" }}</span>
+    </div>
   </div>
 </div>
 
