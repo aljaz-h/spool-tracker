@@ -60,9 +60,13 @@
       CSS-only drawer requires drawer-side to be a literal sibling of
       the drawer checkbox, which ruled out one shared <form>, hence the
       old hx-include bridging both directions); a plain Alpine popover
-      has no such constraint.
+      has no such constraint. @scroll.window closes it too - the
+      trigger sits in the ordinary scrolling page (not a sticky header
+      like the topbar's own dropdowns), so the panel's once-computed
+      top/left would otherwise stay stuck at that original screen
+      position as the page scrolls past it.
     {% endcomment %}
-    <div class="relative" @click.outside="open = false" x-data="{
+    <div class="relative" @click.outside="open = false" @scroll.window="open = false" x-data="{
       open: false,
       togglePanel(button) {
         this.open = !this.open;

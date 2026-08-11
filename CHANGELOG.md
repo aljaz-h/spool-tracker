@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.82.3] - 2026-08-11
+
+### Fixed
+
+- The Movies & TV / Anime and History Filters panels now close when
+  the page is scrolled, instead of staying visually stuck at the
+  screen position they first opened at (their trigger button isn't in
+  a sticky header, so the panel's once-computed position no longer
+  matched the button once you scrolled past it).
+
 ## [0.82.2] - 2026-08-09
 
 ### Fixed

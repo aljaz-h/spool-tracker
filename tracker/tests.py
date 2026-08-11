@@ -9354,6 +9354,19 @@ class DiscoverViewTests(TestCase):
         self.assertContains(resp, 'w-1.5 h-1.5 rounded-full bg-primary')
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_filters_panel_closes_on_scroll(self, mock_discover, mock_genres):
+        # The panel is position:fixed with its top/left computed once on
+        # open (getBoundingClientRect) - the trigger isn't in a sticky
+        # header like the topbar's own dropdowns, so without this the
+        # panel would stay stuck at that original screen position as the
+        # page scrolls past the (now-moved) button instead of following
+        # or disappearing with it.
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies_tv", args=["trending"]))
+        self.assertContains(resp, '@scroll.window="open = false"')
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover_by_decades")
     def test_an_active_decade_filter_lights_up_the_filters_dot(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
@@ -14808,6 +14821,12 @@ class HistorySearchAndMostWatchedTests(TestCase):
         self.assertContains(resp, 'name="sort"')
         self.assertContains(resp, "Most watched")
         self.assertContains(resp, "Least watched")
+
+    def test_filters_panel_closes_on_scroll(self):
+        # Same fix/reasoning as Discover's own Filters panel - see
+        # DiscoverViewTests.test_filters_panel_closes_on_scroll.
+        resp = self.client.get(reverse("history"))
+        self.assertContains(resp, '@scroll.window="open = false"')
 
 
 class HistoryToolbarStaysInSyncTests(TestCase):

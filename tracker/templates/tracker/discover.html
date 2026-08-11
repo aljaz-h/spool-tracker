@@ -51,8 +51,17 @@
         notifications/friends/profile dropdowns (partials/topbar.html) -
         those never had this problem, since x-show/x-cloak only touch
         display/opacity, never a permanent transform layer.
+
+        Unlike the topbar's own trigger buttons (inside a sticky
+        header, so they never move once scrolled to the top), this
+        Filters button sits in the ordinary scrolling page - the
+        panel's top/left are only computed once, on open
+        (getBoundingClientRect), so without @scroll.window closing it,
+        scrolling the page leaves the fixed-positioned panel visually
+        stuck at that original screen position instead of following
+        (or disappearing with) the button it's meant to be anchored to.
       {% endcomment %}
-      <div class="relative" @click.outside="open = false" x-data="{
+      <div class="relative" @click.outside="open = false" @scroll.window="open = false" x-data="{
         open: false,
         togglePanel(button) {
           this.open = !this.open;
