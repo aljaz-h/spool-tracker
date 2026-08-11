@@ -8,6 +8,13 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.83.1] - 2026-08-11
+
+### Changed
+
+- The profile dropdown's Settings and Log out entries now show an icon
+  next to their label, matching the other header menus.
+
 ## [0.83.0] - 2026-08-11
 
 ### Fixed
