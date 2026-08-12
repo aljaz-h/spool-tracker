@@ -342,7 +342,14 @@ class WatchEvent(models.Model):
 
     class Meta:
         ordering = ["-watched_at"]
-        indexes = [models.Index(fields=["profile", "watched_at"])]
+        indexes = [
+            models.Index(fields=["profile", "watched_at"]),
+            # profile+title (no watched_at) - the shape most call sites
+            # actually filter on (a title's own watch history/count on its
+            # detail page), not covered by the index above since watched_at
+            # isn't a leading/matching column for that query.
+            models.Index(fields=["profile", "title"]),
+        ]
 
     def __str__(self):
         return f"{self.profile} watched {self.title} @ {self.watched_at:%Y-%m-%d}"
@@ -380,6 +387,10 @@ class WatchProgress(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["profile", "title"], name="unique_progress_per_profile_title")
         ]
+        # The profile+title unique constraint above doesn't help a
+        # profile+status lookup (Watching tab, dashboard's completed
+        # count) - status isn't a leading column of it.
+        indexes = [models.Index(fields=["profile", "status"])]
 
     def __str__(self):
         return f"{self.profile} · {self.title} ({self.status})"
@@ -519,6 +530,10 @@ class Notification(models.Model):
                 name="unique_notification_per_profile_kind_release",
             )
         ]
+        # profile+read - the unread-badge count runs on every page load
+        # (context_processors.py) and isn't covered by the constraint
+        # above (read isn't one of its columns).
+        indexes = [models.Index(fields=["profile", "read"])]
 
     def __str__(self):
         return f"{self.profile}: {self.message}"
@@ -561,6 +576,10 @@ class Recommendation(models.Model):
                 name="unique_pending_recommendation",
             )
         ]
+        # to_profile+status - the pending-recommendations query (a
+        # recipient's own inbox) isn't covered by the constraint above,
+        # since that's scoped to (from_profile, to_profile, title).
+        indexes = [models.Index(fields=["to_profile", "status"])]
 
     def __str__(self):
         return f"{self.from_profile} recommended {self.title} to {self.to_profile}"

@@ -112,7 +112,23 @@ def continue_watching(profile, media_types=None, limit=8):
     qs = qs.select_related("title", "current_episode").order_by("-updated_at")
     if limit:
         qs = qs[:limit]
-    for progress in qs:
+    progresses = list(qs)
+
+    # One grouped query for every non-movie row's season episode-count,
+    # instead of a Episode.objects.filter(...).count() per row - dashboard
+    # calls this with limit=None (the full Watching list), so a per-row
+    # query would scale with how many shows a profile has in progress.
+    non_movie_title_ids = [p.title_id for p in progresses if p.title.media_type != MediaType.MOVIE]
+    season_totals = {}
+    if non_movie_title_ids:
+        rows = (
+            Episode.objects.filter(title_id__in=non_movie_title_ids)
+            .values("title_id", "season")
+            .annotate(total=Count("id"))
+        )
+        season_totals = {(r["title_id"], r["season"]): r["total"] for r in rows}
+
+    for progress in progresses:
         title = progress.title
         if title.media_type == MediaType.MOVIE:
             total_seconds = (title.runtime_minutes or 0) * 60
@@ -126,7 +142,7 @@ def continue_watching(profile, media_types=None, limit=8):
             ep = progress.current_episode
             percent, caption = 0, "In progress"
             if ep:
-                total_eps = Episode.objects.filter(title=title, season=ep.season).count()
+                total_eps = season_totals.get((title.id, ep.season), 0)
                 if total_eps:
                     percent = min(100, round(ep.episode / total_eps * 100))
                     caption = f"S{ep.season}E{ep.episode} of {total_eps}"

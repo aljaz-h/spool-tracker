@@ -8,6 +8,21 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.92.2] - 2026-08-12
+
+### Fixed
+
+- Add composite database indexes for `WatchEvent(profile,title)`,
+  `Notification(profile,read)`, `WatchProgress(profile,status)`, and
+  `Recommendation(to_profile,status)` - the four highest-traffic
+  profile-scoped lookups (a title's own watch history, the unread-badge
+  count on every page load, the Watching tab, a profile's pending
+  recommendations) weren't covered by any existing index.
+- Batch `continue_watching()`'s per-show episode-count lookup into a
+  single grouped query instead of one `Episode.objects.filter(...).count()`
+  per row - the Dashboard's Watching section calls this with no limit, so
+  query count scaled with how many shows a profile has in progress.
+
 ## [0.92.1] - 2026-08-12
 
 ### Fixed
