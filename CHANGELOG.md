@@ -8,6 +8,21 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.92.4] - 2026-08-12
+
+### Fixed
+
+- `docker-compose.yml`/`docker-compose.prod.yml`'s `web` service
+  hardcoded `--workers 3` in its own startup `command:`, which overrides
+  the Dockerfile's `CMD` entirely - meaning `GUNICORN_WORKERS`/
+  `GUNICORN_THREADS` never actually took effect in a real `docker
+  compose up` deployment despite being configurable env vars. Both
+  compose files now read them the same way the Dockerfile does.
+- Added `CELERY_WORKER_CONCURRENCY` (default 4) - every periodic/
+  on-demand Celery task does blocking network I/O (TMDB/Trakt/Simkl/
+  Nuvio/MDBList), so Celery's own per-CPU-core default concurrency could
+  leave a slow sync serializing behind other queued work.
+
 ## [0.92.3] - 2026-08-12
 
 ### Fixed

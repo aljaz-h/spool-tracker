@@ -41,7 +41,7 @@ services:
     command: >
       sh -c "python manage.py migrate &&
              python manage.py bootstrap_admin &&
-             gunicorn spool.wsgi:application --bind 0.0.0.0:8000 --workers 3"
+             gunicorn spool.wsgi:application --bind 0.0.0.0:8000 --workers ${GUNICORN_WORKERS:-3} --threads ${GUNICORN_THREADS:-2}"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
       interval: 10s
@@ -57,7 +57,12 @@ services:
     env_file: .env
     volumes:
       - media_data:/app/media
-    command: celery -A spool worker -l info
+    # Every periodic/on-demand task here does blocking network I/O
+    # (TMDB/Trakt/Simkl/Nuvio/MDBList calls) - Celery's own per-CPU-core
+    # default concurrency can leave a slow sync serializing behind other
+    # queued work on a small instance, so this is explicit rather than
+    # left at the default like GUNICORN_WORKERS/THREADS above.
+    command: celery -A spool worker -l info --concurrency=${CELERY_WORKER_CONCURRENCY:-4}
 
   scheduler:
     build: .
