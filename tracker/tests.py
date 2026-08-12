@@ -4838,15 +4838,6 @@ class SyncNuvioHistoryTaskTests(TestCase):
         self.assertEqual(tasks.sync_nuvio_history(self.profile_a.id), 0)
         mock_refresh.assert_not_called()
 
-    @patch("tracker.tasks.sync_nuvio_history.delay")
-    @patch("tracker.tasks.sync_simkl_history.delay")
-    @patch("tracker.tasks.sync_trakt_history.delay")
-    def test_sync_all_connected_accounts_fans_out_to_nuvio_too(self, mock_trakt, mock_simkl, mock_nuvio):
-        dispatched = tasks.sync_all_connected_accounts()
-        mock_nuvio.assert_any_call(self.profile_a.id)
-        mock_nuvio.assert_any_call(self.profile_b.id)
-        self.assertEqual(dispatched, 2)
-
 
 class SyncTokenRefreshTests(TestCase):
     def setUp(self):

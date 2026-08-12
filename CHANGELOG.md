@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.92.3] - 2026-08-12
+
+### Fixed
+
+- Removed `sync_all_connected_accounts`, a leftover blanket daily-sync
+  Celery task superseded by per-account scheduled tasks a while back -
+  it hadn't been wired to any schedule since, but stayed reachable
+  enough (its own test, a stale docstring reference) to risk someone
+  reintroducing it as a schedule and double-syncing accounts.
+
 ## [0.92.2] - 2026-08-12
 
 ### Fixed

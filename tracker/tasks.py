@@ -214,24 +214,6 @@ def run_data_import(log_id, profile_id, path, kind, mapping=None):
 
 
 @shared_task
-def sync_all_connected_accounts():
-    """Daily beat job (see tracker/management/commands/bootstrap_periodic_tasks.py)
-    — fans out to a per-account task per spool-handoff-addendum.md §1's
-    "same sync job... on a schedule (e.g. daily)"."""
-    dispatched = 0
-    for account in ExternalAccount.objects.all():
-        if account.provider == ExternalAccount.Provider.TRAKT:
-            sync_trakt_history.delay(account.profile_id)
-        elif account.provider == ExternalAccount.Provider.SIMKL:
-            sync_simkl_history.delay(account.profile_id)
-        dispatched += 1
-    for connection in NuvioConnection.objects.filter(sync_enabled=True):
-        sync_nuvio_history.delay(connection.profile_id)
-        dispatched += 1
-    return dispatched
-
-
-@shared_task
 def sync_release_schedules():
     """Nightly beat job (see bootstrap_periodic_tasks.py) - refreshes
     ReleaseSchedule for every title anyone in the household is watching,
