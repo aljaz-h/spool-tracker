@@ -8,6 +8,20 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.93.1] - 2026-08-12
+
+### Fixed
+
+- Discover pagination (Movies/TV/Anime, and the Filters panel's Display
+  toggle in hide mode) merges up to 9 real TMDB pages into one Spool
+  page, previously fetched one-after-another - now the first page fetches
+  alone (its own total_pages tells the rest how many pages actually
+  exist to fetch), and the remainder fetch in parallel, cutting worst-case
+  latency roughly in proportion to how many pages get merged. Also
+  switched TMDB requests onto a shared, connection-pooled session instead
+  of opening a fresh one per call.
+
+
 ## [0.93.0] - 2026-08-12
 
 ### Added

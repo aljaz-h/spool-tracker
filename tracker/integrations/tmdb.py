@@ -20,6 +20,7 @@ import itertools
 import json
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -27,6 +28,17 @@ logger = logging.getLogger(__name__)
 
 API_BASE = "https://api.themoviedb.org/3"
 IMAGE_BASE = "https://image.tmdb.org/t/p/w500"
+
+# Shared across every _list_request call (list, detail, credits, search,
+# ...) so requests to api.themoviedb.org reuse pooled/keep-alive TCP+TLS
+# connections instead of paying a fresh handshake per call - bare
+# requests.get(...) is a module-level convenience wrapper that opens and
+# discards its own Session every time, so this is a real, free win. Safe
+# to share across discover()'s own ThreadPoolExecutor workers below:
+# no cookies/auth state is ever mutated on it (the api_key is a plain
+# per-call query param), and urllib3's connection pool underneath a
+# Session is itself thread-safe.
+_http_session = requests.Session()
 
 # TMDB has no separate "anime" category - anime shows and anime movies both
 # just live in its ordinary tv/movie search, so anime tries both, tv first
@@ -253,10 +265,15 @@ def _cache_key(path, params):
     return "tmdb:" + hashlib.sha1(f"{path}:{normalized}".encode()).hexdigest()
 
 
-def _list_request(path, params=None):
+def _list_request(path, params=None, api_key=None):
+    """api_key lets a caller resolve it once and pass it through, rather
+    than each call hitting _api_key()'s own InstanceConfig.load() DB read -
+    discover()'s parallel page fetches (below) rely on this so their worker
+    threads never touch the DB independently/concurrently, only the
+    already-pooled cache/HTTP clients."""
     from django.core.cache import cache
 
-    api_key = _api_key()
+    api_key = api_key if api_key is not None else _api_key()
     if not api_key:
         return {"results": [], "total_pages": 0}
     params = params or {}
@@ -274,7 +291,7 @@ def _list_request(path, params=None):
         return cached
 
     try:
-        resp = requests.get(f"{API_BASE}/{path}", params={"api_key": api_key, **params}, timeout=10)
+        resp = _http_session.get(f"{API_BASE}/{path}", params={"api_key": api_key, **params}, timeout=10)
         resp.raise_for_status()
     except requests.RequestException:
         logger.warning("TMDB list request failed for %s", path, exc_info=True)
@@ -547,17 +564,43 @@ def discover(media_type, category="popular", page=1, genre_ids=None, year_from=N
         params["watch_region"] = AVAILABILITY_WATCH_REGION
         params["with_watch_monetization_types"] = AVAILABILITY_CHOICES[availability]
 
+    # page_size real TMDB pages get merged into one logical Spool page (see
+    # RESULTS_PAGE_SIZE) - fetched as one sequential call (page 1) followed
+    # by up to page_size-1 more *in parallel*, not one-after-another. The
+    # first page has to come first regardless: its own total_pages is what
+    # tells the rest of this function how many of the remaining pages are
+    # even worth requesting (TMDB returns an empty results list rather than
+    # an error for an out-of-range page, but there's no reason to spend a
+    # request finding that out when the first page already said so).
+    # Resolved once here rather than left to each _list_request call's own
+    # _api_key() - that reads InstanceConfig from the DB, and the parallel
+    # calls below run on worker threads that should never need to touch
+    # the DB independently/concurrently themselves.
+    api_key = _api_key()
     tmdb_start_page = (page - 1) * page_size + 1
     results = []
-    total_pages_raw = 0
-    for offset in range(page_size):
-        tmdb_page = tmdb_start_page + offset
-        data = _list_request(f"discover/{media_type}", {**params, "page": tmdb_page})
-        total_pages_raw = data.get("total_pages") or total_pages_raw
-        page_results = data.get("results") or []
-        results.extend(_normalize_result(r, media_type) for r in page_results)
-        if not page_results or tmdb_page >= total_pages_raw:
-            break
+    first_data = _list_request(f"discover/{media_type}", {**params, "page": tmdb_start_page}, api_key=api_key)
+    total_pages_raw = first_data.get("total_pages") or 0
+    first_results = first_data.get("results") or []
+    results.extend(_normalize_result(r, media_type) for r in first_results)
+
+    if first_results and page_size > 1 and tmdb_start_page < total_pages_raw:
+        remaining_pages = [
+            p for p in range(tmdb_start_page + 1, tmdb_start_page + page_size) if p <= total_pages_raw
+        ]
+        if remaining_pages:
+            with ThreadPoolExecutor(max_workers=len(remaining_pages)) as executor:
+                # executor.map yields results in the order its inputs were
+                # given, not completion order (blocking on each in turn as
+                # needed) - so this merges in TMDB page order every time,
+                # regardless of which parallel request actually finishes
+                # first.
+                for page_data in executor.map(
+                    lambda p: _list_request(f"discover/{media_type}", {**params, "page": p}, api_key=api_key),
+                    remaining_pages,
+                ):
+                    page_results = page_data.get("results") or []
+                    results.extend(_normalize_result(r, media_type) for r in page_results)
 
     return {
         "results": results,

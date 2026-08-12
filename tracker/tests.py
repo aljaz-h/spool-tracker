@@ -922,7 +922,7 @@ class TmdbDetailsTests(TestCase):
         return resp
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_movie_details_returns_runtime(self, mock_get):
         mock_get.return_value = self._response({"id": 42, "runtime": 118})
         details = tmdb.get_movie_details(42)
@@ -934,7 +934,7 @@ class TmdbDetailsTests(TestCase):
         self.assertIsNone(tmdb.get_movie_details(42))
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_movie_details_returns_none_on_request_exception(self, mock_get):
         import requests
 
@@ -942,7 +942,7 @@ class TmdbDetailsTests(TestCase):
         self.assertIsNone(tmdb.get_movie_details(42))
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_tv_details_parses_episode_count_and_runtime(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -964,14 +964,14 @@ class TmdbDetailsTests(TestCase):
         ])
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_tv_details_handles_missing_episode_run_time(self, mock_get):
         mock_get.return_value = self._response({"id": 99, "number_of_episodes": 24, "seasons": []})
         details = tmdb.get_tv_details(99)
         self.assertIsNone(details["episode_run_time"])
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_movie_certification_skips_empty_entries(self, mock_get):
         # A US movie's release_dates carries several entries (festival/
         # theatrical/digital/...), most with an empty certification
@@ -999,7 +999,7 @@ class TmdbDetailsTests(TestCase):
         self.assertEqual(mock_get.call_args.kwargs["params"]["append_to_response"], "release_dates")
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_tv_certification_reads_us_rating(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -1011,7 +1011,7 @@ class TmdbDetailsTests(TestCase):
         self.assertEqual(details["certification"], "TV-MA")
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_certification_none_when_no_us_entry(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -7882,8 +7882,19 @@ class TmdbDiscoverTests(TestCase):
         resp.raise_for_status = Mock()
         return resp
 
+    def _response_by_page(self, responses_by_page):
+        """A side_effect function keyed by the requested TMDB page number,
+        rather than an order-dependent side_effect list - discover() fetches
+        its non-first pages concurrently (see its own docstring), so
+        multiple threads can call this mock at once and there's no
+        guarantee the Nth call is the Nth item requested; only the page
+        number in each individual call's own params is reliable."""
+        def side_effect(url, params=None, timeout=None):
+            return responses_by_page[params["page"]]
+        return side_effect
+
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_normalizes_movie_result_fields(self, mock_get):
         mock_get.return_value = self._response(
             [{"id": 42, "title": "Fathom", "release_date": "2020-05-01", "poster_path": "/x.jpg", "vote_average": 7.5}]
@@ -7897,7 +7908,7 @@ class TmdbDiscoverTests(TestCase):
         self.assertEqual(r["vote_average"], 7.5)
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_normalizes_tv_result_fields_and_handles_no_poster(self, mock_get):
         mock_get.return_value = self._response(
             [{"id": 99, "name": "Cinder Street", "first_air_date": "2022-01-01", "poster_path": None}]
@@ -7909,7 +7920,7 @@ class TmdbDiscoverTests(TestCase):
         self.assertIsNone(r["poster_url"])
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_top_rated_sets_sort_and_vote_count_floor(self, mock_get):
         mock_get.return_value = self._response([])
         tmdb.discover("movie", category="top_rated")
@@ -7918,7 +7929,7 @@ class TmdbDiscoverTests(TestCase):
         self.assertEqual(params["vote_count.gte"], 200)
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_upcoming_filters_to_future_dates_sorted_ascending(self, mock_get):
         mock_get.return_value = self._response([])
         tmdb.discover("movie", category="upcoming")
@@ -7927,7 +7938,7 @@ class TmdbDiscoverTests(TestCase):
         self.assertEqual(params["sort_by"], "primary_release_date.asc")
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_filters_pass_through_to_discover_params(self, mock_get):
         mock_get.return_value = self._response([])
         tmdb.discover(
@@ -7957,7 +7968,7 @@ class TmdbDiscoverTests(TestCase):
         self.assertEqual(params["with_companies"], "420")
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_always_excludes_adult_and_unsafe_keywords(self, mock_get):
         # Not opt-in - TMDB's own adult=false default isn't reliable
         # enough on its own for anime/hentai (see _UNSAFE_KEYWORD_IDS'
@@ -7971,7 +7982,7 @@ class TmdbDiscoverTests(TestCase):
         self.assertEqual(params["without_keywords"], tmdb._UNSAFE_KEYWORD_IDS)
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_certification_applied_for_movies(self, mock_get):
         mock_get.return_value = self._response([])
         tmdb.discover("movie", category="popular", certification="R")
@@ -7980,7 +7991,7 @@ class TmdbDiscoverTests(TestCase):
         self.assertEqual(params["certification_country"], "US")
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_certification_is_a_no_op_for_tv(self, mock_get):
         # /discover/tv has no certification filter param at all - passing
         # one through anyway would just be silently ignored by TMDB (or
@@ -7992,7 +8003,7 @@ class TmdbDiscoverTests(TestCase):
         self.assertNotIn("certification_country", params)
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_status_applied_for_tv(self, mock_get):
         mock_get.return_value = self._response([])
         tmdb.discover("tv", category="popular", status="Ended")
@@ -8000,7 +8011,7 @@ class TmdbDiscoverTests(TestCase):
         self.assertEqual(params["with_status"], tmdb.TV_STATUSES["Ended"])
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_status_is_a_no_op_for_movies(self, mock_get):
         # /discover/movie has no status-filter param at all (verified live -
         # applying with_status there is silently ignored) - mirror image of
@@ -8011,7 +8022,7 @@ class TmdbDiscoverTests(TestCase):
         self.assertNotIn("with_status", params)
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_availability_applied_for_movies_and_tv(self, mock_get):
         mock_get.return_value = self._response([])
         tmdb.discover("movie", category="popular", availability="streaming")
@@ -8026,7 +8037,7 @@ class TmdbDiscoverTests(TestCase):
         self.assertEqual(params["with_watch_monetization_types"], "flatrate|free|ads|rent|buy")
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_no_availability_param_when_unset(self, mock_get):
         mock_get.return_value = self._response([])
         tmdb.discover("movie", category="popular")
@@ -8041,7 +8052,7 @@ class TmdbDiscoverTests(TestCase):
         self.assertEqual(page["total_pages"], 0)
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_returns_empty_on_request_exception(self, mock_get):
         import requests
 
@@ -8050,7 +8061,7 @@ class TmdbDiscoverTests(TestCase):
         self.assertEqual(page["results"], [])
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_genres_returns_id_name_list(self, mock_get):
         resp = Mock()
         resp.json.return_value = {"genres": [{"id": 16, "name": "Animation"}]}
@@ -8059,22 +8070,24 @@ class TmdbDiscoverTests(TestCase):
         self.assertEqual(tmdb.genres("movie"), [{"id": 16, "name": "Animation"}])
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_merges_multiple_tmdb_pages_to_fill_a_bigger_grid(self, mock_get):
         # A single TMDB page (20 results) barely fills 2 grid rows -
         # discover() merges RESULTS_PAGE_SIZE (3) consecutive TMDB pages
         # into one logical page instead, so the grid gets ~6 rows worth.
-        mock_get.side_effect = [
-            self._response([{"id": n, "title": f"Movie {n}", "release_date": "2020-01-01"}], total_pages=5, page=n)
+        # Results still merge back in TMDB page order (1, 2, 3) even
+        # though pages 2-3 are fetched concurrently, not sequentially.
+        mock_get.side_effect = self._response_by_page({
+            n: self._response([{"id": n, "title": f"Movie {n}", "release_date": "2020-01-01"}], total_pages=5, page=n)
             for n in (1, 2, 3)
-        ]
+        })
         page = tmdb.discover("movie", category="popular")
         self.assertEqual(mock_get.call_count, 3)
         self.assertEqual([r["tmdb_id"] for r in page["results"]], [1, 2, 3])
         self.assertEqual(page["total_pages"], 2)  # ceil(5 TMDB pages / 3 per merged page)
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_stops_early_when_tmdb_has_fewer_pages_than_the_merge_width(self, mock_get):
         mock_get.side_effect = [
             self._response([{"id": n, "title": f"Movie {n}", "release_date": "2020-01-01"}], total_pages=2, page=n)
@@ -8085,33 +8098,37 @@ class TmdbDiscoverTests(TestCase):
         self.assertEqual(page["total_pages"], 1)  # ceil(2/3)
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_page_2_starts_at_the_right_tmdb_page_offset(self, mock_get):
         mock_get.return_value = self._response(
             [{"id": 1, "title": "Filler", "release_date": "2020-01-01"}], total_pages=10
         )
         tmdb.discover("movie", category="popular", page=2)
-        called_pages = [c.kwargs["params"]["page"] for c in mock_get.call_args_list]
-        self.assertEqual(called_pages, [4, 5, 6])
+        # Order-independent - page 4 (the first page) is always requested
+        # first, but 5/6 are fetched concurrently afterward (see
+        # discover()'s own docstring), so their relative call order isn't
+        # guaranteed the way a purely sequential fetch's would be.
+        called_pages = {c.kwargs["params"]["page"] for c in mock_get.call_args_list}
+        self.assertEqual(called_pages, {4, 5, 6})
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_page_size_override_widens_the_merged_pool(self, mock_get):
         # views.discover raises this above RESULTS_PAGE_SIZE when the
         # Display filter is hiding watched/watchlisted titles, so a
         # near-empty filtered page is far less likely - see
         # DISCOVER_HIDE_MODE_PAGE_SIZE.
-        mock_get.side_effect = [
-            self._response([{"id": n, "title": f"Movie {n}", "release_date": "2020-01-01"}], total_pages=20, page=n)
+        mock_get.side_effect = self._response_by_page({
+            n: self._response([{"id": n, "title": f"Movie {n}", "release_date": "2020-01-01"}], total_pages=20, page=n)
             for n in range(1, 10)
-        ]
+        })
         page = tmdb.discover("movie", category="popular", page_size=9)
         self.assertEqual(mock_get.call_count, 9)
         self.assertEqual([r["tmdb_id"] for r in page["results"]], list(range(1, 10)))
         self.assertEqual(page["total_pages"], 3)  # ceil(20 TMDB pages / 9 per merged page)
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_upcoming_date_floor_survives_a_slider_at_its_default_lower_bound(self, mock_get):
         # The year range slider always submits a value, even untouched -
         # a wide-open year_from (e.g. 1950) must not push "upcoming"'s
@@ -8124,7 +8141,7 @@ class TmdbDiscoverTests(TestCase):
         self.assertEqual(params["primary_release_date.gte"], datetime.date.today().isoformat())
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_upcoming_date_floor_is_overridden_by_a_stricter_year_from(self, mock_get):
         mock_get.return_value = self._response([])
         tmdb.discover("movie", category="upcoming", year_from=2030)
@@ -8239,7 +8256,7 @@ class TmdbSearchTests(TestCase):
         return resp
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_calls_search_multi_with_the_query(self, mock_get):
         mock_get.return_value = self._response([])
         tmdb.search("dune")
@@ -8247,14 +8264,14 @@ class TmdbSearchTests(TestCase):
         self.assertEqual(mock_get.call_args.kwargs["params"]["query"], "dune")
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_excludes_adult_results(self, mock_get):
         mock_get.return_value = self._response([])
         tmdb.search("dune")
         self.assertEqual(mock_get.call_args.kwargs["params"]["include_adult"], "false")
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_normalizes_movie_and_tv_results_using_their_own_media_type(self, mock_get):
         mock_get.return_value = self._response(
             [
@@ -8269,7 +8286,7 @@ class TmdbSearchTests(TestCase):
         self.assertEqual(results[1]["name"], "Cinder Street")
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_person_results_are_dropped(self, mock_get):
         mock_get.return_value = self._response(
             [{"id": 3, "media_type": "person", "name": "Some Actor"}]
@@ -8281,7 +8298,7 @@ class TmdbSearchTests(TestCase):
         self.assertEqual(tmdb.search("x")["results"], [])
 
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_is_anime_flag_set_for_animation_genre_and_japanese_language(self, mock_get):
         mock_get.return_value = self._response(
             [
@@ -8361,7 +8378,7 @@ class TmdbSearchYearAndAutocorrectTests(TestCase):
 
     @override_settings(TMDB_API_KEY="test-key")
     @patch("tracker.integrations.tmdb._get_spellchecker")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_year_qualified_query_merges_in_the_year_specific_match(self, mock_get, mock_spell):
         mock_spell.return_value = Mock(correction=lambda w: w)
 
@@ -8383,7 +8400,7 @@ class TmdbSearchYearAndAutocorrectTests(TestCase):
 
     @override_settings(TMDB_API_KEY="test-key")
     @patch("tracker.integrations.tmdb._get_spellchecker")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_exact_year_match_is_sorted_before_other_years(self, mock_get, mock_spell):
         mock_spell.return_value = Mock(correction=lambda w: w)
 
@@ -8406,7 +8423,7 @@ class TmdbSearchYearAndAutocorrectTests(TestCase):
 
     @override_settings(TMDB_API_KEY="test-key")
     @patch("tracker.integrations.tmdb._get_spellchecker")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_no_year_never_calls_search_movie_or_tv(self, mock_get, mock_spell):
         mock_spell.return_value = Mock(correction=lambda w: w)
         mock_get.return_value = self._response([])
@@ -8417,7 +8434,7 @@ class TmdbSearchYearAndAutocorrectTests(TestCase):
 
     @override_settings(TMDB_API_KEY="test-key")
     @patch("tracker.integrations.tmdb._get_spellchecker")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_typo_retries_with_the_corrected_spelling(self, mock_get, mock_spell):
         mock_spell.return_value = Mock(correction=lambda w: "avengers" if w == "avangers" else w)
 
@@ -8435,7 +8452,7 @@ class TmdbSearchYearAndAutocorrectTests(TestCase):
 
     @override_settings(TMDB_API_KEY="test-key")
     @patch("tracker.integrations.tmdb._get_spellchecker")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_correctly_spelled_query_skips_the_second_call(self, mock_get, mock_spell):
         mock_spell.return_value = Mock(correction=lambda w: w)  # never changes anything
         mock_get.return_value = self._response([])
@@ -8552,7 +8569,7 @@ class TmdbCollectionsTests(TestCase):
         resp.raise_for_status = Mock()
         return resp
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_dedupes_and_normalizes_collections_found_on_popular_movies(self, mock_get):
         mock_get.side_effect = [
             self._response({"results": [{"id": 1}, {"id": 2}, {"id": 3}]}),
@@ -8564,7 +8581,7 @@ class TmdbCollectionsTests(TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0], {"id": 100, "name": "John Wick Collection", "poster_url": "https://image.tmdb.org/t/p/w500/jw.jpg"})
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_stops_once_the_limit_is_reached(self, mock_get):
         mock_get.side_effect = [
             self._response({"results": [{"id": 1}, {"id": 2}, {"id": 3}]}),
@@ -8576,7 +8593,7 @@ class TmdbCollectionsTests(TestCase):
         # the 3rd movie's detail was never fetched once the limit was hit
         self.assertEqual(mock_get.call_count, 3)
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_movies_with_no_collection_are_skipped(self, mock_get):
         mock_get.side_effect = [
             self._response({"results": [{"id": 1}]}),
@@ -8588,7 +8605,7 @@ class TmdbCollectionsTests(TestCase):
     def test_returns_empty_without_an_api_key(self):
         self.assertEqual(tmdb.collections(), [])
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_returns_collection_details_with_parts_sorted_by_year(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -8609,7 +8626,7 @@ class TmdbCollectionsTests(TestCase):
         self.assertEqual(collection["backdrop_url"], "https://image.tmdb.org/t/p/w1280/b.jpg")
         self.assertEqual([p["name"] for p in collection["parts"]], ["John Wick", "John Wick: Chapter 2"])
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_returns_none_for_an_unknown_collection(self, mock_get):
         mock_get.return_value = self._response({"success": False, "status_code": 34})
         self.assertIsNone(tmdb.get_collection_details(999999))
@@ -8639,7 +8656,7 @@ class TmdbDetailPageTests(TestCase):
         resp.raise_for_status = Mock()
         return resp
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_normalizes_movie_fields(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -8666,7 +8683,7 @@ class TmdbDetailPageTests(TestCase):
         self.assertEqual(details["backdrop_url"], "https://image.tmdb.org/t/p/w1280/bd.jpg")
         self.assertEqual(details["poster_url"], "https://image.tmdb.org/t/p/w500/p.jpg")
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_normalizes_tv_fields(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -8684,7 +8701,7 @@ class TmdbDetailPageTests(TestCase):
         self.assertEqual(details["number_of_seasons"], 3)
         self.assertEqual(details["number_of_episodes"], 24)
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_movie_includes_budget_revenue_companies_countries(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -8700,7 +8717,7 @@ class TmdbDetailPageTests(TestCase):
         self.assertEqual(details["production_companies"], ["A24", "Studio B"])
         self.assertEqual(details["countries"], ["United States of America"])
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_movie_budget_revenue_zero_becomes_none(self, mock_get):
         # TMDB returns 0 (not null) for an unknown budget/revenue - "$0"
         # would read as real data, not "we don't know".
@@ -8711,7 +8728,7 @@ class TmdbDetailPageTests(TestCase):
         self.assertIsNone(details["budget"])
         self.assertIsNone(details["revenue"])
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_movie_includes_collection_id(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -8722,7 +8739,7 @@ class TmdbDetailPageTests(TestCase):
         details = tmdb.get_full_details("movie", 42)
         self.assertEqual(details["collection_id"], 131292)
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_movie_no_collection_is_none(self, mock_get):
         mock_get.return_value = self._response(
             {"id": 42, "title": "Fathom", "release_date": "2020-05-01", "genres": []}
@@ -8730,7 +8747,7 @@ class TmdbDetailPageTests(TestCase):
         details = tmdb.get_full_details("movie", 42)
         self.assertIsNone(details["collection_id"])
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_tv_collection_id_always_none(self, mock_get):
         # TV has no franchise-grouping concept in TMDB's data at all - even
         # a stray belongs_to_collection-shaped field on a tv payload
@@ -8744,7 +8761,7 @@ class TmdbDetailPageTests(TestCase):
         details = tmdb.get_full_details("tv", 99)
         self.assertIsNone(details["collection_id"])
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_tv_has_no_budget_or_revenue_but_has_origin_country(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -8759,7 +8776,7 @@ class TmdbDetailPageTests(TestCase):
         self.assertEqual(details["production_companies"], ["HBO"])
         self.assertEqual(details["countries"], ["US"])
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_includes_raw_status(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -8770,7 +8787,7 @@ class TmdbDetailPageTests(TestCase):
         details = tmdb.get_full_details("tv", 99)
         self.assertEqual(details["status"], "Returning Series")
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_extracts_next_episode_to_air(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -8786,7 +8803,7 @@ class TmdbDetailPageTests(TestCase):
             {"air_date": "2026-08-01", "season_number": 2, "episode_number": 1, "name": "Return"},
         )
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_next_episode_null_becomes_none(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -8797,7 +8814,7 @@ class TmdbDetailPageTests(TestCase):
         details = tmdb.get_full_details("tv", 99)
         self.assertIsNone(details["next_episode_to_air"])
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_next_episode_without_air_date_becomes_none(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -8808,7 +8825,7 @@ class TmdbDetailPageTests(TestCase):
         details = tmdb.get_full_details("tv", 99)
         self.assertIsNone(details["next_episode_to_air"])
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_movie_release_date_distinct_from_year(self, mock_get):
         mock_get.return_value = self._response(
             {"id": 42, "title": "Fathom", "release_date": "2026-12-25", "genres": []}
@@ -8817,7 +8834,7 @@ class TmdbDetailPageTests(TestCase):
         self.assertEqual(details["release_date"], "2026-12-25")
         self.assertEqual(details["year"], "2026")
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_tv_has_no_release_date(self, mock_get):
         mock_get.return_value = self._response(
             {"id": 99, "name": "Cinder Street", "first_air_date": "2022-01-01", "genres": []}
@@ -8825,7 +8842,7 @@ class TmdbDetailPageTests(TestCase):
         details = tmdb.get_full_details("tv", 99)
         self.assertIsNone(details["release_date"])
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_returns_none_on_missing_id(self, mock_get):
         mock_get.return_value = self._response({})
         self.assertIsNone(tmdb.get_full_details("movie", 1))
@@ -8834,14 +8851,14 @@ class TmdbDetailPageTests(TestCase):
     def test_get_full_details_returns_none_without_api_key(self):
         self.assertIsNone(tmdb.get_full_details("movie", 1))
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_returns_none_on_request_exception(self, mock_get):
         import requests
 
         mock_get.side_effect = requests.RequestException("boom")
         self.assertIsNone(tmdb.get_full_details("movie", 1))
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_credits_returns_billing_ordered_cast(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -8864,19 +8881,19 @@ class TmdbDetailPageTests(TestCase):
         self.assertIsNone(cast[1]["profile_url"])
         self.assertEqual(cast[1]["tmdb_person_id"], 502)
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_credits_respects_limit(self, mock_get):
         mock_get.return_value = self._response({"cast": [{"name": f"Actor {i}"} for i in range(20)]})
         self.assertEqual(len(tmdb.get_credits("movie", 42, limit=5)), 5)
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_credits_returns_empty_list_on_failure(self, mock_get):
         import requests
 
         mock_get.side_effect = requests.RequestException("boom")
         self.assertEqual(tmdb.get_credits("movie", 1), [])
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_similar_normalizes_like_discover_does(self, mock_get):
         mock_get.return_value = self._response(
             {"results": [{"id": 7, "title": "Similar Movie", "release_date": "2019-01-01", "vote_average": 6.5}]}
@@ -8886,14 +8903,14 @@ class TmdbDetailPageTests(TestCase):
         self.assertEqual(similar[0]["name"], "Similar Movie")
         self.assertEqual(similar[0]["year"], "2019")
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_similar_returns_empty_list_on_failure(self, mock_get):
         import requests
 
         mock_get.side_effect = requests.RequestException("boom")
         self.assertEqual(tmdb.get_similar("movie", 1), [])
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_director_finds_the_director_job_in_crew(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -8908,24 +8925,24 @@ class TmdbDetailPageTests(TestCase):
         self.assertEqual(director["profile_url"], "https://image.tmdb.org/t/p/w185/d.jpg")
         self.assertEqual(director["tmdb_person_id"], 602)
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_director_profile_url_is_none_without_a_photo(self, mock_get):
         mock_get.return_value = self._response({"crew": [{"name": "Director Person", "job": "Director"}]})
         self.assertIsNone(tmdb.get_director("movie", 42)["profile_url"])
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_director_returns_none_when_no_director_credited(self, mock_get):
         mock_get.return_value = self._response({"crew": [{"name": "Editor Person", "job": "Editor"}]})
         self.assertIsNone(tmdb.get_director("movie", 42))
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_director_returns_none_on_failure(self, mock_get):
         import requests
 
         mock_get.side_effect = requests.RequestException("boom")
         self.assertIsNone(tmdb.get_director("movie", 1))
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_season_details_normalizes_episodes(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -8942,7 +8959,7 @@ class TmdbDetailPageTests(TestCase):
         self.assertIsNone(season["episodes"][1]["still_url"])
         self.assertEqual(season["episodes"][1]["name"], "Second")
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_season_details_carries_each_episodes_own_runtime(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -8957,7 +8974,7 @@ class TmdbDetailPageTests(TestCase):
         self.assertEqual(season["episodes"][0]["runtime"], 42)
         self.assertIsNone(season["episodes"][1]["runtime"])
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_season_details_carries_each_episodes_vote_average(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -8972,19 +8989,19 @@ class TmdbDetailPageTests(TestCase):
         self.assertEqual(season["episodes"][0]["vote_average"], 8.4)
         self.assertEqual(season["episodes"][1]["vote_average"], 0)
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_season_details_returns_none_on_missing_id(self, mock_get):
         mock_get.return_value = self._response({})
         self.assertIsNone(tmdb.get_season_details(555, 1))
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_season_details_returns_none_on_request_exception(self, mock_get):
         import requests
 
         mock_get.side_effect = requests.RequestException("boom")
         self.assertIsNone(tmdb.get_season_details(555, 1))
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_watch_providers_flattens_flatrate_free_and_ads(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -9002,19 +9019,19 @@ class TmdbDetailPageTests(TestCase):
         self.assertEqual(providers[0]["logo_url"], "https://image.tmdb.org/t/p/w185/n.jpg")
         self.assertIsNone(providers[1]["logo_url"])
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_watch_providers_returns_empty_for_missing_region(self, mock_get):
         mock_get.return_value = self._response({"results": {"DE": {"flatrate": [{"provider_name": "Amazon"}]}}})
         self.assertEqual(tmdb.get_watch_providers("movie", 42, region="US"), [])
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_watch_providers_returns_empty_list_on_failure(self, mock_get):
         import requests
 
         mock_get.side_effect = requests.RequestException("boom")
         self.assertEqual(tmdb.get_watch_providers("movie", 1), [])
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_person_details_normalizes_fields(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -9036,7 +9053,7 @@ class TmdbDetailPageTests(TestCase):
         self.assertEqual(person["profile_url"], "https://image.tmdb.org/t/p/w185/p.jpg")
         self.assertEqual(person["known_for_department"], "Directing")
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_person_details_missing_optional_fields_stay_falsy(self, mock_get):
         mock_get.return_value = self._response({"id": 500, "name": "Bit Player"})
         person = tmdb.get_person_details(500)
@@ -9045,7 +9062,7 @@ class TmdbDetailPageTests(TestCase):
         self.assertIsNone(person["place_of_birth"])
         self.assertIsNone(person["profile_url"])
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_person_details_returns_none_on_missing_id(self, mock_get):
         mock_get.return_value = self._response({})
         self.assertIsNone(tmdb.get_person_details(500))
@@ -9054,14 +9071,14 @@ class TmdbDetailPageTests(TestCase):
     def test_get_person_details_returns_none_without_api_key(self):
         self.assertIsNone(tmdb.get_person_details(500))
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_person_details_returns_none_on_request_exception(self, mock_get):
         import requests
 
         mock_get.side_effect = requests.RequestException("boom")
         self.assertIsNone(tmdb.get_person_details(500))
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_person_credits_splits_into_acting_directing_writing(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -9087,7 +9104,7 @@ class TmdbDetailPageTests(TestCase):
         all_ids = {c["tmdb_id"] for section in credits.values() for c in section}
         self.assertNotIn(456, all_ids)
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_person_credits_dedupes_multiple_crew_jobs_on_one_title(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -9103,7 +9120,7 @@ class TmdbDetailPageTests(TestCase):
         credits = tmdb.get_person_credits(500)
         self.assertEqual(len(credits["writing"]), 1)
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_person_credits_caps_and_sorts_by_vote_count(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -9122,7 +9139,7 @@ class TmdbDetailPageTests(TestCase):
         self.assertEqual(credits["acting"][0]["tmdb_id"], 49)
         self.assertEqual(credits["acting"][-1]["tmdb_id"], 10)
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_person_credits_returns_empty_sections_on_failure(self, mock_get):
         import requests
 
@@ -9184,7 +9201,7 @@ class TmdbDiscoverCachingTests(TestCase):
 
         cache.clear()
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_repeated_call_with_same_params_hits_cache_not_network(self, mock_get):
         resp = Mock()
         resp.json.return_value = {"results": [], "page": 1, "total_pages": 1}
@@ -9195,7 +9212,7 @@ class TmdbDiscoverCachingTests(TestCase):
         tmdb.discover("movie", category="popular")
         self.assertEqual(mock_get.call_count, 1)
 
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_different_params_are_not_cached_together(self, mock_get):
         resp = Mock()
         resp.json.return_value = {"results": [], "page": 1, "total_pages": 1}
@@ -9209,7 +9226,7 @@ class TmdbDiscoverCachingTests(TestCase):
 
 class TmdbDiscoverCacheResilienceTests(TestCase):
     @override_settings(TMDB_API_KEY="test-key")
-    @patch("tracker.integrations.tmdb.requests.get")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_unreachable_cache_degrades_instead_of_crashing(self, mock_get):
         # Default (non-overridden) settings' CACHES points at a Redis
         # instance that isn't running in this environment - confirms
