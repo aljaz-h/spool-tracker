@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.84.3] - 2026-08-12
+
+### Changed
+
+- The Calendar's month switcher (prev/next + current month) now sits in
+  the same row as the All/Movies/TV/Anime filter, instead of its own row
+  above the grid.
+
 ## [0.84.2] - 2026-08-12
 
 ### Fixed

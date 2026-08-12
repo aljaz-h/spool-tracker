@@ -27,7 +27,7 @@
   >
     <input type="hidden" name="month" value="{{ current_month_param }}" id="calendar-month-field">
 
-    <div class="w-full lg:flex-1 lg:min-w-0">
+    <div class="w-full lg:flex-1 lg:min-w-0 flex flex-wrap items-center gap-4">
       {% comment %}
         has-checked: (CSS, not a server-rendered class) — this form sits
         outside #calendar-body, the only thing HTMX re-renders, so a
@@ -49,6 +49,7 @@
           <input type="radio" name="type" value="anime" class="hidden" {% if type_filter == "anime" %}checked{% endif %}>Anime
         </label>
       </div>
+      {% include "tracker/partials/calendar_month_switcher.html" %}
     </div>
 
     <div class="w-full lg:w-[300px] flex-none flex items-center justify-end gap-2">

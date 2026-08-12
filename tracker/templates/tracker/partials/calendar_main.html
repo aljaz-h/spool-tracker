@@ -1,21 +1,19 @@
 {% load tracker_extras icons %}
 <span class="hidden" data-active-month="{{ current_month_param }}"></span>
 
-<div class="flex justify-center items-center gap-4 mb-4">
-  <a
-    hx-get="{% url 'calendar' %}?month={{ prev_month_param }}&type={{ type_filter }}&source={{ source_filter }}"
-    hx-target="#cal-main" hx-push-url="true"
-    title="{{ prev_month_label }}"
-    class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-sm text-ink-dim cursor-pointer hover:bg-base-300 hover:text-base-content select-none"
-  >{% icon "chevron-left" "w-4 h-4" %} {{ prev_month_label }}</a>
-  <h3 class="font-display text-2xl tracking-wide">{{ current_month_label }}</h3>
-  <a
-    hx-get="{% url 'calendar' %}?month={{ next_month_param }}&type={{ type_filter }}&source={{ source_filter }}"
-    hx-target="#cal-main" hx-push-url="true"
-    title="{{ next_month_label }}"
-    class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-sm text-ink-dim cursor-pointer hover:bg-base-300 hover:text-base-content select-none"
-  >{{ next_month_label }} {% icon "chevron-right" "w-4 h-4" %}</a>
-</div>
+{% comment %}
+  The real month switcher lives in calendar.html's filter row now (next
+  to the All/Movies/TV/Anime toggle) - only calendar.html's own full-page
+  render is never an htmx swap target, so this out-of-band copy is what
+  actually keeps that row's month/prev/next in sync on every month-nav
+  click or filter change. is_htmx_partial is only False on that one
+  initial full-page render, where calendar.html already rendered the
+  real (non-oob) copy itself - rendering it again here too, unguarded,
+  would mean two elements sharing id="month-switcher" on first load.
+{% endcomment %}
+{% if is_htmx_partial %}
+  {% include "tracker/partials/calendar_month_switcher.html" with oob=True %}
+{% endif %}
 
 <div class="grid grid-cols-7 gap-1.5 mb-1.5">
   <span class="font-mono text-[10.5px] text-ink-faint text-center uppercase tracking-wide">Mon</span>

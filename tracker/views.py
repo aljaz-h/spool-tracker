@@ -2362,6 +2362,10 @@ def calendar_view(request):
         "today": today,
         "grid": [],
         "agenda": [],
+        # Drives calendar_main.html's own out-of-band re-render of the
+        # month switcher now living in calendar.html's filter row - see
+        # that template's comment for why.
+        "is_htmx_partial": bool(request.headers.get("HX-Request")),
     }
     if profile is not None:
         # The grid is scoped to the specific month being viewed (not just
