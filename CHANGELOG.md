@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.92.1] - 2026-08-12
+
+### Fixed
+
+- Enable GZip compression for dynamic HTML responses - WhiteNoise already
+  compresses static assets, but pages themselves (Dashboard, Discover,
+  History, ...) were going out uncompressed.
+
 ## [0.92.0] - 2026-08-12
 
 ### Changed

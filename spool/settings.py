@@ -45,6 +45,14 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # First, so it wraps every other middleware's response and compresses
+    # last (Django runs response middleware bottom-to-top, so the first
+    # entry in this list touches the response last, after everyone
+    # else's HTML/JSON is finalized). WhiteNoise's own static-file
+    # responses already come precompressed with Content-Encoding set, so
+    # this is a no-op for those - it only ever applies to dynamic pages,
+    # which WhiteNoise doesn't touch.
+    "django.middleware.gzip.GZipMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
