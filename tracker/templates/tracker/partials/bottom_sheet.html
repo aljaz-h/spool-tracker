@@ -1,5 +1,5 @@
 {% load icons %}
-{# context: none explicit - reads show_activity_nav from context_processors.py (already available everywhere, same flag sidebar.html/topbar.html gate Activity on). Mobile-only "More" bottom sheet, opened by bottom_nav.html's More button (bottomSheetOpen, on base.html's root x-data). Transition timing/easing directly mirrors sidebar.html's own drawer (ease-out 200ms in / ease-in 150ms out), just sliding up (Y axis) instead of in from the left (X axis). Focus-trapped via @alpinejs/focus's x-trap (vendored static/vendor/alpine-focus.js) since nothing else in this codebase hand-rolls focus trapping. #}
+{# context: none explicit - reads show_activity_nav and other_profiles from context_processors.py (already available everywhere - other_profiles is the same list topbar.html's own Friends dropdown reads). Mobile-only "More" bottom sheet, opened by bottom_nav.html's More button (bottomSheetOpen, on base.html's root x-data). Transition timing/easing directly mirrors sidebar.html's own drawer (ease-out 200ms in / ease-in 150ms out), just sliding up (Y axis) instead of in from the left (X axis). Focus-trapped via @alpinejs/focus's x-trap (vendored static/vendor/alpine-focus.js) since nothing else in this codebase hand-rolls focus trapping. #}
 <div
   x-show="bottomSheetOpen"
   x-cloak
@@ -83,5 +83,48 @@
       {% icon "settings" "w-5 h-5" %}
       Settings
     </a>
+
+    {% url 'stats' as stats_url %}
+    <a href="{{ stats_url }}" @click="bottomSheetOpen = false" class="flex flex-col items-center justify-center gap-2 py-4 rounded-2xl bg-base-300 text-ink-dim hover:text-base-content text-xs font-semibold transition-colors">
+      {% icon "bar-chart-3" "w-5 h-5" %}
+      Stats
+    </a>
   </div>
+
+  {% if other_profiles %}
+    {% comment %}
+      Same list/action topbar.html's own Friends dropdown renders
+      (profile_popup_modal, a single <dialog> living in topbar.html -
+      reachable here too since id="..." elements are addressable as
+      plain globals, same as that dropdown's own onclick already relies
+      on) - just laid out as an inline list instead of a small floating
+      panel, which wouldn't read well stacked on top of an already
+      full-width sheet.
+    {% endcomment %}
+    <div class="px-5 pb-6">
+      <div class="text-[11px] font-semibold text-ink-dim uppercase tracking-wide border-t border-line pt-4 mb-2">Friends</div>
+      <div class="flex flex-col -mx-1">
+        {% for p in other_profiles %}
+          <button
+            type="button"
+            @click="bottomSheetOpen = false"
+            onclick="profile_popup_modal.showModal()"
+            hx-get="{% url 'profile_popup' p.id %}"
+            hx-target="#profile-popup-content"
+            hx-swap="innerHTML"
+            class="w-full flex items-center gap-2.5 px-1 py-2 rounded-lg hover:bg-base-300 text-left cursor-pointer"
+          >
+            <div
+              class="w-8 h-8 rounded-full flex-none flex items-center justify-center font-mono text-xs font-semibold {% if p.avatar_image %}bg-cover bg-center{% endif %}"
+              style="{% if p.avatar_image %}background-image:url('{{ p.avatar_image.url }}'){% else %}background:{{ p.avatar_color }};color:#fff;{% endif %}"
+            >{% if not p.avatar_image %}{{ p.display_name|first|upper }}{% endif %}</div>
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-medium truncate">{{ p.display_name }}</div>
+              <div class="text-[10.5px] text-ink-faint font-mono">{% if p.last_seen_at %}Active {{ p.last_seen_at|timesince }} ago{% else %}No activity yet{% endif %}</div>
+            </div>
+          </button>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
 </div>

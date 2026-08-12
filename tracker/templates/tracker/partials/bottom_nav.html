@@ -21,8 +21,25 @@
   {% url 'calendar' as calendar_url %}
   {% include "tracker/partials/nav_item_bottom.html" with href=calendar_url icon_name="calendar-days" label="Calendar" is_active=url_name|eq:"calendar" %}
 
-  {% url 'stats' as stats_url %}
-  {% include "tracker/partials/nav_item_bottom.html" with href=stats_url icon_name="bar-chart-3" label="Stats" is_active=url_name|eq:"stats" %}
+  {% comment %}
+    Opens the same mobileSearchOpen overlay the (now-hidden-on-mobile)
+    topbar search icon used to (topbar.html) - a button, not a link, like
+    More below, and for the same reason: this doesn't navigate anywhere,
+    it toggles state on the shared root x-data (base.html). Stats moved
+    into the More sheet (bottom_sheet.html) to make room for this.
+  {% endcomment %}
+  <button
+    type="button"
+    @click="mobileSearchOpen = true; $nextTick(() => $refs.mobileSearchInput.focus())"
+    :aria-expanded="mobileSearchOpen.toString()"
+    aria-haspopup="true"
+    aria-label="Search"
+    class="flex flex-col items-center justify-center gap-0.5 flex-1 py-2 rounded-2xl text-[10px] font-medium transition-colors"
+    :class="mobileSearchOpen ? 'text-primary' : 'text-ink-dim'"
+  >
+    {% icon "search" "w-5 h-5" %}
+    <span>Search</span>
+  </button>
 
   <button
     type="button"

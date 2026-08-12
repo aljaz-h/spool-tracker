@@ -26,21 +26,29 @@
     reflow, so it holds regardless of whether the middle item renders.
   {% endcomment %}
   <div class="flex items-center gap-2.5 md:gap-3.5 min-w-0 justify-self-start col-start-1">
-    <button
-      @click="sidebarOpen = !sidebarOpen"
-      aria-label="Toggle menu"
-      class="w-9 h-9 flex-none rounded-lg border border-line bg-base-200 flex items-center justify-center text-ink-dim hover:text-base-content hover:border-primary md:hidden"
-    >
-      {% icon "menu" "w-[18px] h-[18px]" %}
-    </button>
+    {% comment %}
+      The hamburger's own sidebar drawer (sidebar.html) was already only
+      ever relevant below md: (md:hidden itself) - now that bottom_nav.html
+      covers the same ground there (plus the More sheet), this trigger has
+      nothing left to open on mobile. Left as dead-but-harmless markup in
+      sidebar.html itself rather than deleted outright, but the only way
+      to reach it - this button - is gone.
+    {% endcomment %}
     <a href="{% url 'dashboard' %}" class="flex items-baseline gap-2 flex-none" title="Dashboard">
       <span class="font-display text-[28px] text-marquee tracking-wide leading-none">SPOOL</span>
     </a>
+    {% comment %}
+      max-md:hidden - bottom_nav.html's own Search button covers this
+      below md: now, reusing the exact same mobileSearchOpen overlay this
+      button opens; xl:hidden above still governs the wider tablet range
+      (md-xl) where neither the bottom nav nor the inline search bar
+      further right is available.
+    {% endcomment %}
     <button
       type="button"
       @click="mobileSearchOpen = true; $nextTick(() => $refs.mobileSearchInput.focus())"
       aria-label="Search"
-      class="w-9 h-9 flex-none rounded-lg border border-line bg-base-200 flex items-center justify-center text-ink-dim hover:text-base-content hover:border-primary xl:hidden"
+      class="w-9 h-9 flex-none rounded-lg border border-line bg-base-200 flex items-center justify-center text-ink-dim hover:text-base-content hover:border-primary max-md:hidden xl:hidden"
     >
       {% icon "search" "w-[17px] h-[17px]" %}
     </button>
@@ -153,12 +161,16 @@
           });
         },
       }">
+        {% comment %}
+          max-md:hidden - bottom_sheet.html's own Friends section (in the
+          More sheet) covers this below md: now.
+        {% endcomment %}
         <button
           @click="togglePanel($el)"
           :aria-expanded="open.toString()"
           aria-haspopup="true"
           aria-label="Friends"
-          class="w-9 h-9 flex-none rounded-lg border border-line bg-base-200 flex items-center justify-center text-ink-dim hover:text-base-content hover:border-primary"
+          class="w-9 h-9 flex-none rounded-lg border border-line bg-base-200 flex items-center justify-center text-ink-dim hover:text-base-content hover:border-primary max-md:hidden"
         >
           {% icon "users" "w-[17px] h-[17px]" %}
         </button>

@@ -10,7 +10,11 @@
   it in sync) pins the sidebar to cal-main in both directions -
   overflow-y-auto then handles a longer agenda list by scrolling inside
   that fixed height instead of growing past it. No-ops below the lg:
-  breakpoint, where they stack instead of sitting side by side.
+  breakpoint, where they stack instead of sitting side by side - the
+  sidebar's own max-h-[60vh] (below) is what caps it there instead, since
+  there's no cal-main height to match against once they're stacked. Without
+  either, the agenda (up to AGENDA_LOOKBACK_DAYS of past releases plus
+  everything upcoming) just grows the page forever on mobile.
 {% endcomment %}
 <div
   class="flex gap-5 items-start flex-col lg:flex-row"
@@ -40,7 +44,7 @@
   <div id="cal-main" class="flex-1 min-w-0">
     {% include "tracker/partials/calendar_main.html" %}
   </div>
-  <aside id="cal-sidebar" class="w-full lg:w-[300px] flex-none bg-base-200 border border-line rounded-2xl p-3.5 overflow-y-auto">
+  <aside id="cal-sidebar" class="w-full lg:w-[300px] flex-none bg-base-200 border border-line rounded-2xl p-3.5 overflow-y-auto max-h-[60vh] lg:max-h-none">
     {% include "tracker/partials/calendar_sidebar.html" %}
   </aside>
 </div>

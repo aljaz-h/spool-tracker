@@ -8,6 +8,26 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.93.2] - 2026-08-12
+
+### Changed
+
+- Mobile bottom nav: swapped Stats for Search (opens the existing mobile
+  search overlay), moved Stats into the More sheet, and added a Friends
+  list to More so switching to another household profile's view doesn't
+  need the topbar anymore. The mobile topbar itself now shows just the
+  logo plus notifications/profile - the hamburger menu, search icon, and
+  Friends button are redundant with the bottom nav below md: and are
+  hidden there (still available at tablet/desktop widths where the
+  bottom nav isn't shown).
+
+### Fixed
+
+- Calendar's upcoming-releases panel had no height limit below the `lg:`
+  breakpoint (only synced to match the grid's height at `lg:` and up),
+  so on mobile it just grew the page indefinitely instead of scrolling
+  within a fixed panel like it does on desktop.
+
 ## [0.93.1] - 2026-08-12
 
 ### Fixed
