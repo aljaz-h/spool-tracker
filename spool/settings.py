@@ -90,6 +90,14 @@ DATABASES = {
         default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
     )
 }
+# db and web are separate containers (docker-compose.yml) - without this,
+# Django opens a brand new TCP connection (plus Postgres auth) on every
+# single request instead of reusing one across a request's own lifetime
+# and the next. CONN_HEALTH_CHECKS makes a request that picks up a pooled
+# connection gone stale (Postgres restarted, a network blip) reconnect
+# transparently instead of surfacing that as a request error.
+DATABASES["default"]["CONN_MAX_AGE"] = env.int("DB_CONN_MAX_AGE", default=60)
+DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
 
 
 # Password validation

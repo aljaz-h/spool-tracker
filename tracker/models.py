@@ -190,6 +190,14 @@ class Title(models.Model):
             # (pg_trgm/GIN are Postgres-only; the app's SQLite dev-
             # fallback needs to keep migrating cleanly without it).
             GinIndex(fields=["name"], name="tracker_title_name_trgm", opclasses=["gin_trgm_ops"]),
+            # Trakt/Simkl sync and CSV import all dedupe against this field
+            # (external_ids__tmdb=<id>, etc. - see its own comment above) on
+            # every row they touch; a plain GIN index (no trigram opclass
+            # needed for a JSONField, unlike the name index above) lets
+            # Postgres use an index scan for that instead of a full table
+            # scan. Same SQLite-degrades-gracefully behavior as the name
+            # index (confirmed via sqlmigrate on that one's own migration).
+            GinIndex(fields=["external_ids"], name="tracker_title_external_ids_gin"),
         ]
 
     def __str__(self):

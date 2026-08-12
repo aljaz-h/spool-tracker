@@ -8,6 +8,22 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.87.0] - 2026-08-12
+
+### Changed
+
+- The web process now reuses Postgres connections across requests
+  (`CONN_MAX_AGE`, with health checks) instead of opening a fresh one on
+  every single request - db and web are separate containers, so this was
+  paying a full TCP+auth handshake per request for no reason.
+- Added a GIN index on `Title.external_ids`, the field Trakt/Simkl sync
+  and CSV import all dedupe against on every row they touch.
+- gunicorn's worker/thread counts are now configurable via
+  `GUNICORN_WORKERS`/`GUNICORN_THREADS` env vars instead of a hardcoded
+  `--workers 3`, and now use threads so one worker can keep serving
+  requests while another is blocked on an external API call (TMDB/Trakt/
+  Simkl/Gemini).
+
 ## [0.86.0] - 2026-08-12
 
 ### Added
