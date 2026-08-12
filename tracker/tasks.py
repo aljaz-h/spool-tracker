@@ -214,18 +214,40 @@ def run_data_import(log_id, profile_id, path, kind, mapping=None):
 
 
 @shared_task
+def sync_title_release(title_id):
+    """Per-title release sync, fanned out by sync_release_schedules
+    (below) instead of being called in a loop there - each call does one
+    blocking TMDB request (see release_sync.sync_title_releases), so
+    fanning out lets Celery's own worker concurrency
+    (CELERY_WORKER_CONCURRENCY) process a household's titles in
+    parallel instead of serializing every one of them inside a single
+    task. Silently no-ops if the title's gone by the time this runs
+    (e.g. a rare merge/dedupe race) rather than erroring the task."""
+    try:
+        title = Title.objects.get(pk=title_id)
+    except Title.DoesNotExist:
+        return 0
+    return release_sync.sync_title_releases(title)
+
+
+@shared_task
 def sync_release_schedules():
-    """Nightly beat job (see bootstrap_periodic_tasks.py) - refreshes
-    ReleaseSchedule for every title anyone in the household is watching,
-    has planned/completed, or has on a watchlist, so a renewed show or a
-    now-dated movie shows up on Calendar without the user re-visiting its
-    detail page. Instance-wide, not per-account - no SyncLog row (that
-    model is Trakt/Simkl-account-shaped; nothing in the UI surfaces a
-    "last release sync" for this yet), just the usual task logger."""
-    titles = list(selectors.titles_needing_release_sync())
-    touched = sum(release_sync.sync_title_releases(t) for t in titles)
-    logger.info("sync_release_schedules: checked %d title(s), %d release row(s) touched", len(titles), touched)
-    return touched
+    """Nightly beat job (see bootstrap_periodic_tasks.py) - queues a
+    sync_title_release task for every title anyone in the household is
+    watching, has planned/completed, or has on a watchlist, so a renewed
+    show or a now-dated movie shows up on Calendar without the user
+    re-visiting its detail page. Only dispatches here rather than syncing
+    in a loop - a large library making N blocking TMDB calls serially in
+    one task could run long enough to threaten the 30-minute gap before
+    generate_release_notifications. Instance-wide, not per-account - no
+    SyncLog row (that model is Trakt/Simkl-account-shaped; nothing in the
+    UI surfaces a "last release sync" for this yet), just the usual task
+    logger."""
+    title_ids = list(selectors.titles_needing_release_sync().values_list("id", flat=True))
+    for title_id in title_ids:
+        sync_title_release.delay(title_id)
+    logger.info("sync_release_schedules: queued %d title(s) for release sync", len(title_ids))
+    return len(title_ids)
 
 
 @shared_task

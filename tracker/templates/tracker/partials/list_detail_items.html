@@ -1,6 +1,7 @@
 {% load icons %}
-{# context: watchlist, can_edit, can_reorder, items - can_reorder (only true in the fully unfiltered/manual-order view, see views._list_detail_context) gates the drag handles: dragging a subset of a filtered view can't unambiguously reposition items relative to whatever's hidden. #}
-<div id="list-items" class="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-4">
+{# context: watchlist, can_edit, can_reorder, items, page_obj, base_query - can_reorder (only true in the fully unfiltered/manual-order view, see views._list_detail_context) gates the drag handles: dragging a subset of a filtered view can't unambiguously reposition items relative to whatever's hidden. Drag-and-drop only ever reorders within the current page (views.reorder_list splices that page's new order back into the full list server-side) - dragging an item onto a different page isn't supported. #}
+<div id="list-items">
+<div class="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-4">
   {% for item in items %}
     <div
       class="group relative"
@@ -66,4 +67,28 @@
   {% empty %}
     <p class="text-ink-faint text-sm col-span-full">No titles on this list yet.</p>
   {% endfor %}
+</div>
+{% if page_obj.paginator.num_pages > 1 %}
+  <div class="flex justify-between items-center flex-wrap gap-3 mt-6">
+    <span class="font-mono text-xs text-ink-faint">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }} · {{ page_obj.paginator.count }} title{{ page_obj.paginator.count|pluralize }}</span>
+    <div class="flex gap-1.5">
+      {% if page_obj.has_previous %}
+        <a hx-get="{% url 'list_detail' watchlist.id %}?{{ base_query }}&page={{ page_obj.previous_page_number }}" hx-target="#list-items" hx-swap="outerHTML" hx-push-url="true"
+           class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim cursor-pointer">‹ Prev</a>
+      {% endif %}
+      {% for num in page_obj.paginator.page_range %}
+        {% if num == page_obj.number %}
+          <span class="px-3 py-1.5 rounded-md bg-primary text-primary-content font-mono text-xs font-bold">{{ num }}</span>
+        {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}
+          <a hx-get="{% url 'list_detail' watchlist.id %}?{{ base_query }}&page={{ num }}" hx-target="#list-items" hx-swap="outerHTML" hx-push-url="true"
+             class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim cursor-pointer">{{ num }}</a>
+        {% endif %}
+      {% endfor %}
+      {% if page_obj.has_next %}
+        <a hx-get="{% url 'list_detail' watchlist.id %}?{{ base_query }}&page={{ page_obj.next_page_number }}" hx-target="#list-items" hx-swap="outerHTML" hx-push-url="true"
+           class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim cursor-pointer">Next ›</a>
+      {% endif %}
+    </div>
+  </div>
+{% endif %}
 </div>

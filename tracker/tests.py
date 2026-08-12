@@ -1573,32 +1573,54 @@ class TitlesNeedingReleaseSyncTests(TestCase):
 
 
 class SyncReleaseSchedulesTaskTests(TestCase):
+    """sync_release_schedules only dispatches a sync_title_release task
+    per in-scope title now, rather than syncing in a loop itself - see
+    SyncTitleReleaseTaskTests for the per-title sync behavior."""
+
     def setUp(self):
         user = User.objects.create_user("releasetasker", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="ReleaseTasker")
 
-    def test_only_syncs_titles_in_scope(self):
+    def test_only_queues_titles_in_scope(self):
         watched = Title.objects.create(
             media_type=MediaType.MOVIE, name="Watched", year=2020, external_ids={"tmdb": "1"}
         )
         WatchProgress.objects.create(profile=self.profile, title=watched, status=WatchProgress.Status.COMPLETED)
         Title.objects.create(media_type=MediaType.MOVIE, name="Untouched", year=2020, external_ids={"tmdb": "2"})
 
-        with patch("tracker.tasks.release_sync.sync_title_releases", return_value=1) as mock_sync:
-            touched = tasks.sync_release_schedules()
-        mock_sync.assert_called_once_with(watched)
-        self.assertEqual(touched, 1)
+        with patch("tracker.tasks.sync_title_release.delay") as mock_delay:
+            queued = tasks.sync_release_schedules()
+        mock_delay.assert_called_once_with(watched.id)
+        self.assertEqual(queued, 1)
 
-    def test_sums_per_title_results(self):
+    def test_queues_every_title_in_scope(self):
+        titles = []
         for i in range(3):
             title = Title.objects.create(
                 media_type=MediaType.MOVIE, name=f"Title {i}", year=2020, external_ids={"tmdb": str(i)}
             )
             WatchProgress.objects.create(profile=self.profile, title=title, status=WatchProgress.Status.COMPLETED)
+            titles.append(title)
 
-        with patch("tracker.tasks.release_sync.sync_title_releases", return_value=1):
-            touched = tasks.sync_release_schedules()
-        self.assertEqual(touched, 3)
+        with patch("tracker.tasks.sync_title_release.delay") as mock_delay:
+            queued = tasks.sync_release_schedules()
+        self.assertEqual(queued, 3)
+        for title in titles:
+            mock_delay.assert_any_call(title.id)
+
+
+class SyncTitleReleaseTaskTests(TestCase):
+    def test_syncs_the_given_title(self):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "1"}
+        )
+        with patch("tracker.tasks.release_sync.sync_title_releases", return_value=1) as mock_sync:
+            touched = tasks.sync_title_release(title.id)
+        mock_sync.assert_called_once_with(title)
+        self.assertEqual(touched, 1)
+
+    def test_missing_title_returns_zero_without_error(self):
+        self.assertEqual(tasks.sync_title_release(999999), 0)
 
 
 class GenerateReleaseNotificationsTests(TestCase):
@@ -14918,16 +14940,24 @@ class ListDetailToolbarStaysInSyncTests(TestCase):
         self.assertContains(resp, "All lists")
         self.assertContains(resp, 'id="list-page"')
 
-    def test_hx_request_returns_just_the_list_page_partial(self):
-        resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]), HTTP_HX_REQUEST="true")
+    def test_hx_request_targeting_list_items_returns_just_the_items_partial(self):
+        # The pager (list_detail_items.html) targets #list-items directly
+        # - only the items themselves come back, not the toolbar too.
+        resp = self.client.get(
+            reverse("list_detail", args=[self.watchlist.id]), HTTP_HX_REQUEST="true", HTTP_HX_TARGET="list-items"
+        )
         self.assertNotContains(resp, "All lists")
         self.assertContains(resp, 'id="list-items"')
 
     def test_switching_type_keeps_the_filters_dot_in_sync(self):
-        # period != "all" should show the active-filter dot regardless of
-        # which htmx target fired the request.
+        # period != "all" should show the active-filter dot when the
+        # toolbar's own type toggle/Filters drawer fired the request
+        # (targeting #list-page, same as History's own toolbar re-sync).
         resp = self.client.get(
-            reverse("list_detail", args=[self.watchlist.id]), {"type": "movie", "period": "30"}, HTTP_HX_REQUEST="true"
+            reverse("list_detail", args=[self.watchlist.id]),
+            {"type": "movie", "period": "30"},
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET="list-page",
         )
         self.assertContains(resp, "bg-primary")
         self.assertContains(resp, "checked")
@@ -14982,6 +15012,72 @@ class ReorderListTests(TestCase):
         self.assertEqual(resp.status_code, 404)
         self.item_a.refresh_from_db()
         self.assertEqual(self.item_a.position, 0)
+
+    def test_reordering_the_second_page_does_not_disturb_the_first(self):
+        # views.LIST_PAGE_SIZE filler items fill page 1 (positions
+        # 0..N-1) - item_a/item_b (from setUp) become the first two items
+        # of page 2.
+        for i in range(views.LIST_PAGE_SIZE):
+            title = Title.objects.create(media_type=MediaType.MOVIE, name=f"Filler {i}", year=2000)
+            WatchListItem.objects.create(watchlist=self.watchlist, title=title, position=i)
+        self.item_a.position = views.LIST_PAGE_SIZE
+        self.item_a.save(update_fields=["position"])
+        self.item_b.position = views.LIST_PAGE_SIZE + 1
+        self.item_b.save(update_fields=["position"])
+
+        first_page_ids_before = list(
+            WatchListItem.objects.filter(watchlist=self.watchlist).order_by("position").values_list("id", flat=True)[
+                : views.LIST_PAGE_SIZE
+            ]
+        )
+        self.client.post(
+            reverse("reorder_list", args=[self.watchlist.id]),
+            {"item_id": [self.item_b.id, self.item_a.id]},
+        )
+        first_page_ids_after = list(
+            WatchListItem.objects.filter(watchlist=self.watchlist).order_by("position").values_list("id", flat=True)[
+                : views.LIST_PAGE_SIZE
+            ]
+        )
+        self.assertEqual(first_page_ids_before, first_page_ids_after)
+        self.item_a.refresh_from_db()
+        self.item_b.refresh_from_db()
+        self.assertLess(self.item_b.position, self.item_a.position)
+
+
+class ListDetailPaginationTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("listpager", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ListPager")
+        self.client.login(username="listpager", password="pass12345")
+        self.watchlist = WatchList.objects.create(profile=self.profile, name="Big List")
+        for i in range(views.LIST_PAGE_SIZE + 5):
+            title = Title.objects.create(media_type=MediaType.MOVIE, name=f"Title {i}", year=2000)
+            WatchListItem.objects.create(watchlist=self.watchlist, title=title, position=i)
+
+    def test_first_page_shows_only_a_page_worth_of_items(self):
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]))
+        self.assertEqual(len(resp.context["items"]), views.LIST_PAGE_SIZE)
+        self.assertEqual(resp.context["page_obj"].paginator.count, views.LIST_PAGE_SIZE + 5)
+
+    def test_second_page_shows_the_remainder(self):
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]), {"page": "2"})
+        self.assertEqual(len(resp.context["items"]), 5)
+
+    def test_total_count_in_the_header_is_unaffected_by_pagination(self):
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]))
+        self.assertEqual(resp.context["total_count"], views.LIST_PAGE_SIZE + 5)
+
+    def test_pager_is_shown_only_when_more_than_one_page(self):
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]))
+        self.assertContains(resp, "Page 1 of 2")
+
+    def test_a_small_list_shows_no_pager(self):
+        small_list = WatchList.objects.create(profile=self.profile, name="Small")
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Solo", year=2020)
+        WatchListItem.objects.create(watchlist=small_list, title=title, position=0)
+        resp = self.client.get(reverse("list_detail", args=[small_list.id]))
+        self.assertNotContains(resp, "Page 1 of")
 
 
 class AddToListPositionTests(TestCase):

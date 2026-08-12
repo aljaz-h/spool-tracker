@@ -2535,6 +2535,7 @@ def calendar_refresh_releases(request):
 
 LIST_PERIODS = {"today", "yesterday", "7", "30", "365"}
 LIST_SORTS = {"manual", "added_new", "added_old", "name", "year"}
+LIST_PAGE_SIZE = 60  # tiles per page - a list view was previously loaded/sliced in full in Python regardless of size
 
 
 @login_required
@@ -2591,13 +2592,21 @@ def _list_detail_context(request, watchlist, profile):
         items = items.filter(added_at__gte=now - timedelta(days=int(period)))
 
     sort_field = {"added_new": "-added_at", "added_old": "added_at", "name": "title__name", "year": "-title__year"}.get(sort)
-    items = list(items.order_by(sort_field) if sort_field else items)
+    items = items.order_by(sort_field) if sort_field else items
+
+    page_obj = Paginator(items, LIST_PAGE_SIZE).get_page(request.GET.get("page"))
+    items = list(page_obj.object_list)
+
+    query_without_page = request.GET.copy()
+    query_without_page.pop("page", None)
 
     return {
         "watchlist": watchlist,
         "can_edit": watchlist.can_edit(profile),
         "can_reorder": type_filter == "all" and period == "all" and sort == "manual",
         "items": items,
+        "page_obj": page_obj,
+        "base_query": query_without_page.urlencode(),
         "type_filter": type_filter,
         "period": period,
         "sort": sort,
@@ -2607,11 +2616,23 @@ def _list_detail_context(request, watchlist, profile):
 
 @login_required
 def list_detail(request, list_id):
+    """Two different HTMX targets hit this same view, same reasoning as
+    History's own history() view: the toolbar's type toggle and the
+    Filters drawer's period/sort selects target #list-page and need the
+    toolbar re-rendered too (its own active-filter dot/checked state
+    would otherwise go stale); the pager (list_detail_items.html) targets
+    #list-items directly and only needs the items themselves back."""
     profile = Profile.objects.filter(user=request.user).first()
     watchlist = _get_visible_list_or_404(profile, list_id)
     context = _list_detail_context(request, watchlist, profile)
     context["total_count"] = watchlist.items.count()
-    template = "tracker/partials/list_toolbar_and_items.html" if request.headers.get("HX-Request") else "tracker/list_detail.html"
+    hx_target = request.headers.get("HX-Target") or ""
+    if hx_target == "list-page":
+        template = "tracker/partials/list_toolbar_and_items.html"
+    elif request.headers.get("HX-Request"):
+        template = "tracker/partials/list_detail_items.html"
+    else:
+        template = "tracker/list_detail.html"
     return render(request, template, context)
 
 
@@ -2724,14 +2745,19 @@ def _render_list_items(request, watchlist, profile):
     remove/reorder don't carry the list_detail toolbar's current type/
     period/sort (those live in a GET query string, this is a POST), so
     they intentionally reset the view to the default rather than trying
-    to thread filter state through every action. Not a regression: before
-    list filtering existed, this was the only view there was."""
-    items = list(watchlist.items.select_related("title").prefetch_related("title__ratings"))
+    to thread filter state through every action (including which page -
+    always page 1). Not a regression: before list filtering existed, this
+    was the only view there was."""
+    items_qs = watchlist.items.select_related("title").prefetch_related("title__ratings")
+    page_obj = Paginator(items_qs, LIST_PAGE_SIZE).get_page(1)
+    items = list(page_obj.object_list)
     context = {
         "watchlist": watchlist,
         "can_edit": True,
         "can_reorder": True,
         "items": items,
+        "page_obj": page_obj,
+        "base_query": "",
         **selectors.poster_action_context(profile, [item.title for item in items]),
     }
     return render(request, "tracker/partials/list_detail_items.html", context)
@@ -2809,22 +2835,49 @@ def remove_from_list(request, list_id):
 @require_POST
 def reorder_list(request, list_id):
     """Fired by list_detail_items.html's drag-and-drop on dragend - item_id
-    is posted in the exact new DOM order, so position just becomes that
-    order's index. The drag has already reordered the DOM client-side
+    is posted in the exact new DOM order for whatever page was on screen
+    (list_detail is paginated, LIST_PAGE_SIZE per page), not the whole
+    list. The drag has already reordered the DOM client-side
     (window.flipReorder, live as you drag, not just on drop), so this is a
     pure persist - swap:'none' on the caller's htmx.ajax means the response
     body is discarded, there's nothing left for the server to hand back
     that the page doesn't already show. Only reachable when the list_detail
     view was unfiltered (can_reorder - see _list_detail_context), but
-    re-checked here too rather than trusted from the client."""
+    re-checked here too rather than trusted from the client.
+
+    Can't just write position=index for the posted ids the way a
+    single-page list could - that would only be correct for page 1, and
+    would collide with whatever page 2+ already holds otherwise. Instead,
+    splice the posted (page-sized) batch back into its own slice of the
+    full position-ordered id list, then renumber everyone 0..N-1 in one
+    go - a full-list id fetch and rewrite, but only on this explicit,
+    infrequent user action, not on every page view (which is exactly what
+    pagination above exists to avoid)."""
     profile = Profile.objects.filter(user=request.user).first()
     watchlist = get_object_or_404(WatchList, pk=list_id)
     if profile is None or not watchlist.can_edit(profile):
         raise Http404
-    item_ids = [int(v) for v in request.POST.getlist("item_id") if v.isdigit()]
+    page_item_ids = [int(v) for v in request.POST.getlist("item_id") if v.isdigit()]
+    if not page_item_ids:
+        return HttpResponse(status=204)
     with transaction.atomic():
-        for index, item_id in enumerate(item_ids):
-            WatchListItem.objects.filter(pk=item_id, watchlist=watchlist).update(position=index)
+        all_ids = list(
+            WatchListItem.objects.filter(watchlist=watchlist).order_by("position").values_list("id", flat=True)
+        )
+        page_id_set = set(page_item_ids)
+        other_ids = [pk for pk in all_ids if pk not in page_id_set]
+        # The posted batch is a contiguous page-sized slice of all_ids
+        # pre-reorder, so the first posted id still found in all_ids marks
+        # exactly where that slice began - everything before it in
+        # other_ids is untouched by this reorder, everything after stays
+        # after.
+        first_index = next((i for i, pk in enumerate(all_ids) if pk in page_id_set), 0)
+        new_order = other_ids[:first_index] + page_item_ids + other_ids[first_index:]
+        WatchListItem.objects.bulk_update(
+            [WatchListItem(pk=item_id, position=index) for index, item_id in enumerate(new_order)],
+            ["position"],
+            batch_size=500,
+        )
     return HttpResponse(status=204)
 
 

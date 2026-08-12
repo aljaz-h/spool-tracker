@@ -8,6 +8,20 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.92.5] - 2026-08-12
+
+### Fixed
+
+- Paginate list/Watchlist views (60 items/page) instead of loading every
+  item into Python regardless of list size. Drag-reordering still works
+  across pages - the server splices a page's new order back into the
+  full list rather than assuming a single page's worth of positions.
+- `sync_release_schedules` (the nightly release-sync beat job) now fans
+  out a per-title task instead of looping through every title's TMDB
+  call synchronously in one task - a large library could otherwise run
+  long enough to threaten the 30-minute gap before the notifications job
+  that follows it.
+
 ## [0.92.4] - 2026-08-12
 
 ### Fixed
