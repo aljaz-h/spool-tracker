@@ -26,6 +26,8 @@
         <span class="absolute bottom-1.5 right-1.5 z-10 font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)]" title="Added by Simkl sync">S</span>
       {% elif event.source == "trakt" %}
         <span class="absolute bottom-1.5 right-1.5 z-10 font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)]" title="Added by Trakt sync">T</span>
+      {% elif event.source == "webhook" %}
+        <span class="absolute bottom-1.5 right-1.5 z-10 font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)]" title="Added via the Scrobble API">W</span>
       {% endif %}
     </div>
     <div class="mt-1.5 min-w-0">

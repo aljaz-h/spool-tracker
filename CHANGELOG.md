@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.90.0] - 2026-08-12
+
+### Added
+
+- A generic Scrobble API (`POST /api/scrobble`) - any player or script
+  can now report watches directly with a per-profile bearer token
+  (Settings → Integrations → Custom Player), instead of needing a
+  bespoke, reverse-engineered integration built for it. See
+  [docs/SCROBBLE_API.md](docs/SCROBBLE_API.md).
+
 ## [0.89.0] - 2026-08-12
 
 ### Added

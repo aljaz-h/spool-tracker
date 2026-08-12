@@ -129,6 +129,7 @@ urlpatterns = [
     path("settings/profile/<int:profile_id>/promote/", views.promote_to_owner, name="promote_to_owner"),
     path("settings/profile/<int:profile_id>/demote/", views.demote_from_owner, name="demote_from_owner"),
     path("settings/appearance/", views.save_appearance, name="save_appearance"),
+    path("settings/api-token/regenerate/", views.regenerate_api_token, name="regenerate_api_token"),
     path("settings/privacy/", views.save_privacy, name="save_privacy"),
     path("settings/notifications/", views.save_notifications, name="save_notifications"),
     path("settings/integrations/", views.save_instance_config, name="save_instance_config"),

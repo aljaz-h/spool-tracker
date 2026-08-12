@@ -3128,6 +3128,21 @@ def settings_view(request):
 
 
 @login_required
+@require_POST
+def regenerate_api_token(request):
+    """Settings -> Integrations "Custom Player" card - same button/action
+    whether a token already exists (rotates it) or not (generates the
+    first one), see Profile.regenerate_api_token. The old token, if any,
+    stops working the moment this returns."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    profile.regenerate_api_token()
+    messages.success(request, "New API token generated - update your player's config with it.")
+    return redirect(f"{reverse('settings')}?tab=integrations")
+
+
+@login_required
 def admin_dashboard(request):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None or not profile.is_owner:

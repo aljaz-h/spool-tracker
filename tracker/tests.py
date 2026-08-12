@@ -17,7 +17,7 @@ from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
 from . import completion, crypto, csv_import, instance_config, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, update_check, views
-from .integrations import gemini, jikan, mdblist, nuvio, tmdb, trakt
+from .integrations import gemini, jikan, mdblist, nuvio, scrobble, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
@@ -16050,6 +16050,239 @@ class WatchProgressDeleteApiTests(TestCase):
         untracked = Title.objects.create(media_type=MediaType.MOVIE, name="Untracked", year=2022)
         resp = self.client.delete(f"/api/watch-progress/{untracked.pk}")
         self.assertEqual(resp.status_code, 404)
+
+
+class ProfileApiTokenTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("tokenprofile", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="TokenProfile")
+
+    def test_starts_blank(self):
+        self.assertFalse(self.profile.api_token)
+
+    def test_generates_a_64_char_hex_token_on_first_request(self):
+        token = self.profile.get_or_create_api_token()
+        self.assertEqual(len(token), 64)
+        int(token, 16)  # raises ValueError if not valid hex
+
+    def test_repeated_calls_return_the_same_token(self):
+        first = self.profile.get_or_create_api_token()
+        second = self.profile.get_or_create_api_token()
+        self.assertEqual(first, second)
+
+    def test_regenerate_produces_a_different_token(self):
+        first = self.profile.get_or_create_api_token()
+        second = self.profile.regenerate_api_token()
+        self.assertNotEqual(first, second)
+
+    def test_two_profiles_never_collide(self):
+        other_user = User.objects.create_user("othertokenprofile", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="OtherTokenProfile")
+        self.assertNotEqual(self.profile.get_or_create_api_token(), other_profile.get_or_create_api_token())
+
+
+class RegenerateApiTokenViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("tokenviewuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="TokenViewUser")
+        self.client.login(username="tokenviewuser", password="pass12345")
+
+    def test_generates_a_token_the_first_time(self):
+        self.client.post(reverse("regenerate_api_token"))
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.api_token)
+
+    def test_changes_the_token_on_a_later_call(self):
+        self.client.post(reverse("regenerate_api_token"))
+        self.profile.refresh_from_db()
+        first = self.profile.api_token
+        self.client.post(reverse("regenerate_api_token"))
+        self.profile.refresh_from_db()
+        self.assertNotEqual(first, self.profile.api_token)
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("regenerate_api_token"))
+        self.assertNotEqual(resp.status_code, 200)
+
+    def test_requires_post(self):
+        resp = self.client.get(reverse("regenerate_api_token"))
+        self.assertEqual(resp.status_code, 405)
+
+    def test_settings_page_shows_generate_button_with_no_token_yet(self):
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, "Generate token")
+        self.assertNotContains(resp, "Regenerate token")
+
+    def test_settings_page_shows_the_token_and_regenerate_once_one_exists(self):
+        self.profile.get_or_create_api_token()
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, "Regenerate token")
+        self.assertContains(resp, self.profile.api_token)
+
+
+class ScrobbleIntegrationTests(TestCase):
+    """tracker.integrations.scrobble.record_scrobble - the generic
+    webhook's own write path (api/routers/scrobble.py's real HTTP
+    contract is exercised separately below, ScrobbleApiTests)."""
+
+    def setUp(self):
+        user = User.objects.create_user("scrobbleprofile", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ScrobbleProfile")
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_creates_a_new_movie_title_from_tmdb(self, mock_details):
+        mock_details.return_value = {
+            "name": "Inception", "year": 2010, "genres": ["Sci-Fi"], "poster_url": "https://example.com/p.jpg",
+        }
+        result = scrobble.record_scrobble(self.profile, "start", MediaType.MOVIE, 27205, None, None, 0.0)
+        title = Title.objects.get(external_ids__tmdb="27205")
+        self.assertEqual(title.name, "Inception")
+        self.assertEqual(result["title_id"], title.id)
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    def test_falls_back_to_hints_when_tmdb_lookup_fails(self, mock_details):
+        scrobble.record_scrobble(
+            self.profile, "start", MediaType.MOVIE, 999999, None, None, 0.0,
+            name_hint="Mystery Movie", year_hint=2021,
+        )
+        title = Title.objects.get(external_ids__tmdb="999999")
+        self.assertEqual(title.name, "Mystery Movie")
+        self.assertEqual(title.year, 2021)
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_reuses_an_existing_title_matched_by_tmdb_id(self, mock_details):
+        Title.objects.create(
+            media_type=MediaType.MOVIE, name="Already Tracked", year=2020,
+            external_ids={"tmdb": "555", "tmdb_kind": "movie"},
+        )
+        scrobble.record_scrobble(self.profile, "start", MediaType.MOVIE, 555, None, None, 10.0)
+        mock_details.assert_not_called()
+        self.assertEqual(Title.objects.filter(external_ids__tmdb="555").count(), 1)
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    def test_start_upserts_watch_progress_at_the_right_position(self, mock_details):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, runtime_minutes=100,
+            external_ids={"tmdb": "42", "tmdb_kind": "movie"},
+        )
+        scrobble.record_scrobble(self.profile, "start", MediaType.MOVIE, 42, None, None, 50.0)
+        progress = WatchProgress.objects.get(profile=self.profile, title=title)
+        self.assertEqual(progress.status, WatchProgress.Status.WATCHING)
+        self.assertEqual(progress.position_seconds, 3000)  # 50% of 100 min
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    def test_position_is_zero_when_no_runtime_is_known_yet(self, mock_details):
+        Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020,
+            external_ids={"tmdb": "42", "tmdb_kind": "movie"},
+        )
+        scrobble.record_scrobble(self.profile, "start", MediaType.MOVIE, 42, None, None, 50.0)
+        progress = WatchProgress.objects.get(profile=self.profile)
+        self.assertEqual(progress.position_seconds, 0)
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    def test_stop_below_threshold_is_just_a_progress_update(self, mock_details):
+        Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020,
+            external_ids={"tmdb": "42", "tmdb_kind": "movie"},
+        )
+        result = scrobble.record_scrobble(self.profile, "stop", MediaType.MOVIE, 42, None, None, 40.0)
+        self.assertFalse(result["watch_event_created"])
+        self.assertFalse(WatchEvent.objects.filter(profile=self.profile).exists())
+        self.assertTrue(WatchProgress.objects.filter(profile=self.profile).exists())
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    def test_stop_at_or_above_threshold_logs_a_watch_and_clears_progress(self, mock_details):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020,
+            external_ids={"tmdb": "42", "tmdb_kind": "movie"},
+        )
+        WatchProgress.objects.create(profile=self.profile, title=title, status=WatchProgress.Status.WATCHING)
+        result = scrobble.record_scrobble(self.profile, "stop", MediaType.MOVIE, 42, None, None, 95.0)
+        self.assertTrue(result["watch_event_created"])
+        event = WatchEvent.objects.get(profile=self.profile, title=title)
+        self.assertEqual(event.source, WatchEvent.Source.WEBHOOK)
+        self.assertFalse(WatchProgress.objects.filter(profile=self.profile, title=title).exists())
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    def test_tv_creates_the_episode_and_sets_current_episode(self, mock_details):
+        scrobble.record_scrobble(self.profile, "start", MediaType.TV, 100, 2, 5, 10.0, name_hint="Some Show")
+        title = Title.objects.get(external_ids__tmdb="100")
+        episode = Episode.objects.get(title=title, season=2, episode=5)
+        progress = WatchProgress.objects.get(profile=self.profile, title=title)
+        self.assertEqual(progress.current_episode, episode)
+
+    def test_tv_without_season_or_episode_is_a_no_op(self):
+        result = scrobble.record_scrobble(self.profile, "start", MediaType.TV, 100, None, None, 10.0)
+        self.assertIsNone(result)
+        self.assertFalse(Title.objects.filter(external_ids__tmdb="100").exists())
+        self.assertFalse(WatchProgress.objects.exists())
+
+
+class ScrobbleApiTests(TestCase):
+    """POST /api/scrobble - the real HTTP contract (auth, validation,
+    response shape) on top of ScrobbleIntegrationTests' own coverage of
+    the write logic itself."""
+
+    def setUp(self):
+        user = User.objects.create_user("scrobbleapiuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ScrobbleApiUser")
+        self.token = self.profile.get_or_create_api_token()
+
+    def _post(self, payload, token=None):
+        import json
+
+        return self.client.post(
+            "/api/scrobble", data=json.dumps(payload), content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token if token is not None else self.token}",
+        )
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    def test_valid_scrobble_returns_200(self, mock_details):
+        resp = self._post({"action": "start", "media_type": "movie", "tmdb_id": 42, "progress": 0})
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.json()["watch_event_created"])
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    def test_stop_past_threshold_reports_watch_event_created(self, mock_details):
+        resp = self._post({"action": "stop", "media_type": "movie", "tmdb_id": 42, "progress": 95})
+        self.assertTrue(resp.json()["watch_event_created"])
+
+    def test_missing_token_is_401(self):
+        resp = self.client.post(
+            "/api/scrobble", data="{}", content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 401)
+
+    def test_wrong_token_is_401(self):
+        resp = self._post({"action": "start", "media_type": "movie", "tmdb_id": 42, "progress": 0}, token="not-a-real-token")
+        self.assertEqual(resp.status_code, 401)
+
+    def test_invalid_action_is_422(self):
+        resp = self._post({"action": "bogus", "media_type": "movie", "tmdb_id": 42, "progress": 0})
+        self.assertEqual(resp.status_code, 422)
+
+    def test_invalid_media_type_is_422(self):
+        resp = self._post({"action": "start", "media_type": "book", "tmdb_id": 42, "progress": 0})
+        self.assertEqual(resp.status_code, 422)
+
+    def test_tv_without_season_or_episode_is_422(self):
+        resp = self._post({"action": "start", "media_type": "tv", "tmdb_id": 42, "progress": 0})
+        self.assertEqual(resp.status_code, 422)
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    def test_records_against_the_tokens_own_profile_only(self, mock_details):
+        other_user = User.objects.create_user("otherscrobbleuser", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="OtherScrobbleUser")
+        self._post({"action": "start", "media_type": "movie", "tmdb_id": 42, "progress": 10})
+        self.assertTrue(WatchProgress.objects.filter(profile=self.profile).exists())
+        self.assertFalse(WatchProgress.objects.filter(profile=other_profile).exists())
+
+    def test_a_regenerated_token_invalidates_the_old_one(self):
+        self.profile.regenerate_api_token()
+        resp = self._post({"action": "start", "media_type": "movie", "tmdb_id": 42, "progress": 0})
+        self.assertEqual(resp.status_code, 401)
 
 
 class WatchProgressDropApiTests(TestCase):

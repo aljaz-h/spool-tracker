@@ -1,4 +1,5 @@
 import random
+import secrets
 
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -115,6 +116,20 @@ class Profile(models.Model):
     # sync). Stored in cleartext, same as every other integration
     # credential this app already stores.
     gemini_api_key = models.CharField(max_length=255, blank=True, default="")
+    # Settings → Integrations "Custom Player" card - a bearer credential
+    # this profile hands to their own player/script so it can POST scrobble
+    # events to api/routers/scrobble.py without a browser session (see
+    # docs/SCROBBLE_API.md). Stored in cleartext like every other
+    # integration credential here (gemini_api_key above, InstanceConfig's
+    # own docstring) rather than hashed like a password - this is a
+    # revocable, narrowly-scoped ("record a watch for this profile")
+    # credential a person may legitimately need to re-view/re-copy into a
+    # player's config, not an account login. Blank until first requested
+    # (get_or_create_api_token), not generated for every profile up front.
+    # null (not "", unlike every blank=True field above) so more than one
+    # profile can go without a token at once - a unique constraint on ""
+    # would only ever allow a single blank row.
+    api_token = models.CharField(max_length=64, blank=True, null=True, default=None, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
     # Set on the account bootstrap_admin creates from ADMIN_USERNAME/
     # ADMIN_PASSWORD (see management/commands/bootstrap_admin.py) so its
@@ -139,6 +154,30 @@ class Profile(models.Model):
         onto Django's own superuser flag instead of inventing new schema
         for a distinction Django auth already expresses."""
         return self.user.is_superuser
+
+    def get_or_create_api_token(self):
+        """Lazily generates api_token on first request (Settings’
+        Integrations tab, api.auth.ScrobbleTokenAuth) rather than for
+        every profile up front - most profiles never touch the scrobble
+        API at all. token_hex(32) (64 hex chars, matches max_length)
+        colliding with an existing row is astronomically unlikely, but
+        the unique constraint means a retry is still correct if it ever
+        did rather than silently handing out a duplicate token."""
+        if self.api_token:
+            return self.api_token
+        while True:
+            token = secrets.token_hex(32)
+            if not Profile.objects.filter(api_token=token).exists():
+                break
+        self.api_token = token
+        self.save(update_fields=["api_token"])
+        return token
+
+    def regenerate_api_token(self):
+        """Settings' "Regenerate" button - the old token stops working the
+        moment this returns, same as rotating any other credential."""
+        self.api_token = None
+        return self.get_or_create_api_token()
 
 
 class Genre(models.Model):
@@ -282,6 +321,7 @@ class WatchEvent(models.Model):
         NUVIO = "nuvio", "Nuvio"
         SIMKL = "simkl", "Simkl"
         TRAKT = "trakt", "Trakt"
+        WEBHOOK = "webhook", "Scrobble API"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="watch_events")
     title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="watch_events")
