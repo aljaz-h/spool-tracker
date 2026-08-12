@@ -51,18 +51,15 @@
       </div>
     </div>
 
-    <div class="w-full lg:w-[300px] flex-none flex items-center gap-2">
-      <div class="inline-flex flex-1 min-w-0 bg-base-200 border border-line rounded-lg p-1 gap-0.5">
-        <label class="flex-1 text-center px-2 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-          <input type="radio" name="source" value="all" class="hidden" {% if source_filter == "all" %}checked{% endif %}>Both
-        </label>
-        <label class="flex-1 text-center px-2 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-          <input type="radio" name="source" value="watching" class="hidden" {% if source_filter == "watching" %}checked{% endif %}>Watching
-        </label>
-        <label class="flex-1 text-center px-2 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-          <input type="radio" name="source" value="watchlist" class="hidden" {% if source_filter == "watchlist" %}checked{% endif %}>Watchlist
-        </label>
-      </div>
+    <div class="w-full lg:w-[300px] flex-none flex items-center justify-end gap-2">
+      {% comment %}
+        The Both/Watching/Watchlist source filter is temporarily disabled
+        (per request) - the calendar just shows everything now. Left the
+        source_filter param/backend logic in place (views.calendar_view
+        already defaults it to "all" whenever nothing sends a "source"
+        value, which is now always) so this can come back as a quick UI
+        re-add later without touching the view.
+      {% endcomment %}
       {% comment %}
         Fire-and-forget, same as Settings' own "Sync now" buttons
         (_dispatch_sync_task_safely) - the actual TMDB sync runs on a

@@ -28,7 +28,7 @@
     >
       <div
         id="agenda-{{ group.date|date:'Y-m-d' }}"
-        class="font-display text-lg tracking-wide pb-1.5 mb-1.5 border-b {% if group.date == today %}text-primary{% endif %}"
+        class="font-display text-lg tracking-wide pb-1.5 mb-1.5 border-b scroll-mt-20 {% if group.date == today %}text-primary{% endif %}"
         :class="selected === '{{ group.date|date:'Y-m-d' }}' ? 'border-violet' : 'border-line'"
       >{{ group.date|date:"M j" }}</div>
       {% for rs in group.items %}

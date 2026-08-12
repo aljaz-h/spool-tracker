@@ -8,6 +8,21 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.84.2] - 2026-08-12
+
+### Fixed
+
+- The Calendar's agenda sidebar now scrolls to today's date on load
+  instead of sitting at its oldest past entry (up to 30 days back).
+- Clicking a date on the Calendar grid no longer scrolls the agenda
+  sidebar so far that the sticky header cuts off the top of the target
+  date's entries.
+
+### Changed
+
+- The Calendar's Both/Watching/Watchlist source filter is temporarily
+  disabled - it now always shows everything.
+
 ## [0.84.1] - 2026-08-12
 
 ### Changed

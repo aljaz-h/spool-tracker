@@ -24,6 +24,17 @@
     syncSidebarHeight();
     new ResizeObserver(syncSidebarHeight).observe(main);
     window.addEventListener('resize', syncSidebarHeight);
+
+    // Land on today's agenda group by default instead of leaving the
+    // sidebar scrolled to its natural top - the agenda includes up to
+    // AGENDA_LOOKBACK_DAYS of past releases (see views.calendar_view),
+    // so 'the top of the list' is usually weeks before today, not today
+    // itself. Falls back to the next upcoming group if today has no
+    // releases of its own (no #agenda-<today> id to land on), or does
+    // nothing if every group is already in the past.
+    const groups = [...sidebar.querySelectorAll('[id^=\'agenda-\']')];
+    const target = groups.find((el) => el.id.slice(7) >= selected) || groups.at(-1);
+    target?.scrollIntoView({ block: 'start' });
   "
 >
   <div id="cal-main" class="flex-1 min-w-0">
