@@ -314,6 +314,12 @@ class WatchProgress(models.Model):
         # a guessed-at derived query (spool-product-spec.md doesn't define
         # a completion signal otherwise).
         COMPLETED = "completed", "Completed"
+        # Same reasoning as COMPLETED above, added later - quitting a show
+        # partway through had no way to be recorded other than deleting the
+        # WatchProgress row outright (views.title_drop), which throws away
+        # current_episode/position_seconds a later "actually, let's finish
+        # it" (views.title_resume_watching) would want back.
+        DROPPED = "dropped", "Dropped"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="watch_progress")
     title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="watch_progress")

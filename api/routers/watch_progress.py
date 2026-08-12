@@ -20,3 +20,20 @@ def remove_watch_progress(request, title_id: int):
     progress = get_object_or_404(WatchProgress, profile=profile, title_id=title_id)
     progress.delete()
     return HttpResponse(status=200)
+
+
+@router.post("/{title_id}/drop")
+def drop_watch_progress(request, title_id: int):
+    """The Dashboard "Watching" tile's own "Drop" action - same intent as
+    views.title_drop (the title detail page's own "Your history" card),
+    just reachable straight from the tile without navigating there first.
+    Sets status rather than deleting the row (unlike remove_watch_progress
+    above) - current_episode/position_seconds survive so a later Resume
+    (from the detail page - there's no dedicated Dashboard "undrop" tile)
+    picks back up where it left off. Same empty-200 shape as
+    remove_watch_progress for the same reason (htmx's 204 special-case)."""
+    profile = get_object_or_404(Profile, user=request.user)
+    progress = get_object_or_404(WatchProgress, profile=profile, title_id=title_id)
+    progress.status = WatchProgress.Status.DROPPED
+    progress.save(update_fields=["status"])
+    return HttpResponse(status=200)

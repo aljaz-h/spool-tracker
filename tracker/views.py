@@ -1395,6 +1395,50 @@ def title_unmark_watched(request, pk):
 
 @login_required
 @require_POST
+def title_drop(request, pk):
+    """The "Your history" card's "Drop" action (title_history_card.html) -
+    records that a title was quit partway through instead of the only
+    other option being to delete its WatchProgress row outright (the
+    Dashboard Watching card's own "×"/remove_watch_progress, a separate,
+    deliberately more destructive action). update_or_create rather than
+    a plain filter().update() so dropping a title that never got an
+    inferred WatchProgress row (e.g. mid-series import with no
+    in-progress signal) still records it - current_episode/
+    position_seconds stay whatever they already were (or unset, for a
+    freshly created row), preserved for title_resume_watching."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    WatchProgress.objects.update_or_create(
+        profile=profile, title=title, defaults={"status": WatchProgress.Status.DROPPED}
+    )
+    if request.headers.get("HX-Request"):
+        return render(request, "tracker/partials/title_history_card.html", selectors.title_watch_history_context(profile, title))
+    return redirect("title_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def title_resume_watching(request, pk):
+    """The "Your history" card's "Resume watching" action - the other
+    half of title_drop, only ever reachable from a Dropped title (see
+    title_history_card.html), so there's always an existing WatchProgress
+    row here to flip back to Watching rather than needing get_or_create."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    WatchProgress.objects.filter(profile=profile, title=title, status=WatchProgress.Status.DROPPED).update(
+        status=WatchProgress.Status.WATCHING
+    )
+    if request.headers.get("HX-Request"):
+        return render(request, "tracker/partials/title_history_card.html", selectors.title_watch_history_context(profile, title))
+    return redirect("title_detail", pk=pk)
+
+
+@login_required
+@require_POST
 def title_unmark_last_watched(request, pk):
     """The poster card watched-button popover's "Remove last watched" -
     undoes a single play instead of title_unmark_watched's "clear

@@ -15951,6 +15951,145 @@ class WatchProgressDeleteApiTests(TestCase):
         self.assertEqual(resp.status_code, 404)
 
 
+class WatchProgressDropApiTests(TestCase):
+    """POST /api/watch-progress/{title_id}/drop - the Dashboard Watching
+    tile's "Drop" button (api/routers/watch_progress.py). Unlike the
+    DELETE endpoint above, this only ever changes status - the row itself,
+    and its current_episode/position_seconds, survive so a later Resume
+    (from the title detail page) picks back up where it left off."""
+
+    def setUp(self):
+        user = User.objects.create_user("progressdropper", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ProgressDropper")
+        self.title = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+        self.episode = Episode.objects.create(title=self.title, season=1, episode=5)
+        self.progress = WatchProgress.objects.create(
+            profile=self.profile, title=self.title, current_episode=self.episode,
+            position_seconds=600, status=WatchProgress.Status.WATCHING,
+        )
+        self.client.login(username="progressdropper", password="pass12345")
+
+    def test_sets_status_to_dropped(self):
+        resp = self.client.post(f"/api/watch-progress/{self.title.pk}/drop")
+        self.assertEqual(resp.status_code, 200)
+        self.progress.refresh_from_db()
+        self.assertEqual(self.progress.status, WatchProgress.Status.DROPPED)
+
+    def test_preserves_current_episode_and_position(self):
+        self.client.post(f"/api/watch-progress/{self.title.pk}/drop")
+        self.progress.refresh_from_db()
+        self.assertEqual(self.progress.current_episode, self.episode)
+        self.assertEqual(self.progress.position_seconds, 600)
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(f"/api/watch-progress/{self.title.pk}/drop")
+        self.assertIn(resp.status_code, (401, 403))
+        self.progress.refresh_from_db()
+        self.assertEqual(self.progress.status, WatchProgress.Status.WATCHING)
+
+    def test_404s_for_another_profiles_progress(self):
+        other_user = User.objects.create_user("otherdropper", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="OtherDropper")
+        other_title = Title.objects.create(media_type=MediaType.MOVIE, name="Other Movie", year=2021)
+        other_progress = WatchProgress.objects.create(
+            profile=other_profile, title=other_title, position_seconds=100, status=WatchProgress.Status.WATCHING
+        )
+        resp = self.client.post(f"/api/watch-progress/{other_title.pk}/drop")
+        self.assertEqual(resp.status_code, 404)
+        other_progress.refresh_from_db()
+        self.assertEqual(other_progress.status, WatchProgress.Status.WATCHING)
+
+    def test_404s_when_no_progress_exists_for_the_title(self):
+        untracked = Title.objects.create(media_type=MediaType.MOVIE, name="Untracked", year=2022)
+        resp = self.client.post(f"/api/watch-progress/{untracked.pk}/drop")
+        self.assertEqual(resp.status_code, 404)
+
+
+class TitleDropAndResumeWatchingTests(TestCase):
+    """The title detail page's "Your history" card - views.title_drop /
+    views.title_resume_watching, and the Drop/Resume controls
+    title_history_card.html shows depending on progress.status."""
+
+    def setUp(self):
+        user = User.objects.create_user("dropresumeuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="DropResumeUser")
+        self.title = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+        self.client.login(username="dropresumeuser", password="pass12345")
+
+    def test_drop_sets_status_on_an_existing_progress_row(self):
+        episode = Episode.objects.create(title=self.title, season=1, episode=3)
+        progress = WatchProgress.objects.create(
+            profile=self.profile, title=self.title, current_episode=episode,
+            position_seconds=300, status=WatchProgress.Status.WATCHING,
+        )
+        self.client.post(reverse("title_drop", args=[self.title.pk]))
+        progress.refresh_from_db()
+        self.assertEqual(progress.status, WatchProgress.Status.DROPPED)
+        self.assertEqual(progress.current_episode, episode)
+        self.assertEqual(progress.position_seconds, 300)
+
+    def test_drop_creates_a_row_when_none_exists_yet(self):
+        # A title with plain watch history but no inferred WatchProgress
+        # row (e.g. imported mid-series) can still be dropped.
+        self.client.post(reverse("title_drop", args=[self.title.pk]))
+        progress = WatchProgress.objects.get(profile=self.profile, title=self.title)
+        self.assertEqual(progress.status, WatchProgress.Status.DROPPED)
+
+    def test_resume_flips_a_dropped_row_back_to_watching(self):
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.DROPPED)
+        self.client.post(reverse("title_resume_watching", args=[self.title.pk]))
+        progress = WatchProgress.objects.get(profile=self.profile, title=self.title)
+        self.assertEqual(progress.status, WatchProgress.Status.WATCHING)
+
+    def test_dropped_title_no_longer_appears_in_continue_watching(self):
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.WATCHING)
+        self.client.post(reverse("title_drop", args=[self.title.pk]))
+        items = selectors.continue_watching(self.profile)
+        self.assertNotIn(self.title, [item["title"] for item in items])
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("title_drop", args=[self.title.pk]))
+        self.assertNotEqual(resp.status_code, 200)
+
+    def test_drop_requires_post(self):
+        resp = self.client.get(reverse("title_drop", args=[self.title.pk]))
+        self.assertEqual(resp.status_code, 405)
+
+    def test_via_htmx_drop_returns_the_history_card_with_a_resume_button(self):
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.WATCHING)
+        resp = self.client.post(reverse("title_drop", args=[self.title.pk]), HTTP_HX_REQUEST="true")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="history-card"')
+        self.assertContains(resp, "Resume watching")
+        self.assertNotContains(resp, ">Drop<")
+
+    def test_via_htmx_resume_returns_the_history_card_with_a_drop_button(self):
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.DROPPED)
+        resp = self.client.post(reverse("title_resume_watching", args=[self.title.pk]), HTTP_HX_REQUEST="true")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="history-card"')
+        self.assertContains(resp, ">Drop<")
+        self.assertNotContains(resp, "Resume watching")
+
+    def test_title_detail_page_shows_drop_button_while_watching(self):
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.WATCHING)
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, ">Drop<")
+
+    def test_title_detail_page_shows_resume_button_once_dropped(self):
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.DROPPED)
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, "Resume watching")
+
+    def test_no_drop_or_resume_button_once_completed(self):
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.COMPLETED)
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertNotContains(resp, ">Drop<")
+        self.assertNotContains(resp, "Resume watching")
+
+
 class HistoryGroupTileDropdownTests(TestCase):
     """The binge-group tile itself (as rendered on the real History page) -
     a per-episode dropdown wired to history_delete_episode, not the old

@@ -1,4 +1,4 @@
-{% load tracker_extras %}
+{% load tracker_extras icons %}
 {# context: title, progress, show_ratings, user_rating, width_class, event_profile (Profile - Dashboard's Social Activity row, shows who watched it), event_episode (Episode, optional - paired with event_profile, shows which episode) plus watched_by_title/watch_count_by_title/my_lists/list_membership from selectors.poster_action_context() #}
 {% comment %}
 Two <a> tags to the same URL (image box + text block below) instead of
@@ -18,15 +18,26 @@ to avoid triggering navigation.
       <span class="absolute top-2 right-2 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ title.media_type|upper }}</span>
     </a>
     {% if progress %}
-      <button
-        type="button"
-        hx-delete="/api/watch-progress/{{ title.pk }}"
-        hx-confirm="Remove &quot;{{ title.name }}&quot; from Watching? This only clears its progress - your watch history isn't touched."
-        hx-target="#watch-progress-card-{{ title.pk }}"
-        hx-swap="outerHTML swap:150ms"
-        title="Remove from Watching"
-        class="absolute top-2 left-2 z-20 w-5 h-5 rounded-full bg-black/75 text-white text-xs leading-none flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-error"
-      >&times;</button>
+      <div class="absolute top-2 left-2 z-20 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          type="button"
+          hx-post="/api/watch-progress/{{ title.pk }}/drop"
+          hx-confirm="Mark &quot;{{ title.name }}&quot; as dropped? Your watch history stays intact - resume any time from its detail page."
+          hx-target="#watch-progress-card-{{ title.pk }}"
+          hx-swap="outerHTML swap:150ms"
+          title="Drop - keeps your watch history, just leaves Watching"
+          class="w-5 h-5 rounded-full bg-black/75 text-white leading-none flex items-center justify-center hover:bg-error"
+        >{% icon "circle" "w-2.5 h-2.5" %}</button>
+        <button
+          type="button"
+          hx-delete="/api/watch-progress/{{ title.pk }}"
+          hx-confirm="Remove &quot;{{ title.name }}&quot; from Watching? This only clears its progress - your watch history isn't touched."
+          hx-target="#watch-progress-card-{{ title.pk }}"
+          hx-swap="outerHTML swap:150ms"
+          title="Remove from Watching"
+          class="w-5 h-5 rounded-full bg-black/75 text-white text-xs leading-none flex items-center justify-center hover:bg-error"
+        >&times;</button>
+      </div>
     {% endif %}
     {% if event_profile %}
       <div class="absolute top-2 left-2 z-10 flex items-center gap-1.5 bg-black/70 rounded-full pl-1 pr-2.5 py-1 max-w-[80%] pointer-events-none">

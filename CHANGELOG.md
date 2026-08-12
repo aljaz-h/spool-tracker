@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.88.0] - 2026-08-12
+
+### Added
+
+- A "Dropped" watch status - quitting a show partway through can now be
+  recorded from its "Your history" card or straight from the Dashboard's
+  Watching tile, instead of the only option being to delete its progress
+  entirely. Dropping keeps your current episode/position, so a title can
+  be resumed later from right where it was left off.
+
 ## [0.87.0] - 2026-08-12
 
 ### Changed

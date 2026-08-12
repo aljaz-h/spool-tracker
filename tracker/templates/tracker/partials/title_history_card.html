@@ -2,9 +2,29 @@
 <div id="history-card" {% if oob %}hx-swap-oob="true"{% endif %} class="bg-base-200 border border-line rounded-2xl p-4">
   <h2 class="font-display text-lg mb-2.5">Your history</h2>
   {% if progress %}
-    <div class="text-[12.5px] mb-2">
-      Status: <span class="font-semibold">{{ progress.get_status_display }}</span>
-      {% if progress.current_episode %}— S{{ progress.current_episode.season }}E{{ progress.current_episode.episode }}{% endif %}
+    <div class="flex items-center justify-between gap-2 mb-2">
+      <div class="text-[12.5px]">
+        Status: <span class="font-semibold">{{ progress.get_status_display }}</span>
+        {% if progress.current_episode %}— S{{ progress.current_episode.season }}E{{ progress.current_episode.episode }}{% endif %}
+      </div>
+      {% if progress.status == "dropped" %}
+        <button
+          type="button"
+          hx-post="{% url 'title_resume_watching' progress.title_id %}"
+          hx-target="#history-card"
+          hx-swap="outerHTML"
+          class="flex-none text-[11px] font-semibold text-primary hover:underline"
+        >Resume watching</button>
+      {% elif progress.status == "watching" %}
+        <button
+          type="button"
+          hx-post="{% url 'title_drop' progress.title_id %}"
+          hx-target="#history-card"
+          hx-swap="outerHTML"
+          hx-confirm="Mark &quot;{{ progress.title.name }}&quot; as dropped? Your watch history stays intact - you can resume any time."
+          class="flex-none text-[11px] font-semibold text-ink-faint hover:text-error"
+        >Drop</button>
+      {% endif %}
     </div>
   {% endif %}
   {% if recent_events %}

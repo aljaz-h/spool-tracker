@@ -17,6 +17,8 @@ urlpatterns = [
     path("titles/<int:pk>/mark-watched/", views.title_mark_watched, name="title_mark_watched"),
     path("titles/<int:pk>/unmark-watched/", views.title_unmark_watched, name="title_unmark_watched"),
     path("titles/<int:pk>/unmark-last-watched/", views.title_unmark_last_watched, name="title_unmark_last_watched"),
+    path("titles/<int:pk>/drop/", views.title_drop, name="title_drop"),
+    path("titles/<int:pk>/resume-watching/", views.title_resume_watching, name="title_resume_watching"),
     path(
         "titles/<int:pk>/refresh-mdblist-ratings/",
         views.title_refresh_mdblist_ratings,
