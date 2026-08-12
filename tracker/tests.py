@@ -3322,11 +3322,27 @@ class SpoolLoginRedirectTests(TestCase):
         resp = self._login()
         self.assertRedirects(resp, reverse("stats"))
 
-    def test_movies_tv_landing_page_goes_to_its_trending_category(self):
+    def test_movies_landing_page_goes_to_its_trending_category(self):
+        self.profile.default_landing_page = "movies"
+        self.profile.save(update_fields=["default_landing_page"])
+        resp = self._login()
+        self.assertRedirects(resp, reverse("movies", args=["trending"]))
+
+    def test_tv_landing_page_goes_to_its_trending_category(self):
+        self.profile.default_landing_page = "tv"
+        self.profile.save(update_fields=["default_landing_page"])
+        resp = self._login()
+        self.assertRedirects(resp, reverse("tv", args=["trending"]))
+
+    def test_legacy_movies_tv_landing_page_value_falls_back_to_movies(self):
+        # "movies_tv" was the stored value before Movies & TV split into
+        # separate pages - no longer a valid LandingPage choice, but a
+        # profile that already had it saved shouldn't land on the
+        # dashboard fallback instead of somewhere sensible.
         self.profile.default_landing_page = "movies_tv"
         self.profile.save(update_fields=["default_landing_page"])
         resp = self._login()
-        self.assertRedirects(resp, reverse("movies_tv", args=["trending"]))
+        self.assertRedirects(resp, reverse("movies", args=["trending"]))
 
     def test_an_explicit_next_param_still_wins_over_the_landing_page(self):
         self.profile.default_landing_page = "stats"
@@ -8507,7 +8523,7 @@ class RecommendViewTests(TestCase):
     CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
 )
 class TmdbCollectionsTests(TestCase):
-    """tmdb.collections()/get_collection_details() - the Movies & TV page's
+    """tmdb.collections()/get_collection_details() - the Movies page's
     Collections tab. collections() has no dedicated TMDB endpoint to call
     (see its own docstring), so it scans popular movies' individual detail
     responses for belongs_to_collection."""
@@ -9201,22 +9217,31 @@ class DiscoverViewTests(TestCase):
         self.client.login(username="discoverviewer", password="pass12345")
 
     def test_invalid_category_404s(self):
-        resp = self.client.get(reverse("movies_tv", args=["bogus"]))
+        resp = self.client.get(reverse("movies", args=["bogus"]))
         self.assertEqual(resp.status_code, 404)
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
-    def test_movies_tv_defaults_to_movie_type(self, mock_discover, mock_genres):
+    def test_movies_page_uses_movie_type(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        self.client.get(reverse("movies_tv", args=["trending"]))
+        self.client.get(reverse("movies", args=["trending"]))
         self.assertEqual(mock_discover.call_args.args[0], "movie")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
-    def test_movies_tv_respects_type_query_param(self, mock_discover, mock_genres):
+    def test_tv_page_uses_tv_type(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        self.client.get(reverse("movies_tv", args=["trending"]), {"type": "tv"})
+        self.client.get(reverse("tv", args=["trending"]))
         self.assertEqual(mock_discover.call_args.args[0], "tv")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_stray_type_query_param_is_ignored_on_the_movies_page(self, mock_discover, mock_genres):
+        # media_type is fixed per URL now (Movies/TV split) - a leftover
+        # ?type= from the old combined toggle shouldn't override it.
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        self.client.get(reverse("movies", args=["trending"]), {"type": "tv"})
+        self.assertEqual(mock_discover.call_args.args[0], "movie")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
@@ -9233,21 +9258,21 @@ class DiscoverViewTests(TestCase):
     @patch("tracker.integrations.tmdb.discover")
     def test_page_number_clamped_to_500(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 500, "total_pages": 500}
-        self.client.get(reverse("movies_tv", args=["popular"]), {"page": "99999"})
+        self.client.get(reverse("movies", args=["popular"]), {"page": "99999"})
         self.assertEqual(mock_discover.call_args.kwargs["page"], 500)
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
     def test_genre_filter_parsed_from_query_params(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        self.client.get(reverse("movies_tv", args=["popular"]), {"genre": ["28", "16"]})
+        self.client.get(reverse("movies", args=["popular"]), {"genre": ["28", "16"]})
         self.assertEqual(set(mock_discover.call_args.kwargs["genre_ids"]), {28, 16})
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
     def test_runtime_bucket_maps_to_the_matching_range(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"runtime_bucket": "90_120"})
+        resp = self.client.get(reverse("movies", args=["popular"]), {"runtime_bucket": "90_120"})
         self.assertEqual(mock_discover.call_args.kwargs["runtime_from"], 90)
         self.assertEqual(mock_discover.call_args.kwargs["runtime_to"], 120)
         self.assertEqual(resp.context["selected_runtime_bucket"], "90_120")
@@ -9256,7 +9281,7 @@ class DiscoverViewTests(TestCase):
     @patch("tracker.integrations.tmdb.discover")
     def test_under_90_bucket_has_no_lower_bound(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        self.client.get(reverse("movies_tv", args=["popular"]), {"runtime_bucket": "under_90"})
+        self.client.get(reverse("movies", args=["popular"]), {"runtime_bucket": "under_90"})
         self.assertIsNone(mock_discover.call_args.kwargs["runtime_from"])
         self.assertEqual(mock_discover.call_args.kwargs["runtime_to"], 89)
 
@@ -9264,7 +9289,7 @@ class DiscoverViewTests(TestCase):
     @patch("tracker.integrations.tmdb.discover")
     def test_150_plus_bucket_has_no_upper_bound(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        self.client.get(reverse("movies_tv", args=["popular"]), {"runtime_bucket": "150_plus"})
+        self.client.get(reverse("movies", args=["popular"]), {"runtime_bucket": "150_plus"})
         self.assertEqual(mock_discover.call_args.kwargs["runtime_from"], 151)
         self.assertIsNone(mock_discover.call_args.kwargs["runtime_to"])
 
@@ -9272,7 +9297,7 @@ class DiscoverViewTests(TestCase):
     @patch("tracker.integrations.tmdb.discover")
     def test_no_runtime_bucket_means_no_runtime_filter(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["popular"]))
+        resp = self.client.get(reverse("movies", args=["popular"]))
         self.assertIsNone(mock_discover.call_args.kwargs["runtime_from"])
         self.assertIsNone(mock_discover.call_args.kwargs["runtime_to"])
         self.assertEqual(resp.context["selected_runtime_bucket"], "")
@@ -9281,7 +9306,7 @@ class DiscoverViewTests(TestCase):
     @patch("tracker.integrations.tmdb.discover")
     def test_invalid_runtime_bucket_falls_back_to_no_filter(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"runtime_bucket": "bogus"})
+        resp = self.client.get(reverse("movies", args=["popular"]), {"runtime_bucket": "bogus"})
         self.assertIsNone(mock_discover.call_args.kwargs["runtime_from"])
         self.assertIsNone(mock_discover.call_args.kwargs["runtime_to"])
         self.assertEqual(resp.context["selected_runtime_bucket"], "")
@@ -9290,7 +9315,7 @@ class DiscoverViewTests(TestCase):
     @patch("tracker.integrations.tmdb.discover_by_decades")
     def test_decade_filter_parsed_from_query_params(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"decade": ["1980", "2020"]})
+        resp = self.client.get(reverse("movies", args=["popular"]), {"decade": ["1980", "2020"]})
         self.assertEqual(mock_discover.call_args.kwargs["decades"], [1980, 2020])
         self.assertEqual(resp.context["selected_decades"], {1980, 2020})
 
@@ -9298,14 +9323,14 @@ class DiscoverViewTests(TestCase):
     @patch("tracker.integrations.tmdb.discover_by_decades")
     def test_no_decade_means_an_empty_decades_list(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        self.client.get(reverse("movies_tv", args=["popular"]))
+        self.client.get(reverse("movies", args=["popular"]))
         self.assertEqual(mock_discover.call_args.kwargs["decades"], [])
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover_by_decades")
     def test_non_numeric_decade_values_are_dropped(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        self.client.get(reverse("movies_tv", args=["popular"]), {"decade": ["1980", "bogus"]})
+        self.client.get(reverse("movies", args=["popular"]), {"decade": ["1980", "bogus"]})
         self.assertEqual(mock_discover.call_args.kwargs["decades"], [1980])
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
@@ -9317,7 +9342,7 @@ class DiscoverViewTests(TestCase):
             "page": 1,
             "total_pages": 3,
         }
-        resp = self.client.get(reverse("movies_tv", args=["popular"]))
+        resp = self.client.get(reverse("movies", args=["popular"]))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Fathom")
 
@@ -9333,7 +9358,7 @@ class DiscoverViewTests(TestCase):
             "page": 1,
             "total_pages": 1,
         }
-        resp = self.client.get(reverse("movies_tv", args=["popular"]))
+        resp = self.client.get(reverse("movies", args=["popular"]))
         self.assertNotContains(resp, ">MOVIE<")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
@@ -9350,7 +9375,7 @@ class DiscoverViewTests(TestCase):
             "page": 1,
             "total_pages": 3,
         }
-        resp = self.client.get(reverse("movies_tv", args=["popular"]))
+        resp = self.client.get(reverse("movies", args=["popular"]))
         self.assertContains(resp, '<img src="https://image.tmdb.org/t/p/w342/abc.jpg"')
         self.assertContains(resp, 'loading="lazy"')
         self.assertNotContains(resp, "background-image:url('https://image.tmdb.org/t/p/w500/abc.jpg')")
@@ -9362,7 +9387,7 @@ class DiscoverViewTests(TestCase):
         profile.preferred_language = "ja"
         profile.save(update_fields=["preferred_language"])
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["trending"]))
+        resp = self.client.get(reverse("movies", args=["trending"]))
         self.assertEqual(mock_discover.call_args.kwargs["original_language"], "ja")
         self.assertEqual(resp.context["selected_language"], "ja")
 
@@ -9373,7 +9398,7 @@ class DiscoverViewTests(TestCase):
         profile.preferred_language = "ja"
         profile.save(update_fields=["preferred_language"])
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        self.client.get(reverse("movies_tv", args=["trending"]), {"language": "fr"})
+        self.client.get(reverse("movies", args=["trending"]), {"language": "fr"})
         self.assertEqual(mock_discover.call_args.kwargs["original_language"], "fr")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
@@ -9383,7 +9408,7 @@ class DiscoverViewTests(TestCase):
         profile.preferred_language = "ja"
         profile.save(update_fields=["preferred_language"])
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        self.client.get(reverse("movies_tv", args=["trending"]), {"language": ""})
+        self.client.get(reverse("movies", args=["trending"]), {"language": ""})
         self.assertIsNone(mock_discover.call_args.kwargs["original_language"])
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
@@ -9400,7 +9425,7 @@ class DiscoverViewTests(TestCase):
             "page": 1,
             "total_pages": 1,
         }
-        resp = self.client.get(reverse("movies_tv", args=["popular"]))
+        resp = self.client.get(reverse("movies", args=["popular"]))
         self.assertContains(resp, "text-success")
         self.assertContains(resp, f"watched-btn-{title.pk}")
         # Already watched -> a further click is guarded by a confirm.
@@ -9410,7 +9435,7 @@ class DiscoverViewTests(TestCase):
     @patch("tracker.integrations.tmdb.discover")
     def test_certification_filter_passed_through_for_movies(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"type": "movie", "certification": "R"})
+        resp = self.client.get(reverse("movies", args=["popular"]), {"certification": "R"})
         self.assertEqual(mock_discover.call_args.kwargs["certification"], "R")
         self.assertEqual(resp.context["selected_certification"], "R")
 
@@ -9421,7 +9446,7 @@ class DiscoverViewTests(TestCase):
         # - a ?certification= carried over from a prior Movies search
         # shouldn't silently pass through to a call that can't use it.
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"type": "tv", "certification": "R"})
+        resp = self.client.get(reverse("tv", args=["popular"]), {"certification": "R"})
         self.assertIsNone(mock_discover.call_args.kwargs["certification"])
         self.assertEqual(resp.context["selected_certification"], "")
 
@@ -9429,7 +9454,7 @@ class DiscoverViewTests(TestCase):
     @patch("tracker.integrations.tmdb.discover")
     def test_invalid_certification_falls_back_to_none(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"type": "movie", "certification": "bogus"})
+        resp = self.client.get(reverse("movies", args=["popular"]), {"certification": "bogus"})
         self.assertIsNone(mock_discover.call_args.kwargs["certification"])
         self.assertEqual(resp.context["selected_certification"], "")
 
@@ -9437,7 +9462,7 @@ class DiscoverViewTests(TestCase):
     @patch("tracker.integrations.tmdb.discover")
     def test_status_filter_passed_through_for_tv(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"type": "tv", "status": "Ended"})
+        resp = self.client.get(reverse("tv", args=["popular"]), {"status": "Ended"})
         self.assertEqual(mock_discover.call_args.kwargs["status"], "Ended")
         self.assertEqual(resp.context["selected_status"], "Ended")
 
@@ -9448,7 +9473,7 @@ class DiscoverViewTests(TestCase):
         # ?status= carried over from a prior TV search shouldn't silently
         # pass through to a call that can't use it.
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"type": "movie", "status": "Ended"})
+        resp = self.client.get(reverse("movies", args=["popular"]), {"status": "Ended"})
         self.assertIsNone(mock_discover.call_args.kwargs["status"])
         self.assertEqual(resp.context["selected_status"], "")
 
@@ -9456,7 +9481,7 @@ class DiscoverViewTests(TestCase):
     @patch("tracker.integrations.tmdb.discover")
     def test_invalid_status_falls_back_to_none(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"type": "tv", "status": "bogus"})
+        resp = self.client.get(reverse("tv", args=["popular"]), {"status": "bogus"})
         self.assertIsNone(mock_discover.call_args.kwargs["status"])
         self.assertEqual(resp.context["selected_status"], "")
 
@@ -9464,7 +9489,7 @@ class DiscoverViewTests(TestCase):
     @patch("tracker.integrations.tmdb.discover")
     def test_availability_filter_passed_through(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"availability": "streaming"})
+        resp = self.client.get(reverse("movies", args=["popular"]), {"availability": "streaming"})
         self.assertEqual(mock_discover.call_args.kwargs["availability"], "streaming")
         self.assertEqual(resp.context["selected_availability"], "streaming")
 
@@ -9472,7 +9497,7 @@ class DiscoverViewTests(TestCase):
     @patch("tracker.integrations.tmdb.discover")
     def test_invalid_availability_falls_back_to_none(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["popular"]), {"availability": "bogus"})
+        resp = self.client.get(reverse("movies", args=["popular"]), {"availability": "bogus"})
         self.assertIsNone(mock_discover.call_args.kwargs["availability"])
         self.assertEqual(resp.context["selected_availability"], "")
 
@@ -9490,7 +9515,7 @@ class DiscoverViewTests(TestCase):
             "page": 1,
             "total_pages": 1,
         }
-        resp = self.client.get(reverse("movies_tv", args=["popular"]))
+        resp = self.client.get(reverse("movies", args=["popular"]))
         self.assertContains(resp, "Fathom")
         self.assertNotContains(resp, "opacity-25")
 
@@ -9510,7 +9535,7 @@ class DiscoverViewTests(TestCase):
             "page": 1,
             "total_pages": 1,
         }
-        resp = self.client.get(reverse("movies_tv", args=["popular"]))
+        resp = self.client.get(reverse("movies", args=["popular"]))
         self.assertNotContains(resp, "Fathom")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
@@ -9529,7 +9554,7 @@ class DiscoverViewTests(TestCase):
             "page": 1,
             "total_pages": 1,
         }
-        resp = self.client.get(reverse("movies_tv", args=["popular"]))
+        resp = self.client.get(reverse("movies", args=["popular"]))
         self.assertContains(resp, "Fathom")
         self.assertContains(resp, "opacity-25")
 
@@ -9543,14 +9568,14 @@ class DiscoverViewTests(TestCase):
         profile.discover_watched_display = "hide"
         profile.save(update_fields=["discover_watched_display"])
         mock_discover_by_decades.return_value = {"results": [], "page": 1, "total_pages": 1}
-        self.client.get(reverse("movies_tv", args=["popular"]))
+        self.client.get(reverse("movies", args=["popular"]))
         self.assertEqual(mock_discover_by_decades.call_args.kwargs["page_size"], views.DISCOVER_HIDE_MODE_PAGE_SIZE)
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover_by_decades")
     def test_show_display_uses_the_normal_pool_size(self, mock_discover_by_decades, mock_genres):
         mock_discover_by_decades.return_value = {"results": [], "page": 1, "total_pages": 1}
-        self.client.get(reverse("movies_tv", args=["popular"]))
+        self.client.get(reverse("movies", args=["popular"]))
         self.assertEqual(mock_discover_by_decades.call_args.kwargs["page_size"], tmdb.RESULTS_PAGE_SIZE)
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
@@ -9570,7 +9595,7 @@ class DiscoverViewTests(TestCase):
             "page": 1,
             "total_pages": 1,
         }
-        resp = self.client.get(reverse("movies_tv", args=["popular"]))
+        resp = self.client.get(reverse("movies", args=["popular"]))
         self.assertNotContains(resp, "Fathom")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
@@ -9592,7 +9617,7 @@ class DiscoverViewTests(TestCase):
             "page": 1,
             "total_pages": 1,
         }
-        resp = self.client.get(reverse("movies_tv", args=["popular"]))
+        resp = self.client.get(reverse("movies", args=["popular"]))
         self.assertContains(resp, "Fathom")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
@@ -9605,14 +9630,14 @@ class DiscoverViewTests(TestCase):
         profile.discover_watched_display = "hide"
         profile.save(update_fields=["discover_watched_display"])
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["trending"]))
+        resp = self.client.get(reverse("movies", args=["trending"]))
         self.assertNotContains(resp, 'w-1.5 h-1.5 rounded-full bg-primary')
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
     def test_an_active_genre_filter_lights_up_the_filters_dot(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["trending"]), {"genre": ["28"]})
+        resp = self.client.get(reverse("movies", args=["trending"]), {"genre": ["28"]})
         self.assertContains(resp, 'w-1.5 h-1.5 rounded-full bg-primary')
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
@@ -9625,21 +9650,21 @@ class DiscoverViewTests(TestCase):
         # page scrolls past the (now-moved) button instead of following
         # or disappearing with it.
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["trending"]))
+        resp = self.client.get(reverse("movies", args=["trending"]))
         self.assertContains(resp, '@scroll.window="open = false"')
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover_by_decades")
     def test_an_active_decade_filter_lights_up_the_filters_dot(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["trending"]), {"decade": ["1980"]})
+        resp = self.client.get(reverse("movies", args=["trending"]), {"decade": ["1980"]})
         self.assertContains(resp, 'w-1.5 h-1.5 rounded-full bg-primary')
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
     def test_an_active_runtime_bucket_lights_up_the_filters_dot(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["trending"]), {"runtime_bucket": "under_90"})
+        resp = self.client.get(reverse("movies", args=["trending"]), {"runtime_bucket": "under_90"})
         self.assertContains(resp, 'w-1.5 h-1.5 rounded-full bg-primary')
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
@@ -9648,7 +9673,7 @@ class DiscoverViewTests(TestCase):
         import datetime
 
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["trending"]))
+        resp = self.client.get(reverse("movies", args=["trending"]))
         current_decade_start = (datetime.date.today().year // 10) * 10
         self.assertContains(resp, '<input type="checkbox" name="decade" value="1950"')
         self.assertContains(resp, f'<input type="checkbox" name="decade" value="{current_decade_start}"')
@@ -9658,7 +9683,7 @@ class DiscoverViewTests(TestCase):
     @patch("tracker.integrations.tmdb.discover")
     def test_runtime_row_shows_all_four_buckets(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies_tv", args=["trending"]))
+        resp = self.client.get(reverse("movies", args=["trending"]))
         self.assertContains(resp, "&lt; 90min")
         self.assertContains(resp, "90–120 min")
         self.assertContains(resp, "120–150min")
@@ -9673,7 +9698,7 @@ class DiscoverViewTests(TestCase):
             "page": 1,
             "total_pages": 1,
         }
-        resp = self.client.get(reverse("movies_tv", args=["popular"]))
+        resp = self.client.get(reverse("movies", args=["popular"]))
         self.assertNotContains(resp, "text-success")
         self.assertNotContains(resp, 'hx-confirm="')
         self.assertContains(resp, reverse("title_preview_mark_watched", args=["movie", 42]))
@@ -9725,7 +9750,7 @@ class SearchViewTests(TestCase):
 
     @patch("tracker.integrations.tmdb.search")
     def test_results_keep_the_media_type_badge(self, mock_search):
-        # Unlike Movies & TV/Anime's own grid, search results mix movies
+        # Unlike Movies/TV/Anime's own grid, search results mix movies
         # and shows in one list, so the per-tile label still earns its
         # keep here - see discover_tile.html's own hide_type_badge.
         mock_search.return_value = {
@@ -9804,7 +9829,7 @@ class SearchViewTests(TestCase):
 
 @patch("tracker.views.COLLECTIONS_ENABLED", True)
 class DiscoverCollectionsViewTests(TestCase):
-    """Movies & TV's "Collections" tab - a distinct code path from the
+    """Movies' "Collections" tab - a distinct code path from the
     other categories (no filter panel/pagination, a different tile
     partial), movie-only. Force-enabled at the class level since the
     feature itself defaults off (see CollectionsDisabledTests) - these
@@ -9819,7 +9844,7 @@ class DiscoverCollectionsViewTests(TestCase):
     @patch("tracker.integrations.tmdb.collections")
     def test_renders_collection_tiles(self, mock_collections):
         mock_collections.return_value = [{"id": 100, "name": "John Wick Collection", "poster_url": None}]
-        resp = self.client.get(reverse("movies_tv", args=["collections"]))
+        resp = self.client.get(reverse("movies", args=["collections"]))
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.context["is_collections"])
         self.assertContains(resp, "John Wick Collection")
@@ -9831,25 +9856,14 @@ class DiscoverCollectionsViewTests(TestCase):
 
     @patch("tracker.integrations.tmdb.collections", return_value=[])
     def test_no_filters_button_or_pagination_shown(self, mock_collections):
-        resp = self.client.get(reverse("movies_tv", args=["collections"]))
+        resp = self.client.get(reverse("movies", args=["collections"]))
         self.assertNotContains(resp, "Filters")
 
     @patch("tracker.integrations.tmdb.collections", return_value=[])
     def test_requires_login(self, mock_collections):
         self.client.logout()
-        resp = self.client.get(reverse("movies_tv", args=["collections"]))
+        resp = self.client.get(reverse("movies", args=["collections"]))
         self.assertNotEqual(resp.status_code, 200)
-
-    @patch("tracker.integrations.tmdb.collections", return_value=[])
-    def test_movies_tv_toggle_stays_visible_but_links_back_to_trending(self, mock_collections):
-        resp = self.client.get(reverse("movies_tv", args=["collections"]))
-        trending_movie = reverse("movies_tv", args=["trending"]) + "?type=movie"
-        trending_tv = reverse("movies_tv", args=["trending"]) + "?type=tv"
-        self.assertContains(resp, f'href="{trending_movie}"')
-        self.assertContains(resp, f'href="{trending_tv}"')
-        # neither Movies nor TV reads as "active" while viewing collections
-        self.assertNotContains(resp, f'href="?type=movie"')
-        self.assertNotContains(resp, f'href="?type=tv"')
 
 
 @patch("tracker.views.COLLECTIONS_ENABLED", True)
@@ -9907,7 +9921,7 @@ class CollectionsDisabledTests(TestCase):
         self.client.login(username="collectionsdisableduser", password="pass12345")
 
     def test_collections_category_404s_by_default(self):
-        resp = self.client.get(reverse("movies_tv", args=["collections"]))
+        resp = self.client.get(reverse("movies", args=["collections"]))
         self.assertEqual(resp.status_code, 404)
 
     def test_collection_detail_404s_by_default(self):
@@ -9917,9 +9931,9 @@ class CollectionsDisabledTests(TestCase):
     @patch("tracker.integrations.tmdb.discover", return_value={"results": [], "page": 1, "total_pages": 1})
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     def test_collections_tab_not_shown_on_the_trending_page(self, mock_genres, mock_discover):
-        resp = self.client.get(reverse("movies_tv", args=["trending"]))
+        resp = self.client.get(reverse("movies", args=["trending"]))
         self.assertNotContains(resp, "Collections</a>")
-        self.assertNotContains(resp, reverse("movies_tv", args=["collections"]))
+        self.assertNotContains(resp, reverse("movies", args=["collections"]))
 
 
 class RecentlyAddedToListsSelectorTests(TestCase):
@@ -14222,7 +14236,7 @@ class PosterActionContextSelectorTests(TestCase):
 
 class DiscoverActionContextSelectorTests(TestCase):
     """discover_action_context - poster_action_context's counterpart for
-    TMDB preview tiles (Movies & TV/Anime's grid, "Because you watched",
+    TMDB preview tiles (Movies/TV/Anime's grid, "Because you watched",
     a title's "similar" grid, ...). Without this, a title already
     watched/listed (tracked previously, now reappearing on a Trending
     page or as a suggestion) always rendered as untracked."""

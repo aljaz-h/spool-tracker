@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.92.0] - 2026-08-12
+
+### Changed
+
+- Split the combined Movies & TV page (with its `?type=movie|tv` toggle)
+  into separate Movies and TV pages/nav entries, each with its own
+  trending/popular/upcoming/top-rated categories and filters - almost
+  nobody actually wants both mixed in one feed. Collections stays under
+  Movies. Old `/movies-tv/...` links now 404; a profile's stored "Movies
+  & TV" default landing page preference still resolves to the new Movies
+  page instead of falling back to the dashboard.
+
 ## [0.91.0] - 2026-08-12
 
 ### Fixed

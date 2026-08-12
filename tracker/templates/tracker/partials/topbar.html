@@ -58,8 +58,11 @@
 
   <nav class="hidden md:flex items-center justify-self-center min-w-0 overflow-x-auto col-start-2">
     <div class="flex items-center gap-1 bg-base-200 rounded-full p-1">
-      {% url 'movies_tv' category="trending" as movies_tv_url %}
-      {% include "tracker/partials/nav_item_horizontal.html" with href=movies_tv_url icon_name="clapperboard" label="Movies & TV" is_active=url_name|eq:"movies_tv" %}
+      {% url 'movies' category="trending" as movies_url %}
+      {% include "tracker/partials/nav_item_horizontal.html" with href=movies_url icon_name="clapperboard" label="Movies" is_active=url_name|eq:"movies" %}
+
+      {% url 'tv' category="trending" as tv_url %}
+      {% include "tracker/partials/nav_item_horizontal.html" with href=tv_url icon_name="tv" label="TV" is_active=url_name|eq:"tv" %}
 
       {% url 'anime' category="trending" as anime_url %}
       {% include "tracker/partials/nav_item_horizontal.html" with href=anime_url icon_name="sparkles" label="Anime" is_active=url_name|eq:"anime" %}

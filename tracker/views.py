@@ -315,17 +315,17 @@ def _apply_display_modes(items, discover_watched, discover_list_membership, prof
 
 
 def _collections_view(request):
-    """Movies & TV's "Collections" tab - movie franchises (John Wick,
-    Indiana Jones, ...), movie-only and not composable with the filter
-    panel/pagination the other categories share (see tmdb.collections()'s
-    own docstring for why: there's nothing in TMDB's API to filter or
+    """Movies' "Collections" tab - movie franchises (John Wick, Indiana
+    Jones, ...), movie-only and not composable with the filter panel/
+    pagination the other categories share (see tmdb.collections()'s own
+    docstring for why: there's nothing in TMDB's API to filter or
     paginate here, just a single best-effort derived list)."""
     profile = Profile.objects.filter(user=request.user).first()
     context = {
         "profile": profile,
-        "page_title": "Movies & TV",
+        "page_title": "Movies",
         "is_anime": False,
-        "library_url_name": "movies_tv",
+        "library_url_name": "movies",
         "category": COLLECTIONS_CATEGORY,
         "is_collections": True,
         "media_type": "movie",
@@ -337,24 +337,29 @@ def _collections_view(request):
     return render(request, "tracker/discover.html", context)
 
 
+DISCOVER_PAGE_TITLES = {"movie": "Movies", "tv": "TV", "anime": "Anime"}
+
+
 @login_required
 def discover(request, media_type, category):
-    """Movies & TV / Anime pages - browsing what's trending/popular/
+    """Movies / TV / Anime pages - browsing what's trending/popular/
     upcoming/top-rated on TMDB, with a genre/year/runtime/rating filter
     panel. Replaced the old Watching/Watchlist/History tabs (moved to the
     Dashboard) once this page became a discovery surface instead of a
-    library view."""
+    library view. media_type is always exactly one of "movie"/"tv"/
+    "anime" (fixed per URL - see urls.py), never user-supplied - Movies
+    and TV used to be a single combined page with a client-side type
+    toggle (?type=movie|tv), split into two real pages/nav entries since
+    almost nobody actually wants both mixed in one feed."""
     is_anime = media_type == "anime"
     if category == COLLECTIONS_CATEGORY:
-        if is_anime or not COLLECTIONS_ENABLED:
+        if media_type != "movie" or not COLLECTIONS_ENABLED:
             raise Http404
         return _collections_view(request)
     if category not in DISCOVER_CATEGORIES:
         raise Http404
 
-    tmdb_media_type = "tv" if is_anime else request.GET.get("type", "movie")
-    if tmdb_media_type not in ("movie", "tv"):
-        tmdb_media_type = "movie"
+    tmdb_media_type = "tv" if is_anime else media_type
 
     genre_ids = [int(g) for g in request.GET.getlist("genre") if g.isdigit()]
     if is_anime:
@@ -423,9 +428,9 @@ def discover(request, media_type, category):
 
     context = {
         "profile": profile,
-        "page_title": "Anime" if is_anime else "Movies & TV",
+        "page_title": DISCOVER_PAGE_TITLES[media_type],
         "is_anime": is_anime,
-        "library_url_name": "anime" if is_anime else "movies_tv",
+        "library_url_name": "movies" if media_type == "movie" else media_type,
         "category": category,
         "media_type": tmdb_media_type,
         "results": page["results"],
@@ -2963,11 +2968,19 @@ def activity(request):
 
 def _landing_page_url(page):
     """Resolves a Profile.LandingPage value to a real URL -
-    movies_tv/anime need a category kwarg reverse() alone can't supply,
+    movies/tv/anime need a category kwarg reverse() alone can't supply,
     so they're special-cased to the same trending category their own nav
-    link points to; anything else reverses directly by name."""
-    if page == Profile.LandingPage.MOVIES_TV:
-        return reverse("movies_tv", args=["trending"])
+    link points to; anything else reverses directly by name.
+
+    "movies_tv" is handled as a legacy fallback: it's no longer a valid
+    LandingPage choice (Movies & TV split into separate Movies/TV pages),
+    but any profile that already had it stored as their preference before
+    the split should still land somewhere sensible instead of falling
+    through to the dashboard - the new Movies page is the closer match."""
+    if page in (Profile.LandingPage.MOVIES, "movies_tv"):
+        return reverse("movies", args=["trending"])
+    if page == Profile.LandingPage.TV:
+        return reverse("tv", args=["trending"])
     if page == Profile.LandingPage.ANIME:
         return reverse("anime", args=["trending"])
     if page in Profile.LandingPage.values:

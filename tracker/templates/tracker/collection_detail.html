@@ -3,7 +3,7 @@
 {% block title %}{{ collection.name }} · Spool{% endblock %}
 {% block content %}
 
-  <a href="{% url 'movies_tv' category='collections' %}" class="text-ink-dim text-sm hover:text-base-content mb-4 inline-block">&larr; Collections</a>
+  <a href="{% url 'movies' category='collections' %}" class="text-ink-dim text-sm hover:text-base-content mb-4 inline-block">&larr; Collections</a>
 
   <div class="rounded-2xl overflow-hidden relative mb-6 border border-line h-[220px] md:h-[260px] {% if not collection.backdrop_url %}{{ collection.id|gradient_class }}{% endif %}"
        {% if collection.backdrop_url %}style="background-image:url('{{ collection.backdrop_url }}');background-size:cover;background-position:center 20%"{% endif %}>

@@ -11,27 +11,14 @@
   <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
     <div class="flex flex-wrap items-center gap-3">
       {% url library_url_name category="trending" as trending_url %}
-      {% if not is_anime %}
-        {% comment %}
-          Kept visible on the Collections tab too (not hidden) - but
-          collections aren't movie/tv-typed, so clicking either one
-          here isn't a filter on the current view, it's a shortcut
-          back to the default Trending category for that type - same
-          place the sidebar/topbar's own "Movies & TV" link lands.
-        {% endcomment %}
-        <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
-          <a href="{% if is_collections %}{{ trending_url }}?type=movie{% else %}?type=movie{% endif %}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if media_type == "movie" and not is_collections %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Movies</a>
-          <a href="{% if is_collections %}{{ trending_url }}?type=tv{% else %}?type=tv{% endif %}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if media_type == "tv" and not is_collections %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">TV</a>
-        </div>
-      {% endif %}
       <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
         {% url library_url_name category="popular" as popular_url %}
         {% url library_url_name category="upcoming" as upcoming_url %}
         {% url library_url_name category="top_rated" as top_rated_url %}
-        <a href="{{ trending_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "trending" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Trending</a>
-        <a href="{{ popular_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "popular" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Popular</a>
-        <a href="{{ upcoming_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "upcoming" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Upcoming</a>
-        <a href="{{ top_rated_url }}?type={{ media_type }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "top_rated" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Top Rated</a>
+        <a href="{{ trending_url }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "trending" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Trending</a>
+        <a href="{{ popular_url }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "popular" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Popular</a>
+        <a href="{{ upcoming_url }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "upcoming" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Upcoming</a>
+        <a href="{{ top_rated_url }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "top_rated" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Top Rated</a>
         {% if not is_anime and collections_enabled %}
           {% url library_url_name category="collections" as collections_url %}
           <a href="{{ collections_url }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if is_collections %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Collections</a>
@@ -101,8 +88,6 @@
               ratingTo: {{ request.GET.rating_to|default:10 }},
             }"
           >
-            <input type="hidden" name="type" value="{{ media_type }}">
-
             <div>
               <div class="text-[13px] font-bold text-base-content uppercase tracking-wide mb-1">Discover</div>
               <div class="flex flex-col divide-y divide-line">
@@ -319,7 +304,7 @@
 
           <div class="sticky bottom-0 px-5 pb-5 pt-4 bg-base-200 border-t border-line flex items-center gap-3">
             <button type="submit" form="discover-filters-form" class="btn btn-sm btn-primary flex-1">Apply filters</button>
-            <a href="?type={{ media_type }}" class="btn btn-sm btn-ghost">Clear all</a>
+            <a href="?" class="btn btn-sm btn-ghost">Clear all</a>
           </div>
         </div>
       </div>

@@ -45,11 +45,16 @@ class Profile(models.Model):
 
     class LandingPage(models.TextChoices):
         """Values are the URL name to redirect to after login (see
-        views.SpoolLoginView) - movies_tv/anime always land on their
-        trending category, the same place their own nav link goes."""
+        views.SpoolLoginView) - movies/tv/anime always land on their
+        trending category, the same place their own nav link goes.
+        MOVIES_TV is gone from these choices (Movies & TV split into
+        separate Movies/TV pages) but is still handled as a legacy
+        fallback in views._landing_page_url for profiles that had it
+        stored as their preference before the split."""
 
         DASHBOARD = "dashboard", "Dashboard"
-        MOVIES_TV = "movies_tv", "Movies & TV"
+        MOVIES = "movies", "Movies"
+        TV = "tv", "TV"
         ANIME = "anime", "Anime"
         HISTORY = "history", "History"
         CALENDAR = "calendar", "Calendar"
