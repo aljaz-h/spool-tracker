@@ -61,7 +61,7 @@
         stuck at that original screen position instead of following
         (or disappearing with) the button it's meant to be anchored to.
       {% endcomment %}
-      <div class="relative" @click.outside="open = false" @scroll.window="open = false" x-data="{
+      <div class="relative" @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false" x-data="{
         open: false,
         togglePanel(button) {
           this.open = !this.open;
@@ -75,7 +75,7 @@
           });
         },
       }">
-        <button type="button" @click="togglePanel($el)" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
+        <button type="button" @click="togglePanel($el)" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
           {% icon "filter" "w-3.5 h-3.5" %}
           Filters
           {% if selected_genres or selected_decades or selected_runtime_bucket or request.GET.rating_from or request.GET.rating_to or selected_language or selected_certification or selected_status or selected_availability %}
@@ -200,7 +200,7 @@
 
                     <div>
                       <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Language</div>
-                      <select name="language" class="select select-sm w-full bg-base-100 focus:outline-primary">
+                      <select name="language" aria-label="Language" class="select select-sm w-full bg-base-100 focus:outline-primary">
                         <option value="">Any language</option>
                         {% for code, name in languages %}
                           <option value="{{ code }}" {% if selected_language == code %}selected{% endif %}>{{ name }}</option>
@@ -216,7 +216,7 @@
                         setting exists yet.
                       {% endcomment %}
                       <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Availability</div>
-                      <select name="availability" class="select select-sm w-full bg-base-100 focus:outline-primary">
+                      <select name="availability" aria-label="Availability" class="select select-sm w-full bg-base-100 focus:outline-primary">
                         <option value="">Any</option>
                         {% for value, availability_label in availability_choices %}
                           <option value="{{ value }}" {% if selected_availability == value %}selected{% endif %}>{{ availability_label }}</option>
@@ -234,7 +234,7 @@
                       {% endcomment %}
                       <div>
                         <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Age Rating</div>
-                        <select name="certification" class="select select-sm w-full bg-base-100 focus:outline-primary">
+                        <select name="certification" aria-label="Age rating" class="select select-sm w-full bg-base-100 focus:outline-primary">
                           <option value="">Any rating</option>
                           {% for cert in certifications %}
                             <option value="{{ cert }}" {% if selected_certification == cert %}selected{% endif %}>{{ cert }}</option>
@@ -249,7 +249,7 @@
                       {% endcomment %}
                       <div>
                         <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Status</div>
-                        <select name="status" class="select select-sm w-full bg-base-100 focus:outline-primary">
+                        <select name="status" aria-label="Status" class="select select-sm w-full bg-base-100 focus:outline-primary">
                           <option value="">Any status</option>
                           {% for status_value in tv_statuses %}
                             <option value="{{ status_value }}" {% if selected_status == status_value %}selected{% endif %}>{{ status_value }}</option>

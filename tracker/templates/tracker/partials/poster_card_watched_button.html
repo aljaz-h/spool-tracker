@@ -35,12 +35,14 @@ at all) those stay harmless no-ops even once its badge shows a real ×N.
     type="button"
     id="watched-btn-{{ title.pk }}"
     @click="togglePanel($el)"
+    :aria-expanded="open.toString()"
+    aria-haspopup="true"
     title="Watched — manage plays"
     class="w-full h-9 flex items-center justify-center gap-1 transition-colors bg-success/20 text-success hover:bg-success/30"
   >{% icon "check" "w-4 h-4" %}{% if watch_count > 1 %}<span class="font-mono text-[10px]">&times;{{ watch_count }}</span>{% endif %}</button>
   <div
     x-ref="panel"
-    x-show="open" x-cloak x-transition @click.outside="open = false"
+    x-show="open" x-cloak x-transition @click.outside="open = false" @keydown.escape.window="open = false"
     class="fixed z-50 w-72 bg-base-200 border border-line rounded-xl p-2 shadow-xl"
   >
     {% include "tracker/partials/watched_menu_panel.html" with title=title %}
@@ -66,12 +68,14 @@ at all) those stay harmless no-ops even once its badge shows a real ×N.
   <button
     type="button"
     @click="togglePanel($el)"
+    :aria-expanded="open.toString()"
+    aria-haspopup="true"
     title="Mark as watched"
     class="w-full h-9 flex items-center justify-center transition-colors text-white/75 hover:text-white hover:bg-white/10"
   >{% icon "check" "w-4 h-4" %}</button>
   <div
     x-ref="panel"
-    x-show="open" x-cloak x-transition @click.outside="open = false"
+    x-show="open" x-cloak x-transition @click.outside="open = false" @keydown.escape.window="open = false"
     class="first-watch-panel fixed z-50 w-72 bg-base-200 border border-line rounded-xl p-2 shadow-xl"
   >
     {% url 'title_mark_watched' title.pk as mark_watched_url %}

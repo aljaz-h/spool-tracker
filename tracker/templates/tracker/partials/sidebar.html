@@ -11,6 +11,7 @@
 <aside
   x-show="sidebarOpen"
   x-cloak
+  @keydown.escape.window="sidebarOpen = false"
   x-transition:enter="transition ease-out duration-200"
   x-transition:enter-start="-translate-x-full"
   x-transition:enter-end="translate-x-0"

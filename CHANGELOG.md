@@ -8,6 +8,21 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.91.0] - 2026-08-12
+
+### Fixed
+
+- A lightweight accessibility pass: every popover/dropdown menu (topbar,
+  watched/list pickers, filter panels, season picker) now closes on
+  Escape and exposes its open/closed state via `aria-expanded`; the two
+  header search inputs get a visible focus ring instead of none at all;
+  decorative icons are hidden from screen readers instead of being
+  announced; the confirm dialog announces its question on open; several
+  unlabeled form controls (Settings' profile/appearance fields, Discover's
+  filter selects, search inputs) now have a proper accessible name; and
+  the Stats page's type-split legend is keyboard-operable real buttons
+  instead of click/hover-only `<div>`s.
+
 ## [0.90.0] - 2026-08-12
 
 ### Added

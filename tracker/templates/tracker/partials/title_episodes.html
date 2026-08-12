@@ -73,6 +73,8 @@
         }">
           <button
             type="button" @click="togglePanel($el)"
+            :aria-expanded="open.toString()"
+            aria-haspopup="true"
             class="bg-base-200 border border-line rounded-lg text-xs font-semibold px-3 py-1.5 text-base-content cursor-pointer flex items-center gap-1.5"
           >
             Season {{ season }}
@@ -81,7 +83,7 @@
           </button>
           <div
             x-ref="panel"
-            x-show="open" x-cloak x-transition @click.outside="open = false"
+            x-show="open" x-cloak x-transition @click.outside="open = false" @keydown.escape.window="open = false"
             class="fixed z-50 w-56 max-h-72 overflow-y-auto bg-base-200 border border-line rounded-lg p-1.5 shadow-xl"
           >
             {% for s in seasons %}

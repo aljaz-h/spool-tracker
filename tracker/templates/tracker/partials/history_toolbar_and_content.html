@@ -42,6 +42,7 @@
       <input
         type="text" name="q" value="{{ query }}"
         placeholder="Search history…"
+        aria-label="Search history"
         hx-trigger="input changed delay:400ms, search"
         @change.stop=""
         class="bg-base-200 border border-line text-ink-dim text-xs pl-8 pr-3 py-2 rounded-lg w-40 sm:w-56 focus:outline-primary"
@@ -66,7 +67,7 @@
       top/left would otherwise stay stuck at that original screen
       position as the page scrolls past it.
     {% endcomment %}
-    <div class="relative" @click.outside="open = false" @scroll.window="open = false" x-data="{
+    <div class="relative" @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false" x-data="{
       open: false,
       togglePanel(button) {
         this.open = !this.open;
@@ -80,7 +81,7 @@
         });
       },
     }">
-      <button type="button" @click="togglePanel($el)" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
+      <button type="button" @click="togglePanel($el)" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
         {% icon "filter" "w-3.5 h-3.5" %}
         Filters
         {% if period != "all" or sort != "new" %}

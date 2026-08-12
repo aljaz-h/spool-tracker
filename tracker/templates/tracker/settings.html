@@ -112,13 +112,13 @@
                 <div x-show="!photoPreview" class="w-12 h-12 rounded-full flex items-center justify-center font-mono text-base font-semibold flex-none" :style="`background:${color};color:#fff;`">{{ profile.display_name|first|upper }}</div>
               {% endif %}
               <div class="flex-1 min-w-0">
-                <label class="block text-xs text-ink-dim mb-1">Display name</label>
-                <input type="text" name="display_name" value="{{ profile.display_name }}" required class="input w-full bg-base-100">
+                <label for="id_display_name" class="block text-xs text-ink-dim mb-1">Display name</label>
+                <input id="id_display_name" type="text" name="display_name" value="{{ profile.display_name }}" required class="input w-full bg-base-100">
               </div>
             </div>
 
-            <label class="block text-xs text-ink-dim mb-1">Bio <span class="font-normal text-ink-faint">(optional)</span></label>
-            <input type="text" name="bio" value="{{ profile.bio }}" maxlength="160" placeholder="A short status or bio" class="input w-full bg-base-100 mb-4">
+            <label for="id_bio" class="block text-xs text-ink-dim mb-1">Bio <span class="font-normal text-ink-faint">(optional)</span></label>
+            <input id="id_bio" type="text" name="bio" value="{{ profile.bio }}" maxlength="160" placeholder="A short status or bio" class="input w-full bg-base-100 mb-4">
 
             <label class="block text-xs text-ink-dim mb-2">Photo</label>
             <div class="flex items-center gap-2 mb-1.5">
@@ -227,7 +227,7 @@
 
         <div class="text-ink-dim text-xs mt-4 mb-2">Default landing page</div>
         <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
-          <select name="default_landing_page" class="select select-sm w-full bg-base-100 focus:outline-primary">
+          <select name="default_landing_page" aria-label="Default landing page" class="select select-sm w-full bg-base-100 focus:outline-primary">
             {% for value, label in landing_pages %}
               <option value="{{ value }}" {% if profile.default_landing_page == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
@@ -236,7 +236,7 @@
 
         <div class="text-ink-dim text-xs mt-4 mb-2">Preferred language</div>
         <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
-          <select name="preferred_language" class="select select-sm w-full bg-base-100 focus:outline-primary">
+          <select name="preferred_language" aria-label="Preferred language" class="select select-sm w-full bg-base-100 focus:outline-primary">
             <option value="">Any language</option>
             {% for code, name in languages %}
               <option value="{{ code }}" {% if profile.preferred_language == code %}selected{% endif %}>{{ name }}</option>
@@ -247,7 +247,7 @@
 
         <div class="text-ink-dim text-xs mt-4 mb-2">Timezone</div>
         <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
-          <select name="timezone" class="select select-sm w-full bg-base-100 focus:outline-primary">
+          <select name="timezone" aria-label="Timezone" class="select select-sm w-full bg-base-100 focus:outline-primary">
             <option value="">Server default ({{ server_time_zone }})</option>
             {% for tz in timezones %}
               <option value="{{ tz }}" {% if profile.timezone == tz %}selected{% endif %}>{{ tz }}</option>
@@ -839,7 +839,7 @@
               (see that file's own comment on why: subpixel-AA blur from
               the drawer's permanent transform layer).
             {% endcomment %}
-            <div class="relative" @click.outside="open = false" x-data="{
+            <div class="relative" @click.outside="open = false" @keydown.escape.window="open = false" x-data="{
               open: false,
               togglePanel(button) {
                 this.open = !this.open;
@@ -853,7 +853,7 @@
                 });
               },
             }">
-              <button type="button" @click="togglePanel($el)" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
+              <button type="button" @click="togglePanel($el)" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
                 {% icon "filter" "w-3.5 h-3.5" %}
                 Filters
                 {% if log_profile_id or log_action_type or log_provider or log_status or log_date_from or log_date_to %}

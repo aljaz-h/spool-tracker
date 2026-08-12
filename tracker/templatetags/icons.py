@@ -15,7 +15,13 @@ def icon(name, css_class="w-4 h-4"):
     # Vendored Lucide source is multi-line ("<svg\n  xmlns=...>"), not the
     # single-line "<svg ...>" the stack addendum's snippet assumed — match
     # bare "<svg" so the class lands right regardless of what follows.
-    svg = svg.replace("<svg", f'<svg class="{css_class}"', 1)
+    # aria-hidden/focusable="false" once here instead of at each of the
+    # ~100 call sites - every one of these is decorative (the accessible
+    # name, where one's needed, always comes from the enclosing button's
+    # own title/aria-label, never from the icon itself), so screen
+    # readers should skip straight past it instead of announcing the raw
+    # SVG or double-announcing alongside adjacent visible text.
+    svg = svg.replace("<svg", f'<svg class="{css_class}" aria-hidden="true" focusable="false"', 1)
     # Bump from Lucide's default stroke-width="2" to a slightly heavier
     # 2.5 across every vendored icon, to match the bold font-display type
     # (visual-identity brief, phase 2) - centralized here instead of

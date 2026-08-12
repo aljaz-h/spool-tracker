@@ -71,12 +71,14 @@
       <button
         type="button"
         @click="togglePanel($el)"
+        :aria-expanded="open.toString()"
+        aria-haspopup="true"
         title="{{ group.count }} episodes - click to remove one"
         class="font-mono text-[10px] font-bold bg-primary/90 px-2 py-1 rounded-md text-primary-content shadow-[0_1px_4px_rgba(0,0,0,0.7)] hover:bg-primary"
       >{{ group.count }}&times;</button>
       <div
         x-ref="panel"
-        x-show="open" x-cloak x-transition @click.outside="open = false"
+        x-show="open" x-cloak x-transition @click.outside="open = false" @keydown.escape.window="open = false"
         class="fixed z-50 w-[180px] max-h-56 overflow-y-auto bg-base-200 border border-line rounded-lg p-1.5 shadow-xl flex flex-col gap-0.5"
       >
         <div class="text-[10px] text-ink-faint px-2 py-1">Remove an episode</div>

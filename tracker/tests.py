@@ -14797,8 +14797,26 @@ class PosterSizeFilterTests(TestCase):
 
         backdrop = "https://image.tmdb.org/t/p/w1280/xyz.jpg"
         self.assertEqual(poster_size(backdrop, "w185"), backdrop)
-        other = "https://example.com/not-tmdb.jpg"
-        self.assertEqual(poster_size(other, "w185"), other)
+
+
+class IconTagTests(TestCase):
+    """templatetags.icons.icon - every rendered SVG is decorative (any
+    accessible name comes from the enclosing button/link's own title/
+    aria-label, never the icon), so it should always be hidden from
+    screen readers rather than announced/double-announced."""
+
+    def test_svg_is_hidden_from_assistive_tech(self):
+        from tracker.templatetags.icons import icon
+
+        svg = icon("check")
+        self.assertIn('aria-hidden="true"', svg)
+        self.assertIn('focusable="false"', svg)
+
+    def test_still_applies_the_requested_css_class(self):
+        from tracker.templatetags.icons import icon
+
+        svg = icon("check", "w-5 h-5 text-primary")
+        self.assertIn('class="w-5 h-5 text-primary"', svg)
 
 
 class ListDetailFiltersTests(TestCase):

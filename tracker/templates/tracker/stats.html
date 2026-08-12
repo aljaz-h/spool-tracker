@@ -199,7 +199,7 @@
       <h3 class="text-lg mb-4">Split by type</h3>
       <div class="flex flex-col items-center gap-4">
         <div class="relative w-[140px] h-[140px] flex-none">
-          <svg viewBox="0 0 36 36" class="w-full h-full">
+          <svg viewBox="0 0 36 36" class="w-full h-full" aria-hidden="true">
             <path
               :d="wedgePath(0, {{ split.movie_end }})" fill="var(--color-primary)"
               :style="segStyle('movie')"
@@ -219,21 +219,24 @@
         </div>
         <div class="font-display text-2xl leading-none" x-text="segments[active].pct + '%'"></div>
         <div class="flex items-center justify-center flex-wrap gap-x-4 gap-y-1.5 text-[12.5px] text-ink-dim">
-          <div
-            class="flex items-center gap-1.5 cursor-pointer select-none"
+          <button
+            type="button"
+            class="flex items-center gap-1.5 cursor-pointer select-none bg-transparent border-0 p-0"
             :class="active === 'movie' && 'text-base-content font-semibold'"
             @mouseenter="hovered = 'movie'" @mouseleave="hovered = null" @click="toggle('movie')"
-          ><span class="w-2.5 h-2.5 rounded-sm bg-primary flex-none"></span>Movies — {{ split.movie_pct }}%</div>
-          <div
-            class="flex items-center gap-1.5 cursor-pointer select-none"
+          ><span class="w-2.5 h-2.5 rounded-sm bg-primary flex-none"></span>Movies — {{ split.movie_pct }}%</button>
+          <button
+            type="button"
+            class="flex items-center gap-1.5 cursor-pointer select-none bg-transparent border-0 p-0"
             :class="active === 'tv' && 'text-base-content font-semibold'"
             @mouseenter="hovered = 'tv'" @mouseleave="hovered = null" @click="toggle('tv')"
-          ><span class="w-2.5 h-2.5 rounded-sm bg-accent flex-none"></span>TV shows — {{ split.tv_pct }}%</div>
-          <div
-            class="flex items-center gap-1.5 cursor-pointer select-none"
+          ><span class="w-2.5 h-2.5 rounded-sm bg-accent flex-none"></span>TV shows — {{ split.tv_pct }}%</button>
+          <button
+            type="button"
+            class="flex items-center gap-1.5 cursor-pointer select-none bg-transparent border-0 p-0"
             :class="active === 'anime' && 'text-base-content font-semibold'"
             @mouseenter="hovered = 'anime'" @mouseleave="hovered = null" @click="toggle('anime')"
-          ><span class="w-2.5 h-2.5 rounded-sm bg-secondary flex-none"></span>Anime — {{ split.anime_pct }}%</div>
+          ><span class="w-2.5 h-2.5 rounded-sm bg-secondary flex-none"></span>Anime — {{ split.anime_pct }}%</button>
         </div>
       </div>
     </div>

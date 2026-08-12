@@ -45,10 +45,11 @@
       {% icon "search" "w-[17px] h-[17px]" %}
     </button>
     <div class="hidden md:block w-px h-8 bg-line flex-none"></div>
-    <form method="get" action="{% url 'search' %}" class="hidden xl:flex items-center gap-2 flex-none xl:w-64 bg-base-200 rounded-full px-4 py-2">
+    <form method="get" action="{% url 'search' %}" class="hidden xl:flex items-center gap-2 flex-none xl:w-64 bg-base-200 rounded-full px-4 py-2 focus-within:ring-2 focus-within:ring-primary/60">
       {% icon "search" "w-4 h-4 text-ink-faint flex-none" %}
       <input
         type="text" name="q" value="{{ request.GET.q }}"
+        aria-label="Search"
         class="min-w-0 flex-1 bg-transparent text-[13px] text-ink-dim placeholder:text-ink-faint focus:outline-none"
         placeholder="Search…"
       >
@@ -100,7 +101,7 @@
       regardless of viewport width or where the trigger lands.
     {% endcomment %}
     {% if active_profile %}
-      <div class="relative" @click.outside="open = false" x-data="{
+      <div class="relative" @click.outside="open = false" @keydown.escape.window="open = false" x-data="{
         open: false,
         togglePanel(button) {
           this.open = !this.open;
@@ -116,6 +117,8 @@
       }">
         <button
           @click="togglePanel($el)"
+          :aria-expanded="open.toString()"
+          aria-haspopup="true"
           hx-get="{% url 'notifications_panel' %}"
           hx-target="#notifications-dropdown-content"
           hx-swap="innerHTML"
@@ -126,14 +129,14 @@
           {% include "tracker/partials/notification_badge.html" %}
         </button>
         <div x-ref="panel" x-show="open" x-cloak class="fixed w-96 bg-base-200 border border-line rounded-lg shadow-lg z-40">
-          <div id="notifications-dropdown-content">
+          <div id="notifications-dropdown-content" aria-live="polite">
             <div class="px-3 py-8 text-center text-ink-faint text-xs">Loading…</div>
           </div>
         </div>
       </div>
     {% endif %}
     {% if other_profiles %}
-      <div class="relative" @click.outside="open = false" x-data="{
+      <div class="relative" @click.outside="open = false" @keydown.escape.window="open = false" x-data="{
         open: false,
         togglePanel(button) {
           this.open = !this.open;
@@ -149,6 +152,8 @@
       }">
         <button
           @click="togglePanel($el)"
+          :aria-expanded="open.toString()"
+          aria-haspopup="true"
           aria-label="Friends"
           class="w-9 h-9 flex-none rounded-lg border border-line bg-base-200 flex items-center justify-center text-ink-dim hover:text-base-content hover:border-primary"
         >
@@ -181,7 +186,7 @@
       </div>
     {% endif %}
     {% if active_profile %}
-      <div class="relative" @click.outside="open = false" x-data="{
+      <div class="relative" @click.outside="open = false" @keydown.escape.window="open = false" x-data="{
         open: false,
         togglePanel(button) {
           this.open = !this.open;
@@ -197,6 +202,8 @@
       }">
         <button
           @click="togglePanel($el)"
+          :aria-expanded="open.toString()"
+          aria-haspopup="true"
           class="flex items-center gap-2 sm:pr-3 h-9 rounded-full sm:bg-base-200 sm:hover:bg-base-300 flex-none"
           title="{{ active_profile.display_name }}"
         >
@@ -250,11 +257,12 @@
     @keydown.escape.window="mobileSearchOpen = false"
     class="fixed inset-x-0 top-16 z-40 border-b border-line bg-base-100 p-3 xl:hidden"
   >
-    <form method="get" action="{% url 'search' %}" class="flex items-center gap-2 bg-base-200 rounded-full pl-4 pr-2 py-2">
+    <form method="get" action="{% url 'search' %}" class="flex items-center gap-2 bg-base-200 rounded-full pl-4 pr-2 py-2 focus-within:ring-2 focus-within:ring-primary/60">
       {% icon "search" "w-4 h-4 text-ink-faint flex-none" %}
       <input
         x-ref="mobileSearchInput"
         type="text" name="q" value="{{ request.GET.q }}"
+        aria-label="Search"
         class="min-w-0 flex-1 bg-transparent text-sm text-ink-dim placeholder:text-ink-faint focus:outline-none"
         placeholder="Search…"
       >
