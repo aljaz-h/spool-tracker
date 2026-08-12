@@ -8016,6 +8016,22 @@ class TmdbDiscoverTests(TestCase):
 
     @override_settings(TMDB_API_KEY="test-key")
     @patch("tracker.integrations.tmdb.requests.get")
+    def test_page_size_override_widens_the_merged_pool(self, mock_get):
+        # views.discover raises this above RESULTS_PAGE_SIZE when the
+        # Display filter is hiding watched/watchlisted titles, so a
+        # near-empty filtered page is far less likely - see
+        # DISCOVER_HIDE_MODE_PAGE_SIZE.
+        mock_get.side_effect = [
+            self._response([{"id": n, "title": f"Movie {n}", "release_date": "2020-01-01"}], total_pages=20, page=n)
+            for n in range(1, 10)
+        ]
+        page = tmdb.discover("movie", category="popular", page_size=9)
+        self.assertEqual(mock_get.call_count, 9)
+        self.assertEqual([r["tmdb_id"] for r in page["results"]], list(range(1, 10)))
+        self.assertEqual(page["total_pages"], 3)  # ceil(20 TMDB pages / 9 per merged page)
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb.requests.get")
     def test_upcoming_date_floor_survives_a_slider_at_its_default_lower_bound(self, mock_get):
         # The year range slider always submits a value, even untouched -
         # a wide-open year_from (e.g. 1950) must not push "upcoming"'s
@@ -8069,13 +8085,17 @@ class TmdbDiscoverByDecadesTests(TestCase):
         with patch("tracker.integrations.tmdb.discover") as mock_discover:
             mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
             tmdb.discover_by_decades("movie", category="popular", page=1, decades=[], genre_ids=[28])
-        mock_discover.assert_called_once_with("movie", category="popular", page=1, genre_ids=[28])
+        mock_discover.assert_called_once_with(
+            "movie", category="popular", page=1, page_size=tmdb.RESULTS_PAGE_SIZE, genre_ids=[28]
+        )
 
     def test_one_decade_is_still_a_single_call_with_an_exact_range(self):
         with patch("tracker.integrations.tmdb.discover") as mock_discover:
             mock_discover.return_value = {"results": [], "page": 1, "total_pages": 3}
             page = tmdb.discover_by_decades("movie", category="popular", page=1, decades=[1980])
-        mock_discover.assert_called_once_with("movie", category="popular", page=1, year_from=1980, year_to=1989)
+        mock_discover.assert_called_once_with(
+            "movie", category="popular", page=1, year_from=1980, year_to=1989, page_size=tmdb.RESULTS_PAGE_SIZE
+        )
         self.assertEqual(page["total_pages"], 3)
 
     def _normalized(self, tmdb_id):
@@ -9461,6 +9481,26 @@ class DiscoverViewTests(TestCase):
         resp = self.client.get(reverse("movies_tv", args=["popular"]))
         self.assertContains(resp, "Fathom")
         self.assertContains(resp, "opacity-25")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover_by_decades")
+    def test_hide_display_widens_the_raw_pool_to_avoid_near_empty_pages(self, mock_discover_by_decades, mock_genres):
+        # A profile with "hide" on either watched or watchlisted can filter
+        # a normal-sized raw pool down to a handful of tiles or fewer -
+        # views.discover raises page_size in that case (DISCOVER_HIDE_MODE_PAGE_SIZE).
+        profile = Profile.objects.get(display_name="DiscoverViewer")
+        profile.discover_watched_display = "hide"
+        profile.save(update_fields=["discover_watched_display"])
+        mock_discover_by_decades.return_value = {"results": [], "page": 1, "total_pages": 1}
+        self.client.get(reverse("movies_tv", args=["popular"]))
+        self.assertEqual(mock_discover_by_decades.call_args.kwargs["page_size"], views.DISCOVER_HIDE_MODE_PAGE_SIZE)
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover_by_decades")
+    def test_show_display_uses_the_normal_pool_size(self, mock_discover_by_decades, mock_genres):
+        mock_discover_by_decades.return_value = {"results": [], "page": 1, "total_pages": 1}
+        self.client.get(reverse("movies_tv", args=["popular"]))
+        self.assertEqual(mock_discover_by_decades.call_args.kwargs["page_size"], tmdb.RESULTS_PAGE_SIZE)
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")

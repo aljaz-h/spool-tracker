@@ -470,11 +470,19 @@ def genres(media_type):
 def discover(media_type, category="popular", page=1, genre_ids=None, year_from=None, year_to=None,
              runtime_from=None, runtime_to=None, rating_from=None, rating_to=None,
              original_language=None, origin_country=None, with_companies=None, certification=None,
-             status=None, availability=None):
-    """Returns {"results": [...normalized, up to RESULTS_PAGE_SIZE*20...], "page": int,
+             status=None, availability=None, page_size=RESULTS_PAGE_SIZE):
+    """Returns {"results": [...normalized, up to page_size*20...], "page": int,
     "total_pages": int}. category picks a sort/date preset (see module docstring);
     every other param is an optional filter layered on top of that preset, all of
     them straight from TMDB's own documented /discover parameter set.
+
+    page_size overrides RESULTS_PAGE_SIZE per call - views.discover raises it
+    when the Display filter is hiding watched/watchlisted titles, since a
+    profile that's watched most of what's popular can otherwise filter a
+    normal 60-item batch down to a handful of visible tiles or fewer; a
+    bigger raw pool makes that far less likely without touching pagination
+    math (still a plain, reversible page-number multiple, just a bigger
+    one).
 
     include_adult/without_keywords are always applied, not opt-in filters -
     see _UNSAFE_KEYWORD_IDS for why (TMDB's own adult flag alone isn't
@@ -539,10 +547,10 @@ def discover(media_type, category="popular", page=1, genre_ids=None, year_from=N
         params["watch_region"] = AVAILABILITY_WATCH_REGION
         params["with_watch_monetization_types"] = AVAILABILITY_CHOICES[availability]
 
-    tmdb_start_page = (page - 1) * RESULTS_PAGE_SIZE + 1
+    tmdb_start_page = (page - 1) * page_size + 1
     results = []
     total_pages_raw = 0
-    for offset in range(RESULTS_PAGE_SIZE):
+    for offset in range(page_size):
         tmdb_page = tmdb_start_page + offset
         data = _list_request(f"discover/{media_type}", {**params, "page": tmdb_page})
         total_pages_raw = data.get("total_pages") or total_pages_raw
@@ -554,7 +562,7 @@ def discover(media_type, category="popular", page=1, genre_ids=None, year_from=N
     return {
         "results": results,
         "page": page,
-        "total_pages": -(-total_pages_raw // RESULTS_PAGE_SIZE) if total_pages_raw else 0,
+        "total_pages": -(-total_pages_raw // page_size) if total_pages_raw else 0,
     }
 
 
@@ -577,7 +585,7 @@ def decades_through_now():
     return [(start, start == current_decade_start) for start in range(DECADE_START, current_decade_start + 1, 10)]
 
 
-def discover_by_decades(media_type, category="popular", page=1, decades=None, **filters):
+def discover_by_decades(media_type, category="popular", page=1, decades=None, page_size=RESULTS_PAGE_SIZE, **filters):
     """discover()'s own Year filter, widened to accept several *disjoint*
     decades at once (Genre-style OR - "1980s or 2020s") instead of
     discover()'s single contiguous year_from/year_to range, which
@@ -610,18 +618,25 @@ def discover_by_decades(media_type, category="popular", page=1, decades=None, **
     both - confirmed live: an early popularity-sorted version returned a
     page of nothing but current-year movies despite 1980 being selected
     too. Each decade's own results stay in TMDB's own per-category order
-    internally; only the interleaving is done here."""
+    internally; only the interleaving is done here.
+
+    page_size is forwarded to every underlying discover() call unchanged -
+    see that function's own docstring."""
     if not decades:
-        return discover(media_type, category=category, page=page, **filters)
+        return discover(media_type, category=category, page=page, page_size=page_size, **filters)
     if len(decades) == 1:
         decade = decades[0]
-        return discover(media_type, category=category, page=page, year_from=decade, year_to=decade + 9, **filters)
+        return discover(
+            media_type, category=category, page=page, year_from=decade, year_to=decade + 9,
+            page_size=page_size, **filters,
+        )
 
     per_decade_results = []
     total_pages_estimate = 0
     for decade in decades:
         decade_page = discover(
-            media_type, category=category, page=page, year_from=decade, year_to=decade + 9, **filters
+            media_type, category=category, page=page, year_from=decade, year_to=decade + 9,
+            page_size=page_size, **filters,
         )
         total_pages_estimate = max(total_pages_estimate, decade_page["total_pages"])
         per_decade_results.append(decade_page["results"])

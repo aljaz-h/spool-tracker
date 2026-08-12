@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.85.0] - 2026-08-12
+
+### Fixed
+
+- Movies & TV and Anime's "hide watched/watchlisted" Display filter no
+  longer leaves near-empty pages (sometimes just a handful of tiles, or
+  one) as you paginate - the raw candidate pool fetched per page is now
+  tripled whenever that filter is hiding titles, so there's a much
+  bigger pool for it to filter down from.
+
 ## [0.84.3] - 2026-08-12
 
 ### Changed

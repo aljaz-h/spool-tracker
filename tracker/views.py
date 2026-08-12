@@ -87,6 +87,15 @@ HISTORY_PERIODS = {"today", "yesterday", "7", "30", "365"}
 # see _history_context.
 HISTORY_SORTS = {"new", "old", "most_watched", "least_watched"}
 DISCOVER_CATEGORIES = {"trending", "popular", "upcoming", "top_rated"}
+# discover()'s normal raw-TMDB-page pool (tmdb.RESULTS_PAGE_SIZE) is sized
+# for the common case. When the Display filter is hiding watched/watchlisted
+# titles, a profile that's already watched most of what's popular can filter
+# that normal pool down to a handful of tiles or fewer per page (reported
+# live: pages with 6 items, sometimes 1) - tripling the pool specifically in
+# that case makes a near-empty page far less likely without touching
+# pagination's page-number math at all (still a plain, reversible multiple
+# of tmdb.RESULTS_PAGE_SIZE, just a bigger one).
+DISCOVER_HIDE_MODE_PAGE_SIZE = tmdb.RESULTS_PAGE_SIZE * 3
 # Movie-only, and deliberately not composable with the filter panel (see
 # tmdb.collections()'s own docstring for why) - excluded from Anime's own
 # category set in discover() below rather than living in DISCOVER_CATEGORIES
@@ -389,10 +398,14 @@ def discover(request, media_type, category):
     # applied below after TMDB's own results come back.
     watched_display = profile.discover_watched_display if profile else Profile.DiscoverDisplay.SHOW
     watchlisted_display = profile.discover_watchlisted_display if profile else Profile.DiscoverDisplay.SHOW
+    hide_active = "hide" in (watched_display, watchlisted_display)
+    page_size = DISCOVER_HIDE_MODE_PAGE_SIZE if hide_active else tmdb.RESULTS_PAGE_SIZE
 
     # TMDB refuses page requests beyond 500 regardless of total_pages.
     page_num = min(_discover_int_param(request, "page") or 1, 500)
-    page = tmdb.discover_by_decades(tmdb_media_type, category=category, page=page_num, decades=decades, **filters)
+    page = tmdb.discover_by_decades(
+        tmdb_media_type, category=category, page=page_num, decades=decades, page_size=page_size, **filters
+    )
 
     query_without_page = request.GET.copy()
     query_without_page.pop("page", None)
