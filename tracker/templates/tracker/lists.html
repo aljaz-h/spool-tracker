@@ -18,6 +18,20 @@
   {% if not profile %}
     <p class="text-ink-faint text-sm">Your account isn't linked to a household profile yet.</p>
   {% else %}
+    {% if all_tags %}
+      <div class="flex flex-wrap gap-1.5 mb-5">
+        <a
+          href="{% url 'lists' %}"
+          class="px-2.5 py-1 rounded-full text-xs font-semibold {% if not selected_tag %}bg-primary text-primary-content{% else %}bg-base-200 text-ink-dim hover:text-base-content{% endif %}"
+        >All</a>
+        {% for tag in all_tags %}
+          <a
+            href="?tag={{ tag|urlencode }}"
+            class="px-2.5 py-1 rounded-full text-xs font-semibold {% if tag == selected_tag %}bg-primary text-primary-content{% else %}bg-base-200 text-ink-dim hover:text-base-content{% endif %}"
+          >{{ tag }}</a>
+        {% endfor %}
+      </div>
+    {% endif %}
     <div class="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-5">
       {% for wl in watchlists %}
         {% include "tracker/partials/list_card.html" with wl=wl show_featured_toggle=profile.is_owner %}
@@ -36,6 +50,8 @@
         {% csrf_token %}
         <label class="block text-xs text-ink-dim mb-1">Name</label>
         <input type="text" name="name" required autofocus class="input w-full mb-4 bg-base-100">
+        <label class="block text-xs text-ink-dim mb-1">Tags <span class="font-normal text-ink-faint">(optional, comma-separated)</span></label>
+        <input type="text" name="tags" placeholder="comfort watches, in progress" class="input w-full mb-4 bg-base-100">
         <label class="flex items-center gap-2 text-sm mb-5 cursor-pointer">
           <input type="checkbox" name="is_shared" class="checkbox checkbox-sm">
           Shared with household

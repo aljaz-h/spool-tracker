@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.89.0] - 2026-08-12
+
+### Added
+
+- Free-text tags on Lists - organize beyond one flat watchlist (e.g.
+  "comfort watches," "in progress"). Set at creation or edited any time
+  from a list's own page, and the Lists overview page gets a tag filter
+  row once any list has one.
+
 ## [0.88.0] - 2026-08-12
 
 ### Added

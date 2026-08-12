@@ -14015,6 +14015,107 @@ class CreateListNeverFlagsAsWatchlistTests(TestCase):
         self.assertFalse(watchlist.is_watchlist)
 
 
+class ParseTagsTests(TestCase):
+    """views._parse_tags - the comma-separated free-text parser shared by
+    create_list and update_list_tags."""
+
+    def test_trims_whitespace_around_each_tag(self):
+        self.assertEqual(views._parse_tags(" comfort watches ,  in progress "), ["comfort watches", "in progress"])
+
+    def test_drops_empty_entries_from_stray_commas(self):
+        self.assertEqual(views._parse_tags("comfort,,in progress,"), ["comfort", "in progress"])
+
+    def test_dedupes_while_preserving_first_seen_order(self):
+        self.assertEqual(views._parse_tags("b, a, b, c, a"), ["b", "a", "c"])
+
+    def test_blank_input_is_an_empty_list(self):
+        self.assertEqual(views._parse_tags(""), [])
+        self.assertEqual(views._parse_tags("   "), [])
+
+
+class CreateListTagsTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("tagcreator", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="TagCreator")
+        self.client.login(username="tagcreator", password="pass12345")
+
+    def test_tags_are_parsed_and_saved_on_creation(self):
+        self.client.post(reverse("create_list"), {"name": "Favorites", "tags": "comfort watches, rewatch"})
+        watchlist = WatchList.objects.get(profile=self.profile, name="Favorites")
+        self.assertEqual(watchlist.tags, ["comfort watches", "rewatch"])
+
+    def test_omitting_tags_leaves_an_empty_list(self):
+        self.client.post(reverse("create_list"), {"name": "Favorites"})
+        watchlist = WatchList.objects.get(profile=self.profile, name="Favorites")
+        self.assertEqual(watchlist.tags, [])
+
+
+class UpdateListTagsTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("tagupdater", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="TagUpdater")
+        self.watchlist = WatchList.objects.create(profile=self.profile, name="Favorites", tags=["old"])
+        self.client.login(username="tagupdater", password="pass12345")
+
+    def test_replaces_the_tags_list(self):
+        self.client.post(reverse("update_list_tags", args=[self.watchlist.id]), {"tags": "new, tags"})
+        self.watchlist.refresh_from_db()
+        self.assertEqual(self.watchlist.tags, ["new", "tags"])
+
+    def test_can_clear_all_tags(self):
+        self.client.post(reverse("update_list_tags", args=[self.watchlist.id]), {"tags": ""})
+        self.watchlist.refresh_from_db()
+        self.assertEqual(self.watchlist.tags, [])
+
+    def test_404s_for_a_non_creator(self):
+        other_user = User.objects.create_user("nottagowner", password="pass12345")
+        Profile.objects.create(user=other_user, display_name="NotTagOwner")
+        self.client.logout()
+        self.client.login(username="nottagowner", password="pass12345")
+        resp = self.client.post(reverse("update_list_tags", args=[self.watchlist.id]), {"tags": "hijacked"})
+        self.assertEqual(resp.status_code, 404)
+        self.watchlist.refresh_from_db()
+        self.assertEqual(self.watchlist.tags, ["old"])
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("update_list_tags", args=[self.watchlist.id]), {"tags": "hijacked"})
+        self.assertNotEqual(resp.status_code, 200)
+
+    def test_requires_post(self):
+        resp = self.client.get(reverse("update_list_tags", args=[self.watchlist.id]))
+        self.assertEqual(resp.status_code, 405)
+
+
+class ListsPageTagFilterTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("tagfilterer", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="TagFilterer")
+        self.client.login(username="tagfilterer", password="pass12345")
+        self.comfort = WatchList.objects.create(profile=self.profile, name="Comfort", tags=["comfort watches"])
+        self.progress = WatchList.objects.create(profile=self.profile, name="Progress", tags=["in progress"])
+        self.untagged = WatchList.objects.create(profile=self.profile, name="Untagged")
+
+    def test_no_filter_shows_every_list(self):
+        resp = self.client.get(reverse("lists"))
+        names = [wl.name for wl in resp.context["watchlists"]]
+        self.assertEqual(set(names), {"Comfort", "Progress", "Untagged"})
+
+    def test_filtering_by_tag_narrows_to_matching_lists_only(self):
+        resp = self.client.get(reverse("lists"), {"tag": "comfort watches"})
+        names = [wl.name for wl in resp.context["watchlists"]]
+        self.assertEqual(names, ["Comfort"])
+
+    def test_all_tags_is_the_union_across_visible_lists(self):
+        resp = self.client.get(reverse("lists"))
+        self.assertEqual(resp.context["all_tags"], ["comfort watches", "in progress"])
+
+    def test_tag_chips_render_on_the_page(self):
+        resp = self.client.get(reverse("lists"))
+        self.assertContains(resp, "comfort watches")
+        self.assertContains(resp, "in progress")
+
+
 class ListActionNextRedirectTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("listactor", password="pass12345")

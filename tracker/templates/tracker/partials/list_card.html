@@ -14,6 +14,13 @@
     <div class="p-3.5">
       <div class="font-bold text-[14.5px] mb-0.5">{{ wl.name }}</div>
       <div class="text-xs text-ink-dim font-mono">{{ wl.items.all|length }} title{{ wl.items.all|length|pluralize }} · {% if wl.is_shared %}shared{% else %}private{% endif %}</div>
+      {% if wl.tags %}
+        <div class="flex flex-wrap gap-1 mt-1.5">
+          {% for tag in wl.tags %}
+            <span class="px-1.5 py-0.5 rounded bg-base-300 text-[10px] text-ink-dim font-mono">{{ tag }}</span>
+          {% endfor %}
+        </div>
+      {% endif %}
     </div>
   </a>
   {% if show_featured_toggle and wl.is_shared %}

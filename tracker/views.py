@@ -2537,7 +2537,17 @@ def lists(request):
     profile = Profile.objects.filter(user=request.user).first()
     context = {"profile": profile}
     if profile is not None:
-        context["watchlists"] = selectors.visible_lists(profile)
+        watchlists = list(selectors.visible_lists(profile))
+        # In Python, not a DB filter - JSONField list-containment lookups
+        # (__contains) aren't supported on the SQLite dev-fallback the way
+        # they are on Postgres, and this is a small, already-fetched,
+        # unpaginated per-household list of lists to begin with, so
+        # there's no real cost to narrowing it here instead.
+        all_tags = sorted({tag for wl in watchlists for tag in wl.tags})
+        selected_tag = request.GET.get("tag", "")
+        if selected_tag:
+            watchlists = [wl for wl in watchlists if selected_tag in wl.tags]
+        context.update({"watchlists": watchlists, "all_tags": all_tags, "selected_tag": selected_tag})
     return render(request, "tracker/lists.html", context)
 
 
@@ -2600,6 +2610,23 @@ def list_detail(request, list_id):
     return render(request, template, context)
 
 
+def _parse_tags(raw):
+    """"comfort watches, in progress,  " -> ["comfort watches", "in
+    progress"] - trims each entry, drops empty ones (a stray leading/
+    trailing/doubled comma shouldn't create a blank tag), and dedupes
+    case-sensitively while preserving first-seen order (a person typing
+    the same tag into two lists should still see it as one tag in the
+    filter row, not fight near-duplicates)."""
+    seen = set()
+    tags = []
+    for raw_tag in raw.split(","):
+        tag = raw_tag.strip()
+        if tag and tag not in seen:
+            seen.add(tag)
+            tags.append(tag)
+    return tags
+
+
 @login_required
 @require_POST
 def create_list(request):
@@ -2610,8 +2637,26 @@ def create_list(request):
     if not name:
         messages.error(request, "List name is required.")
         return redirect("lists")
-    watchlist = WatchList.objects.create(profile=profile, name=name, is_shared=bool(request.POST.get("is_shared")))
+    watchlist = WatchList.objects.create(
+        profile=profile, name=name, is_shared=bool(request.POST.get("is_shared")),
+        tags=_parse_tags(request.POST.get("tags", "")),
+    )
     return redirect("list_detail", list_id=watchlist.id)
+
+
+@login_required
+@require_POST
+def update_list_tags(request, list_id):
+    """The list detail page's own tag editor (list_detail.html) - creator
+    only, same permission as every other list-metadata action here
+    (toggle_list_shared, delete_list)."""
+    profile = Profile.objects.filter(user=request.user).first()
+    watchlist = get_object_or_404(WatchList, pk=list_id)
+    if profile is None or not watchlist.can_edit(profile):
+        raise Http404
+    watchlist.tags = _parse_tags(request.POST.get("tags", ""))
+    watchlist.save(update_fields=["tags"])
+    return redirect("list_detail", list_id=list_id)
 
 
 @login_required

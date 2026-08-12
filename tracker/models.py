@@ -359,6 +359,16 @@ class WatchList(models.Model):
     # selectors.featured_lists() requires both.
     is_featured = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Free-text organization for a profile with many lists (comfort
+    # watches, in progress, recommend to Alex, ...) - a flat list of
+    # already-trimmed, deduped, non-empty strings (see views._parse_tags),
+    # not a separate Tag model. Nothing here needs to be queried/joined
+    # across lists at the database level (Lists' own tag filter just
+    # narrows an already-small, already-fetched queryset in Python -
+    # see selectors.visible_lists's caller), so the relational-model
+    # overhead of a real M2M isn't worth it for what's fundamentally
+    # small, per-list, creator-only free text.
+    tags = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ["name"]
