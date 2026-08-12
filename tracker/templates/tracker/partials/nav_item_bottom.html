@@ -1,0 +1,9 @@
+{% load icons %}
+{# context: href, icon_name, label, is_active - vertical icon-over-label variant of nav_item.html/nav_item_horizontal.html, for the mobile-only floating bottom nav (bottom_nav.html). Icon inherits color via currentColor from the wrapping text-primary/text-ink-dim, so icon+label tint together on the active tab. "More" isn't built from this partial - it opens the sheet rather than navigating, see bottom_nav.html's own inlined button. #}
+<a href="{{ href }}"
+   class="flex flex-col items-center justify-center gap-0.5 flex-1 py-2 rounded-2xl text-[10px] font-medium transition-colors
+     {% if is_active %}text-primary{% else %}text-ink-dim{% endif %}"
+>
+  {% icon icon_name "w-5 h-5" %}
+  <span>{{ label }}</span>
+</a>

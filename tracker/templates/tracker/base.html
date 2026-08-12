@@ -24,6 +24,13 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Public+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'dist/app.css' %}">
   <script defer src="{% static 'vendor/htmx.js' %}"></script>
+  {% comment %}
+    Alpine plugins register via a document-level "alpine:init" listener
+    that must be attached before Alpine's own core dispatches it - defer
+    scripts execute in document order, so this only works with the
+    plugin's <script> tag ahead of alpinejs.js's own, not after.
+  {% endcomment %}
+  <script defer src="{% static 'vendor/alpine-focus.js' %}"></script>
   <script defer src="{% static 'vendor/alpinejs.js' %}"></script>
   <script>
     // document, not document.body — this script runs while <head> is still
@@ -98,14 +105,17 @@
   </script>
 </head>
 <body class="bg-base-100 text-base-content min-h-screen">
-  <div x-data="{ sidebarOpen: false, mobileSearchOpen: false }">
+  <div x-data="{ sidebarOpen: false, mobileSearchOpen: false, bottomSheetOpen: false }">
     {% include "tracker/partials/sidebar.html" %}
     <div class="min-h-screen flex flex-col">
       {% include "tracker/partials/topbar.html" %}
-      <main class="p-4 sm:p-6 lg:p-8 pb-16 lg:px-[calc(2rem+10%)]">
+      <main class="p-4 sm:p-6 lg:p-8 pb-28 md:pb-16 lg:px-[calc(2rem+10%)]">
+        {% include "tracker/partials/discover_type_switcher.html" %}
         {% block content %}{% endblock %}
       </main>
     </div>
+    {% include "tracker/partials/bottom_nav.html" %}
+    {% include "tracker/partials/bottom_sheet.html" %}
   </div>
 
   <dialog id="confirm_modal" class="modal" aria-labelledby="confirm-modal-message">

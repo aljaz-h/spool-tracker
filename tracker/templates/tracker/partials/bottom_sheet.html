@@ -1,0 +1,87 @@
+{% load icons %}
+{# context: none explicit - reads show_activity_nav from context_processors.py (already available everywhere, same flag sidebar.html/topbar.html gate Activity on). Mobile-only "More" bottom sheet, opened by bottom_nav.html's More button (bottomSheetOpen, on base.html's root x-data). Transition timing/easing directly mirrors sidebar.html's own drawer (ease-out 200ms in / ease-in 150ms out), just sliding up (Y axis) instead of in from the left (X axis). Focus-trapped via @alpinejs/focus's x-trap (vendored static/vendor/alpine-focus.js) since nothing else in this codebase hand-rolls focus trapping. #}
+<div
+  x-show="bottomSheetOpen"
+  x-cloak
+  @click="bottomSheetOpen = false"
+  x-transition.opacity
+  class="md:hidden fixed inset-0 bg-black/60 z-40"
+></div>
+
+<div
+  x-show="bottomSheetOpen"
+  x-cloak
+  x-trap="bottomSheetOpen"
+  @keydown.escape.window="bottomSheetOpen = false"
+  @click.outside="bottomSheetOpen = false"
+  x-transition:enter="transition ease-out duration-200"
+  x-transition:enter-start="translate-y-full"
+  x-transition:enter-end="translate-y-0"
+  x-transition:leave="transition ease-in duration-150"
+  x-transition:leave-start="translate-y-0"
+  x-transition:leave-end="translate-y-full"
+  role="dialog"
+  aria-modal="true"
+  aria-label="More"
+  class="md:hidden fixed inset-x-0 bottom-0 z-50 bg-base-200 border border-line rounded-t-[22px] shadow-2xl pb-[max(1rem,env(safe-area-inset-bottom))]"
+  x-data="{ dragY: 0, dragging: false, startY: 0 }"
+  @touchstart="dragging = true; dragY = 0; startY = $event.touches[0].clientY"
+  @touchmove="if (dragging) { dragY = Math.max(0, $event.touches[0].clientY - startY); $el.style.transform = `translateY(${dragY}px)` }"
+  @touchend="dragging = false; $el.style.transform = ''; if (dragY > 80) bottomSheetOpen = false"
+>
+  {% comment %}
+    Drag handle - the only part of the sheet the swipe-down listeners
+    above need to live on conceptually, but they're bound to the whole
+    sheet element so a drag started anywhere on it (not just this bar)
+    still works, matching how most native bottom sheets behave.
+  {% endcomment %}
+  <div class="flex justify-center pt-2.5 pb-1">
+    <div class="w-9 h-1 rounded-full bg-base-300"></div>
+  </div>
+
+  <div class="flex items-center justify-between px-5 pb-3">
+    <h2 class="font-display text-lg tracking-wide">More</h2>
+    <button
+      type="button"
+      @click="bottomSheetOpen = false"
+      aria-label="Close"
+      class="w-8 h-8 flex items-center justify-center rounded-lg text-ink-dim hover:text-base-content"
+    >
+      {% icon "x" "w-4 h-4" %}
+    </button>
+  </div>
+
+  <div class="grid grid-cols-3 gap-3 px-5 pb-6">
+    {% url 'history' as history_url %}
+    <a href="{{ history_url }}" @click="bottomSheetOpen = false" class="flex flex-col items-center justify-center gap-2 py-4 rounded-2xl bg-base-300 text-ink-dim hover:text-base-content text-xs font-semibold transition-colors">
+      {% icon "history" "w-5 h-5" %}
+      History
+    </a>
+
+    {% url 'lists' as lists_url %}
+    <a href="{{ lists_url }}" @click="bottomSheetOpen = false" class="flex flex-col items-center justify-center gap-2 py-4 rounded-2xl bg-base-300 text-ink-dim hover:text-base-content text-xs font-semibold transition-colors">
+      {% icon "list-checks" "w-5 h-5" %}
+      Lists
+    </a>
+
+    {% if show_activity_nav %}
+      {% url 'activity' as activity_url %}
+      <a href="{{ activity_url }}" @click="bottomSheetOpen = false" class="flex flex-col items-center justify-center gap-2 py-4 rounded-2xl bg-base-300 text-ink-dim hover:text-base-content text-xs font-semibold transition-colors">
+        {% icon "users" "w-5 h-5" %}
+        Activity
+      </a>
+    {% endif %}
+
+    {% url 'my_profile' as profile_url %}
+    <a href="{{ profile_url }}" @click="bottomSheetOpen = false" class="flex flex-col items-center justify-center gap-2 py-4 rounded-2xl bg-base-300 text-ink-dim hover:text-base-content text-xs font-semibold transition-colors">
+      {% icon "user" "w-5 h-5" %}
+      Profile
+    </a>
+
+    {% url 'settings' as settings_url %}
+    <a href="{{ settings_url }}" @click="bottomSheetOpen = false" class="flex flex-col items-center justify-center gap-2 py-4 rounded-2xl bg-base-300 text-ink-dim hover:text-base-content text-xs font-semibold transition-colors">
+      {% icon "settings" "w-5 h-5" %}
+      Settings
+    </a>
+  </div>
+</div>

@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.93.0] - 2026-08-12
+
+### Added
+
+- A floating mobile-only bottom navigation bar (Home, Discover, Calendar,
+  Stats, More), purely additive alongside the existing sidebar/topbar -
+  desktop is unaffected. Discover links into the real Movies/TV/Anime
+  pages with a mobile segmented switcher shown at the top of those three
+  routes (preserves the current category when switching). More opens a
+  swipe-dismissible, focus-trapped bottom sheet with shortcuts to
+  History, Lists, Activity, Profile, and Settings.
+
 ## [0.92.5] - 2026-08-12
 
 ### Fixed

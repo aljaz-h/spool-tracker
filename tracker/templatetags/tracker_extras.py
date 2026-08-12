@@ -12,6 +12,14 @@ def eq(value, other):
 
 
 @register.filter
+def in_list(value, arg):
+    """Same gap as eq (see its own docstring), for "is this one of
+    several route names" - arg is a comma-separated string, e.g.
+    url_name|in_list:"movies,tv,anime"."""
+    return str(value) in arg.split(",")
+
+
+@register.filter
 def poster_size(url, width):
     """Re-points a stored TMDB poster URL at a smaller size than the w500
     tmdb.py always fetches/stores (IMAGE_BASE) - grid/carousel tiles

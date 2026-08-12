@@ -1,0 +1,39 @@
+{% load icons tracker_extras %}
+{# context: none explicit - reads request.resolver_match directly, same as sidebar.html/topbar.html. Mobile-only (md:hidden) floating tab bar, purely additive alongside the existing sidebar drawer/topbar - never shown at/above the md breakpoint. #}
+{% with url_name=request.resolver_match.url_name %}
+<nav
+  aria-label="Primary"
+  class="md:hidden fixed inset-x-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40 flex items-stretch gap-1 px-2 py-1 rounded-[22px] bg-base-200/80 backdrop-blur-md border border-line shadow-2xl"
+>
+  {% url 'dashboard' as home_url %}
+  {% include "tracker/partials/nav_item_bottom.html" with href=home_url icon_name="home" label="Home" is_active=url_name|eq:"dashboard" %}
+
+  {% comment %}
+    Always links to Movies/trending ("Default to Movies" - see the
+    mobile-nav plan) - once actually on Movies/TV/Anime,
+    discover_type_switcher.html (included from base.html, shown only on
+    those three routes) is what lets the user switch/stay without
+    re-tapping this tab.
+  {% endcomment %}
+  {% url 'movies' category='trending' as discover_url %}
+  {% include "tracker/partials/nav_item_bottom.html" with href=discover_url icon_name="compass" label="Discover" is_active=url_name|in_list:"movies,tv,anime" %}
+
+  {% url 'calendar' as calendar_url %}
+  {% include "tracker/partials/nav_item_bottom.html" with href=calendar_url icon_name="calendar-days" label="Calendar" is_active=url_name|eq:"calendar" %}
+
+  {% url 'stats' as stats_url %}
+  {% include "tracker/partials/nav_item_bottom.html" with href=stats_url icon_name="bar-chart-3" label="Stats" is_active=url_name|eq:"stats" %}
+
+  <button
+    type="button"
+    @click="bottomSheetOpen = true"
+    :aria-expanded="bottomSheetOpen.toString()"
+    aria-haspopup="dialog"
+    class="flex flex-col items-center justify-center gap-0.5 flex-1 py-2 rounded-2xl text-[10px] font-medium transition-colors"
+    :class="bottomSheetOpen ? 'text-primary' : 'text-ink-dim'"
+  >
+    {% icon "ellipsis" "w-5 h-5" %}
+    <span>More</span>
+  </button>
+</nav>
+{% endwith %}
