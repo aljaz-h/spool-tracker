@@ -13,7 +13,7 @@
   keeps this row's copy in sync, instead of it going stale after the first
   month click.
 {% endcomment %}
-<div id="month-switcher" class="flex items-center gap-1 flex-none" {% if oob %}hx-swap-oob="true"{% endif %}>
+<div id="month-switcher" class="flex items-center gap-1 flex-none justify-self-center" {% if oob %}hx-swap-oob="true"{% endif %}>
   <a
     hx-get="{% url 'calendar' %}?month={{ prev_month_param }}&type={{ type_filter }}&source={{ source_filter }}"
     hx-target="#cal-main" hx-push-url="true"
