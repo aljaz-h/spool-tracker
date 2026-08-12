@@ -156,6 +156,17 @@ PROFILE_TIMEZONES = sorted(
 )
 
 
+def service_worker(request):
+    """Served at the true site root (/sw.js, see urls.py) rather than
+    under /static/ - a service worker's default scope is its own URL's
+    directory and below, so serving it from /static/ would only ever let
+    it control requests under /static/, not the actual page navigations a
+    PWA install needs. Not behind @login_required - the browser registers
+    this before any login-gated page has necessarily loaded, and it has
+    no user-specific content of its own (see templates/sw.js)."""
+    return render(request, "sw.js", content_type="application/javascript")
+
+
 @login_required
 def dashboard(request):
     profile = Profile.objects.filter(user=request.user).first()

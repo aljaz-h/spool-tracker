@@ -3390,6 +3390,57 @@ class LoginPageTemplateTests(TestCase):
 
         resp = self.client.get(reverse("login"))
         self.assertContains(resp, f"v{APP_VERSION}")
+
+
+class PwaSupportTests(TestCase):
+    """manifest.webmanifest + sw.js - installable home-screen/standalone
+    support. See views.service_worker's own docstring for why sw.js is
+    served from a dedicated root-scoped view instead of via /static/."""
+
+    def test_service_worker_is_served_at_the_true_root_not_under_static(self):
+        resp = self.client.get("/sw.js")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["Content-Type"], "application/javascript")
+
+    def test_service_worker_only_intercepts_static_asset_requests(self):
+        # The one behavioral guarantee worth pinning down in a test: this
+        # worker must never cache/serve stale HTML or API responses -
+        # only ever /static/ GETs get a cache-first fetch handler.
+        resp = self.client.get("/sw.js")
+        body = resp.content.decode()
+        self.assertIn('url.pathname.startsWith("/static/")', body)
+        self.assertIn('event.request.method !== "GET"', body)
+
+    def test_service_worker_does_not_require_login(self):
+        resp = self.client.get("/sw.js")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_manifest_file_is_valid_json_with_required_installability_fields(self):
+        import json
+        from pathlib import Path
+
+        from django.conf import settings
+
+        manifest_path = Path(settings.BASE_DIR) / "static" / "img" / "manifest.webmanifest"
+        manifest = json.loads(manifest_path.read_text())
+        self.assertEqual(manifest["display"], "standalone")
+        self.assertEqual(manifest["start_url"], "/")
+        sizes = {icon["sizes"] for icon in manifest["icons"]}
+        self.assertIn("192x192", sizes)
+        self.assertIn("512x512", sizes)
+
+    def test_dashboard_links_the_manifest(self):
+        user = User.objects.create_user("pwadashboard", password="pass12345")
+        Profile.objects.create(user=user, display_name="PwaDashboard")
+        self.client.login(username="pwadashboard", password="pass12345")
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, 'rel="manifest"')
+        self.assertContains(resp, "serviceWorker")
+
+    def test_login_page_links_the_manifest(self):
+        resp = self.client.get(reverse("login"))
+        self.assertContains(resp, 'rel="manifest"')
+        self.assertContains(resp, "serviceWorker")
         self.assertContains(resp, "self-hosted")
 
     def test_username_field_has_a_placeholder(self):

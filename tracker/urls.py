@@ -4,6 +4,7 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    path("sw.js", views.service_worker, name="service_worker"),
     path("", views.dashboard, name="dashboard"),
     path("recommend/", views.recommend, name="recommend"),
     path("profile/<int:profile_id>/popup/", views.profile_popup, name="profile_popup"),

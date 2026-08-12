@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.86.0] - 2026-08-12
+
+### Added
+
+- PWA support - Spool can now be installed to a phone's home screen and
+  runs in a standalone, fullscreen window instead of a browser tab. Adds
+  a web manifest and a deliberately conservative service worker that only
+  ever caches static assets (icons/CSS/JS) - every page render, HTMX
+  partial, and API call still always hits the network, so nothing here
+  can show stale watch history/lists.
+
 ## [0.85.0] - 2026-08-12
 
 ### Fixed

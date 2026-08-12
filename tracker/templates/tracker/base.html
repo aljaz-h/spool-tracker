@@ -9,6 +9,17 @@
   <link rel="icon" type="image/png" sizes="32x32" href="{% static 'img/favicon-32.png' %}">
   <link rel="icon" type="image/png" sizes="16x16" href="{% static 'img/favicon-16.png' %}">
   <link rel="apple-touch-icon" href="{% static 'img/apple-touch-icon.png' %}">
+  <link rel="manifest" href="{% static 'img/manifest.webmanifest' %}">
+  <meta name="theme-color" content="#14161c">
+  {% comment %}
+    iOS Safari doesn't act on the web manifest for "Add to Home Screen" -
+    these are its own separate, older meta-tag convention for the same
+    fullscreen/standalone install behavior the manifest already declares
+    for every other browser.
+  {% endcomment %}
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Spool">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Public+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'dist/app.css' %}">
@@ -77,6 +88,13 @@
       e.preventDefault();
       window.confirmModal(e.detail.question).then((ok) => { if (ok) e.detail.issueRequest(true); });
     });
+    // login.html (a separate, non-extending template - see its own head)
+    // registers the same worker so installability doesn't depend on
+    // having logged in first. See sw.js's own comment for why this is
+    // safe to run everywhere (it only ever touches /static/ requests).
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
+    }
   </script>
 </head>
 <body class="bg-base-100 text-base-content min-h-screen">
