@@ -8,6 +8,13 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.84.1] - 2026-08-12
+
+### Changed
+
+- The Import Data file picker is now custom-styled to match the rest of
+  the site, same as the profile photo upload.
+
 ## [0.84.0] - 2026-08-11
 
 ### Added
