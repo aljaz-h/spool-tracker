@@ -118,6 +118,7 @@ urlpatterns = [
     path("lists/<int:list_id>/reorder/", views.reorder_list, name="reorder_list"),
     path("lists/<int:list_id>/toggle-featured/", views.toggle_list_featured, name="toggle_list_featured"),
     path("lists/<int:list_id>/search-titles/", views.search_titles, name="search_titles"),
+    path("lists/<int:list_id>/roulette/", views.watchlist_roulette, name="watchlist_roulette"),
     path("stats/", views.stats, name="stats"),
     path("stats/heatmap/", views.stats_heatmap, name="stats_heatmap"),
     path("profile/<int:profile_id>/stats/", views.stats, name="member_stats"),

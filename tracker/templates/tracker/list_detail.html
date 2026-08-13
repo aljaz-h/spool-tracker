@@ -66,15 +66,25 @@
           {% endif %}
         </div>
       </div>
-      {% if can_edit %}
-        <div class="flex gap-2">
+      <div class="flex gap-2">
+        {% if total_count %}
+          <button
+            type="button"
+            class="btn btn-sm btn-soft"
+            hx-get="{% url 'watchlist_roulette' watchlist.id %}"
+            hx-target="#roulette-modal-content"
+            hx-swap="innerHTML"
+            hx-on::after-request="document.getElementById('roulette_modal').showModal()"
+          >{% icon "refresh-cw" "w-4 h-4" %} Spin</button>
+        {% endif %}
+        {% if can_edit %}
           <button @click="showSearch = !showSearch" class="btn btn-primary btn-sm">+ Add title</button>
           <form method="post" action="{% url 'delete_list' watchlist.id %}" onsubmit="return confirm('Delete \'{{ watchlist.name|escapejs }}\'? This can\'t be undone.');">
             {% csrf_token %}
             <button type="submit" class="btn btn-sm btn-soft">Delete list</button>
           </form>
-        </div>
-      {% endif %}
+        {% endif %}
+      </div>
     </div>
 
     {% if can_edit %}
@@ -150,4 +160,17 @@
     </div>
   </div>
 </div>
+
+<dialog id="roulette_modal" class="modal" aria-labelledby="roulette-modal-heading">
+  <div class="modal-box bg-base-200 border border-line rounded-2xl p-5 max-w-sm">
+    <div class="flex items-center justify-between mb-4">
+      <h2 id="roulette-modal-heading" class="font-display text-xl">Spin the wheel</h2>
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost cursor-pointer">{% icon "x" "w-4 h-4" %}</button></form>
+    </div>
+    <div id="roulette-modal-content" class="min-h-[280px] flex items-center justify-center text-ink-faint text-sm">
+      Spinning…
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop bg-black/60 backdrop-blur-sm"><button>close</button></form>
+</dialog>
 {% endblock %}

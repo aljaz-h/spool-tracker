@@ -1,0 +1,55 @@
+{% load icons %}
+{% comment %}
+context: watchlist, picked (Title or None), media_type, max_runtime,
+pool_count, plus watched_by_title/watch_count_by_title/my_lists/
+list_membership from selectors.poster_action_context() when picked is set.
+Swapped wholesale into #roulette-modal-content on every spin/filter change -
+the filter form re-GETs this same view targeting itself, so "spin again"
+and "narrow the pool" are one request shape.
+{% endcomment %}
+<div class="flex flex-col items-center gap-5">
+  <form
+    hx-get="{% url 'watchlist_roulette' watchlist.id %}"
+    hx-target="#roulette-modal-content"
+    hx-swap="innerHTML"
+    class="flex flex-wrap items-center justify-center gap-2 w-full"
+  >
+    <select name="type" class="select select-sm bg-base-100">
+      <option value="all" {% if media_type == "all" %}selected{% endif %}>Any type</option>
+      <option value="movie" {% if media_type == "movie" %}selected{% endif %}>Movies</option>
+      <option value="tv" {% if media_type == "tv" %}selected{% endif %}>TV</option>
+      <option value="anime" {% if media_type == "anime" %}selected{% endif %}>Anime</option>
+    </select>
+    <select name="max_runtime" class="select select-sm bg-base-100">
+      <option value="" {% if not max_runtime %}selected{% endif %}>Any runtime</option>
+      <option value="30" {% if max_runtime == "30" %}selected{% endif %}>Under 30 min</option>
+      <option value="60" {% if max_runtime == "60" %}selected{% endif %}>Under 1 hr</option>
+      <option value="120" {% if max_runtime == "120" %}selected{% endif %}>Under 2 hr</option>
+    </select>
+    <button type="submit" class="btn btn-sm btn-soft">Apply</button>
+  </form>
+
+  {% if picked %}
+    <div class="w-[168px]">
+      {% include "tracker/partials/poster_card.html" with title=picked width_class="w-[168px] flex-none" %}
+    </div>
+    <div class="text-xs text-ink-faint">{{ pool_count }} title{{ pool_count|pluralize }} in the running</div>
+  {% else %}
+    <div class="py-10 text-center text-ink-dim text-sm max-w-xs">
+      {% if pool_count == 0 and not max_runtime and media_type == "all" %}
+        This list is empty - add a few titles first.
+      {% else %}
+        Nothing in "{{ watchlist.name }}" matches those filters.
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <button
+    type="button"
+    hx-get="{% url 'watchlist_roulette' watchlist.id %}?type={{ media_type }}&max_runtime={{ max_runtime }}"
+    hx-target="#roulette-modal-content"
+    hx-swap="innerHTML"
+    class="btn btn-primary btn-sm"
+    {% if pool_count == 0 %}disabled{% endif %}
+  >{% icon "refresh-cw" "w-4 h-4" %} Spin again</button>
+</div>

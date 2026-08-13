@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.94.0] - 2026-08-13
+
+### Added
+
+- Watch-roulette: a "Spin" button on any list page picks a random title
+  from that list, with optional type and max-runtime filters, so "what
+  should we watch" has a one-click answer instead of scrolling the grid.
+
 ## [0.93.2] - 2026-08-12
 
 ### Changed

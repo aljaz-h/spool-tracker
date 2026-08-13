@@ -3,6 +3,7 @@ import csv
 import json
 import logging
 import os
+import random
 import secrets
 import threading
 import uuid
@@ -2634,6 +2635,39 @@ def list_detail(request, list_id):
     else:
         template = "tracker/list_detail.html"
     return render(request, template, context)
+
+
+@login_required
+def watchlist_roulette(request, list_id):
+    """Picks a random still-untracked-as-watched item off a list, optionally
+    narrowed by media type / max runtime. Filters live in the modal itself
+    (roulette_result.html) and re-GET this same view targeting their own
+    result pane, so "spin again" and "narrow the pool" are the same request
+    shape."""
+    profile = Profile.objects.filter(user=request.user).first()
+    watchlist = _get_visible_list_or_404(profile, list_id)
+
+    items = watchlist.items.select_related("title")
+    media_type = request.GET.get("type", "all")
+    if media_type in (MediaType.MOVIE, MediaType.TV, MediaType.ANIME):
+        items = items.filter(title__media_type=media_type)
+    max_runtime = request.GET.get("max_runtime", "")
+    if max_runtime.isdigit():
+        items = items.filter(title__runtime_minutes__gt=0, title__runtime_minutes__lte=int(max_runtime))
+
+    pool = list(items)
+    picked = random.choice(pool).title if pool else None
+
+    context = {
+        "watchlist": watchlist,
+        "picked": picked,
+        "media_type": media_type,
+        "max_runtime": max_runtime,
+        "pool_count": len(pool),
+    }
+    if picked is not None:
+        context.update(selectors.poster_action_context(profile, [picked]))
+    return render(request, "tracker/partials/roulette_result.html", context)
 
 
 def _parse_tags(raw):
