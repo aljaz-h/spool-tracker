@@ -35,6 +35,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from . import (
+    achievements,
     completion,
     crypto,
     csv_import,
@@ -3018,6 +3019,9 @@ def stats(request, profile_id=None):
         context["heatmap_active_days"] = sum(
             1 for w in context["heatmap_weeks"] for c in w if c and c["count"] > 0
         )
+        earned_achievements = achievements.achievement_progress(profile)
+        context["achievements"] = earned_achievements
+        context["achievements_earned_count"] = sum(1 for a in earned_achievements if a["earned"])
         if is_own_stats:
             other_profiles = Profile.objects.exclude(pk=profile.pk).order_by("display_name")
             compatibility = [selectors.taste_compatibility(profile, other) for other in other_profiles]

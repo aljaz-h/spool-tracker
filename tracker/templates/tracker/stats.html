@@ -156,6 +156,27 @@
     </div>
   </div>
 
+  {% if achievements %}
+    <div class="bg-base-200 border border-line rounded-2xl p-5 mt-5">
+      <h2 class="text-2xl mb-1">Achievements</h2>
+      <div class="text-ink-faint text-sm mb-5">{{ achievements_earned_count }} of {{ achievements|length }} badges - collect the rest by watching</div>
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {% for a in achievements %}
+          <div
+            class="flex flex-col items-center text-center gap-2 rounded-xl p-4 border {% if a.earned %}bg-primary/10 border-primary/30{% else %}bg-base-300/30 border-line opacity-50{% endif %}"
+            title="{{ a.description }}"
+          >
+            <div class="w-10 h-10 rounded-full flex items-center justify-center {% if a.earned %}bg-primary/20 text-primary{% else %}bg-base-300 text-ink-faint{% endif %}">
+              {% icon "crown" "w-5 h-5" %}
+            </div>
+            <div class="text-xs font-semibold">{{ a.name }}</div>
+            <div class="text-[10.5px] text-ink-faint leading-snug">{{ a.description }}</div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
   {% if taste_compatibility %}
     <div class="bg-base-200 border border-line rounded-2xl p-5 mt-5">
       <h2 class="text-2xl mb-1">Taste <span class="text-primary">compatibility</span></h2>

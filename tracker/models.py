@@ -940,3 +940,28 @@ class AdminAuditLogEntry(models.Model):
 
     def __str__(self):
         return f"{self.get_action_display()} · {self.target_display_name} @ {self.created_at:%Y-%m-%d %H:%M}"
+
+
+class ProfileAchievement(models.Model):
+    """A badge a profile has earned - just persisted state (which key, and
+    when). The catalog of achievements themselves (name, description,
+    what qualifies) is a static Python registry in tracker/achievements.py,
+    not a DB table - there's no user-facing way to define a new one, so a
+    full catalog model would be pure ceremony. key matches one of that
+    registry's Achievement.key values; earned_at sticks once awarded even
+    if the underlying stat later drops (e.g. a rewatch getting removed
+    lowers a count back below a threshold) - see
+    achievements.check_and_award."""
+
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="achievements")
+    key = models.CharField(max_length=50)
+    earned_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-earned_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["profile", "key"], name="unique_profile_achievement")
+        ]
+
+    def __str__(self):
+        return f"{self.profile}: {self.key}"

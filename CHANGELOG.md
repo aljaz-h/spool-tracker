@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.98.0] - 2026-08-13
+
+### Added
+
+- Achievements: a Stats page badge grid (Genre Explorer, Night Owl,
+  Century Club, Streak Master, Marathoner) checked against existing
+  watch history and persisted once earned.
+
 ## [0.97.0] - 2026-08-13
 
 ### Added

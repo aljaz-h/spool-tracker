@@ -16,7 +16,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
-from . import completion, crypto, csv_import, instance_config, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, update_check, views
+from . import achievements, completion, crypto, csv_import, instance_config, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, update_check, views
 from .integrations import gemini, jikan, mdblist, nuvio, scrobble, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
@@ -31,6 +31,7 @@ from .models import (
     Notification,
     NuvioConnection,
     Profile,
+    ProfileAchievement,
     Recommendation,
     ReleaseSchedule,
     SyncLog,
@@ -7059,6 +7060,123 @@ class TasteCompatibilityTests(TestCase):
         self.client.login(username="tastea", password="pass12345")
         resp = self.client.get(reverse("member_stats", args=[self.profile_b.pk]))
         self.assertNotContains(resp, "Taste compatibility")
+
+
+class AchievementsTests(TestCase):
+    """tracker/achievements.py - static achievement registry checked
+    against existing streak/genre/watch-time data, persisted in
+    ProfileAchievement once earned."""
+
+    def setUp(self):
+        user = User.objects.create_user("achiever", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Achiever")
+
+    def _movie(self, name, genre=None, media_type=MediaType.MOVIE):
+        title = Title.objects.create(media_type=media_type, name=name, year=2020)
+        if genre:
+            title.genres.add(genre)
+        return title
+
+    def _watch(self, title, watched_at):
+        return WatchEvent.objects.create(profile=self.profile, title=title, watched_at=watched_at)
+
+    def _local(self, *args):
+        from datetime import datetime
+
+        from django.utils import timezone
+
+        return timezone.make_aware(datetime(*args), timezone.get_current_timezone())
+
+    def test_genre_explorer_requires_every_genre_watched(self):
+        action = Genre.objects.create(name="Action")
+        comedy = Genre.objects.create(name="Comedy")
+        self._watch(self._movie("A", action), self._local(2024, 1, 1, 12))
+        genre_explorer = next(a for a in achievements.ACHIEVEMENTS if a.key == "genre_explorer")
+        self.assertFalse(genre_explorer.check(self.profile))
+        self._watch(self._movie("B", comedy), self._local(2024, 1, 2, 12))
+        self.assertTrue(genre_explorer.check(self.profile))
+
+    def test_night_owl_requires_20_late_night_watches(self):
+        for day in range(1, 20):
+            self._watch(self._movie(f"Night {day}"), self._local(2024, 1, day, 23))
+        self.assertFalse(achievements._night_owl(self.profile))
+        self._watch(self._movie("Night 20"), self._local(2024, 1, 20, 23))
+        self.assertTrue(achievements._night_owl(self.profile))
+
+    def test_night_owl_daytime_watches_do_not_count(self):
+        for day in range(1, 25):
+            self._watch(self._movie(f"Day {day}"), self._local(2024, 1, day, 12))
+        self.assertFalse(achievements._night_owl(self.profile))
+
+    def test_century_club_requires_100_unique_movies_not_plays(self):
+        title = self._movie("Rewatched")
+        for day in range(1, 100):
+            self._watch(title, self._local(2024, 1, (day % 28) + 1, 12))
+        # 99 rewatches of the same movie is still just 1 unique movie.
+        self.assertFalse(achievements._century_club(self.profile))
+        for i in range(100):
+            self._watch(self._movie(f"Unique {i}"), self._local(2024, 1, (i % 28) + 1, 12))
+        self.assertTrue(achievements._century_club(self.profile))
+
+    def test_streak_master_requires_a_30_day_streak(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        start = timezone.localdate() - timedelta(days=29)
+        for i in range(29):
+            self._watch(self._movie(f"Streak {i}"), self._local(start.year, start.month, start.day) + timedelta(days=i))
+        self.assertFalse(achievements._streak_master(self.profile))
+        self._watch(self._movie("Streak 29"), self._local(start.year, start.month, start.day) + timedelta(days=29))
+        self.assertTrue(achievements._streak_master(self.profile))
+
+    def test_marathoner_requires_5_watches_in_a_single_day(self):
+        for i in range(4):
+            self._watch(self._movie(f"Binge {i}"), self._local(2024, 1, 1, 10 + i))
+        self.assertFalse(achievements._marathoner(self.profile))
+        self._watch(self._movie("Binge 4"), self._local(2024, 1, 1, 20))
+        self.assertTrue(achievements._marathoner(self.profile))
+
+    def test_check_and_award_persists_a_newly_earned_achievement(self):
+        for i in range(4):
+            self._watch(self._movie(f"Binge {i}"), self._local(2024, 1, 1, 10 + i))
+        self._watch(self._movie("Binge 4"), self._local(2024, 1, 1, 20))
+        achievements.check_and_award(self.profile)
+        self.assertTrue(
+            ProfileAchievement.objects.filter(profile=self.profile, key="marathoner").exists()
+        )
+
+    def test_check_and_award_is_idempotent_on_rerun(self):
+        for i in range(5):
+            self._watch(self._movie(f"Binge {i}"), self._local(2024, 1, 1, 10 + i))
+        achievements.check_and_award(self.profile)
+        achievements.check_and_award(self.profile)
+        self.assertEqual(
+            ProfileAchievement.objects.filter(profile=self.profile, key="marathoner").count(), 1
+        )
+
+    def test_achievement_progress_lists_every_achievement_earned_or_not(self):
+        progress = achievements.achievement_progress(self.profile)
+        self.assertEqual(len(progress), len(achievements.ACHIEVEMENTS))
+        self.assertTrue(all(not a["earned"] for a in progress))
+
+    def test_achievement_progress_marks_earned_ones(self):
+        for i in range(5):
+            self._watch(self._movie(f"Binge {i}"), self._local(2024, 1, 1, 10 + i))
+        progress = achievements.achievement_progress(self.profile)
+        by_key = {a["key"]: a for a in progress}
+        self.assertTrue(by_key["marathoner"]["earned"])
+        self.assertIsNotNone(by_key["marathoner"]["earned_at"])
+        self.assertFalse(by_key["century_club"]["earned"])
+
+    def test_stats_page_shows_achievements(self):
+        for i in range(5):
+            self._watch(self._movie(f"Binge {i}"), self._local(2024, 1, 1, 10 + i))
+        self.client.login(username="achiever", password="pass12345")
+        resp = self.client.get(reverse("stats"))
+        self.assertContains(resp, "Achievements")
+        self.assertContains(resp, "Marathoner")
+        self.assertEqual(resp.context["achievements_earned_count"], 1)
 
 
 class TopGenresSelectorTests(TestCase):
