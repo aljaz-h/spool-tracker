@@ -1002,6 +1002,41 @@ def top_genres(profile, limit=3):
     return [{"name": row["title__genres__name"], "value": row["value"]} for row in qs if row["value"]]
 
 
+def taste_compatibility(profile_a, profile_b):
+    """Stats page's "Taste Compatibility" panel - how much two profiles'
+    genre tastes overlap, plus which shared genre they lean on most.
+    Jaccard similarity (shared genres / either profile's total distinct
+    genres) rather than a raw watch-count comparison, so a household
+    member with a much bigger watch history doesn't automatically look
+    "less compatible" just by virtue of a larger denominator. Returns
+    None when either profile has no genre history at all - "0%
+    overlap" would misleadingly read as "opposite tastes" when it
+    really just means "nothing to compare yet"."""
+    counts_a = dict(
+        WatchEvent.objects.filter(profile=profile_a, title__genres__isnull=False)
+        .values("title__genres__name")
+        .annotate(value=Count("id"))
+        .values_list("title__genres__name", "value")
+    )
+    counts_b = dict(
+        WatchEvent.objects.filter(profile=profile_b, title__genres__isnull=False)
+        .values("title__genres__name")
+        .annotate(value=Count("id"))
+        .values_list("title__genres__name", "value")
+    )
+    genres_a, genres_b = set(counts_a), set(counts_b)
+    if not genres_a or not genres_b:
+        return None
+    shared = genres_a & genres_b
+    union = genres_a | genres_b
+    top_shared_genre = max(shared, key=lambda g: counts_a[g] + counts_b[g]) if shared else None
+    return {
+        "profile": profile_b,
+        "overlap_pct": round(len(shared) / len(union) * 100),
+        "top_shared_genre": top_shared_genre,
+    }
+
+
 def year_breakdown(profile, media_type):
     qs = (
         WatchEvent.objects.filter(profile=profile, title__media_type=media_type)

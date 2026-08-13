@@ -156,6 +156,31 @@
     </div>
   </div>
 
+  {% if taste_compatibility %}
+    <div class="bg-base-200 border border-line rounded-2xl p-5 mt-5">
+      <h2 class="text-2xl mb-1">Taste <span class="text-primary">compatibility</span></h2>
+      <div class="text-ink-faint text-sm mb-5">How much your genre taste overlaps with the rest of the household</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {% for c in taste_compatibility %}
+          <div class="flex items-center gap-3 bg-base-300/30 border border-line rounded-xl p-4">
+            {% if c.profile.avatar_image %}
+              <div class="w-10 h-10 rounded-full bg-cover bg-center flex-none" style="background-image:url('{{ c.profile.avatar_image.url }}')"></div>
+            {% else %}
+              <div class="w-10 h-10 rounded-full flex items-center justify-center font-mono text-sm font-semibold flex-none" style="background:{{ c.profile.avatar_color }};color:#fff;">{{ c.profile.display_name|first|upper }}</div>
+            {% endif %}
+            <div class="min-w-0">
+              <div class="text-sm font-semibold truncate">You &amp; {{ c.profile.display_name }}</div>
+              <div class="text-xs text-ink-dim mt-0.5">
+                <span class="text-primary font-semibold">{{ c.overlap_pct }}%</span> genre overlap
+                {% if c.top_shared_genre %}&middot; both love <span class="text-base-content">{{ c.top_shared_genre }}</span>{% endif %}
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
   <div class="grid grid-cols-1 lg:grid-cols-[1fr_0.6fr_1fr] gap-5 mt-5">
     <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
       <h3 class="text-lg mb-4">Release years</h3>

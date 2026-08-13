@@ -6971,6 +6971,96 @@ class GenreBreakdownTests(TestCase):
         self.assertIsNone(resp.context["least_genre"])
 
 
+class TasteCompatibilityTests(TestCase):
+    """selectors.taste_compatibility(profile_a, profile_b) - Stats page's
+    "Taste Compatibility" panel, a Jaccard overlap over each profile's
+    distinct watched genres (not a raw watch-count comparison, so a
+    much-larger watch history doesn't look automatically "less
+    compatible")."""
+
+    def setUp(self):
+        user_a = User.objects.create_user("tastea", password="pass12345")
+        self.profile_a = Profile.objects.create(user=user_a, display_name="TasteA")
+        user_b = User.objects.create_user("tasteb", password="pass12345")
+        self.profile_b = Profile.objects.create(user=user_b, display_name="TasteB")
+        self.action = Genre.objects.create(name="Action")
+        self.comedy = Genre.objects.create(name="Comedy")
+        self.horror = Genre.objects.create(name="Horror")
+
+    def _watch(self, profile, name, genre, count=1):
+        from django.utils import timezone
+
+        title = Title.objects.create(media_type=MediaType.MOVIE, name=name, year=2020)
+        title.genres.add(genre)
+        for _ in range(count):
+            WatchEvent.objects.create(profile=profile, title=title, watched_at=timezone.now())
+
+    def test_identical_genres_are_100_percent_overlap(self):
+        self._watch(self.profile_a, "A1", self.action)
+        self._watch(self.profile_a, "A2", self.comedy)
+        self._watch(self.profile_b, "B1", self.action)
+        self._watch(self.profile_b, "B2", self.comedy)
+        result = selectors.taste_compatibility(self.profile_a, self.profile_b)
+        self.assertEqual(result["overlap_pct"], 100)
+
+    def test_completely_disjoint_genres_are_0_percent_overlap(self):
+        self._watch(self.profile_a, "A1", self.action)
+        self._watch(self.profile_b, "B1", self.horror)
+        result = selectors.taste_compatibility(self.profile_a, self.profile_b)
+        self.assertEqual(result["overlap_pct"], 0)
+        self.assertIsNone(result["top_shared_genre"])
+
+    def test_partial_overlap_uses_jaccard_not_raw_counts(self):
+        # A: Action, Comedy: B: Action, Horror - shared={Action},
+        # union={Action, Comedy, Horror} -> 1/3 = 33%, not skewed by B
+        # watching Action many more times than A.
+        self._watch(self.profile_a, "A1", self.action, count=1)
+        self._watch(self.profile_a, "A2", self.comedy, count=1)
+        self._watch(self.profile_b, "B1", self.action, count=10)
+        self._watch(self.profile_b, "B2", self.horror, count=1)
+        result = selectors.taste_compatibility(self.profile_a, self.profile_b)
+        self.assertEqual(result["overlap_pct"], 33)
+        self.assertEqual(result["top_shared_genre"], "Action")
+
+    def test_top_shared_genre_is_the_one_with_the_highest_combined_count(self):
+        self._watch(self.profile_a, "A1", self.action, count=1)
+        self._watch(self.profile_a, "A2", self.comedy, count=5)
+        self._watch(self.profile_b, "B1", self.action, count=1)
+        self._watch(self.profile_b, "B2", self.comedy, count=5)
+        result = selectors.taste_compatibility(self.profile_a, self.profile_b)
+        self.assertEqual(result["top_shared_genre"], "Comedy")
+
+    def test_either_profile_with_no_genre_history_returns_none(self):
+        self._watch(self.profile_a, "A1", self.action)
+        result = selectors.taste_compatibility(self.profile_a, self.profile_b)
+        self.assertIsNone(result)
+
+    def test_stats_page_shows_compatibility_with_other_household_profiles(self):
+        self._watch(self.profile_a, "A1", self.action)
+        self._watch(self.profile_b, "B1", self.action)
+        self.client.login(username="tastea", password="pass12345")
+        resp = self.client.get(reverse("stats"))
+        self.assertContains(resp, "Taste")
+        self.assertContains(resp, "TasteB")
+        self.assertEqual(len(resp.context["taste_compatibility"]), 1)
+        self.assertEqual(resp.context["taste_compatibility"][0]["overlap_pct"], 100)
+
+    def test_stats_page_omits_the_panel_with_no_comparable_household_members(self):
+        self._watch(self.profile_a, "A1", self.action)
+        self.client.login(username="tastea", password="pass12345")
+        resp = self.client.get(reverse("stats"))
+        self.assertNotContains(resp, "Taste compatibility")
+
+    def test_viewing_someone_elses_stats_does_not_show_the_panel(self):
+        # is_own_stats=False - comparing a third party against everyone
+        # else in the household isn't this page's job.
+        self._watch(self.profile_a, "A1", self.action)
+        self._watch(self.profile_b, "B1", self.action)
+        self.client.login(username="tastea", password="pass12345")
+        resp = self.client.get(reverse("member_stats", args=[self.profile_b.pk]))
+        self.assertNotContains(resp, "Taste compatibility")
+
+
 class TopGenresSelectorTests(TestCase):
     """selectors.top_genres - the profile popup's compact, all-media-types
     genre ranking, distinct from genre_breakdown's single-media-type,

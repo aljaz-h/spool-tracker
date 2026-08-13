@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.97.0] - 2026-08-13
+
+### Added
+
+- Taste Compatibility: a Stats page panel showing genre overlap between
+  you and each other household profile, plus the genre you both lean on
+  most.
+
 ## [0.96.0] - 2026-08-13
 
 ### Added

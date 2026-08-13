@@ -3018,6 +3018,12 @@ def stats(request, profile_id=None):
         context["heatmap_active_days"] = sum(
             1 for w in context["heatmap_weeks"] for c in w if c and c["count"] > 0
         )
+        if is_own_stats:
+            other_profiles = Profile.objects.exclude(pk=profile.pk).order_by("display_name")
+            compatibility = [selectors.taste_compatibility(profile, other) for other in other_profiles]
+            context["taste_compatibility"] = sorted(
+                (c for c in compatibility if c is not None), key=lambda c: -c["overlap_pct"]
+            )
     return render(request, "tracker/stats.html", context)
 
 
