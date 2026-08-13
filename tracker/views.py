@@ -126,6 +126,19 @@ DISCOVER_LANGUAGES = [
     ("cs", "Czech"), ("el", "Greek"), ("he", "Hebrew"), ("id", "Indonesian"),
     ("vi", "Vietnamese"), ("uk", "Ukrainian"), ("ro", "Romanian"), ("hu", "Hungarian"),
 ]
+# Settings → Preferences' Region select (Profile.preferred_region) - which
+# TMDB watch_region scopes the provider catalog picker and the Availability
+# filter. Same "curated list, not a live TMDB catalog fetch" convention as
+# DISCOVER_LANGUAGES above - a manageable picker, not TMDB's full ~230-country
+# /configuration/countries list. US first/default, matching AVAILABILITY_WATCH_REGION.
+DISCOVER_REGIONS = [
+    ("US", "United States"), ("GB", "United Kingdom"), ("CA", "Canada"), ("AU", "Australia"),
+    ("IE", "Ireland"), ("NZ", "New Zealand"), ("DE", "Germany"), ("FR", "France"),
+    ("ES", "Spain"), ("IT", "Italy"), ("NL", "Netherlands"), ("SE", "Sweden"),
+    ("NO", "Norway"), ("DK", "Denmark"), ("FI", "Finland"), ("PL", "Poland"),
+    ("BR", "Brazil"), ("MX", "Mexico"), ("JP", "Japan"), ("KR", "South Korea"),
+    ("IN", "India"),
+]
 # tmdb.AVAILABILITY_CHOICES' keys, paired with their filter-panel labels.
 DISCOVER_AVAILABILITY_LABELS = [
     ("streaming", "Streaming now"),
@@ -192,6 +205,7 @@ def dashboard(request):
         because_you_watched = (
             selectors.because_you_watched(profile) if DASHBOARD_BECAUSE_YOU_WATCHED_ENABLED else None
         )
+        for_you = selectors.for_you(profile)
         media_types = [MediaType.MOVIE, MediaType.TV, MediaType.ANIME]
         start_watching = selectors.start_watching(profile, media_types)
         # Recently Watched uses its own watch_event_card.html (episode
@@ -223,12 +237,15 @@ def dashboard(request):
                 "stats": stats,
                 "milestone": selectors.milestone_message(stats["streak"], stats["movies_this_year"]),
                 "because_you_watched": because_you_watched,
+                "for_you": for_you,
                 "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")),
                 "featured_lists": selectors.featured_lists(),
                 **_recommendations_context(profile),
                 **selectors.poster_action_context(profile, all_titles),
                 **selectors.discover_action_context(
-                    profile, because_you_watched["results"] if because_you_watched else []
+                    profile,
+                    (because_you_watched["results"] if because_you_watched else [])
+                    + (for_you["results"] if for_you else []),
                 ),
             }
         )
@@ -365,12 +382,27 @@ def discover(request, media_type, category):
         raise Http404
 
     tmdb_media_type = "tv" if is_anime else media_type
+    profile = Profile.objects.filter(user=request.user).first()
 
-    genre_ids = [int(g) for g in request.GET.getlist("genre") if g.isdigit()]
+    # Unlike preferred_language below, a plain request.GET.get(key, default)
+    # can't tell "genre/provider key absent" (first visit, apply the
+    # profile's own preference) apart from "present but every chip
+    # unchecked" (an explicit, deliberate clear) - getlist() returns []
+    # either way. filters_submitted is a hidden marker always present
+    # once the Filters form/Clear-all link has been used once, so it's
+    # the actual signal for "has this profile's own default already been
+    # superseded this visit" instead.
+    filters_submitted = "filters_submitted" in request.GET
+    if filters_submitted:
+        genre_ids = [int(g) for g in request.GET.getlist("genre") if g.isdigit()]
+        provider_ids = [int(p) for p in request.GET.getlist("provider") if p.isdigit()]
+    else:
+        genre_ids = list(profile.preferred_genre_ids) if profile else []
+        provider_ids = list(profile.preferred_provider_ids) if profile else []
     if is_anime:
         genre_ids = list({*genre_ids, tmdb.ANIMATION_GENRE_ID})
+    region = profile.preferred_region if profile else "US"
 
-    profile = Profile.objects.filter(user=request.user).first()
     # request.GET.get's own default only kicks in when the key is missing
     # entirely - an explicit ?language= (including "" for "Any language",
     # deliberately chosen after landing here with a preferred_language
@@ -409,6 +441,8 @@ def discover(request, media_type, category):
         "certification": selected_certification or None,
         "status": selected_status or None,
         "availability": selected_availability or None,
+        "watch_providers": provider_ids or None,
+        "region": region,
     }
     if is_anime:
         filters["origin_country"] = "JP"
@@ -443,6 +477,8 @@ def discover(request, media_type, category):
         "total_pages": min(page["total_pages"], 500),
         "genres": tmdb.genres(tmdb_media_type),
         "selected_genres": set(genre_ids),
+        "providers": tmdb.watch_provider_catalog(tmdb_media_type, region=region),
+        "selected_providers": set(provider_ids),
         "decade_options": tmdb.decades_through_now(),
         "selected_decades": set(decades),
         "runtime_buckets": DISCOVER_RUNTIME_BUCKETS,
@@ -3222,6 +3258,7 @@ def _settings_page_context(request, profile):
         # the `if profile.is_owner:` block below.
         "nuvio_connection": NuvioConnection.objects.filter(profile=profile).first(),
         "languages": DISCOVER_LANGUAGES,
+        "discover_regions": DISCOVER_REGIONS,
         "landing_pages": Profile.LandingPage.choices,
         "trakt_configured": bool(instance_config.get_trakt_credentials()[0]),
         "simkl_configured": bool(instance_config.get_simkl_credentials()[0]),
@@ -3255,6 +3292,28 @@ def settings_view(request):
     if profile is None:
         raise Http404
     return render(request, "tracker/settings.html", {**_settings_page_context(request, profile), "active_tab": "integrations"})
+
+
+@login_required
+def discover_preference_options(request):
+    """Preferences tab's genre/provider chip pickers - lazily loaded
+    (hx-trigger="intersect once" in settings.html) rather than baked into
+    _settings_page_context, which settings_view/my_profile/admin_dashboard
+    all share and render unconditionally on every hit regardless of which
+    tab a viewer actually opens. tmdb.genres()/watch_provider_catalog()
+    are real (if 6h-cached) TMDB calls - paying that cost on every single
+    Settings-family page load, including the vast majority that never
+    touch Preferences, isn't worth it when a one-time per-session fetch
+    on actually opening the tab does the same job."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    context = {
+        "profile": profile,
+        "discover_genres": tmdb.genres("movie"),
+        "discover_providers": tmdb.watch_provider_catalog("movie", region=profile.preferred_region),
+    }
+    return render(request, "tracker/partials/discover_preference_options.html", context)
 
 
 @login_required
@@ -3820,10 +3879,11 @@ def run_maintenance_task(request, task_key):
 @require_POST
 def save_appearance(request):
     """One endpoint for every Appearance control (time format, default
-    landing page, preferred language, Discover watched/watchlisted display)
-    - each field only touches update_fields it actually received, so any
-    single control's htmx submit (they each post independently, on change)
-    leaves the others untouched."""
+    landing page, preferred language, Discover watched/watchlisted display,
+    genre/provider/region preferences) - each field only touches
+    update_fields it actually received, so any single control's htmx
+    submit (they each post independently, on change) leaves the others
+    untouched."""
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
@@ -3841,6 +3901,24 @@ def save_appearance(request):
         if language == "" or language in dict(DISCOVER_LANGUAGES):
             profile.preferred_language = language
             update_fields.append("preferred_language")
+    # A hidden marker inside the genre/provider chip forms, not the
+    # checkboxes' own name - unchecked checkboxes vanish from POST
+    # entirely, so "every chip unchecked" (a legitimate "clear my
+    # preference" submit) would otherwise be indistinguishable from
+    # "this form wasn't the one submitted" (leave untouched).
+    if "preferred_genre_ids_submitted" in request.POST:
+        profile.preferred_genre_ids = [int(g) for g in request.POST.getlist("preferred_genre_ids") if g.isdigit()]
+        update_fields.append("preferred_genre_ids")
+    if "preferred_provider_ids_submitted" in request.POST:
+        profile.preferred_provider_ids = [
+            int(p) for p in request.POST.getlist("preferred_provider_ids") if p.isdigit()
+        ]
+        update_fields.append("preferred_provider_ids")
+    if "preferred_region" in request.POST:
+        region = request.POST.get("preferred_region", "")
+        if region in dict(DISCOVER_REGIONS):
+            profile.preferred_region = region
+            update_fields.append("preferred_region")
     if "timezone" in request.POST:
         tzname = request.POST.get("timezone", "")
         if tzname == "" or tzname in PROFILE_TIMEZONES:

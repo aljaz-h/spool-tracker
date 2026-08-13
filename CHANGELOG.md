@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.100.0] - 2026-08-13
+
+### Added
+
+- Discover preferences: Settings → Preferences gains favorite genres, a
+  streaming-services picker, and a region setting. These pre-fill
+  Movies/TV/Anime's own genre and provider filters, scope the existing
+  Availability filter to a real region instead of a hardcoded "US", and
+  power a new personalized "For You" row on the Dashboard.
+
 ## [0.99.0] - 2026-08-13
 
 ### Added

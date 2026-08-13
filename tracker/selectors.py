@@ -359,6 +359,32 @@ def because_you_watched(profile, candidate_pool=3, limit=12):
     return None
 
 
+def for_you(profile, limit=12):
+    """Dashboard's "For You" row - a discover() call scoped to this
+    profile's own genre/provider/region preferences (Settings →
+    Preferences), distinct from because_you_watched above (TMDB's
+    "similar to X" recommendations) and from every other row on this
+    page (all generic trending/popular). Movie-only for now, matching
+    preferred_genre_ids' own movie-catalog scope (see its model field
+    comment). None when the profile hasn't set a genre or provider
+    preference yet - an unscoped discover() call would just be "popular
+    movies again", which the Dashboard already shows elsewhere."""
+    if not profile.preferred_genre_ids and not profile.preferred_provider_ids:
+        return None
+    from tracker.integrations import tmdb as tmdb_integration
+
+    page = tmdb_integration.discover(
+        "movie",
+        category="popular",
+        genre_ids=profile.preferred_genre_ids,
+        watch_providers=profile.preferred_provider_ids,
+        region=profile.preferred_region,
+        page_size=1,
+    )
+    results = (page.get("results") or [])[:limit]
+    return {"results": results} if results else None
+
+
 def start_watching(profile, media_types, limit=12):
     """Dashboard's "Start watching" row - watchlist titles worth
     surfacing right now: a movie that recently released, a show that

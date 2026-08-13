@@ -1,0 +1,27 @@
+{# context: profile, discover_genres, discover_providers - see views.discover_preference_options #}
+<div id="discover-preference-options">
+  <div class="text-ink-dim text-xs mt-4 mb-2">Favorite genres</div>
+  <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="flex flex-wrap gap-1.5">
+    <input type="hidden" name="preferred_genre_ids_submitted" value="1">
+    {% for g in discover_genres %}
+      <label class="text-xs font-medium bg-base-100 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+        <input type="checkbox" name="preferred_genre_ids" value="{{ g.id }}" class="sr-only" {% if g.id in profile.preferred_genre_ids %}checked{% endif %}>
+        {{ g.name }}
+      </label>
+    {% endfor %}
+  </form>
+  <div class="text-[10.5px] text-ink-faint mt-1.5">Pre-fills the genre filter on Movies, TV, and Anime, and powers the Dashboard's "For You" row.</div>
+
+  <div class="text-ink-dim text-xs mt-4 mb-2">Streaming services</div>
+  <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="flex flex-wrap gap-2">
+    <input type="hidden" name="preferred_provider_ids_submitted" value="1">
+    {% for p in discover_providers %}
+      <label class="flex items-center gap-1.5 text-xs font-medium bg-base-100 text-ink-dim border border-line rounded-full pl-1.5 pr-3 py-1 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+        <input type="checkbox" name="preferred_provider_ids" value="{{ p.id }}" class="sr-only" {% if p.id in profile.preferred_provider_ids %}checked{% endif %}>
+        {% if p.logo_url %}<img src="{{ p.logo_url }}" alt="" class="w-5 h-5 rounded">{% endif %}
+        {{ p.name }}
+      </label>
+    {% endfor %}
+  </form>
+  <div class="text-[10.5px] text-ink-faint mt-1.5">Pre-fills the streaming-service filter on Movies &amp; TV.</div>
+</div>

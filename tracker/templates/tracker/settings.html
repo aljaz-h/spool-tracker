@@ -255,6 +255,31 @@
           </select>
           <div class="text-[10.5px] text-ink-faint mt-1.5">Your own timezone for times shown across the app - useful if you're not in the same timezone as the server.</div>
         </form>
+
+        {% comment %}
+          Lazily loaded - see views.discover_preference_options' own
+          docstring for why this isn't just baked into this page's
+          normal eager context like everything else here.
+        {% endcomment %}
+        <div
+          id="discover-preference-options"
+          hx-get="{% url 'discover_preference_options' %}"
+          hx-trigger="intersect once"
+          hx-swap="outerHTML"
+        >
+          <div class="text-ink-dim text-xs mt-4 mb-2">Favorite genres</div>
+          <div class="text-xs text-ink-faint">Loading…</div>
+        </div>
+
+        <div class="text-ink-dim text-xs mt-4 mb-2">Region</div>
+        <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
+          <select name="preferred_region" aria-label="Region" class="select select-sm w-full bg-base-100 focus:outline-primary">
+            {% for code, name in discover_regions %}
+              <option value="{{ code }}" {% if profile.preferred_region == code %}selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+          </select>
+          <div class="text-[10.5px] text-ink-faint mt-1.5">Which country's streaming availability to use for the services above.</div>
+        </form>
       </div>
 
       {# ==================== NOTIFICATIONS ==================== #}

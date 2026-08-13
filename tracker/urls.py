@@ -126,6 +126,7 @@ urlpatterns = [
     path("profile/<int:profile_id>/stats/heatmap/", views.stats_heatmap, name="member_stats_heatmap"),
     path("activity/", views.activity, name="activity"),
     path("settings/", views.settings_view, name="settings"),
+    path("settings/discover-preference-options/", views.discover_preference_options, name="discover_preference_options"),
     path("admin-dashboard/", views.admin_dashboard, name="admin_dashboard"),
     path("settings/profile/create/", views.create_profile, name="create_profile"),
     path("settings/profile/<int:profile_id>/delete/", views.delete_profile, name="delete_profile"),

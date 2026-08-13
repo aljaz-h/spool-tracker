@@ -3241,6 +3241,56 @@ class SaveAppearanceViewTests(TestCase):
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.preferred_language, "")
 
+    def test_saves_preferred_genre_ids(self):
+        self.client.post(
+            reverse("save_appearance"),
+            {"preferred_genre_ids_submitted": "1", "preferred_genre_ids": ["28", "35"]},
+        )
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.preferred_genre_ids, [28, 35])
+
+    def test_unchecking_every_genre_chip_clears_the_preference(self):
+        self.profile.preferred_genre_ids = [28]
+        self.profile.save(update_fields=["preferred_genre_ids"])
+        # No preferred_genre_ids key at all - every checkbox unchecked - but
+        # the marker is still present, so this is a deliberate clear, not a
+        # "this control's form wasn't submitted" no-op.
+        self.client.post(reverse("save_appearance"), {"preferred_genre_ids_submitted": "1"})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.preferred_genre_ids, [])
+
+    def test_genre_ids_untouched_when_marker_absent(self):
+        self.profile.preferred_genre_ids = [28]
+        self.profile.save(update_fields=["preferred_genre_ids"])
+        self.client.post(reverse("save_appearance"), {"time_format": "24h"})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.preferred_genre_ids, [28])
+
+    def test_saves_preferred_provider_ids(self):
+        self.client.post(
+            reverse("save_appearance"),
+            {"preferred_provider_ids_submitted": "1", "preferred_provider_ids": ["8", "9"]},
+        )
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.preferred_provider_ids, [8, 9])
+
+    def test_unchecking_every_provider_chip_clears_the_preference(self):
+        self.profile.preferred_provider_ids = [8]
+        self.profile.save(update_fields=["preferred_provider_ids"])
+        self.client.post(reverse("save_appearance"), {"preferred_provider_ids_submitted": "1"})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.preferred_provider_ids, [])
+
+    def test_saves_preferred_region(self):
+        self.client.post(reverse("save_appearance"), {"preferred_region": "GB"})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.preferred_region, "GB")
+
+    def test_unrecognized_region_is_ignored(self):
+        self.client.post(reverse("save_appearance"), {"preferred_region": "ZZ"})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.preferred_region, "US")
+
     def test_get_is_rejected(self):
         resp = self.client.get(reverse("save_appearance"))
         self.assertEqual(resp.status_code, 405)
@@ -3261,6 +3311,39 @@ class SaveAppearanceViewTests(TestCase):
         self.client.post(reverse("save_appearance"), {"gemini_api_key": ""})
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.gemini_api_key, "")
+
+
+class DiscoverPreferenceOptionsViewTests(TestCase):
+    """views.discover_preference_options - the Preferences tab's lazily-
+    loaded (hx-trigger="intersect once") genre/provider chip pickers,
+    kept out of _settings_page_context so the ~90 other tests hitting
+    settings/my_profile/admin_dashboard don't need to care about TMDB at
+    all (see that view's own docstring)."""
+
+    def setUp(self):
+        user = User.objects.create_user("prefoptionsuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="PrefOptionsUser")
+        self.client.login(username="prefoptionsuser", password="pass12345")
+
+    @patch("tracker.integrations.tmdb.watch_provider_catalog", return_value=[{"id": 8, "name": "Netflix", "logo_url": None}])
+    @patch("tracker.integrations.tmdb.genres", return_value=[{"id": 28, "name": "Action"}])
+    def test_renders_genre_and_provider_chips(self, mock_genres, mock_providers):
+        resp = self.client.get(reverse("discover_preference_options"))
+        self.assertContains(resp, "Action")
+        self.assertContains(resp, "Netflix")
+
+    @patch("tracker.integrations.tmdb.watch_provider_catalog", return_value=[])
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    def test_provider_catalog_scoped_to_the_profiles_region(self, mock_genres, mock_providers):
+        self.profile.preferred_region = "GB"
+        self.profile.save(update_fields=["preferred_region"])
+        self.client.get(reverse("discover_preference_options"))
+        mock_providers.assert_called_once_with("movie", region="GB")
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.get(reverse("discover_preference_options"))
+        self.assertNotEqual(resp.status_code, 200)
 
 
 class SavePrivacyViewTests(TestCase):
@@ -8413,6 +8496,39 @@ class TmdbDiscoverTests(TestCase):
         self.assertNotIn("watch_region", params)
         self.assertNotIn("with_watch_monetization_types", params)
 
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_availability_uses_the_given_region_instead_of_the_default(self, mock_get):
+        mock_get.return_value = self._response([])
+        tmdb.discover("movie", category="popular", availability="streaming", region="GB")
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(params["watch_region"], "GB")
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_watch_providers_applied_with_region(self, mock_get):
+        mock_get.return_value = self._response([])
+        tmdb.discover("movie", category="popular", watch_providers=[8, 9], region="CA")
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(params["with_watch_providers"], "8|9")
+        self.assertEqual(params["watch_region"], "CA")
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_watch_providers_falls_back_to_default_region_when_none_given(self, mock_get):
+        mock_get.return_value = self._response([])
+        tmdb.discover("movie", category="popular", watch_providers=[8])
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(params["watch_region"], tmdb.AVAILABILITY_WATCH_REGION)
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_no_watch_providers_param_when_unset(self, mock_get):
+        mock_get.return_value = self._response([])
+        tmdb.discover("movie", category="popular")
+        params = mock_get.call_args.kwargs["params"]
+        self.assertNotIn("with_watch_providers", params)
+
     @override_settings(TMDB_API_KEY="")
     def test_returns_empty_without_api_key(self):
         page = tmdb.discover("movie")
@@ -8535,6 +8651,63 @@ class TmdbDecadesThroughNowTests(TestCase):
         decades = tmdb.decades_through_now()
         starts = [start for start, _ in decades]
         self.assertEqual(starts, list(range(1950, starts[-1] + 1, 10)))
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class TmdbWatchProviderCatalogTests(TestCase):
+    """watch_provider_catalog() - the full regional provider list (with
+    logos) that powers Settings' provider chip picker and Discover's own
+    provider filter, distinct from get_watch_providers' per-title
+    availability lookup."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    def _response(self, json_data):
+        resp = Mock()
+        resp.json.return_value = json_data
+        resp.raise_for_status = Mock()
+        return resp
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_normalizes_and_sorts_by_display_priority(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "results": [
+                    {"provider_id": 8, "provider_name": "Netflix", "logo_path": "/n.jpg", "display_priority": 1},
+                    {"provider_id": 9, "provider_name": "Amazon", "logo_path": None, "display_priority": 0},
+                ]
+            }
+        )
+        providers = tmdb.watch_provider_catalog("movie", region="US")
+        self.assertEqual([p["name"] for p in providers], ["Amazon", "Netflix"])  # sorted by display_priority
+        self.assertEqual(providers[0]["id"], 9)
+        self.assertIsNone(providers[0]["logo_url"])
+        self.assertEqual(providers[1]["logo_url"], "https://image.tmdb.org/t/p/w185/n.jpg")
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_passes_watch_region_through(self, mock_get):
+        mock_get.return_value = self._response({"results": []})
+        tmdb.watch_provider_catalog("tv", region="GB")
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(params["watch_region"], "GB")
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_entries_missing_id_or_name_are_skipped(self, mock_get):
+        mock_get.return_value = self._response({"results": [{"provider_name": "No Id"}, {"provider_id": 1}]})
+        self.assertEqual(tmdb.watch_provider_catalog("movie"), [])
+
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_returns_empty_list_on_request_failure(self, mock_get):
+        import requests
+
+        mock_get.side_effect = requests.RequestException("boom")
+        self.assertEqual(tmdb.watch_provider_catalog("movie"), [])
 
 
 class TmdbDiscoverByDecadesTests(TestCase):
@@ -9613,6 +9786,14 @@ class DiscoverViewTests(TestCase):
         user = User.objects.create_user("discoverviewer", password="pass12345")
         Profile.objects.create(user=user, display_name="DiscoverViewer")
         self.client.login(username="discoverviewer", password="pass12345")
+        # Every test in this class hits the discover() view, which now
+        # also fetches the provider catalog - patched once here (not a
+        # per-method @patch, unlike tmdb.genres above) purely to avoid
+        # adding the same decorator/mock param to 40+ existing methods
+        # that don't care about providers at all.
+        provider_patcher = patch("tracker.integrations.tmdb.watch_provider_catalog", return_value=[])
+        provider_patcher.start()
+        self.addCleanup(provider_patcher.stop)
 
     def test_invalid_category_404s(self):
         resp = self.client.get(reverse("movies", args=["bogus"]))
@@ -9663,8 +9844,79 @@ class DiscoverViewTests(TestCase):
     @patch("tracker.integrations.tmdb.discover")
     def test_genre_filter_parsed_from_query_params(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        self.client.get(reverse("movies", args=["popular"]), {"genre": ["28", "16"]})
+        # filters_submitted marks this as a real (if minimal) Apply/Clear
+        # submission - without it, an explicit ?genre= would be
+        # indistinguishable from "first visit, apply the profile's own
+        # preferred_genre_ids default instead" (see views.discover).
+        self.client.get(reverse("movies", args=["popular"]), {"genre": ["28", "16"], "filters_submitted": "1"})
         self.assertEqual(set(mock_discover.call_args.kwargs["genre_ids"]), {28, 16})
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_provider_filter_parsed_from_query_params(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        self.client.get(reverse("movies", args=["popular"]), {"provider": ["8", "9"], "filters_submitted": "1"})
+        self.assertEqual(set(mock_discover.call_args.kwargs["watch_providers"]), {8, 9})
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_fresh_visit_pre_fills_genre_and_provider_from_the_profile(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        profile = Profile.objects.get(display_name="DiscoverViewer")
+        profile.preferred_genre_ids = [28]
+        profile.preferred_provider_ids = [8]
+        profile.save(update_fields=["preferred_genre_ids", "preferred_provider_ids"])
+        # No filters_submitted at all - a bare first visit.
+        self.client.get(reverse("movies", args=["popular"]))
+        self.assertEqual(mock_discover.call_args.kwargs["genre_ids"], [28])
+        self.assertEqual(mock_discover.call_args.kwargs["watch_providers"], [8])
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_explicit_empty_filters_override_the_profiles_own_defaults(self, mock_discover, mock_genres):
+        # "Clear all"'s own shape: filters_submitted present, but no
+        # genre/provider keys at all - the profile's own preference must
+        # NOT silently reapply itself once the form has genuinely been
+        # submitted, even empty.
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        profile = Profile.objects.get(display_name="DiscoverViewer")
+        profile.preferred_genre_ids = [28]
+        profile.preferred_provider_ids = [8]
+        profile.save(update_fields=["preferred_genre_ids", "preferred_provider_ids"])
+        self.client.get(reverse("movies", args=["popular"]), {"filters_submitted": "1"})
+        self.assertEqual(mock_discover.call_args.kwargs["genre_ids"], [])
+        self.assertIsNone(mock_discover.call_args.kwargs["watch_providers"])
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_availability_filter_uses_the_profiles_own_region(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        profile = Profile.objects.get(display_name="DiscoverViewer")
+        profile.preferred_region = "GB"
+        profile.save(update_fields=["preferred_region"])
+        self.client.get(reverse("movies", args=["popular"]))
+        self.assertEqual(mock_discover.call_args.kwargs["region"], "GB")
+
+    @patch("tracker.integrations.tmdb.watch_provider_catalog")
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_provider_chips_render_with_the_selected_one_checked(self, mock_discover, mock_genres, mock_providers):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        mock_providers.return_value = [{"id": 8, "name": "Netflix", "logo_url": None}]
+        resp = self.client.get(
+            reverse("movies", args=["popular"]), {"provider": ["8"], "filters_submitted": "1"}
+        )
+        self.assertContains(resp, "Netflix")
+        self.assertContains(resp, 'name="provider" value="8" class="sr-only" checked')
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_clear_all_link_carries_the_filters_submitted_marker(self, mock_discover, mock_genres):
+        # So clicking it actually clears rather than falling through to
+        # re-applying the profile's own genre/provider defaults.
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies", args=["popular"]))
+        self.assertContains(resp, 'href="?filters_submitted=1"')
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
@@ -10035,7 +10287,7 @@ class DiscoverViewTests(TestCase):
     @patch("tracker.integrations.tmdb.discover")
     def test_an_active_genre_filter_lights_up_the_filters_dot(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
-        resp = self.client.get(reverse("movies", args=["trending"]), {"genre": ["28"]})
+        resp = self.client.get(reverse("movies", args=["trending"]), {"genre": ["28"], "filters_submitted": "1"})
         self.assertContains(resp, 'w-1.5 h-1.5 rounded-full bg-primary')
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
@@ -10327,8 +10579,9 @@ class CollectionsDisabledTests(TestCase):
         self.assertEqual(resp.status_code, 404)
 
     @patch("tracker.integrations.tmdb.discover", return_value={"results": [], "page": 1, "total_pages": 1})
+    @patch("tracker.integrations.tmdb.watch_provider_catalog", return_value=[])
     @patch("tracker.integrations.tmdb.genres", return_value=[])
-    def test_collections_tab_not_shown_on_the_trending_page(self, mock_genres, mock_discover):
+    def test_collections_tab_not_shown_on_the_trending_page(self, mock_genres, mock_providers, mock_discover):
         resp = self.client.get(reverse("movies", args=["trending"]))
         self.assertNotContains(resp, "Collections</a>")
         self.assertNotContains(resp, reverse("movies", args=["collections"]))
@@ -10427,6 +10680,66 @@ class BecauseYouWatchedTests(TestCase):
         mock_get_similar.assert_called_once()
 
 
+class ForYouSelectorTests(TestCase):
+    """selectors.for_you() - Dashboard's discover()-backed personalized
+    row, scoped to Profile.preferred_genre_ids/preferred_provider_ids/
+    preferred_region (Settings > Preferences)."""
+
+    def setUp(self):
+        user = User.objects.create_user("foryou", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ForYou")
+
+    def test_no_preferences_returns_none_without_calling_tmdb(self):
+        with patch("tracker.integrations.tmdb.discover") as mock_discover:
+            result = selectors.for_you(self.profile)
+        self.assertIsNone(result)
+        mock_discover.assert_not_called()
+
+    @patch("tracker.integrations.tmdb.discover")
+    def test_genre_preference_alone_is_enough_to_query(self, mock_discover):
+        self.profile.preferred_genre_ids = [28]
+        self.profile.save(update_fields=["preferred_genre_ids"])
+        mock_discover.return_value = {"results": [{"tmdb_id": 1, "name": "Action Movie"}]}
+        result = selectors.for_you(self.profile)
+        self.assertEqual(result["results"][0]["name"], "Action Movie")
+        mock_discover.assert_called_once_with(
+            "movie", category="popular", genre_ids=[28], watch_providers=[], region="US", page_size=1
+        )
+
+    @patch("tracker.integrations.tmdb.discover")
+    def test_provider_preference_alone_is_enough_to_query(self, mock_discover):
+        self.profile.preferred_provider_ids = [8]
+        self.profile.save(update_fields=["preferred_provider_ids"])
+        mock_discover.return_value = {"results": [{"tmdb_id": 1, "name": "Streamed Movie"}]}
+        result = selectors.for_you(self.profile)
+        self.assertIsNotNone(result)
+        mock_discover.assert_called_once()
+
+    @patch("tracker.integrations.tmdb.discover")
+    def test_uses_the_profiles_own_region(self, mock_discover):
+        self.profile.preferred_genre_ids = [28]
+        self.profile.preferred_region = "GB"
+        self.profile.save(update_fields=["preferred_genre_ids", "preferred_region"])
+        mock_discover.return_value = {"results": []}
+        selectors.for_you(self.profile)
+        self.assertEqual(mock_discover.call_args.kwargs["region"], "GB")
+
+    @patch("tracker.integrations.tmdb.discover")
+    def test_empty_results_returns_none(self, mock_discover):
+        self.profile.preferred_genre_ids = [28]
+        self.profile.save(update_fields=["preferred_genre_ids"])
+        mock_discover.return_value = {"results": []}
+        self.assertIsNone(selectors.for_you(self.profile))
+
+    @patch("tracker.integrations.tmdb.discover")
+    def test_results_capped_to_limit(self, mock_discover):
+        self.profile.preferred_genre_ids = [28]
+        self.profile.save(update_fields=["preferred_genre_ids"])
+        mock_discover.return_value = {"results": [{"tmdb_id": i} for i in range(20)]}
+        result = selectors.for_you(self.profile, limit=5)
+        self.assertEqual(len(result["results"]), 5)
+
+
 class QuickStatsFormatTests(TestCase):
     def test_total_watch_time_uses_the_stats_pages_duration_format(self):
         user = User.objects.create_user("statsformat", password="pass12345")
@@ -10435,6 +10748,30 @@ class QuickStatsFormatTests(TestCase):
         WatchEvent.objects.create(profile=profile, title=title, watched_at="2024-01-01T00:00:00Z")
         stats = selectors.quick_stats(profile)
         self.assertEqual(stats["total_watch_time"], "2h 10m")
+
+
+class DashboardForYouTests(TestCase):
+    """Dashboard's "For You" row - see selectors.for_you()."""
+
+    def setUp(self):
+        user = User.objects.create_user("dashforyou", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="DashForYou")
+        self.client.login(username="dashforyou", password="pass12345")
+
+    def test_no_row_without_any_preference_set(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertNotContains(resp, "For You")
+
+    @patch("tracker.integrations.tmdb.discover")
+    def test_row_shown_once_a_genre_preference_is_set(self, mock_discover):
+        self.profile.preferred_genre_ids = [28]
+        self.profile.save(update_fields=["preferred_genre_ids"])
+        mock_discover.return_value = {
+            "results": [{"tmdb_id": 42, "media_type": "movie", "name": "Preferred Movie", "year": "2020", "poster_url": None, "vote_average": 7.0}]
+        }
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "For You")
+        self.assertContains(resp, "Preferred Movie")
 
 
 class DashboardWatchingWatchlistTests(TestCase):

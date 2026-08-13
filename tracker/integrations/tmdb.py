@@ -237,9 +237,11 @@ TV_STATUSES = {
 }
 
 # TMDB's with_watch_monetization_types values, grouped into the two choices
-# that are actually meaningful to offer here. Region is hardcoded to "US",
-# same tradeoff as certification_country above - TMDB requires a watch_region
-# alongside this filter and Spool has no per-profile region setting yet.
+# that are actually meaningful to offer here. AVAILABILITY_WATCH_REGION is
+# only the *fallback* now - discover()'s own region param (Profile.
+# preferred_region) takes priority whenever a profile is available; this
+# constant just covers the no-profile/no-preference case, same as
+# certification_country's own hardcoded "US" above.
 # "streaming" = watchable right now without paying per-title (subscription/
 # free/ad-supported); "digital" widens that to anything with a digital
 # release at all, rent/buy included. Verified live against the real API
@@ -487,11 +489,16 @@ def genres(media_type):
 def discover(media_type, category="popular", page=1, genre_ids=None, year_from=None, year_to=None,
              runtime_from=None, runtime_to=None, rating_from=None, rating_to=None,
              original_language=None, origin_country=None, with_companies=None, certification=None,
-             status=None, availability=None, page_size=RESULTS_PAGE_SIZE):
+             status=None, availability=None, watch_providers=None, region=None, page_size=RESULTS_PAGE_SIZE):
     """Returns {"results": [...normalized, up to page_size*20...], "page": int,
     "total_pages": int}. category picks a sort/date preset (see module docstring);
     every other param is an optional filter layered on top of that preset, all of
     them straight from TMDB's own documented /discover parameter set.
+
+    watch_providers (a list of TMDB provider ids) requires watch_region
+    alongside it, same as availability below - region falls back to
+    AVAILABILITY_WATCH_REGION when not given, so an old call site that
+    never passes a profile's region still behaves exactly as before.
 
     page_size overrides RESULTS_PAGE_SIZE per call - views.discover raises it
     when the Display filter is hiding watched/watchlisted titles, since a
@@ -561,8 +568,11 @@ def discover(media_type, category="popular", page=1, genre_ids=None, year_from=N
         # no-op for movies, same shape as the certification no-op above.
         params["with_status"] = TV_STATUSES[status]
     if availability:
-        params["watch_region"] = AVAILABILITY_WATCH_REGION
+        params["watch_region"] = region or AVAILABILITY_WATCH_REGION
         params["with_watch_monetization_types"] = AVAILABILITY_CHOICES[availability]
+    if watch_providers:
+        params["with_watch_providers"] = "|".join(str(p) for p in watch_providers)
+        params["watch_region"] = region or AVAILABILITY_WATCH_REGION
 
     # page_size real TMDB pages get merged into one logical Spool page (see
     # RESULTS_PAGE_SIZE) - fetched as one sequential call (page 1) followed
@@ -1022,6 +1032,27 @@ def get_watch_providers(media_type, tmdb_id, region="US"):
             logo_path = p.get("logo_path")
             providers.append({"name": name, "logo_url": f"{PROFILE_BASE}{logo_path}" if logo_path else None})
     return providers[:6]
+
+
+def watch_provider_catalog(media_type, region="US"):
+    """[{"id", "name", "logo_url"}, ...] every streaming provider TMDB
+    knows about for a region, sorted by TMDB's own display_priority (most
+    prominent/popular first) - Settings' provider-preference chip picker
+    and Discover's own provider filter. Unlike get_watch_providers above
+    (per-title availability), this is the full regional catalog, used to
+    populate a *filter* rather than to show what's available on one
+    title - same "thin wrapper over _list_request" shape as genres()."""
+    data = _list_request(f"watch/providers/{media_type}", {"watch_region": region})
+    results = sorted(data.get("results") or [], key=lambda p: p.get("display_priority", 999))
+    providers = []
+    for p in results:
+        provider_id = p.get("provider_id")
+        name = p.get("provider_name")
+        if not provider_id or not name:
+            continue
+        logo_path = p.get("logo_path")
+        providers.append({"id": provider_id, "name": name, "logo_url": f"{PROFILE_BASE}{logo_path}" if logo_path else None})
+    return providers
 
 
 # --- Person detail page (tracker/views.person_detail) -------------------

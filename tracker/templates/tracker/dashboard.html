@@ -176,6 +176,19 @@
     </div>
   {% endif %}
 
+  {# ---- For You: a discover() call scoped to this profile's genre/provider/region preferences (Settings > Preferences) - see selectors.for_you(). ---- #}
+  {% if for_you %}
+    <div class="dashboard-rule my-9"></div>
+    <div class="flex justify-between items-center mb-3.5">
+      <h2 class="font-display text-xl">For You</h2>
+    </div>
+    <div class="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
+      {% for item in for_you.results %}
+        {% include "tracker/partials/discover_tile.html" with item=item %}
+      {% endfor %}
+    </div>
+  {% endif %}
+
   {% if because_you_watched %}
     <div class="dashboard-rule my-9"></div>
 

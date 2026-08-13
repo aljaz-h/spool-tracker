@@ -90,6 +90,26 @@ class Profile(models.Model):
     # field existed, and still the common case for a single-household,
     # single-timezone instance.
     timezone = models.CharField(max_length=50, blank=True, default="")
+    # Settings → Preferences - pre-fills Movies & TV/Anime's own genre
+    # filter (with_genres) on a fresh visit. Populated from a chip picker
+    # sourced from tmdb.genres("movie") - the movie catalog is reused for
+    # TV/Anime too rather than fetching a second one; TMDB's movie/TV
+    # genre id spaces mostly overlap (Action=28, Comedy=35, Drama=18, ...
+    # are identical across both), so an id that doesn't exist in a given
+    # type's own catalog (a couple of mismatches, e.g. Sci-Fi/War) just
+    # won't pre-select a chip there - a harmless miss, not an error.
+    preferred_genre_ids = models.JSONField(default=list, blank=True)
+    # Settings → Preferences - pre-fills Movies & TV/Anime's own streaming-
+    # provider filter (with_watch_providers). Populated from a chip picker
+    # sourced from tmdb.watch_provider_catalog(), scoped to preferred_region
+    # below (TMDB's provider catalog and availability are both region-keyed).
+    preferred_provider_ids = models.JSONField(default=list, blank=True)
+    # Settings → Preferences - which TMDB watch_region powers both the
+    # provider catalog above and the existing Availability filter (see
+    # tmdb.discover's watch_region param) - previously hardcoded to "US"
+    # (tmdb.AVAILABILITY_WATCH_REGION) since there was no per-profile
+    # setting to use instead.
+    preferred_region = models.CharField(max_length=2, default="US")
 
     class DiscoverDisplay(models.TextChoices):
         SHOW = "show", "Show"

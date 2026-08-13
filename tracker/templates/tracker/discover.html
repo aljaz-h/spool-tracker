@@ -65,7 +65,7 @@
         <button type="button" @click="togglePanel($el)" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
           {% icon "filter" "w-3.5 h-3.5" %}
           Filters
-          {% if selected_genres or selected_decades or selected_runtime_bucket or request.GET.rating_from or request.GET.rating_to or selected_language or selected_certification or selected_status or selected_availability %}
+          {% if selected_genres or selected_providers or selected_decades or selected_runtime_bucket or request.GET.rating_from or request.GET.rating_to or selected_language or selected_certification or selected_status or selected_availability %}
             <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
           {% endif %}
         </button>
@@ -88,6 +88,16 @@
               ratingTo: {{ request.GET.rating_to|default:10 }},
             }"
           >
+            {% comment %}
+              Always-present marker, not tied to any one filter - lets the
+              view (views.discover) tell "genre/provider key absent because
+              this profile's own preference default should still apply" apart
+              from "present but every chip explicitly unchecked" (getlist()
+              returns [] either way otherwise). "Clear all" below carries this
+              too, so clearing actually clears rather than falling back to
+              the profile's own genre/provider defaults.
+            {% endcomment %}
+            <input type="hidden" name="filters_submitted" value="1">
             <div>
               <div class="text-[13px] font-bold text-base-content uppercase tracking-wide mb-1">Discover</div>
               <div class="flex flex-col divide-y divide-line">
@@ -196,9 +206,10 @@
                     <div>
                       {% comment %}
                         Both media types - TMDB's watch-provider data (see
-                        tmdb.AVAILABILITY_CHOICES). Region is fixed to US (see
-                        tmdb.AVAILABILITY_WATCH_REGION) - no per-profile region
-                        setting exists yet.
+                        tmdb.AVAILABILITY_CHOICES). Region comes from the
+                        profile's own Settings → Preferences setting
+                        (falls back to tmdb.AVAILABILITY_WATCH_REGION with
+                        no profile) instead of a hardcoded one now.
                       {% endcomment %}
                       <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Availability</div>
                       <select name="availability" aria-label="Availability" class="select select-sm w-full bg-base-100 focus:outline-primary">
@@ -208,6 +219,21 @@
                         {% endfor %}
                       </select>
                     </div>
+
+                    {% if providers %}
+                      <div>
+                        <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Streaming services</div>
+                        <div class="flex flex-wrap gap-1.5">
+                          {% for p in providers %}
+                            <label class="flex items-center gap-1.5 text-xs font-medium bg-base-100 text-ink-dim border border-line rounded-full pl-1.5 pr-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                              <input type="checkbox" name="provider" value="{{ p.id }}" class="sr-only" {% if p.id in selected_providers %}checked{% endif %}>
+                              {% if p.logo_url %}<img src="{{ p.logo_url }}" alt="" class="w-4.5 h-4.5 rounded">{% endif %}
+                              {{ p.name }}
+                            </label>
+                          {% endfor %}
+                        </div>
+                      </div>
+                    {% endif %}
 
                     {% if media_type == "movie" %}
                       {% comment %}
@@ -304,7 +330,7 @@
 
           <div class="sticky bottom-0 px-5 pb-5 pt-4 bg-base-200 border-t border-line flex items-center gap-3">
             <button type="submit" form="discover-filters-form" class="btn btn-sm btn-primary flex-1">Apply filters</button>
-            <a href="?" class="btn btn-sm btn-ghost">Clear all</a>
+            <a href="?filters_submitted=1" class="btn btn-sm btn-ghost">Clear all</a>
           </div>
         </div>
       </div>
