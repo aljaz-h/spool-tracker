@@ -18070,3 +18070,55 @@ class SettingsTooltipAndSpinnerTests(TestCase):
         resp = self.client.get(reverse("title_detail", args=[title.pk]))
         self.assertContains(resp, 'data-tooltip="Rate 10/10"')
         self.assertNotContains(resp, 'title="Rate 10/10"')
+
+
+class MobileLayoutFixesTests(TestCase):
+    """Four mobile-viewport bugs reported directly against the running
+    app (not caught by any existing test, since none of them are visible
+    in a desktop-width render): Danger Zone buttons wrapping their own
+    label text instead of the row; the Calendar grid's day-of-week header
+    fighting the day cells for width; the bottom sheet's drag gesture
+    dragging the page behind it along too; and the mobile search bar
+    needing two taps before the keyboard appears. All four are markup/CSS/
+    inline-JS fixes with no view-layer change, so these tests check the
+    rendered HTML for the specific fix rather than any new context data."""
+
+    def setUp(self):
+        user = User.objects.create_user("mobilefixuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="MobileFixUser")
+        self.client.login(username="mobilefixuser", password="pass12345")
+
+    def test_danger_zone_buttons_no_longer_shrink_to_wrap_their_own_label(self):
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, "Clear history")
+        # The row wraps and the button holds its own natural width instead -
+        # the fix is flex-none+whitespace-nowrap on the button paired with
+        # flex-wrap on the row, not a change to the label text itself.
+        self.assertContains(resp, "flex-none whitespace-nowrap")
+        self.assertContains(
+            resp, 'class="flex flex-wrap justify-between items-center gap-2 py-3.5 border-b border-error/20"'
+        )
+
+    def test_calendar_day_headers_have_a_mobile_single_letter_form(self):
+        resp = self.client.get(reverse("calendar"))
+        self.assertContains(resp, '<span class="sm:hidden">M</span>')
+        self.assertContains(resp, '<span class="hidden sm:inline tracking-wide">Mon</span>')
+
+    def test_mobile_overlays_lock_background_scroll(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            resp,
+            "x-effect=\"document.body.classList.toggle('overflow-hidden', sidebarOpen || mobileSearchOpen || bottomSheetOpen)\"",
+        )
+
+    def test_bottom_sheet_drag_no_longer_scrolls_the_page_behind_it(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "@touchmove.prevent=")
+
+    def test_mobile_search_focuses_via_double_raf_not_nexttick(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            resp,
+            "mobileSearchOpen = true; requestAnimationFrame(() => requestAnimationFrame(() => $refs.mobileSearchInput.focus()))",
+        )
+        self.assertNotContains(resp, "$nextTick(() => $refs.mobileSearchInput.focus())")

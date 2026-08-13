@@ -105,7 +105,21 @@
   </script>
 </head>
 <body class="bg-base-100 text-base-content min-h-screen" data-animations="{% if active_profile.animations_enabled %}on{% else %}off{% endif %}">
-  <div x-data="{ sidebarOpen: false, mobileSearchOpen: false, bottomSheetOpen: false }">
+  {% comment %}
+    x-effect below locks background scroll for as long as any of these
+    three full-screen-on-mobile overlays is open, toggling Tailwind's own
+    overflow-hidden on <body> (not $el - this div isn't the scrolling
+    element, <body> is). Without it, a background page long enough to
+    scroll stays scrollable underneath the sidebar drawer/search bar/
+    bottom sheet, which for the bottom sheet specifically was visibly
+    wrong: dragging it down (bottom_sheet.html's own touchmove handler)
+    also dragged the page behind it, since nothing told the browser this
+    gesture wasn't an ordinary scroll.
+  {% endcomment %}
+  <div
+    x-data="{ sidebarOpen: false, mobileSearchOpen: false, bottomSheetOpen: false }"
+    x-effect="document.body.classList.toggle('overflow-hidden', sidebarOpen || mobileSearchOpen || bottomSheetOpen)"
+  >
     {% include "tracker/partials/sidebar.html" %}
     <div class="min-h-screen flex flex-col">
       {% include "tracker/partials/topbar.html" %}

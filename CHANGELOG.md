@@ -8,6 +8,27 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.102.1] - 2026-08-13
+
+### Fixed
+
+- Four mobile-viewport bugs: Settings' Danger Zone buttons no longer
+  shrink below their own label's width and wrap mid-word - the row wraps
+  instead, dropping the button to its own line on narrow screens; the
+  Calendar's day-of-week header now abbreviates to a single letter below
+  `sm:`, freeing up room the 3-letter labels were fighting the day cells
+  for; the bottom nav's "More" sheet no longer drags the page behind it
+  along with the drag gesture (`@touchmove.prevent` on the sheet, plus a
+  new `x-effect` in `base.html` that locks background scroll for as long
+  as the sidebar drawer, mobile search bar, or bottom sheet is open);
+  and the mobile bottom nav's Search button now raises the keyboard on
+  the first tap instead of the second - it was calling `.focus()` via
+  `$nextTick`, which resolves before `x-transition`'s own two-frame-
+  deferred display flip actually makes the input focusable, so the call
+  silently no-opped on the first tap. Swapped for a double
+  `requestAnimationFrame`, which lands after that and still counts as
+  part of the original tap for iOS Safari's keyboard-popup rule.
+
 ## [0.102.0] - 2026-08-13
 
 ### Added

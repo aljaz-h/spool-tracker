@@ -15,23 +15,30 @@
   {% include "tracker/partials/calendar_month_switcher.html" with oob=True %}
 {% endif %}
 
-<div class="grid grid-cols-7 gap-1.5 mb-1.5">
-  <span class="font-mono text-[10.5px] text-ink-faint text-center uppercase tracking-wide">Mon</span>
-  <span class="font-mono text-[10.5px] text-ink-faint text-center uppercase tracking-wide">Tue</span>
-  <span class="font-mono text-[10.5px] text-ink-faint text-center uppercase tracking-wide">Wed</span>
-  <span class="font-mono text-[10.5px] text-ink-faint text-center uppercase tracking-wide">Thu</span>
-  <span class="font-mono text-[10.5px] text-ink-faint text-center uppercase tracking-wide">Fri</span>
-  <span class="font-mono text-[10.5px] text-ink-faint text-center uppercase tracking-wide">Sat</span>
-  <span class="font-mono text-[10.5px] text-ink-faint text-center uppercase tracking-wide">Sun</span>
+<div class="grid grid-cols-7 gap-1 sm:gap-1.5 mb-1.5">
+  {% comment %}
+    Single-letter on mobile - "MON"/"TUE"/... at 7 columns and ~4px of
+    gap leaves each header label fighting the cell below it for width on
+    a ~370-400px phone; tracking-wide (letter-spacing) on the 3-letter
+    version made it worse, not better. Full 3-letter abbreviation comes
+    back from sm: up, where there's room for it.
+  {% endcomment %}
+  <span class="font-mono text-[10.5px] text-ink-faint text-center uppercase"><span class="sm:hidden">M</span><span class="hidden sm:inline tracking-wide">Mon</span></span>
+  <span class="font-mono text-[10.5px] text-ink-faint text-center uppercase"><span class="sm:hidden">T</span><span class="hidden sm:inline tracking-wide">Tue</span></span>
+  <span class="font-mono text-[10.5px] text-ink-faint text-center uppercase"><span class="sm:hidden">W</span><span class="hidden sm:inline tracking-wide">Wed</span></span>
+  <span class="font-mono text-[10.5px] text-ink-faint text-center uppercase"><span class="sm:hidden">T</span><span class="hidden sm:inline tracking-wide">Thu</span></span>
+  <span class="font-mono text-[10.5px] text-ink-faint text-center uppercase"><span class="sm:hidden">F</span><span class="hidden sm:inline tracking-wide">Fri</span></span>
+  <span class="font-mono text-[10.5px] text-ink-faint text-center uppercase"><span class="sm:hidden">S</span><span class="hidden sm:inline tracking-wide">Sat</span></span>
+  <span class="font-mono text-[10.5px] text-ink-faint text-center uppercase"><span class="sm:hidden">S</span><span class="hidden sm:inline tracking-wide">Sun</span></span>
 </div>
 
-<div class="grid grid-cols-7 gap-1.5">
+<div class="grid grid-cols-7 gap-1 sm:gap-1.5">
   {% for week in grid %}
     {% for day in week %}
       <a
         {% if day.items %}href="#agenda-{{ day.date|date:'Y-m-d' }}"{% endif %}
         @click="selected = '{{ day.date|date:'Y-m-d' }}'"
-        class="bg-base-200 border rounded-md p-1 sm:p-1.5 flex flex-col min-h-[44px] sm:min-h-[100px] {% if not day.in_month %}opacity-35{% endif %}"
+        class="bg-base-200 border rounded-md p-1 sm:p-1.5 flex flex-col items-center sm:items-stretch min-h-[44px] sm:min-h-[100px] {% if not day.in_month %}opacity-35{% endif %}"
         :class="selected === '{{ day.date|date:'Y-m-d' }}' ? 'border-violet' : 'border-line hover:border-ink-faint'"
       >
         <span class="font-mono text-[10px] sm:text-[11.5px] {% if day.is_today %}inline-flex items-center justify-center w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-violet text-white font-bold{% else %}text-ink-dim{% endif %}">{{ day.date.day }}</span>

@@ -453,57 +453,68 @@
         <h3 class="text-lg text-error mb-1">Danger Zone</h3>
         <div class="text-ink-dim text-xs mb-3.5">These actions are permanent and can't be undone.</div>
 
-        <div class="flex justify-between items-center py-3.5 border-b border-error/20">
+        {% comment %}
+          flex-wrap + flex-none/whitespace-nowrap on the button (not on
+          the row's default no-wrap flex): on a narrow phone there isn't
+          room for the description text AND the button on one line, and
+          without flex-none the button was the one giving way - shrinking
+          below its own label's natural width and wrapping "Clear
+          history"/"Disconnect & wipe" onto two cramped lines inside the
+          pill instead. Wrapping the row lets the button drop to its own
+          full-width line below the description instead, at its normal
+          (readable) size.
+        {% endcomment %}
+        <div class="flex flex-wrap justify-between items-center gap-2 py-3.5 border-b border-error/20">
           <div>
             <div class="font-semibold text-[13.5px]">Clear watch history</div>
             <div class="text-xs text-ink-dim">Deletes every watch event and rating. Your lists and watchlist are untouched.</div>
           </div>
           <form method="post" action="{% url 'clear_watch_history' %}" onsubmit="return confirm('Clear your entire watch history? This deletes every watch event and rating - permanently. Your lists and watchlist stay as they are.');">
             {% csrf_token %}
-            <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content">Clear history</button>
+            <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content flex-none whitespace-nowrap">Clear history</button>
           </form>
         </div>
 
         {% if "trakt" in connected_providers %}
-          <div class="flex justify-between items-center py-3.5 border-b border-error/20">
+          <div class="flex flex-wrap justify-between items-center gap-2 py-3.5 border-b border-error/20">
             <div>
               <div class="font-semibold text-[13.5px]">Disconnect &amp; wipe Trakt</div>
               <div class="text-xs text-ink-dim">Disconnects Trakt and removes watch history for titles matched via Trakt.</div>
             </div>
             <form method="post" action="{% url 'disconnect_and_wipe_provider' 'trakt' %}" onsubmit="return confirm('Disconnect Trakt and remove watch history for titles matched via Trakt? This is permanent.');">
               {% csrf_token %}
-              <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content">Disconnect &amp; wipe</button>
+              <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content flex-none whitespace-nowrap">Disconnect &amp; wipe</button>
             </form>
           </div>
         {% endif %}
 
         {% if "simkl" in connected_providers %}
-          <div class="flex justify-between items-center py-3.5 border-b border-error/20">
+          <div class="flex flex-wrap justify-between items-center gap-2 py-3.5 border-b border-error/20">
             <div>
               <div class="font-semibold text-[13.5px]">Disconnect &amp; wipe Simkl</div>
               <div class="text-xs text-ink-dim">Disconnects Simkl and removes watch history for titles matched via Simkl.</div>
             </div>
             <form method="post" action="{% url 'disconnect_and_wipe_provider' 'simkl' %}" onsubmit="return confirm('Disconnect Simkl and remove watch history for titles matched via Simkl? This is permanent.');">
               {% csrf_token %}
-              <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content">Disconnect &amp; wipe</button>
+              <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content flex-none whitespace-nowrap">Disconnect &amp; wipe</button>
             </form>
           </div>
         {% endif %}
 
         {% if nuvio_connection %}
-          <div class="flex justify-between items-center py-3.5 border-b border-error/20">
+          <div class="flex flex-wrap justify-between items-center gap-2 py-3.5 border-b border-error/20">
             <div>
               <div class="font-semibold text-[13.5px]">Disconnect &amp; wipe Nuvio</div>
               <div class="text-xs text-ink-dim">Disconnects Nuvio and removes watch history for titles matched via Nuvio.</div>
             </div>
             <form method="post" action="{% url 'disconnect_and_wipe_provider' 'nuvio' %}" onsubmit="return confirm('Disconnect Nuvio and remove watch history for titles matched via Nuvio? This is permanent.');">
               {% csrf_token %}
-              <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content">Disconnect &amp; wipe</button>
+              <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content flex-none whitespace-nowrap">Disconnect &amp; wipe</button>
             </form>
           </div>
         {% endif %}
 
-        <div class="flex justify-between items-center py-3.5">
+        <div class="flex flex-wrap justify-between items-center gap-2 py-3.5">
           <div>
             <div class="font-semibold text-[13.5px]">Delete my account</div>
             <div class="text-xs text-ink-dim">Permanently deletes your profile, watch history, lists, and login.</div>
@@ -514,10 +525,10 @@
           {% if can_delete_own_account %}
             <form method="post" action="{% url 'delete_own_account' %}" onsubmit="return confirm('Permanently delete your account? This deletes your entire watch history, lists, and login - this cannot be undone.');">
               {% csrf_token %}
-              <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content">Delete my account</button>
+              <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content flex-none whitespace-nowrap">Delete my account</button>
             </form>
           {% else %}
-            <button type="button" disabled class="btn btn-sm btn-outline border-error/30 text-error/40 cursor-not-allowed">Delete my account</button>
+            <button type="button" disabled class="btn btn-sm btn-outline border-error/30 text-error/40 cursor-not-allowed flex-none whitespace-nowrap">Delete my account</button>
           {% endif %}
         </div>
       </div>

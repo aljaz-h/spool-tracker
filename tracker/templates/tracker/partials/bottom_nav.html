@@ -27,10 +27,15 @@
     More below, and for the same reason: this doesn't navigate anywhere,
     it toggles state on the shared root x-data (base.html). Stats moved
     into the More sheet (bottom_sheet.html) to make room for this.
+
+    Double requestAnimationFrame, not $nextTick - see topbar.html's own
+    comment next to the search panel's x-transition for why $nextTick
+    resolves before the panel actually becomes focusable, which used to
+    make this take two taps to raise the keyboard.
   {% endcomment %}
   <button
     type="button"
-    @click="mobileSearchOpen = true; $nextTick(() => $refs.mobileSearchInput.focus())"
+    @click="mobileSearchOpen = true; requestAnimationFrame(() => requestAnimationFrame(() => $refs.mobileSearchInput.focus()))"
     :aria-expanded="mobileSearchOpen.toString()"
     aria-haspopup="true"
     aria-label="Search"

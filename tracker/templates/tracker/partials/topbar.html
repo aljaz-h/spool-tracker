@@ -46,7 +46,7 @@
     {% endcomment %}
     <button
       type="button"
-      @click="mobileSearchOpen = true; $nextTick(() => $refs.mobileSearchInput.focus())"
+      @click="mobileSearchOpen = true; requestAnimationFrame(() => requestAnimationFrame(() => $refs.mobileSearchInput.focus()))"
       aria-label="Search"
       class="w-9 h-9 flex-none rounded-lg border border-line bg-base-200 flex items-center justify-center text-ink-dim hover:text-base-content hover:border-primary max-md:hidden xl:hidden"
     >
@@ -258,6 +258,20 @@
     root x-data in base.html (sibling of sidebarOpen), not scoped here,
     so the trigger button up in the left block and this panel can share
     it without a wrapping x-data of their own.
+
+    Both triggers focus the input via a double requestAnimationFrame,
+    not $nextTick - x-transition (below) defers this panel's actual
+    display flip by two animation frames of its own (so the enter
+    transition classes are in place before it becomes visible), and
+    $nextTick's microtask resolves before that, focusing the input
+    while it's still display:none (a silent no-op - no error, just no
+    keyboard). That's what made this take two taps: the first tap's
+    focus() call landed on a still-hidden input and did nothing, the
+    second tap focused an already-visible one. Chaining two rAFs lands
+    just after the transition's own two rAFs land, and - critically,
+    since nothing here is a real async wait like setTimeout - still
+    counts as part of the original tap for iOS Safari's "must be a
+    direct result of user interaction" rule for popping the keyboard.
   {% endcomment %}
   <div
     x-show="mobileSearchOpen"
