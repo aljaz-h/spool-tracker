@@ -300,6 +300,30 @@
   body[data-animations="on"] .spool-snap-back {
     transition: transform 200ms ease-out;
   }
+
+  /* Toast stack (partials/toasts.html) - only the leave transition is
+     gated; toasts still appear instantly either way; only the moment
+     they're dismissed (button click or the 5s auto-dismiss timer) picks
+     up a fade+lift instead of vanishing outright. */
+  body[data-animations="on"] .spool-toast {
+    transition: opacity 200ms ease-out, transform 200ms ease-out;
+  }
+  body[data-animations="on"] .spool-toast-leaving {
+    transform: translateY(-4px);
+  }
+
+  /* Themed tooltip (.spool-tooltip below) - same visibility-delayed-on-
+     the-way-out trick as .spool-popover above, for the same reason: the
+     tooltip must stop being hit-test-able immediately (pointer-events is
+     already none) but stay visible long enough to fade rather than pop. */
+  body[data-animations="on"] .spool-tooltip::after {
+    transition: opacity 150ms ease, visibility 0s linear 150ms;
+  }
+  body[data-animations="on"] .spool-tooltip:hover::after,
+  body[data-animations="on"] .spool-tooltip:focus-visible::after,
+  body[data-animations="on"] .spool-tooltip:focus-within::after {
+    transition: opacity 150ms ease, visibility 0s linear 0s;
+  }
 }
 
 .spool-popover {
@@ -311,4 +335,94 @@
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
+}
+
+/* Toast stack (base.html, populated from Django's messages framework via
+   partials/toasts.html) - leaving class added just long enough to fade
+   out before its own setTimeout removes the element from the DOM. */
+.spool-toast-leaving {
+  opacity: 0;
+}
+
+/* Date inputs (settings.html's Activity Log range filter) - the closed
+   box already gets themed via the shared `input` daisyUI class like every
+   other text input; color-scheme:dark on [data-theme="spool"] (declared
+   by the daisyUI theme block above) already makes the native popup
+   calendar and the picker glyph itself render dark-mode, so only the
+   glyph's idle-vs-hover contrast needed a nudge to match the rest of the
+   app's faint-until-hovered icon treatment. */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 0.6;
+  cursor: pointer;
+}
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+/* Themed tooltip (partials use class="spool-tooltip" data-tooltip="...")
+   - CSS-only, pure attr()-driven content so no JS is needed to keep it in
+   sync with the label; shown on hover AND on focus (focus-visible for the
+   trigger itself, focus-within to also cover the rare case where the
+   trigger is a wrapping element around the real focusable control) so
+   keyboard users get the same hint sighted mouse users do. Reserved only
+   for the "purely visual hint" subset flagged in the design-consistency
+   audit - accessibility-critical labels stay as native title/aria-label,
+   not this. */
+.spool-tooltip {
+  position: relative;
+}
+.spool-tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-base-300);
+  color: var(--color-base-content);
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: normal;
+  width: max-content;
+  max-width: 220px;
+  text-align: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 70;
+}
+.spool-tooltip:hover::after,
+.spool-tooltip:focus-visible::after,
+.spool-tooltip:focus-within::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Loading indicator - one shared spinner, shown via htmx's own
+   .htmx-request toggle (added to the element carrying hx-indicator, or to
+   whatever hx-indicator points at) rather than a per-element JS listener.
+   Sized via font-size so a single `.spool-spinner` class reads correctly
+   whether it's dropped into a small icon button or a full-width form
+   footer. */
+.spool-spinner {
+  display: none;
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  opacity: 0.7;
+  animation: spool-spin 0.6s linear infinite;
+}
+.htmx-request.spool-spinner,
+.htmx-request .spool-spinner {
+  display: inline-block;
+}
+@keyframes spool-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

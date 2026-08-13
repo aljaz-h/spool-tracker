@@ -2,11 +2,6 @@
 {% block title %}Choose a Nuvio profile · Spool{% endblock %}
 {% block content %}
 
-  {% if messages %}
-    {% for message in messages %}
-      <div class="{% if message.tags == 'error' %}bg-error/15 text-error{% else %}bg-info/15 text-info{% endif %} text-sm rounded-lg px-4 py-2.5 mb-4">{{ message }}</div>
-    {% endfor %}
-  {% endif %}
 
   <div class="mb-6">
     <h1 class="font-display text-4xl">Choose a Nuvio profile</h1>

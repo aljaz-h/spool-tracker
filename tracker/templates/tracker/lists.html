@@ -4,11 +4,6 @@
 {% block content %}
 <div x-data="{ showCreate: false }">
 
-  {% if messages %}
-    {% for message in messages %}
-      <div class="bg-error/15 text-error text-sm rounded-lg px-4 py-2.5 mb-4">{{ message }}</div>
-    {% endfor %}
-  {% endif %}
 
   <div class="mb-6">
     <h1 class="font-display text-4xl">Lists</h1>

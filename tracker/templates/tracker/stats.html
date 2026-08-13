@@ -134,9 +134,10 @@
         <div class="flex w-full h-10 rounded-lg overflow-hidden gap-0.5">
           {% for g in genre_breakdown %}
             <div
-              class="h-full flex items-center justify-center text-[11px] font-bold text-white min-w-0"
+              tabindex="0" aria-label="{{ g.name }} · {{ g.display }}"
+              class="h-full flex items-center justify-center text-[11px] font-bold text-white min-w-0 spool-tooltip"
               style="flex-grow:{{ g.pct }};flex-basis:0;background:{{ forloop.counter0|color_at_index }}"
-              title="{{ g.name }} · {{ g.display }}"
+              data-tooltip="{{ g.name }} · {{ g.display }}"
             >{% if g.pct >= 6 %}{{ g.pct }}%{% endif %}</div>
           {% endfor %}
         </div>
@@ -164,7 +165,6 @@
         {% for a in achievements %}
           <div
             class="flex flex-col items-center text-center gap-2 rounded-xl p-4 border {% if a.earned %}bg-primary/10 border-primary/30{% else %}bg-base-300/30 border-line opacity-50{% endif %}"
-            title="{{ a.description }}"
           >
             <div class="w-10 h-10 rounded-full flex items-center justify-center {% if a.earned %}bg-primary/20 text-primary{% else %}bg-base-300 text-ink-faint{% endif %}">
               {% icon "crown" "w-5 h-5" %}
@@ -302,9 +302,10 @@
               {% if daily_breakdown.peak_minutes and d.minutes == daily_breakdown.peak_minutes %}{{ d.duration }}{% endif %}
             </div>
             <div
-              class="w-full max-w-[24px] rounded-t-md {% if daily_breakdown.peak_minutes and d.minutes == daily_breakdown.peak_minutes %}bg-primary{% else %}bg-primary/35{% endif %}"
+              tabindex="0" aria-label="{{ d.label }} · {{ d.duration }}"
+              class="w-full max-w-[24px] rounded-t-md spool-tooltip {% if daily_breakdown.peak_minutes and d.minutes == daily_breakdown.peak_minutes %}bg-primary{% else %}bg-primary/35{% endif %}"
               style="height:{{ d.height_pct }}%"
-              title="{{ d.label }} · {{ d.duration }}"
+              data-tooltip="{{ d.label }} · {{ d.duration }}"
             ></div>
             <div class="font-mono text-[10px] text-ink-faint mt-1.5">{{ d.label }}</div>
           </div>
@@ -330,7 +331,7 @@
             <div class="flex-1 h-2 rounded-full bg-base-300 overflow-hidden">
               <div class="h-full rounded-full bg-primary" style="width:{{ bucket.pct }}%"></div>
             </div>
-            <span class="font-mono text-xs text-ink-faint w-10 text-right flex-none" title="{{ bucket.count }} play{{ bucket.count|pluralize }}">{{ bucket.count }}</span>
+            <span tabindex="0" aria-label="{{ bucket.count }} play{{ bucket.count|pluralize }}" class="font-mono text-xs text-ink-faint w-10 text-right flex-none spool-tooltip" data-tooltip="{{ bucket.count }} play{{ bucket.count|pluralize }}">{{ bucket.count }}</span>
           </div>
         {% endfor %}
       </div>

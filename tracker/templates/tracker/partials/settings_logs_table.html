@@ -57,8 +57,10 @@
                   {{ entry.duration_seconds|floatformat:1 }}s
                   {% if entry.status == "failed" and entry.duration_seconds < 1 %}
                     <span
-                      class="ml-1 text-[9.5px] uppercase tracking-wide text-warning/90 cursor-help"
-                      title="Failed in under a second - likely rejected before reaching Trakt/Simkl at all (an expired or invalid token), not a network timeout or slow response."
+                      tabindex="0"
+                      aria-label="Failed in under a second - likely rejected before reaching Trakt/Simkl at all (an expired or invalid token), not a network timeout or slow response."
+                      class="ml-1 text-[9.5px] uppercase tracking-wide text-warning/90 cursor-help spool-tooltip"
+                      data-tooltip="Failed in under a second - likely rejected before reaching Trakt/Simkl at all (an expired or invalid token), not a network timeout or slow response."
                     >fast fail</span>
                   {% endif %}
                 {% else %}—{% endif %}
@@ -78,8 +80,8 @@
                   <div x-data="{ open: false, copied: false }">
                     <button
                       type="button" @click="open = !open" x-show="!open"
-                      title="{{ entry.error_message }}"
-                      class="block w-full text-left truncate hover:text-base-content"
+                      data-tooltip="{{ entry.error_message }}"
+                      class="block w-full text-left truncate hover:text-base-content spool-tooltip"
                     >{{ entry.error_message }}</button>
                     <button
                       type="button" @click="open = !open" x-show="open" x-cloak

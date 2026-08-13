@@ -289,7 +289,7 @@
           <form method="post" action="{% url 'title_rate' title.pk %}" class="flex items-center flex-wrap gap-1 sm:gap-1.5">
             {% csrf_token %}
             {% for star in star_fill %}
-              <div class="relative w-6 h-6 sm:w-7 sm:h-7" title="Rate {{ star.right }}/10">
+              <div class="relative w-6 h-6 sm:w-7 sm:h-7 spool-tooltip" data-tooltip="Rate {{ star.right }}/10">
                 <span class="absolute inset-0 text-2xl sm:text-3xl leading-none text-ink-faint select-none">&#9733;</span>
                 {% if star.fill %}
                   <span class="absolute inset-0 text-2xl sm:text-3xl leading-none text-primary select-none overflow-hidden pointer-events-none" style="width:{{ star.fill }}%">&#9733;</span>

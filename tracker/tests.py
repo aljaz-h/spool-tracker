@@ -7589,7 +7589,7 @@ class PeakHoursTests(TestCase):
         self.client.login(username="peakhourswatcher", password="pass12345")
         resp = self.client.get(reverse("stats"))
         self.assertContains(resp, "Plays logged in each part of the day")
-        self.assertContains(resp, 'title="1 play"')
+        self.assertContains(resp, 'data-tooltip="1 play"')
 
 
 class MilestoneMessageTests(TestCase):
@@ -17975,3 +17975,98 @@ class GenerateWatchlistStaleNotificationsTaskTests(TestCase):
         created = tasks.generate_watchlist_stale_notifications()
         self.assertEqual(created, 1)
         self.assertTrue(Notification.objects.filter(profile=profile, kind=Notification.Kind.WATCHLIST_STALE).exists())
+
+
+class ToastRenderingTests(TestCase):
+    """partials/toasts.html - the shared toast stack included once from
+    base.html, replacing the 6 templates that used to each inline their
+    own {% if messages %} block (3 of which hardcoded error-red styling
+    regardless of the message's actual tag). Exercised through real view
+    flows (Django's messages framework is drained on render, so there's
+    nothing to show without one) rather than rendering the partial
+    directly, to prove the tag->color mapping survives the full request
+    cycle on both a redirect target and a direct render."""
+
+    def setUp(self):
+        user = User.objects.create_user("toastuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ToastUser")
+        self.client.login(username="toastuser", password="pass12345")
+
+    def test_no_toast_stack_when_there_are_no_messages(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertNotContains(resp, 'id="toast-stack"')
+
+    def test_error_message_renders_with_error_styling(self):
+        # create_list with a blank name -> messages.error, redirect to lists.
+        resp = self.client.post(reverse("create_list"), {"name": ""}, follow=True)
+        self.assertContains(resp, "List name is required.")
+        self.assertContains(resp, "bg-error/15")
+        self.assertContains(resp, "border-error/30")
+
+    def test_success_message_on_a_previously_uncovered_page_now_renders(self):
+        # change_credentials' success path redirects to dashboard, which
+        # never had its own inline {% if messages %} block - before this
+        # pass the message was silently drained and never shown at all.
+        # Also the regression check for the styling bug: 3 of the 6 old
+        # inline blocks always rendered bg-error regardless of tag, so a
+        # success message would have shown up red had any view actually
+        # hit that path.
+        self.profile.must_change_credentials = True
+        self.profile.save(update_fields=["must_change_credentials"])
+        resp = self.client.post(
+            reverse("change_credentials"),
+            {"username": "toastuser2", "password": "newpassword123", "confirm_password": "newpassword123"},
+            follow=True,
+        )
+        self.assertContains(resp, "Your username and password have been updated.")
+        self.assertContains(resp, "bg-success/15")
+        self.assertNotContains(resp, "bg-error/15")
+
+    def test_toast_has_a_dismiss_control_and_aria_live_region(self):
+        resp = self.client.post(reverse("create_list"), {"name": ""}, follow=True)
+        self.assertContains(resp, 'aria-live="polite"')
+        self.assertContains(resp, 'aria-label="Dismiss"')
+
+
+class BulkSelectCheckboxStylingTests(TestCase):
+    """history_tile.html/history_group_tile.html's multi-select checkbox
+    (History page's "Select" mode) used a bare accent-primary native
+    checkbox, the one form control in the app not using the shared
+    daisyUI checkbox class every toggle elsewhere already uses."""
+
+    def setUp(self):
+        user = User.objects.create_user("checkboxuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="CheckboxUser")
+        self.client.login(username="checkboxuser", password="pass12345")
+
+    def test_history_tile_checkbox_uses_the_shared_daisyui_class(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Checkbox Movie", year=2021)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        resp = self.client.get(reverse("history"))
+        self.assertContains(resp, "checkbox checkbox-xs checkbox-primary")
+        self.assertNotContains(resp, "accent-primary")
+
+
+class SettingsTooltipAndSpinnerTests(TestCase):
+    """Settings' Preferences panel - the themed .spool-tooltip component
+    (replacing supplementary-hint title="..." attributes) and the shared
+    .spool-spinner loading indicator (relying on htmx's own default
+    behavior of adding .htmx-request to the element that issued the
+    request - see static/src/app.css's "Loading indicator" section - so
+    no per-request JS or hx-indicator attribute is needed here)."""
+
+    def setUp(self):
+        user = User.objects.create_user("tooltipuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="TooltipUser")
+        self.client.login(username="tooltipuser", password="pass12345")
+
+    def test_preferences_tab_selects_get_a_spinner(self):
+        resp = self.client.get(reverse("settings"), {"tab": "preferences"})
+        self.assertContains(resp, 'name="preferred_language"')
+        self.assertContains(resp, "spool-spinner")
+
+    def test_rating_star_tooltip_replaces_the_redundant_title(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Star Rated Movie", year=2022)
+        resp = self.client.get(reverse("title_detail", args=[title.pk]))
+        self.assertContains(resp, 'data-tooltip="Rate 10/10"')
+        self.assertNotContains(resp, 'title="Rate 10/10"')

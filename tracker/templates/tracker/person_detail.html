@@ -44,7 +44,7 @@
           <div class="flex items-baseline gap-1.5">
             <span class="font-display text-lg">{{ stat.value }}</span>
             <span class="text-ink-faint text-xs">{{ stat.label }}</span>
-            {% if stat.info %}<span class="text-ink-faint text-[11px] cursor-help" title="{{ stat.info }}">&#9432;</span>{% endif %}
+            {% if stat.info %}<span tabindex="0" aria-label="{{ stat.info }}" data-tooltip="{{ stat.info }}" class="text-ink-faint text-[11px] cursor-help spool-tooltip">&#9432;</span>{% endif %}
           </div>
         {% endfor %}
       </div>

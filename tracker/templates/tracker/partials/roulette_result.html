@@ -27,6 +27,7 @@ and "narrow the pool" are one request shape.
       <option value="120" {% if max_runtime == "120" %}selected{% endif %}>Under 2 hr</option>
     </select>
     <button type="submit" class="btn btn-sm btn-soft">Apply</button>
+    <span class="spool-spinner" aria-hidden="true"></span>
   </form>
 
   {% if picked %}
@@ -51,5 +52,5 @@ and "narrow the pool" are one request shape.
     hx-swap="innerHTML"
     class="btn btn-primary btn-sm"
     {% if pool_count == 0 %}disabled{% endif %}
-  >{% icon "refresh-cw" "w-4 h-4" %} Spin again</button>
+  >{% icon "refresh-cw" "w-4 h-4" %} Spin again<span class="spool-spinner ml-1" aria-hidden="true"></span></button>
 </div>

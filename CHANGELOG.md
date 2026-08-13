@@ -8,7 +8,34 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
-## [0.101.0] - 2026-08-13
+## [0.102.0] - 2026-08-13
+
+### Added
+
+- Design-consistency pass replacing native/inconsistent browser UI with
+  themed components: a shared dismissible toast stack (`partials/toasts.html`,
+  included once from `base.html`) for Django's `messages` framework,
+  replacing 6 templates' own copy-pasted inline banners (3 of which always
+  rendered a success message with error-red styling); a CSS-only themed
+  tooltip (`.spool-tooltip`/`data-tooltip`, hover- and focus-visible-driven)
+  applied to ~20 supplementary hint labels across Settings, Stats,
+  Person, and Title Detail that previously relied on native `title=`
+  bubbles; a shared loading spinner (`.spool-spinner`, driven by htmx's
+  own `.htmx-request` class - no per-element JS) on the ~14
+  highest-value htmx call sites (Settings' auto-save forms, Watchlist
+  Roulette).
+- Confirm dialogs (`hx-confirm`) were audited and found already fully
+  themed via `base.html`'s existing `confirm_modal` - no changes needed.
+
+### Fixed
+
+- The two multi-select checkboxes on History tiles now use the shared
+  daisyUI `checkbox` class instead of a bare `accent-primary` native
+  checkbox, matching every other toggle in the app.
+- `change_credentials`'s success message (previously silently dropped -
+  `dashboard.html`, its redirect target, never rendered `messages` at
+  all) and every other page's messages now render consistently through
+  the shared toast.
 
 ### Added
 

@@ -4,7 +4,7 @@
   <label
     x-show="selecting" x-cloak
     class="absolute top-1.5 right-1.5 z-20 w-5 h-5 rounded-md bg-black/75 border border-white/20 flex items-center justify-center cursor-pointer"
-  ><input type="checkbox" name="event_ids" value="{% for event in group.events %}{{ event.id }}{% if not forloop.last %},{% endif %}{% endfor %}" @change="recount()" class="w-3.5 h-3.5 accent-primary"></label>
+  ><input type="checkbox" name="event_ids" value="{% for event in group.events %}{{ event.id }}{% if not forloop.last %},{% endif %}{% endfor %}" @change="recount()" class="checkbox checkbox-xs checkbox-primary"></label>
   <button
     x-show="!selecting"
     hx-post="{% url 'history_delete_group' %}"
