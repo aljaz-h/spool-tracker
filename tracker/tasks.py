@@ -262,6 +262,15 @@ def generate_release_notifications():
 
 
 @shared_task
+def generate_watchlist_stale_notifications():
+    """Nightly beat job (see bootstrap_periodic_tasks.py) - see
+    tracker/notifications.py for the actual age/cooldown logic."""
+    created = notifications.generate_watchlist_stale_notifications()
+    logger.info("generate_watchlist_stale_notifications: %d notification(s) created", created)
+    return created
+
+
+@shared_task
 def check_for_new_version():
     """Nightly beat job (see bootstrap_periodic_tasks.py) - see
     tracker/update_check.py for the actual fetch/compare logic. Only

@@ -492,11 +492,14 @@ class ReleaseSchedule(models.Model):
 
 class Notification(models.Model):
     """In-app only (see tracker/notifications.py) - no email/push. Kind
-    determines what title/release_schedule mean: release-based kinds and
-    both recommendation kinds always carry title; sync_failed and
-    system_update carry neither (title is unavailable/irrelevant, there's
-    no ReleaseSchedule to dedupe on - system_update dedupes on its own
-    message text instead, see tracker/tasks.check_for_new_version)."""
+    determines what title/release_schedule mean: release-based kinds, both
+    recommendation kinds, and watchlist_stale always carry title;
+    sync_failed and system_update carry neither (title is
+    unavailable/irrelevant, there's no ReleaseSchedule to dedupe on -
+    system_update dedupes on its own message text instead, see
+    tracker/tasks.check_for_new_version). watchlist_stale has no
+    ReleaseSchedule either, so it dedupes on a cooldown window instead -
+    see notifications.generate_watchlist_stale_notifications."""
 
     class Kind(models.TextChoices):
         NEW_RELEASE = "new_release", "New release"
@@ -505,6 +508,7 @@ class Notification(models.Model):
         SYSTEM_UPDATE = "system_update", "System update"
         RECOMMENDATION_RECEIVED = "recommendation_received", "Recommendation received"
         RECOMMENDATION_WATCHED = "recommendation_watched", "Recommendation watched"
+        WATCHLIST_STALE = "watchlist_stale", "Watchlist time capsule"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="notifications")
     kind = models.CharField(max_length=25, choices=Kind.choices)

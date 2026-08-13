@@ -43,3 +43,6 @@ class Command(BaseCommand):
 
         scheduling.ensure_mdblist_refresh_task()
         self.stdout.write(self.style.SUCCESS("Confirmed the hourly MDBList ratings-refresh task."))
+
+        scheduling.ensure_watchlist_stale_task()
+        self.stdout.write(self.style.SUCCESS("Confirmed the nightly watchlist time-capsule task."))

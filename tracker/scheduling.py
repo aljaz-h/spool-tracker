@@ -51,6 +51,7 @@ RELEASE_NOTIFICATIONS_TASK_NAME = "generate-release-notifications"
 UPDATE_CHECK_TASK_NAME = "check-for-new-version"
 LOG_RETENTION_TASK_NAME = "prune-old-logs"
 MDBLIST_REFRESH_TASK_NAME = "queue-due-mdblist-refreshes"
+WATCHLIST_STALE_TASK_NAME = "generate-watchlist-stale-notifications"
 
 
 def ensure_release_sync_task(hour=3, minute=0):
@@ -123,6 +124,24 @@ def ensure_log_retention_task(hour=4, minute=15):
         defaults={
             "crontab": schedule,
             "task": "tracker.tasks.prune_old_logs",
+            "args": "[]",
+            "enabled": True,
+        },
+    )
+
+
+def ensure_watchlist_stale_task(hour=4, minute=0):
+    """(Re)creates the nightly PeriodicTask that nudges profiles about
+    long-parked Watchlist items - instance-wide, same shape as the other
+    nightly notification-generating tasks above."""
+    schedule, _ = CrontabSchedule.objects.get_or_create(
+        minute=str(minute), hour=str(hour), day_of_week="*", day_of_month="*", month_of_year="*"
+    )
+    PeriodicTask.objects.update_or_create(
+        name=WATCHLIST_STALE_TASK_NAME,
+        defaults={
+            "crontab": schedule,
+            "task": "tracker.tasks.generate_watchlist_stale_notifications",
             "args": "[]",
             "enabled": True,
         },

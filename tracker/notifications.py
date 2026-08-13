@@ -1,8 +1,10 @@
 """In-app notification generation - no email/push, just Notification rows
 a profile sees in the header bell. tracker/tasks.py's generate_release_notifications
-periodic task drives the two release-based kinds; _run_sync's failure path
-calls notify_sync_failure directly (event-driven, no periodic scan needed).
-Kept out of tracker/tasks.py itself for the same reason completion.py and
+periodic task drives the two release-based kinds, and its own
+generate_watchlist_stale_notifications task drives the watchlist-nudge
+kind; _run_sync's failure path calls notify_sync_failure directly
+(event-driven, no periodic scan needed). Kept out of tracker/tasks.py
+itself for the same reason completion.py and
 rewatches.py are their own modules - the "who's eligible + what does this
 dedupe on" logic is substantial enough to want its own tests without
 Celery task machinery in the way.
@@ -92,6 +94,53 @@ def generate_release_notifications(now=None):
                 defaults={"title": release.title, "message": message},
             )
             created += made
+    return created
+
+
+# How long an item sits untouched on the default Watchlist before it's
+# eligible for a "still interested?" nudge, and the minimum gap between
+# repeat nudges for the same title - long enough that a genuinely-parked
+# item doesn't get nagged every night once it clears the age bar, but
+# short enough that a years-old item gets a nudge more than once.
+WATCHLIST_STALE_AGE = timedelta(days=180)
+WATCHLIST_STALE_COOLDOWN = timedelta(days=180)
+
+
+def generate_watchlist_stale_notifications(now=None):
+    """Nightly beat job (see bootstrap_periodic_tasks.py) - scans every
+    profile's default Watchlist (WatchList.is_watchlist=True) for items
+    older than WATCHLIST_STALE_AGE and notifies their owner, skipping any
+    title already nudged within WATCHLIST_STALE_COOLDOWN. No unique
+    constraint to lean on here (unlike the release-based kinds, there's no
+    per-notification FK to dedupe against - see the Notification.Kind
+    docstring), so this checks directly with a created_at window instead.
+    Watching a title removes it from the default Watchlist (see
+    completion.py), so anything this finds is still genuinely unwatched.
+    Returns the count of newly created rows."""
+    now = now or timezone.now()
+    cooldown_start = now - WATCHLIST_STALE_COOLDOWN
+    created = 0
+    items = WatchListItem.objects.filter(
+        watchlist__is_watchlist=True, added_at__lte=now - WATCHLIST_STALE_AGE
+    ).select_related("watchlist__profile", "title")
+    for item in items:
+        profile = item.watchlist.profile
+        already_nudged = Notification.objects.filter(
+            profile=profile,
+            kind=Notification.Kind.WATCHLIST_STALE,
+            title=item.title,
+            created_at__gte=cooldown_start,
+        ).exists()
+        if already_nudged:
+            continue
+        days = (now - item.added_at).days
+        Notification.objects.create(
+            profile=profile,
+            kind=Notification.Kind.WATCHLIST_STALE,
+            title=item.title,
+            message=f'"{item.title.name}" has been on your watchlist for {days} days - still interested?',
+        )
+        created += 1
     return created
 
 

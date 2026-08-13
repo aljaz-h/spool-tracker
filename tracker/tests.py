@@ -1713,6 +1713,74 @@ class GenerateReleaseNotificationsTests(TestCase):
         self.assertEqual(Notification.objects.count(), 1)
 
 
+class GenerateWatchlistStaleNotificationsTests(TestCase):
+    """tracker/notifications.py's generate_watchlist_stale_notifications() -
+    nudges a profile about an item that's sat on their default Watchlist
+    past WATCHLIST_STALE_AGE, re-nudging only after WATCHLIST_STALE_COOLDOWN
+    has passed. Watching a title removes it from the default Watchlist (see
+    completion.py), so this never needs to check watch status itself."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("stalewatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="StaleWatcher")
+        self.watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Old Pick", year=2019)
+        self.now = timezone.now()
+
+    def _add_item(self, age):
+        item = WatchListItem.objects.create(watchlist=self.watchlist, title=self.title)
+        WatchListItem.objects.filter(pk=item.pk).update(added_at=self.now - age)
+        return item
+
+    def test_item_younger_than_the_age_threshold_is_not_nudged(self):
+        self._add_item(notifications.WATCHLIST_STALE_AGE - timedelta(days=1))
+        created = notifications.generate_watchlist_stale_notifications(now=self.now)
+        self.assertEqual(created, 0)
+
+    def test_item_past_the_age_threshold_is_nudged(self):
+        self._add_item(notifications.WATCHLIST_STALE_AGE + timedelta(days=1))
+        created = notifications.generate_watchlist_stale_notifications(now=self.now)
+        self.assertEqual(created, 1)
+        n = Notification.objects.get(profile=self.profile)
+        self.assertEqual(n.kind, Notification.Kind.WATCHLIST_STALE)
+        self.assertEqual(n.title, self.title)
+        self.assertIn("Old Pick", n.message)
+
+    def test_a_custom_non_default_list_is_never_scanned(self):
+        # is_watchlist=False - a themed list ("Comfort watches") isn't the
+        # "still meaning to get to this" pile the nudge is about.
+        other_list = WatchList.objects.create(profile=self.profile, name="Comfort watches", is_watchlist=False)
+        item = WatchListItem.objects.create(watchlist=other_list, title=self.title)
+        WatchListItem.objects.filter(pk=item.pk).update(
+            added_at=self.now - notifications.WATCHLIST_STALE_AGE - timedelta(days=1)
+        )
+        created = notifications.generate_watchlist_stale_notifications(now=self.now)
+        self.assertEqual(created, 0)
+
+    def test_rerunning_within_the_cooldown_does_not_duplicate(self):
+        self._add_item(notifications.WATCHLIST_STALE_AGE + timedelta(days=1))
+        notifications.generate_watchlist_stale_notifications(now=self.now)
+        second_run_created = notifications.generate_watchlist_stale_notifications(now=self.now)
+        self.assertEqual(second_run_created, 0)
+        self.assertEqual(Notification.objects.count(), 1)
+
+    def test_re_nudges_once_the_cooldown_has_passed(self):
+        self._add_item(notifications.WATCHLIST_STALE_AGE + timedelta(days=1))
+        notifications.generate_watchlist_stale_notifications(now=self.now)
+        later = self.now + notifications.WATCHLIST_STALE_COOLDOWN + timedelta(days=1)
+        second_run_created = notifications.generate_watchlist_stale_notifications(now=later)
+        self.assertEqual(second_run_created, 1)
+        self.assertEqual(Notification.objects.count(), 2)
+
+    def test_watching_the_title_removes_it_from_the_watchlist_and_stops_the_nudge(self):
+        self._add_item(notifications.WATCHLIST_STALE_AGE + timedelta(days=1))
+        WatchListItem.objects.filter(watchlist=self.watchlist, title=self.title).delete()
+        created = notifications.generate_watchlist_stale_notifications(now=self.now)
+        self.assertEqual(created, 0)
+
+
 class NotifySyncFailureTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("syncfailwatcher", password="pass12345")
@@ -17056,3 +17124,49 @@ class BootstrapAlsoRegistersLogRetentionTaskTests(TestCase):
 
         call_command("bootstrap_periodic_tasks")
         self.assertTrue(PeriodicTask.objects.filter(name=scheduling.LOG_RETENTION_TASK_NAME).exists())
+
+
+class EnsureWatchlistStaleTaskTests(TestCase):
+    def test_creates_the_single_task_with_defaults(self):
+        scheduling.ensure_watchlist_stale_task()
+        pt = PeriodicTask.objects.get(name=scheduling.WATCHLIST_STALE_TASK_NAME)
+        self.assertEqual(pt.task, "tracker.tasks.generate_watchlist_stale_notifications")
+        self.assertEqual(pt.crontab.hour, "4")
+        self.assertEqual(pt.crontab.minute, "0")
+        self.assertTrue(pt.enabled)
+
+    def test_re_running_updates_rather_than_duplicates(self):
+        scheduling.ensure_watchlist_stale_task()
+        scheduling.ensure_watchlist_stale_task(hour=6)
+        self.assertEqual(PeriodicTask.objects.filter(name=scheduling.WATCHLIST_STALE_TASK_NAME).count(), 1)
+        pt = PeriodicTask.objects.get(name=scheduling.WATCHLIST_STALE_TASK_NAME)
+        self.assertEqual(pt.crontab.hour, "6")
+
+
+class BootstrapAlsoRegistersWatchlistStaleTaskTests(TestCase):
+    def test_registers_the_watchlist_stale_task(self):
+        from django.core.management import call_command
+
+        call_command("bootstrap_periodic_tasks")
+        self.assertTrue(PeriodicTask.objects.filter(name=scheduling.WATCHLIST_STALE_TASK_NAME).exists())
+
+
+class GenerateWatchlistStaleNotificationsTaskTests(TestCase):
+    """tracker/tasks.py's generate_watchlist_stale_notifications() shared_task
+    - thin wrapper, just confirms it delegates to and returns
+    notifications.generate_watchlist_stale_notifications()'s count."""
+
+    def test_delegates_to_notifications_module(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("staletaskwatcher", password="pass12345")
+        profile = Profile.objects.create(user=user, display_name="StaleTaskWatcher")
+        watchlist = WatchList.objects.create(profile=profile, name="Watchlist", is_watchlist=True)
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Old Pick", year=2019)
+        item = WatchListItem.objects.create(watchlist=watchlist, title=title)
+        WatchListItem.objects.filter(pk=item.pk).update(
+            added_at=timezone.now() - notifications.WATCHLIST_STALE_AGE - timedelta(days=1)
+        )
+        created = tasks.generate_watchlist_stale_notifications()
+        self.assertEqual(created, 1)
+        self.assertTrue(Notification.objects.filter(profile=profile, kind=Notification.Kind.WATCHLIST_STALE).exists())

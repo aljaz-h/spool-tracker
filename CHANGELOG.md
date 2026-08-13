@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.95.0] - 2026-08-13
+
+### Added
+
+- Watchlist time capsule: a nightly job nudges you about titles that have
+  sat unwatched on your default Watchlist for 6+ months ("still
+  interested?"), re-nudging every 6 months for as long as it stays there.
+
 ## [0.94.0] - 2026-08-13
 
 ### Added
