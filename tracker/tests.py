@@ -2059,6 +2059,24 @@ class SendRecommendationViewTests(TestCase):
         self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
         self.assertFalse(Notification.objects.exists())
 
+    def test_sending_as_blind_sets_is_blind_and_hides_the_title_from_the_notification(self):
+        self.client.post(
+            reverse("send_recommendation", args=[self.title.pk]),
+            {"to_profile_id": self.recipient.pk, "is_blind": "on"},
+        )
+        rec = Recommendation.objects.get(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        self.assertTrue(rec.is_blind)
+        self.assertFalse(rec.revealed)
+        n = Notification.objects.get(profile=self.recipient)
+        self.assertIsNone(n.title)
+        self.assertNotIn("Fathom", n.message)
+        self.assertIn("mystery", n.message.lower())
+
+    def test_omitting_is_blind_sends_a_normal_recommendation(self):
+        self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
+        rec = Recommendation.objects.get(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        self.assertFalse(rec.is_blind)
+
     def test_duplicate_send_does_not_notify_twice(self):
         self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
         self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
@@ -2217,6 +2235,14 @@ class RecommendationsSendUnitTests(TestCase):
         recommendations.send(self.sender, self.recipient, self.title)
         self.assertEqual(Notification.objects.filter(profile=self.recipient).count(), 1)
 
+    def test_blind_send_creates_a_notification_with_no_title_and_no_title_name_in_the_message(self):
+        recommendations.send(self.sender, self.recipient, self.title, is_blind=True)
+        rec = Recommendation.objects.get(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        self.assertTrue(rec.is_blind)
+        n = Notification.objects.get(profile=self.recipient)
+        self.assertIsNone(n.title)
+        self.assertNotIn(self.title.name, n.message)
+
 
 class DismissRecommendationViewTests(TestCase):
     def setUp(self):
@@ -2292,6 +2318,46 @@ class AddRecommendationToWatchlistViewTests(TestCase):
 
     def test_get_not_allowed(self):
         resp = self.client.get(reverse("add_recommendation_to_watchlist", args=[self.rec.pk]))
+        self.assertEqual(resp.status_code, 405)
+
+
+class RevealRecommendationViewTests(TestCase):
+    def setUp(self):
+        sender_user = User.objects.create_user("revealsender", password="pass12345")
+        self.sender = Profile.objects.create(user=sender_user, display_name="RevealSender")
+        recipient_user = User.objects.create_user("revealrecipient", password="pass12345")
+        self.recipient = Profile.objects.create(user=recipient_user, display_name="RevealRecipient")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        self.rec = Recommendation.objects.create(
+            from_profile=self.sender, to_profile=self.recipient, title=self.title, is_blind=True
+        )
+        self.client.login(username="revealrecipient", password="pass12345")
+
+    def test_marks_revealed(self):
+        self.client.post(reverse("reveal_recommendation", args=[self.rec.pk]))
+        self.rec.refresh_from_db()
+        self.assertTrue(self.rec.revealed)
+
+    def test_response_shows_the_title_once_revealed(self):
+        resp = self.client.post(reverse("reveal_recommendation", args=[self.rec.pk]))
+        self.assertContains(resp, "Fathom")
+        self.assertNotContains(resp, "Mystery recommendation")
+
+    def test_only_the_recipient_can_reveal(self):
+        self.client.logout()
+        self.client.login(username="revealsender", password="pass12345")
+        resp = self.client.post(reverse("reveal_recommendation", args=[self.rec.pk]))
+        self.assertEqual(resp.status_code, 404)
+        self.rec.refresh_from_db()
+        self.assertFalse(self.rec.revealed)
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("reveal_recommendation", args=[self.rec.pk]))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_get_not_allowed(self):
+        resp = self.client.get(reverse("reveal_recommendation", args=[self.rec.pk]))
         self.assertEqual(resp.status_code, 405)
 
 
@@ -2389,6 +2455,32 @@ class DashboardRecommendationsTests(TestCase):
         Recommendation.objects.create(from_profile=self.sender, to_profile=other_profile, title=self.title)
         resp = self.client.get(reverse("dashboard"))
         self.assertNotContains(resp, "Recommended to you")
+
+    def test_unrevealed_blind_recommendation_hides_the_title(self):
+        Recommendation.objects.create(
+            from_profile=self.sender, to_profile=self.recipient, title=self.title, is_blind=True
+        )
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "Mystery recommendation")
+        self.assertNotContains(resp, "Fathom")
+        self.assertContains(resp, "DashSender")
+
+    def test_unrevealed_blind_recommendation_has_an_open_button_not_add_to_watchlist(self):
+        rec = Recommendation.objects.create(
+            from_profile=self.sender, to_profile=self.recipient, title=self.title, is_blind=True
+        )
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, reverse("reveal_recommendation", args=[rec.pk]))
+        self.assertNotContains(resp, "Add to Watchlist")
+
+    def test_revealed_blind_recommendation_shows_the_title_normally(self):
+        Recommendation.objects.create(
+            from_profile=self.sender, to_profile=self.recipient, title=self.title, is_blind=True, revealed=True
+        )
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "Fathom")
+        self.assertNotContains(resp, "Mystery recommendation")
+        self.assertContains(resp, "Add to Watchlist")
 
 
 class RecommendationEndToEndTests(TestCase):

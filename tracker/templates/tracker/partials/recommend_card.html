@@ -8,7 +8,13 @@
     every time someone new gets added.
   {% endcomment %}
   <div class="bg-base-200 border border-line rounded-2xl p-4" x-data="{ expanded: false }">
-    <h2 class="font-display text-lg mb-2.5">Recommend to</h2>
+    <div class="flex items-center justify-between mb-2.5">
+      <h2 class="font-display text-lg">Recommend to</h2>
+      <label class="flex items-center gap-1.5 text-[11px] text-ink-dim cursor-pointer select-none" title="Recipient sees just a mystery card until they open it">
+        <input type="checkbox" id="recommend-blind-toggle" name="is_blind" class="checkbox checkbox-xs">
+        Send as mystery &#127873;
+      </label>
+    </div>
     <div class="flex flex-col gap-2.5">
       {% for op in other_profiles %}
         <div class="flex items-center gap-2.5" {% if forloop.counter > 4 %}x-show="expanded" x-cloak{% endif %}>
@@ -35,6 +41,7 @@
             <form
               hx-post="{% if is_preview %}{% url 'title_preview_send_recommendation' preview_media_type preview_tmdb_id %}{% else %}{% url 'send_recommendation' title.pk %}{% endif %}"
               hx-target="closest div.bg-base-200" hx-swap="outerHTML"
+              hx-include="#recommend-blind-toggle"
               class="flex-none"
             >
               {% csrf_token %}

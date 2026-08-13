@@ -1,4 +1,4 @@
-{% load tracker_extras %}
+{% load tracker_extras icons %}
 {# context: received_recommendations (list of Recommendation, pending, newest first), watchlisted_title_ids (set of Title pk already on the profile's Watchlist) #}
 {% comment %}
 Standalone dashboard section (not nested in anything else), so the
@@ -17,37 +17,65 @@ heading/divider left behind.
     </div>
     <div class="flex flex-wrap gap-4">
       {% for rec in received_recommendations %}
-        <div class="w-[168px] flex-none">
-          <div class="aspect-[2/3] rounded-lg relative overflow-hidden {% if not rec.title.poster_url %}{{ rec.title.pk|gradient_class }}{% endif %}">
-            {% if rec.title.poster_url %}
-              <img src="{{ rec.title.poster_url|poster_size:"w342" }}" alt="{{ rec.title.name }}" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
-            {% endif %}
-            <a href="{% url 'title_detail' rec.title.pk %}" class="absolute inset-0 z-0"></a>
-            {% if rec.from_profile.avatar_image %}
-              <div class="absolute top-2 left-2 z-10 w-6 h-6 rounded-full bg-cover bg-center ring-2 ring-black/40" style="background-image:url('{{ rec.from_profile.avatar_image.url }}')"></div>
-            {% else %}
-              <div class="absolute top-2 left-2 z-10 w-6 h-6 rounded-full flex items-center justify-center font-mono text-[11px] font-semibold ring-2 ring-black/40" style="background:{{ rec.from_profile.avatar_color }};color:#fff;">{{ rec.from_profile.display_name|first|upper }}</div>
-            {% endif %}
-            <form hx-post="{% url 'dismiss_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="outerHTML" class="absolute top-2 right-2 z-10">
-              {% csrf_token %}
-              <button type="submit" class="w-6 h-6 rounded-full bg-black/60 hover:bg-black/80 text-white/90 text-sm leading-none flex items-center justify-center" title="Dismiss">&times;</button>
-            </form>
-            <a href="{% url 'title_detail' rec.title.pk %}" class="absolute inset-x-0 bottom-0 z-0 p-2.5 pt-8 bg-gradient-to-t from-black/85 via-black/40 to-transparent">
-              <div class="text-[13px] font-semibold text-white leading-snug line-clamp-2">{{ rec.title.name }}</div>
-            </a>
-          </div>
-          <div class="mt-2">
-            <div class="text-xs text-ink-dim truncate">by {{ rec.from_profile.display_name }} &middot; {{ rec.created_at|timesince }} ago</div>
-            <form hx-post="{% url 'add_recommendation_to_watchlist' rec.pk %}" hx-target="#recommendations-block" hx-swap="outerHTML" class="mt-1.5">
-              {% csrf_token %}
-              {% if rec.title.pk in watchlisted_title_ids %}
-                <button type="button" disabled class="btn btn-xs btn-soft text-success w-full">&#10003; Added</button>
+        {% if rec.is_blind and not rec.revealed %}
+          <div class="w-[168px] flex-none">
+            <div class="aspect-[2/3] rounded-lg relative overflow-hidden bg-gradient-to-br from-primary/25 to-base-300 flex flex-col items-center justify-center gap-2 text-center p-3">
+              {% if rec.from_profile.avatar_image %}
+                <div class="absolute top-2 left-2 z-10 w-6 h-6 rounded-full bg-cover bg-center ring-2 ring-black/40" style="background-image:url('{{ rec.from_profile.avatar_image.url }}')"></div>
               {% else %}
-                <button type="submit" class="btn btn-xs btn-primary w-full">+ Add to Watchlist</button>
+                <div class="absolute top-2 left-2 z-10 w-6 h-6 rounded-full flex items-center justify-center font-mono text-[11px] font-semibold ring-2 ring-black/40" style="background:{{ rec.from_profile.avatar_color }};color:#fff;">{{ rec.from_profile.display_name|first|upper }}</div>
               {% endif %}
-            </form>
+              <form hx-post="{% url 'dismiss_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="outerHTML" class="absolute top-2 right-2 z-10">
+                {% csrf_token %}
+                <button type="submit" class="w-6 h-6 rounded-full bg-black/50 hover:bg-black/70 text-white/90 text-sm leading-none flex items-center justify-center" title="Dismiss">&times;</button>
+              </form>
+              <span class="text-3xl">&#127873;</span>
+              <div class="text-[13px] font-semibold leading-snug">Mystery recommendation</div>
+              <form hx-post="{% url 'reveal_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="outerHTML">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-xs btn-primary">Open it</button>
+              </form>
+            </div>
+            <div class="mt-2">
+              <div class="text-xs text-ink-dim truncate">from {{ rec.from_profile.display_name }} &middot; {{ rec.created_at|timesince }} ago</div>
+            </div>
           </div>
-        </div>
+        {% else %}
+          <div class="w-[168px] flex-none">
+            <div class="aspect-[2/3] rounded-lg relative overflow-hidden {% if not rec.title.poster_url %}{{ rec.title.pk|gradient_class }}{% endif %}">
+              {% if rec.title.poster_url %}
+                <img src="{{ rec.title.poster_url|poster_size:"w342" }}" alt="{{ rec.title.name }}" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+              {% endif %}
+              <a href="{% url 'title_detail' rec.title.pk %}" class="absolute inset-0 z-0"></a>
+              {% if rec.from_profile.avatar_image %}
+                <div class="absolute top-2 left-2 z-10 w-6 h-6 rounded-full bg-cover bg-center ring-2 ring-black/40" style="background-image:url('{{ rec.from_profile.avatar_image.url }}')"></div>
+              {% else %}
+                <div class="absolute top-2 left-2 z-10 w-6 h-6 rounded-full flex items-center justify-center font-mono text-[11px] font-semibold ring-2 ring-black/40" style="background:{{ rec.from_profile.avatar_color }};color:#fff;">{{ rec.from_profile.display_name|first|upper }}</div>
+              {% endif %}
+              {% if rec.is_blind %}
+                <span class="absolute bottom-2 left-2 z-10 text-base" title="Was a mystery recommendation">&#127873;</span>
+              {% endif %}
+              <form hx-post="{% url 'dismiss_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="outerHTML" class="absolute top-2 right-2 z-10">
+                {% csrf_token %}
+                <button type="submit" class="w-6 h-6 rounded-full bg-black/60 hover:bg-black/80 text-white/90 text-sm leading-none flex items-center justify-center" title="Dismiss">&times;</button>
+              </form>
+              <a href="{% url 'title_detail' rec.title.pk %}" class="absolute inset-x-0 bottom-0 z-0 p-2.5 pt-8 bg-gradient-to-t from-black/85 via-black/40 to-transparent">
+                <div class="text-[13px] font-semibold text-white leading-snug line-clamp-2">{{ rec.title.name }}</div>
+              </a>
+            </div>
+            <div class="mt-2">
+              <div class="text-xs text-ink-dim truncate">by {{ rec.from_profile.display_name }} &middot; {{ rec.created_at|timesince }} ago</div>
+              <form hx-post="{% url 'add_recommendation_to_watchlist' rec.pk %}" hx-target="#recommendations-block" hx-swap="outerHTML" class="mt-1.5">
+                {% csrf_token %}
+                {% if rec.title.pk in watchlisted_title_ids %}
+                  <button type="button" disabled class="btn btn-xs btn-soft text-success w-full">&#10003; Added</button>
+                {% else %}
+                  <button type="submit" class="btn btn-xs btn-primary w-full">+ Add to Watchlist</button>
+                {% endif %}
+              </form>
+            </div>
+          </div>
+        {% endif %}
       {% endfor %}
     </div>
   </div>

@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.99.0] - 2026-08-13
+
+### Added
+
+- Blind recommendations: an optional "Send as mystery 🎁" toggle on the
+  Recommend-to card hides the title behind a mystery card (and a
+  title-free notification) until the recipient opens it.
+
 ## [0.98.0] - 2026-08-13
 
 ### Added

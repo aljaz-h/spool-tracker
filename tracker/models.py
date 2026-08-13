@@ -564,6 +564,13 @@ class Recommendation(models.Model):
     to_profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="received_recommendations")
     title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="recommendations")
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    # is_blind: sender opted to hide the title until opened. revealed:
+    # recipient has opened it - tracked separately from is_blind (rather
+    # than clearing is_blind on open) so "was this ever a mystery pick"
+    # stays visible afterwards (see dashboard_recommendations.html's gift
+    # icon on an opened blind rec). Irrelevant once is_blind is False.
+    is_blind = models.BooleanField(default=False)
+    revealed = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

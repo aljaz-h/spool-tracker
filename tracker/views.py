@@ -1154,7 +1154,7 @@ def send_recommendation(request, pk):
     to_profile = get_object_or_404(Profile, pk=request.POST.get("to_profile_id"))
     if to_profile.pk == profile.pk:
         raise Http404
-    recommendations.send(profile, to_profile, title)
+    recommendations.send(profile, to_profile, title, is_blind=request.POST.get("is_blind") == "on")
     return render(
         request, "tracker/partials/recommend_card.html", {"title": title, **_recommend_context(profile, title)}
     )
@@ -1182,7 +1182,7 @@ def title_preview_send_recommendation(request, media_type, tmdb_id):
     title = _get_or_create_preview_title(media_type, tmdb_id)
     if title is None:
         raise Http404
-    recommendations.send(profile, to_profile, title)
+    recommendations.send(profile, to_profile, title, is_blind=request.POST.get("is_blind") == "on")
     return render(
         request,
         "tracker/partials/recommend_card.html",
@@ -1227,6 +1227,23 @@ def dismiss_recommendation(request, pk):
     rec = get_object_or_404(Recommendation, pk=pk, to_profile=profile)
     rec.status = Recommendation.Status.DISMISSED
     rec.save(update_fields=["status"])
+    return render(request, "tracker/partials/dashboard_recommendations.html", _recommendations_context(profile))
+
+
+@login_required
+@require_POST
+def reveal_recommendation(request, pk):
+    """Opens a blind recommendation's mystery card (dashboard_recommendations.html) -
+    a one-way flip, not gated on is_blind (a plain rec has no mystery
+    card to open in the first place, so this is a harmless no-op update
+    on one already revealed/never blind)."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    rec = get_object_or_404(Recommendation, pk=pk, to_profile=profile)
+    if not rec.revealed:
+        rec.revealed = True
+        rec.save(update_fields=["revealed"])
     return render(request, "tracker/partials/dashboard_recommendations.html", _recommendations_context(profile))
 
 
