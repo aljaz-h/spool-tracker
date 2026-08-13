@@ -1139,22 +1139,34 @@ def _recommend_context(profile, title):
     just that card. Sorts every other profile into exactly one of:
     already watched it, already has a pending recommendation from this
     profile, or is a real candidate - so the card can show why a button
-    isn't live instead of just hiding it."""
+    isn't live instead of just hiding it.
+
+    reply_by_profile_id only ever has entries for profiles in
+    recommended_profile_ids (a reply implies a pending rec still exists)
+    - this is currently the only place a sender can see a reply at all,
+    since there's no dedicated "sent recommendations" view; recommend_card.html
+    shows it right next to that profile's "Sent" badge."""
     if profile is None:
-        return {"other_profiles": [], "already_watched_profile_ids": set(), "recommended_profile_ids": set()}
+        return {
+            "other_profiles": [],
+            "already_watched_profile_ids": set(),
+            "recommended_profile_ids": set(),
+            "reply_by_profile_id": {},
+        }
     other_profiles = list(Profile.objects.exclude(pk=profile.pk).order_by("display_name"))
     already_watched_profile_ids = set(
         WatchEvent.objects.filter(profile__in=other_profiles, title=title).values_list("profile_id", flat=True)
     )
-    recommended_profile_ids = set(
-        Recommendation.objects.filter(
-            from_profile=profile, title=title, status=Recommendation.Status.PENDING
-        ).values_list("to_profile_id", flat=True)
+    pending_recs = list(
+        Recommendation.objects.filter(from_profile=profile, title=title, status=Recommendation.Status.PENDING)
     )
+    recommended_profile_ids = {rec.to_profile_id for rec in pending_recs}
+    reply_by_profile_id = {rec.to_profile_id: rec for rec in pending_recs if rec.replied_at is not None}
     return {
         "other_profiles": other_profiles,
         "already_watched_profile_ids": already_watched_profile_ids,
         "recommended_profile_ids": recommended_profile_ids,
+        "reply_by_profile_id": reply_by_profile_id,
     }
 
 
@@ -1166,11 +1178,17 @@ def _preview_recommend_context(profile):
     title_preview_send_recommendation), same as every other preview
     action (mark watched, add to list/watchlist)."""
     if profile is None:
-        return {"other_profiles": [], "already_watched_profile_ids": set(), "recommended_profile_ids": set()}
+        return {
+            "other_profiles": [],
+            "already_watched_profile_ids": set(),
+            "recommended_profile_ids": set(),
+            "reply_by_profile_id": {},
+        }
     return {
         "other_profiles": list(Profile.objects.exclude(pk=profile.pk).order_by("display_name")),
         "already_watched_profile_ids": set(),
         "recommended_profile_ids": set(),
+        "reply_by_profile_id": {},
     }
 
 
@@ -1299,6 +1317,24 @@ def add_recommendation_to_watchlist(request, pk):
     rec = get_object_or_404(Recommendation, pk=pk, to_profile=profile)
     watchlist, _ = WatchList.objects.get_or_create(profile=profile, name="Watchlist", defaults={"is_watchlist": True})
     WatchListItem.objects.get_or_create(watchlist=watchlist, title=rec.title)
+    return render(request, "tracker/partials/dashboard_recommendations.html", _recommendations_context(profile))
+
+
+@login_required
+@require_POST
+def reply_to_recommendation(request, pk):
+    """The "Recommended to you" card's reply form - one reaction chip
+    and/or a short message, sent back to from_profile. See
+    recommendations.reply for the one-shot/no-op rules; this view is a
+    thin wrapper that just resolves the row and re-renders the same
+    partial every other recommendation action here does."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    rec = get_object_or_404(Recommendation, pk=pk, to_profile=profile)
+    recommendations.reply(
+        rec, reaction=request.POST.get("reply_reaction", ""), message=request.POST.get("reply_message", "")
+    )
     return render(request, "tracker/partials/dashboard_recommendations.html", _recommendations_context(profile))
 
 

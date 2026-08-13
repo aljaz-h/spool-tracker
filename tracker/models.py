@@ -538,6 +538,7 @@ class Notification(models.Model):
         SYSTEM_UPDATE = "system_update", "System update"
         RECOMMENDATION_RECEIVED = "recommendation_received", "Recommendation received"
         RECOMMENDATION_WATCHED = "recommendation_watched", "Recommendation watched"
+        RECOMMENDATION_REPLIED = "recommendation_replied", "Recommendation replied"
         WATCHLIST_STALE = "watchlist_stale", "Watchlist time capsule"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="notifications")
@@ -583,12 +584,26 @@ class Recommendation(models.Model):
     else needs to happen on every watch" concerns, not a Django signal
     (used nowhere else in this codebase) - a missed explicit call sitting
     right next to already-established ones is easy to catch in review and
-    in tests; a missed signal connection is a quieter failure mode."""
+    in tests; a missed signal connection is a quieter failure mode.
+
+    The reply_* fields below are a separate, optional acknowledgement from
+    to_profile back to from_profile - a quick "interested!" reaction and/or
+    a short message - and deliberately don't feed into status: someone can
+    react enthusiastically and still not watch it for weeks, and the two
+    shouldn't be conflated."""
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
         WATCHED = "watched", "Watched"
         DISMISSED = "dismissed", "Dismissed"
+
+    class ReplyReaction(models.TextChoices):
+        INTERESTED = "interested", "Interested \U0001f440"
+        MAYBE_LATER = "maybe_later", "Maybe Later ⏳"
+        HARD_PASS = "hard_pass", "Hard Pass \U0001f645"
+        ALREADY_SEEN = "already_seen", "Already Seen It \U0001f37f"
+        SAY_LESS = "say_less", "Say Less \U0001fae1"
+        BOLD_CHOICE = "bold_choice", "Bold Choice \U0001f60f"
 
     from_profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="sent_recommendations")
     to_profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="received_recommendations")
@@ -602,6 +617,22 @@ class Recommendation(models.Model):
     is_blind = models.BooleanField(default=False)
     revealed = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    # A reply is deliberately independent of status - "interested!" doesn't
+    # mean watched yet, and the recipient not getting around to it for a
+    # month shouldn't erase what they said. One-shot, like every other
+    # inline action in this codebase (dismiss/reveal above): once
+    # replied_at is set, tracker.recommendations.reply() no-ops on a second
+    # attempt rather than overwriting - a reply is a quick reaction in the
+    # moment, not a message thread. reply_reaction and reply_message are
+    # each independently optional (the UI requires at least one, not both -
+    # see partials/dashboard_recommendations.html), so either can be blank
+    # on its own; replied_at is the actual "has this been replied to yet"
+    # signal, set the first time either one is filled in.
+    reply_reaction = models.CharField(
+        max_length=20, choices=ReplyReaction.choices, null=True, blank=True, default=None
+    )
+    reply_message = models.CharField(max_length=160, blank=True, default="")
+    replied_at = models.DateTimeField(null=True, blank=True, default=None)
 
     class Meta:
         ordering = ["-created_at"]

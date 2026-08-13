@@ -8,6 +8,21 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.103.0] - 2026-08-13
+
+### Added
+
+- Recommendations are now a two-way exchange: a recipient can reply to
+  a recommendation with a quick reaction chip (Interested, Maybe Later,
+  Hard Pass, Already Seen It, Say Less, Bold Choice) and/or a short
+  custom message, from the Dashboard's "Recommended to you" card.
+  Deliberately independent of `Recommendation.status` - a reply doesn't
+  mean watched, and is a one-shot action (no editing after). The sender
+  sees the reply next to that recipient's row on the title's own
+  "Recommend to" card (`recommend_card.html`), and gets notified
+  (`Notification.Kind.RECOMMENDATION_REPLIED`) with a link straight
+  back to it.
+
 ## [0.102.1] - 2026-08-13
 
 ### Fixed

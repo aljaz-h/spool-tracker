@@ -73,6 +73,60 @@ heading/divider left behind.
                   <button type="submit" class="btn btn-xs btn-primary w-full">+ Add to Watchlist</button>
                 {% endif %}
               </form>
+              {% comment %}
+                A reply is a one-shot reaction/message back to
+                from_profile, deliberately separate from status (see
+                models.Recommendation's own docstring) - it stays right
+                here alongside Add to Watchlist regardless of whether
+                that's been clicked, since neither one resolves the
+                other. Chips are emoji-only (the whole card is 168px
+                wide - "Interested 👀" etc. as text+emoji would wrap
+                badly) with the label as a .spool-tooltip instead;
+                :model on the radio group needs the checked one's value
+                readable client-side to gate the submit button (an
+                empty reply, no reaction and no message, isn't a valid
+                submission).
+              {% endcomment %}
+              {% if rec.replied_at %}
+                <div class="text-[11px] text-ink-dim mt-1.5 truncate">
+                  {% if rec.reply_reaction %}{{ rec.get_reply_reaction_display }}{% endif %}{% if rec.reply_reaction and rec.reply_message %} · {% endif %}{% if rec.reply_message %}&ldquo;{{ rec.reply_message }}&rdquo;{% endif %}
+                </div>
+              {% else %}
+                <form
+                  hx-post="{% url 'reply_to_recommendation' rec.pk %}"
+                  hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+                  x-data="{ reaction: '', message: '' }"
+                  class="mt-1.5"
+                >
+                  {% csrf_token %}
+                  <div class="flex flex-wrap gap-1">
+                    <label class="w-5 h-5 rounded-full flex items-center justify-center text-[11px] bg-base-300 cursor-pointer has-checked:bg-primary spool-tooltip" data-tooltip="Interested">
+                      <input type="radio" name="reply_reaction" value="interested" x-model="reaction" class="sr-only">&#128064;
+                    </label>
+                    <label class="w-5 h-5 rounded-full flex items-center justify-center text-[11px] bg-base-300 cursor-pointer has-checked:bg-primary spool-tooltip" data-tooltip="Maybe Later">
+                      <input type="radio" name="reply_reaction" value="maybe_later" x-model="reaction" class="sr-only">&#9203;
+                    </label>
+                    <label class="w-5 h-5 rounded-full flex items-center justify-center text-[11px] bg-base-300 cursor-pointer has-checked:bg-primary spool-tooltip" data-tooltip="Hard Pass">
+                      <input type="radio" name="reply_reaction" value="hard_pass" x-model="reaction" class="sr-only">&#128581;
+                    </label>
+                    <label class="w-5 h-5 rounded-full flex items-center justify-center text-[11px] bg-base-300 cursor-pointer has-checked:bg-primary spool-tooltip" data-tooltip="Already Seen It">
+                      <input type="radio" name="reply_reaction" value="already_seen" x-model="reaction" class="sr-only">&#127871;
+                    </label>
+                    <label class="w-5 h-5 rounded-full flex items-center justify-center text-[11px] bg-base-300 cursor-pointer has-checked:bg-primary spool-tooltip" data-tooltip="Say Less">
+                      <input type="radio" name="reply_reaction" value="say_less" x-model="reaction" class="sr-only">&#129761;
+                    </label>
+                    <label class="w-5 h-5 rounded-full flex items-center justify-center text-[11px] bg-base-300 cursor-pointer has-checked:bg-primary spool-tooltip" data-tooltip="Bold Choice">
+                      <input type="radio" name="reply_reaction" value="bold_choice" x-model="reaction" class="sr-only">&#128527;
+                    </label>
+                  </div>
+                  <input
+                    type="text" name="reply_message" x-model="message" maxlength="160"
+                    placeholder="Reply…" aria-label="Reply"
+                    class="input input-xs w-full bg-base-100 mt-1.5"
+                  >
+                  <button type="submit" :disabled="!reaction && !message.trim()" class="btn btn-xs btn-primary w-full mt-1.5">Reply</button>
+                </form>
+              {% endif %}
             </div>
           </div>
         {% endif %}

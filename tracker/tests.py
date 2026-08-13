@@ -18122,3 +18122,241 @@ class MobileLayoutFixesTests(TestCase):
             "mobileSearchOpen = true; requestAnimationFrame(() => requestAnimationFrame(() => $refs.mobileSearchInput.focus()))",
         )
         self.assertNotContains(resp, "$nextTick(() => $refs.mobileSearchInput.focus())")
+
+
+class RecommendationReplyTests(TestCase):
+    """recommendations.reply() - the unit-level rules: independent of
+    status, one-shot (no-op on a second reply), requires at least one of
+    reaction/message, and always notifies from_profile when it actually
+    writes something."""
+
+    def setUp(self):
+        sender_user = User.objects.create_user("replysender", password="pass12345")
+        self.sender = Profile.objects.create(user=sender_user, display_name="ReplySender")
+        recipient_user = User.objects.create_user("replyrecipient", password="pass12345")
+        self.recipient = Profile.objects.create(user=recipient_user, display_name="ReplyRecipient")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        self.rec = Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+
+    def test_reaction_only_is_saved(self):
+        recommendations.reply(self.rec, reaction="interested")
+        self.rec.refresh_from_db()
+        self.assertEqual(self.rec.reply_reaction, "interested")
+        self.assertEqual(self.rec.reply_message, "")
+        self.assertIsNotNone(self.rec.replied_at)
+
+    def test_message_only_is_saved(self):
+        recommendations.reply(self.rec, message="can't wait to watch this!")
+        self.rec.refresh_from_db()
+        self.assertIsNone(self.rec.reply_reaction)
+        self.assertEqual(self.rec.reply_message, "can't wait to watch this!")
+        self.assertIsNotNone(self.rec.replied_at)
+
+    def test_both_reaction_and_message_are_saved(self):
+        recommendations.reply(self.rec, reaction="say_less", message="already queued it")
+        self.rec.refresh_from_db()
+        self.assertEqual(self.rec.reply_reaction, "say_less")
+        self.assertEqual(self.rec.reply_message, "already queued it")
+
+    def test_neither_reaction_nor_message_is_a_no_op(self):
+        recommendations.reply(self.rec, reaction="", message="   ")
+        self.rec.refresh_from_db()
+        self.assertIsNone(self.rec.reply_reaction)
+        self.assertEqual(self.rec.reply_message, "")
+        self.assertIsNone(self.rec.replied_at)
+        self.assertFalse(Notification.objects.filter(profile=self.sender).exists())
+
+    def test_invalid_reaction_value_is_dropped_not_saved(self):
+        recommendations.reply(self.rec, reaction="not-a-real-choice", message="still worth watching")
+        self.rec.refresh_from_db()
+        self.assertIsNone(self.rec.reply_reaction)
+        self.assertEqual(self.rec.reply_message, "still worth watching")
+
+    def test_reply_does_not_change_status(self):
+        recommendations.reply(self.rec, reaction="hard_pass")
+        self.rec.refresh_from_db()
+        self.assertEqual(self.rec.status, Recommendation.Status.PENDING)
+
+    def test_notifies_from_profile(self):
+        recommendations.reply(self.rec, reaction="interested", message="looks great")
+        n = Notification.objects.get(profile=self.sender)
+        self.assertEqual(n.kind, Notification.Kind.RECOMMENDATION_REPLIED)
+        self.assertEqual(n.title, self.title)
+        self.assertIn("ReplyRecipient replied", n.message)
+        self.assertIn("Fathom", n.message)
+
+    def test_replying_twice_is_a_no_op(self):
+        recommendations.reply(self.rec, reaction="interested")
+        self.rec.refresh_from_db()
+        first_replied_at = self.rec.replied_at
+        recommendations.reply(self.rec, reaction="hard_pass", message="changed my mind")
+        self.rec.refresh_from_db()
+        self.assertEqual(self.rec.reply_reaction, "interested")
+        self.assertEqual(self.rec.reply_message, "")
+        self.assertEqual(self.rec.replied_at, first_replied_at)
+        self.assertEqual(Notification.objects.filter(profile=self.sender).count(), 1)
+
+    def test_message_is_trimmed_and_capped_at_160_chars(self):
+        recommendations.reply(self.rec, message="  " + ("x" * 200) + "  ")
+        self.rec.refresh_from_db()
+        self.assertEqual(len(self.rec.reply_message), 160)
+        self.assertFalse(self.rec.reply_message.startswith(" "))
+
+
+class ReplyToRecommendationViewTests(TestCase):
+    """views.reply_to_recommendation - the HTTP layer around
+    recommendations.reply(): only to_profile can reply, and the response
+    is the same dashboard_recommendations.html partial every other
+    recommendation action here re-renders."""
+
+    def setUp(self):
+        sender_user = User.objects.create_user("viewreplysender", password="pass12345")
+        self.sender = Profile.objects.create(user=sender_user, display_name="ViewReplySender")
+        recipient_user = User.objects.create_user("viewreplyrecipient", password="pass12345")
+        self.recipient = Profile.objects.create(user=recipient_user, display_name="ViewReplyRecipient")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        self.rec = Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+
+    def test_recipient_can_reply(self):
+        self.client.login(username="viewreplyrecipient", password="pass12345")
+        resp = self.client.post(
+            reverse("reply_to_recommendation", args=[self.rec.pk]),
+            {"reply_reaction": "interested", "reply_message": "yes please"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.rec.refresh_from_db()
+        self.assertEqual(self.rec.reply_reaction, "interested")
+        self.assertEqual(self.rec.reply_message, "yes please")
+
+    def test_sender_cannot_reply_to_their_own_sent_recommendation(self):
+        self.client.login(username="viewreplysender", password="pass12345")
+        resp = self.client.post(
+            reverse("reply_to_recommendation", args=[self.rec.pk]), {"reply_reaction": "interested"}
+        )
+        self.assertEqual(resp.status_code, 404)
+        self.rec.refresh_from_db()
+        self.assertIsNone(self.rec.replied_at)
+
+    def test_unrelated_profile_cannot_reply(self):
+        other_user = User.objects.create_user("viewreplyother", password="pass12345")
+        Profile.objects.create(user=other_user, display_name="ViewReplyOther")
+        self.client.login(username="viewreplyother", password="pass12345")
+        resp = self.client.post(
+            reverse("reply_to_recommendation", args=[self.rec.pk]), {"reply_reaction": "interested"}
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_replying_twice_via_the_view_keeps_the_first_reply(self):
+        self.client.login(username="viewreplyrecipient", password="pass12345")
+        self.client.post(reverse("reply_to_recommendation", args=[self.rec.pk]), {"reply_reaction": "interested"})
+        self.client.post(reverse("reply_to_recommendation", args=[self.rec.pk]), {"reply_reaction": "hard_pass"})
+        self.rec.refresh_from_db()
+        self.assertEqual(self.rec.reply_reaction, "interested")
+
+    def test_reply_does_not_remove_the_recommendation_from_the_pending_feed(self):
+        self.client.login(username="viewreplyrecipient", password="pass12345")
+        self.client.post(reverse("reply_to_recommendation", args=[self.rec.pk]), {"reply_reaction": "interested"})
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "Recommended to you")
+        self.assertContains(resp, "Fathom")
+
+
+class DashboardRecommendationReplyUiTests(TestCase):
+    """The reply form/read-only display on dashboard_recommendations.html
+    itself - chips before a reply exists, the picked reaction/message
+    afterward, and no reply UI at all on an unopened mystery card."""
+
+    def setUp(self):
+        sender_user = User.objects.create_user("replyuisender", password="pass12345")
+        self.sender = Profile.objects.create(user=sender_user, display_name="ReplyUiSender")
+        recipient_user = User.objects.create_user("replyuirecipient", password="pass12345")
+        self.recipient = Profile.objects.create(user=recipient_user, display_name="ReplyUiRecipient")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        self.client.login(username="replyuirecipient", password="pass12345")
+
+    def test_unreplied_recommendation_shows_the_reply_form(self):
+        rec = Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, reverse("reply_to_recommendation", args=[rec.pk]))
+        self.assertContains(resp, 'name="reply_reaction"')
+        self.assertContains(resp, 'name="reply_message"')
+
+    def test_replied_recommendation_shows_the_reply_read_only_not_the_form(self):
+        rec = Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        recommendations.reply(rec, reaction="say_less", message="on it tonight")
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, rec.get_reply_reaction_display())
+        self.assertContains(resp, "on it tonight")
+        self.assertNotContains(resp, reverse("reply_to_recommendation", args=[rec.pk]))
+
+    def test_unrevealed_mystery_card_has_no_reply_ui(self):
+        rec = Recommendation.objects.create(
+            from_profile=self.sender, to_profile=self.recipient, title=self.title, is_blind=True
+        )
+        resp = self.client.get(reverse("dashboard"))
+        self.assertNotContains(resp, reverse("reply_to_recommendation", args=[rec.pk]))
+
+
+class RecommendCardReplyVisibilityTests(TestCase):
+    """recommend_card.html (title_detail's "Recommend to" sidebar) - the
+    only place a sender can currently see anything about a recommendation
+    they sent, so a reply has to surface here."""
+
+    def setUp(self):
+        sender_user = User.objects.create_user("cardreplysender", password="pass12345")
+        self.sender = Profile.objects.create(user=sender_user, display_name="CardReplySender")
+        recipient_user = User.objects.create_user("cardreplyrecipient", password="pass12345")
+        self.recipient = Profile.objects.create(user=recipient_user, display_name="CardReplyRecipient")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        self.client.login(username="cardreplysender", password="pass12345")
+
+    def test_no_reply_yet_shows_the_plain_sent_badge(self):
+        Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, 'title="Sent"')
+
+    def test_reply_shows_next_to_the_recipient_instead_of_the_plain_badge(self):
+        rec = Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        recommendations.reply(rec, reaction="bold_choice", message="never seen anything like it")
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, rec.get_reply_reaction_display())
+        self.assertNotContains(resp, 'title="Sent"')
+
+
+class RecommendationReplyEndToEndTests(TestCase):
+    """No mocks - a real send, a real reply, a real notification with a
+    working link back to where the sender can see it, driven entirely
+    through the app's own HTTP endpoints (mirrors RecommendationEndToEndTests'
+    watched-flow shape for the reply flow)."""
+
+    def test_full_flow(self):
+        sender_user = User.objects.create_user("replye2esender", password="pass12345")
+        sender = Profile.objects.create(user=sender_user, display_name="ReplyE2ESender")
+        recipient_user = User.objects.create_user("replye2erecipient", password="pass12345")
+        recipient = Profile.objects.create(user=recipient_user, display_name="ReplyE2ERecipient")
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+
+        self.client.login(username="replye2esender", password="pass12345")
+        self.client.post(reverse("send_recommendation", args=[title.pk]), {"to_profile_id": recipient.pk})
+        rec = Recommendation.objects.get(from_profile=sender, to_profile=recipient, title=title)
+
+        self.client.logout()
+        self.client.login(username="replye2erecipient", password="pass12345")
+        self.client.post(
+            reverse("reply_to_recommendation", args=[rec.pk]),
+            {"reply_reaction": "interested", "reply_message": "this weekend for sure"},
+        )
+        rec.refresh_from_db()
+        self.assertEqual(rec.status, Recommendation.Status.PENDING)
+
+        n = Notification.objects.get(profile=sender)
+        self.assertEqual(n.kind, Notification.Kind.RECOMMENDATION_REPLIED)
+        self.assertIn("ReplyE2ERecipient replied", n.message)
+
+        self.client.logout()
+        self.client.login(username="replye2esender", password="pass12345")
+        resp = self.client.get(reverse("notifications_panel"))
+        self.assertContains(resp, reverse("title_detail", args=[title.pk]))
+
+        resp = self.client.get(reverse("title_detail", args=[title.pk]))
+        self.assertContains(resp, "this weekend for sure")

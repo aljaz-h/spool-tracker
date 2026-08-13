@@ -1,5 +1,5 @@
-{% load icons %}
-{# context: title (Title|None), is_preview (bool), preview_media_type/preview_tmdb_id (when is_preview), other_profiles, already_watched_profile_ids, recommended_profile_ids #}
+{% load icons tracker_extras %}
+{# context: title (Title|None), is_preview (bool), preview_media_type/preview_tmdb_id (when is_preview), other_profiles, already_watched_profile_ids, recommended_profile_ids, reply_by_profile_id #}
 {% if other_profiles %}
   {% comment %}
     Capped to 4 visible rows + a "+N more" toggle - other_profiles grows
@@ -27,7 +27,27 @@
           {% if op.id in already_watched_profile_ids %}
             <span class="text-[10.5px] text-ink-faint flex-none">Already watched</span>
           {% elif op.id in recommended_profile_ids %}
-            <span class="w-7 h-7 rounded-full flex items-center justify-center flex-none bg-success/15 text-success" title="Sent">{% icon "check" "w-3.5 h-3.5" %}</span>
+            {% with reply=reply_by_profile_id|get_item:op.id %}
+              {% if reply %}
+                {% comment %}
+                  The only place a sender can see a reply today - there's
+                  no separate "sent recommendations" view, and this row
+                  already tracks per-profile send state, so a reply just
+                  extends the existing "Sent" badge instead of needing
+                  new UI. Full text lives in the tooltip since the row's
+                  own width doesn't leave room to show it uncropped.
+                {% endcomment %}
+                <span
+                  class="flex items-center gap-1 flex-none text-[10.5px] text-success max-w-[110px] spool-tooltip"
+                  data-tooltip="{% if reply.reply_reaction %}{{ reply.get_reply_reaction_display }}{% endif %}{% if reply.reply_reaction and reply.reply_message %} – {% endif %}{% if reply.reply_message %}&ldquo;{{ reply.reply_message }}&rdquo;{% endif %}"
+                >
+                  {% icon "check" "w-3.5 h-3.5 flex-none" %}
+                  <span class="truncate">{% if reply.reply_reaction %}{{ reply.get_reply_reaction_display }}{% else %}&ldquo;{{ reply.reply_message }}&rdquo;{% endif %}</span>
+                </span>
+              {% else %}
+                <span class="w-7 h-7 rounded-full flex items-center justify-center flex-none bg-success/15 text-success" title="Sent">{% icon "check" "w-3.5 h-3.5" %}</span>
+              {% endif %}
+            {% endwith %}
           {% else %}
             {% comment %}
               A not-yet-tracked preview title has no pk to post to yet -

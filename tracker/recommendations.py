@@ -2,6 +2,8 @@
 and the reasoning for resolving fulfillment via an explicit call at every
 WatchEvent-creation site rather than a signal."""
 
+from django.utils import timezone
+
 from .models import Notification, Recommendation, WatchEvent
 
 
@@ -66,3 +68,42 @@ def mark_title_watched(profile, title):
             title=title,
             message=f"{profile.display_name} watched your recommendation: {title.name}",
         )
+
+
+def reply(rec, reaction="", message=""):
+    """to_profile's one-shot acknowledgement back to from_profile - a
+    reaction chip and/or a short message, deliberately independent of
+    status (see models.Recommendation's own docstring: replying doesn't
+    mean watched). No-ops - no write, no notification - if rec already
+    has a reply (replied_at set): a reply is a quick take in the moment,
+    not an editable thread, the same "one click, no further edits" shape
+    views.dismiss_recommendation/reveal_recommendation already use. Also
+    no-ops if neither reaction nor message was actually given - the reply
+    form disables its own submit button in that case, this is the
+    server-side half of the same rule, not just a cosmetic one.
+
+    reaction is validated against ReplyReaction's own values (silently
+    dropped if not one of them) rather than trusted from the POST body
+    directly - the view passes request.POST.get("reply_reaction", "")
+    straight through."""
+    message = message.strip()[:160]
+    if reaction not in Recommendation.ReplyReaction.values:
+        reaction = ""
+    if rec.replied_at is not None or not (reaction or message):
+        return
+    rec.reply_reaction = reaction or None
+    rec.reply_message = message
+    rec.replied_at = timezone.now()
+    rec.save(update_fields=["reply_reaction", "reply_message", "replied_at"])
+
+    if reaction:
+        reaction_label = Recommendation.ReplyReaction(reaction).label
+        summary = f'{reaction_label} – "{message}"' if message else reaction_label
+    else:
+        summary = f'"{message}"'
+    Notification.objects.create(
+        profile=rec.from_profile,
+        kind=Notification.Kind.RECOMMENDATION_REPLIED,
+        title=rec.title,
+        message=f"{rec.to_profile.display_name} replied {summary} to your recommendation: {rec.title.name}",
+    )

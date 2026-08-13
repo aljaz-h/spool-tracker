@@ -74,6 +74,7 @@ urlpatterns = [
         views.add_recommendation_to_watchlist,
         name="add_recommendation_to_watchlist",
     ),
+    path("recommendations/<int:pk>/reply/", views.reply_to_recommendation, name="reply_to_recommendation"),
     path("person/<int:person_id>/", views.person_detail, name="person_detail"),
     path("titles/preview/<str:media_type>/<int:tmdb_id>/", views.title_preview, name="title_preview"),
     path(
