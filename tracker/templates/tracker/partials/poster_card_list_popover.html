@@ -1,4 +1,4 @@
-{% load icons %}
+{% load icons tracker_extras %}
 {# context: title (Title), my_lists (list of WatchList), in_list_ids (set of watchlist pk) #}
 {% comment %}
 The panel is position:fixed, placed via getBoundingClientRect() on open,
@@ -42,7 +42,7 @@ overflow-x-auto scroll clipping) entirely and floats above the page.
         hx-post="{% if list.id in in_list_ids %}{% url 'remove_from_list' list.id %}{% else %}{% url 'add_to_list' list.id %}{% endif %}"
         hx-vals='{"title_id": "{{ title.pk }}"}'
         hx-target="#list-popover-{{ title.pk }}"
-        hx-swap="outerHTML"
+        hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
         class="btn btn-xs w-full justify-between {% if list.id in in_list_ids %}btn-primary{% else %}btn-soft{% endif %}"
       >{{ list.name }} <span>{% if list.id in in_list_ids %}&#10003;{% else %}+{% endif %}</span></button>
     {% empty %}

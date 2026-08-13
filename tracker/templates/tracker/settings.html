@@ -212,6 +212,15 @@
           </div>
         </div>
 
+        <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="mt-4 pt-4 border-t border-line">
+          <input type="hidden" name="animations_enabled_submitted" value="1">
+          <label class="flex items-center justify-between gap-3 cursor-pointer">
+            <span class="text-[13.5px]">Interface animations</span>
+            <input type="checkbox" name="animations_enabled" class="checkbox checkbox-sm" {% if profile.animations_enabled %}checked{% endif %}>
+          </label>
+          <div class="text-[10.5px] text-ink-faint mt-1.5">Subtle transitions on a few interactions (mark watched, list actions, popovers). Off by default; always off if your system has reduced motion enabled, regardless of this setting.</div>
+        </form>
+
         <div class="text-ink-dim text-xs mt-4 mb-2">Time format</div>
         <form
           hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none"

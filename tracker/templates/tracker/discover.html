@@ -70,7 +70,7 @@
           {% endif %}
         </button>
 
-        <div x-ref="panel" x-show="open" x-cloak class="fixed w-80 max-h-[75vh] overflow-y-auto bg-base-200 border border-line rounded-lg shadow-lg z-40 flex flex-col">
+        <div x-ref="panel" x-cloak :class="{'spool-popover-open': open}" class="spool-popover fixed w-80 max-h-[75vh] overflow-y-auto bg-base-200 border border-line rounded-lg shadow-lg z-40 flex flex-col">
           <div class="flex items-center justify-between px-5 pt-5 pb-3">
             <h2 class="font-display text-xl">Filters</h2>
             <button type="button" @click="open = false" aria-label="Close filters" class="btn btn-sm btn-circle btn-ghost cursor-pointer">

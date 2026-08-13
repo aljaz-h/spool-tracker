@@ -25,7 +25,7 @@
             <button
               type="button"
               hx-post="{% url 'title_unmark_season_watched' title.pk season %}"
-              hx-target="#episodes-panel" hx-swap="outerHTML"
+              hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
               hx-confirm="Remove every watched mark for Season {{ season }} of “{{ title.name }}”? This can't be undone."
               class="bg-error/10 border border-error/30 rounded-lg text-xs font-semibold px-3 py-1.5 text-error cursor-pointer hover:bg-error/20 transition-colors"
             >Unmark season watched</button>
@@ -33,7 +33,7 @@
             <button
               type="button"
               hx-post="{% url 'title_mark_season_watched' title.pk season %}"
-              hx-target="#episodes-panel" hx-swap="outerHTML"
+              hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
               hx-confirm="Mark every episode of Season {{ season }} of “{{ title.name }}” as watched?"
               class="bg-base-200 border border-line rounded-lg text-xs font-semibold px-3 py-1.5 text-base-content cursor-pointer hover:bg-base-300 transition-colors"
             >Mark season watched</button>
@@ -42,7 +42,7 @@
             <button
               type="button"
               hx-post="{% url 'title_unmark_all_seasons_watched' title.pk %}"
-              hx-target="#episodes-panel" hx-swap="outerHTML"
+              hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
               hx-confirm="Remove every watched mark for every season of “{{ title.name }}”? This can't be undone."
               class="bg-error/10 border border-error/30 rounded-lg text-xs font-semibold px-3 py-1.5 text-error cursor-pointer hover:bg-error/20 transition-colors"
             >Unmark all watched</button>
@@ -50,7 +50,7 @@
             <button
               type="button"
               hx-post="{% url 'title_mark_all_seasons_watched' title.pk %}"
-              hx-target="#episodes-panel" hx-swap="outerHTML"
+              hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
               hx-confirm="Mark every episode of every season of “{{ title.name }}” as watched? This can take a moment for shows with many seasons."
               class="bg-base-200 border border-line rounded-lg text-xs font-semibold px-3 py-1.5 text-base-content cursor-pointer hover:bg-base-300 transition-colors"
             >Mark all watched</button>
@@ -90,7 +90,7 @@
               <button
                 type="button"
                 hx-get="{% if title %}{% url 'title_episodes' title.pk %}{% else %}{% url 'title_preview_episodes' preview_media_type preview_tmdb_id %}{% endif %}?season={{ s }}"
-                hx-target="#episodes-panel" hx-swap="outerHTML"
+                hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
                 @click="open = false"
                 class="btn btn-xs w-full justify-between {% if s == season %}btn-primary{% else %}btn-soft{% endif %}"
               >

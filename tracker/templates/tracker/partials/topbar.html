@@ -139,7 +139,7 @@
           {% icon "bell" "w-[17px] h-[17px]" %}
           {% include "tracker/partials/notification_badge.html" %}
         </button>
-        <div x-ref="panel" x-show="open" x-cloak class="fixed w-96 bg-base-200 border border-line rounded-lg shadow-lg z-40">
+        <div x-ref="panel" x-cloak :class="{'spool-popover-open': open}" class="spool-popover fixed w-96 bg-base-200 border border-line rounded-lg shadow-lg z-40">
           <div id="notifications-dropdown-content" aria-live="polite">
             <div class="px-3 py-8 text-center text-ink-faint text-xs">Loading…</div>
           </div>
@@ -174,7 +174,7 @@
         >
           {% icon "users" "w-[17px] h-[17px]" %}
         </button>
-        <div x-ref="panel" x-show="open" x-cloak class="fixed w-64 bg-base-200 border border-line rounded-lg shadow-lg z-40 py-1">
+        <div x-ref="panel" x-cloak :class="{'spool-popover-open': open}" class="spool-popover fixed w-64 bg-base-200 border border-line rounded-lg shadow-lg z-40 py-1">
           <div class="px-3 py-2 text-[11px] font-semibold text-ink-dim uppercase tracking-wide border-b border-line">Friends</div>
           {% for p in other_profiles %}
             <button
@@ -231,7 +231,7 @@
             {% icon "chevron-down" "w-3.5 h-3.5 text-ink-dim" %}
           </span>
         </button>
-        <div x-ref="panel" x-show="open" x-cloak class="fixed w-52 bg-base-200 border border-line rounded-lg shadow-lg z-40 py-1">
+        <div x-ref="panel" x-cloak :class="{'spool-popover-open': open}" class="spool-popover fixed w-52 bg-base-200 border border-line rounded-lg shadow-lg z-40 py-1">
           <div class="px-3 py-2 text-xs text-ink-dim border-b border-line truncate">{{ active_profile.display_name }}</div>
           <a href="{% url 'settings' %}" class="flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-base-300">
             {% icon "settings" "w-4 h-4 text-ink-dim" %} Settings

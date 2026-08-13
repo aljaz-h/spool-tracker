@@ -237,3 +237,78 @@
   cursor: grabbing;
   z-index: 20;
 }
+
+/* ==========================================================================
+   Animation system - Settings -> Appearance -> "Interface animations"
+   (Profile.animations_enabled, off by default).
+   ==========================================================================
+   Every transition in this block is centralized here rather than scattered
+   per-template, gated behind body[data-animations="on"] (rendered server-
+   side in base.html straight from the profile field via
+   tracker/context_processors.py's active_profile - no JS reads or toggles
+   the setting itself). The prefers-reduced-motion media query wraps the
+   attribute selector, not the other way around, so a reduced-motion OS
+   setting always wins regardless of what the profile toggle says - the one
+   hard accessibility rule here.
+
+   "Off" (the default) is meant to be genuinely off, not just fast: every
+   rule below only ever adds a `transition` to a state change that already
+   happens instantly without it - the base/end states themselves (opacity,
+   visibility, htmx's own swap classes) are always declared unconditionally
+   elsewhere, so nothing is hidden or stuck waiting on this media query.
+   The one place a real delay is involved - the swap:/settle: timing
+   htmx needs in order to animate a swap at all - is added server-side
+   per element (see poster_card_watched_button.html and friends), not
+   here, and only when the profile flag is on - so it's simply absent,
+   not present-but-invisible, when animations are off. 150-300ms,
+   ease/ease-out only, opacity/transform only - no bounce, no scale past a
+   couple percent, nothing that calls attention to itself. */
+@media (prefers-reduced-motion: no-preference) {
+  /* htmx's documented CSS-transition hook (https://htmx.org/docs/#css_transitions) -
+     only ever applied to elements whose hx-swap carries a swap:/settle:
+     delay, so this never touches the app's many other, un-modified instant
+     swaps. */
+  body[data-animations="on"] .htmx-swapping {
+    opacity: 0;
+    transition: opacity 150ms ease-out;
+  }
+  body[data-animations="on"] .htmx-added {
+    opacity: 0;
+  }
+  body[data-animations="on"] .htmx-settling {
+    opacity: 1;
+    transition: opacity 150ms ease-in;
+  }
+
+  /* Popovers/panels that show via a plain Alpine boolean bound to the
+     .spool-popover-open class below (not x-show's display:none, which
+     can't be CSS-transitioned across) - shared by the topbar's
+     Notifications/Friends/Profile dropdowns and Discover's Filters panel.
+     visibility is delayed only on the way out, so a released popover stays
+     interactive-free but still painted (fading) for the duration, and the
+     way in is instant so the fade-in is visible from frame one. */
+  body[data-animations="on"] .spool-popover {
+    transition: opacity 150ms ease, visibility 0s linear 150ms;
+  }
+  body[data-animations="on"] .spool-popover.spool-popover-open {
+    transition: opacity 150ms ease, visibility 0s linear 0s;
+  }
+
+  /* Bottom sheet's drag-release snap-back (bottom_sheet.html) - toggled on
+     just long enough to clear the inline drag transform, so a released-
+     but-not-dismissed drag eases back instead of jumping to rest. */
+  body[data-animations="on"] .spool-snap-back {
+    transition: transform 200ms ease-out;
+  }
+}
+
+.spool-popover {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.spool-popover.spool-popover-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}

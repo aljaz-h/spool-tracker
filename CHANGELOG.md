@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.101.0] - 2026-08-13
+
+### Added
+
+- Interface animations: an off-by-default Settings → Appearance toggle
+  (`Profile.animations_enabled`) enables subtle (150-300ms,
+  opacity/transform-only) transitions on mark-watched/list actions,
+  popovers, list/episode pagination, and the mobile bottom sheet's
+  drag-release. Centralized in `static/src/app.css`, gated behind
+  `body[data-animations]` and `prefers-reduced-motion`, which always
+  overrides the profile setting.
+
 ## [0.100.0] - 2026-08-13
 
 ### Added

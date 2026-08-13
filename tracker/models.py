@@ -90,6 +90,16 @@ class Profile(models.Model):
     # field existed, and still the common case for a single-household,
     # single-timezone instance.
     timezone = models.CharField(max_length=50, blank=True, default="")
+    # Settings → Appearance - subtle CSS transitions on a handful of
+    # interactions (mark-watched, list add/remove, popovers, ...) - see
+    # static/src/app.css's own "Animation system" section and
+    # base.html's <body data-animations>. Off by default: this is
+    # motion layered onto interactions that already work fine instantly,
+    # not something the app depends on, so a new install shouldn't have
+    # it on without the person asking for it. prefers-reduced-motion at
+    # the OS level always overrides this when true, regardless of what
+    # this field says (handled entirely in CSS, not here).
+    animations_enabled = models.BooleanField(default=False)
     # Settings → Preferences - pre-fills Movies & TV/Anime's own genre
     # filter (with_genres) on a fresh visit. Populated from a chip picker
     # sourced from tmdb.genres("movie") - the movie catalog is reused for

@@ -12,6 +12,29 @@ def eq(value, other):
 
 
 @register.filter
+def animated_swap(base_swap, animations_enabled):
+    """hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" -
+    the one place the animation system's swap:/settle: timing is decided,
+    so every opted-in hx-swap in the app goes through here instead of
+    repeating the same {% if %} at each call site (see static/src/app.css's
+    "Animation system" section for the actual transition rules these
+    classes/timings drive - htmx only adds its .htmx-swapping/.htmx-settling
+    classes when a swap has an explicit delay, which is exactly what this
+    appends).
+
+    Deliberately keyed on the profile flag alone, not prefers-reduced-motion -
+    that's a client-only signal Django can't see, so it's left entirely to
+    the CSS media query on the *visual* side. The tradeoff: someone with
+    the profile toggle on and OS-level reduced motion on gets a still-
+    instant swap with a brief invisible pause (the delay fires, the fade
+    the CSS would have shown doesn't) rather than a truly instant one -
+    judged an acceptable, narrow edge case rather than reaching for a
+    client-side reduced-motion check per element, which is exactly the
+    scattered-JS-toggle pattern this system is trying to avoid."""
+    return f"{base_swap} swap:150ms settle:150ms" if animations_enabled else base_swap
+
+
+@register.filter
 def in_list(value, arg):
     """Same gap as eq (see its own docstring), for "is this one of
     several route names" - arg is a comma-separated string, e.g.

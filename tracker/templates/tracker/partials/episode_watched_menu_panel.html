@@ -1,4 +1,4 @@
-{% load icons %}
+{% load icons tracker_extras %}
 {# context: title (Title), season, episode_number, id_suffix (str, optional) - the episode watched button's popover menu, mirrors watched_menu_panel.html but scoped to a single episode instead of the whole title. Each POST button targets "closest div.relative" (episode_watched_button.html's own wrapper). #}
 <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1 border-b border-line">
   <div class="min-w-0">
@@ -20,7 +20,7 @@
   type="button"
   hx-post="{% url 'episode_mark_watched' title.pk season episode_number %}"
   hx-target="closest div.relative"
-  hx-swap="outerHTML"
+  hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
   hx-vals='{"id_suffix": "{{ id_suffix }}"}'
   class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
 >
@@ -35,7 +35,7 @@
   type="button"
   hx-post="{% url 'episode_unmark_last_watched' title.pk season episode_number %}"
   hx-target="closest div.relative"
-  hx-swap="outerHTML"
+  hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
   hx-vals='{"id_suffix": "{{ id_suffix }}"}'
   class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
 >
@@ -50,7 +50,7 @@
   type="button"
   hx-post="{% url 'episode_unmark_all_watched' title.pk season episode_number %}"
   hx-target="closest div.relative"
-  hx-swap="outerHTML"
+  hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
   hx-vals='{"id_suffix": "{{ id_suffix }}"}'
   hx-confirm="Remove all watched history for S{{ season }}E{{ episode_number }} of “{{ title.name }}”? This can't be undone."
   class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"

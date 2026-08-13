@@ -27,7 +27,17 @@
   x-data="{ dragY: 0, dragging: false, startY: 0 }"
   @touchstart="dragging = true; dragY = 0; startY = $event.touches[0].clientY"
   @touchmove="if (dragging) { dragY = Math.max(0, $event.touches[0].clientY - startY); $el.style.transform = `translateY(${dragY}px)` }"
-  @touchend="dragging = false; $el.style.transform = ''; if (dragY > 80) bottomSheetOpen = false"
+  @touchend="
+    dragging = false;
+    if (dragY > 80) {
+      $el.style.transform = '';
+      bottomSheetOpen = false;
+    } else {
+      $el.classList.add('spool-snap-back');
+      $el.style.transform = '';
+      setTimeout(() => $el.classList.remove('spool-snap-back'), 200);
+    }
+  "
 >
   {% comment %}
     Drag handle - the only part of the sheet the swipe-down listeners

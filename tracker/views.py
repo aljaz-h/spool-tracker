@@ -3880,14 +3880,21 @@ def run_maintenance_task(request, task_key):
 def save_appearance(request):
     """One endpoint for every Appearance control (time format, default
     landing page, preferred language, Discover watched/watchlisted display,
-    genre/provider/region preferences) - each field only touches
-    update_fields it actually received, so any single control's htmx
-    submit (they each post independently, on change) leaves the others
-    untouched."""
+    genre/provider/region preferences, interface animations) - each field
+    only touches update_fields it actually received, so any single
+    control's htmx submit (they each post independently, on change) leaves
+    the others untouched."""
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
     update_fields = []
+    # Own hidden marker, not the checkbox's own name - same reasoning as
+    # the genre/provider chip forms below: unchecked vanishes from POST
+    # entirely, so "turned off" would otherwise be indistinguishable from
+    # "a different control's form was submitted".
+    if "animations_enabled_submitted" in request.POST:
+        profile.animations_enabled = bool(request.POST.get("animations_enabled"))
+        update_fields.append("animations_enabled")
     time_format = request.POST.get("time_format")
     if time_format in Profile.TimeFormat.values:
         profile.time_format = time_format

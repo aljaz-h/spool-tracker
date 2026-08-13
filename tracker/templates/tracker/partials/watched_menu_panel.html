@@ -1,4 +1,4 @@
-{% load icons %}
+{% load icons tracker_extras %}
 {# context: title (Title) - the popover's menu content, shared between poster_card_watched_button.html (grids) and title_detail_watched_button.html (the detail page's own header). Each POST button targets "closest div.relative" rather than a hardcoded id, so this same panel works unmodified inside either wrapper. #}
 <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1 border-b border-line">
   <div class="min-w-0">
@@ -20,7 +20,7 @@
   type="button"
   hx-post="{% url 'title_mark_watched' title.pk %}"
   hx-target="closest div.relative"
-  hx-swap="outerHTML"
+  hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
   class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
 >
   <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "eye" "w-4 h-4" %}</span>
@@ -34,7 +34,7 @@
   type="button"
   hx-post="{% url 'title_unmark_last_watched' title.pk %}"
   hx-target="closest div.relative"
-  hx-swap="outerHTML"
+  hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
   class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
 >
   <span class="w-8 h-8 rounded-full bg-error/15 flex items-center justify-center flex-none text-error">{% icon "eye-off" "w-4 h-4" %}</span>
@@ -48,7 +48,7 @@
   type="button"
   hx-post="{% url 'title_unmark_watched' title.pk %}"
   hx-target="closest div.relative"
-  hx-swap="outerHTML"
+  hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
   hx-confirm="Remove all watched history for “{{ title.name }}”? This can't be undone."
   class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
 >

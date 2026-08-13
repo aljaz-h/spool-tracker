@@ -3184,6 +3184,30 @@ class SaveAppearanceViewTests(TestCase):
         self.profile = Profile.objects.create(user=user, display_name="AppearanceUser")
         self.client.login(username="appearanceuser", password="pass12345")
 
+    def test_saves_animations_enabled(self):
+        self.client.post(
+            reverse("save_appearance"), {"animations_enabled_submitted": "1", "animations_enabled": "on"}
+        )
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.animations_enabled)
+
+    def test_unchecking_animations_turns_it_off(self):
+        self.profile.animations_enabled = True
+        self.profile.save(update_fields=["animations_enabled"])
+        # No animations_enabled key at all - unchecked - but the marker
+        # is still present, so this is a deliberate turn-off, not "this
+        # control's form wasn't the one submitted".
+        self.client.post(reverse("save_appearance"), {"animations_enabled_submitted": "1"})
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.animations_enabled)
+
+    def test_animations_enabled_untouched_when_marker_absent(self):
+        self.profile.animations_enabled = True
+        self.profile.save(update_fields=["animations_enabled"])
+        self.client.post(reverse("save_appearance"), {"time_format": "24h"})
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.animations_enabled)
+
     def test_saves_time_format(self):
         self.client.post(reverse("save_appearance"), {"time_format": "24h"})
         self.profile.refresh_from_db()
@@ -15588,6 +15612,108 @@ class PosterSizeFilterTests(TestCase):
 
         backdrop = "https://image.tmdb.org/t/p/w1280/xyz.jpg"
         self.assertEqual(poster_size(backdrop, "w185"), backdrop)
+
+
+class AnimationSystemTests(TestCase):
+    """The animation system's server-driven half: base.html's
+    <body data-animations> attribute, set straight from
+    Profile.animations_enabled (off by default) via context_processors.
+    active_profile - no view needs to pass anything extra for this to
+    work on every page. The actual transitions/accessibility override
+    live entirely in static/src/app.css, not exercised here."""
+
+    def setUp(self):
+        user = User.objects.create_user("animationsuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="AnimationsUser")
+        self.client.login(username="animationsuser", password="pass12345")
+
+    def test_body_attribute_off_by_default(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, 'data-animations="off"')
+
+    def test_body_attribute_on_once_enabled(self):
+        self.profile.animations_enabled = True
+        self.profile.save(update_fields=["animations_enabled"])
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, 'data-animations="on"')
+
+    def test_toggling_the_setting_changes_the_attribute_without_special_casing_a_view(self):
+        # Same view (dashboard), same request shape, only the profile
+        # field differs - proves the attribute is driven by the shared
+        # context processor/base template, not something a specific view
+        # has to opt into passing.
+        resp_off = self.client.get(reverse("dashboard"))
+        self.assertContains(resp_off, 'data-animations="off"')
+        self.profile.animations_enabled = True
+        self.profile.save(update_fields=["animations_enabled"])
+        resp_on = self.client.get(reverse("dashboard"))
+        self.assertContains(resp_on, 'data-animations="on"')
+
+    def test_authenticated_user_with_no_profile_yet_renders_off_not_an_error(self):
+        User.objects.create_user("noprofileyet", password="pass12345")
+        self.client.logout()
+        self.client.login(username="noprofileyet", password="pass12345")
+        resp = self.client.get(reverse("dashboard"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'data-animations="off"')
+
+    def test_settings_animations_toggle_is_off_by_default_and_reflects_the_saved_value(self):
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, 'name="animations_enabled"')
+        self.assertNotContains(resp, 'name="animations_enabled" class="checkbox checkbox-sm" checked')
+        self.profile.animations_enabled = True
+        self.profile.save(update_fields=["animations_enabled"])
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, 'name="animations_enabled" class="checkbox checkbox-sm" checked')
+
+    def test_animated_swap_actually_differs_in_rendered_markup(self):
+        # Step 4 scope check, end to end: the exact same page (Discover's
+        # mark-watched button family) renders a genuinely different
+        # hx-swap attribute depending on the profile setting - not just
+        # the filter unit itself (AnimatedSwapFilterTests), the real
+        # template output.
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Animated Movie", year=2020)
+        resp_off = self.client.get(reverse("title_detail", args=[title.pk]))
+        self.assertContains(resp_off, 'hx-swap="outerHTML"')
+        self.profile.animations_enabled = True
+        self.profile.save(update_fields=["animations_enabled"])
+        resp_on = self.client.get(reverse("title_detail", args=[title.pk]))
+        self.assertContains(resp_on, 'hx-swap="outerHTML swap:150ms settle:150ms"')
+
+    def test_popover_classes_present_regardless_of_the_setting(self):
+        # The popover fade is gated purely in CSS (see app.css), not a
+        # template conditional - the same spool-popover/-open classes
+        # render either way; only the CSS decides whether that's visible.
+        resp_off = self.client.get(reverse("dashboard"))
+        self.assertContains(resp_off, "spool-popover")
+        self.profile.animations_enabled = True
+        self.profile.save(update_fields=["animations_enabled"])
+        resp_on = self.client.get(reverse("dashboard"))
+        self.assertContains(resp_on, "spool-popover")
+
+
+class AnimatedSwapFilterTests(TestCase):
+    """tracker_extras.animated_swap - the one place the animation
+    system's htmx swap:/settle: timing is decided, so an opted-in
+    hx-swap's actual delay lives in one function, not repeated per
+    template. See static/src/app.css's "Animation system" section for
+    the CSS these timings drive (htmx only applies .htmx-swapping/
+    .htmx-settling when a swap has an explicit delay)."""
+
+    def test_appends_swap_and_settle_timing_when_enabled(self):
+        from tracker.templatetags.tracker_extras import animated_swap
+
+        self.assertEqual(animated_swap("outerHTML", True), "outerHTML swap:150ms settle:150ms")
+
+    def test_leaves_the_base_swap_untouched_when_disabled(self):
+        from tracker.templatetags.tracker_extras import animated_swap
+
+        self.assertEqual(animated_swap("outerHTML", False), "outerHTML")
+
+    def test_works_with_any_base_swap_value(self):
+        from tracker.templatetags.tracker_extras import animated_swap
+
+        self.assertEqual(animated_swap("innerHTML", True), "innerHTML swap:150ms settle:150ms")
 
 
 class IconTagTests(TestCase):

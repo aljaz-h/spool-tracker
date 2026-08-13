@@ -1,4 +1,4 @@
-{% load icons %}
+{% load icons tracker_extras %}
 {# context: media_type (str), tmdb_id (int), my_lists (list of WatchList) - a not-yet-tracked preview title, so every list starts unchecked (nothing to remove yet - see title_preview_add_to_list) #}
 <div class="relative flex-1" x-data="{
   open: false,
@@ -32,7 +32,7 @@
         type="button"
         hx-post="{% url 'title_preview_add_to_list' media_type tmdb_id list.id %}"
         hx-target="closest div.relative"
-        hx-swap="outerHTML"
+        hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
         class="btn btn-xs btn-soft w-full justify-between"
       >{{ list.name }} <span>+</span></button>
     {% empty %}

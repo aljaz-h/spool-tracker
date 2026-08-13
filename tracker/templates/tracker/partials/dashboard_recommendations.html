@@ -25,13 +25,13 @@ heading/divider left behind.
               {% else %}
                 <div class="absolute top-2 left-2 z-10 w-6 h-6 rounded-full flex items-center justify-center font-mono text-[11px] font-semibold ring-2 ring-black/40" style="background:{{ rec.from_profile.avatar_color }};color:#fff;">{{ rec.from_profile.display_name|first|upper }}</div>
               {% endif %}
-              <form hx-post="{% url 'dismiss_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="outerHTML" class="absolute top-2 right-2 z-10">
+              <form hx-post="{% url 'dismiss_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" class="absolute top-2 right-2 z-10">
                 {% csrf_token %}
                 <button type="submit" class="w-6 h-6 rounded-full bg-black/50 hover:bg-black/70 text-white/90 text-sm leading-none flex items-center justify-center" title="Dismiss">&times;</button>
               </form>
               <span class="text-3xl">&#127873;</span>
               <div class="text-[13px] font-semibold leading-snug">Mystery recommendation</div>
-              <form hx-post="{% url 'reveal_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="outerHTML">
+              <form hx-post="{% url 'reveal_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
                 {% csrf_token %}
                 <button type="submit" class="btn btn-xs btn-primary">Open it</button>
               </form>
@@ -55,7 +55,7 @@ heading/divider left behind.
               {% if rec.is_blind %}
                 <span class="absolute bottom-2 left-2 z-10 text-base" title="Was a mystery recommendation">&#127873;</span>
               {% endif %}
-              <form hx-post="{% url 'dismiss_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="outerHTML" class="absolute top-2 right-2 z-10">
+              <form hx-post="{% url 'dismiss_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" class="absolute top-2 right-2 z-10">
                 {% csrf_token %}
                 <button type="submit" class="w-6 h-6 rounded-full bg-black/60 hover:bg-black/80 text-white/90 text-sm leading-none flex items-center justify-center" title="Dismiss">&times;</button>
               </form>
@@ -65,7 +65,7 @@ heading/divider left behind.
             </div>
             <div class="mt-2">
               <div class="text-xs text-ink-dim truncate">by {{ rec.from_profile.display_name }} &middot; {{ rec.created_at|timesince }} ago</div>
-              <form hx-post="{% url 'add_recommendation_to_watchlist' rec.pk %}" hx-target="#recommendations-block" hx-swap="outerHTML" class="mt-1.5">
+              <form hx-post="{% url 'add_recommendation_to_watchlist' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" class="mt-1.5">
                 {% csrf_token %}
                 {% if rec.title.pk in watchlisted_title_ids %}
                   <button type="button" disabled class="btn btn-xs btn-soft text-success w-full">&#10003; Added</button>
