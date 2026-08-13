@@ -156,6 +156,26 @@
     </div>
   {% endif %}
 
+  {# ---- On This Day: titles this profile watched on today's date in a previous year - see selectors.on_this_day(). ---- #}
+  {% if on_this_day %}
+    <div class="mb-8">
+      <div class="flex justify-between items-center mb-3.5">
+        <h2 class="font-display text-xl">On This Day</h2>
+      </div>
+      <div class="relative">
+        <div class="flex flex-nowrap gap-4 overflow-hidden">
+          {% for entry in on_this_day %}
+            <div class="flex flex-col gap-1.5">
+              {% include "tracker/partials/poster_card.html" with title=entry.title show_ratings=True %}
+              <div class="text-[11px] text-ink-faint text-center">{{ entry.years_ago }} year{{ entry.years_ago|pluralize }} ago today</div>
+            </div>
+          {% endfor %}
+        </div>
+        <div class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-base-100 to-transparent"></div>
+      </div>
+    </div>
+  {% endif %}
+
   {% if because_you_watched %}
     <div class="dashboard-rule my-9"></div>
 

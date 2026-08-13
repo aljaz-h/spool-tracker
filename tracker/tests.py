@@ -10287,6 +10287,48 @@ class DashboardWatchingWatchlistTests(TestCase):
         resp = self.client.get(reverse("dashboard"))
         self.assertEqual(len(resp.context["recently_watched"]), 3)
 
+    def test_on_this_day_shows_a_title_watched_on_this_date_in_a_previous_year(self):
+        from django.utils import timezone
+
+        today = timezone.localdate()
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Nostalgic Movie", year=2019)
+        WatchEvent.objects.create(
+            profile=self.profile, title=title, watched_at=today.replace(year=today.year - 3)
+        )
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "On This Day")
+        self.assertContains(resp, "Nostalgic Movie")
+        self.assertContains(resp, "3 years ago today")
+
+    def test_on_this_day_excludes_a_title_watched_earlier_this_year(self):
+        from django.utils import timezone
+
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Watched Earlier This Year", year=2024)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at=timezone.now())
+        resp = self.client.get(reverse("dashboard"))
+        self.assertNotContains(resp, "On This Day")
+
+    def test_on_this_day_excludes_a_title_watched_on_a_different_date(self):
+        from django.utils import timezone
+
+        today = timezone.localdate()
+        other_day = today.replace(year=today.year - 1, day=1, month=1) if (today.month, today.day) != (1, 1) else today.replace(year=today.year - 1, day=2)
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Different Day Movie", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at=other_day)
+        resp = self.client.get(reverse("dashboard"))
+        self.assertNotContains(resp, "On This Day")
+
+    def test_on_this_day_dedupes_a_same_day_rewatch_in_the_same_past_year(self):
+        from django.utils import timezone
+
+        today = timezone.localdate()
+        past = today.replace(year=today.year - 2)
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Rewatched Same Day", year=2018)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at=past)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at=past, is_rewatch=True)
+        resp = self.client.get(reverse("dashboard"))
+        self.assertEqual(len(resp.context["on_this_day"]), 1)
+
     def test_shows_all_watching_items_not_just_a_teaser(self):
         for i in range(10):
             title = Title.objects.create(media_type=MediaType.TV, name=f"Show {i}", year=2020)

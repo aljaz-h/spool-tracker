@@ -5,7 +5,7 @@ the template")."""
 from datetime import timedelta
 
 from django.db.models import Count, Q, Sum
-from django.db.models.functions import Coalesce, ExtractHour
+from django.db.models.functions import Coalesce, ExtractDay, ExtractHour, ExtractMonth
 from django.utils import timezone
 
 from .models import (
@@ -487,6 +487,42 @@ def social_activity(profile, limit=12):
         .prefetch_related("title__ratings")
         .order_by("-watched_at")[:limit]
     )
+
+
+def on_this_day(profile, today=None, limit=8):
+    """Dashboard's "On This Day" row - titles this profile watched on
+    today's month/day in a previous year, newest year first. Bucketed on
+    watched_at's LOCAL month/day (ExtractMonth/Day's tzinfo param, same
+    approach as peak_hours' ExtractHour above), not the UTC date it's
+    stored as - a household near a day boundary shouldn't see a card
+    appear/vanish depending on which side of UTC midnight they're on.
+    Deduped to one card per (title, year) - a same-day rewatch binge
+    would otherwise repeat the same nostalgia moment multiple times."""
+    today = today or timezone.localdate()
+    events = (
+        WatchEvent.objects.filter(profile=profile)
+        .annotate(
+            month=ExtractMonth("watched_at", tzinfo=timezone.get_current_timezone()),
+            day=ExtractDay("watched_at", tzinfo=timezone.get_current_timezone()),
+        )
+        .filter(month=today.month, day=today.day)
+        .exclude(watched_at__year=today.year)
+        .select_related("title")
+        .prefetch_related("title__ratings")
+        .order_by("-watched_at")
+    )
+    seen_years = set()
+    entries = []
+    for event in events:
+        year = timezone.localtime(event.watched_at).year
+        key = (event.title_id, year)
+        if key in seen_years:
+            continue
+        seen_years.add(key)
+        entries.append({"title": event.title, "years_ago": today.year - year})
+        if len(entries) >= limit:
+            break
+    return entries
 
 
 def library_watchlist(profile, media_types):

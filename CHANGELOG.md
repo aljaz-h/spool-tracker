@@ -8,6 +8,13 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.96.0] - 2026-08-13
+
+### Added
+
+- "On This Day": Dashboard row surfacing titles you watched on today's
+  date in a previous year, newest year first.
+
 ## [0.95.0] - 2026-08-13
 
 ### Added

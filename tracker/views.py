@@ -201,11 +201,13 @@ def dashboard(request):
         # bar), so its titles do need to be in there like everything else.
         recently_watched = selectors.recently_watched(profile, media_types)
         social_activity = selectors.social_activity(profile)
+        on_this_day = selectors.on_this_day(profile)
         all_titles = (
             [item["title"] for item in continue_watching]
             + [item.title for item in watchlist_items]
             + start_watching
             + [event.title for event in social_activity]
+            + [entry["title"] for entry in on_this_day]
         )
         context.update(
             {
@@ -215,6 +217,7 @@ def dashboard(request):
                 "start_watching": start_watching,
                 "recently_watched": recently_watched,
                 "social_activity": social_activity,
+                "on_this_day": on_this_day,
                 "up_next": selectors.up_next(profile, limit=4),
                 "stats": stats,
                 "milestone": selectors.milestone_message(stats["streak"], stats["movies_this_year"]),
