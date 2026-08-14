@@ -16990,7 +16990,14 @@ class HistoryTileDeleteButtonsTests(TestCase):
         WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now)
         resp = self.client.get(reverse("history"))
         self.assertContains(resp, "Remove from history")
-        self.assertNotContains(resp, "opacity-0")
+        # Scoped to the button's own markup, not a whole-page check - the
+        # mobile search bar (topbar.html, present on every page) has its
+        # own legitimate opacity-0 for its closed state, unrelated to
+        # whether this button is hover-gated.
+        content = resp.content.decode()
+        button_start = content.index('title="Remove from history"')
+        button_markup = content[button_start : content.index(">", button_start)]
+        self.assertNotIn("opacity-0", button_markup)
 
     def test_group_tile_delete_button_confirm_shows_the_play_count(self):
         show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
@@ -17007,7 +17014,14 @@ class HistoryTileDeleteButtonsTests(TestCase):
             ep = Episode.objects.create(title=show, season=1, episode=i)
             WatchEvent.objects.create(profile=self.profile, title=show, episode=ep, watched_at=self.now - timedelta(minutes=i))
         resp = self.client.get(reverse("history"))
-        self.assertNotContains(resp, "opacity-0")
+        # Scoped to the button's own markup - see test_single_tile_delete_
+        # button_is_not_hover_gated's comment for why a whole-page check
+        # no longer works now that topbar.html's mobile search bar has
+        # its own legitimate, unrelated opacity-0.
+        content = resp.content.decode()
+        button_start = content.index('title="Remove all 2 plays"')
+        button_markup = content[button_start : content.index(">", button_start)]
+        self.assertNotIn("opacity-0", button_markup)
 
 
 class WatchProgressDeleteApiTests(TestCase):
@@ -18104,24 +18118,45 @@ class MobileLayoutFixesTests(TestCase):
         self.assertContains(resp, '<span class="sm:hidden">M</span>')
         self.assertContains(resp, '<span class="hidden sm:inline tracking-wide">Mon</span>')
 
-    def test_mobile_overlays_lock_background_scroll(self):
+    def test_calendar_main_stretches_to_full_width_when_stacked_on_mobile(self):
+        # items-start on the flex-col (mobile/stacked) cross axis left
+        # #cal-main sized to its own intrinsic content width instead of
+        # filling the column - visible as the day grid running narrower
+        # than the page with empty space to its right. items-stretch
+        # fixes the stacked (mobile) axis; items-start still governs the
+        # lg:flex-row axis (an unrelated height-matching concern - see
+        # calendar_body.html's own comment).
+        resp = self.client.get(reverse("calendar"))
+        self.assertContains(resp, "items-stretch lg:items-start")
+
+    def test_bottom_sheet_locks_background_scroll(self):
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(
-            resp,
-            "x-effect=\"document.body.classList.toggle('overflow-hidden', sidebarOpen || mobileSearchOpen || bottomSheetOpen)\"",
+            resp, "x-effect=\"document.body.classList.toggle('overflow-hidden', bottomSheetOpen)\""
         )
 
     def test_bottom_sheet_drag_no_longer_scrolls_the_page_behind_it(self):
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, "@touchmove.prevent=")
 
-    def test_mobile_search_focuses_via_double_raf_not_nexttick(self):
+    def test_mobile_search_focuses_synchronously_not_deferred(self):
+        # Neither $nextTick nor a requestAnimationFrame (an earlier fix
+        # for the same "takes two taps" bug that still wasn't synchronous
+        # enough for iOS Safari) - a plain, undeferred focus() call now
+        # that the panel is never display:none in the first place.
         resp = self.client.get(reverse("dashboard"))
-        self.assertContains(
-            resp,
-            "mobileSearchOpen = true; requestAnimationFrame(() => requestAnimationFrame(() => $refs.mobileSearchInput.focus()))",
-        )
+        self.assertContains(resp, 'mobileSearchOpen = true; $refs.mobileSearchInput.focus()')
         self.assertNotContains(resp, "$nextTick(() => $refs.mobileSearchInput.focus())")
+        self.assertNotContains(resp, "requestAnimationFrame(() => requestAnimationFrame(() => $refs.mobileSearchInput.focus()))")
+
+    def test_mobile_search_panel_is_never_display_none(self):
+        # x-show (and x-cloak, which forces display:none via the global
+        # [x-cloak] rule) would make the input unfocusable while closed -
+        # opacity + pointer-events keeps it a normal, focusable node at
+        # all times, which is what makes synchronous focus() work.
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "opacity-0 pointer-events-none")
+        self.assertContains(resp, "'opacity-100 pointer-events-auto': mobileSearchOpen")
 
 
 class RecommendationReplyTests(TestCase):

@@ -15,9 +15,19 @@
   there's no cal-main height to match against once they're stacked. Without
   either, the agenda (up to AGENDA_LOOKBACK_DAYS of past releases plus
   everything upcoming) just grows the page forever on mobile.
+
+  items-stretch below lg: is a different axis from the height-matching
+  discussion above, not a contradiction of it - flex-col's cross axis is
+  width, not height, and items-start (no stretch) there was leaving
+  #cal-main sized to its own intrinsic content width instead of filling
+  the stacked column, which starved calendar_main.html's grid-cols-7 of
+  width it should've had (visible as the day grid running noticeably
+  narrower than the page with empty space to its right on a phone).
+  items-start still governs the lg:flex-row cross axis (height) exactly
+  as described above - only the mobile/stacked axis changed.
 {% endcomment %}
 <div
-  class="flex gap-5 items-start flex-col lg:flex-row"
+  class="flex gap-5 items-stretch lg:items-start flex-col lg:flex-row"
   x-data="{ selected: '{{ today|date:'Y-m-d' }}' }"
   x-init="
     const main = document.getElementById('cal-main');

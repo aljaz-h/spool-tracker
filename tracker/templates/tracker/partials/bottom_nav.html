@@ -28,14 +28,15 @@
     it toggles state on the shared root x-data (base.html). Stats moved
     into the More sheet (bottom_sheet.html) to make room for this.
 
-    Double requestAnimationFrame, not $nextTick - see topbar.html's own
-    comment next to the search panel's x-transition for why $nextTick
-    resolves before the panel actually becomes focusable, which used to
-    make this take two taps to raise the keyboard.
+    Plain, undeferred focus() - see topbar.html's own comment next to the
+    search panel for why even a double requestAnimationFrame (an earlier
+    attempt at fixing this exact "takes two taps" bug) still wasn't
+    synchronous enough for iOS Safari to pop the keyboard, and why the
+    panel no longer uses x-show/display:none in the first place.
   {% endcomment %}
   <button
     type="button"
-    @click="mobileSearchOpen = true; requestAnimationFrame(() => requestAnimationFrame(() => $refs.mobileSearchInput.focus()))"
+    @click="mobileSearchOpen = true; $refs.mobileSearchInput.focus()"
     :aria-expanded="mobileSearchOpen.toString()"
     aria-haspopup="true"
     aria-label="Search"

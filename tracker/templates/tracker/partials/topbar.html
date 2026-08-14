@@ -46,7 +46,7 @@
     {% endcomment %}
     <button
       type="button"
-      @click="mobileSearchOpen = true; requestAnimationFrame(() => requestAnimationFrame(() => $refs.mobileSearchInput.focus()))"
+      @click="mobileSearchOpen = true; $refs.mobileSearchInput.focus()"
       aria-label="Search"
       class="w-9 h-9 flex-none rounded-lg border border-line bg-base-200 flex items-center justify-center text-ink-dim hover:text-base-content hover:border-primary max-md:hidden xl:hidden"
     >
@@ -259,32 +259,40 @@
     so the trigger button up in the left block and this panel can share
     it without a wrapping x-data of their own.
 
-    Both triggers focus the input via a double requestAnimationFrame,
-    not $nextTick - x-transition (below) defers this panel's actual
-    display flip by two animation frames of its own (so the enter
-    transition classes are in place before it becomes visible), and
-    $nextTick's microtask resolves before that, focusing the input
-    while it's still display:none (a silent no-op - no error, just no
-    keyboard). That's what made this take two taps: the first tap's
-    focus() call landed on a still-hidden input and did nothing, the
-    second tap focused an already-visible one. Chaining two rAFs lands
-    just after the transition's own two rAFs land, and - critically,
-    since nothing here is a real async wait like setTimeout - still
-    counts as part of the original tap for iOS Safari's "must be a
-    direct result of user interaction" rule for popping the keyboard.
+    Deliberately NOT x-show/x-cloak/x-transition (an earlier version of
+    this used exactly that, plus a double requestAnimationFrame on the
+    trigger's own focus() call to land after x-show's transition-deferred
+    display flip) - it still took two taps on iOS Safari. iOS's rule for
+    popping the keyboard is stricter than "focus() eventually lands on a
+    focusable element": it has to happen synchronously inside the click
+    handler with zero deferral, not even a single animation frame later,
+    or the browser no longer credits it as a direct result of the tap.
+    display:none and visibility:hidden both make an element unfocusable
+    outright - which meant true synchronous focus() was never going to
+    work while this panel used either for its closed state, no matter
+    how the trigger called it.
+
+    opacity + pointer-events (below), same as .spool-popover but without
+    the visibility:hidden component .spool-popover itself relies on
+    (compare app.css - that one's fine with being unfocusable while
+    closed since it never needs to receive focus while hidden), keeps
+    the input a genuinely normal, focusable DOM node at all times -
+    just invisible and unclickable while closed. That's what makes the
+    trigger's plain, undeferred $refs.mobileSearchInput.focus() actually
+    work. Static opacity-0/pointer-events-none classes cover the instant
+    before Alpine boots (no x-cloak needed, and none would work here
+    anyway - it forces display:none); :class then swaps both tokens out
+    for their open-state counterparts, it doesn't just append on top.
   {% endcomment %}
   <div
-    x-show="mobileSearchOpen"
-    x-cloak
     @click="mobileSearchOpen = false"
-    class="fixed inset-0 top-16 bg-black/60 z-40 xl:hidden"
+    :class="{ 'opacity-100 pointer-events-auto': mobileSearchOpen, 'opacity-0 pointer-events-none': !mobileSearchOpen }"
+    class="fixed inset-0 top-16 bg-black/60 z-40 xl:hidden opacity-0 pointer-events-none transition-opacity duration-150"
   ></div>
   <div
-    x-show="mobileSearchOpen"
-    x-cloak
-    x-transition
     @keydown.escape.window="mobileSearchOpen = false"
-    class="fixed inset-x-0 top-16 z-40 border-b border-line bg-base-100 p-3 xl:hidden"
+    :class="{ 'opacity-100 pointer-events-auto': mobileSearchOpen, 'opacity-0 pointer-events-none': !mobileSearchOpen }"
+    class="fixed inset-x-0 top-16 z-40 border-b border-line bg-base-100 p-3 xl:hidden opacity-0 pointer-events-none transition-opacity duration-150"
   >
     <form method="get" action="{% url 'search' %}" class="flex items-center gap-2 bg-base-200 rounded-full pl-4 pr-2 py-2 focus-within:ring-2 focus-within:ring-primary/60">
       {% icon "search" "w-4 h-4 text-ink-faint flex-none" %}

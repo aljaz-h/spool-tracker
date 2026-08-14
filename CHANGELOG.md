@@ -8,6 +8,35 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.103.1] - 2026-08-14
+
+### Fixed
+
+- Mobile search still needed two taps to raise the keyboard even after
+  the previous fix (double `requestAnimationFrame`) - iOS Safari's rule
+  turned out to be stricter than "eventually focusable": `.focus()` has
+  to run synchronously in the click handler with zero deferral, which
+  was never possible while the panel used `x-show`/`x-cloak`
+  (`display:none` makes an element unfocusable outright, no matter when
+  you call `.focus()`). The panel now uses opacity + pointer-events
+  instead - a normal, always-focusable DOM node - so the trigger's plain
+  `focus()` call actually works.
+- That same fix incidentally addresses a second, separate bug: opening
+  and closing mobile search left the bottom nav's `position: fixed`
+  visibly desynced from the page on the next scroll (drifting partway
+  up, snapping back on scroll-up). Also scoped the background
+  scroll-lock added for the bottom sheet (0.102.1) back down to just
+  the bottom sheet itself - it was never actually needed for search or
+  the sidebar drawer, and toggling `overflow-hidden` on `<body>` is a
+  known trigger for this exact class of iOS Safari fixed-position bug.
+- Calendar's day grid ran narrower than the page on mobile, with dead
+  space to its right - `items-start` on the stacked (mobile) layout's
+  cross axis left `#cal-main` sized to its own intrinsic content width
+  instead of filling the column, starving the day grid of width it
+  should have had. `items-stretch` below `lg:` fixes it; `items-start`
+  still governs the desktop side-by-side layout's height-matching,
+  unrelated axis.
+
 ## [0.103.0] - 2026-08-13
 
 ### Added

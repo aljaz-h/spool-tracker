@@ -106,19 +106,29 @@
 </head>
 <body class="bg-base-100 text-base-content min-h-screen" data-animations="{% if active_profile.animations_enabled %}on{% else %}off{% endif %}">
   {% comment %}
-    x-effect below locks background scroll for as long as any of these
-    three full-screen-on-mobile overlays is open, toggling Tailwind's own
-    overflow-hidden on <body> (not $el - this div isn't the scrolling
-    element, <body> is). Without it, a background page long enough to
-    scroll stays scrollable underneath the sidebar drawer/search bar/
-    bottom sheet, which for the bottom sheet specifically was visibly
-    wrong: dragging it down (bottom_sheet.html's own touchmove handler)
-    also dragged the page behind it, since nothing told the browser this
-    gesture wasn't an ordinary scroll.
+    x-effect below locks background scroll for as long as the bottom
+    sheet is open, toggling Tailwind's own overflow-hidden on <body>
+    (not $el - this div isn't the scrolling element, <body> is).
+    Without it, dragging the sheet down (its own touchmove handler in
+    bottom_sheet.html) also dragged the page behind it, since nothing
+    told the browser this gesture wasn't an ordinary scroll.
+
+    Deliberately scoped to bottomSheetOpen alone, not
+    sidebarOpen/mobileSearchOpen too - an earlier version locked for all
+    three "since it's the same bug class", but neither of those two was
+    ever actually reported as scrolling the background, and that wider
+    scope turned out to cause a real, separate bug on iOS Safari: opening
+    then closing the mobile search bar left the bottom nav's own
+    position:fixed visibly desynced from the page during the next scroll
+    (drifting partway up, snapping back on scroll-up) until something
+    else forced a fresh layout pass. Toggling overflow-hidden on <body>
+    is a known trigger for iOS Safari mishandling fixed-position
+    descendants while its dynamic toolbar is also moving - not worth
+    paying that cost anywhere it wasn't actually needed.
   {% endcomment %}
   <div
     x-data="{ sidebarOpen: false, mobileSearchOpen: false, bottomSheetOpen: false }"
-    x-effect="document.body.classList.toggle('overflow-hidden', sidebarOpen || mobileSearchOpen || bottomSheetOpen)"
+    x-effect="document.body.classList.toggle('overflow-hidden', bottomSheetOpen)"
   >
     {% include "tracker/partials/sidebar.html" %}
     <div class="min-h-screen flex flex-col">
