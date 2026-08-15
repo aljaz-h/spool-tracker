@@ -50,3 +50,6 @@ urlpatterns = [
     re_path(r"^media/(?P<path>.*)$", serve_static, {"document_root": settings.MEDIA_ROOT}),
     path("", include("tracker.urls")),
 ]
+
+if settings.SILK_ENABLED:
+    urlpatterns.append(path("silk/", include("silk.urls", namespace="silk")))

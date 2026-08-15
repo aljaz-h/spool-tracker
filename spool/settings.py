@@ -9,6 +9,7 @@ dev and the shipped Docker image.
 from pathlib import Path
 
 import environ
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -17,8 +18,29 @@ env = environ.Env(
 )
 environ.Env.read_env(BASE_DIR / ".env")
 
+_INSECURE_SECRET_KEY_PLACEHOLDERS = {
+    "django-insecure-dev-only-change-me",  # this module's own default, below
+    "changeme",  # .env.example's own placeholder value
+}
+
 SECRET_KEY = env("DJANGO_SECRET_KEY", default="django-insecure-dev-only-change-me")
 DEBUG = env("DEBUG")
+# Fails at settings-import time - before manage.py migrate, gunicorn's own
+# boot, or a Celery worker/beat process gets anywhere near serving a
+# request or touching the database - rather than letting a forgotten or
+# copy-pasted-but-unedited DJANGO_SECRET_KEY (docs/CONFIGURATION.md already
+# documents it as required, with "no safe default") start the app up
+# anyway, silently signing sessions/CSRF tokens/password-reset links with a
+# key anyone can find in this repo's own source or .env.example. DEBUG-mode
+# local dev is deliberately exempt - the placeholder default exists
+# specifically so `manage.py runserver` works out of the box without a
+# .env file at all (see docs/DEVELOPMENT.md).
+if not DEBUG and SECRET_KEY in _INSECURE_SECRET_KEY_PLACEHOLDERS:
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY is missing or still set to a placeholder value, and DEBUG=False. "
+        "Generate a real secret (setup.sh/setup.ps1 do this automatically for a new install) "
+        "and set DJANGO_SECRET_KEY in your .env - see docs/CONFIGURATION.md."
+    )
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
 
@@ -29,6 +51,16 @@ CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
 # Trakt/Simkl's OAuth redirect_uri (it'd send http:// while https:// is
 # what's registered) since gunicorn itself never sees TLS directly.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# Off by default, same reasoning as the transport-security flags above -
+# request/SQL-query profiling has a real per-request cost and its own
+# dashboard (/silk/), neither of which should be paid or exposed on every
+# install just because it's installed. Meant to be flipped on temporarily
+# to capture real production traffic (docs/CONFIGURATION.md), then back
+# off - not left running permanently. INSTALLED_APPS/MIDDLEWARE below only
+# add Silk's app/middleware when this is true, so a disabled install pays
+# no per-request cost at all, not just a hidden one.
+SILK_ENABLED = env.bool("SILK_ENABLED", default=False)
 
 
 # Application definition
@@ -43,6 +75,8 @@ INSTALLED_APPS = [
     "django_celery_beat",
     "tracker",
 ]
+if SILK_ENABLED:
+    INSTALLED_APPS.append("silk")
 
 MIDDLEWARE = [
     # First, so it wraps every other middleware's response and compresses
@@ -65,6 +99,14 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+if SILK_ENABLED:
+    # As close to the top of the list as possible (Silk's own recommendation)
+    # so its timing covers nearly the whole request/response cycle, not just
+    # what happens after the middleware ahead of it - only GZipMiddleware
+    # stays ahead of it, since that one specifically needs to be outermost
+    # (see its own comment above) to compress what Silk (and everything
+    # else) already produced.
+    MIDDLEWARE.insert(1, "silk.middleware.SilkyMiddleware")
 
 ROOT_URLCONF = "spool.urls"
 
@@ -257,3 +299,27 @@ SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=False)
 SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=0)
 SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", default=False)
 SECURE_HSTS_PRELOAD = env.bool("SECURE_HSTS_PRELOAD", default=False)
+
+
+# django-silk (request/SQL/Python profiling) - only meaningful when
+# SILK_ENABLED actually added it to INSTALLED_APPS/MIDDLEWARE above; these
+# settings are otherwise inert.
+if SILK_ENABLED:
+    # Gates /silk/ itself behind a real login + is_staff, not just "reachable
+    # by anyone who knows the URL" - it exposes every recorded request's
+    # full SQL (including parameter values) and, with the profiler on,
+    # Python call stacks. bootstrap_admin's own admin user already gets
+    # is_staff=True (same flag django.contrib.admin itself gates on), so
+    # nothing extra needs configuring to use this as the one production
+    # account allowed to view it.
+    SILKY_AUTHENTICATION = True
+    SILKY_AUTHORISATION = True
+    SILKY_PERMISSIONS = lambda user: user.is_staff
+    # cProfile-level Python profiling on top of Silk's own default SQL/
+    # timing capture - "where is the time going" inside a slow view, not
+    # just "how many queries did it run and how long did they take".
+    # Real per-request overhead on top of the SQL capture, which is exactly
+    # why this whole feature is opt-in rather than always-on (see
+    # SILK_ENABLED's own comment above).
+    SILKY_PYTHON_PROFILER = True
+    SILKY_PYTHON_PROFILER_BINARY = True

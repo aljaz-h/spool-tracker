@@ -64,7 +64,7 @@
     </form>
   </div>
 
-  <nav class="hidden md:flex items-center justify-self-center min-w-0 overflow-x-auto col-start-2">
+  <nav aria-label="Primary" class="hidden md:flex items-center justify-self-center min-w-0 overflow-x-auto col-start-2">
     <div class="flex items-center gap-1 bg-base-200 rounded-full p-1">
       {% url 'movies' category="trending" as movies_url %}
       {% include "tracker/partials/nav_item_horizontal.html" with href=movies_url icon_name="clapperboard" label="Movies" is_active=url_name|eq:"movies" %}

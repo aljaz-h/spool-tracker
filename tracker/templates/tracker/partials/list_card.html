@@ -33,6 +33,7 @@
       {% csrf_token %}
       <button
         type="submit"
+        aria-label="{% if wl.is_featured %}Remove from Dashboard{% else %}Feature on Dashboard{% endif %}"
         class="w-7 h-7 rounded-full flex items-center justify-center transition-colors {% if wl.is_featured %}bg-primary text-primary-content{% else %}bg-black/70 text-white opacity-0 group-hover:opacity-100{% endif %}"
       >
         {% icon "sparkles" "w-3.5 h-3.5" %}

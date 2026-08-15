@@ -18395,3 +18395,30 @@ class RecommendationReplyEndToEndTests(TestCase):
 
         resp = self.client.get(reverse("title_detail", args=[title.pk]))
         self.assertContains(resp, "this weekend for sure")
+
+
+class SilkOptInTests(TestCase):
+    """django-silk (request/SQL/Python profiling) is opt-in via
+    SILK_ENABLED (settings.py), off by default - "silk" only lands in
+    INSTALLED_APPS/MIDDLEWARE, and /silk/ only lands in urlpatterns, when
+    that flag is true at Django startup. Both are decided once, at import
+    time, so there's no way to flip SILK_ENABLED mid-test-process and
+    exercise the enabled path here the normal way (override_settings
+    doesn't retroactively rebuild an already-built URLconf/MIDDLEWARE
+    list) - the enabled path (staff-only /silk/, migrations, Django
+    check) was verified manually instead: `SILK_ENABLED=True
+    manage.py check/migrate silk` and a real request against the running
+    process, not as an automated test. What's actually testable here is
+    the default (and therefore most-installs-actual) state: disabled
+    means genuinely absent, not just hidden."""
+
+    def test_disabled_by_default(self):
+        from django.conf import settings
+
+        self.assertFalse(settings.SILK_ENABLED)
+        self.assertNotIn("silk", settings.INSTALLED_APPS)
+        self.assertNotIn("silk.middleware.SilkyMiddleware", settings.MIDDLEWARE)
+
+    def test_silk_url_is_unreachable_when_disabled(self):
+        resp = self.client.get("/silk/")
+        self.assertEqual(resp.status_code, 404)

@@ -8,6 +8,35 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.104.0] - 2026-08-14
+
+### Added
+
+- Optional production request/SQL/Python profiling via
+  [django-silk](https://github.com/jazzband/django-silk), off by
+  default (`SILK_ENABLED` in `.env`) so a normal install pays no
+  per-request cost and doesn't expose anything extra. When enabled,
+  `/silk/` (restricted to `is_staff` accounts) shows per-request
+  timing, every SQL query a request ran, and cProfile-level call-stack
+  data - meant to be turned on temporarily to capture real traffic,
+  then back off. See `docs/CONFIGURATION.md`.
+
+### Fixed
+
+- Startup now fails fast with a clear error if `DJANGO_SECRET_KEY` is
+  missing or still a placeholder (`changeme`, or this codebase's own
+  dev-only default) while `DEBUG=False`, instead of silently signing
+  sessions/CSRF tokens with a publicly-known key. Raised at Django's
+  own settings-import time, so it applies identically to gunicorn,
+  Celery worker/beat, and any `manage.py` command - not just one entry
+  point. `DEBUG=True` local dev is unaffected.
+- A handful of accessibility gaps found in a codebase audit: two
+  icon-only buttons with no accessible name (a roulette modal's close
+  button, a list card's "Feature on Dashboard" toggle), two auth pages
+  (`login.html`, `change_credentials.html`) with no heading element at
+  all, and the desktop nav landmark missing a distinguishing
+  `aria-label`.
+
 ## [0.103.1] - 2026-08-14
 
 ### Fixed
