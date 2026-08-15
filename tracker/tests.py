@@ -21,6 +21,7 @@ from .integrations import gemini, jikan, mdblist, nuvio, scrobble, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
+    ApiToken,
     DataLog,
     Episode,
     ExternalAccount,
@@ -17075,73 +17076,128 @@ class WatchProgressDeleteApiTests(TestCase):
         self.assertEqual(resp.status_code, 404)
 
 
-class ProfileApiTokenTests(TestCase):
+class ApiTokenModelTests(TestCase):
+    """ApiToken - the named, multi-token replacement for what used to be
+    a single Profile.api_token field (see models.ApiToken's own
+    docstring). generate_value()/regenerate() are exercised directly
+    here; the create/rotate/delete flow through views.py is
+    ApiTokenViewsTests below."""
+
     def setUp(self):
         user = User.objects.create_user("tokenprofile", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="TokenProfile")
 
-    def test_starts_blank(self):
-        self.assertFalse(self.profile.api_token)
+    def test_generates_a_64_char_hex_value(self):
+        value = ApiToken.generate_value()
+        self.assertEqual(len(value), 64)
+        int(value, 16)  # raises ValueError if not valid hex
 
-    def test_generates_a_64_char_hex_token_on_first_request(self):
-        token = self.profile.get_or_create_api_token()
-        self.assertEqual(len(token), 64)
-        int(token, 16)  # raises ValueError if not valid hex
+    def test_two_generated_values_never_collide(self):
+        ApiToken.objects.create(profile=self.profile, name="First", token=ApiToken.generate_value())
+        second_value = ApiToken.generate_value()
+        self.assertFalse(ApiToken.objects.filter(token=second_value).exists())
 
-    def test_repeated_calls_return_the_same_token(self):
-        first = self.profile.get_or_create_api_token()
-        second = self.profile.get_or_create_api_token()
-        self.assertEqual(first, second)
+    def test_regenerate_changes_the_value_but_keeps_the_name(self):
+        token = ApiToken.objects.create(profile=self.profile, name="Kodi", token=ApiToken.generate_value())
+        original_value = token.token
+        token.regenerate()
+        self.assertNotEqual(token.token, original_value)
+        self.assertEqual(token.name, "Kodi")
 
-    def test_regenerate_produces_a_different_token(self):
-        first = self.profile.get_or_create_api_token()
-        second = self.profile.regenerate_api_token()
-        self.assertNotEqual(first, second)
-
-    def test_two_profiles_never_collide(self):
-        other_user = User.objects.create_user("othertokenprofile", password="pass12345")
-        other_profile = Profile.objects.create(user=other_user, display_name="OtherTokenProfile")
-        self.assertNotEqual(self.profile.get_or_create_api_token(), other_profile.get_or_create_api_token())
+    def test_a_profile_can_hold_several_tokens_at_once(self):
+        ApiToken.objects.create(profile=self.profile, name="Kodi", token=ApiToken.generate_value())
+        ApiToken.objects.create(profile=self.profile, name="Jellyfin", token=ApiToken.generate_value())
+        self.assertEqual(self.profile.api_tokens.count(), 2)
 
 
-class RegenerateApiTokenViewTests(TestCase):
+class ApiTokenViewsTests(TestCase):
+    """create_api_token / regenerate_api_token / delete_api_token - all
+    three re-render the same partials/api_tokens_card.html fragment (see
+    views._api_tokens_card_context), same convention as every other
+    small self-contained Settings card action."""
+
     def setUp(self):
         user = User.objects.create_user("tokenviewuser", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="TokenViewUser")
         self.client.login(username="tokenviewuser", password="pass12345")
 
-    def test_generates_a_token_the_first_time(self):
-        self.client.post(reverse("regenerate_api_token"))
-        self.profile.refresh_from_db()
-        self.assertTrue(self.profile.api_token)
+    def test_create_adds_a_named_token(self):
+        resp = self.client.post(reverse("create_api_token"), {"name": "Living room Kodi"})
+        self.assertEqual(resp.status_code, 200)
+        token = ApiToken.objects.get(profile=self.profile)
+        self.assertEqual(token.name, "Living room Kodi")
+        self.assertEqual(len(token.token), 64)
 
-    def test_changes_the_token_on_a_later_call(self):
-        self.client.post(reverse("regenerate_api_token"))
-        self.profile.refresh_from_db()
-        first = self.profile.api_token
-        self.client.post(reverse("regenerate_api_token"))
-        self.profile.refresh_from_db()
-        self.assertNotEqual(first, self.profile.api_token)
+    def test_create_requires_a_name(self):
+        self.client.post(reverse("create_api_token"), {"name": "   "})
+        self.assertFalse(ApiToken.objects.filter(profile=self.profile).exists())
 
-    def test_requires_login(self):
+    def test_create_rejects_a_sixth_token(self):
+        for i in range(ApiToken.MAX_TOKENS_PER_PROFILE):
+            ApiToken.objects.create(profile=self.profile, name=f"Token {i}", token=ApiToken.generate_value())
+        self.client.post(reverse("create_api_token"), {"name": "One too many"})
+        self.assertEqual(self.profile.api_tokens.count(), ApiToken.MAX_TOKENS_PER_PROFILE)
+
+    def test_regenerate_changes_the_value_of_only_that_token(self):
+        kept = ApiToken.objects.create(profile=self.profile, name="Keep", token=ApiToken.generate_value())
+        original_kept_value = kept.token
+        target = ApiToken.objects.create(profile=self.profile, name="Rotate me", token=ApiToken.generate_value())
+        original_target_value = target.token
+        self.client.post(reverse("regenerate_api_token", args=[target.pk]))
+        target.refresh_from_db()
+        kept.refresh_from_db()
+        self.assertNotEqual(target.token, original_target_value)
+        self.assertEqual(kept.token, original_kept_value)
+
+    def test_cannot_regenerate_another_profiles_token(self):
+        other_user = User.objects.create_user("othertokenviewuser", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="OtherTokenViewUser")
+        other_token = ApiToken.objects.create(profile=other_profile, name="Not yours", token=ApiToken.generate_value())
+        resp = self.client.post(reverse("regenerate_api_token", args=[other_token.pk]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_delete_removes_the_token(self):
+        token = ApiToken.objects.create(profile=self.profile, name="Delete me", token=ApiToken.generate_value())
+        self.client.post(reverse("delete_api_token", args=[token.pk]))
+        self.assertFalse(ApiToken.objects.filter(pk=token.pk).exists())
+
+    def test_cannot_delete_another_profiles_token(self):
+        other_user = User.objects.create_user("othertokendeleteuser", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="OtherTokenDeleteUser")
+        other_token = ApiToken.objects.create(profile=other_profile, name="Not yours", token=ApiToken.generate_value())
+        resp = self.client.post(reverse("delete_api_token", args=[other_token.pk]))
+        self.assertEqual(resp.status_code, 404)
+        self.assertTrue(ApiToken.objects.filter(pk=other_token.pk).exists())
+
+    def test_all_three_actions_require_login(self):
         self.client.logout()
-        resp = self.client.post(reverse("regenerate_api_token"))
-        self.assertNotEqual(resp.status_code, 200)
+        token = ApiToken.objects.create(profile=self.profile, name="X", token=ApiToken.generate_value())
+        self.assertNotEqual(self.client.post(reverse("create_api_token"), {"name": "Y"}).status_code, 200)
+        self.assertNotEqual(self.client.post(reverse("regenerate_api_token", args=[token.pk])).status_code, 200)
+        self.assertNotEqual(self.client.post(reverse("delete_api_token", args=[token.pk])).status_code, 200)
 
-    def test_requires_post(self):
-        resp = self.client.get(reverse("regenerate_api_token"))
-        self.assertEqual(resp.status_code, 405)
+    def test_all_three_actions_require_post(self):
+        token = ApiToken.objects.create(profile=self.profile, name="X", token=ApiToken.generate_value())
+        self.assertEqual(self.client.get(reverse("create_api_token")).status_code, 405)
+        self.assertEqual(self.client.get(reverse("regenerate_api_token", args=[token.pk])).status_code, 405)
+        self.assertEqual(self.client.get(reverse("delete_api_token", args=[token.pk])).status_code, 405)
 
-    def test_settings_page_shows_generate_button_with_no_token_yet(self):
+    def test_settings_page_shows_the_add_form_with_no_tokens_yet(self):
         resp = self.client.get(reverse("settings"))
-        self.assertContains(resp, "Generate token")
-        self.assertNotContains(resp, "Regenerate token")
+        self.assertContains(resp, "+ Add token")
 
-    def test_settings_page_shows_the_token_and_regenerate_once_one_exists(self):
-        self.profile.get_or_create_api_token()
+    def test_settings_page_lists_an_existing_token_and_its_value(self):
+        token = ApiToken.objects.create(profile=self.profile, name="Kodi", token=ApiToken.generate_value())
         resp = self.client.get(reverse("settings"))
-        self.assertContains(resp, "Regenerate token")
-        self.assertContains(resp, self.profile.api_token)
+        self.assertContains(resp, "Kodi")
+        self.assertContains(resp, token.token)
+
+    def test_settings_page_hides_the_add_form_once_five_tokens_exist(self):
+        for i in range(ApiToken.MAX_TOKENS_PER_PROFILE):
+            ApiToken.objects.create(profile=self.profile, name=f"Token {i}", token=ApiToken.generate_value())
+        resp = self.client.get(reverse("settings"))
+        self.assertNotContains(resp, "+ Add token")
+        self.assertContains(resp, "5 of 5 tokens used")
 
 
 class ScrobbleIntegrationTests(TestCase):
@@ -17251,7 +17307,8 @@ class ScrobbleApiTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("scrobbleapiuser", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="ScrobbleApiUser")
-        self.token = self.profile.get_or_create_api_token()
+        self.api_token = ApiToken.objects.create(profile=self.profile, name="Test Token", token=ApiToken.generate_value())
+        self.token = self.api_token.token
 
     def _post(self, payload, token=None):
         import json
@@ -17303,7 +17360,7 @@ class ScrobbleApiTests(TestCase):
         self.assertFalse(WatchProgress.objects.filter(profile=other_profile).exists())
 
     def test_a_regenerated_token_invalidates_the_old_one(self):
-        self.profile.regenerate_api_token()
+        self.api_token.regenerate()
         resp = self._post({"action": "start", "media_type": "movie", "tmdb_id": 42, "progress": 0})
         self.assertEqual(resp.status_code, 401)
 

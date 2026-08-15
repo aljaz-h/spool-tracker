@@ -11,14 +11,18 @@ per-app integration to build or wait on.
 
 ## Getting a token
 
-Settings → Integrations → **Custom Player** → *Generate token*. This is a
-per-profile bearer credential — every scrobble sent with it is recorded
-against that profile, and regenerating it immediately invalidates the old
-one (update your player's config too, or it'll start getting `401`s).
+Settings → Integrations → **Custom Player** → name it (e.g. "Living room
+Kodi") → *Add token*. You can have up to 5 at once — one per app or
+device is the idea, so revoking one (e.g. a phone you no longer use)
+doesn't touch the others. Every token is a per-profile bearer credential;
+regardless of which one a scrobble is sent with, it's recorded against
+that same profile. Regenerating or deleting a token immediately
+invalidates it (update your player's config too, or it'll start getting
+`401`s) without affecting your other tokens.
 
-Treat it like a password: anyone with the token can log watches (and only
-watches — it can't read your library, change settings, or act as any
-other profile) against that profile.
+Treat each one like a password: anyone with a token can log watches (and
+only watches — it can't read your library, change settings, or act as
+any other profile) against that profile.
 
 ## Sending a scrobble
 

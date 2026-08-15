@@ -1,0 +1,72 @@
+{% load icons tracker_extras %}
+{# context: profile, api_tokens (queryset of ApiToken, oldest first), max_api_tokens (int) #}
+{% comment %}
+  Standalone HTMX-swappable card (create/regenerate/delete all re-render
+  this same partial via hx-target="#api-tokens-card" hx-swap="outerHTML"),
+  same shape as dashboard_recommendations.html's own #recommendations-block -
+  a token add/rotate/delete only ever needs to update this one card, not
+  the whole Settings page. Show/hide is per-row Alpine state (a plain
+  x-data="{ show: false }" per <div>, not one shared boolean like the old
+  single-token card used) since up to 5 rows now each need their own.
+{% endcomment %}
+<div id="api-tokens-card" class="bg-base-200 border border-line rounded-2xl p-5">
+  <h3 class="text-lg mb-1">Custom Player</h3>
+  <div class="text-ink-dim text-xs mb-3">
+    Bring your own player or script - point it at the
+    <a href="https://github.com/aljaz-h/spool-tracker/blob/master/docs/SCROBBLE_API.md" target="_blank" rel="noopener" class="underline hover:text-base-content">Scrobble API</a>
+    with one of these tokens instead of waiting on a built-in integration. Up to {{ max_api_tokens }} tokens, one per app or device.
+  </div>
+
+  {% for token in api_tokens %}
+    <div class="flex items-center gap-1.5 py-2 border-t border-line" x-data="{ show: false }">
+      <div class="flex-1 min-w-0">
+        <div class="text-xs font-semibold truncate">{{ token.name }}</div>
+        <input
+          :type="show ? 'text' : 'password'" readonly value="{{ token.token }}"
+          onclick="this.select()" aria-label="{{ token.name }} token"
+          class="w-full bg-transparent text-[11px] font-mono text-ink-dim focus:outline-none cursor-text"
+        >
+      </div>
+      <button type="button" @click="show = !show" title="Show/hide token" class="text-ink-faint hover:text-base-content p-1.5 flex-none">
+        <span x-show="!show">{% icon "eye" "w-3.5 h-3.5" %}</span>
+        <span x-show="show" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+      </button>
+      <form
+        hx-post="{% url 'regenerate_api_token' token.pk %}"
+        hx-target="#api-tokens-card" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+        onsubmit="return confirm('Regenerate the &quot;{{ token.name|escapejs }}&quot; token? Anything still using the old value will stop working.');"
+        class="flex-none"
+      >
+        {% csrf_token %}
+        <button type="submit" title="Regenerate" aria-label="Regenerate {{ token.name }}" class="text-ink-faint hover:text-base-content p-1.5">{% icon "refresh-cw" "w-3.5 h-3.5" %}</button>
+      </form>
+      <form
+        hx-post="{% url 'delete_api_token' token.pk %}"
+        hx-target="#api-tokens-card" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+        onsubmit="return confirm('Delete the &quot;{{ token.name|escapejs }}&quot; token? Anything still using it will stop working.');"
+        class="flex-none"
+      >
+        {% csrf_token %}
+        <button type="submit" title="Delete" aria-label="Delete {{ token.name }}" class="text-ink-faint hover:text-error p-1.5">{% icon "trash-2" "w-3.5 h-3.5" %}</button>
+      </form>
+    </div>
+  {% endfor %}
+
+  {% if api_tokens|length < max_api_tokens %}
+    <form
+      hx-post="{% url 'create_api_token' %}"
+      hx-target="#api-tokens-card" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+      class="flex items-center gap-2 mt-3{% if api_tokens %} pt-3 border-t border-line{% endif %}"
+    >
+      {% csrf_token %}
+      <input
+        type="text" name="name" maxlength="60" required
+        placeholder="e.g. Living room Kodi" aria-label="New token name"
+        class="input input-sm flex-1 min-w-0 bg-base-100"
+      >
+      <button type="submit" class="btn btn-sm btn-primary flex-none">+ Add token</button>
+    </form>
+  {% else %}
+    <div class="text-[10.5px] text-ink-faint mt-3 pt-3 border-t border-line">{{ max_api_tokens }} of {{ max_api_tokens }} tokens used - delete one to add another.</div>
+  {% endif %}
+</div>

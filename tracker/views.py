@@ -51,6 +51,7 @@ from .integrations import gemini, jikan, mdblist, nuvio, simkl, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
+    ApiToken,
     DataLog,
     Episode,
     ExternalAccount,
@@ -3302,6 +3303,8 @@ def _settings_page_context(request, profile):
         "server_time_zone": django_settings.TIME_ZONE,
         "avatar_colors": AVATAR_COLOR_CHOICES,
         "can_delete_own_account": not profile.is_owner or other_owner_exists,
+        "api_tokens": profile.api_tokens.all(),
+        "max_api_tokens": ApiToken.MAX_TOKENS_PER_PROFILE,
     }
     if profile.is_owner:
         db_engine = django_settings.DATABASES["default"]["ENGINE"].rsplit(".", 1)[-1]
@@ -3352,19 +3355,62 @@ def discover_preference_options(request):
     return render(request, "tracker/partials/discover_preference_options.html", context)
 
 
+def _api_tokens_card_context(profile):
+    return {
+        "profile": profile,
+        "api_tokens": profile.api_tokens.all(),
+        "max_api_tokens": ApiToken.MAX_TOKENS_PER_PROFILE,
+    }
+
+
 @login_required
 @require_POST
-def regenerate_api_token(request):
-    """Settings -> Integrations "Custom Player" card - same button/action
-    whether a token already exists (rotates it) or not (generates the
-    first one), see Profile.regenerate_api_token. The old token, if any,
-    stops working the moment this returns."""
+def create_api_token(request):
+    """Settings -> Integrations "Custom Player" card's "+ Add token" form -
+    one named token per app/device, up to ApiToken.MAX_TOKENS_PER_PROFILE.
+    The cap is enforced here, not just hidden client-side once 5 already
+    exist - a direct POST past that point still needs to be rejected."""
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
-    profile.regenerate_api_token()
+    name = request.POST.get("name", "").strip()[:60]
+    if not name:
+        messages.error(request, "Give the token a name so you can tell it apart later.")
+    elif profile.api_tokens.count() >= ApiToken.MAX_TOKENS_PER_PROFILE:
+        messages.error(request, f"You can have at most {ApiToken.MAX_TOKENS_PER_PROFILE} tokens - delete one first.")
+    else:
+        ApiToken.objects.create(profile=profile, name=name, token=ApiToken.generate_value())
+        messages.success(request, "New API token generated - update your player's config with it.")
+    return render(request, "tracker/partials/api_tokens_card.html", _api_tokens_card_context(profile))
+
+
+@login_required
+@require_POST
+def regenerate_api_token(request, pk):
+    """Rotates one token's value in place, keeping its name - the old
+    value stops working the moment this returns (see ApiToken.regenerate),
+    same as the single-token version this replaced."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    token = get_object_or_404(ApiToken, pk=pk, profile=profile)
+    token.regenerate()
     messages.success(request, "New API token generated - update your player's config with it.")
-    return redirect(f"{reverse('settings')}?tab=integrations")
+    return render(request, "tracker/partials/api_tokens_card.html", _api_tokens_card_context(profile))
+
+
+@login_required
+@require_POST
+def delete_api_token(request, pk):
+    """Frees up a slot toward ApiToken.MAX_TOKENS_PER_PROFILE - whatever
+    was using this token starts getting 401s immediately."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    token = get_object_or_404(ApiToken, pk=pk, profile=profile)
+    token.delete()
+    messages.success(request, "Token deleted.")
+    return render(request, "tracker/partials/api_tokens_card.html", _api_tokens_card_context(profile))
 
 
 @login_required

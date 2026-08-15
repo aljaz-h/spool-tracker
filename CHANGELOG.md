@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.106.0] - 2026-08-15
+
+### Added
+
+- Settings → Integrations' "Custom Player" card now supports up to 5
+  named API tokens per profile instead of exactly one unnamed token -
+  one per app/device (e.g. "Living room Kodi", "Phone"), each
+  independently regenerable and deletable without disturbing the
+  others. `Profile.api_token` is replaced by a new `ApiToken` model
+  (migration 0050 backfills any existing token as a row named "Custom
+  Player" first, so an already-configured player keeps working
+  unchanged after upgrading; migration 0051 then drops the old field).
+
 ## [0.105.0] - 2026-08-14
 
 ### Changed

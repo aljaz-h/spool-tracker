@@ -381,31 +381,7 @@
           </div>
         </div>
 
-        <div class="bg-base-200 border border-line rounded-2xl p-5" x-data="{ showToken: false }">
-          <h3 class="text-lg mb-1">Custom Player</h3>
-          <div class="text-ink-dim text-xs mb-3">
-            Bring your own player or script - point it at the
-            <a href="https://github.com/aljaz-h/spool-tracker/blob/master/docs/SCROBBLE_API.md" target="_blank" rel="noopener" class="underline hover:text-base-content">Scrobble API</a>
-            with this token instead of waiting on a built-in integration.
-          </div>
-          {% if profile.api_token %}
-            <div class="flex items-center gap-2">
-              <input
-                :type="showToken ? 'text' : 'password'" readonly value="{{ profile.api_token }}"
-                onclick="this.select()"
-                class="flex-1 min-w-0 bg-base-100 border border-line rounded-lg px-3.5 py-2 text-xs font-mono focus:outline-primary"
-              >
-              <button type="button" @click="showToken = !showToken" title="Show/hide token" class="text-ink-faint hover:text-base-content p-2">
-                <span x-show="!showToken">{% icon "eye" "w-4 h-4" %}</span>
-                <span x-show="showToken" x-cloak>{% icon "eye-off" "w-4 h-4" %}</span>
-              </button>
-            </div>
-          {% endif %}
-          <form method="post" action="{% url 'regenerate_api_token' %}" class="mt-2.5" onsubmit="return {% if profile.api_token %}confirm('Regenerate your API token? Anything still using the old one will stop working.'){% else %}true{% endif %};">
-            {% csrf_token %}
-            <button type="submit" class="btn btn-sm btn-soft">{% if profile.api_token %}Regenerate token{% else %}Generate token{% endif %}</button>
-          </form>
-        </div>
+        {% include "tracker/partials/api_tokens_card.html" %}
 
         <div class="bg-base-200 border border-line rounded-2xl p-5">
           <h3 class="text-lg mb-1">AI Recommendations</h3>

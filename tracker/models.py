@@ -151,20 +151,6 @@ class Profile(models.Model):
     # sync). Stored in cleartext, same as every other integration
     # credential this app already stores.
     gemini_api_key = models.CharField(max_length=255, blank=True, default="")
-    # Settings → Integrations "Custom Player" card - a bearer credential
-    # this profile hands to their own player/script so it can POST scrobble
-    # events to api/routers/scrobble.py without a browser session (see
-    # docs/SCROBBLE_API.md). Stored in cleartext like every other
-    # integration credential here (gemini_api_key above, InstanceConfig's
-    # own docstring) rather than hashed like a password - this is a
-    # revocable, narrowly-scoped ("record a watch for this profile")
-    # credential a person may legitimately need to re-view/re-copy into a
-    # player's config, not an account login. Blank until first requested
-    # (get_or_create_api_token), not generated for every profile up front.
-    # null (not "", unlike every blank=True field above) so more than one
-    # profile can go without a token at once - a unique constraint on ""
-    # would only ever allow a single blank row.
-    api_token = models.CharField(max_length=64, blank=True, null=True, default=None, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
     # Set on the account bootstrap_admin creates from ADMIN_USERNAME/
     # ADMIN_PASSWORD (see management/commands/bootstrap_admin.py) so its
@@ -190,29 +176,60 @@ class Profile(models.Model):
         for a distinction Django auth already expresses."""
         return self.user.is_superuser
 
-    def get_or_create_api_token(self):
-        """Lazily generates api_token on first request (Settings’
-        Integrations tab, api.auth.ScrobbleTokenAuth) rather than for
-        every profile up front - most profiles never touch the scrobble
-        API at all. token_hex(32) (64 hex chars, matches max_length)
-        colliding with an existing row is astronomically unlikely, but
-        the unique constraint means a retry is still correct if it ever
-        did rather than silently handing out a duplicate token."""
-        if self.api_token:
-            return self.api_token
+
+class ApiToken(models.Model):
+    """Settings → Integrations "Custom Player" card - a bearer credential
+    a profile hands to their own player/script so it can POST scrobble
+    events to api/routers/scrobble.py without a browser session (see
+    docs/SCROBBLE_API.md). Stored in cleartext like every other
+    integration credential in this app (Profile.gemini_api_key,
+    InstanceConfig's own docstring) rather than hashed like a password -
+    this is a revocable, narrowly-scoped ("record a watch for this
+    profile") credential a person may legitimately need to re-view/
+    re-copy into a player's config, not an account login.
+
+    Originally a single nullable api_token field directly on Profile;
+    split into its own model (migration 0050, backfilling any existing
+    value as a "Custom Player" row so nobody's already-configured player
+    silently 401s after upgrading) so a profile can hold up to
+    MAX_TOKENS_PER_PROFILE named tokens instead of exactly zero or one -
+    one per app/device, each independently nameable/regenerable/
+    revocable without disturbing the others."""
+
+    MAX_TOKENS_PER_PROFILE = 5
+
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="api_tokens")
+    name = models.CharField(max_length=60)
+    # unique, not (profile, token) - see Profile's old api_token field
+    # comment for why this needs to be a direct equality lookup
+    # (api.auth.ScrobbleTokenAuth) rather than hashed.
+    token = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.name} ({self.profile})"
+
+    @staticmethod
+    def generate_value():
+        """token_hex(32) (64 hex chars, matches max_length) colliding with
+        an existing row is astronomically unlikely, but the unique
+        constraint means a retry is still correct if it ever did rather
+        than silently handing out a duplicate token."""
         while True:
             token = secrets.token_hex(32)
-            if not Profile.objects.filter(api_token=token).exists():
-                break
-        self.api_token = token
-        self.save(update_fields=["api_token"])
-        return token
+            if not ApiToken.objects.filter(token=token).exists():
+                return token
 
-    def regenerate_api_token(self):
-        """Settings' "Regenerate" button - the old token stops working the
-        moment this returns, same as rotating any other credential."""
-        self.api_token = None
-        return self.get_or_create_api_token()
+    def regenerate(self):
+        """Settings' per-token "Regenerate" button - the old value stops
+        working the moment this returns, same as rotating any other
+        credential. Keeps the row (and its name) - a rotation, not a
+        delete-and-recreate."""
+        self.token = self.generate_value()
+        self.save(update_fields=["token"])
 
 
 class Genre(models.Model):
