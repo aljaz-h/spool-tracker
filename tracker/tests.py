@@ -18174,9 +18174,9 @@ class RecommendationReplyTests(TestCase):
         self.rec = Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
 
     def test_reaction_only_is_saved(self):
-        recommendations.reply(self.rec, reaction="interested")
+        recommendations.reply(self.rec, reaction="watchlisting")
         self.rec.refresh_from_db()
-        self.assertEqual(self.rec.reply_reaction, "interested")
+        self.assertEqual(self.rec.reply_reaction, "watchlisting")
         self.assertEqual(self.rec.reply_message, "")
         self.assertIsNotNone(self.rec.replied_at)
 
@@ -18188,9 +18188,9 @@ class RecommendationReplyTests(TestCase):
         self.assertIsNotNone(self.rec.replied_at)
 
     def test_both_reaction_and_message_are_saved(self):
-        recommendations.reply(self.rec, reaction="say_less", message="already queued it")
+        recommendations.reply(self.rec, reaction="excited", message="already queued it")
         self.rec.refresh_from_db()
-        self.assertEqual(self.rec.reply_reaction, "say_less")
+        self.assertEqual(self.rec.reply_reaction, "excited")
         self.assertEqual(self.rec.reply_message, "already queued it")
 
     def test_neither_reaction_nor_message_is_a_no_op(self):
@@ -18208,12 +18208,12 @@ class RecommendationReplyTests(TestCase):
         self.assertEqual(self.rec.reply_message, "still worth watching")
 
     def test_reply_does_not_change_status(self):
-        recommendations.reply(self.rec, reaction="hard_pass")
+        recommendations.reply(self.rec, reaction="not_for_me")
         self.rec.refresh_from_db()
         self.assertEqual(self.rec.status, Recommendation.Status.PENDING)
 
     def test_notifies_from_profile(self):
-        recommendations.reply(self.rec, reaction="interested", message="looks great")
+        recommendations.reply(self.rec, reaction="watchlisting", message="looks great")
         n = Notification.objects.get(profile=self.sender)
         self.assertEqual(n.kind, Notification.Kind.RECOMMENDATION_REPLIED)
         self.assertEqual(n.title, self.title)
@@ -18221,12 +18221,12 @@ class RecommendationReplyTests(TestCase):
         self.assertIn("Fathom", n.message)
 
     def test_replying_twice_is_a_no_op(self):
-        recommendations.reply(self.rec, reaction="interested")
+        recommendations.reply(self.rec, reaction="watchlisting")
         self.rec.refresh_from_db()
         first_replied_at = self.rec.replied_at
-        recommendations.reply(self.rec, reaction="hard_pass", message="changed my mind")
+        recommendations.reply(self.rec, reaction="not_for_me", message="changed my mind")
         self.rec.refresh_from_db()
-        self.assertEqual(self.rec.reply_reaction, "interested")
+        self.assertEqual(self.rec.reply_reaction, "watchlisting")
         self.assertEqual(self.rec.reply_message, "")
         self.assertEqual(self.rec.replied_at, first_replied_at)
         self.assertEqual(Notification.objects.filter(profile=self.sender).count(), 1)
@@ -18256,17 +18256,17 @@ class ReplyToRecommendationViewTests(TestCase):
         self.client.login(username="viewreplyrecipient", password="pass12345")
         resp = self.client.post(
             reverse("reply_to_recommendation", args=[self.rec.pk]),
-            {"reply_reaction": "interested", "reply_message": "yes please"},
+            {"reply_reaction": "watchlisting", "reply_message": "yes please"},
         )
         self.assertEqual(resp.status_code, 200)
         self.rec.refresh_from_db()
-        self.assertEqual(self.rec.reply_reaction, "interested")
+        self.assertEqual(self.rec.reply_reaction, "watchlisting")
         self.assertEqual(self.rec.reply_message, "yes please")
 
     def test_sender_cannot_reply_to_their_own_sent_recommendation(self):
         self.client.login(username="viewreplysender", password="pass12345")
         resp = self.client.post(
-            reverse("reply_to_recommendation", args=[self.rec.pk]), {"reply_reaction": "interested"}
+            reverse("reply_to_recommendation", args=[self.rec.pk]), {"reply_reaction": "watchlisting"}
         )
         self.assertEqual(resp.status_code, 404)
         self.rec.refresh_from_db()
@@ -18277,20 +18277,20 @@ class ReplyToRecommendationViewTests(TestCase):
         Profile.objects.create(user=other_user, display_name="ViewReplyOther")
         self.client.login(username="viewreplyother", password="pass12345")
         resp = self.client.post(
-            reverse("reply_to_recommendation", args=[self.rec.pk]), {"reply_reaction": "interested"}
+            reverse("reply_to_recommendation", args=[self.rec.pk]), {"reply_reaction": "watchlisting"}
         )
         self.assertEqual(resp.status_code, 404)
 
     def test_replying_twice_via_the_view_keeps_the_first_reply(self):
         self.client.login(username="viewreplyrecipient", password="pass12345")
-        self.client.post(reverse("reply_to_recommendation", args=[self.rec.pk]), {"reply_reaction": "interested"})
-        self.client.post(reverse("reply_to_recommendation", args=[self.rec.pk]), {"reply_reaction": "hard_pass"})
+        self.client.post(reverse("reply_to_recommendation", args=[self.rec.pk]), {"reply_reaction": "watchlisting"})
+        self.client.post(reverse("reply_to_recommendation", args=[self.rec.pk]), {"reply_reaction": "not_for_me"})
         self.rec.refresh_from_db()
-        self.assertEqual(self.rec.reply_reaction, "interested")
+        self.assertEqual(self.rec.reply_reaction, "watchlisting")
 
     def test_reply_does_not_remove_the_recommendation_from_the_pending_feed(self):
         self.client.login(username="viewreplyrecipient", password="pass12345")
-        self.client.post(reverse("reply_to_recommendation", args=[self.rec.pk]), {"reply_reaction": "interested"})
+        self.client.post(reverse("reply_to_recommendation", args=[self.rec.pk]), {"reply_reaction": "watchlisting"})
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, "Recommended to you")
         self.assertContains(resp, "Fathom")
@@ -18315,10 +18315,17 @@ class DashboardRecommendationReplyUiTests(TestCase):
         self.assertContains(resp, reverse("reply_to_recommendation", args=[rec.pk]))
         self.assertContains(resp, 'name="reply_reaction"')
         self.assertContains(resp, 'name="reply_message"')
+        self.assertContains(resp, 'aria-label="Reply"')
+
+    def test_unreplied_recommendation_shows_all_four_reaction_values(self):
+        Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        resp = self.client.get(reverse("dashboard"))
+        for value in ("watchlisting", "already_seen", "excited", "not_for_me"):
+            self.assertContains(resp, f'value="{value}"')
 
     def test_replied_recommendation_shows_the_reply_read_only_not_the_form(self):
         rec = Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
-        recommendations.reply(rec, reaction="say_less", message="on it tonight")
+        recommendations.reply(rec, reaction="excited", message="on it tonight")
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, rec.get_reply_reaction_display())
         self.assertContains(resp, "on it tonight")
@@ -18352,7 +18359,7 @@ class RecommendCardReplyVisibilityTests(TestCase):
 
     def test_reply_shows_next_to_the_recipient_instead_of_the_plain_badge(self):
         rec = Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
-        recommendations.reply(rec, reaction="bold_choice", message="never seen anything like it")
+        recommendations.reply(rec, reaction="already_seen", message="never seen anything like it")
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         self.assertContains(resp, rec.get_reply_reaction_display())
         self.assertNotContains(resp, 'title="Sent"')
@@ -18379,7 +18386,7 @@ class RecommendationReplyEndToEndTests(TestCase):
         self.client.login(username="replye2erecipient", password="pass12345")
         self.client.post(
             reverse("reply_to_recommendation", args=[rec.pk]),
-            {"reply_reaction": "interested", "reply_message": "this weekend for sure"},
+            {"reply_reaction": "watchlisting", "reply_message": "this weekend for sure"},
         )
         rec.refresh_from_db()
         self.assertEqual(rec.status, Recommendation.Status.PENDING)

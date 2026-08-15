@@ -8,6 +8,22 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.105.0] - 2026-08-14
+
+### Changed
+
+- Redesigned the recommendation reply UI: a compact circular reply
+  button now sits at the right edge of the "by {sender} · {time} ago"
+  row, opening a small popover instead of the reaction row/message
+  input sitting permanently expanded on the card. Each reaction is now
+  a one-tap send (no separate confirm step); the message field gets its
+  own small send button. The reaction set itself changed to four,
+  reworded around what's actually useful to hear back on a
+  recommendation: Adding to Watchlist 👍, Already Seen It 😍, Excited
+  🔥, Not For Me 😅 (previously six: Interested/Maybe Later/Hard
+  Pass/Already Seen It/Say Less/Bold Choice). Existing replies made
+  under the old set keep displaying their original text as-is.
+
 ## [0.104.0] - 2026-08-14
 
 ### Added

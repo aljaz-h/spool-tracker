@@ -64,7 +64,85 @@ heading/divider left behind.
               </a>
             </div>
             <div class="mt-2">
-              <div class="text-xs text-ink-dim truncate">by {{ rec.from_profile.display_name }} &middot; {{ rec.created_at|timesince }} ago</div>
+              <div class="flex items-center justify-between gap-1">
+                <div class="text-xs text-ink-dim truncate">by {{ rec.from_profile.display_name }} &middot; {{ rec.created_at|timesince }} ago</div>
+                {% comment %}
+                  A reply is a one-shot reaction/message back to
+                  from_profile, deliberately separate from status (see
+                  models.Recommendation's own docstring) - once
+                  replied_at is set there's nothing left to open, so the
+                  trigger itself disappears rather than opening onto a
+                  dead end. Same fixed/getBoundingClientRect() popover
+                  pattern as poster_card_watched_button.html - needed
+                  here too since the popover (240px) is wider than the
+                  whole card (168px) and has to escape it, not just the
+                  reply row. Each reaction is its own tiny form that
+                  submits itself on click - no separate "confirm" step -
+                  and every form in here targets #recommendations-block
+                  the same way every other action on this card does, so
+                  the full-card HTMX swap that follows a submit is also
+                  what closes the popover: a fresh render has no memory
+                  of open=true.
+                {% endcomment %}
+                {% if not rec.replied_at %}
+                  <div class="relative flex-none" x-data="{
+                    open: false,
+                    togglePanel(button) {
+                      this.open = !this.open;
+                      if (!this.open) return;
+                      this.$nextTick(() => {
+                        const rect = button.getBoundingClientRect();
+                        const panel = this.$refs.panel;
+                        const width = 240;
+                        panel.style.left = Math.min(rect.left, window.innerWidth - width - 8) + 'px';
+                        panel.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
+                      });
+                    },
+                  }">
+                    <button
+                      type="button"
+                      @click="togglePanel($el)"
+                      :aria-expanded="open.toString()"
+                      aria-haspopup="true"
+                      aria-label="Reply"
+                      class="w-9 h-9 rounded-full flex items-center justify-center flex-none text-ink-dim hover:text-base-content hover:bg-base-300 transition-colors cursor-pointer"
+                    >{% icon "message-circle" "w-4 h-4" %}</button>
+                    <div
+                      x-ref="panel"
+                      x-show="open" x-cloak x-transition @click.outside="open = false" @keydown.escape.window="open = false"
+                      class="fixed z-50 w-60 bg-base-200 border border-line rounded-xl p-2.5 shadow-xl"
+                    >
+                      <div class="flex justify-between gap-1">
+                        <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
+                          {% csrf_token %}
+                          <input type="hidden" name="reply_reaction" value="watchlisting">
+                          <button type="submit" aria-label="Adding to Watchlist" class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-base bg-base-300 hover:bg-primary transition-colors cursor-pointer spool-tooltip" data-tooltip="Adding to Watchlist">&#128077;</button>
+                        </form>
+                        <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
+                          {% csrf_token %}
+                          <input type="hidden" name="reply_reaction" value="already_seen">
+                          <button type="submit" aria-label="Already Seen It" class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-base bg-base-300 hover:bg-primary transition-colors cursor-pointer spool-tooltip" data-tooltip="Already Seen It">&#128525;</button>
+                        </form>
+                        <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
+                          {% csrf_token %}
+                          <input type="hidden" name="reply_reaction" value="excited">
+                          <button type="submit" aria-label="Excited" class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-base bg-base-300 hover:bg-primary transition-colors cursor-pointer spool-tooltip" data-tooltip="Excited">&#128293;</button>
+                        </form>
+                        <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
+                          {% csrf_token %}
+                          <input type="hidden" name="reply_reaction" value="not_for_me">
+                          <button type="submit" aria-label="Not For Me" class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-base bg-base-300 hover:bg-primary transition-colors cursor-pointer spool-tooltip" data-tooltip="Not For Me">&#128517;</button>
+                        </form>
+                      </div>
+                      <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" class="flex items-center gap-1.5 mt-2">
+                        {% csrf_token %}
+                        <input type="text" name="reply_message" maxlength="160" placeholder="Reply…" aria-label="Reply" class="input input-xs flex-1 min-w-0 bg-base-100">
+                        <button type="submit" aria-label="Send" class="w-7 h-7 rounded-full flex items-center justify-center flex-none bg-primary text-primary-content hover:brightness-110 transition-all cursor-pointer">{% icon "send" "w-3.5 h-3.5" %}</button>
+                      </form>
+                    </div>
+                  </div>
+                {% endif %}
+              </div>
               <form hx-post="{% url 'add_recommendation_to_watchlist' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" class="mt-1.5">
                 {% csrf_token %}
                 {% if rec.title.pk in watchlisted_title_ids %}
@@ -73,59 +151,10 @@ heading/divider left behind.
                   <button type="submit" class="btn btn-xs btn-primary w-full">+ Add to Watchlist</button>
                 {% endif %}
               </form>
-              {% comment %}
-                A reply is a one-shot reaction/message back to
-                from_profile, deliberately separate from status (see
-                models.Recommendation's own docstring) - it stays right
-                here alongside Add to Watchlist regardless of whether
-                that's been clicked, since neither one resolves the
-                other. Chips are emoji-only (the whole card is 168px
-                wide - "Interested 👀" etc. as text+emoji would wrap
-                badly) with the label as a .spool-tooltip instead;
-                :model on the radio group needs the checked one's value
-                readable client-side to gate the submit button (an
-                empty reply, no reaction and no message, isn't a valid
-                submission).
-              {% endcomment %}
               {% if rec.replied_at %}
                 <div class="text-[11px] text-ink-dim mt-1.5 truncate">
                   {% if rec.reply_reaction %}{{ rec.get_reply_reaction_display }}{% endif %}{% if rec.reply_reaction and rec.reply_message %} · {% endif %}{% if rec.reply_message %}&ldquo;{{ rec.reply_message }}&rdquo;{% endif %}
                 </div>
-              {% else %}
-                <form
-                  hx-post="{% url 'reply_to_recommendation' rec.pk %}"
-                  hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-                  x-data="{ reaction: '', message: '' }"
-                  class="mt-1.5"
-                >
-                  {% csrf_token %}
-                  <div class="flex flex-wrap gap-1">
-                    <label class="w-5 h-5 rounded-full flex items-center justify-center text-[11px] bg-base-300 cursor-pointer has-checked:bg-primary spool-tooltip" data-tooltip="Interested">
-                      <input type="radio" name="reply_reaction" value="interested" x-model="reaction" class="sr-only">&#128064;
-                    </label>
-                    <label class="w-5 h-5 rounded-full flex items-center justify-center text-[11px] bg-base-300 cursor-pointer has-checked:bg-primary spool-tooltip" data-tooltip="Maybe Later">
-                      <input type="radio" name="reply_reaction" value="maybe_later" x-model="reaction" class="sr-only">&#9203;
-                    </label>
-                    <label class="w-5 h-5 rounded-full flex items-center justify-center text-[11px] bg-base-300 cursor-pointer has-checked:bg-primary spool-tooltip" data-tooltip="Hard Pass">
-                      <input type="radio" name="reply_reaction" value="hard_pass" x-model="reaction" class="sr-only">&#128581;
-                    </label>
-                    <label class="w-5 h-5 rounded-full flex items-center justify-center text-[11px] bg-base-300 cursor-pointer has-checked:bg-primary spool-tooltip" data-tooltip="Already Seen It">
-                      <input type="radio" name="reply_reaction" value="already_seen" x-model="reaction" class="sr-only">&#127871;
-                    </label>
-                    <label class="w-5 h-5 rounded-full flex items-center justify-center text-[11px] bg-base-300 cursor-pointer has-checked:bg-primary spool-tooltip" data-tooltip="Say Less">
-                      <input type="radio" name="reply_reaction" value="say_less" x-model="reaction" class="sr-only">&#129761;
-                    </label>
-                    <label class="w-5 h-5 rounded-full flex items-center justify-center text-[11px] bg-base-300 cursor-pointer has-checked:bg-primary spool-tooltip" data-tooltip="Bold Choice">
-                      <input type="radio" name="reply_reaction" value="bold_choice" x-model="reaction" class="sr-only">&#128527;
-                    </label>
-                  </div>
-                  <input
-                    type="text" name="reply_message" x-model="message" maxlength="160"
-                    placeholder="Reply…" aria-label="Reply"
-                    class="input input-xs w-full bg-base-100 mt-1.5"
-                  >
-                  <button type="submit" :disabled="!reaction && !message.trim()" class="btn btn-xs btn-primary w-full mt-1.5">Reply</button>
-                </form>
               {% endif %}
             </div>
           </div>

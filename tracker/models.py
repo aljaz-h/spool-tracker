@@ -598,12 +598,10 @@ class Recommendation(models.Model):
         DISMISSED = "dismissed", "Dismissed"
 
     class ReplyReaction(models.TextChoices):
-        INTERESTED = "interested", "Interested \U0001f440"
-        MAYBE_LATER = "maybe_later", "Maybe Later ⏳"
-        HARD_PASS = "hard_pass", "Hard Pass \U0001f645"
-        ALREADY_SEEN = "already_seen", "Already Seen It \U0001f37f"
-        SAY_LESS = "say_less", "Say Less \U0001fae1"
-        BOLD_CHOICE = "bold_choice", "Bold Choice \U0001f60f"
+        WATCHLISTING = "watchlisting", "Adding to Watchlist \U0001f44d"
+        ALREADY_SEEN = "already_seen", "Already Seen It \U0001f60d"
+        EXCITED = "excited", "Excited \U0001f525"
+        NOT_FOR_ME = "not_for_me", "Not For Me \U0001f605"
 
     from_profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="sent_recommendations")
     to_profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="received_recommendations")
