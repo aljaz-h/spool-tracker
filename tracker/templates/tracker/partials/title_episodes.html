@@ -83,7 +83,7 @@
           </button>
           <div
             x-ref="panel"
-            x-show="open" x-cloak x-transition @click.outside="open = false" @keydown.escape.window="open = false"
+            x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
             class="fixed z-50 w-56 max-h-72 overflow-y-auto bg-base-200 border border-line rounded-lg p-1.5 shadow-xl"
           >
             {% for s in seasons %}

@@ -306,43 +306,45 @@
       <div class="bg-base-200 border border-line rounded-2xl p-4">
         <h2 class="font-display text-lg mb-2.5">Lists</h2>
         {% comment %}
-          Chip toggles - same filled/outlined visual grammar as the
-          Filters drawer's genre chips, so "already a member" reads at
-          a glance instead of every row showing the same "+" regardless
-          of state. "+ New list" is deliberately its own separate,
-          dashed-outline action below the membership chips, not another
-          same-looking "+" chip that could be mistaken for a list.
-
           A preview title (is_preview) has no local row yet, so every
           chip is necessarily unfilled (in_list_ids is always empty -
           see title_preview) and posts to title_preview_add_to_list
           instead of add_to_list/remove_from_list - clicking any chip,
           including "Watchlist" itself, materializes the Title and adds
           it to that one list, same as the old dedicated "+ Add to
-          Watchlist" button did for the Watchlist specifically.
+          Watchlist" button did for the Watchlist specifically. That
+          materialize-on-click flow doesn't fit the toggleable list-picker
+          popover every other page uses (poster_card_list_popover.html),
+          so a preview keeps its own simple chip row; once a real Title
+          row exists it gets the same popover as everywhere else.
         {% endcomment %}
-        {% if my_lists %}
-          <div class="flex flex-wrap gap-2 mb-3">
-            {% for list in my_lists %}
-              <form method="post" action="{% if is_preview %}{% url 'title_preview_add_to_list' preview_media_type preview_tmdb_id list.id %}{% elif list.id in in_list_ids %}{% url 'remove_from_list' list.id %}{% else %}{% url 'add_to_list' list.id %}{% endif %}">
-                {% csrf_token %}
-                {% if not is_preview %}
-                  <input type="hidden" name="title_id" value="{{ title.pk }}">
-                  <input type="hidden" name="next" value="{{ request.path }}">
-                {% endif %}
-                <button
-                  type="submit"
-                  class="px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-colors
-                    {% if list.id in in_list_ids %}bg-primary text-primary-content border-primary{% else %}bg-base-100 text-ink-dim border-line hover:border-primary hover:text-base-content{% endif %}"
-                >{{ list.name }}</button>
-              </form>
-            {% endfor %}
+        {% if is_preview %}
+          {% if my_lists %}
+            <div class="flex flex-wrap gap-2 mb-3">
+              {% for list in my_lists %}
+                <form method="post" action="{% url 'title_preview_add_to_list' preview_media_type preview_tmdb_id list.id %}">
+                  {% csrf_token %}
+                  <button
+                    type="submit"
+                    class="px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-colors bg-base-100 text-ink-dim border-line hover:border-primary hover:text-base-content"
+                  >{{ list.name }}</button>
+                </form>
+              {% endfor %}
+            </div>
+          {% endif %}
+          <a
+            href="{% url 'lists' %}"
+            class="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-full text-xs font-semibold border border-dashed border-line text-ink-faint hover:border-primary hover:text-primary transition-colors"
+          >+ New list</a>
+        {% else %}
+          <div class="flex flex-wrap items-center gap-2">
+            {% include "tracker/partials/title_detail_list_popover.html" with title=title my_lists=my_lists in_list_ids=in_list_ids %}
+            <a
+              href="{% url 'lists' %}"
+              class="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-full text-xs font-semibold border border-dashed border-line text-ink-faint hover:border-primary hover:text-primary transition-colors"
+            >+ New list</a>
           </div>
         {% endif %}
-        <a
-          href="{% url 'lists' %}"
-          class="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-full text-xs font-semibold border border-dashed border-line text-ink-faint hover:border-primary hover:text-primary transition-colors"
-        >+ New list</a>
       </div>
 
       {% include "tracker/partials/recommend_card.html" %}

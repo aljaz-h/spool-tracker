@@ -24,7 +24,7 @@
   >{% icon "list-checks" "w-4 h-4" %}</button>
   <div
     x-ref="panel"
-    x-show="open" x-cloak x-transition @click.outside="open = false" @keydown.escape.window="open = false"
+    x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
     class="fixed z-50 w-44 max-h-56 overflow-y-auto bg-base-200 border border-line rounded-lg p-1.5 shadow-xl"
   >
     {% for list in my_lists %}

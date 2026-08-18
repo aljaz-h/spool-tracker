@@ -30,7 +30,7 @@
   >{% icon "check" "w-4 h-4" %}</button>
   <div
     x-ref="panel"
-    x-show="open" x-cloak x-transition @click.outside="open = false" @keydown.escape.window="open = false"
+    x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
     class="fixed z-50 w-56 bg-base-200 border border-line rounded-xl p-2 shadow-xl"
   >
     {% include "tracker/partials/episode_watched_menu_panel.html" with title=title season=season episode_number=episode_number id_suffix=id_suffix %}
@@ -67,7 +67,7 @@
   >{% icon "check" "w-4 h-4" %}</button>
   <div
     x-ref="panel"
-    x-show="open" x-cloak x-transition @click.outside="open = false" @keydown.escape.window="open = false"
+    x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
     class="first-watch-panel fixed z-50 w-56 bg-base-200 border border-line rounded-xl p-2 shadow-xl"
   >
     {% url 'episode_mark_watched' title.pk season episode_number as mark_watched_url %}

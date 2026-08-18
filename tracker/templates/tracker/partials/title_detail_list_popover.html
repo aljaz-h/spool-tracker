@@ -1,14 +1,14 @@
 {% load icons tracker_extras %}
 {# context: title (Title), my_lists (list of WatchList), in_list_ids (set of watchlist pk) #}
 {% comment %}
-The panel is position:fixed, placed via getBoundingClientRect() on open,
-not position:absolute against the trigger - a poster card is only
-~250px tall, smaller than the panel itself, so an absolute popover
-confined to the card's own box has nowhere to render but on top of the
-poster art. Fixed positioning escapes the card (and the carousel's
-overflow-x-auto scroll clipping) entirely and floats above the page.
+Same fixed/getBoundingClientRect() popover as poster_card_list_popover.html,
+just a page-styled pill trigger instead of a compact icon square - same
+reasoning as title_detail_watched_button.html's own trigger vs. the grid
+one. "list-popover-detail-" (not "list-popover-") is its own id prefix so
+views.add_to_list/remove_from_list re-render this template, not the grid
+one, after a click - see views._render_title_detail_list_popover.
 {% endcomment %}
-<div class="relative flex-1" id="list-popover-{{ title.pk }}" x-data="{
+<div class="relative inline-block" id="list-popover-detail-{{ title.pk }}" x-data="{
   open: false,
   togglePanel(button) {
     this.open = !this.open;
@@ -16,9 +16,9 @@ overflow-x-auto scroll clipping) entirely and floats above the page.
     this.$nextTick(() => {
       const rect = button.getBoundingClientRect();
       const panel = this.$refs.panel;
-      const width = 176;
-      panel.style.left = Math.min(rect.left, window.innerWidth - width - 8) + 'px';
-      panel.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
+      const width = 224;
+      panel.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)) + 'px';
+      panel.style.top = (rect.bottom + 6) + 'px';
     });
   },
 }">
@@ -27,21 +27,20 @@ overflow-x-auto scroll clipping) entirely and floats above the page.
     @click="togglePanel($el)"
     :aria-expanded="open.toString()"
     aria-haspopup="true"
-    title="Add to list"
-    class="w-full h-9 flex items-center justify-center transition-colors
-      {% if in_list_ids %}bg-primary/20 text-primary hover:bg-primary/30{% else %}text-white/75 hover:text-white hover:bg-white/10{% endif %}"
-  >{% icon "list-checks" "w-4 h-4" %}</button>
+    class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-colors
+      {% if in_list_ids %}bg-primary text-primary-content border-primary{% else %}bg-base-100 text-ink-dim border-line hover:border-primary hover:text-base-content{% endif %}"
+  >{% icon "list-checks" "w-3.5 h-3.5" %}{% if in_list_ids %}On {{ in_list_ids|length }} list{{ in_list_ids|length|pluralize }}{% else %}Add to list{% endif %}</button>
   <div
     x-ref="panel"
     x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
-    class="fixed z-50 w-44 max-h-56 overflow-y-auto bg-base-200 border border-line rounded-lg p-1.5 shadow-xl"
+    class="fixed z-50 w-56 max-h-64 overflow-y-auto bg-base-200 border border-line rounded-lg p-1.5 shadow-xl flex flex-col gap-0.5"
   >
     {% for list in my_lists %}
       <button
         type="button"
         hx-post="{% if list.id in in_list_ids %}{% url 'remove_from_list' list.id %}{% else %}{% url 'add_to_list' list.id %}{% endif %}"
         hx-vals='{"title_id": "{{ title.pk }}"}'
-        hx-target="#list-popover-{{ title.pk }}"
+        hx-target="#list-popover-detail-{{ title.pk }}"
         hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
         class="btn btn-xs w-full justify-between {% if list.id in in_list_ids %}btn-primary{% else %}btn-soft{% endif %}"
       >{{ list.name }} <span>{% if list.id in in_list_ids %}&#10003;{% else %}+{% endif %}</span></button>

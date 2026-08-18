@@ -1254,20 +1254,18 @@ def _received_recommendations(profile):
 
 
 def _recommendations_context(profile):
-    """Dashboard's "Recommended to you" card and its two HTMX actions
-    (dismiss, add-to-watchlist) all re-render the same partial off this -
-    watchlisted_title_ids lets the card show "Added" instead of the
-    add-to-watchlist button for a title already queued, without a second
-    round trip per row."""
+    """Dashboard's "Recommended to you" card and its HTMX actions (dismiss,
+    reply, add-to-list) all re-render the same partial off this. my_lists/
+    list_membership drive the card's list-picker popover - same shape as
+    selectors.poster_action_context, batched the same way to avoid an
+    N+1 across the row."""
     received = _received_recommendations(profile)
-    watchlisted_title_ids = set(
-        WatchListItem.objects.filter(
-            watchlist__profile=profile,
-            watchlist__is_watchlist=True,
-            title_id__in=[rec.title_id for rec in received],
-        ).values_list("title_id", flat=True)
-    )
-    return {"received_recommendations": received, "watchlisted_title_ids": watchlisted_title_ids}
+    action_context = selectors.poster_action_context(profile, [rec.title for rec in received])
+    return {
+        "received_recommendations": received,
+        "my_lists": action_context["my_lists"],
+        "list_membership": action_context["list_membership"],
+    }
 
 
 @login_required
@@ -1299,25 +1297,6 @@ def reveal_recommendation(request, pk):
     if not rec.revealed:
         rec.revealed = True
         rec.save(update_fields=["revealed"])
-    return render(request, "tracker/partials/dashboard_recommendations.html", _recommendations_context(profile))
-
-
-@login_required
-@require_POST
-def add_recommendation_to_watchlist(request, pk):
-    """The "Recommended to you" card's quick-add - queues the title without
-    resolving the recommendation itself, same as recommendations.py's
-    docstring describes for any other route onto the Watchlist. It only
-    leaves the pending feed once actually watched
-    (recommendations.mark_title_watched, triggered from every "mark
-    watched" path), so it keeps nudging until the title's actually seen,
-    not just queued."""
-    profile = Profile.objects.filter(user=request.user).first()
-    if profile is None:
-        raise Http404
-    rec = get_object_or_404(Recommendation, pk=pk, to_profile=profile)
-    watchlist, _ = WatchList.objects.get_or_create(profile=profile, name="Watchlist", defaults={"is_watchlist": True})
-    WatchListItem.objects.get_or_create(watchlist=watchlist, title=rec.title)
     return render(request, "tracker/partials/dashboard_recommendations.html", _recommendations_context(profile))
 
 
@@ -2907,6 +2886,22 @@ def _render_poster_actions(request, profile, title):
     )
 
 
+def _render_title_detail_list_popover(request, profile, title):
+    """Same fragment as _render_poster_actions, just the title detail
+    page's own pill-styled popover (title_detail_list_popover.html) - see
+    that template's docstring for why it needs a separate id prefix/
+    dispatch instead of reusing the grid one directly."""
+    my_lists = list(WatchList.objects.filter(profile=profile).order_by("name"))
+    in_list_ids = set(
+        WatchListItem.objects.filter(watchlist__profile=profile, title=title).values_list("watchlist_id", flat=True)
+    )
+    return render(
+        request,
+        "tracker/partials/title_detail_list_popover.html",
+        {"title": title, "my_lists": my_lists, "in_list_ids": in_list_ids},
+    )
+
+
 def _list_action_redirect(request, list_id):
     """add_to_list/remove_from_list default to list_detail, but the title
     detail page also posts to these (to add/remove itself from a list
@@ -2935,6 +2930,10 @@ def add_to_list(request, list_id):
         next_position = (WatchListItem.objects.filter(watchlist=watchlist).aggregate(Max("position"))["position__max"] or 0) + 1
         WatchListItem.objects.create(watchlist=watchlist, title=title, position=next_position)
     hx_target = request.headers.get("HX-Target") or ""
+    if hx_target == "recommendations-block":
+        return render(request, "tracker/partials/dashboard_recommendations.html", _recommendations_context(profile))
+    if hx_target.startswith("list-popover-detail-"):
+        return _render_title_detail_list_popover(request, profile, title)
     if hx_target.startswith("list-popover-"):
         return _render_poster_actions(request, profile, title)
     if request.headers.get("HX-Request"):
@@ -2952,6 +2951,10 @@ def remove_from_list(request, list_id):
     title = get_object_or_404(Title, pk=request.POST.get("title_id"))
     WatchListItem.objects.filter(watchlist=watchlist, title=title).delete()
     hx_target = request.headers.get("HX-Target") or ""
+    if hx_target == "recommendations-block":
+        return render(request, "tracker/partials/dashboard_recommendations.html", _recommendations_context(profile))
+    if hx_target.startswith("list-popover-detail-"):
+        return _render_title_detail_list_popover(request, profile, title)
     if hx_target.startswith("list-popover-"):
         return _render_poster_actions(request, profile, title)
     if request.headers.get("HX-Request"):

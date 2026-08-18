@@ -873,7 +873,7 @@
               (see that file's own comment on why: subpixel-AA blur from
               the drawer's permanent transform layer).
             {% endcomment %}
-            <div class="relative" @click.outside="open = false" @keydown.escape.window="open = false" x-data="{
+            <div class="relative" @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false" x-data="{
               open: false,
               togglePanel(button) {
                 this.open = !this.open;

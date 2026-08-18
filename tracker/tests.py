@@ -2278,50 +2278,6 @@ class DismissRecommendationViewTests(TestCase):
         self.assertEqual(resp.status_code, 405)
 
 
-class AddRecommendationToWatchlistViewTests(TestCase):
-    def setUp(self):
-        sender_user = User.objects.create_user("addwlsender", password="pass12345")
-        self.sender = Profile.objects.create(user=sender_user, display_name="AddWlSender")
-        recipient_user = User.objects.create_user("addwlrecipient", password="pass12345")
-        self.recipient = Profile.objects.create(user=recipient_user, display_name="AddWlRecipient")
-        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
-        self.rec = Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
-        self.client.login(username="addwlrecipient", password="pass12345")
-
-    def test_adds_the_title_to_the_watchlist(self):
-        self.client.post(reverse("add_recommendation_to_watchlist", args=[self.rec.pk]))
-        watchlist = WatchList.objects.get(profile=self.recipient, is_watchlist=True)
-        self.assertTrue(WatchListItem.objects.filter(watchlist=watchlist, title=self.title).exists())
-
-    def test_recommendation_stays_pending_until_actually_watched(self):
-        # Queuing isn't watching - the recommendation keeps nudging until
-        # a real WatchEvent resolves it via recommendations.mark_title_watched.
-        self.client.post(reverse("add_recommendation_to_watchlist", args=[self.rec.pk]))
-        self.rec.refresh_from_db()
-        self.assertEqual(self.rec.status, Recommendation.Status.PENDING)
-
-    def test_calling_it_twice_does_not_duplicate_the_watchlist_item(self):
-        self.client.post(reverse("add_recommendation_to_watchlist", args=[self.rec.pk]))
-        self.client.post(reverse("add_recommendation_to_watchlist", args=[self.rec.pk]))
-        watchlist = WatchList.objects.get(profile=self.recipient, is_watchlist=True)
-        self.assertEqual(WatchListItem.objects.filter(watchlist=watchlist, title=self.title).count(), 1)
-
-    def test_only_the_recipient_can_add(self):
-        self.client.logout()
-        self.client.login(username="addwlsender", password="pass12345")
-        resp = self.client.post(reverse("add_recommendation_to_watchlist", args=[self.rec.pk]))
-        self.assertEqual(resp.status_code, 404)
-
-    def test_requires_login(self):
-        self.client.logout()
-        resp = self.client.post(reverse("add_recommendation_to_watchlist", args=[self.rec.pk]))
-        self.assertEqual(resp.status_code, 302)
-
-    def test_get_not_allowed(self):
-        resp = self.client.get(reverse("add_recommendation_to_watchlist", args=[self.rec.pk]))
-        self.assertEqual(resp.status_code, 405)
-
-
 class RevealRecommendationViewTests(TestCase):
     def setUp(self):
         sender_user = User.objects.create_user("revealsender", password="pass12345")
@@ -2429,19 +2385,19 @@ class DashboardRecommendationsTests(TestCase):
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, "2 new")
 
-    def test_add_to_watchlist_button_shown_for_an_unlisted_title(self):
+    def test_add_to_list_button_shown_for_an_unlisted_title(self):
         Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
         resp = self.client.get(reverse("dashboard"))
-        self.assertContains(resp, "Add to Watchlist")
-        self.assertNotContains(resp, "&#10003; Added")
+        self.assertContains(resp, "+ Add to list")
+        self.assertNotContains(resp, "On 1 list")
 
-    def test_shows_added_state_when_title_already_on_the_watchlist(self):
+    def test_shows_list_membership_when_title_already_on_a_list(self):
         Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
         watchlist = WatchList.objects.create(profile=self.recipient, name="Watchlist", is_watchlist=True)
         WatchListItem.objects.create(watchlist=watchlist, title=self.title)
         resp = self.client.get(reverse("dashboard"))
-        self.assertContains(resp, "Added")
-        self.assertNotContains(resp, "+ Add to Watchlist")
+        self.assertContains(resp, "On 1 list")
+        self.assertNotContains(resp, "+ Add to list")
 
     def test_dismissed_recommendations_are_not_shown(self):
         Recommendation.objects.create(
@@ -2466,13 +2422,13 @@ class DashboardRecommendationsTests(TestCase):
         self.assertNotContains(resp, "Fathom")
         self.assertContains(resp, "DashSender")
 
-    def test_unrevealed_blind_recommendation_has_an_open_button_not_add_to_watchlist(self):
+    def test_unrevealed_blind_recommendation_has_an_open_button_not_add_to_list(self):
         rec = Recommendation.objects.create(
             from_profile=self.sender, to_profile=self.recipient, title=self.title, is_blind=True
         )
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, reverse("reveal_recommendation", args=[rec.pk]))
-        self.assertNotContains(resp, "Add to Watchlist")
+        self.assertNotContains(resp, "Add to list")
 
     def test_revealed_blind_recommendation_shows_the_title_normally(self):
         Recommendation.objects.create(
@@ -2481,7 +2437,7 @@ class DashboardRecommendationsTests(TestCase):
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, "Fathom")
         self.assertNotContains(resp, "Mystery recommendation")
-        self.assertContains(resp, "Add to Watchlist")
+        self.assertContains(resp, "+ Add to list")
 
 
 class RecommendationEndToEndTests(TestCase):
@@ -15586,6 +15542,109 @@ class PosterCardListPopoverHtmxBranchTests(TestCase):
         self.assertIn(self.title.pk, resp.context["watched_by_title"])
         self.assertTrue(resp.context["watched_by_title"][self.title.pk])
         self.assertIn("Mine", [wl.name for wl in resp.context["my_lists"]])
+
+
+class TitleDetailListPopoverHtmxBranchTests(TestCase):
+    """Same HX-Target dispatch as PosterCardListPopoverHtmxBranchTests, for
+    title_detail's own "list-popover-detail-" prefixed popover - guards
+    that it gets its own template back (title_detail_list_popover.html),
+    not the grid one, and that "list-popover-detail-" doesn't accidentally
+    fall into the generic "list-popover-" branch meant for the grid."""
+
+    def setUp(self):
+        user = User.objects.create_user("detailpopoverposter", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="DetailPopoverPoster")
+        self.client.login(username="detailpopoverposter", password="pass12345")
+        self.watchlist = WatchList.objects.create(profile=self.profile, name="Favorites")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+
+    def test_add_to_list_from_the_detail_popover_returns_the_detail_fragment(self):
+        resp = self.client.post(
+            reverse("add_to_list", args=[self.watchlist.id]),
+            {"title_id": self.title.pk},
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET=f"list-popover-detail-{self.title.pk}",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, f"list-popover-detail-{self.title.pk}")
+        self.assertNotContains(resp, 'id="list-items"')
+
+    def test_remove_from_list_from_the_detail_popover_returns_the_detail_fragment(self):
+        WatchListItem.objects.create(watchlist=self.watchlist, title=self.title)
+        resp = self.client.post(
+            reverse("remove_from_list", args=[self.watchlist.id]),
+            {"title_id": self.title.pk},
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET=f"list-popover-detail-{self.title.pk}",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, f"list-popover-detail-{self.title.pk}")
+        self.assertFalse(WatchListItem.objects.filter(watchlist=self.watchlist, title=self.title).exists())
+
+    def test_title_detail_page_renders_the_popover_trigger(self):
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, f"list-popover-detail-{self.title.pk}")
+
+
+class RecommendationListPopoverViewTests(TestCase):
+    """The "Recommended to you" card's list-picker popover - add_to_list/
+    remove_from_list dispatch to the card's own "recommendations-block"
+    HX-Target (same convention as dismiss/reply/reveal already use) and
+    re-render dashboard_recommendations.html, letting the recipient add
+    the recommended title to any list, not just one fixed Watchlist."""
+
+    def setUp(self):
+        sender_user = User.objects.create_user("recpopsender", password="pass12345")
+        self.sender = Profile.objects.create(user=sender_user, display_name="RecPopSender")
+        recipient_user = User.objects.create_user("recpoprecipient", password="pass12345")
+        self.recipient = Profile.objects.create(user=recipient_user, display_name="RecPopRecipient")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        self.rec = Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+        self.watchlist = WatchList.objects.create(profile=self.recipient, name="Watchlist", is_watchlist=True)
+        self.client.login(username="recpoprecipient", password="pass12345")
+
+    def test_adds_the_title_to_the_chosen_list(self):
+        resp = self.client.post(
+            reverse("add_to_list", args=[self.watchlist.id]),
+            {"title_id": self.title.pk},
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET="recommendations-block",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(WatchListItem.objects.filter(watchlist=self.watchlist, title=self.title).exists())
+        self.assertContains(resp, "recommendations-block")
+
+    def test_recommendation_stays_pending_until_actually_watched(self):
+        self.client.post(
+            reverse("add_to_list", args=[self.watchlist.id]),
+            {"title_id": self.title.pk},
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET="recommendations-block",
+        )
+        self.rec.refresh_from_db()
+        self.assertEqual(self.rec.status, Recommendation.Status.PENDING)
+
+    def test_removes_the_title_from_the_chosen_list(self):
+        WatchListItem.objects.create(watchlist=self.watchlist, title=self.title)
+        resp = self.client.post(
+            reverse("remove_from_list", args=[self.watchlist.id]),
+            {"title_id": self.title.pk},
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET="recommendations-block",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(WatchListItem.objects.filter(watchlist=self.watchlist, title=self.title).exists())
+
+    def test_only_the_recipient_can_edit_their_lists(self):
+        self.client.logout()
+        self.client.login(username="recpopsender", password="pass12345")
+        resp = self.client.post(
+            reverse("add_to_list", args=[self.watchlist.id]),
+            {"title_id": self.title.pk},
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET="recommendations-block",
+        )
+        self.assertEqual(resp.status_code, 404)
 
 
 class PosterSizeFilterTests(TestCase):

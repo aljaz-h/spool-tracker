@@ -8,6 +8,30 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.107.0] - 2026-08-18
+
+### Fixed
+
+- Every fixed-position popover positioned via `getBoundingClientRect()`
+  on open (mark watched, add-to-list, the history episode-remove menu,
+  the episode season picker, and Settings' sync-log Filters) stayed
+  visually pinned to its original screen position if the page was
+  scrolled while it was open, instead of following or closing with the
+  button it was anchored to - same root cause the Filters popup fix
+  already addressed, just not carried to its siblings. All now close on
+  scroll the same way.
+
+### Changed
+
+- Title detail's "Lists" section and the Dashboard's "Recommended to
+  you" cards now use the same list-picker popover every poster
+  card/discover tile already has, instead of their own plain chip row
+  and single-purpose "+ Add to Watchlist" button respectively. The
+  recommendation card's quick-add can now target any list, not just one
+  hardcoded Watchlist - the now-redundant `add_recommendation_to_watchlist`
+  endpoint was removed in favor of the generic add_to_list/remove_from_list
+  views every other list-picker already uses.
+
 ## [0.106.0] - 2026-08-15
 
 ### Added
