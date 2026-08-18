@@ -7,6 +7,10 @@ not position:absolute against the trigger - a poster card is only
 confined to the card's own box has nowhere to render but on top of the
 poster art. Fixed positioning escapes the card (and the carousel's
 overflow-x-auto scroll clipping) entirely and floats above the page.
+
+Same header+icon-row layout as watched_menu_panel.html (title/close bar,
+each row an icon circle + label + status line) instead of the old plain
+chip list, so the two popovers read as the same component family.
 {% endcomment %}
 <div class="relative flex-1" id="list-popover-{{ title.pk }}" x-data="{
   open: false,
@@ -16,7 +20,7 @@ overflow-x-auto scroll clipping) entirely and floats above the page.
     this.$nextTick(() => {
       const rect = button.getBoundingClientRect();
       const panel = this.$refs.panel;
-      const width = 176;
+      const width = 288;
       panel.style.left = Math.min(rect.left, window.innerWidth - width - 8) + 'px';
       panel.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
     });
@@ -34,19 +38,34 @@ overflow-x-auto scroll clipping) entirely and floats above the page.
   <div
     x-ref="panel"
     x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
-    class="fixed z-50 w-44 max-h-56 overflow-y-auto bg-base-200 border border-line rounded-lg p-1.5 shadow-xl"
+    class="fixed z-50 w-72 bg-base-200 border border-line rounded-xl p-2 shadow-xl"
   >
-    {% for list in my_lists %}
-      <button
-        type="button"
-        hx-post="{% if list.id in in_list_ids %}{% url 'remove_from_list' list.id %}{% else %}{% url 'add_to_list' list.id %}{% endif %}"
-        hx-vals='{"title_id": "{{ title.pk }}"}'
-        hx-target="#list-popover-{{ title.pk }}"
-        hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-        class="btn btn-xs w-full justify-between {% if list.id in in_list_ids %}btn-primary{% else %}btn-soft{% endif %}"
-      >{{ list.name }} <span>{% if list.id in in_list_ids %}&#10003;{% else %}+{% endif %}</span></button>
-    {% empty %}
-      <div class="text-[11px] text-ink-faint px-2 py-1.5">No lists yet.</div>
-    {% endfor %}
+    <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1 border-b border-line">
+      <div class="min-w-0">
+        <div class="font-semibold text-sm">Add to list</div>
+        <div class="text-xs text-ink-faint truncate">{{ title.name }}</div>
+      </div>
+      <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 flex-none">{% icon "x" "w-4 h-4" %}</button>
+    </div>
+    <div class="max-h-56 overflow-y-auto">
+      {% for list in my_lists %}
+        <button
+          type="button"
+          hx-post="{% if list.id in in_list_ids %}{% url 'remove_from_list' list.id %}{% else %}{% url 'add_to_list' list.id %}{% endif %}"
+          hx-vals='{"title_id": "{{ title.pk }}"}'
+          hx-target="#list-popover-{{ title.pk }}"
+          hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+          class="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
+        >
+          <span class="w-8 h-8 rounded-full flex items-center justify-center flex-none {% if list.id in in_list_ids %}bg-primary/15 text-primary{% else %}bg-base-300 text-ink-dim{% endif %}">{% if list.id in in_list_ids %}{% icon "check" "w-4 h-4" %}{% else %}{% icon "list-checks" "w-4 h-4" %}{% endif %}</span>
+          <span class="min-w-0 flex-1">
+            <span class="block text-[13px] font-semibold truncate">{{ list.name }}</span>
+            <span class="block text-[11px] text-ink-faint">{% if list.id in in_list_ids %}In this list — tap to remove{% else %}Add to this list{% endif %}</span>
+          </span>
+        </button>
+      {% empty %}
+        <div class="text-[11px] text-ink-faint px-2 py-1.5">No lists yet.</div>
+      {% endfor %}
+    </div>
   </div>
 </div>
