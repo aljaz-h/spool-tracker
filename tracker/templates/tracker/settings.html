@@ -878,13 +878,7 @@
               togglePanel(button) {
                 this.open = !this.open;
                 if (!this.open) return;
-                this.$nextTick(() => {
-                  const rect = button.getBoundingClientRect();
-                  const panel = this.$refs.panel;
-                  const width = 384;
-                  panel.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)) + 'px';
-                  panel.style.top = (rect.bottom + 8) + 'px';
-                });
+                this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 384, false));
               },
             }">
               <button type="button" @click="togglePanel($el)" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">

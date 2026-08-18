@@ -50,16 +50,11 @@
       {% endcomment %}
       <div class="relative" @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false" x-data="{
         open: false,
+        showAllProviders: false,
         togglePanel(button) {
           this.open = !this.open;
           if (!this.open) return;
-          this.$nextTick(() => {
-            const rect = button.getBoundingClientRect();
-            const panel = this.$refs.panel;
-            const width = 320;
-            panel.style.left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)) + 'px';
-            panel.style.top = (rect.bottom + 8) + 'px';
-          });
+          this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 320, false, 'right'));
         },
       }">
         <button type="button" @click="togglePanel($el)" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
@@ -223,8 +218,20 @@
                     {% if providers %}
                       <div>
                         <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Streaming services</div>
+                        {% comment %}
+                          providers is already sorted most-popular-first
+                          (tmdb.watch_provider_catalog's own
+                          display_priority sort), so the first 10 *are*
+                          "the most popular ones" - showing all ~50-100
+                          TMDB knows about by default made this section
+                          the tallest thing in the popover. The rest stay
+                          in the DOM (still submit-able, still checkable
+                          if already selected from a past filter) just
+                          x-show-hidden, so "Apply filters" still sees a
+                          previously-picked provider outside the top 10.
+                        {% endcomment %}
                         <div class="flex flex-wrap gap-1.5">
-                          {% for p in providers %}
+                          {% for p in providers|slice:":10" %}
                             <label class="flex items-center gap-1.5 text-xs font-medium bg-base-100 text-ink-dim border border-line rounded-full pl-1.5 pr-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
                               <input type="checkbox" name="provider" value="{{ p.id }}" class="sr-only" {% if p.id in selected_providers %}checked{% endif %}>
                               {% if p.logo_url %}<img src="{{ p.logo_url }}" alt="" class="w-4.5 h-4.5 rounded">{% endif %}
@@ -232,6 +239,22 @@
                             </label>
                           {% endfor %}
                         </div>
+                        {% if providers|length > 10 %}
+                          <div x-show="showAllProviders" x-cloak class="flex flex-wrap gap-1.5 mt-1.5">
+                            {% for p in providers|slice:"10:" %}
+                              <label class="flex items-center gap-1.5 text-xs font-medium bg-base-100 text-ink-dim border border-line rounded-full pl-1.5 pr-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                                <input type="checkbox" name="provider" value="{{ p.id }}" class="sr-only" {% if p.id in selected_providers %}checked{% endif %}>
+                                {% if p.logo_url %}<img src="{{ p.logo_url }}" alt="" class="w-4.5 h-4.5 rounded">{% endif %}
+                                {{ p.name }}
+                              </label>
+                            {% endfor %}
+                          </div>
+                          <button
+                            type="button"
+                            @click="showAllProviders = !showAllProviders"
+                            class="text-xs text-primary hover:underline mt-2 cursor-pointer"
+                          ><span x-show="!showAllProviders">Show {{ providers|length|add:"-10" }} more streaming services</span><span x-show="showAllProviders" x-cloak>Show fewer streaming services</span></button>
+                        {% endif %}
                       </div>
                     {% endif %}
 

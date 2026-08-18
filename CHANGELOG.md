@@ -8,6 +8,27 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.108.0] - 2026-08-18
+
+### Fixed
+
+- Every fixed-position popover (mark watched, add-to-list, Filters, the
+  episode season picker, ...) now flips to whichever side of its button
+  actually has room, instead of always opening the same fixed direction
+  and clipping off-screen when the button sits near the top or bottom
+  edge of the viewport. Centralized into one shared `window.positionPopover`
+  helper (base.html) rather than duplicating the flip math into every
+  popover's own Alpine component.
+
+### Changed
+
+- The streaming-service picker (Discover's Filters and Settings →
+  Preferences) no longer dumps TMDB's full ~50-100 entry regional
+  catalog on screen - it shows the 10 most popular (TMDB's own
+  popularity ranking) with a "Show N more" toggle for the rest, and
+  drops bundle/add-on listings that duplicate a service already shown
+  plainly (e.g. "Starz Amazon Channel", "Amazon Prime Video with Ads").
+
 ## [0.107.0] - 2026-08-18
 
 ### Fixed

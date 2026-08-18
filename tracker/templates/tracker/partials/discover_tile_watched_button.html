@@ -7,13 +7,7 @@
     this.open = !this.open;
     if (!this.open) return;
     this.showCustom = false;
-    this.$nextTick(() => {
-      const rect = button.getBoundingClientRect();
-      const panel = this.$refs.panel;
-      const width = 288;
-      panel.style.left = Math.min(rect.left, window.innerWidth - width - 8) + 'px';
-      panel.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
-    });
+    this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 288, true));
   },
 }">
   <button

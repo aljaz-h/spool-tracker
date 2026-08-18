@@ -1,5 +1,5 @@
 {# context: profile, discover_genres, discover_providers - see views.discover_preference_options #}
-<div id="discover-preference-options">
+<div id="discover-preference-options" x-data="{ showAllProviders: false }">
   <div class="text-ink-dim text-xs mt-4 mb-2">Favorite genres</div>
   <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="flex flex-wrap gap-1.5">
     <input type="hidden" name="preferred_genre_ids_submitted" value="1">
@@ -14,16 +14,40 @@
   <div class="text-[10.5px] text-ink-faint mt-1.5">Pre-fills the genre filter on Movies, TV, and Anime, and powers the Dashboard's "For You" row.</div>
 
   <div class="text-ink-dim text-xs mt-4 mb-2">Streaming services</div>
+  {% comment %}
+    discover_providers is already sorted most-popular-first (see
+    tmdb.watch_provider_catalog) - same top-10-then-"show more" split as
+    Discover's own Filters popover, so this picker doesn't dump TMDB's
+    full ~50-100 entry regional catalog on screen at once. One <form>
+    still covers both halves - the collapsed ones just stay x-show-hidden,
+    not removed, so a provider picked before collapsing still submits.
+  {% endcomment %}
   <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="flex flex-wrap gap-2">
     <input type="hidden" name="preferred_provider_ids_submitted" value="1">
-    {% for p in discover_providers %}
+    {% for p in discover_providers|slice:":10" %}
       <label class="flex items-center gap-1.5 text-xs font-medium bg-base-100 text-ink-dim border border-line rounded-full pl-1.5 pr-3 py-1 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
         <input type="checkbox" name="preferred_provider_ids" value="{{ p.id }}" class="sr-only" {% if p.id in profile.preferred_provider_ids %}checked{% endif %}>
         {% if p.logo_url %}<img src="{{ p.logo_url }}" alt="" class="w-5 h-5 rounded">{% endif %}
         {{ p.name }}
       </label>
     {% endfor %}
+    {% if discover_providers|length > 10 %}
+      {% for p in discover_providers|slice:"10:" %}
+        <label x-show="showAllProviders" x-cloak class="flex items-center gap-1.5 text-xs font-medium bg-base-100 text-ink-dim border border-line rounded-full pl-1.5 pr-3 py-1 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+          <input type="checkbox" name="preferred_provider_ids" value="{{ p.id }}" class="sr-only" {% if p.id in profile.preferred_provider_ids %}checked{% endif %}>
+          {% if p.logo_url %}<img src="{{ p.logo_url }}" alt="" class="w-5 h-5 rounded">{% endif %}
+          {{ p.name }}
+        </label>
+      {% endfor %}
+    {% endif %}
     <span class="spool-spinner self-center" aria-hidden="true"></span>
   </form>
+  {% if discover_providers|length > 10 %}
+    <button
+      type="button"
+      @click="showAllProviders = !showAllProviders"
+      class="text-xs text-primary hover:underline mt-1.5 cursor-pointer"
+    ><span x-show="!showAllProviders">Show {{ discover_providers|length|add:"-10" }} more streaming services</span><span x-show="showAllProviders" x-cloak>Show fewer streaming services</span></button>
+  {% endif %}
   <div class="text-[10.5px] text-ink-faint mt-1.5">Pre-fills the streaming-service filter on Movies &amp; TV.</div>
 </div>

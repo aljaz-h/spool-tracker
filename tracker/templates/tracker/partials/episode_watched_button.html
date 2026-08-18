@@ -9,13 +9,7 @@
     togglePanel(button) {
       this.open = !this.open;
       if (!this.open) return;
-      this.$nextTick(() => {
-        const rect = button.getBoundingClientRect();
-        const panel = this.$refs.panel;
-        const width = 224;
-        panel.style.left = Math.min(rect.left, window.innerWidth - width - 8) + 'px';
-        panel.style.top = (rect.bottom + 6) + 'px';
-      });
+      this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 224, false));
     },
   }"
 >
@@ -47,13 +41,7 @@
       this.open = !this.open;
       if (!this.open) return;
       this.showCustom = false;
-      this.$nextTick(() => {
-        const rect = button.getBoundingClientRect();
-        const panel = this.$refs.panel;
-        const width = 224;
-        panel.style.left = Math.min(rect.left, window.innerWidth - width - 8) + 'px';
-        panel.style.top = (rect.bottom + 6) + 'px';
-      });
+      this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 224, false));
     },
   }"
 >

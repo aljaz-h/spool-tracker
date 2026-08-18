@@ -3326,6 +3326,19 @@ class DiscoverPreferenceOptionsViewTests(TestCase):
         resp = self.client.get(reverse("discover_preference_options"))
         self.assertNotEqual(resp.status_code, 200)
 
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    def test_shows_more_link_only_past_ten_providers(self, mock_genres):
+        providers = [{"id": i, "name": f"Service {i}", "logo_url": None} for i in range(12)]
+        with patch("tracker.integrations.tmdb.watch_provider_catalog", return_value=providers):
+            resp = self.client.get(reverse("discover_preference_options"))
+        self.assertContains(resp, "Show 2 more streaming services")
+        self.assertContains(resp, "Service 0")
+        self.assertContains(resp, "Service 11")
+
+        with patch("tracker.integrations.tmdb.watch_provider_catalog", return_value=providers[:10]):
+            resp = self.client.get(reverse("discover_preference_options"))
+        self.assertNotContains(resp, "more streaming services")
+
 
 class SavePrivacyViewTests(TestCase):
     def setUp(self):
@@ -8682,6 +8695,23 @@ class TmdbWatchProviderCatalogTests(TestCase):
     def test_entries_missing_id_or_name_are_skipped(self, mock_get):
         mock_get.return_value = self._response({"results": [{"provider_name": "No Id"}, {"provider_id": 1}]})
         self.assertEqual(tmdb.watch_provider_catalog("movie"), [])
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_channel_and_ad_tier_bundle_listings_are_dropped(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "results": [
+                    {"provider_id": 8, "provider_name": "Netflix", "logo_path": None, "display_priority": 0},
+                    {"provider_id": 9, "provider_name": "Amazon Prime Video", "logo_path": None, "display_priority": 1},
+                    {"provider_id": 10, "provider_name": "Amazon Prime Video with Ads", "logo_path": None, "display_priority": 2},
+                    {"provider_id": 11, "provider_name": "Starz Amazon Channel", "logo_path": None, "display_priority": 3},
+                    {"provider_id": 12, "provider_name": "AMC+ Apple TV Channel", "logo_path": None, "display_priority": 4},
+                ]
+            }
+        )
+        providers = tmdb.watch_provider_catalog("movie", region="US")
+        self.assertEqual([p["name"] for p in providers], ["Netflix", "Amazon Prime Video"])
 
     @patch("tracker.integrations.tmdb._http_session.get")
     def test_returns_empty_list_on_request_failure(self, mock_get):

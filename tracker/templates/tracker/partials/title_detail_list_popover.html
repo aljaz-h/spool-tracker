@@ -14,13 +14,7 @@ one, after a click - see views._render_title_detail_list_popover.
   togglePanel(button) {
     this.open = !this.open;
     if (!this.open) return;
-    this.$nextTick(() => {
-      const rect = button.getBoundingClientRect();
-      const panel = this.$refs.panel;
-      const width = 288;
-      panel.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)) + 'px';
-      panel.style.top = (rect.bottom + 6) + 'px';
-    });
+    this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 288, false));
   },
 }">
   <button

@@ -1034,14 +1034,28 @@ def get_watch_providers(media_type, tmdb_id, region="US"):
     return providers[:6]
 
 
+_PROVIDER_BUNDLE_NAME_MARKERS = ("channel", "with ads")  # see watch_provider_catalog's own docstring
+
+
 def watch_provider_catalog(media_type, region="US"):
-    """[{"id", "name", "logo_url"}, ...] every streaming provider TMDB
-    knows about for a region, sorted by TMDB's own display_priority (most
-    prominent/popular first) - Settings' provider-preference chip picker
-    and Discover's own provider filter. Unlike get_watch_providers above
+    """[{"id", "name", "logo_url"}, ...] TMDB's streaming-provider catalog
+    for a region, sorted by TMDB's own display_priority (most prominent/
+    popular first) - Settings' provider-preference chip picker and
+    Discover's own provider filter. Unlike get_watch_providers above
     (per-title availability), this is the full regional catalog, used to
     populate a *filter* rather than to show what's available on one
-    title - same "thin wrapper over _list_request" shape as genres()."""
+    title - same "thin wrapper over _list_request" shape as genres().
+
+    TMDB's raw regional catalog is mostly not standalone apps - it's
+    padded with a given service resold as a bundle/add-on through another
+    storefront ("Starz Amazon Channel", "AMC+ Apple TV Channel", ...) and
+    ad-supported tiers of a service already listed plainly ("Amazon Prime
+    Video with Ads" alongside "Amazon Prime Video") - noise a filter
+    picker doesn't need duplicated. TMDB has no clean "is a bundle" flag,
+    so these are dropped by a name-pattern heuristic instead - the
+    accepted trade-off is a real provider whose only name happens to
+    contain "Channel" would be dropped too, in exchange for the list
+    fitting on screen instead of running to 100+ entries."""
     data = _list_request(f"watch/providers/{media_type}", {"watch_region": region})
     results = sorted(data.get("results") or [], key=lambda p: p.get("display_priority", 999))
     providers = []
@@ -1049,6 +1063,9 @@ def watch_provider_catalog(media_type, region="US"):
         provider_id = p.get("provider_id")
         name = p.get("provider_name")
         if not provider_id or not name:
+            continue
+        lowered = name.lower()
+        if any(marker in lowered for marker in _PROVIDER_BUNDLE_NAME_MARKERS):
             continue
         logo_path = p.get("logo_path")
         providers.append({"id": provider_id, "name": name, "logo_url": f"{PROFILE_BASE}{logo_path}" if logo_path else None})

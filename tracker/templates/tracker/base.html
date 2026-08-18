@@ -67,6 +67,39 @@
         });
       }
     };
+    // Shared positioning for every fixed/getBoundingClientRect() popover
+    // (mark watched, add/remove list, Filters, the episode season picker,
+    // ...) - sets panel.style.left the same clamped way every caller
+    // already did, then picks above vs. below by actually measuring the
+    // panel (already laid out - just visually mid x-transition - once
+    // its x-show flips true, which Alpine guarantees has happened by the
+    // time the caller's own $nextTick runs this). preferAbove is each
+    // caller's own previous fixed default (poster-card actions used to
+    // always open upward, Filters/detail-page menus always downward) -
+    // still honored when there's room, only overridden when the
+    // preferred side doesn't actually fit and the other one does, so a
+    // button near the top/bottom edge of the viewport no longer opens a
+    // panel that immediately clips off-screen. align: 'left' (default)
+    // lines the panel's left edge up with the button's own, like every
+    // grid/detail popover; 'right' lines up the panel's *right* edge
+    // instead (Filters buttons sitting at a toolbar's right edge).
+    window.positionPopover = (button, panel, width, preferAbove = false, align = 'left') => {
+      const margin = 8;
+      const rect = button.getBoundingClientRect();
+      const desiredLeft = align === 'right' ? rect.right - width : rect.left;
+      panel.style.left = Math.max(margin, Math.min(desiredLeft, window.innerWidth - width - margin)) + 'px';
+      const height = panel.getBoundingClientRect().height;
+      const fitsAbove = rect.top - margin >= height;
+      const fitsBelow = window.innerHeight - rect.bottom - margin >= height;
+      const openAbove = preferAbove ? (fitsAbove || !fitsBelow) : (!fitsBelow && fitsAbove);
+      if (openAbove) {
+        panel.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
+        panel.style.top = 'auto';
+      } else {
+        panel.style.top = (rect.bottom + 6) + 'px';
+        panel.style.bottom = 'auto';
+      }
+    };
     // Shared styled-<dialog> replacement for the browser's own native
     // confirm() popup - resolves true/false once the dialog closes,
     // whichever way (Confirm click, Cancel click, backdrop click, Esc).
