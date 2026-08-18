@@ -14,7 +14,7 @@ close it excludes someone who stopped a few seconds before the credits."""
 
 from django.utils import timezone
 
-from tracker.models import Episode, MediaType, Title, WatchEvent, WatchProgress, attach_genres
+from tracker.models import Episode, MediaType, Title, WatchEvent, WatchProgress, attach_genres, attach_reports_metadata
 
 STOP_WATCHED_THRESHOLD = 90.0
 
@@ -44,6 +44,7 @@ def _get_or_create_title(media_type, tmdb_id, name_hint="", year_hint=None):
             external_ids=external_ids, poster_url=details["poster_url"] or "",
         )
         attach_genres(title, details["genres"])
+        attach_reports_metadata(title, tmdb_integration.get_reports_metadata(kind, tmdb_id, details))
         return title
 
     title = Title.objects.create(

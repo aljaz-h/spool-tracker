@@ -442,11 +442,13 @@ def _get_or_create_title(media_type, name, year, trakt_id=None, tmdb_id=None):
             title.save(update_fields=["external_ids"])
         return title
     from tracker.integrations import tmdb
-    from tracker.models import attach_genres
+    from tracker.models import attach_genres, attach_reports_metadata
 
     external_ids = {"trakt": str(trakt_id)} if trakt_id else {}
     poster_url = ""
     genre_names = []
+    details = None
+    resolved_kind, resolved_id = kind, tmdb_id
     if tmdb_id:
         external_ids["tmdb"] = str(tmdb_id)
         external_ids["tmdb_kind"] = kind
@@ -460,6 +462,7 @@ def _get_or_create_title(media_type, name, year, trakt_id=None, tmdb_id=None):
             external_ids["tmdb"] = str(match["id"])
             external_ids["tmdb_kind"] = match["kind"]
             poster_url = match["poster_url"] or ""
+            resolved_kind, resolved_id = match["kind"], match["id"]
             details = tmdb.get_full_details(match["kind"], match["id"])
             if details:
                 genre_names = details["genres"]
@@ -467,6 +470,8 @@ def _get_or_create_title(media_type, name, year, trakt_id=None, tmdb_id=None):
         media_type=media_type, name=name, year=year or 0, external_ids=external_ids, poster_url=poster_url
     )
     attach_genres(title, genre_names)
+    if details:
+        attach_reports_metadata(title, tmdb.get_reports_metadata(resolved_kind, resolved_id, details))
     return title
 
 

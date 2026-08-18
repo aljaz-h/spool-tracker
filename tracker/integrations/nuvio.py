@@ -189,7 +189,7 @@ def _get_or_create_title(media_type, content_id, name_hint="", year_hint=None):
     disconnect_and_wipe_provider's title__external_ids__nuvio filter
     works the same way it already does for trakt/simkl."""
     from tracker.integrations import tmdb
-    from tracker.models import MediaType, Title, attach_genres
+    from tracker.models import MediaType, Title, attach_genres, attach_reports_metadata
 
     title = Title.objects.filter(media_type=media_type, external_ids__nuvio=content_id).first()
     if title:
@@ -228,9 +228,9 @@ def _get_or_create_title(media_type, content_id, name_hint="", year_hint=None):
             external_ids["tmdb"] = str(match["id"])
             external_ids["tmdb_kind"] = match["kind"]
             poster_url = match["poster_url"] or ""
-            fallback_details = tmdb.get_full_details(match["kind"], match["id"])
-            if fallback_details:
-                genre_names = fallback_details["genres"]
+            details = tmdb.get_full_details(match["kind"], match["id"])
+            if details:
+                genre_names = details["genres"]
 
     if "tmdb" in external_ids:
         existing = Title.objects.filter(media_type=media_type, external_ids__tmdb=external_ids["tmdb"]).first()
@@ -245,6 +245,8 @@ def _get_or_create_title(media_type, content_id, name_hint="", year_hint=None):
         external_ids=external_ids, poster_url=poster_url,
     )
     attach_genres(title, genre_names)
+    if details and "tmdb" in external_ids:
+        attach_reports_metadata(title, tmdb.get_reports_metadata(external_ids["tmdb_kind"], int(external_ids["tmdb"]), details))
     return title
 
 

@@ -8,6 +8,33 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.109.0] - 2026-08-18
+
+### Added
+
+- A read-only Reports API (`/api/reports/`, see
+  [docs/REPORTS_API.md](docs/REPORTS_API.md)) for external services to
+  generate reports from watch history - built against
+  [spool-wrapped](https://github.com/aljaz-h/spool-wrapped), a companion
+  app that turns it into "Wrapped"-style recap cards and a Year in
+  Review report. Opt-in per profile (Settings → Integrations → Wrapped -
+  a profile that hasn't opted in is completely invisible to the API,
+  the only opt-out mechanism there is), authorized by a new
+  `ServiceAPIKey` credential type (one per external service, minted by
+  an owner in Settings → Server Integrations - deliberately separate
+  from `ApiToken`, which can only ever act as one profile and never
+  read anything back). Settings → Server Integrations also gained a
+  "Manage Wrapped" SSO button, an `itsdangerous`-signed one-time
+  redirect into spool-wrapped's own admin UI.
+- `Title.country`/`studio`/`network`/`cast`/`directors`/`writers` -
+  production metadata (country, studio/network, top cast, directors,
+  writers) that powers the Reports API's Year in Review fields, fetched
+  from TMDB the same time every import path already looks a title up
+  there (Trakt/Simkl/CSV import/Nuvio/the Scrobble API/Discover's own
+  preview materialize). A title tracked before this shipped has none of
+  it yet - run `manage.py enrich_titles_reports_metadata` once after
+  upgrading to backfill it (rate-limited, safe to re-run).
+
 ## [0.108.0] - 2026-08-18
 
 ### Fixed

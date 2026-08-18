@@ -98,7 +98,7 @@ def _get_or_create_title(media_type, name, year, simkl_id, tmdb_id=None):
     preferred over the fuzzy name/year find_match() search below whenever
     it's present."""
     from tracker.integrations import tmdb
-    from tracker.models import MediaType, Title, attach_genres
+    from tracker.models import MediaType, Title, attach_genres, attach_reports_metadata
 
     title = Title.objects.filter(media_type=media_type, external_ids__simkl=str(simkl_id)).first()
     if title:
@@ -110,6 +110,7 @@ def _get_or_create_title(media_type, name, year, simkl_id, tmdb_id=None):
     external_ids = {"simkl": str(simkl_id)}
     poster_url = ""
     genre_names = []
+    details = None
     if tmdb_id:
         kind = "movie" if media_type == MediaType.MOVIE else "tv"
         match = {"id": tmdb_id, "kind": kind, "poster_url": None}
@@ -137,6 +138,8 @@ def _get_or_create_title(media_type, name, year, simkl_id, tmdb_id=None):
         media_type=media_type, name=name, year=year or 0, external_ids=external_ids, poster_url=poster_url
     )
     attach_genres(title, genre_names)
+    if details:
+        attach_reports_metadata(title, tmdb.get_reports_metadata(match["kind"], match["id"], details))
     return title
 
 

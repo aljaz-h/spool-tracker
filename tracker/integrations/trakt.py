@@ -158,7 +158,7 @@ def _get_or_create_title(media_type, name, year, trakt_id, tmdb_id=None):
     against - Trakt's id is exact, so prefer it whenever the response
     actually included one."""
     from tracker.integrations import tmdb
-    from tracker.models import MediaType, Title, attach_genres
+    from tracker.models import MediaType, Title, attach_genres, attach_reports_metadata
 
     # Manual filter-then-create instead of get_or_create(): a JSONField key
     # lookup like external_ids__trakt=X can't double as a constructor kwarg
@@ -174,6 +174,7 @@ def _get_or_create_title(media_type, name, year, trakt_id, tmdb_id=None):
     external_ids = {"trakt": str(trakt_id)}
     poster_url = ""
     genre_names = []
+    details = None
     if tmdb_id:
         kind = "movie" if media_type == MediaType.MOVIE else "tv"
         match = {"id": tmdb_id, "kind": kind, "poster_url": None}
@@ -204,6 +205,8 @@ def _get_or_create_title(media_type, name, year, trakt_id, tmdb_id=None):
         media_type=media_type, name=name, year=year or 0, external_ids=external_ids, poster_url=poster_url
     )
     attach_genres(title, genre_names)
+    if details:
+        attach_reports_metadata(title, tmdb.get_reports_metadata(match["kind"], match["id"], details))
     return title
 
 

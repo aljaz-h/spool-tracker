@@ -8,6 +8,7 @@ from datetime import timedelta
 from unittest.mock import Mock, patch
 
 import requests
+from itsdangerous import URLSafeTimedSerializer
 from django.conf import settings as django_settings
 from django.contrib.auth.models import User
 from django.contrib.messages import get_messages
@@ -35,6 +36,7 @@ from .models import (
     ProfileAchievement,
     Recommendation,
     ReleaseSchedule,
+    ServiceAPIKey,
     SyncLog,
     Title,
     TitleRatingsCache,
@@ -43,6 +45,7 @@ from .models import (
     WatchListItem,
     WatchProgress,
     attach_genres,
+    attach_reports_metadata,
     random_avatar_color,
 )
 
@@ -4798,10 +4801,14 @@ class NuvioGetOrCreateTitleTests(TestCase):
         title = nuvio._get_or_create_title(MediaType.MOVIE, "tmdb:550", "Different Name", 2020)
         self.assertEqual(title, existing)
 
+    @patch("tracker.integrations.tmdb.get_reports_metadata")
     @patch("tracker.integrations.tmdb.get_full_details")
-    def test_tmdb_prefixed_uses_get_full_details_directly(self, mock_details):
+    def test_tmdb_prefixed_uses_get_full_details_directly(self, mock_details, mock_reports_metadata):
         mock_details.return_value = {
             "name": "Dolly", "year": "2026", "poster_url": "http://x/p.jpg", "genres": ["Horror"],
+        }
+        mock_reports_metadata.return_value = {
+            "country": "", "studio": "", "network": "", "cast": [], "directors": [], "writers": [],
         }
         title = nuvio._get_or_create_title(MediaType.MOVIE, "tmdb:550")
         mock_details.assert_called_once_with("movie", 550)
@@ -4811,11 +4818,15 @@ class NuvioGetOrCreateTitleTests(TestCase):
         self.assertEqual(title.external_ids["nuvio"], "tmdb:550")
         self.assertEqual(list(title.genres.values_list("name", flat=True)), ["Horror"])
 
+    @patch("tracker.integrations.tmdb.get_reports_metadata")
     @patch("tracker.integrations.tmdb.get_full_details")
     @patch("tracker.integrations.tmdb.find_by_imdb_id")
-    def test_bare_imdb_uses_find_by_imdb_id(self, mock_find, mock_details):
+    def test_bare_imdb_uses_find_by_imdb_id(self, mock_find, mock_details, mock_reports_metadata):
         mock_find.return_value = {"id": 42, "kind": "movie", "poster_url": None}
         mock_details.return_value = {"name": "Fathom", "year": "2020", "poster_url": None, "genres": []}
+        mock_reports_metadata.return_value = {
+            "country": "", "studio": "", "network": "", "cast": [], "directors": [], "writers": [],
+        }
         title = nuvio._get_or_create_title(MediaType.MOVIE, "tt1234567")
         mock_find.assert_called_once_with("tt1234567", MediaType.MOVIE)
         self.assertEqual(title.external_ids["tmdb"], "42")
@@ -4857,8 +4868,16 @@ class NuvioGetOrCreateTitleTests(TestCase):
         self.assertEqual(title.pk, existing.pk)
         self.assertEqual(Title.objects.filter(external_ids__tmdb="42").count(), 1)
 
+    # find_by_imdb_id was previously unmocked here, relying on this made-up
+    # "tt7654321" id genuinely resolving to nothing on TMDB's real /find
+    # endpoint to fall through to the fuzzy-search branch this test
+    # actually means to exercise - it happens to resolve to a real (if
+    # obscure) movie today, which skipped the fuzzy branch entirely and
+    # broke the dedup assertion. Mocked explicitly now so the test no
+    # longer depends on what TMDB's live catalog does or doesn't contain.
+    @patch("tracker.integrations.tmdb.find_by_imdb_id", return_value=None)
     @patch("tracker.integrations.tmdb.find_match")
-    def test_reuses_existing_title_when_matched_via_fuzzy_search_fallback(self, mock_find_match):
+    def test_reuses_existing_title_when_matched_via_fuzzy_search_fallback(self, mock_find_match, mock_find_by_imdb_id):
         existing = Title.objects.create(
             media_type=MediaType.MOVIE, name="Obsession", year=2026, external_ids={"trakt": "5", "tmdb": "88"}
         )
@@ -7899,29 +7918,43 @@ class ImportPathGenreAttachmentTests(TestCase):
     def _details(self, genre_names):
         return {"genres": genre_names}
 
+    # Every _get_or_create_title now also calls tmdb.get_reports_metadata()
+    # once it has a truthy `details` - mocked to a harmless empty dict in
+    # each test below so this class stays about genre attachment only,
+    # not a real (or even mocked-elsewhere) network call to /credits.
+    _EMPTY_REPORTS_METADATA = {
+        "country": "", "studio": "", "network": "", "cast": [], "directors": [], "writers": [],
+    }
+
+    @patch("tracker.integrations.tmdb.get_reports_metadata")
     @patch("tracker.integrations.tmdb.get_full_details")
     @patch("tracker.integrations.tmdb.find_match")
-    def test_csv_import_attaches_genres_from_the_tmdb_match(self, mock_find_match, mock_get_full_details):
+    def test_csv_import_attaches_genres_from_the_tmdb_match(self, mock_find_match, mock_get_full_details, mock_reports_metadata):
         mock_find_match.return_value = self._match()
         mock_get_full_details.return_value = self._details(["Action", "Thriller"])
+        mock_reports_metadata.return_value = self._EMPTY_REPORTS_METADATA
         title = csv_import._get_or_create_title(MediaType.MOVIE, "New Movie", 2020)
         self.assertEqual(sorted(g.name for g in title.genres.all()), ["Action", "Thriller"])
 
+    @patch("tracker.integrations.tmdb.get_reports_metadata")
     @patch("tracker.integrations.tmdb.get_full_details")
     @patch("tracker.integrations.tmdb.find_match")
-    def test_trakt_import_attaches_genres_from_the_tmdb_match(self, mock_find_match, mock_get_full_details):
+    def test_trakt_import_attaches_genres_from_the_tmdb_match(self, mock_find_match, mock_get_full_details, mock_reports_metadata):
         mock_find_match.return_value = self._match()
         mock_get_full_details.return_value = self._details(["Drama"])
+        mock_reports_metadata.return_value = self._EMPTY_REPORTS_METADATA
         title = trakt._get_or_create_title(MediaType.MOVIE, "New Movie", 2020, trakt_id=99)
         self.assertEqual([g.name for g in title.genres.all()], ["Drama"])
 
+    @patch("tracker.integrations.tmdb.get_reports_metadata")
     @patch("tracker.integrations.tmdb.get_full_details")
     @patch("tracker.integrations.tmdb.find_match")
-    def test_simkl_import_attaches_genres_from_the_tmdb_match(self, mock_find_match, mock_get_full_details):
+    def test_simkl_import_attaches_genres_from_the_tmdb_match(self, mock_find_match, mock_get_full_details, mock_reports_metadata):
         from tracker.integrations import simkl
 
         mock_find_match.return_value = self._match()
         mock_get_full_details.return_value = self._details(["Comedy"])
+        mock_reports_metadata.return_value = self._EMPTY_REPORTS_METADATA
         title = simkl._get_or_create_title(MediaType.MOVIE, "New Movie", 2020, simkl_id=99)
         self.assertEqual([g.name for g in title.genres.all()], ["Comedy"])
 
@@ -7930,14 +7963,16 @@ class ImportPathGenreAttachmentTests(TestCase):
         title = csv_import._get_or_create_title(MediaType.MOVIE, "Unmatched Movie", 2020)
         self.assertEqual(title.genres.count(), 0)
 
+    @patch("tracker.integrations.tmdb.get_reports_metadata")
     @patch("tracker.integrations.tmdb.get_full_details")
-    def test_discover_preview_materialize_attaches_genres(self, mock_get_full_details):
+    def test_discover_preview_materialize_attaches_genres(self, mock_get_full_details, mock_reports_metadata):
         mock_get_full_details.return_value = {
             "name": "Some Movie",
             "year": "2020",
             "poster_url": "https://image.tmdb.org/t/p/w500/x.jpg",
             "genres": ["Horror", "Mystery"],
         }
+        mock_reports_metadata.return_value = self._EMPTY_REPORTS_METADATA
         title = views._get_or_create_preview_title("movie", 555)
         self.assertEqual(sorted(g.name for g in title.genres.all()), ["Horror", "Mystery"])
 
@@ -17298,10 +17333,14 @@ class ScrobbleIntegrationTests(TestCase):
         user = User.objects.create_user("scrobbleprofile", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="ScrobbleProfile")
 
+    @patch("tracker.integrations.tmdb.get_reports_metadata")
     @patch("tracker.integrations.tmdb.get_full_details")
-    def test_creates_a_new_movie_title_from_tmdb(self, mock_details):
+    def test_creates_a_new_movie_title_from_tmdb(self, mock_details, mock_reports_metadata):
         mock_details.return_value = {
             "name": "Inception", "year": 2010, "genres": ["Sci-Fi"], "poster_url": "https://example.com/p.jpg",
+        }
+        mock_reports_metadata.return_value = {
+            "country": "", "studio": "", "network": "", "cast": [], "directors": [], "writers": [],
         }
         result = scrobble.record_scrobble(self.profile, "start", MediaType.MOVIE, 27205, None, None, 0.0)
         title = Title.objects.get(external_ids__tmdb="27205")
@@ -17452,6 +17491,384 @@ class ScrobbleApiTests(TestCase):
         self.api_token.regenerate()
         resp = self._post({"action": "start", "media_type": "movie", "tmdb_id": 42, "progress": 0})
         self.assertEqual(resp.status_code, 401)
+
+
+class TmdbReportsMetadataTests(TestCase):
+    """get_writers()/get_reports_metadata() - the Reports API's six Year in
+    Review fields (see Title's own field comments and contract.md)."""
+
+    def _response(self, json_data):
+        resp = Mock()
+        resp.json.return_value = json_data
+        resp.raise_for_status = Mock()
+        return resp
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_get_writers_collects_every_writing_department_job(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "crew": [
+                    {"name": "Alice", "job": "Writer", "department": "Writing"},
+                    {"name": "Bob", "job": "Screenplay", "department": "Writing"},
+                    {"name": "Alice", "job": "Story", "department": "Writing"},  # dedup
+                    {"name": "Carol", "job": "Director", "department": "Directing"},
+                ]
+            }
+        )
+        self.assertEqual(tmdb.get_writers("movie", 42), ["Alice", "Bob"])
+
+    @patch("tracker.integrations.tmdb.get_credits")
+    @patch("tracker.integrations.tmdb.get_director")
+    @patch("tracker.integrations.tmdb.get_writers")
+    def test_reports_metadata_shape_for_a_movie(self, mock_writers, mock_director, mock_credits):
+        mock_credits.return_value = [{"name": "Cillian Murphy"}, {"name": "Emily Blunt"}]
+        mock_director.return_value = {"name": "Christopher Nolan"}
+        mock_writers.return_value = ["Christopher Nolan"]
+        details = {
+            "countries": ["United States"], "production_companies": ["Universal Pictures"], "networks": [],
+        }
+        metadata = tmdb.get_reports_metadata("movie", 872585, details)
+        self.assertEqual(
+            metadata,
+            {
+                "country": "United States",
+                "studio": "Universal Pictures",
+                "network": "",
+                "cast": ["Cillian Murphy", "Emily Blunt"],
+                "directors": ["Christopher Nolan"],
+                "writers": ["Christopher Nolan"],
+            },
+        )
+
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_director", return_value=None)
+    @patch("tracker.integrations.tmdb.get_writers", return_value=[])
+    def test_reports_metadata_shape_for_a_tv_show(self, mock_writers, mock_director, mock_credits):
+        details = {"countries": ["Japan"], "production_companies": [], "networks": ["Crunchyroll"]}
+        metadata = tmdb.get_reports_metadata("tv", 1, details)
+        self.assertEqual(metadata["country"], "Japan")
+        self.assertEqual(metadata["studio"], "")
+        self.assertEqual(metadata["network"], "Crunchyroll")
+        self.assertEqual(metadata["directors"], [])
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_tv_origin_country_codes_resolve_to_display_names(self, mock_get):
+        mock_get.return_value = self._response(
+            {"id": 1, "name": "Show", "origin_country": ["JP", "ZZ"], "genres": [], "production_companies": []}
+        )
+        details = tmdb.get_full_details("tv", 1)
+        # JP resolves via the curated map; an unknown code (ZZ) falls back
+        # to the raw code itself rather than raising or dropping it.
+        self.assertEqual(details["countries"], ["Japan", "ZZ"])
+
+
+class AttachReportsMetadataTests(TestCase):
+    def test_persists_all_six_fields(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        attach_reports_metadata(
+            title,
+            {
+                "country": "United States", "studio": "Universal", "network": "",
+                "cast": ["A", "B"], "directors": ["C"], "writers": ["D", "E"],
+            },
+        )
+        title.refresh_from_db()
+        self.assertEqual(title.country, "United States")
+        self.assertEqual(title.studio, "Universal")
+        self.assertEqual(title.network, "")
+        self.assertEqual(title.cast, ["A", "B"])
+        self.assertEqual(title.directors, ["C"])
+        self.assertEqual(title.writers, ["D", "E"])
+
+    def test_missing_keys_default_to_blank_or_empty(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        attach_reports_metadata(title, {})
+        title.refresh_from_db()
+        self.assertEqual(title.country, "")
+        self.assertEqual(title.cast, [])
+
+
+class ReportsApiAuthTests(TestCase):
+    """ServiceAPIKeyAuth (api/auth.py) - must never accept an ApiToken and
+    vice versa, since the two authorize very different things (see
+    ServiceAPIKey's own docstring)."""
+
+    def setUp(self):
+        self.service_key = ServiceAPIKey.objects.create(name="spool-wrapped", key=ServiceAPIKey.generate_value())
+        user = User.objects.create_user("reportsauthuser", password="pass12345")
+        profile = Profile.objects.create(user=user, display_name="ReportsAuthUser")
+        self.api_token = ApiToken.objects.create(profile=profile, name="Player", token=ApiToken.generate_value())
+
+    def test_missing_token_is_401(self):
+        resp = self.client.get("/api/reports/profiles/")
+        self.assertEqual(resp.status_code, 401)
+
+    def test_valid_service_key_is_200(self):
+        resp = self.client.get("/api/reports/profiles/", HTTP_AUTHORIZATION=f"Bearer {self.service_key.key}")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_an_api_token_does_not_authenticate_reports_calls(self):
+        resp = self.client.get("/api/reports/profiles/", HTTP_AUTHORIZATION=f"Bearer {self.api_token.token}")
+        self.assertEqual(resp.status_code, 401)
+
+    def test_a_revoked_service_key_is_401(self):
+        self.service_key.delete()
+        resp = self.client.get("/api/reports/profiles/", HTTP_AUTHORIZATION=f"Bearer {self.service_key.key}")
+        self.assertEqual(resp.status_code, 401)
+
+
+class ReportsProfilesEndpointTests(TestCase):
+    def setUp(self):
+        self.service_key = ServiceAPIKey.objects.create(name="spool-wrapped", key=ServiceAPIKey.generate_value())
+
+    def _get(self):
+        return self.client.get("/api/reports/profiles/", HTTP_AUTHORIZATION=f"Bearer {self.service_key.key}")
+
+    def test_empty_when_nobody_has_opted_in(self):
+        User.objects.create_user("optedoutuser", password="pass12345")
+        Profile.objects.create(user=User.objects.get(username="optedoutuser"), display_name="OptedOut", wrapped_enabled=False)
+        resp = self._get()
+        self.assertEqual(resp.json(), {"profiles": []})
+
+    def test_lists_only_opted_in_profiles(self):
+        in_user = User.objects.create_user("wrappeduser", password="pass12345")
+        Profile.objects.create(
+            user=in_user, display_name="WrappedUser", wrapped_enabled=True,
+            wrapped_webhook_url="https://discord.com/api/webhooks/x", wrapped_email_enabled=True,
+            timezone="Europe/Ljubljana",
+        )
+        out_user = User.objects.create_user("notwrappeduser", password="pass12345")
+        Profile.objects.create(user=out_user, display_name="NotWrapped", wrapped_enabled=False)
+        resp = self._get()
+        data = resp.json()
+        self.assertEqual(len(data["profiles"]), 1)
+        entry = data["profiles"][0]
+        self.assertEqual(entry["display_name"], "WrappedUser")
+        self.assertEqual(entry["wrapped_webhook_url"], "https://discord.com/api/webhooks/x")
+        self.assertTrue(entry["wrapped_email_enabled"])
+        self.assertEqual(entry["timezone"], "Europe/Ljubljana")
+
+    def test_blank_webhook_url_is_null_not_empty_string(self):
+        user = User.objects.create_user("blankwebhookuser", password="pass12345")
+        Profile.objects.create(user=user, display_name="BlankWebhook", wrapped_enabled=True)
+        entry = self._get().json()["profiles"][0]
+        self.assertIsNone(entry["wrapped_webhook_url"])
+
+
+class ReportsHistoryEndpointTests(TestCase):
+    def setUp(self):
+        self.service_key = ServiceAPIKey.objects.create(name="spool-wrapped", key=ServiceAPIKey.generate_value())
+        user = User.objects.create_user("reportshistoryuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ReportsHistoryUser", wrapped_enabled=True)
+
+    def _get(self, profile_id, **params):
+        from urllib.parse import urlencode
+
+        url = f"/api/reports/profiles/{profile_id}/history/"
+        if params:
+            url += f"?{urlencode(params)}"
+        return self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {self.service_key.key}")
+
+    def test_404_for_a_nonexistent_profile(self):
+        resp = self._get(999999, since="2026-01-01", until="2026-02-01")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_404_even_for_a_profile_that_never_opted_in(self):
+        # Doesn't leak which ids exist vs. which are opted in - that
+        # distinction only shows up in /profiles/.
+        other_user = User.objects.create_user("notoptedinuser", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="NotOptedIn", wrapped_enabled=False)
+        resp = self._get(other_profile.pk, since="2026-01-01", until="2026-02-01")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_422_when_since_or_until_missing(self):
+        self.assertEqual(self._get(self.profile.pk, until="2026-02-01").status_code, 422)
+        self.assertEqual(self._get(self.profile.pk, since="2026-01-01").status_code, 422)
+
+    def test_422_when_a_date_is_malformed(self):
+        resp = self._get(self.profile.pk, since="not-a-date", until="2026-02-01")
+        self.assertEqual(resp.status_code, 422)
+
+    def test_422_when_since_is_not_before_until(self):
+        resp = self._get(self.profile.pk, since="2026-02-01", until="2026-01-01")
+        self.assertEqual(resp.status_code, 422)
+
+    def test_empty_history_is_not_an_error(self):
+        resp = self._get(self.profile.pk, since="2026-01-01", until="2026-02-01")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"profile_id": self.profile.pk, "since": "2026-01-01", "until": "2026-02-01", "history": []})
+
+    def test_maps_a_movie_watch_event(self):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Oppenheimer", year=2023, runtime_minutes=181,
+            country="United States", studio="Universal Pictures", network="",
+            cast=["Cillian Murphy"], directors=["Christopher Nolan"], writers=["Christopher Nolan"],
+        )
+        title.genres.set([Genre.objects.create(name="Drama")])
+        WatchEvent.objects.create(
+            profile=self.profile, title=title, watched_at="2026-01-04T21:15:00Z", user_rating=9,
+        )
+        entry = self._get(self.profile.pk, since="2026-01-01", until="2026-02-01").json()["history"][0]
+        self.assertEqual(entry["title"], "Oppenheimer")
+        self.assertEqual(entry["type"], "movie")
+        self.assertEqual(entry["genres"], ["Drama"])
+        self.assertEqual(entry["rating"], 9)
+        self.assertEqual(entry["runtime_minutes"], 181)
+        self.assertEqual(entry["country"], "United States")
+        self.assertEqual(entry["studio"], "Universal Pictures")
+        self.assertIsNone(entry["network"])
+        self.assertEqual(entry["directors"], ["Christopher Nolan"])
+
+    def test_maps_a_tv_episode_watch_event_using_episode_runtime(self):
+        title = Title.objects.create(
+            media_type=MediaType.ANIME, name="Frieren", year=2023, runtime_minutes=999,
+            country="Japan", studio="", network="Crunchyroll",
+        )
+        episode = Episode.objects.create(title=title, season=1, episode=1, runtime_minutes=24)
+        WatchEvent.objects.create(
+            profile=self.profile, title=title, episode=episode, watched_at="2026-01-06T19:30:00Z", user_rating=None,
+        )
+        entry = self._get(self.profile.pk, since="2026-01-01", until="2026-02-01").json()["history"][0]
+        self.assertEqual(entry["type"], "anime")
+        self.assertIsNone(entry["rating"])
+        self.assertEqual(entry["runtime_minutes"], 24)  # episode's own, not the title's 999
+        self.assertIsNone(entry["studio"])
+        self.assertEqual(entry["network"], "Crunchyroll")
+
+    def test_range_is_half_open(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020, runtime_minutes=100)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2026-01-01T00:00:00Z")
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2026-02-01T00:00:00Z")
+        history = self._get(self.profile.pk, since="2026-01-01", until="2026-02-01").json()["history"]
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["watched_at"][:10], "2026-01-01")
+
+    def test_range_is_resolved_against_the_profiles_own_timezone(self):
+        self.profile.timezone = "Pacific/Honolulu"  # UTC-10, no DST
+        self.profile.save(update_fields=["timezone"])
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020, runtime_minutes=100)
+        # 2026-01-31 23:00 UTC is still 2026-01-31 13:00 in Honolulu - a
+        # UTC-anchored range would clip this; a Honolulu-anchored one
+        # (until=2026-02-01, i.e. through 2026-02-01T10:00:00Z) shouldn't.
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2026-01-31T23:00:00Z")
+        history = self._get(self.profile.pk, since="2026-01-01", until="2026-02-01").json()["history"]
+        self.assertEqual(len(history), 1)
+
+    def test_only_this_profiles_events_are_returned(self):
+        other_user = User.objects.create_user("otherreportsuser", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="OtherReportsUser")
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020, runtime_minutes=100)
+        WatchEvent.objects.create(profile=other_profile, title=title, watched_at="2026-01-10T00:00:00Z")
+        history = self._get(self.profile.pk, since="2026-01-01", until="2026-02-01").json()["history"]
+        self.assertEqual(history, [])
+
+
+class ManageWrappedViewTests(TestCase):
+    def setUp(self):
+        owner_user = User.objects.create_user("wrappedowner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=owner_user, display_name="WrappedOwner")
+        member_user = User.objects.create_user("wrappedmember", password="pass12345")
+        Profile.objects.create(user=member_user, display_name="WrappedMember")
+
+    def test_requires_owner(self):
+        self.client.login(username="wrappedmember", password="pass12345")
+        resp = self.client.get(reverse("manage_wrapped"))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_redirects_with_a_signed_token_when_configured(self):
+        cfg = InstanceConfig.load()
+        cfg.spool_wrapped_url = "https://wrapped.example.com"
+        cfg.set_sso_shared_secret("test-shared-secret")
+        cfg.save()
+        self.client.login(username="wrappedowner", password="pass12345")
+        resp = self.client.get(reverse("manage_wrapped"))
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(resp.url.startswith("https://wrapped.example.com/auth/sso?token="))
+
+        token = resp.url.split("token=", 1)[1]
+        serializer = URLSafeTimedSerializer("test-shared-secret", salt="spool-wrapped-sso")
+        payload = serializer.loads(token, max_age=60)
+        self.assertEqual(payload, {"iss": "spool", "sub": "wrappedowner"})
+
+    def test_errors_and_redirects_to_admin_dashboard_when_not_configured(self):
+        self.client.login(username="wrappedowner", password="pass12345")
+        resp = self.client.get(reverse("manage_wrapped"))
+        self.assertRedirects(resp, reverse("admin_dashboard"))
+
+
+class ServiceApiKeyCrudViewTests(TestCase):
+    def setUp(self):
+        owner_user = User.objects.create_user("sakowner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=owner_user, display_name="SakOwner")
+        member_user = User.objects.create_user("sakmember", password="pass12345")
+        Profile.objects.create(user=member_user, display_name="SakMember")
+
+    def test_owner_can_create_a_key(self):
+        self.client.login(username="sakowner", password="pass12345")
+        self.client.post(reverse("create_service_api_key"), {"name": "spool-wrapped"})
+        self.assertTrue(ServiceAPIKey.objects.filter(name="spool-wrapped").exists())
+
+    def test_blank_name_is_rejected(self):
+        self.client.login(username="sakowner", password="pass12345")
+        self.client.post(reverse("create_service_api_key"), {"name": "  "})
+        self.assertFalse(ServiceAPIKey.objects.exists())
+
+    def test_member_cannot_create_a_key(self):
+        self.client.login(username="sakmember", password="pass12345")
+        resp = self.client.post(reverse("create_service_api_key"), {"name": "spool-wrapped"})
+        self.assertEqual(resp.status_code, 404)
+        self.assertFalse(ServiceAPIKey.objects.exists())
+
+    def test_owner_can_revoke_a_key(self):
+        key = ServiceAPIKey.objects.create(name="spool-wrapped", key=ServiceAPIKey.generate_value())
+        self.client.login(username="sakowner", password="pass12345")
+        self.client.post(reverse("revoke_service_api_key", args=[key.pk]))
+        self.assertFalse(ServiceAPIKey.objects.filter(pk=key.pk).exists())
+
+    def test_member_cannot_revoke_a_key(self):
+        key = ServiceAPIKey.objects.create(name="spool-wrapped", key=ServiceAPIKey.generate_value())
+        self.client.login(username="sakmember", password="pass12345")
+        resp = self.client.post(reverse("revoke_service_api_key", args=[key.pk]))
+        self.assertEqual(resp.status_code, 404)
+        self.assertTrue(ServiceAPIKey.objects.filter(pk=key.pk).exists())
+
+
+class SaveAppearanceWrappedFieldsTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("wrappedsettingsuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="WrappedSettingsUser")
+        self.client.login(username="wrappedsettingsuser", password="pass12345")
+
+    def test_saves_all_three_fields(self):
+        self.client.post(
+            reverse("save_appearance"),
+            {
+                "wrapped_settings_submitted": "1",
+                "wrapped_enabled": "on",
+                "wrapped_webhook_url": "https://discord.com/api/webhooks/x",
+                "wrapped_email_enabled": "on",
+            },
+        )
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.wrapped_enabled)
+        self.assertEqual(self.profile.wrapped_webhook_url, "https://discord.com/api/webhooks/x")
+        self.assertTrue(self.profile.wrapped_email_enabled)
+
+    def test_unchecking_both_boxes_still_saves_via_the_hidden_marker(self):
+        self.profile.wrapped_enabled = True
+        self.profile.wrapped_email_enabled = True
+        self.profile.save()
+        self.client.post(reverse("save_appearance"), {"wrapped_settings_submitted": "1"})
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.wrapped_enabled)
+        self.assertFalse(self.profile.wrapped_email_enabled)
+
+    def test_without_the_marker_nothing_changes(self):
+        self.client.post(reverse("save_appearance"), {})
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.wrapped_enabled)
 
 
 class WatchProgressDropApiTests(TestCase):

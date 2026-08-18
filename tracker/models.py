@@ -151,6 +151,22 @@ class Profile(models.Model):
     # sync). Stored in cleartext, same as every other integration
     # credential this app already stores.
     gemini_api_key = models.CharField(max_length=255, blank=True, default="")
+    # Settings → Integrations "Wrapped" card - opt-in to the companion
+    # spool-wrapped app's recap/Year-in-Review reports (see
+    # api/routers/reports.py). Self-service like ApiToken minting, not
+    # owner-gated: a profile absent here because this is False is the
+    # only opt-out mechanism spool-wrapped's /api/reports/profiles/
+    # endpoint has - there's no separate "delete my data" step, so this
+    # flag alone controls whether spool-wrapped ever learns this profile
+    # exists at all.
+    wrapped_enabled = models.BooleanField(default=False)
+    # A Spool-side default delivery target - spool-wrapped's own local
+    # per-profile config (set in its own admin UI) always overrides this
+    # once it exists, using this only as the initial pre-fill the first
+    # time spool-wrapped sees this profile id (see contract.md's
+    # "Delivery config precedence"). Not the source of truth.
+    wrapped_webhook_url = models.URLField(blank=True, default="")
+    wrapped_email_enabled = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     # Set on the account bootstrap_admin creates from ADMIN_USERNAME/
     # ADMIN_PASSWORD (see management/commands/bootstrap_admin.py) so its
@@ -232,6 +248,39 @@ class ApiToken(models.Model):
         self.save(update_fields=["token"])
 
 
+class ServiceAPIKey(models.Model):
+    """A different shape of credential from ApiToken above, on purpose -
+    one key per external *service* (e.g. spool-wrapped), not per profile,
+    minted by an owner in the admin dashboard's "Server Integrations" tab
+    rather than self-service in Settings. Authorizes read access to every
+    profile that's separately opted in to Wrapped (Profile.wrapped_enabled)
+    - the key itself doesn't pick which profiles it can see, that flag
+    does (see contract.md). Checked by api.auth.ServiceAPIKeyAuth, which
+    must never also accept an ApiToken and vice versa - reusing one model
+    for both would mean either minting a token per profile for a service
+    that needs to read across all of them, or widening what a leaked
+    scrobble token can do. Same generate_value() mechanics/cleartext
+    storage convention as ApiToken, different everything else."""
+
+    name = models.CharField(max_length=60)
+    key = models.CharField(max_length=64, unique=True)
+    scope = models.CharField(max_length=30, default="reports:read")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.name} ({self.scope})"
+
+    @staticmethod
+    def generate_value():
+        while True:
+            key = secrets.token_hex(32)
+            if not ServiceAPIKey.objects.filter(key=key).exists():
+                return key
+
+
 class Genre(models.Model):
     name = models.CharField(max_length=50, unique=True)
 
@@ -252,6 +301,22 @@ def attach_genres(title, genre_names):
         title.genres.set([Genre.objects.get_or_create(name=n)[0] for n in genre_names])
 
 
+def attach_reports_metadata(title, metadata):
+    """Persists tmdb.get_reports_metadata()'s already-resolved dict onto
+    title.country/studio/network/cast/directors/writers - same "given
+    resolved values, just save them" role attach_genres plays for genres,
+    called from the same import-path sites (see each's own call site) and
+    by the enrich_titles_reports_metadata management command for titles
+    that predate this existing."""
+    title.country = metadata.get("country") or ""
+    title.studio = metadata.get("studio") or ""
+    title.network = metadata.get("network") or ""
+    title.cast = metadata.get("cast") or []
+    title.directors = metadata.get("directors") or []
+    title.writers = metadata.get("writers") or []
+    title.save(update_fields=["country", "studio", "network", "cast", "directors", "writers"])
+
+
 class Title(models.Model):
     """A movie, show, or anime. media_type is what routes a title into the
     Movies & TV vs. Anime sections — never genre (spool-product-spec.md §5)."""
@@ -269,6 +334,31 @@ class Title(models.Model):
     # {"trakt": "...", "simkl": "...", "tmdb": "..."} — used to upsert-match
     # incoming rows during Trakt/Simkl import instead of creating duplicates.
     external_ids = models.JSONField(default=dict, blank=True)
+    # The Reports API's Year in Review fields (see api/routers/reports.py) -
+    # populated at title-creation time by every import path via
+    # attach_reports_metadata() below, from tmdb.get_reports_metadata().
+    # Blank/empty for a title tracked before this existed, until
+    # enrich_titles_reports_metadata backfills it - the Reports API and
+    # Year in Review both treat missing values as "unknown," not an error
+    # (see contract.md), so an un-backfilled library degrades gracefully.
+    # Single primary production country - movie: production_countries[0];
+    # tv/anime: origin_country[0] (resolved to a display name, see
+    # tmdb._ISO_COUNTRY_NAMES).
+    country = models.CharField(max_length=100, blank=True, default="")
+    # Movies only - production_companies[0]. Always blank for tv/anime
+    # (network below is their equivalent).
+    studio = models.CharField(max_length=150, blank=True, default="")
+    # tv/anime only - networks[0]. Always blank for a movie.
+    network = models.CharField(max_length=150, blank=True, default="")
+    # Plain display-name strings, not a Person model/FK - nothing else in
+    # this app needs to query "everything this person was in," and the
+    # Reports API only ever needs a handful of names per title (see
+    # contract.md's own "no actors/actresses split" note), so a full
+    # relational credits model would be over-engineering for what's
+    # actually used. Top ~5 billed cast (get_credits' own limit).
+    cast = models.JSONField(default=list, blank=True)
+    directors = models.JSONField(default=list, blank=True)
+    writers = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ["name", "year"]
@@ -850,6 +940,15 @@ class InstanceConfig(models.Model):
     # AdminAuditLogEntry, which is a security-relevant audit trail meant
     # to outlive routine sync/import log rows. See tasks.prune_old_logs.
     log_retention_days = models.PositiveIntegerField(null=True, blank=True)
+    # Admin dashboard's "Manage Wrapped" button (see views.manage_wrapped) -
+    # the companion spool-wrapped app's own base URL, and the HMAC secret
+    # both sides sign/verify the SSO handshake token with (contract.md's
+    # "SSO handshake" section). sso_shared_secret is encrypted at rest,
+    # same Fernet convention as every other secret field on this model;
+    # spool_wrapped_url isn't a secret (it's a destination, not a
+    # credential), same reasoning as trakt_client_id above.
+    spool_wrapped_url = models.URLField(blank=True, default="")
+    encrypted_sso_shared_secret = models.TextField(blank=True, default="")
 
     @classmethod
     def load(cls):
@@ -903,6 +1002,18 @@ class InstanceConfig(models.Model):
         from . import crypto
 
         self.encrypted_mdblist_api_key = crypto.encrypt(plaintext) if plaintext else ""
+
+    def get_sso_shared_secret(self):
+        if not self.encrypted_sso_shared_secret:
+            return ""
+        from . import crypto
+
+        return crypto.decrypt(self.encrypted_sso_shared_secret)
+
+    def set_sso_shared_secret(self, plaintext):
+        from . import crypto
+
+        self.encrypted_sso_shared_secret = crypto.encrypt(plaintext) if plaintext else ""
 
     def __str__(self):
         return "Instance configuration"

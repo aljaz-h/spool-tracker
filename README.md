@@ -70,6 +70,7 @@ instead.
 | ⚙️ **[Configuration](docs/CONFIGURATION.md)** | Every `.env` variable and `docker-compose.yml`/`docker-compose.prod.yml` setting. |
 | 🔗 **[Importing your data](docs/IMPORTING.md)** | Connecting Trakt/Simkl/Nuvio, CSV import, posters, duplicate-title cleanup. |
 | 📡 **[Scrobble API](docs/SCROBBLE_API.md)** | A generic webhook for any player or script to report watches directly - no per-app integration needed. |
+| 📊 **[Reports API](docs/REPORTS_API.md)** | Read-only watch-history access for external services like spool-wrapped, opt-in per profile. |
 | 🛠️ **[Updating & backups](docs/MAINTENANCE.md)** | Updating, rolling back a bad release, backing up. |
 | ⚠️ **[Known limitations](docs/LIMITATIONS.md)** | What's unverified, out of scope, or not built yet. |
 | 💻 **[Local development](docs/DEVELOPMENT.md)** | Running without Docker. |

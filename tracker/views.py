@@ -33,6 +33,7 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
+from itsdangerous import URLSafeTimedSerializer
 
 from . import (
     achievements,
@@ -62,6 +63,7 @@ from .models import (
     NuvioConnection,
     Profile,
     Recommendation,
+    ServiceAPIKey,
     Title,
     TitleRatingsCache,
     WatchEvent,
@@ -69,6 +71,7 @@ from .models import (
     WatchListItem,
     WatchProgress,
     attach_genres,
+    attach_reports_metadata,
 )
 
 MOVIE_TV_TYPES = [MediaType.MOVIE, MediaType.TV]
@@ -2080,6 +2083,7 @@ def _get_or_create_preview_title(media_type, tmdb_id):
         external_ids={"tmdb": str(tmdb_id), "tmdb_kind": media_type},
     )
     attach_genres(title, details["genres"])
+    attach_reports_metadata(title, tmdb.get_reports_metadata(media_type, tmdb_id, details))
     return title
 
 
@@ -3317,6 +3321,8 @@ def _settings_page_context(request, profile):
                 "cfg": InstanceConfig.load(),
                 "tmdb_configured": bool(instance_config.get_tmdb_api_key()),
                 "mdblist_configured": bool(instance_config.get_mdblist_api_key()),
+                "sso_shared_secret_configured": bool(instance_config.get_spool_wrapped_config()[1]),
+                "service_api_keys": ServiceAPIKey.objects.all(),
                 "django_version": ".".join(map(str, django.VERSION[:3])),
                 "db_engine": db_engine,
                 "debug": django_settings.DEBUG,
@@ -3441,6 +3447,7 @@ _INSTANCE_CONFIG_FIELDS = [
     "trakt_client_id", "trakt_client_secret",
     "simkl_client_id", "simkl_client_secret",
     "tmdb_api_key", "mdblist_api_key",
+    "spool_wrapped_url", "sso_shared_secret",
 ]
 _INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES = {"trakt": "Trakt", "simkl": "Simkl", "tmdb": "TMDB", "mdblist": "MDBList"}
 
@@ -3475,7 +3482,7 @@ def save_instance_config(request):
     # clear_instance_config_field for the explicit way to actually clear
     # a field) - a blank field only ever means the admin didn't type a
     # replacement.
-    for field in ["trakt_client_id", "simkl_client_id"]:
+    for field in ["trakt_client_id", "simkl_client_id", "spool_wrapped_url"]:
         value = request.POST.get(field, "").strip()
         if value:
             setattr(cfg, field, value)
@@ -3487,6 +3494,7 @@ def save_instance_config(request):
         ("simkl_client_secret", cfg.set_simkl_client_secret),
         ("tmdb_api_key", cfg.set_tmdb_api_key),
         ("mdblist_api_key", cfg.set_mdblist_api_key),
+        ("sso_shared_secret", cfg.set_sso_shared_secret),
     ]:
         value = request.POST.get(field, "").strip()
         if value:
@@ -3576,6 +3584,68 @@ def test_provider_credentials(request, provider):
     else:
         messages.success(request, f"{display_name} connection succeeded{caveat}.")
     return _render_server_integrations(request, profile)
+
+
+@login_required
+@require_POST
+def create_service_api_key(request):
+    """Server Integrations' spool-wrapped card - mints a new ServiceAPIKey,
+    always scope="reports:read" (the only scope this app currently
+    issues; the field exists on the model for a future scope without a
+    migration, not because there's a picker for it yet). Owner-only,
+    unlike ApiToken minting - a ServiceAPIKey can read every opted-in
+    profile's history, not just act as one profile, so this is squarely
+    an admin action (see ServiceAPIKey's own docstring)."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or not profile.is_owner:
+        raise Http404
+    name = request.POST.get("name", "").strip()[:60]
+    if not name:
+        messages.error(request, "Give the key a name so you can tell it apart later.")
+    else:
+        ServiceAPIKey.objects.create(name=name, key=ServiceAPIKey.generate_value())
+        messages.success(request, "New service API key generated - copy it into the other service's config now.")
+    return _render_server_integrations(request, profile)
+
+
+@login_required
+@require_POST
+def revoke_service_api_key(request, pk):
+    """Deletes the key outright rather than a soft-revoke flag - nothing
+    else references a ServiceAPIKey row (unlike ApiToken, which
+    WatchEvent.source etc. never point at either), so there's no history
+    to preserve by keeping a dead row around."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or not profile.is_owner:
+        raise Http404
+    key = get_object_or_404(ServiceAPIKey, pk=pk)
+    key.delete()
+    messages.success(request, "Service API key revoked.")
+    return _render_server_integrations(request, profile)
+
+
+@login_required
+def manage_wrapped(request):
+    """Server Integrations' "Manage Wrapped" button - signs a short-lived
+    SSO token and redirects the browser into spool-wrapped's own admin UI
+    (contract.md's "SSO handshake" section). itsdangerous embeds its own
+    timestamp in the token; spool-wrapped enforces the 60-second expiry
+    and replay protection on its side (see that repo's app/auth.py) - this
+    side only needs to sign, not track anything itself. The exact
+    serializer class and salt ("spool-wrapped-sso") matter: spool-wrapped
+    verifies with itsdangerous.URLSafeTimedSerializer using that same
+    salt, and its wire format doesn't match django.core.signing's, so
+    these two must agree exactly or every handshake fails silently."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or not profile.is_owner:
+        raise Http404
+    spool_wrapped_url, sso_shared_secret = instance_config.get_spool_wrapped_config()
+    if not spool_wrapped_url or not sso_shared_secret:
+        messages.error(request, "Set spool-wrapped's URL and shared secret in Server Integrations first.")
+        return redirect("admin_dashboard")
+    serializer = URLSafeTimedSerializer(sso_shared_secret, salt="spool-wrapped-sso")
+    token = serializer.dumps({"iss": "spool", "sub": request.user.username})
+    return redirect(f"{spool_wrapped_url.rstrip('/')}/auth/sso?token={token}")
 
 
 @login_required
@@ -4027,6 +4097,16 @@ def save_appearance(request):
     if "gemini_api_key" in request.POST:
         profile.gemini_api_key = request.POST.get("gemini_api_key", "").strip()
         update_fields.append("gemini_api_key")
+    # One hidden marker for the whole Wrapped card (not one per checkbox)
+    # since all three fields submit together from a single form here -
+    # still needed at all because wrapped_enabled/wrapped_email_enabled
+    # are plain checkboxes, which vanish from POST entirely when
+    # unchecked (same reasoning as animations_enabled_submitted above).
+    if "wrapped_settings_submitted" in request.POST:
+        profile.wrapped_enabled = bool(request.POST.get("wrapped_enabled"))
+        profile.wrapped_webhook_url = request.POST.get("wrapped_webhook_url", "").strip()
+        profile.wrapped_email_enabled = bool(request.POST.get("wrapped_email_enabled"))
+        update_fields.extend(["wrapped_enabled", "wrapped_webhook_url", "wrapped_email_enabled"])
     if update_fields:
         profile.save(update_fields=update_fields)
     return HttpResponse(status=204)

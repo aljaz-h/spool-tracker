@@ -397,6 +397,43 @@
             <span class="spool-spinner flex-none" aria-hidden="true"></span>
           </form>
         </div>
+
+        {% comment %}
+          Self-service like the API tokens card above (any profile can
+          set these themselves) - not owner-gated, unlike the
+          ServiceAPIKey minted for spool-wrapped itself, which lives in
+          the owner-only Server Integrations tab instead. A profile
+          absent here (wrapped_enabled off) is the only opt-out
+          mechanism the Reports API has - see api/routers/reports.py.
+        {% endcomment %}
+        <div class="bg-base-200 border border-line rounded-2xl p-5">
+          <h3 class="text-lg mb-1">Wrapped</h3>
+          <div class="text-ink-dim text-xs mb-3">
+            Opt in to share your watch history with the companion
+            <a href="https://github.com/aljaz-h/spool-wrapped" target="_blank" rel="noopener" class="underline hover:text-base-content">spool-wrapped</a>
+            app for "Wrapped"-style recap cards and a Year in Review report. Off by default - a profile that hasn't opted in is never visible to spool-wrapped at all.
+          </div>
+          <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="flex flex-col gap-3">
+            <input type="hidden" name="wrapped_settings_submitted" value="1">
+            <label class="flex items-center justify-between gap-3 cursor-pointer">
+              <span class="text-[13.5px]">Share watch history with spool-wrapped</span>
+              <input type="checkbox" name="wrapped_enabled" class="checkbox checkbox-sm" {% if profile.wrapped_enabled %}checked{% endif %}>
+            </label>
+            <div>
+              <div class="text-[11px] text-ink-dim mb-1">Webhook URL (optional Spool-side default)</div>
+              <input
+                type="url" name="wrapped_webhook_url" value="{{ profile.wrapped_webhook_url }}" placeholder="https://discord.com/api/webhooks/…"
+                class="w-full bg-base-100 border border-line rounded-lg px-3.5 py-2 text-sm font-mono focus:outline-primary"
+              >
+            </div>
+            <label class="flex items-center justify-between gap-3 cursor-pointer">
+              <span class="text-[13.5px]">Enable email delivery by default</span>
+              <input type="checkbox" name="wrapped_email_enabled" class="checkbox checkbox-sm" {% if profile.wrapped_email_enabled %}checked{% endif %}>
+            </label>
+            <span class="spool-spinner self-start" aria-hidden="true"></span>
+          </form>
+          <div class="text-[10.5px] text-ink-faint mt-2">spool-wrapped's own per-profile delivery settings, once configured there, always take priority over these.</div>
+        </div>
       </div>
 
       {# ==================== IMPORT DATA ==================== #}
@@ -590,7 +627,7 @@
         {# ==================== ADMIN: SERVER INTEGRATIONS ==================== #}
         <div
           x-show="tab === 'server_integrations'" x-cloak
-          x-data="{ showTraktSecret: false, showSimklSecret: false, showTmdb: false, showMdblist: false }"
+          x-data="{ showTraktSecret: false, showSimklSecret: false, showTmdb: false, showMdblist: false, showSsoSecret: false }"
           class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl"
         >
           <h3 class="text-lg mb-1">Server Integrations</h3>
@@ -694,8 +731,67 @@
               </div>
               <div class="text-ink-dim text-[11px] mt-1">Optional - adds IMDb/Rotten Tomatoes/Metacritic/Trakt pills to a title's page. Get a free key at mdblist.com/api.</div>
             </div>
+            <div class="pt-1 border-t border-line">
+              <div class="text-xs font-semibold mt-3 mb-1">spool-wrapped</div>
+              <div class="text-ink-dim text-[11px] mb-2">Base URL and shared secret for the "Manage Wrapped" SSO handshake below - set identically to spool-wrapped's own SSO_SHARED_SECRET.</div>
+              <label class="block text-xs text-ink-dim mb-1">spool-wrapped URL</label>
+              <input type="url" name="spool_wrapped_url" value="{{ integration_field_values.spool_wrapped_url|default:cfg.spool_wrapped_url }}" @keydown.enter.prevent placeholder="https://wrapped.example.com" class="input input-sm w-full bg-base-100 font-mono mb-2">
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-xs text-ink-dim">Shared Secret {% if sso_shared_secret_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
+              </div>
+              <div class="relative">
+                <input :type="showSsoSecret ? 'text' : 'password'" name="sso_shared_secret" value="{{ integration_field_values.sso_shared_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if sso_shared_secret_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
+                <button type="button" @click="showSsoSecret = !showSsoSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                  <span x-show="!showSsoSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                  <span x-show="showSsoSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                </button>
+              </div>
+            </div>
             <button type="submit" class="btn btn-sm btn-soft w-full">Save</button>
           </form>
+
+          {% comment %}
+            ServiceAPIKey CRUD - a different credential shape from the API
+            tokens card in Settings → Integrations (one key per external
+            service, not per profile - see ServiceAPIKey's own docstring),
+            so it's owner-only here rather than self-service there. Same
+            show/hide-per-row + delete-with-confirm UX as that card.
+          {% endcomment %}
+          <div class="mt-5 pt-3.5 border-t border-line">
+            <h4 class="text-sm font-semibold mb-1">Reports API keys</h4>
+            <div class="text-ink-dim text-[11px] mb-2">Read-only keys for external services (like spool-wrapped) to pull watch history for every profile that's opted in to Wrapped (Settings → Integrations).</div>
+            {% for key in service_api_keys %}
+              <div class="flex items-center gap-1.5 py-2 border-t border-line" x-data="{ show: false }">
+                <div class="flex-1 min-w-0">
+                  <div class="text-xs font-semibold truncate">{{ key.name }}</div>
+                  <input
+                    :type="show ? 'text' : 'password'" readonly value="{{ key.key }}"
+                    onclick="this.select()" aria-label="{{ key.name }} key"
+                    class="w-full bg-transparent text-[11px] font-mono text-ink-dim focus:outline-none cursor-text"
+                  >
+                </div>
+                <button type="button" @click="show = !show" title="Show/hide key" class="text-ink-faint hover:text-base-content p-1.5 flex-none">
+                  <span x-show="!show">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                  <span x-show="show" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                </button>
+                <form
+                  method="post" action="{% url 'revoke_service_api_key' key.pk %}"
+                  onsubmit="return confirm('Revoke the &quot;{{ key.name|escapejs }}&quot; key? Anything still using it will get 401s immediately.');"
+                  class="flex-none"
+                >
+                  {% csrf_token %}
+                  <button type="submit" title="Revoke" aria-label="Revoke {{ key.name }}" class="text-ink-faint hover:text-error p-1.5">{% icon "trash-2" "w-3.5 h-3.5" %}</button>
+                </form>
+              </div>
+            {% endfor %}
+            <form method="post" action="{% url 'create_service_api_key' %}" class="flex items-center gap-2 mt-3{% if service_api_keys %} pt-3 border-t border-line{% endif %}">
+              {% csrf_token %}
+              <input type="text" name="name" maxlength="60" required placeholder="e.g. spool-wrapped" aria-label="New key name" class="input input-sm flex-1 min-w-0 bg-base-100">
+              <button type="submit" class="btn btn-sm btn-soft flex-none">+ Add key</button>
+            </form>
+          </div>
+
+          <a href="{% url 'manage_wrapped' %}" class="btn btn-sm btn-soft w-full mt-3.5">Manage Wrapped →</a>
           <a href="#" @click.prevent="setTab('logs')" class="block text-center text-xs text-ink-dim hover:text-base-content mt-3.5 pt-3.5 border-t border-line">View Logs →</a>
         </div>
 

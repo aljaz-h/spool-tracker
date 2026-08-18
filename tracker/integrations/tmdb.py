@@ -837,6 +837,28 @@ def _extract_certification(data, is_movie):
     return us.get("rating") or None
 
 
+#  ISO 3166-1 alpha-2 -> display name, for tv/anime's origin_country codes
+#  (movies get full names straight from TMDB's own production_countries,
+#  see below) - a curated map, not a live /configuration/countries fetch,
+#  same "hardcode a manageable lookup" convention as views.DISCOVER_REGIONS,
+#  just scoped to whatever's realistic as a TV/anime production country
+#  rather than that picker's narrower watch-region list. An origin_country
+#  code missing from this map (rare) falls back to the raw code itself
+#  rather than raising - a slightly-off display beats an error.
+_ISO_COUNTRY_NAMES = {
+    "US": "United States", "GB": "United Kingdom", "CA": "Canada", "AU": "Australia",
+    "IE": "Ireland", "NZ": "New Zealand", "DE": "Germany", "FR": "France", "ES": "Spain",
+    "IT": "Italy", "NL": "Netherlands", "SE": "Sweden", "NO": "Norway", "DK": "Denmark",
+    "FI": "Finland", "PL": "Poland", "BR": "Brazil", "MX": "Mexico", "JP": "Japan",
+    "KR": "South Korea", "IN": "India", "CN": "China", "TW": "Taiwan", "HK": "Hong Kong",
+    "TH": "Thailand", "PH": "Philippines", "ID": "Indonesia", "VN": "Vietnam", "TR": "Turkey",
+    "AT": "Austria", "CH": "Switzerland", "PT": "Portugal", "BE": "Belgium", "CZ": "Czech Republic",
+    "HU": "Hungary", "RO": "Romania", "GR": "Greece", "RU": "Russia", "UA": "Ukraine",
+    "IL": "Israel", "ZA": "South Africa", "AR": "Argentina", "CO": "Colombia", "CL": "Chile",
+    "IS": "Iceland", "SG": "Singapore", "MY": "Malaysia",
+}
+
+
 def get_full_details(media_type, tmdb_id):
     """{"name", "year", "overview", "tagline", "genres": [str,...],
     "runtime": int|None (movie), "number_of_seasons"/"number_of_episodes":
@@ -860,10 +882,12 @@ def get_full_details(media_type, tmdb_id):
     int|None (movie only - TMDB returns 0, not null, when unknown; that's
     normalized to None here since "$0" reads as data, not "no data"),
     "production_companies": [str,...], "countries": [str,...] (movie:
-    full names from production_countries; tv has no equivalent field,
-    only origin_country's ISO codes), "collection_id": int|None (movie
-    only - TMDB's belongs_to_collection, e.g. "Iron Man Collection"; tv
-    has no franchise-grouping concept at all, so this is always None for
+    full names from production_countries; tv/anime: origin_country's ISO
+    codes resolved through _ISO_COUNTRY_NAMES above), "networks": [str,...]
+    (tv/anime only, always [] for a movie - broadcast/streaming networks,
+    used for Title.network/the Reports API), "collection_id": int|None
+    (movie only - TMDB's belongs_to_collection, e.g. "Iron Man Collection";
+    tv has no franchise-grouping concept at all, so this is always None for
     a show. Feed straight into get_collection_details() for the other
     entries)} or None if nothing came back (no api key, bad id, network
     error)."""
@@ -923,8 +947,12 @@ def get_full_details(media_type, tmdb_id):
         "countries": (
             [c["name"] for c in data.get("production_countries") or [] if c.get("name")]
             if is_movie
-            else (data.get("origin_country") or [])
+            else [_ISO_COUNTRY_NAMES.get(code, code) for code in data.get("origin_country") or []]
         ),
+        # tv/anime only - Title.network/the Reports API's per-entry
+        # "network" field (see Title's own field comment). Movies have no
+        # equivalent concept, so this key is simply absent for a movie.
+        "networks": [] if is_movie else [n["name"] for n in data.get("networks") or [] if n.get("name")],
         "collection_id": (data.get("belongs_to_collection") or {}).get("id") if is_movie else None,
     }
 
@@ -978,6 +1006,60 @@ def get_director(media_type, tmdb_id):
         "name": director.get("name") or "",
         "profile_url": f"{PROFILE_BASE}{profile_path}" if profile_path else None,
         "tmdb_person_id": director.get("id"),
+    }
+
+
+# TMDB has no single consistent "the writer" job title the way "Director"
+# is for directing - these are the job strings it actually uses across the
+# Writing department (a writing-credit crew entry's "department" is always
+# "Writing", but "job" varies by what kind of writing credit it was).
+_WRITER_JOBS = {"Writer", "Screenplay", "Story", "Teleplay"}
+
+
+def get_writers(media_type, tmdb_id):
+    """[str, ...] names of everyone credited in TMDB's Writing department
+    for this title (see _WRITER_JOBS above), or [] - same /credits
+    endpoint as get_credits()/get_director(), cached the same way, so
+    calling all three for one title costs one real HTTP call, not three.
+    Unlike get_director() this collects every match, not just the first -
+    a title can have several credited writers and the Reports API's
+    "writers" field is a list."""
+    data = _list_request(f"{media_type}/{tmdb_id}/credits")
+    crew = (data or {}).get("crew") or []
+    seen = set()
+    names = []
+    for c in crew:
+        if c.get("job") not in _WRITER_JOBS:
+            continue
+        name = c.get("name")
+        if name and name not in seen:
+            seen.add(name)
+            names.append(name)
+    return names
+
+
+def get_reports_metadata(media_type, tmdb_id, details):
+    """{"country", "studio", "network", "cast", "directors", "writers"} -
+    the six Title fields the Reports API's Year in Review needs (see
+    Title's own field comments and models.attach_reports_metadata).
+    details is whatever get_full_details() already returned for this
+    title - country/studio/network are read straight from it instead of
+    a second network call; cast/directors/writers cost one more real
+    HTTP call to /credits (cached, and shared across all three - see
+    get_writers()'s own docstring)."""
+    is_movie = media_type == "movie"
+    countries = details.get("countries") or []
+    companies = details.get("production_companies") or []
+    networks = details.get("networks") or []
+    cast_names = [c["name"] for c in get_credits(media_type, tmdb_id, limit=5) if c["name"]]
+    director = get_director(media_type, tmdb_id)
+    return {
+        "country": countries[0] if countries else "",
+        "studio": companies[0] if is_movie and companies else "",
+        "network": networks[0] if not is_movie and networks else "",
+        "cast": cast_names,
+        "directors": [director["name"]] if director and director["name"] else [],
+        "writers": get_writers(media_type, tmdb_id),
     }
 
 

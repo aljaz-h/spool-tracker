@@ -21,6 +21,7 @@ django-timezone-field==7.2.2
 gprof2dot==2025.4.14
 gunicorn==26.0.0
 idna==3.18
+itsdangerous==2.2.0
 kombu==5.6.2
 packaging==26.2
 Pillow==12.3.0
