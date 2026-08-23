@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.110.0] - 2026-08-23
+
+### Added
+
+- Anime filler/recap badges now fall back to [AniFiller](https://github.com/AniraTeam/AniFiller),
+  a small static canon/filler dataset, for anything Jikan/MyAnimeList
+  can't answer - a genuine no-match, or Jikan's own search endpoint
+  having one of its occasional outages. Used strictly as a fallback:
+  AniFiller only fills episodes Jikan had no answer for, never overriding
+  one Jikan already gave (the two sources occasionally disagree), and it
+  can only ever contribute a Filler badge, not Recap.
+
 ## [0.109.1] - 2026-08-23
 
 ### Fixed

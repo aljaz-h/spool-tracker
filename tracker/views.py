@@ -48,7 +48,7 @@ from . import (
     selectors,
     tasks,
 )
-from .integrations import gemini, jikan, mdblist, nuvio, simkl, tmdb, trakt
+from .integrations import anifiller, gemini, jikan, mdblist, nuvio, simkl, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
@@ -796,14 +796,23 @@ def _resolve_mal_id(title):
     name/year and cached onto external_ids["mal"] once found so it's only
     ever looked up once - shared by the episode browser's filler overlay
     (_apply_anime_filler_flags) and the detail page's MAL score/Japanese
-    title/studio enrichment (_anime_jikan_context) below."""
+    title/studio enrichment (_anime_jikan_context) below.
+
+    Falls back to an exact-title match against AniFiller's own (much
+    smaller, ~180-show) bundle when Jikan's live search comes back empty
+    - either a genuine no-match, or Jikan's search endpoint having one of
+    its occasional outages (see jikan.py's own docstring). Either way,
+    the id AniFiller supplies is a real MAL id, cached identically to one
+    Jikan found directly - anifiller.py's own per-episode data is a
+    separate, explicitly-secondary fallback (see _apply_anime_filler_flags),
+    but a MAL id is a MAL id regardless of which source resolved it."""
     mal_id = title.external_ids.get("mal")
     if mal_id is not None:
         return mal_id
     match = jikan.find_match(title.name, title.year)
-    if match is None:
+    mal_id = match["mal_id"] if match else anifiller.find_mal_id_by_name(title.name)
+    if mal_id is None:
         return None
-    mal_id = match["mal_id"]
     title.external_ids["mal"] = mal_id
     title.save(update_fields=["external_ids"])
     return mal_id
@@ -979,20 +988,30 @@ def _apply_anime_filler_flags(title, episodes, season, tv_details):
     ep.filler %}` already treats as falsy - never an error, never a
     wrong badge, just no badge.
 
-    TMDB's episode_number is season-relative; Jikan's is the show's whole
-    absolute count (MAL doesn't split most shows into per-season
-    entries), bridged by summing every earlier season's episode_count
-    from tv_details (already fetched by the caller for season_ratings,
-    no extra TMDB call needed here) - see the plan's note on why this
-    doesn't hold for the (uncommon) anime MAL splits into separate
-    per-season entries instead: those just silently get no badges for
-    that season, not wrong ones."""
+    Falls back to anifiller.py's own (much narrower, static-dataset)
+    filler classification for any episode Jikan didn't have an answer
+    for - whether that's every episode (Jikan had nothing at all for
+    this show, or was unreachable) or just a gap in an otherwise-populated
+    map. Never the other way around: a Jikan-provided flag always wins,
+    since the two sources occasionally disagree (see anifiller.py's own
+    docstring) and Jikan's is the one actually keyed by filler *and*
+    recap, not just filler.
+
+    TMDB's episode_number is season-relative; Jikan's (and AniFiller's)
+    is the show's whole absolute count (MAL doesn't split most shows into
+    per-season entries), bridged by summing every earlier season's
+    episode_count from tv_details (already fetched by the caller for
+    season_ratings, no extra TMDB call needed here) - see the plan's note
+    on why this doesn't hold for the (uncommon) anime MAL splits into
+    separate per-season entries instead: those just silently get no
+    badges for that season, not wrong ones."""
     mal_id = _resolve_mal_id(title)
     if mal_id is None:
         return
 
     filler_map = jikan.get_episode_filler_map(mal_id)
-    if not filler_map:
+    fallback_types = anifiller.get_episode_types(mal_id)
+    if not filler_map and not fallback_types:
         return
 
     offset = sum(
@@ -1001,10 +1020,13 @@ def _apply_anime_filler_flags(title, episodes, season, tv_details):
         if s["season_number"] and s["season_number"] < season
     )
     for ep in episodes:
-        flags = filler_map.get(offset + ep["episode_number"])
+        absolute_number = offset + ep["episode_number"]
+        flags = filler_map.get(absolute_number)
         if flags:
             ep["filler"] = flags["filler"]
             ep["recap"] = flags["recap"]
+        elif fallback_types.get(absolute_number) == "filler":
+            ep["filler"] = True
 
 
 def _episode_panel_context(request, profile, title, tmdb_id, details, force_season=None):

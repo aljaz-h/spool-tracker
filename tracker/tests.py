@@ -18,7 +18,7 @@ from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
 from . import achievements, completion, crypto, csv_import, instance_config, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, update_check, views
-from .integrations import gemini, jikan, mdblist, nuvio, scrobble, tmdb, trakt
+from .integrations import anifiller, gemini, jikan, mdblist, nuvio, scrobble, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
@@ -12462,6 +12462,7 @@ class AnimeFillerBadgeTests(TestCase):
             ],
         }
 
+    @patch("tracker.integrations.anifiller.get_episode_types", return_value={})
     @patch("tracker.integrations.jikan.get_episode_filler_map")
     @patch("tracker.integrations.jikan.find_match")
     @patch("tracker.integrations.tmdb.get_tv_details")
@@ -12470,7 +12471,8 @@ class AnimeFillerBadgeTests(TestCase):
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
     @patch("tracker.integrations.tmdb.get_full_details")
     def test_filler_flags_land_on_the_right_episode_after_season_offset(
-        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match, mock_filler_map
+        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match, mock_filler_map,
+        mock_anifiller_types,
     ):
         # Season 1 has 10 episodes, so season 2's episode 3 is Jikan's
         # absolute episode 13 - the offset math views._apply_anime_filler_flags
@@ -12488,6 +12490,7 @@ class AnimeFillerBadgeTests(TestCase):
         self.assertFalse(episodes[2].get("filler"))
         mock_find_match.assert_called_once_with("Bleach", 2004)
 
+    @patch("tracker.integrations.anifiller.get_episode_types", return_value={})
     @patch("tracker.integrations.jikan.get_episode_filler_map")
     @patch("tracker.integrations.jikan.find_match")
     @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
@@ -12496,7 +12499,8 @@ class AnimeFillerBadgeTests(TestCase):
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
     @patch("tracker.integrations.tmdb.get_full_details")
     def test_mal_id_is_cached_on_the_title_and_not_re_looked_up(
-        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match, mock_filler_map
+        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match, mock_filler_map,
+        mock_anifiller_types,
     ):
         mock_details.return_value = self._details(number_of_seasons=1)
         mock_season.return_value = self._season(2)
@@ -12510,6 +12514,7 @@ class AnimeFillerBadgeTests(TestCase):
         self.client.get(reverse("title_detail", args=[self.anime.pk]))
         mock_find_match.assert_called_once()
 
+    @patch("tracker.integrations.anifiller.find_mal_id_by_name", return_value=None)
     @patch("tracker.integrations.jikan.get_episode_filler_map")
     @patch("tracker.integrations.jikan.find_match", return_value=None)
     @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
@@ -12518,8 +12523,12 @@ class AnimeFillerBadgeTests(TestCase):
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
     @patch("tracker.integrations.tmdb.get_full_details")
     def test_no_jikan_match_renders_the_episode_browser_normally(
-        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match, mock_filler_map
+        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match, mock_filler_map,
+        mock_anifiller_name,
     ):
+        # AniFiller's own name-based fallback also comes up empty here -
+        # see AnimeFillerAniFillerFallbackTests for the case where it
+        # succeeds where Jikan didn't.
         mock_details.return_value = self._details(number_of_seasons=1)
         mock_season.return_value = self._season(2)
         resp = self.client.get(reverse("title_detail", args=[self.anime.pk]))
@@ -12545,6 +12554,196 @@ class AnimeFillerBadgeTests(TestCase):
         self.client.get(reverse("title_detail", args=[show.pk]))
         mock_find_match.assert_not_called()
         mock_filler_map.assert_not_called()
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class AnifillerIntegrationTests(TestCase):
+    """anifiller.py - a static ~180-show canon/filler dataset fetched
+    whole from a GitHub Release asset, used purely as a fallback for
+    jikan.py (see AnimeFillerAniFillerFallbackTests for the views.py
+    wiring). Class-level LocMemCache override, same reasoning as
+    JikanEpisodeFillerMapTests."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    def _bundle_response(self, shows):
+        resp = Mock()
+        resp.json.return_value = shows
+        resp.raise_for_status = Mock()
+        return resp
+
+    def _show(self, title, mal_id, episodes):
+        return {
+            "title": title,
+            "mappings": {"mal_id": mal_id, "anilist_id": mal_id},
+            "episodes": [{"episode": num, "title": f"Ep{num}", "type": t, "aired_date": "2020-01-01"} for num, t in episodes],
+        }
+
+    @patch("tracker.integrations.anifiller.requests.get")
+    def test_find_mal_id_by_name_matches_case_insensitively(self, mock_get):
+        mock_get.return_value = self._bundle_response([self._show("Black Clover", 34572, [])])
+        self.assertEqual(anifiller.find_mal_id_by_name("black clover"), 34572)
+
+    @patch("tracker.integrations.anifiller.requests.get")
+    def test_find_mal_id_by_name_returns_none_for_no_exact_match(self, mock_get):
+        # Deliberately no fuzzy matching - a near-miss title must not
+        # silently attach the wrong show's filler data.
+        mock_get.return_value = self._bundle_response([self._show("Black Clover", 34572, [])])
+        self.assertIsNone(anifiller.find_mal_id_by_name("Black Clover Movie"))
+
+    @patch("tracker.integrations.anifiller.requests.get")
+    def test_get_episode_types_returns_the_matching_shows_map(self, mock_get):
+        mock_get.return_value = self._bundle_response(
+            [self._show("Black Clover", 34572, [(66, "filler"), (67, "manga-canon"), (68, "filler")])]
+        )
+        self.assertEqual(anifiller.get_episode_types(34572), {66: "filler", 67: "manga-canon", 68: "filler"})
+
+    @patch("tracker.integrations.anifiller.requests.get")
+    def test_get_episode_types_returns_empty_for_a_show_not_in_the_bundle(self, mock_get):
+        mock_get.return_value = self._bundle_response([self._show("Black Clover", 34572, [])])
+        self.assertEqual(anifiller.get_episode_types(999999), {})
+
+    @patch("tracker.integrations.anifiller.requests.get")
+    def test_bundle_is_fetched_once_and_cached_across_calls(self, mock_get):
+        mock_get.return_value = self._bundle_response([self._show("Black Clover", 34572, [])])
+        anifiller.find_mal_id_by_name("Black Clover")
+        anifiller.get_episode_types(34572)
+        mock_get.assert_called_once()
+
+    @patch("tracker.integrations.anifiller.requests.get")
+    def test_request_exception_degrades_to_empty_results_not_an_error(self, mock_get):
+        mock_get.side_effect = requests.RequestException("boom")
+        self.assertIsNone(anifiller.find_mal_id_by_name("Black Clover"))
+        self.assertEqual(anifiller.get_episode_types(34572), {})
+
+
+class AnimeFillerAniFillerFallbackTests(TestCase):
+    """views._resolve_mal_id/_apply_anime_filler_flags falling back to
+    anifiller.py only for whatever Jikan didn't supply - never overriding
+    a Jikan-provided answer (see anifiller.py's own docstring for why the
+    two sources can legitimately disagree). AnimeFillerBadgeTests covers
+    the Jikan-only baseline this must never regress."""
+
+    def setUp(self):
+        user = User.objects.create_user("fallbackwatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="FallbackWatcher")
+        self.client.login(username="fallbackwatcher", password="pass12345")
+        self.anime = Title.objects.create(
+            media_type=MediaType.ANIME, name="Black Clover", year=2017,
+            external_ids={"tmdb": "99", "tmdb_kind": "tv"},
+        )
+        for name, default in (("get_director", None), ("get_watch_providers", [])):
+            patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        dispatch_patcher = patch("tracker.views._dispatch_sync_task_safely")
+        dispatch_patcher.start()
+        self.addCleanup(dispatch_patcher.stop)
+
+    def _details(self, number_of_seasons=1):
+        return {
+            "tmdb_id": 99, "media_type": "tv", "name": "Black Clover", "year": "2017",
+            "overview": "", "tagline": "", "genres": [], "runtime": None,
+            "number_of_seasons": number_of_seasons, "number_of_episodes": 3,
+            "backdrop_url": None, "poster_url": None, "vote_average": 7.0,
+            "vote_count": 100, "original_language": "ja", "status": None,
+        }
+
+    def _season(self, count):
+        return {
+            "episodes": [
+                {"episode_number": i + 1, "name": f"Ep{i + 1}", "still_url": None, "air_date": None, "vote_average": None}
+                for i in range(count)
+            ]
+        }
+
+    @patch("tracker.integrations.anifiller.get_episode_types")
+    @patch("tracker.integrations.anifiller.find_mal_id_by_name")
+    @patch("tracker.integrations.jikan.get_episode_filler_map")
+    @patch("tracker.integrations.jikan.find_match", return_value=None)
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_falls_back_to_anifiller_mal_id_when_jikan_has_no_match(
+        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match,
+        mock_filler_map, mock_anifiller_name, mock_anifiller_types,
+    ):
+        # Jikan's search came back empty (a real no-match, or its search
+        # endpoint being down - either way find_match returns None) -
+        # AniFiller's own exact-title match still resolves a real MAL id.
+        mock_details.return_value = self._details()
+        mock_season.return_value = self._season(3)
+        mock_anifiller_name.return_value = 34572
+        mock_filler_map.return_value = {}
+        mock_anifiller_types.return_value = {2: "filler"}
+
+        resp = self.client.get(reverse("title_detail", args=[self.anime.pk]))
+        episodes = {e["episode_number"]: e for e in resp.context["episodes"]}
+        self.assertTrue(episodes[2].get("filler"))
+        self.assertFalse(episodes[1].get("filler"))
+        mock_anifiller_name.assert_called_once_with("Black Clover")
+        self.anime.refresh_from_db()
+        self.assertEqual(self.anime.external_ids["mal"], 34572)
+
+    @patch("tracker.integrations.anifiller.get_episode_types")
+    @patch("tracker.integrations.jikan.get_episode_filler_map")
+    @patch("tracker.integrations.jikan.find_match")
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_anifiller_fills_only_episodes_jikan_has_no_answer_for(
+        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match,
+        mock_filler_map, mock_anifiller_types,
+    ):
+        # Episode 1: Jikan says recap - must win outright even though
+        # AniFiller separately (and, per the two sources' real-world
+        # disagreement, plausibly) calls it filler. Episode 2: Jikan has
+        # no entry for it at all - AniFiller's filler tag fills the gap.
+        mock_details.return_value = self._details()
+        mock_season.return_value = self._season(3)
+        mock_find_match.return_value = {"mal_id": 34572}
+        mock_filler_map.return_value = {1: {"filler": False, "recap": True}}
+        mock_anifiller_types.return_value = {1: "filler", 2: "filler"}
+
+        resp = self.client.get(reverse("title_detail", args=[self.anime.pk]))
+        episodes = {e["episode_number"]: e for e in resp.context["episodes"]}
+        self.assertFalse(episodes[1].get("filler"))
+        self.assertTrue(episodes[1].get("recap"))
+        self.assertTrue(episodes[2].get("filler"))
+        self.assertFalse(episodes[2].get("recap"))
+
+    @patch("tracker.integrations.anifiller.get_episode_types")
+    @patch("tracker.integrations.jikan.get_episode_filler_map", return_value={})
+    @patch("tracker.integrations.jikan.find_match")
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_anifillers_non_filler_types_never_produce_a_badge(
+        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match,
+        mock_filler_map, mock_anifiller_types,
+    ):
+        # manga-canon/anime-canon/mixed-manga have no Spool badge of their
+        # own - only AniFiller's "filler" type maps to anything, and it
+        # never fabricates a Recap (AniFiller has no such category).
+        mock_details.return_value = self._details()
+        mock_season.return_value = self._season(3)
+        mock_find_match.return_value = {"mal_id": 34572}
+        mock_anifiller_types.return_value = {1: "manga-canon", 2: "anime-canon", 3: "mixed-manga"}
+
+        resp = self.client.get(reverse("title_detail", args=[self.anime.pk]))
+        episodes = {e["episode_number"]: e for e in resp.context["episodes"]}
+        for ep in episodes.values():
+            self.assertFalse(ep.get("filler"))
+            self.assertFalse(ep.get("recap"))
 
 
 class JikanGetAnimeDetailsTests(TestCase):
@@ -12667,6 +12866,7 @@ class AnimeJikanDetailContextTests(TestCase):
         self.assertContains(resp, "MAL")
         self.assertContains(resp, "8.0")
 
+    @patch("tracker.integrations.anifiller.get_episode_types", return_value={})
     @patch("tracker.integrations.jikan.get_episode_filler_map", return_value={})
     @patch("tracker.integrations.jikan.get_anime_details")
     @patch("tracker.integrations.jikan.find_match")
@@ -12676,7 +12876,8 @@ class AnimeJikanDetailContextTests(TestCase):
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
     @patch("tracker.integrations.tmdb.get_full_details")
     def test_mal_id_is_only_resolved_once_for_both_filler_and_detail_lookups(
-        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match, mock_jikan_details, mock_filler_map
+        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match, mock_jikan_details,
+        mock_filler_map, mock_anifiller_types,
     ):
         # _apply_anime_filler_flags and _anime_jikan_context both need a
         # mal_id - _resolve_mal_id is shared between them so a single
@@ -12694,6 +12895,8 @@ class AnimeJikanDetailContextTests(TestCase):
         mock_find_match.assert_called_once()
         mock_filler_map.assert_called_once()
 
+    @patch("tracker.integrations.anifiller.get_episode_types", return_value={})
+    @patch("tracker.integrations.anifiller.find_mal_id_by_name", return_value=None)
     @patch("tracker.integrations.jikan.get_episode_filler_map", return_value={})
     @patch("tracker.integrations.jikan.get_anime_details")
     @patch("tracker.integrations.jikan.find_match", return_value=None)
@@ -12703,8 +12906,12 @@ class AnimeJikanDetailContextTests(TestCase):
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
     @patch("tracker.integrations.tmdb.get_full_details")
     def test_no_mal_match_renders_the_page_normally(
-        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match, mock_jikan_details, mock_filler_map
+        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match, mock_jikan_details,
+        mock_filler_map, mock_anifiller_name, mock_anifiller_types,
     ):
+        # AniFiller's own name-based fallback also comes up empty here -
+        # see AnimeFillerAniFillerFallbackTests for the case where it
+        # succeeds where Jikan didn't.
         mock_details.return_value = self._details()
         resp = self.client.get(reverse("title_detail", args=[self.anime.pk]))
         self.assertEqual(resp.status_code, 200)
