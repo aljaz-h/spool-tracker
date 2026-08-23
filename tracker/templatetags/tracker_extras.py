@@ -108,6 +108,20 @@ def get_item(d, key):
 
 
 @register.filter
+def preview_media_type(item):
+    """The media_type to build a title_preview/title_preview_* URL with -
+    "anime" when item's own is_anime flag is set (see
+    tmdb._normalize_result), so materializing it (see
+    views._get_or_create_preview_title) creates a real MediaType.ANIME
+    Title instead of a plain MediaType.TV one the filler-badge/MAL
+    enrichment code never looks at. item['media_type'] itself stays the
+    real "movie"/"tv" TMDB kind everywhere else (e.g. tmdb_key above,
+    since that's what discover_action_context()'s own keys are built
+    from) - this filter is only for the preview-action URLs."""
+    return "anime" if item.get("is_anime") else item.get("media_type")
+
+
+@register.filter
 def tmdb_key(item):
     """discover_action_context()'s lookup key for a discover_tile.html
     item dict - "media_type:tmdb_id", matching how that selector builds

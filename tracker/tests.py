@@ -8052,6 +8052,77 @@ class BackfillGenresCommandTests(TestCase):
         mock_get_full_details.assert_not_called()
 
 
+class ReclassifyAnimeTitlesCommandTests(TestCase):
+    """Backfill for titles materialized as plain MediaType.TV before the
+    Discover-Anime-tab preview-flow fix (see TitlePreviewViewTests'
+    materialization tests) - a TV title that's actually Animation+Japanese
+    gets promoted to MediaType.ANIME so the filler-badge/MAL enrichment
+    code (gated on exactly that) finally applies to it."""
+
+    def _details(self, genres, original_language="ja"):
+        return {"genres": genres, "original_language": original_language}
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_reclassifies_a_japanese_animation_tv_title_to_anime(self, mock_get_full_details):
+        from django.core.management import call_command
+
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Frieren", year=2023, external_ids={"tmdb": "42", "tmdb_kind": "tv"}
+        )
+        mock_get_full_details.return_value = self._details(["Animation", "Drama"])
+        call_command("reclassify_anime_titles")
+        title.refresh_from_db()
+        self.assertEqual(title.media_type, MediaType.ANIME)
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_leaves_a_non_anime_tv_title_alone(self, mock_get_full_details):
+        from django.core.management import call_command
+
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Ellen", year=2020, external_ids={"tmdb": "43", "tmdb_kind": "tv"}
+        )
+        mock_get_full_details.return_value = self._details(["Comedy"], original_language="en")
+        call_command("reclassify_anime_titles")
+        title.refresh_from_db()
+        self.assertEqual(title.media_type, MediaType.TV)
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_leaves_western_animation_alone(self, mock_get_full_details):
+        # Animation genre alone isn't enough - a Japanese original language
+        # is required too, same heuristic tmdb._normalize_result's own
+        # is_anime flag uses (a Western cartoon shouldn't get relabeled).
+        from django.core.management import call_command
+
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Western Cartoon", year=2020, external_ids={"tmdb": "44", "tmdb_kind": "tv"}
+        )
+        mock_get_full_details.return_value = self._details(["Animation"], original_language="en")
+        call_command("reclassify_anime_titles")
+        title.refresh_from_db()
+        self.assertEqual(title.media_type, MediaType.TV)
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_skips_title_without_a_tmdb_id(self, mock_get_full_details):
+        from django.core.management import call_command
+
+        Title.objects.create(media_type=MediaType.TV, name="No TMDB Id", year=2020)
+        call_command("reclassify_anime_titles")
+        mock_get_full_details.assert_not_called()
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_never_touches_a_movie_or_already_anime_title(self, mock_get_full_details):
+        from django.core.management import call_command
+
+        Title.objects.create(
+            media_type=MediaType.MOVIE, name="A Movie", year=2020, external_ids={"tmdb": "45", "tmdb_kind": "movie"}
+        )
+        Title.objects.create(
+            media_type=MediaType.ANIME, name="Already Anime", year=2020, external_ids={"tmdb": "46", "tmdb_kind": "tv"}
+        )
+        call_command("reclassify_anime_titles")
+        mock_get_full_details.assert_not_called()
+
+
 class MergeDuplicateTitlesCommandTests(TestCase):
     """Cleans up the already-existing fallout of the duplicate-Title bug
     CrossProviderTitleDedupTests/NuvioGetOrCreateTitleTests' new reuse
@@ -10513,6 +10584,23 @@ class SearchViewTests(TestCase):
         self.assertContains(resp, "Anime Show")
         self.assertNotContains(resp, "Regular Preview")
         self.assertContains(resp, "Anime Preview")
+
+    @patch("tracker.integrations.tmdb.search")
+    def test_anime_preview_tile_links_through_the_anime_preview_route(self, mock_search):
+        # discover_tile.html must build its title_preview/mark-watched/
+        # add-to-list links off is_anime (via the preview_media_type
+        # filter), not the item's raw "tv" media_type - otherwise clicking
+        # an anime tile materializes it as plain MediaType.TV (see
+        # TitlePreviewViewTests' materialization tests for the bug this
+        # was covering for).
+        mock_search.return_value = {
+            "results": [
+                {"tmdb_id": 2, "media_type": "tv", "is_anime": True, "name": "Anime Preview", "year": "2021", "poster_url": None, "vote_average": 7.5, "overview": ""},
+            ]
+        }
+        resp = self.client.get(reverse("search"), {"q": "show", "type": "anime"})
+        self.assertContains(resp, reverse("title_preview", args=["anime", 2]))
+        self.assertNotContains(resp, reverse("title_preview", args=["tv", 2]))
 
     @patch("tracker.integrations.tmdb.search")
     def test_invalid_type_falls_back_to_all(self, mock_search):
@@ -14828,6 +14916,57 @@ class TitlePreviewViewTests(TestCase):
         watchlist = WatchList.objects.create(profile=owner_profile, name="Favorites")
         resp = self.client.post(reverse("title_preview_add_to_list", args=["movie", 42, watchlist.id]))
         self.assertNotEqual(resp.status_code, 200)
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_anime_preview_renders_200(self, mock_details):
+        # "anime" is a valid preview media_type even though TMDB itself has
+        # no such catalog - see _tmdb_kind, which folds it back to "tv" for
+        # the actual TMDB call below.
+        mock_details.return_value = self._details(media_type="tv", name="Frieren", number_of_seasons=1)
+        with patch("tracker.integrations.tmdb.get_similar", return_value=[]), patch(
+            "tracker.integrations.tmdb.get_credits", return_value=[]
+        ):
+            resp = self.client.get(reverse("title_preview", args=["anime", 42]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Frieren")
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_add_to_watchlist_materializes_an_anime_preview_as_media_type_anime(self, mock_details):
+        # The bug this guards against: every anime added via Discover's
+        # Anime tab used to materialize as plain MediaType.TV (the preview
+        # flow only ever knew "movie"/"tv"), so the filler-badge/MAL
+        # enrichment code - gated on media_type == MediaType.ANIME - never
+        # fired for anything a user actually added through normal use.
+        mock_details.return_value = self._details(media_type="tv", name="Frieren", number_of_seasons=1)
+        self.client.post(reverse("title_preview_add_to_watchlist", args=["anime", 42]))
+        title = Title.objects.get(external_ids__tmdb="42")
+        self.assertEqual(title.media_type, MediaType.ANIME)
+        self.assertEqual(title.external_ids["tmdb_kind"], "tv")  # the real TMDB catalog, not the literal "anime"
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_mark_watched_materializes_an_anime_preview_as_media_type_anime(self, mock_details):
+        mock_details.return_value = self._details(media_type="tv", name="Frieren", number_of_seasons=1)
+        self.client.post(reverse("title_preview_mark_watched", args=["anime", 42]), HTTP_HX_REQUEST="true")
+        title = Title.objects.get(external_ids__tmdb="42")
+        self.assertEqual(title.media_type, MediaType.ANIME)
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_add_to_list_materializes_an_anime_preview_as_media_type_anime(self, mock_details):
+        mock_details.return_value = self._details(media_type="tv", name="Frieren", number_of_seasons=1)
+        watchlist = WatchList.objects.create(profile=self.profile, name="Favorites")
+        self.client.post(reverse("title_preview_add_to_list", args=["anime", 42, watchlist.id]))
+        title = Title.objects.get(external_ids__tmdb="42")
+        self.assertEqual(title.media_type, MediaType.ANIME)
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_anime_preview_reuses_an_already_tracked_anime_title(self, mock_details):
+        existing = Title.objects.create(
+            media_type=MediaType.ANIME, name="Frieren", year=2023,
+            external_ids={"tmdb": "42", "tmdb_kind": "tv"},
+        )
+        resp = self.client.get(reverse("title_preview", args=["anime", 42]))
+        self.assertRedirects(resp, reverse("title_detail", args=[existing.pk]), fetch_redirect_response=False)
+        mock_details.assert_not_called()
 
 
 class CreateListNeverFlagsAsWatchlistTests(TestCase):

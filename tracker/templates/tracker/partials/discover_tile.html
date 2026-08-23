@@ -26,7 +26,7 @@ a title they've already watched or listed.
     {% if item.poster_url %}
       <img src="{{ item.poster_url|poster_size:"w342" }}" alt="{{ item.name }}" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
     {% endif %}
-    <a href="{% url 'title_preview' item.media_type item.tmdb_id %}" class="absolute inset-0 z-0">
+    <a href="{% url 'title_preview' item|preview_media_type item.tmdb_id %}" class="absolute inset-0 z-0">
       {% if not hide_type_badge %}
         <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ item.media_type|upper }}</span>
       {% endif %}
@@ -40,11 +40,11 @@ a title they've already watched or listed.
       {% include "tracker/partials/poster_card_watched_button.html" with title=matched_title watched=discover_watched|get_item:key watch_count=discover_watch_count|get_item:key %}
       {% include "tracker/partials/poster_card_list_popover.html" with title=matched_title my_lists=my_lists in_list_ids=discover_list_membership|get_item:key %}
     {% else %}
-      {% include "tracker/partials/discover_tile_watched_button.html" with media_type=item.media_type tmdb_id=item.tmdb_id name=item.name %}
-      {% include "tracker/partials/discover_tile_list_popover.html" with media_type=item.media_type tmdb_id=item.tmdb_id my_lists=my_lists name=item.name %}
+      {% include "tracker/partials/discover_tile_watched_button.html" with media_type=item|preview_media_type tmdb_id=item.tmdb_id name=item.name %}
+      {% include "tracker/partials/discover_tile_list_popover.html" with media_type=item|preview_media_type tmdb_id=item.tmdb_id my_lists=my_lists name=item.name %}
     {% endif %}
   </div>
-  <a href="{% url 'title_preview' item.media_type item.tmdb_id %}" class="block mt-1.5 min-w-0">
+  <a href="{% url 'title_preview' item|preview_media_type item.tmdb_id %}" class="block mt-1.5 min-w-0">
     <div class="text-[12.5px] font-semibold truncate">{{ item.name }}</div>
     <div class="text-[10.5px] font-mono text-ink-dim mt-0.5">{{ item.year|default:"—" }}</div>
   </a>

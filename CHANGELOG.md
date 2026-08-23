@@ -8,6 +8,20 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.109.1] - 2026-08-23
+
+### Fixed
+
+- Anime added via Discover's Anime tab (mark watched, add to watchlist,
+  add to any list) now actually materializes as an anime title instead
+  of a plain TV one - the preview-materialize flow only ever knew
+  "movie"/"tv", so every anime added that way silently lost its anime
+  classification, and with it the filler/recap episode badges and MAL
+  score/Japanese title/studio enrichment (both gated on that
+  classification) that never fired as a result. Run
+  `manage.py reclassify_anime_titles` once to reclassify anime added
+  before this fix.
+
 ## [0.109.0] - 2026-08-18
 
 ### Added

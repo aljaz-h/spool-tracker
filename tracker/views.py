@@ -645,6 +645,19 @@ def _parse_tmdb_date(value):
         return None
 
 
+def _tmdb_kind(media_type):
+    """Maps a preview media_type ("movie"/"tv"/"anime") to the real TMDB
+    API media type it should be queried as - TMDB itself has no "anime"
+    catalog, MediaType.ANIME is Spool's own local classification layered
+    on top of TMDB's "tv" (same split views.discover() already makes
+    between is_anime and tmdb_media_type). Every title_preview* view
+    accepts "anime" in its URL so a not-yet-tracked anime materializes as
+    MediaType.ANIME (see _get_or_create_preview_title) instead of a plain
+    MediaType.TV that the filler-badge/MAL-enrichment code never looks at
+    - but every actual TMDB call still needs the real "tv" kind."""
+    return "tv" if media_type == "anime" else media_type
+
+
 def _release_date_for(media_type, tmdb_id):
     """The date to offer as "On release date" in the first-watch popover
     (see first_watch_menu_panel.html) - a movie's release_date, or a
@@ -1229,7 +1242,7 @@ def title_preview_send_recommendation(request, media_type, tmdb_id):
     from then on, including notifying the recipient - the re-rendered
     card points any further clicks at the real endpoint via the now-
     materialized title.pk (see recommend_card.html)."""
-    if media_type not in ("movie", "tv"):
+    if media_type not in ("movie", "tv", "anime"):
         raise Http404
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
@@ -1352,7 +1365,7 @@ def title_preview_episodes(request, media_type, tmdb_id):
     since there's no local Title row/pk yet. Lets the episode browser's
     season <select> work on the preview page the same way it does on a
     real title's own page."""
-    if media_type not in ("movie", "tv"):
+    if media_type not in ("movie", "tv", "anime"):
         raise Http404
     profile = Profile.objects.filter(user=request.user).first()
     context = {
@@ -1365,7 +1378,7 @@ def title_preview_episodes(request, media_type, tmdb_id):
         "preview_media_type": media_type,
         "preview_tmdb_id": tmdb_id,
     }
-    details = tmdb.get_full_details(media_type, tmdb_id)
+    details = tmdb.get_full_details(_tmdb_kind(media_type), tmdb_id)
     if details:
         context.update(_episode_panel_context(request, profile, None, tmdb_id, details))
     return render(request, "tracker/partials/title_episodes.html", context)
@@ -1864,19 +1877,20 @@ def title_preview(request, media_type, tmdb_id):
     before, from a sync/import or an earlier watchlist-add here), that's
     the real page for it - redirect there instead of showing a second,
     library-blind copy of the same title."""
-    if media_type not in ("movie", "tv"):
+    if media_type not in ("movie", "tv", "anime"):
         raise Http404
+    tmdb_kind = _tmdb_kind(media_type)
     # tmdb_kind constrains this to the same TMDB catalog media_type came
     # from - movie and tv ids are separate TMDB namespaces, so omitting
     # this could redirect to a same-numbered but unrelated title from the
     # other catalog (see discover_action_context's own docstring for a
     # live case this exact gap caused).
-    existing = Title.objects.filter(external_ids__tmdb=str(tmdb_id), external_ids__tmdb_kind=media_type).first()
+    existing = Title.objects.filter(external_ids__tmdb=str(tmdb_id), external_ids__tmdb_kind=tmdb_kind).first()
     if existing is not None:
         return redirect("title_detail", pk=existing.pk)
 
     profile = Profile.objects.filter(user=request.user).first()
-    details = tmdb.get_full_details(media_type, tmdb_id)
+    details = tmdb.get_full_details(tmdb_kind, tmdb_id)
     if details is None:
         raise Http404
     context = {
@@ -1884,10 +1898,10 @@ def title_preview(request, media_type, tmdb_id):
         "title": None,
         "poster_seed": tmdb_id,
         "details": details,
-        "cast": tmdb.get_credits(media_type, tmdb_id),
-        "similar": tmdb.get_similar(media_type, tmdb_id),
-        "director": tmdb.get_director(media_type, tmdb_id),
-        "watch_providers": tmdb.get_watch_providers(media_type, tmdb_id),
+        "cast": tmdb.get_credits(tmdb_kind, tmdb_id),
+        "similar": tmdb.get_similar(tmdb_kind, tmdb_id),
+        "director": tmdb.get_director(tmdb_kind, tmdb_id),
+        "watch_providers": tmdb.get_watch_providers(tmdb_kind, tmdb_id),
         "status_badge": tmdb.status_badge(details["status"]),
         "release_info": _release_info(details),
         "tmdb_pill": _tmdb_pill(details),
@@ -2067,23 +2081,31 @@ def _get_or_create_preview_title(media_type, tmdb_id):
     Matches tmdb_kind alongside tmdb id (see discover_action_context's
     docstring) - without it, materializing e.g. a tv preview whose id
     happens to collide with an unrelated movie's would silently reuse
-    that movie's Title row instead of creating the real one."""
-    title = Title.objects.filter(external_ids__tmdb=str(tmdb_id), external_ids__tmdb_kind=media_type).first()
+    that movie's Title row instead of creating the real one. media_type
+    is "movie"/"tv"/"anime" (see _tmdb_kind) - tmdb_kind (the real TMDB
+    catalog, "anime" folded back to "tv") is what's stored/matched in
+    external_ids, while media_type itself decides local classification,
+    so an anime preview materializes as MediaType.ANIME (the filler-badge/
+    MAL-enrichment code below is gated on exactly that - see
+    _apply_anime_filler_flags/_anime_jikan_context) rather than a plain
+    MediaType.TV that code never looks at."""
+    tmdb_kind = _tmdb_kind(media_type)
+    title = Title.objects.filter(external_ids__tmdb=str(tmdb_id), external_ids__tmdb_kind=tmdb_kind).first()
     if title is not None:
         return title
-    details = tmdb.get_full_details(media_type, tmdb_id)
+    details = tmdb.get_full_details(tmdb_kind, tmdb_id)
     if details is None:
         return None
-    media_type_for_title = MediaType.MOVIE if media_type == "movie" else MediaType.TV
+    media_type_for_title = {"movie": MediaType.MOVIE, "anime": MediaType.ANIME}.get(media_type, MediaType.TV)
     title = Title.objects.create(
         media_type=media_type_for_title,
         name=details["name"],
         year=int(details["year"]) if details["year"] else 0,
         poster_url=details["poster_url"] or "",
-        external_ids={"tmdb": str(tmdb_id), "tmdb_kind": media_type},
+        external_ids={"tmdb": str(tmdb_id), "tmdb_kind": tmdb_kind},
     )
     attach_genres(title, details["genres"])
-    attach_reports_metadata(title, tmdb.get_reports_metadata(media_type, tmdb_id, details))
+    attach_reports_metadata(title, tmdb.get_reports_metadata(tmdb_kind, tmdb_id, details))
     return title
 
 
@@ -2095,7 +2117,7 @@ def title_preview_add_to_watchlist(request, media_type, tmdb_id):
     name, flagged is_watchlist=True on creation so completion.py's
     sync_watchlist_removal can find it later) and hand off to the real
     detail page, where the fuller add-to-any-list UI lives."""
-    if media_type not in ("movie", "tv"):
+    if media_type not in ("movie", "tv", "anime"):
         raise Http404
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
@@ -2126,7 +2148,7 @@ def title_preview_mark_watched(request, media_type, tmdb_id):
     (see _resolve_watched_at). HTMX gets the fragment back in place; a
     plain post redirects to the real detail page, same as
     title_preview_add_to_watchlist."""
-    if media_type not in ("movie", "tv"):
+    if media_type not in ("movie", "tv", "anime"):
         raise Http404
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
@@ -2134,7 +2156,7 @@ def title_preview_mark_watched(request, media_type, tmdb_id):
     title = _get_or_create_preview_title(media_type, tmdb_id)
     if title is None:
         raise Http404
-    watched_at = _resolve_watched_at(request, lambda: _release_date_for(media_type, tmdb_id))
+    watched_at = _resolve_watched_at(request, lambda: _release_date_for(_tmdb_kind(media_type), tmdb_id))
     WatchEvent.objects.create(profile=profile, title=title, watched_at=watched_at)
     rewatches.recompute_is_rewatch(profile, title, None)
     completion.sync_watchlist_removal(profile, title)
@@ -2166,7 +2188,7 @@ def title_preview_add_to_list(request, media_type, tmdb_id, list_id):
     popover - so a non-HTMX request instead redirects to the now-real
     title_detail page, same as title_preview_add_to_watchlist already
     does."""
-    if media_type not in ("movie", "tv"):
+    if media_type not in ("movie", "tv", "anime"):
         raise Http404
     profile = Profile.objects.filter(user=request.user).first()
     watchlist = get_object_or_404(WatchList, pk=list_id)
