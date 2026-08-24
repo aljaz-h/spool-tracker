@@ -475,11 +475,16 @@ def _get_or_create_title(media_type, name, year, trakt_id=None, tmdb_id=None):
     return title
 
 
-def commit_rows(profile, rows):
+def commit_rows(profile, rows, labels_out=None):
     """rows: parsed dicts from parse_rows()/parse_json_rows()/
     parse_zip_file(). Returns (imported_count, skipped) where skipped is
     [(row_number, reason), ...] for rows that passed parsing but were
-    rejected at the database step."""
+    rejected at the database step.
+
+    labels_out: same optional label-collecting list as trakt.py's own
+    upsert_history_items - views.import_csv_commit/tasks.run_data_import
+    save these (capped) onto the DataLog row so the Logs tab can show
+    what was actually imported, not just a count."""
     from . import completion, recommendations, rewatches
 
     imported = 0
@@ -511,6 +516,8 @@ def commit_rows(profile, rows):
             profile=profile, title=title, episode=episode, watched_at=r["watched_at"], user_rating=r["rating"]
         )
         imported += 1
+        if labels_out is not None:
+            labels_out.append(title.name if episode is None else f"{title.name} S{episode.season}E{episode.episode}")
         touched_watch_keys.add((title.id, episode.id if episode else None))
 
     for title_id, episode_id in touched_watch_keys:

@@ -256,14 +256,17 @@ def _season_episode(item, parsed):
     return season, episode
 
 
-def upsert_history_items(profile, items):
+def upsert_history_items(profile, items, labels_out=None):
     """items: raw dicts from fetch_watched_items(). Returns the count of
     newly created WatchEvent rows - existing ones (same profile, title,
     episode, watched_at) are left alone, same dedup key
     trakt.py/simkl.py's own upsert_history_items already use. Items
     missing what's needed to place them (no content_id, no parseable
     watched_at, unrecognized content_type, a TV item with no resolvable
-    season/episode) are skipped, not fatal - see module docstring."""
+    season/episode) are skipped, not fatal - see module docstring.
+
+    labels_out: same optional label-collecting list as trakt.py's own
+    upsert_history_items."""
     import datetime
 
     from tracker import completion, recommendations, rewatches
@@ -311,6 +314,8 @@ def upsert_history_items(profile, items):
                 source=WatchEvent.Source.NUVIO,
             )
             created += 1
+            if labels_out is not None:
+                labels_out.append(title.name if episode is None else f"{title.name} S{episode.season}E{episode.episode}")
             touched_watch_keys.add((title.id, episode.id if episode else None))
         elif not existing.source:
             # fetch_watched_items() re-pulls the whole Nuvio history every

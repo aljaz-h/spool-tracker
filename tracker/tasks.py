@@ -14,6 +14,7 @@ from .integrations import mdblist, nuvio, simkl, tmdb, trakt
 from .models import (
     DataLog,
     ExternalAccount,
+    IMPORTED_TITLES_LOG_CAP,
     InstanceConfig,
     Notification,
     NuvioConnection,
@@ -61,13 +62,19 @@ def _call_with_refresh(account, provider_module, client_id, client_secret, call)
 
 
 def _run_sync(profile, provider, fetch_and_upsert):
-    """Wraps a sync call with a SyncLog row - records when it ran and
-    whether it succeeded/failed (never what was imported). Re-raises on
-    failure after recording it, so the sync still shows up as failed in
-    Celery's own tracking/logs too, not just silently swallowed."""
+    """Wraps a sync call with a SyncLog row - records when it ran,
+    whether it succeeded/failed, and (imported_titles, capped at
+    models.IMPORTED_TITLES_LOG_CAP) a sample of what was actually
+    imported for the Logs tab's collapsible detail view. fetch_and_upsert
+    returns (created_count, labels) - a plain int wouldn't tell this
+    function what to log beyond the count, and a shared closure-mutated
+    list would risk double-counting across _call_with_refresh's retry-
+    on-401 (this way each attempt builds its own fresh list). Re-raises
+    on failure after recording it, so the sync still shows up as failed
+    in Celery's own tracking/logs too, not just silently swallowed."""
     log = SyncLog.objects.create(profile=profile, provider=provider)
     try:
-        created = fetch_and_upsert()
+        created, labels = fetch_and_upsert()
     except Exception as e:
         log.status = SyncLog.Status.FAILED
         log.error_message = str(e)[:500]
@@ -77,8 +84,9 @@ def _run_sync(profile, provider, fetch_and_upsert):
         raise
     log.status = SyncLog.Status.SUCCESS
     log.item_count = created
+    log.imported_titles = labels[:IMPORTED_TITLES_LOG_CAP]
     log.finished_at = timezone.now()
-    log.save(update_fields=["status", "item_count", "finished_at"])
+    log.save(update_fields=["status", "item_count", "imported_titles", "finished_at"])
     return created
 
 
@@ -100,12 +108,13 @@ def sync_trakt_history(profile_id):
     client_id, client_secret = instance_config.get_trakt_credentials()
 
     def fetch_and_upsert():
+        labels = []
         items = trakt.fetch_history(account.get_access_token(), client_id, start_at=account.last_synced_at)
-        created = trakt.upsert_history_items(account.profile, items)
+        created = trakt.upsert_history_items(account.profile, items, labels_out=labels)
         if account.import_lists:
             lists_data = trakt.fetch_lists(account.get_access_token(), client_id)
-            created += trakt.upsert_lists(account.profile, lists_data)
-        return created
+            created += trakt.upsert_lists(account.profile, lists_data, labels_out=labels)
+        return created, labels
 
     def do_sync():
         return _call_with_refresh(account, trakt, client_id, client_secret, fetch_and_upsert)
@@ -130,8 +139,10 @@ def sync_simkl_history(profile_id):
     client_id, client_secret = instance_config.get_simkl_credentials()
 
     def fetch_and_upsert():
+        labels = []
         items = simkl.fetch_history(account.get_access_token(), client_id)
-        return simkl.upsert_history_items(account.profile, items)
+        created = simkl.upsert_history_items(account.profile, items, labels_out=labels)
+        return created, labels
 
     def do_sync():
         return _call_with_refresh(account, simkl, client_id, client_secret, fetch_and_upsert)
@@ -166,9 +177,10 @@ def sync_nuvio_history(profile_id):
 
         watched = nuvio.fetch_watched_items(session["access_token"], connection.nuvio_profile_id)
         progress = nuvio.fetch_watch_progress(session["access_token"], connection.nuvio_profile_id)
-        created = nuvio.upsert_history_items(connection.profile, watched)
+        labels = []
+        created = nuvio.upsert_history_items(connection.profile, watched, labels_out=labels)
         nuvio.upsert_progress_items(connection.profile, progress)
-        return created
+        return created, labels
 
     created = _run_sync(connection.profile, ExternalAccount.Provider.NUVIO, fetch_and_upsert)
     connection.last_synced_at = timezone.now()
@@ -190,9 +202,10 @@ def run_data_import(log_id, profile_id, path, kind, mapping=None):
     this task at dispatch time - see import_csv_commit."""
     log = DataLog.objects.get(id=log_id)
     profile = Profile.objects.get(id=profile_id)
+    labels = []
     try:
         rows, parse_errors = csv_import.parse_file(path, kind, mapping)
-        imported, skipped = csv_import.commit_rows(profile, rows)
+        imported, skipped = csv_import.commit_rows(profile, rows, labels_out=labels)
     except Exception as e:
         log.status = DataLog.Status.FAILED
         log.error_message = str(e)[:500]
@@ -208,7 +221,8 @@ def run_data_import(log_id, profile_id, path, kind, mapping=None):
     log.status = DataLog.Status.SUCCESS
     log.item_count = imported
     log.detail = f"{len(all_skipped)} skipped" if all_skipped else ""
-    log.save(update_fields=["status", "item_count", "detail"])
+    log.imported_titles = labels[:IMPORTED_TITLES_LOG_CAP]
+    log.save(update_fields=["status", "item_count", "detail", "imported_titles"])
     logger.info("run_data_import: profile %s, %d imported, %d skipped", profile_id, imported, len(all_skipped))
     return imported
 

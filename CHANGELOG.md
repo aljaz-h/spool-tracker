@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.111.0] - 2026-08-24
+
+### Added
+
+- Settings → Logs' "Items" column is now a collapsible list of what was
+  actually imported (title, or "Title S1E2" for an episode), not just a
+  count - covers Trakt/Simkl/Nuvio syncs and CSV/JSON/ZIP import, capped
+  at 200 entries per log row to keep large imports from bloating the log
+  table.
+
 ## [0.110.1] - 2026-08-24
 
 ### Changed

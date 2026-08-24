@@ -210,7 +210,7 @@ def _get_or_create_title(media_type, name, year, trakt_id, tmdb_id=None):
     return title
 
 
-def upsert_history_items(profile, items):
+def upsert_history_items(profile, items, labels_out=None):
     """items: the parsed JSON list from fetch_history(). Returns the count
     of newly created WatchEvent rows (existing ones are left alone —
     dedup is by (profile, title, episode, watched_at), since Trakt history
@@ -218,7 +218,14 @@ def upsert_history_items(profile, items):
     rewatch has a different watched_at than the original, so it's never
     collapsed by that dedup key - it lands as its own WatchEvent row same
     as any other watch; is_rewatch just marks which one it is (see
-    tracker/rewatches.py)."""
+    tracker/rewatches.py).
+
+    labels_out: an optional list this appends a human-readable label to
+    for every newly created WatchEvent ("Title" for a movie, "Title
+    S1E2" for an episode) - tasks._run_sync saves these (capped) onto the
+    SyncLog row so the Logs tab can show what was actually imported, not
+    just a count. None (the default) skips this entirely - every other
+    caller of this function doesn't need it."""
     from django.utils.dateparse import parse_datetime
 
     from tracker import completion, recommendations, rewatches
@@ -268,6 +275,8 @@ def upsert_history_items(profile, items):
                 source=WatchEvent.Source.TRAKT,
             )
             created += 1
+            if labels_out is not None:
+                labels_out.append(title.name if episode is None else f"{title.name} S{episode.season}E{episode.episode}")
             touched_watch_keys.add((title.id, episode.id if episode else None))
         elif not existing.source:
             # Every sync re-pulls the whole history (no incremental
@@ -329,14 +338,18 @@ def fetch_lists(access_token, client_id):
     return lists
 
 
-def upsert_lists(profile, lists_data):
+def upsert_lists(profile, lists_data, labels_out=None):
     """lists_data: fetch_lists()'s return value. Creates/updates a
     WatchList per Trakt list - matched by name, since Trakt list ids
     aren't tracked anywhere else in this schema, so renaming a list on
     Trakt creates a new one here rather than renaming the existing one -
     and adds items via the same title-matching fetch_history/
     upsert_history_items already use. Returns the count of newly added
-    WatchListItems."""
+    WatchListItems.
+
+    labels_out: see upsert_history_items's own docstring - same idea,
+    labeled "Title (List Name)" so a list add reads distinctly from a
+    watch-history import in the Logs tab's detail view."""
     from tracker.models import MediaType, WatchList, WatchListItem
 
     added = 0
@@ -366,4 +379,6 @@ def upsert_lists(profile, lists_data):
             _, created = WatchListItem.objects.get_or_create(watchlist=watchlist, title=title)
             if created:
                 added += 1
+                if labels_out is not None:
+                    labels_out.append(f"{title.name} ({entry['name']})")
     return added

@@ -629,6 +629,97 @@ class TraktUpsertCompletionWiringTests(TestCase):
         self.assertEqual(mock_watchlist_removal.call_count, 2)
 
 
+class UpsertHistoryItemsLabelsOutTests(TestCase):
+    """labels_out - the optional list trakt.py/simkl.py/nuvio.py's own
+    upsert_history_items (and csv_import.commit_rows) append a human-
+    readable label to for every newly created WatchEvent, so the Logs
+    tab can show what was actually imported (see tasks._run_sync).
+    Defaults to None (skip collection entirely) so every caller that
+    doesn't pass it - the vast majority of existing call sites/tests -
+    is completely unaffected."""
+
+    def setUp(self):
+        user = User.objects.create_user("labelwatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="LabelWatcher")
+
+    @patch("tracker.integrations.tmdb.find_match", return_value=None)
+    def test_trakt_labels_a_movie_and_an_episode(self, mock_find_match):
+        items = [
+            {
+                "type": "movie",
+                "watched_at": "2024-01-01T00:00:00.000Z",
+                "movie": {"title": "Fathom", "year": 2020, "ids": {"trakt": 1}},
+            },
+            {
+                "type": "episode",
+                "watched_at": "2024-01-02T00:00:00.000Z",
+                "show": {"title": "Cinder Street", "year": 2022, "ids": {"trakt": 2}},
+                "episode": {"season": 1, "number": 3},
+            },
+        ]
+        labels = []
+        trakt.upsert_history_items(self.profile, items, labels_out=labels)
+        self.assertEqual(set(labels), {"Fathom", "Cinder Street S1E3"})
+
+    def test_trakt_defaults_to_not_collecting_labels(self):
+        items = [
+            {
+                "type": "movie",
+                "watched_at": "2024-01-01T00:00:00.000Z",
+                "movie": {"title": "Fathom", "year": 2020, "ids": {"trakt": 1}},
+            },
+        ]
+        # No labels_out - must not raise just because nothing is collecting.
+        created = trakt.upsert_history_items(self.profile, items)
+        self.assertEqual(created, 1)
+
+    @patch("tracker.integrations.tmdb.find_match", return_value=None)
+    def test_simkl_labels_an_episode(self, mock_find_match):
+        from tracker.integrations import simkl
+
+        items = [
+            {
+                "type": "episode",
+                "watched_at": "2024-01-02T00:00:00.000Z",
+                "show": {"title": "Frieren", "year": 2023, "ids": {"simkl": 9}},
+                "episode": {"season": 1, "number": 5},
+            },
+        ]
+        labels = []
+        simkl.upsert_history_items(self.profile, items, labels_out=labels)
+        self.assertEqual(labels, ["Frieren S1E5"])
+
+    @patch("tracker.integrations.tmdb.find_match", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    def test_nuvio_labels_a_movie(self, mock_get_full_details, mock_find_match):
+        # content_id is "tmdb:100" - _get_or_create_title resolves that
+        # directly via get_full_details rather than find_match, so a live
+        # TMDB key would otherwise make this test resolve real title 100's
+        # real name instead of the "Fathom" name_hint below (get_full_details
+        # returning None here is also what makes it fall through to the
+        # find_match branch at all).
+        items = [{"content_id": "tmdb:100", "content_type": "movie", "watched_at": 1711600000000, "name": "Fathom"}]
+        labels = []
+        nuvio.upsert_history_items(self.profile, items, labels_out=labels)
+        self.assertEqual(labels, ["Fathom"])
+
+    @patch("tracker.integrations.tmdb.find_match", return_value=None)
+    def test_csv_commit_rows_labels_a_movie(self, mock_find_match):
+        import io
+
+        from tracker import csv_import
+
+        reader = csv_import.open_csv_reader(
+            io.BytesIO("title,media_type,watched_at\nFathom,movie,2024-01-01\n".encode())
+        )
+        mapping = csv_import.detect_mapping(reader.fieldnames)
+        rows, _ = csv_import.parse_rows(reader, mapping)
+        labels = []
+        imported, _ = csv_import.commit_rows(self.profile, rows, labels_out=labels)
+        self.assertEqual(imported, 1)
+        self.assertEqual(labels, ["Fathom"])
+
+
 class TraktFetchListsTests(TestCase):
     def _response(self, data, headers=None):
         resp = Mock()
@@ -3909,6 +4000,7 @@ class ImportCsvCommitViewTests(TestCase):
         self.assertEqual(log.status, DataLog.Status.SUCCESS)
         self.assertEqual(log.item_count, 1)
         self.assertEqual(log.detail, "1 skipped")
+        self.assertEqual(log.imported_titles, ["Fathom"])
 
     @patch("tracker.csv_import.commit_rows")
     def test_logs_failure_with_error_message_on_exception(self, mock_commit):
@@ -4568,6 +4660,22 @@ class SyncLogTests(TestCase):
         self.assertIsNotNone(log.finished_at)
         self.assertEqual(log.error_message, "")
 
+    @patch("tracker.integrations.tmdb.find_match", return_value=None)
+    @patch("tracker.integrations.trakt.fetch_history")
+    def test_successful_sync_records_what_was_imported(self, mock_fetch, mock_find_match):
+        # Unmocked upsert_history_items (unlike the test above) - this is
+        # the actual label-collection path, not just the count.
+        mock_fetch.return_value = [
+            {
+                "type": "movie",
+                "watched_at": "2024-01-01T00:00:00.000Z",
+                "movie": {"title": "Fathom", "year": 2020, "ids": {"trakt": 1}},
+            },
+        ]
+        tasks.sync_trakt_history(self.profile.id)
+        log = SyncLog.objects.get(profile=self.profile)
+        self.assertEqual(log.imported_titles, ["Fathom"])
+
     @patch("tracker.integrations.trakt.fetch_history")
     def test_failed_sync_creates_failed_log_and_reraises(self, mock_fetch):
         import requests
@@ -4608,6 +4716,32 @@ class SyncLogTests(TestCase):
         self.assertFalse(Notification.objects.exists())
 
 
+class RunSyncCapsImportedTitlesTests(TestCase):
+    """tasks._run_sync caps SyncLog.imported_titles at
+    IMPORTED_TITLES_LOG_CAP regardless of how many labels
+    fetch_and_upsert actually collected - item_count still reflects the
+    real total, only the sample shown in the Logs tab is bounded."""
+
+    def setUp(self):
+        user = User.objects.create_user("capwatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="CapWatcher")
+
+    def test_imported_titles_truncated_to_the_cap(self):
+        from tracker.models import IMPORTED_TITLES_LOG_CAP
+
+        labels = [f"Title {i}" for i in range(IMPORTED_TITLES_LOG_CAP + 50)]
+        tasks._run_sync(self.profile, ExternalAccount.Provider.TRAKT, lambda: (len(labels), labels))
+        log = SyncLog.objects.get(profile=self.profile)
+        self.assertEqual(log.item_count, IMPORTED_TITLES_LOG_CAP + 50)
+        self.assertEqual(len(log.imported_titles), IMPORTED_TITLES_LOG_CAP)
+        self.assertEqual(log.imported_titles, labels[:IMPORTED_TITLES_LOG_CAP])
+
+    def test_short_list_is_not_padded_or_truncated(self):
+        tasks._run_sync(self.profile, ExternalAccount.Provider.TRAKT, lambda: (2, ["A", "B"]))
+        log = SyncLog.objects.get(profile=self.profile)
+        self.assertEqual(log.imported_titles, ["A", "B"])
+
+
 class RunDataImportTaskTests(TestCase):
     """tasks.run_data_import - the background path for a large Import
     Data upload (see LARGE_IMPORT_ROW_THRESHOLD in views.py), used once
@@ -4633,6 +4767,7 @@ class RunDataImportTaskTests(TestCase):
         log.refresh_from_db()
         self.assertEqual(log.status, DataLog.Status.SUCCESS)
         self.assertEqual(log.item_count, 1)
+        self.assertEqual(log.imported_titles, ["Fathom"])
         self.assertTrue(WatchEvent.objects.filter(profile=self.profile).exists())
         self.assertFalse(os.path.exists(path))
 
@@ -5089,8 +5224,10 @@ class SyncNuvioHistoryTaskTests(TestCase):
 
         log_a = SyncLog.objects.get(profile=self.profile_a)
         self.assertEqual(log_a.status, SyncLog.Status.SUCCESS)
+        self.assertEqual(len(log_a.imported_titles), 1)
         log_b = SyncLog.objects.get(profile=self.profile_b)
         self.assertEqual(log_b.status, SyncLog.Status.FAILED)
+        self.assertEqual(log_b.imported_titles, [])
 
     @patch("tracker.integrations.nuvio.fetch_watch_progress")
     @patch("tracker.integrations.nuvio.fetch_watched_items")
@@ -5519,6 +5656,23 @@ class CombinedLogsTests(TestCase):
         self.assertEqual(len(page.object_list), 1)
         self.assertEqual(page.object_list[0]["action"], "Sync · Trakt")
 
+    def test_imported_titles_and_the_truncated_remainder_are_both_exposed(self):
+        SyncLog.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.SUCCESS,
+            item_count=5, imported_titles=["Fathom", "Silo"],  # only 2 of 5 kept - capped in tasks._run_sync
+        )
+        DataLog.objects.create(
+            profile=self.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.SUCCESS,
+            item_count=1, imported_titles=["Fathom"],
+        )
+        page = selectors.combined_logs(None)
+        sync_entry = next(e for e in page.object_list if e["action"] == "Sync · Trakt")
+        self.assertEqual(sync_entry["imported_titles"], ["Fathom", "Silo"])
+        self.assertEqual(sync_entry["imported_titles_more"], 3)
+        import_entry = next(e for e in page.object_list if e["action"] == "CSV Import")
+        self.assertEqual(import_entry["imported_titles"], ["Fathom"])
+        self.assertEqual(import_entry["imported_titles_more"], 0)
+
     def test_action_type_single_datalog_action_excludes_synclog_and_other_actions(self):
         SyncLog.objects.create(profile=self.profile, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.SUCCESS)
         DataLog.objects.create(profile=self.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.SUCCESS)
@@ -5779,6 +5933,37 @@ class LogsTablePartialViewTests(TestCase):
         self.client.login(username="logspartialowner", password="pass12345")
         resp = self.client.get(reverse("logs_table_partial"))
         self.assertNotContains(resp, "hx-trigger")
+
+    def test_imported_titles_render_as_a_collapsible_list(self):
+        SyncLog.objects.create(
+            profile=self.owner, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.SUCCESS,
+            item_count=2, imported_titles=["Fathom", "Silo S1E1"],
+        )
+        self.client.login(username="logspartialowner", password="pass12345")
+        resp = self.client.get(reverse("logs_table_partial"))
+        self.assertContains(resp, "Fathom")
+        self.assertContains(resp, "Silo S1E1")
+        # Alpine toggle wraps the list - not just a bare item_count cell.
+        self.assertContains(resp, "@click=\"open = !open\"")
+
+    def test_no_imported_titles_shows_just_the_plain_count(self):
+        SyncLog.objects.create(
+            profile=self.owner, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.SUCCESS, item_count=3,
+        )
+        self.client.login(username="logspartialowner", password="pass12345")
+        resp = self.client.get(reverse("logs_table_partial"))
+        self.assertNotContains(resp, "@click=\"open = !open\"")
+
+    def test_truncated_imported_titles_show_the_more_count(self):
+        from tracker.models import IMPORTED_TITLES_LOG_CAP
+
+        SyncLog.objects.create(
+            profile=self.owner, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.SUCCESS,
+            item_count=IMPORTED_TITLES_LOG_CAP + 7, imported_titles=[f"Title {i}" for i in range(IMPORTED_TITLES_LOG_CAP)],
+        )
+        self.client.login(username="logspartialowner", password="pass12345")
+        resp = self.client.get(reverse("logs_table_partial"))
+        self.assertContains(resp, "+7 more")
 
     def test_current_filters_carry_through_to_the_polling_url(self):
         SyncLog.objects.create(

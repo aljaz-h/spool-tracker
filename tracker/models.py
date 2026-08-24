@@ -1019,10 +1019,14 @@ class InstanceConfig(models.Model):
         return "Instance configuration"
 
 
+IMPORTED_TITLES_LOG_CAP = 200  # settings_logs_table.html's own "+N more" cap
+
+
 class SyncLog(models.Model):
-    """Audit trail for Trakt/Simkl sync runs - deliberately just timing and
-    outcome (when it ran, how long, success/failure/item count), never a
-    per-title breakdown of what was imported."""
+    """Audit trail for Trakt/Simkl sync runs - timing/outcome/item count,
+    plus (imported_titles) a capped list of what was actually imported -
+    the Logs tab's own "Items" column expands it in a collapsible detail
+    row rather than showing item_count alone."""
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"
@@ -1033,6 +1037,10 @@ class SyncLog(models.Model):
     provider = models.CharField(max_length=10, choices=ExternalAccount.Provider.choices)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.RUNNING)
     item_count = models.PositiveIntegerField(null=True, blank=True)
+    # Capped at IMPORTED_TITLES_LOG_CAP (see tasks._run_sync) - a full
+    # history sync can be thousands of items, and this is only ever a
+    # human-readable sample for the Logs tab, not a data export.
+    imported_titles = models.JSONField(default=list, blank=True)
     error_message = models.TextField(blank=True)
     started_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
@@ -1093,6 +1101,9 @@ class DataLog(models.Model):
     status = models.CharField(max_length=10, choices=Status.choices)
     item_count = models.PositiveIntegerField(null=True, blank=True)
     detail = models.CharField(max_length=255, blank=True)
+    # Same IMPORTED_TITLES_LOG_CAP-capped sample as SyncLog.imported_titles,
+    # for the IMPORT action specifically - blank for every other action.
+    imported_titles = models.JSONField(default=list, blank=True)
     error_message = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

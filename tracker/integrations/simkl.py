@@ -143,9 +143,10 @@ def _get_or_create_title(media_type, name, year, simkl_id, tmdb_id=None):
     return title
 
 
-def upsert_history_items(profile, items):
+def upsert_history_items(profile, items, labels_out=None):
     """Structurally mirrors trakt.upsert_history_items() — same dedup
-    strategy, same shape assumption. See module docstring."""
+    strategy, same shape assumption, same optional labels_out (see that
+    function's own docstring). See module docstring."""
     from django.utils.dateparse import parse_datetime
 
     from tracker import completion, recommendations, rewatches
@@ -200,6 +201,8 @@ def upsert_history_items(profile, items):
                 source=WatchEvent.Source.SIMKL,
             )
             created += 1
+            if labels_out is not None:
+                labels_out.append(title.name if episode is None else f"{title.name} S{episode.season}E{episode.episode}")
             touched_watch_keys.add((title.id, episode.id if episode else None))
         elif not existing.source:
             # Every sync re-pulls the whole history (no incremental

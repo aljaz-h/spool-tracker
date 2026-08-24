@@ -57,6 +57,7 @@ from .models import (
     Episode,
     ExternalAccount,
     ExternalRating,
+    IMPORTED_TITLES_LOG_CAP,
     InstanceConfig,
     MediaType,
     Notification,
@@ -4982,8 +4983,9 @@ def import_csv_commit(request):
         )
         return redirect(f"{reverse('settings')}?tab=logs")
 
+    labels = []
     try:
-        imported, skipped = csv_import.commit_rows(profile, rows)
+        imported, skipped = csv_import.commit_rows(profile, rows, labels_out=labels)
     except Exception as e:
         DataLog.objects.create(
             profile=profile, action=DataLog.Action.IMPORT, status=DataLog.Status.FAILED,
@@ -4997,6 +4999,7 @@ def import_csv_commit(request):
     DataLog.objects.create(
         profile=profile, action=DataLog.Action.IMPORT, status=DataLog.Status.SUCCESS,
         item_count=imported, detail=f"{len(all_skipped)} skipped" if all_skipped else "",
+        imported_titles=labels[:IMPORTED_TITLES_LOG_CAP],
     )
     request.session["csv_import_result"] = {
         "imported": imported,

@@ -74,7 +74,19 @@
                   <span class="font-mono text-[11px] text-warning">running</span>
                 {% endif %}
               </td>
-              <td class="py-2.5 px-3.5 font-mono text-[11px]">{{ entry.item_count|default:"—" }}</td>
+              <td class="py-2.5 px-3.5 font-mono text-[11px] align-top">
+                {% if entry.imported_titles %}
+                  <div x-data="{ open: false }">
+                    <button type="button" @click="open = !open" class="hover:text-base-content underline decoration-dotted">{{ entry.item_count }} <span x-text="open ? '▲' : '▾'"></span></button>
+                    <div x-show="open" x-cloak class="mt-1.5 max-h-48 w-48 overflow-y-auto bg-base-300 border border-line rounded-md p-2">
+                      <ul class="space-y-0.5 text-[10.5px] text-ink-dim font-body">
+                        {% for label in entry.imported_titles %}<li class="truncate" title="{{ label }}">{{ label }}</li>{% endfor %}
+                      </ul>
+                      {% if entry.imported_titles_more %}<div class="mt-1 text-[10.5px] text-ink-faint">+{{ entry.imported_titles_more }} more</div>{% endif %}
+                    </div>
+                  </div>
+                {% else %}{{ entry.item_count|default:"—" }}{% endif %}
+              </td>
               <td class="py-2.5 px-3.5 text-ink-faint text-[11px] max-w-[280px]">
                 {% if entry.error_message %}
                   <div x-data="{ open: false, copied: false }">
