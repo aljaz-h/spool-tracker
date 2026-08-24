@@ -1,5 +1,5 @@
 {% load icons %}
-{# context: title, season, episode_number, watched (bool), id_suffix (str, optional - disambiguates the id when this partial renders more than once for the same episode, e.g. title_episodes.html's separate mobile/desktop layouts) #}
+{# context: title (Title or None - a not-yet-tracked preview episode, see preview_media_type/preview_tmdb_id/preview_name below), season, episode_number, watched (bool - always False when title is None, preview episodes have no watch history to look up yet), id_suffix (str, optional - disambiguates the id when this partial renders more than once for the same episode, e.g. title_episodes.html's separate mobile/desktop layouts), preview_media_type/preview_tmdb_id (only set when title is None, routes the first-watch popover to title_preview_episode_mark_watched instead of episode_mark_watched), preview_name (str, only set when title is None - the show's name, for the popover header) #}
 {% if watched %}
 <div
   class="relative flex-none"
@@ -33,7 +33,7 @@
 {% else %}
 <div
   class="relative flex-none"
-  id="ep-watched-btn-{{ title.pk }}-{{ season }}-{{ episode_number }}{{ id_suffix }}"
+  id="ep-watched-btn-{{ title.pk|default:preview_tmdb_id }}-{{ season }}-{{ episode_number }}{{ id_suffix }}"
   x-data="{
     open: false,
     showCustom: false,
@@ -58,8 +58,12 @@
     x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
     class="first-watch-panel fixed z-50 w-56 bg-base-200 border border-line rounded-xl p-2 shadow-xl"
   >
-    {% url 'episode_mark_watched' title.pk season episode_number as mark_watched_url %}
-    {% include "tracker/partials/first_watch_menu_panel.html" with mark_watched_url=mark_watched_url title=title season=season episode_number=episode_number id_suffix=id_suffix %}
+    {% if title %}
+      {% url 'episode_mark_watched' title.pk season episode_number as mark_watched_url %}
+    {% else %}
+      {% url 'title_preview_episode_mark_watched' preview_media_type preview_tmdb_id season episode_number as mark_watched_url %}
+    {% endif %}
+    {% include "tracker/partials/first_watch_menu_panel.html" with mark_watched_url=mark_watched_url title=title name=preview_name season=season episode_number=episode_number id_suffix=id_suffix %}
   </div>
 </div>
 {% endif %}

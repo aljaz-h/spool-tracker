@@ -1391,6 +1391,7 @@ def title_preview_episodes(request, media_type, tmdb_id):
     if media_type not in ("movie", "tv", "anime"):
         raise Http404
     profile = Profile.objects.filter(user=request.user).first()
+    details = tmdb.get_full_details(_tmdb_kind(media_type), tmdb_id)
     context = {
         "title": None,
         "seasons": [],
@@ -1400,8 +1401,11 @@ def title_preview_episodes(request, media_type, tmdb_id):
         "season_ratings": {},
         "preview_media_type": media_type,
         "preview_tmdb_id": tmdb_id,
+        # episode_watched_button.html's first-watch popover needs a name
+        # to show for a preview episode (no title.name to fall back to) -
+        # same value title_preview's own display_name resolves to.
+        "preview_name": details["name"] if details else None,
     }
-    details = tmdb.get_full_details(_tmdb_kind(media_type), tmdb_id)
     if details:
         context.update(_episode_panel_context(request, profile, None, tmdb_id, details))
     return render(request, "tracker/partials/title_episodes.html", context)
@@ -1637,6 +1641,7 @@ def episode_mark_watched(request, pk, season, episode_number):
             "episode_number": episode_number,
             "watched": True,
             "id_suffix": request.POST.get("id_suffix", ""),
+            "preview_tmdb_id": None,
         },
     )
     response.write(_history_card_oob(request, profile, title))
@@ -1660,6 +1665,7 @@ def _episode_watched_button_response(request, profile, title, season, episode_nu
             "episode_number": episode_number,
             "watched": watched,
             "id_suffix": request.POST.get("id_suffix", ""),
+            "preview_tmdb_id": None,
         },
     )
     response.write(_history_card_oob(request, profile, title))
@@ -1960,6 +1966,11 @@ def title_preview(request, media_type, tmdb_id):
         "is_preview": True,
         "preview_media_type": media_type,
         "preview_tmdb_id": tmdb_id,
+        # episode_watched_button.html's first-watch popover needs a name
+        # to show for a preview episode (no title.name to fall back to) -
+        # same value display_name below resolves to, under the naming
+        # convention title_episodes.html's other preview_* vars use.
+        "preview_name": details["name"],
         **_title_display(None, details),
         "progress": None,
         "recent_events": [],
@@ -2215,6 +2226,86 @@ def title_preview_mark_watched(request, media_type, tmdb_id):
             {"title": title, "watched": True, "watch_count": watch_count},
         )
     return redirect("title_detail", pk=title.pk)
+
+
+@login_required
+@require_POST
+def title_preview_episode_mark_watched(request, media_type, tmdb_id, season, episode_number):
+    """The episode browser's per-episode watched button on a not-yet-
+    tracked preview title - materializes the Title (see
+    _get_or_create_preview_title), then behaves exactly like
+    episode_mark_watched from then on. Mirrors title_preview_mark_watched's
+    own contract for the header's whole-title button; unlike that one,
+    always responds with the HTMX fragment (this button only ever renders
+    inside title_episodes.html, itself only ever HTMX-swapped)."""
+    if media_type not in ("movie", "tv", "anime"):
+        raise Http404
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    title = _get_or_create_preview_title(media_type, tmdb_id)
+    if title is None:
+        raise Http404
+    ep_name = ""
+    ep_air_date = None
+    season_data = tmdb.get_season_details(tmdb_id, season)
+    if season_data:
+        ep = next((e for e in season_data["episodes"] if e["episode_number"] == episode_number), None)
+        if ep:
+            ep_name = ep["name"]
+            ep_air_date = _parse_tmdb_date(ep.get("air_date"))
+    episode, _ = Episode.objects.get_or_create(
+        title=title, season=season, episode=episode_number, defaults={"name": ep_name}
+    )
+    watched_at = _resolve_watched_at(request, lambda: ep_air_date)
+    WatchEvent.objects.create(profile=profile, title=title, episode=episode, watched_at=watched_at)
+    rewatches.recompute_is_rewatch(profile, title, episode)
+    completion.sync_show_completion(profile, title)
+    completion.sync_watchlist_removal(profile, title)
+    recommendations.mark_title_watched(profile, title)
+    return render(
+        request,
+        "tracker/partials/episode_watched_button.html",
+        {
+            "title": title,
+            "season": season,
+            "episode_number": episode_number,
+            "watched": True,
+            "id_suffix": request.POST.get("id_suffix", ""),
+        },
+    )
+
+
+@login_required
+@require_POST
+def title_preview_mark_season_watched(request, media_type, tmdb_id, season):
+    """Preview counterpart of title_mark_season_watched (the "Mark
+    episodes" popover's own catch-up row, now also offered on a
+    not-yet-tracked title's episode browser) - materializes the Title
+    (see _get_or_create_preview_title), then delegates straight to that
+    view's own bulk-catch-up logic, which re-renders the episode panel
+    keyed off the now-real title.pk (upgrading the rest of the popover -
+    canon-only row, unmark reverses, per-episode buttons - to their
+    normal tracked-title behavior in the same swap)."""
+    if media_type not in ("movie", "tv", "anime"):
+        raise Http404
+    title = _get_or_create_preview_title(media_type, tmdb_id)
+    if title is None:
+        raise Http404
+    return title_mark_season_watched(request, title.pk, season)
+
+
+@login_required
+@require_POST
+def title_preview_mark_all_seasons_watched(request, media_type, tmdb_id):
+    """Preview counterpart of title_mark_all_seasons_watched - see
+    title_preview_mark_season_watched's own docstring."""
+    if media_type not in ("movie", "tv", "anime"):
+        raise Http404
+    title = _get_or_create_preview_title(media_type, tmdb_id)
+    if title is None:
+        raise Http404
+    return title_mark_all_seasons_watched(request, title.pk)
 
 
 @login_required

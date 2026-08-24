@@ -8,6 +8,24 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.112.0] - 2026-08-24
+
+### Added
+
+- `reclassify_anime_titles` now also runs as a nightly scheduled task
+  (4:30am, alongside the other instance-wide nightly jobs), not just as
+  a manually-run management command - a TV title that should be anime no
+  longer stays misclassified until an admin re-runs it by hand.
+
+### Fixed
+
+- The episode browser's per-episode "watched" button and "Mark episodes"
+  popover (season/all-seasons catch-up, including the anime canon-only
+  variants) are no longer hidden on a title's preview page - previously
+  you had to add a show to a list/watchlist before you could mark any of
+  its episodes watched. Clicking now materializes the title on the spot,
+  same as the header's own "Mark as Watched" already did for movies.
+
 ## [0.111.0] - 2026-08-24
 
 ### Added

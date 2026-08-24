@@ -46,3 +46,6 @@ class Command(BaseCommand):
 
         scheduling.ensure_watchlist_stale_task()
         self.stdout.write(self.style.SUCCESS("Confirmed the nightly watchlist time-capsule task."))
+
+        scheduling.ensure_reclassify_anime_task()
+        self.stdout.write(self.style.SUCCESS("Confirmed the nightly anime-reclassification task."))

@@ -52,6 +52,7 @@ UPDATE_CHECK_TASK_NAME = "check-for-new-version"
 LOG_RETENTION_TASK_NAME = "prune-old-logs"
 MDBLIST_REFRESH_TASK_NAME = "queue-due-mdblist-refreshes"
 WATCHLIST_STALE_TASK_NAME = "generate-watchlist-stale-notifications"
+RECLASSIFY_ANIME_TASK_NAME = "reclassify-anime-titles"
 
 
 def ensure_release_sync_task(hour=3, minute=0):
@@ -142,6 +143,28 @@ def ensure_watchlist_stale_task(hour=4, minute=0):
         defaults={
             "crontab": schedule,
             "task": "tracker.tasks.generate_watchlist_stale_notifications",
+            "args": "[]",
+            "enabled": True,
+        },
+    )
+
+
+def ensure_reclassify_anime_task(hour=4, minute=30):
+    """(Re)creates the nightly PeriodicTask that promotes any TV title
+    that's actually anime to MediaType.ANIME (see tasks.reclassify_anime_titles
+    and the management command it wraps) - instance-wide, same shape as
+    the other nightly instance-wide tasks above. 30 minutes after
+    ensure_log_retention_task's own default, no particular ordering
+    dependency between the two - just spread out so a night with several
+    of these nightly jobs doesn't fire them all in the same minute."""
+    schedule, _ = CrontabSchedule.objects.get_or_create(
+        minute=str(minute), hour=str(hour), day_of_week="*", day_of_month="*", month_of_year="*"
+    )
+    PeriodicTask.objects.update_or_create(
+        name=RECLASSIFY_ANIME_TASK_NAME,
+        defaults={
+            "crontab": schedule,
+            "task": "tracker.tasks.reclassify_anime_titles",
             "args": "[]",
             "enabled": True,
         },

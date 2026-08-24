@@ -14267,11 +14267,25 @@ class PreviewEpisodeBrowserTests(TestCase):
 
     @patch("tracker.integrations.tmdb.get_season_details")
     @patch("tracker.integrations.tmdb.get_full_details")
-    def test_preview_page_has_no_watched_button_for_episodes(self, mock_details, mock_season):
+    def test_preview_page_offers_a_watched_button_for_each_episode(self, mock_details, mock_season):
+        # A preview title has no local row yet, but that shouldn't block
+        # marking an episode watched - the button materializes the Title
+        # on click (see TitlePreviewEpisodeMarkWatchedTests).
         mock_details.return_value = self._details()
         mock_season.return_value = self._season()
         resp = self.client.get(reverse("title_preview", args=["tv", 500]))
-        self.assertNotContains(resp, "ep-watched-btn-")
+        self.assertContains(resp, "ep-watched-btn-500-1-1")
+        self.assertContains(resp, reverse("title_preview_episode_mark_watched", args=["tv", 500, 1, 1]))
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_preview_page_offers_the_mark_episodes_bulk_popover(self, mock_details, mock_season):
+        mock_details.return_value = self._details()
+        mock_season.return_value = self._season()
+        resp = self.client.get(reverse("title_preview", args=["tv", 500]))
+        self.assertContains(resp, "Mark episodes")
+        self.assertContains(resp, reverse("title_preview_mark_season_watched", args=["tv", 500, 1]))
+        self.assertContains(resp, reverse("title_preview_mark_all_seasons_watched", args=["tv", 500]))
 
     @patch("tracker.integrations.tmdb.get_season_details")
     @patch("tracker.integrations.tmdb.get_full_details")
@@ -15407,6 +15421,90 @@ class TitlePreviewViewTests(TestCase):
         title = Title.objects.get(external_ids__tmdb="42")
         event = WatchEvent.objects.get(profile=self.profile, title=title)
         self.assertEqual(timezone.localtime(event.watched_at).strftime("%Y-%m-%dT%H:%M"), "2017-08-09T12:00")
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_episode_mark_watched_materializes_the_title_and_logs_the_watch(self, mock_details, mock_season):
+        # The bug this guards against: a preview title's episode browser
+        # showed no per-episode watched button at all, so there was no
+        # way to log a single episode without first adding the whole
+        # show to a list (see PreviewEpisodeBrowserTests for the render
+        # side of this same fix).
+        mock_details.return_value = self._details(media_type="tv", name="Ellen", number_of_seasons=1)
+        mock_season.return_value = {"episodes": [{"episode_number": 1, "name": "Pilot", "air_date": "2023-01-01"}]}
+        resp = self.client.post(
+            reverse("title_preview_episode_mark_watched", args=["tv", 42, 1, 1]), HTTP_HX_REQUEST="true"
+        )
+        self.assertEqual(resp.status_code, 200)
+        title = Title.objects.get(external_ids__tmdb="42", external_ids__tmdb_kind="tv")
+        self.assertEqual(title.name, "Ellen")
+        episode = Episode.objects.get(title=title, season=1, episode=1)
+        self.assertEqual(episode.name, "Pilot")
+        self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title=title, episode=episode).exists())
+        self.assertContains(resp, f"ep-watched-btn-{title.pk}-1-1")
+        self.assertContains(resp, "bg-success")
+
+    @patch("tracker.integrations.tmdb.get_season_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_episode_mark_watched_reuses_an_existing_title(self, mock_details, mock_season):
+        mock_details.return_value = self._details(media_type="tv", name="Ellen", number_of_seasons=1)
+        existing_title = Title.objects.create(
+            media_type=MediaType.TV, name="Ellen", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "tv"}
+        )
+        self.client.post(reverse("title_preview_episode_mark_watched", args=["tv", 42, 1, 1]))
+        mock_details.assert_not_called()
+        self.assertEqual(Title.objects.filter(external_ids__tmdb="42").count(), 1)
+        self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title=existing_title).exists())
+
+    def test_episode_mark_watched_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("title_preview_episode_mark_watched", args=["tv", 42, 1, 1]))
+        self.assertNotEqual(resp.status_code, 200)
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    def test_episode_mark_watched_404s_when_tmdb_has_nothing(self, mock_details):
+        resp = self.client.post(reverse("title_preview_episode_mark_watched", args=["tv", 999, 1, 1]))
+        self.assertEqual(resp.status_code, 404)
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_mark_season_watched_materializes_the_title_and_catches_up_the_season(self, mock_details, mock_season):
+        mock_details.return_value = self._details(media_type="tv", name="Ellen", number_of_seasons=1)
+        mock_season.return_value = {
+            "episodes": [{"episode_number": 1, "name": "Pilot"}, {"episode_number": 2, "name": "Ep2"}]
+        }
+        resp = self.client.post(reverse("title_preview_mark_season_watched", args=["tv", 42, 1]))
+        self.assertEqual(resp.status_code, 200)
+        title = Title.objects.get(external_ids__tmdb="42", external_ids__tmdb_kind="tv")
+        self.assertEqual(
+            WatchEvent.objects.filter(profile=self.profile, title=title, episode__season=1).count(), 2
+        )
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_mark_all_seasons_watched_materializes_the_title_and_catches_up_every_season(
+        self, mock_details, mock_season
+    ):
+        mock_details.return_value = self._details(media_type="tv", name="Ellen", number_of_seasons=2)
+        mock_season.side_effect = lambda tmdb_id, season: {
+            "episodes": [{"episode_number": 1, "name": f"S{season}E1"}]
+        }
+        resp = self.client.post(reverse("title_preview_mark_all_seasons_watched", args=["tv", 42]))
+        self.assertEqual(resp.status_code, 200)
+        title = Title.objects.get(external_ids__tmdb="42", external_ids__tmdb_kind="tv")
+        self.assertEqual(
+            WatchEvent.objects.filter(profile=self.profile, title=title, episode__isnull=False).count(), 2
+        )
+
+    def test_mark_season_watched_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("title_preview_mark_season_watched", args=["tv", 42, 1]))
+        self.assertNotEqual(resp.status_code, 200)
+
+    def test_mark_all_seasons_watched_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("title_preview_mark_all_seasons_watched", args=["tv", 42]))
+        self.assertNotEqual(resp.status_code, 200)
 
     @patch("tracker.integrations.tmdb.get_full_details")
     def test_add_to_list_materializes_the_title_and_adds_it(self, mock_details):
@@ -19208,6 +19306,52 @@ class BootstrapAlsoRegistersWatchlistStaleTaskTests(TestCase):
 
         call_command("bootstrap_periodic_tasks")
         self.assertTrue(PeriodicTask.objects.filter(name=scheduling.WATCHLIST_STALE_TASK_NAME).exists())
+
+
+class EnsureReclassifyAnimeTaskTests(TestCase):
+    def test_creates_the_single_task_with_defaults(self):
+        scheduling.ensure_reclassify_anime_task()
+        pt = PeriodicTask.objects.get(name=scheduling.RECLASSIFY_ANIME_TASK_NAME)
+        self.assertEqual(pt.task, "tracker.tasks.reclassify_anime_titles")
+        self.assertEqual(pt.crontab.hour, "4")
+        self.assertEqual(pt.crontab.minute, "30")
+        self.assertTrue(pt.enabled)
+
+    def test_re_running_updates_rather_than_duplicates(self):
+        scheduling.ensure_reclassify_anime_task()
+        scheduling.ensure_reclassify_anime_task(hour=6)
+        self.assertEqual(PeriodicTask.objects.filter(name=scheduling.RECLASSIFY_ANIME_TASK_NAME).count(), 1)
+        pt = PeriodicTask.objects.get(name=scheduling.RECLASSIFY_ANIME_TASK_NAME)
+        self.assertEqual(pt.crontab.hour, "6")
+
+
+class BootstrapAlsoRegistersReclassifyAnimeTaskTests(TestCase):
+    def test_registers_the_reclassify_anime_task(self):
+        from django.core.management import call_command
+
+        call_command("bootstrap_periodic_tasks")
+        self.assertTrue(PeriodicTask.objects.filter(name=scheduling.RECLASSIFY_ANIME_TASK_NAME).exists())
+
+
+class ReclassifyAnimeTitlesTaskTests(TestCase):
+    """tracker/tasks.py's reclassify_anime_titles() shared_task - thin
+    wrapper around the management command of the same name (see
+    ReclassifyAnimeTitlesCommandTests for the actual reclassification
+    logic), confirmed here via its real effect on a Title row rather
+    than mocking call_command."""
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_reclassifies_a_matching_tv_title_and_logs_the_result(self, mock_details):
+        mock_details.return_value = {
+            "genres": ["Animation"], "original_language": "ja",
+        }
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Frieren", year=2023, external_ids={"tmdb": "1", "tmdb_kind": "tv"}
+        )
+        output = tasks.reclassify_anime_titles()
+        title.refresh_from_db()
+        self.assertEqual(title.media_type, MediaType.ANIME)
+        self.assertIn("1/1 titles reclassified", output)
 
 
 class GenerateWatchlistStaleNotificationsTaskTests(TestCase):

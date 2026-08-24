@@ -88,6 +88,21 @@ urlpatterns = [
         name="title_preview_mark_watched",
     ),
     path(
+        "titles/preview/<str:media_type>/<int:tmdb_id>/episodes/<int:season>/<int:episode_number>/mark-watched/",
+        views.title_preview_episode_mark_watched,
+        name="title_preview_episode_mark_watched",
+    ),
+    path(
+        "titles/preview/<str:media_type>/<int:tmdb_id>/episodes/<int:season>/mark-season-watched/",
+        views.title_preview_mark_season_watched,
+        name="title_preview_mark_season_watched",
+    ),
+    path(
+        "titles/preview/<str:media_type>/<int:tmdb_id>/mark-all-seasons-watched/",
+        views.title_preview_mark_all_seasons_watched,
+        name="title_preview_mark_all_seasons_watched",
+    ),
+    path(
         "titles/preview/<str:media_type>/<int:tmdb_id>/lists/<int:list_id>/add/",
         views.title_preview_add_to_list,
         name="title_preview_add_to_list",

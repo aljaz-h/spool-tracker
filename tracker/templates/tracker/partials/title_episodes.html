@@ -1,5 +1,5 @@
 {% load tracker_extras icons %}
-{# context: title (Title or None - preview titles have no local row yet), seasons, season, episodes (each optionally carrying filler/recap bools - anime only, from Jikan/MyAnimeList, see views._apply_anime_filler_flags - absent entirely rather than False when there's no match/data, which {% if %} already treats as falsy - and release_in, a "In N days/weeks/months" countdown string for a not-yet-aired episode, None once it's aired), season_avg_rating, season_total_runtime (str, format_duration of the selected season's episodes with a known runtime), season_ratings (dict {season_number: TMDB rating}), season_fully_watched/show_completed (bool - whether the "Mark episodes" popover's own rows below should show their unmark reverse instead), preview_media_type/preview_tmdb_id (only set when title is None) #}
+{# context: title (Title or None - preview titles have no local row yet), seasons, season, episodes (each optionally carrying filler/recap bools - anime only, from Jikan/MyAnimeList, see views._apply_anime_filler_flags - absent entirely rather than False when there's no match/data, which {% if %} already treats as falsy - and release_in, a "In N days/weeks/months" countdown string for a not-yet-aired episode, None once it's aired), season_avg_rating, season_total_runtime (str, format_duration of the selected season's episodes with a known runtime), season_ratings (dict {season_number: TMDB rating}), season_fully_watched/show_completed (bool - whether the "Mark episodes" popover's own rows below should show their unmark reverse instead), preview_media_type/preview_tmdb_id/preview_name (only set when title is None - each per-episode watched button materializes the title on click, see episode_watched_button.html) #}
 <div id="episodes-panel">
   {% if seasons %}
     <div class="flex justify-between items-center flex-wrap gap-3 mb-4">
@@ -9,7 +9,7 @@
         {% if season_total_runtime %}<span class="text-[11px] text-ink-faint font-mono font-body ml-2">{{ season_total_runtime }} total</span>{% endif %}
       </h2>
       <div class="flex items-center gap-2 flex-wrap">
-        {% if title %}
+        {% if title or preview_tmdb_id %}
           {% comment %}
             A movie is one item - "watched" is a single fact (see the
             header's own watched button/popover). A show isn't, so
@@ -27,8 +27,26 @@
             unconditionally for any anime rather than only once filler
             data is confirmed to exist, since clicking one on a show with
             none just behaves identically to the plain version.
+
+            Works the same for a not-yet-tracked preview title (title is
+            None) - the mark rows post to title_preview_mark_season_watched/
+            title_preview_mark_all_seasons_watched instead, which
+            materialize the Title first (see _get_or_create_preview_title)
+            then delegate to the exact same bulk logic. Their unmark
+            reverses never apply to a preview (season_fully_watched/
+            show_completed are always False when title is None - nothing's
+            been watched yet), so those two rows only ever need the real
+            title's own URLs.
           {% endcomment %}
-          <div class="relative" id="bulk-mark-episodes-{{ title.pk }}" x-data="{
+          {% if title %}
+            {% url 'title_mark_season_watched' title.pk season as mark_season_url %}
+            {% url 'title_mark_all_seasons_watched' title.pk as mark_all_url %}
+          {% else %}
+            {% url 'title_preview_mark_season_watched' preview_media_type preview_tmdb_id season as mark_season_url %}
+            {% url 'title_preview_mark_all_seasons_watched' preview_media_type preview_tmdb_id as mark_all_url %}
+          {% endif %}
+          {% firstof title.name preview_name as episodes_title_name %}
+          <div class="relative" id="bulk-mark-episodes-{{ title.pk|default:preview_tmdb_id }}" x-data="{
             open: false,
             togglePanel(button) {
               this.open = !this.open;
@@ -53,7 +71,7 @@
               <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1 border-b border-line">
                 <div class="min-w-0">
                   <div class="font-semibold text-sm">Mark episodes</div>
-                  <div class="text-xs text-ink-faint truncate">{{ title.name }}</div>
+                  <div class="text-xs text-ink-faint truncate">{{ episodes_title_name }}</div>
                 </div>
                 <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 flex-none">{% icon "x" "w-4 h-4" %}</button>
               </div>
@@ -62,7 +80,7 @@
                 <button type="button"
                   hx-post="{% url 'title_unmark_season_watched' title.pk season %}"
                   hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-                  hx-confirm="Remove every watched mark for Season {{ season }} of “{{ title.name }}”? This can't be undone."
+                  hx-confirm="Remove every watched mark for Season {{ season }} of “{{ episodes_title_name }}”? This can't be undone."
                   class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
                 >
                   <span class="w-8 h-8 rounded-full bg-error/15 flex items-center justify-center flex-none text-error">{% icon "eye-off" "w-4 h-4" %}</span>
@@ -73,9 +91,9 @@
                 </button>
               {% else %}
                 <button type="button"
-                  hx-post="{% url 'title_mark_season_watched' title.pk season %}"
+                  hx-post="{{ mark_season_url }}"
                   hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-                  hx-confirm="Mark every episode of Season {{ season }} of “{{ title.name }}” as watched?"
+                  hx-confirm="Mark every episode of Season {{ season }} of “{{ episodes_title_name }}” as watched?"
                   class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
                 >
                   <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "eye" "w-4 h-4" %}</span>
@@ -84,12 +102,12 @@
                     <span class="block text-[11px] text-ink-faint">Every episode of Season {{ season }}</span>
                   </span>
                 </button>
-                {% if title.media_type == "anime" %}
+                {% if title.media_type == "anime" or preview_media_type == "anime" %}
                   <button type="button"
-                    hx-post="{% url 'title_mark_season_watched' title.pk season %}"
+                    hx-post="{{ mark_season_url }}"
                     hx-vals='{"canon_only": "1"}'
                     hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-                    hx-confirm="Mark every canon episode of Season {{ season }} of “{{ title.name }}” as watched, skipping filler/recap?"
+                    hx-confirm="Mark every canon episode of Season {{ season }} of “{{ episodes_title_name }}” as watched, skipping filler/recap?"
                     class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
                   >
                     <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "eye" "w-4 h-4" %}</span>
@@ -105,7 +123,7 @@
                 <button type="button"
                   hx-post="{% url 'title_unmark_all_seasons_watched' title.pk %}"
                   hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-                  hx-confirm="Remove every watched mark for every season of “{{ title.name }}”? This can't be undone."
+                  hx-confirm="Remove every watched mark for every season of “{{ episodes_title_name }}”? This can't be undone."
                   class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
                 >
                   <span class="w-8 h-8 rounded-full bg-error/15 flex items-center justify-center flex-none text-error">{% icon "trash-2" "w-4 h-4" %}</span>
@@ -116,9 +134,9 @@
                 </button>
               {% else %}
                 <button type="button"
-                  hx-post="{% url 'title_mark_all_seasons_watched' title.pk %}"
+                  hx-post="{{ mark_all_url }}"
                   hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-                  hx-confirm="Mark every episode of every season of “{{ title.name }}” as watched? This can take a moment for shows with many seasons."
+                  hx-confirm="Mark every episode of every season of “{{ episodes_title_name }}” as watched? This can take a moment for shows with many seasons."
                   class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
                 >
                   <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "check" "w-4 h-4" %}</span>
@@ -127,12 +145,12 @@
                     <span class="block text-[11px] text-ink-faint">Every episode, every season</span>
                   </span>
                 </button>
-                {% if title.media_type == "anime" %}
+                {% if title.media_type == "anime" or preview_media_type == "anime" %}
                   <button type="button"
-                    hx-post="{% url 'title_mark_all_seasons_watched' title.pk %}"
+                    hx-post="{{ mark_all_url }}"
                     hx-vals='{"canon_only": "1"}'
                     hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-                    hx-confirm="Mark every canon episode of every season of “{{ title.name }}” as watched, skipping filler/recap? This can take a moment for shows with many seasons."
+                    hx-confirm="Mark every canon episode of every season of “{{ episodes_title_name }}” as watched, skipping filler/recap? This can take a moment for shows with many seasons."
                     class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
                   >
                     <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "check" "w-4 h-4" %}</span>
@@ -222,9 +240,7 @@
             </div>
             <div class="text-[13px] font-semibold truncate mt-0.5">{{ ep.name }}</div>
           </div>
-          {% if title %}
-            {% include "tracker/partials/episode_watched_button.html" with title=title season=season episode_number=ep.episode_number watched=ep.watched id_suffix="-m" %}
-          {% endif %}
+          {% include "tracker/partials/episode_watched_button.html" with title=title season=season episode_number=ep.episode_number watched=ep.watched id_suffix="-m" preview_media_type=preview_media_type preview_tmdb_id=preview_tmdb_id preview_name=preview_name %}
         </div>
       {% empty %}
         <p class="text-ink-faint text-sm">No episode data for this season yet.</p>
@@ -261,9 +277,7 @@
               <div class="font-mono text-[10.5px] text-ink-dim">S{{ season|stringformat:"02d" }} E{{ ep.episode_number|stringformat:"02d" }}{% if ep.runtime %} · {{ ep.runtime }}m{% endif %}</div>
               <div class="text-[12.5px] font-semibold truncate mt-0.5">{{ ep.name }}</div>
             </div>
-            {% if title %}
-              {% include "tracker/partials/episode_watched_button.html" with title=title season=season episode_number=ep.episode_number watched=ep.watched %}
-            {% endif %}
+            {% include "tracker/partials/episode_watched_button.html" with title=title season=season episode_number=ep.episode_number watched=ep.watched preview_media_type=preview_media_type preview_tmdb_id=preview_tmdb_id preview_name=preview_name %}
           </div>
         </div>
       {% empty %}

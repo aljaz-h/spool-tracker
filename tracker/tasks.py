@@ -308,6 +308,20 @@ def check_for_new_version():
     return created
 
 
+@shared_task
+def reclassify_anime_titles():
+    """Nightly beat job (see bootstrap_periodic_tasks.py) - wraps the
+    reclassify_anime_titles management command (see its own docstring)
+    so a TV title materialized before its anime status was known gets
+    promoted to MediaType.ANIME on its own, instead of staying
+    misclassified until an admin re-runs the command by hand."""
+    buf = StringIO()
+    call_command("reclassify_anime_titles", stdout=buf)
+    output = buf.getvalue().strip()
+    logger.info("reclassify_anime_titles: %s", output.splitlines()[-1] if output else "no output")
+    return output
+
+
 def _run_backfill_command(data_log_id, command_name):
     """Shared body for run_backfill_posters/genres/completion below - each
     just wraps its own already-existing management command (see
