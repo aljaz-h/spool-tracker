@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.110.1] - 2026-08-24
+
+### Changed
+
+- The episode browser's "Mark season watched" and "Mark all watched"
+  buttons are now one "Mark episodes" popover (matching the header+icon-row
+  shape of the mark-watched/add-to-list popovers), each action now also
+  offering a "(canon only)" variant for anime - skips any episode Jikan/
+  AniFiller flags as filler or recap, so a catch-up only logs plays for
+  the episodes that actually carry the story forward.
+
 ## [0.110.0] - 2026-08-23
 
 ### Added

@@ -13643,6 +13643,98 @@ class TitleMarkSeasonWatchedTests(TestCase):
         self.assertContains(resp, 'id="history-card"')
         self.assertContains(resp, 'hx-swap-oob="true"')
 
+    @patch("tracker.integrations.jikan.get_episode_filler_map")
+    @patch("tracker.integrations.jikan.find_match")
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_canon_only_is_a_no_op_for_a_non_anime_title(
+        self, mock_season, mock_details, mock_tv_details, mock_find_match, mock_filler_map
+    ):
+        # self.title is MediaType.TV - canon_only=1 must never even attempt
+        # a MAL lookup for it, let alone filter anything out.
+        mock_season.return_value = self._season(["Ep1", "Ep2"])
+        self.client.post(reverse("title_mark_season_watched", args=[self.title.pk, 1]), {"canon_only": "1"})
+        self.assertEqual(
+            WatchEvent.objects.filter(profile=self.profile, title=self.title, episode__season=1).count(), 2
+        )
+        mock_find_match.assert_not_called()
+
+    @patch("tracker.integrations.anifiller.get_episode_types", return_value={})
+    @patch("tracker.integrations.jikan.get_episode_filler_map")
+    @patch("tracker.integrations.jikan.find_match")
+    @patch("tracker.integrations.tmdb.get_tv_details")
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_canon_only_skips_filler_and_recap_episodes(
+        self, mock_season, mock_details, mock_tv_details, mock_find_match, mock_filler_map, mock_anifiller_types
+    ):
+        anime = Title.objects.create(
+            media_type=MediaType.ANIME, name="Black Clover", year=2017, external_ids={"tmdb": "77", "tmdb_kind": "tv"},
+        )
+        mock_season.return_value = self._season(["Ep1", "Ep2", "Ep3"])
+        mock_tv_details.return_value = {
+            "number_of_episodes": 3, "episode_run_time": None,
+            "seasons": [{"season_number": 1, "episode_count": 3, "vote_average": None}],
+        }
+        mock_find_match.return_value = {"mal_id": 34572}
+        mock_filler_map.return_value = {
+            1: {"filler": False, "recap": False}, 2: {"filler": True, "recap": False}, 3: {"filler": False, "recap": True},
+        }
+
+        self.client.post(reverse("title_mark_season_watched", args=[anime.pk, 1]), {"canon_only": "1"})
+        watched = set(
+            WatchEvent.objects.filter(profile=self.profile, title=anime).values_list("episode__episode", flat=True)
+        )
+        self.assertEqual(watched, {1})
+
+    @patch("tracker.integrations.anifiller.find_mal_id_by_name", return_value=None)
+    @patch("tracker.integrations.anifiller.get_episode_types", return_value={})
+    @patch("tracker.integrations.jikan.get_episode_filler_map", return_value={})
+    @patch("tracker.integrations.jikan.find_match", return_value=None)
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_canon_only_with_no_filler_data_marks_every_episode(
+        self, mock_season, mock_details, mock_tv_details, mock_find_match, mock_filler_map, mock_anifiller_types,
+        mock_anifiller_name,
+    ):
+        # Neither Jikan nor AniFiller has anything for this show - canon_only
+        # degrades to "mark everything," the same as without the flag.
+        anime = Title.objects.create(
+            media_type=MediaType.ANIME, name="Some Anime", year=2020, external_ids={"tmdb": "78", "tmdb_kind": "tv"},
+        )
+        mock_season.return_value = self._season(["Ep1", "Ep2"])
+        self.client.post(reverse("title_mark_season_watched", args=[anime.pk, 1]), {"canon_only": "1"})
+        self.assertEqual(WatchEvent.objects.filter(profile=self.profile, title=anime).count(), 2)
+
+    @patch("tracker.integrations.anifiller.find_mal_id_by_name", return_value=None)
+    @patch("tracker.integrations.jikan.find_match", return_value=None)
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_popover_offers_canon_only_for_anime_but_not_for_a_plain_show(
+        self, mock_season, mock_details, mock_tv_details, mock_find_match, mock_anifiller_name
+    ):
+        anime = Title.objects.create(
+            media_type=MediaType.ANIME, name="Frieren", year=2023, external_ids={"tmdb": "79", "tmdb_kind": "tv"},
+        )
+        mock_details.return_value = {
+            "tmdb_id": 79, "media_type": "tv", "name": "Frieren", "year": "2023",
+            "overview": "", "tagline": "", "genres": [], "runtime": None,
+            "number_of_seasons": 1, "number_of_episodes": 1,
+            "backdrop_url": None, "poster_url": None, "vote_average": 7.0,
+            "vote_count": 100, "original_language": "ja", "status": None,
+        }
+        mock_season.return_value = self._season(["Ep1"])
+
+        resp = self.client.get(reverse("title_episodes", args=[anime.pk]), {"season": 1})
+        self.assertContains(resp, "Mark season watched (canon only)")
+        self.assertContains(resp, "Mark all watched (canon only)")
+
+        resp = self.client.get(reverse("title_episodes", args=[self.title.pk]), {"season": 1})
+        self.assertNotContains(resp, "canon only")
+
     @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
     @patch("tracker.integrations.tmdb.get_full_details")
     @patch("tracker.integrations.tmdb.get_season_details")
@@ -13807,6 +13899,60 @@ class TitleMarkAllSeasonsWatchedTests(TestCase):
         resp = self.client.post(reverse("title_mark_all_seasons_watched", args=[self.title.pk]))
         self.assertContains(resp, 'id="history-card"')
         self.assertContains(resp, 'hx-swap-oob="true"')
+
+    @patch("tracker.integrations.anifiller.get_episode_types", return_value={})
+    @patch("tracker.integrations.jikan.get_episode_filler_map")
+    @patch("tracker.integrations.jikan.find_match")
+    @patch("tracker.integrations.tmdb.get_tv_details")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_canon_only_skips_filler_and_recap_across_every_season(
+        self, mock_season, mock_details, mock_tv_details, mock_find_match, mock_filler_map, mock_anifiller_types
+    ):
+        anime = Title.objects.create(
+            media_type=MediaType.ANIME, name="Black Clover", year=2017, external_ids={"tmdb": "77", "tmdb_kind": "tv"},
+        )
+        mock_details.return_value = self._details(number_of_seasons=2)
+        mock_tv_details.return_value = {
+            "number_of_episodes": 4, "episode_run_time": None,
+            "seasons": [
+                {"season_number": 1, "episode_count": 2, "vote_average": None},
+                {"season_number": 2, "episode_count": 2, "vote_average": None},
+            ],
+        }
+        # A callable side_effect, not return_value - a real
+        # get_season_details call deserializes its own fresh dict from
+        # cache every time; a shared return_value would have
+        # _apply_anime_filler_flags mutate the very same episode dicts on
+        # every call (this view alone calls it 3+ times per season across
+        # marking/completion-backfill/display-context), leaking one
+        # season's flags into another's supposedly-separate episodes.
+        mock_season.side_effect = lambda tmdb_id, season: self._season(["Ep1", "Ep2"])
+        # Absolute episode 2 (season 1 ep 2) is filler; absolute episode 3
+        # (season 2 ep 1) is a recap - both should be skipped, leaving
+        # only the two genuinely-canon episodes.
+        mock_filler_map.return_value = {2: {"filler": True, "recap": False}, 3: {"filler": False, "recap": True}}
+        mock_find_match.return_value = {"mal_id": 34572}
+
+        self.client.post(reverse("title_mark_all_seasons_watched", args=[anime.pk]), {"canon_only": "1"})
+        watched = set(
+            WatchEvent.objects.filter(profile=self.profile, title=anime).values_list("episode__season", "episode__episode")
+        )
+        self.assertEqual(watched, {(1, 1), (2, 2)})
+
+    @patch("tracker.integrations.jikan.get_episode_filler_map")
+    @patch("tracker.integrations.jikan.find_match")
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_canon_only_is_a_no_op_for_a_non_anime_title(
+        self, mock_season, mock_details, mock_tv_details, mock_find_match, mock_filler_map
+    ):
+        mock_details.return_value = self._details(number_of_seasons=1)
+        mock_season.return_value = self._season(["Ep1", "Ep2"])
+        self.client.post(reverse("title_mark_all_seasons_watched", args=[self.title.pk]), {"canon_only": "1"})
+        self.assertEqual(WatchEvent.objects.filter(profile=self.profile, title=self.title).count(), 2)
+        mock_find_match.assert_not_called()
 
     @patch("tracker.integrations.tmdb.get_tv_details")
     @patch("tracker.integrations.tmdb.get_full_details")

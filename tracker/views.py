@@ -1781,16 +1781,28 @@ def title_mark_season_watched(request, pk, season):
     already logged a play for, in a single request. Re-renders the
     episode panel pinned to this same season (force_season) rather than
     whatever _episode_panel_context would otherwise resolve from
-    request.GET, which this POST doesn't carry."""
+    request.GET, which this POST doesn't carry.
+
+    canon_only=1 (anime only - the "Mark episodes" popover's own second
+    row) skips any episode Jikan/AniFiller flags as filler or recap (see
+    _apply_anime_filler_flags), so a catch-up only logs plays for the
+    episodes that actually carry the story forward. A non-anime title or
+    one with no filler data at all just marks every episode, same as
+    without the flag - there's nothing to skip either way."""
     title = get_object_or_404(Title, pk=pk)
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
+    canon_only = request.POST.get("canon_only") == "1"
     tmdb_id = title.external_ids.get("tmdb")
     details = None
     if tmdb_id:
         season_data = tmdb.get_season_details(tmdb_id, season)
         episodes = season_data["episodes"] if season_data else []
+        if canon_only and title.media_type == MediaType.ANIME and episodes:
+            tv_details = tmdb.get_tv_details(tmdb_id)
+            _apply_anime_filler_flags(title, episodes, season, tv_details)
+            episodes = [ep for ep in episodes if not ep.get("filler") and not ep.get("recap")]
         _mark_episodes_watched_bulk(
             profile, title, [(season, ep["episode_number"], ep.get("name") or "") for ep in episodes]
         )
@@ -1826,23 +1838,34 @@ def title_mark_all_seasons_watched(request, pk):
     uses) to get real episode names for every season, not just a
     TMDB-reported episode count with blank names - worth the extra
     calls since this is a deliberate, infrequent catch-up action, not a
-    hot path."""
+    hot path.
+
+    canon_only=1 - see title_mark_season_watched's own docstring; the
+    same skip-filler/recap behavior, applied per season as it's fetched.
+    tv_details (needed for _apply_anime_filler_flags' season-offset math)
+    is fetched once up front and reused across every season, rather than
+    once per season, since it doesn't vary by season."""
     title = get_object_or_404(Title, pk=pk)
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
+    canon_only = request.POST.get("canon_only") == "1"
     tmdb_id = title.external_ids.get("tmdb")
     details = None
     if tmdb_id:
         details = tmdb.get_full_details(tmdb.media_type_for(title), tmdb_id)
         number_of_seasons = details["number_of_seasons"] if details else 0
+        is_anime = title.media_type == MediaType.ANIME
+        tv_details = tmdb.get_tv_details(tmdb_id) if canon_only and is_anime else None
         episode_specs = []
         for season in range(1, (number_of_seasons or 0) + 1):
             season_data = tmdb.get_season_details(tmdb_id, season)
             if season_data:
-                episode_specs.extend(
-                    (season, ep["episode_number"], ep.get("name") or "") for ep in season_data["episodes"]
-                )
+                episodes = season_data["episodes"]
+                if tv_details is not None and episodes:
+                    _apply_anime_filler_flags(title, episodes, season, tv_details)
+                    episodes = [ep for ep in episodes if not ep.get("filler") and not ep.get("recap")]
+                episode_specs.extend((season, ep["episode_number"], ep.get("name") or "") for ep in episodes)
         _mark_episodes_watched_bulk(profile, title, episode_specs)
     return _render_episodes_panel(request, profile, title, details=details)
 

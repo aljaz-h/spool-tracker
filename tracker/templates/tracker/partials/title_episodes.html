@@ -1,5 +1,5 @@
 {% load tracker_extras icons %}
-{# context: title (Title or None - preview titles have no local row yet), seasons, season, episodes (each optionally carrying filler/recap bools - anime only, from Jikan/MyAnimeList, see views._apply_anime_filler_flags - absent entirely rather than False when there's no match/data, which {% if %} already treats as falsy - and release_in, a "In N days/weeks/months" countdown string for a not-yet-aired episode, None once it's aired), season_avg_rating, season_total_runtime (str, format_duration of the selected season's episodes with a known runtime), season_ratings (dict {season_number: TMDB rating}), season_fully_watched/show_completed (bool - whether the bulk buttons below should show their unmark reverse instead), preview_media_type/preview_tmdb_id (only set when title is None) #}
+{# context: title (Title or None - preview titles have no local row yet), seasons, season, episodes (each optionally carrying filler/recap bools - anime only, from Jikan/MyAnimeList, see views._apply_anime_filler_flags - absent entirely rather than False when there's no match/data, which {% if %} already treats as falsy - and release_in, a "In N days/weeks/months" countdown string for a not-yet-aired episode, None once it's aired), season_avg_rating, season_total_runtime (str, format_duration of the selected season's episodes with a known runtime), season_ratings (dict {season_number: TMDB rating}), season_fully_watched/show_completed (bool - whether the "Mark episodes" popover's own rows below should show their unmark reverse instead), preview_media_type/preview_tmdb_id (only set when title is None) #}
 <div id="episodes-panel">
   {% if seasons %}
     <div class="flex justify-between items-center flex-wrap gap-3 mb-4">
@@ -14,47 +14,137 @@
             A movie is one item - "watched" is a single fact (see the
             header's own watched button/popover). A show isn't, so
             there's no equivalent single "watched" action for the whole
-            thing here - only season-scoped and whole-show bulk actions.
-            Each one only ever adds plays for episodes that don't already
-            have one (a catch-up, not a rewatch-everything) - once every
-            episode already has one (season_fully_watched/show_completed),
-            the button flips to its own reverse instead, clearing every
-            play in that scope in one action.
+            thing here - only season-scoped and whole-show bulk actions,
+            bundled into one popover (same header+icon-row shape as
+            watched_menu_panel.html) rather than two standalone buttons.
+            Each "Mark" row only ever adds plays for episodes that don't
+            already have one (a catch-up, not a rewatch-everything) -
+            once every episode already has one (season_fully_watched/
+            show_completed), that row flips to its own reverse instead,
+            clearing every play in that scope in one action. The
+            "(canon only)" rows - anime only - skip filler/recap episodes
+            (see views.title_mark_season_watched's own docstring); shown
+            unconditionally for any anime rather than only once filler
+            data is confirmed to exist, since clicking one on a show with
+            none just behaves identically to the plain version.
           {% endcomment %}
-          {% if season_fully_watched %}
+          <div class="relative" id="bulk-mark-episodes-{{ title.pk }}" x-data="{
+            open: false,
+            togglePanel(button) {
+              this.open = !this.open;
+              if (!this.open) return;
+              this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 288, false));
+            },
+          }">
             <button
-              type="button"
-              hx-post="{% url 'title_unmark_season_watched' title.pk season %}"
-              hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-              hx-confirm="Remove every watched mark for Season {{ season }} of “{{ title.name }}”? This can't be undone."
-              class="bg-error/10 border border-error/30 rounded-lg text-xs font-semibold px-3 py-1.5 text-error cursor-pointer hover:bg-error/20 transition-colors"
-            >Unmark season watched</button>
-          {% else %}
-            <button
-              type="button"
-              hx-post="{% url 'title_mark_season_watched' title.pk season %}"
-              hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-              hx-confirm="Mark every episode of Season {{ season }} of “{{ title.name }}” as watched?"
-              class="bg-base-200 border border-line rounded-lg text-xs font-semibold px-3 py-1.5 text-base-content cursor-pointer hover:bg-base-300 transition-colors"
-            >Mark season watched</button>
-          {% endif %}
-          {% if show_completed %}
-            <button
-              type="button"
-              hx-post="{% url 'title_unmark_all_seasons_watched' title.pk %}"
-              hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-              hx-confirm="Remove every watched mark for every season of “{{ title.name }}”? This can't be undone."
-              class="bg-error/10 border border-error/30 rounded-lg text-xs font-semibold px-3 py-1.5 text-error cursor-pointer hover:bg-error/20 transition-colors"
-            >Unmark all watched</button>
-          {% else %}
-            <button
-              type="button"
-              hx-post="{% url 'title_mark_all_seasons_watched' title.pk %}"
-              hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-              hx-confirm="Mark every episode of every season of “{{ title.name }}” as watched? This can take a moment for shows with many seasons."
-              class="bg-base-200 border border-line rounded-lg text-xs font-semibold px-3 py-1.5 text-base-content cursor-pointer hover:bg-base-300 transition-colors"
-            >Mark all watched</button>
-          {% endif %}
+              type="button" @click="togglePanel($el)"
+              :aria-expanded="open.toString()" aria-haspopup="true"
+              class="bg-base-200 border border-line rounded-lg text-xs font-semibold px-3 py-1.5 text-base-content cursor-pointer hover:bg-base-300 transition-colors flex items-center gap-1.5"
+            >
+              {% icon "eye" "w-3.5 h-3.5" %}
+              Mark episodes
+              {% icon "chevron-down" "w-3.5 h-3.5 text-ink-faint" %}
+            </button>
+            <div
+              x-ref="panel"
+              x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
+              class="fixed z-50 w-72 bg-base-200 border border-line rounded-xl p-2 shadow-xl"
+            >
+              <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1 border-b border-line">
+                <div class="min-w-0">
+                  <div class="font-semibold text-sm">Mark episodes</div>
+                  <div class="text-xs text-ink-faint truncate">{{ title.name }}</div>
+                </div>
+                <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 flex-none">{% icon "x" "w-4 h-4" %}</button>
+              </div>
+
+              {% if season_fully_watched %}
+                <button type="button"
+                  hx-post="{% url 'title_unmark_season_watched' title.pk season %}"
+                  hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+                  hx-confirm="Remove every watched mark for Season {{ season }} of “{{ title.name }}”? This can't be undone."
+                  class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
+                >
+                  <span class="w-8 h-8 rounded-full bg-error/15 flex items-center justify-center flex-none text-error">{% icon "eye-off" "w-4 h-4" %}</span>
+                  <span class="min-w-0">
+                    <span class="block text-[13px] font-semibold">Unmark season watched</span>
+                    <span class="block text-[11px] text-ink-faint">Remove every play for Season {{ season }}</span>
+                  </span>
+                </button>
+              {% else %}
+                <button type="button"
+                  hx-post="{% url 'title_mark_season_watched' title.pk season %}"
+                  hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+                  hx-confirm="Mark every episode of Season {{ season }} of “{{ title.name }}” as watched?"
+                  class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
+                >
+                  <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "eye" "w-4 h-4" %}</span>
+                  <span class="min-w-0">
+                    <span class="block text-[13px] font-semibold">Mark season watched</span>
+                    <span class="block text-[11px] text-ink-faint">Every episode of Season {{ season }}</span>
+                  </span>
+                </button>
+                {% if title.media_type == "anime" %}
+                  <button type="button"
+                    hx-post="{% url 'title_mark_season_watched' title.pk season %}"
+                    hx-vals='{"canon_only": "1"}'
+                    hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+                    hx-confirm="Mark every canon episode of Season {{ season }} of “{{ title.name }}” as watched, skipping filler/recap?"
+                    class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
+                  >
+                    <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "eye" "w-4 h-4" %}</span>
+                    <span class="min-w-0">
+                      <span class="block text-[13px] font-semibold">Mark season watched (canon only)</span>
+                      <span class="block text-[11px] text-ink-faint">Skips filler/recap episodes</span>
+                    </span>
+                  </button>
+                {% endif %}
+              {% endif %}
+
+              {% if show_completed %}
+                <button type="button"
+                  hx-post="{% url 'title_unmark_all_seasons_watched' title.pk %}"
+                  hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+                  hx-confirm="Remove every watched mark for every season of “{{ title.name }}”? This can't be undone."
+                  class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
+                >
+                  <span class="w-8 h-8 rounded-full bg-error/15 flex items-center justify-center flex-none text-error">{% icon "trash-2" "w-4 h-4" %}</span>
+                  <span class="min-w-0">
+                    <span class="block text-[13px] font-semibold">Unmark all watched</span>
+                    <span class="block text-[11px] text-ink-faint">Remove every episode play</span>
+                  </span>
+                </button>
+              {% else %}
+                <button type="button"
+                  hx-post="{% url 'title_mark_all_seasons_watched' title.pk %}"
+                  hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+                  hx-confirm="Mark every episode of every season of “{{ title.name }}” as watched? This can take a moment for shows with many seasons."
+                  class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
+                >
+                  <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "check" "w-4 h-4" %}</span>
+                  <span class="min-w-0">
+                    <span class="block text-[13px] font-semibold">Mark all watched</span>
+                    <span class="block text-[11px] text-ink-faint">Every episode, every season</span>
+                  </span>
+                </button>
+                {% if title.media_type == "anime" %}
+                  <button type="button"
+                    hx-post="{% url 'title_mark_all_seasons_watched' title.pk %}"
+                    hx-vals='{"canon_only": "1"}'
+                    hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+                    hx-confirm="Mark every canon episode of every season of “{{ title.name }}” as watched, skipping filler/recap? This can take a moment for shows with many seasons."
+                    class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
+                  >
+                    <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "check" "w-4 h-4" %}</span>
+                    <span class="min-w-0">
+                      <span class="block text-[13px] font-semibold">Mark all watched (canon only)</span>
+                      <span class="block text-[11px] text-ink-faint">Skips filler/recap episodes</span>
+                    </span>
+                  </button>
+                {% endif %}
+              {% endif %}
+            </div>
+          </div>
         {% endif %}
 
         <div class="relative" id="season-picker-{{ title.pk|default:preview_tmdb_id }}" x-data="{
