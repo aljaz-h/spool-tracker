@@ -39,6 +39,12 @@ LOG_ACTION_TYPES = [
     ("backfill_genres", "Backfill Genres", [DataLog.Action.BACKFILL_GENRES]),
     ("backfill_completion", "Backfill Completion", [DataLog.Action.BACKFILL_COMPLETION]),
     ("backfill_rewatches", "Backfill Rewatches", [DataLog.Action.BACKFILL_REWATCHES]),
+    ("reclassify_anime", "Reclassify Anime", [DataLog.Action.RECLASSIFY_ANIME]),
+    ("release_sync", "Release Sync", [DataLog.Action.RELEASE_SYNC]),
+    ("release_notifications", "Release Notifications", [DataLog.Action.RELEASE_NOTIFICATIONS]),
+    ("watchlist_stale", "Watchlist Reminders", [DataLog.Action.WATCHLIST_STALE]),
+    ("update_check", "Update Check", [DataLog.Action.UPDATE_CHECK]),
+    ("log_retention", "Log Retention", [DataLog.Action.LOG_RETENTION]),
 ]
 _LOG_ACTION_TYPE_VALUES = {key: values for key, _label, values in LOG_ACTION_TYPES}
 

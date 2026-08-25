@@ -164,7 +164,11 @@ def _get_or_create_title(media_type, name, year, trakt_id, tmdb_id=None):
     # lookup like external_ids__trakt=X can't double as a constructor kwarg
     # (Title(external_ids__trakt=X) isn't a real field), which is exactly
     # the pitfall get_or_create's defaults-merging would hit here.
-    title = Title.objects.filter(media_type=media_type, external_ids__trakt=str(trakt_id)).first()
+    # Not filtered by media_type: a title this same trakt_id already
+    # created may since have been reclassified from TV to ANIME (see the
+    # reclassify_anime_titles management command/task) - it's still the
+    # right row to reuse, not a mismatch to fork a duplicate over.
+    title = Title.objects.filter(external_ids__trakt=str(trakt_id)).first()
     if title:
         if tmdb_id and not title.external_ids.get("tmdb"):
             kind = "movie" if media_type == MediaType.MOVIE else "tv"
@@ -194,8 +198,12 @@ def _get_or_create_title(media_type, name, year, trakt_id, tmdb_id=None):
         # duplicate that leaves the original stuck showing "not watched"
         # while this one silently absorbs the new WatchEvent (see
         # nuvio.py's _get_or_create_title docstring - the same bug, first
-        # caught there against a real account).
-        existing = Title.objects.filter(media_type=media_type, external_ids__tmdb=external_ids["tmdb"]).first()
+        # caught there against a real account). tmdb_kind (not media_type)
+        # disambiguates - a title already reclassified to ANIME must
+        # still match here.
+        existing = Title.objects.filter(
+            external_ids__tmdb=external_ids["tmdb"], external_ids__tmdb_kind=external_ids["tmdb_kind"]
+        ).first()
         if existing:
             if existing.external_ids.get("trakt") != str(trakt_id):
                 existing.external_ids = {**existing.external_ids, "trakt": str(trakt_id)}

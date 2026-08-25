@@ -59,13 +59,18 @@ def _release_label(release):
     return f"{release.title.name} — S{release.episode.season}E{release.episode.episode}"
 
 
-def generate_release_notifications(now=None):
+def generate_release_notifications(now=None, labels_out=None):
     """Scans ReleaseSchedule for anything landing in either window and
     creates the matching Notification per eligible profile with that
     source enabled - get_or_create on (profile, kind, release_schedule)
     means re-running this (nightly, alongside sync_release_schedules) is
     idempotent; a release already notified on doesn't notify again.
-    Returns the count of newly created rows."""
+    Returns the count of newly created rows. labels_out (optional list) -
+    same contract as trakt.py/simkl.py/csv_import.py's own labels_out
+    param: append a human-readable label for each notification actually
+    created, so tasks.generate_release_notifications can log what fired
+    to DataLog - skipped entirely (None default) when the caller doesn't
+    need it, same as every other labels_out caller."""
     now = now or timezone.now()
     created = 0
     releases = ReleaseSchedule.objects.filter(
@@ -94,6 +99,8 @@ def generate_release_notifications(now=None):
                 defaults={"title": release.title, "message": message},
             )
             created += made
+            if made and labels_out is not None:
+                labels_out.append(f"{label} ({profile.display_name})")
     return created
 
 
@@ -106,7 +113,7 @@ WATCHLIST_STALE_AGE = timedelta(days=180)
 WATCHLIST_STALE_COOLDOWN = timedelta(days=180)
 
 
-def generate_watchlist_stale_notifications(now=None):
+def generate_watchlist_stale_notifications(now=None, labels_out=None):
     """Nightly beat job (see bootstrap_periodic_tasks.py) - scans every
     profile's default Watchlist (WatchList.is_watchlist=True) for items
     older than WATCHLIST_STALE_AGE and notifies their owner, skipping any
@@ -116,7 +123,8 @@ def generate_watchlist_stale_notifications(now=None):
     docstring), so this checks directly with a created_at window instead.
     Watching a title removes it from the default Watchlist (see
     completion.py), so anything this finds is still genuinely unwatched.
-    Returns the count of newly created rows."""
+    Returns the count of newly created rows. labels_out - see
+    generate_release_notifications's own docstring for the contract."""
     now = now or timezone.now()
     cooldown_start = now - WATCHLIST_STALE_COOLDOWN
     created = 0
@@ -141,6 +149,8 @@ def generate_watchlist_stale_notifications(now=None):
             message=f'"{item.title.name}" has been on your watchlist for {days} days - still interested?',
         )
         created += 1
+        if labels_out is not None:
+            labels_out.append(f"{item.title.name} ({profile.display_name})")
     return created
 
 

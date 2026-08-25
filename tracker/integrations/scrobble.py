@@ -32,7 +32,11 @@ def _get_or_create_title(media_type, tmdb_id, name_hint="", year_hint=None):
     from tracker.integrations import tmdb as tmdb_integration
 
     kind = "movie" if media_type == MediaType.MOVIE else "tv"
-    existing = Title.objects.filter(media_type=media_type, external_ids__tmdb=str(tmdb_id)).first()
+    # tmdb_kind (not media_type) disambiguates - a title already
+    # reclassified from TV to ANIME (see the reclassify_anime_titles
+    # management command/task) must still match here, not fork a
+    # duplicate (same bug documented in nuvio.py's _get_or_create_title).
+    existing = Title.objects.filter(external_ids__tmdb=str(tmdb_id), external_ids__tmdb_kind=kind).first()
     if existing:
         return existing
 

@@ -1704,6 +1704,20 @@ class SyncReleaseSchedulesTaskTests(TestCase):
         for title in titles:
             mock_delay.assert_any_call(title.id)
 
+    def test_logs_the_queued_titles_to_the_owners_datalog(self):
+        owner = User.objects.create_superuser("releaseowner", password="pass12345")
+        owner_profile = Profile.objects.create(user=owner, display_name="ReleaseOwner")
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Watched", year=2020, external_ids={"tmdb": "1"}
+        )
+        WatchProgress.objects.create(profile=self.profile, title=title, status=WatchProgress.Status.COMPLETED)
+        with patch("tracker.tasks.sync_title_release.delay"):
+            tasks.sync_release_schedules()
+        log = DataLog.objects.get(action=DataLog.Action.RELEASE_SYNC)
+        self.assertEqual(log.profile, owner_profile)
+        self.assertEqual(log.item_count, 1)
+        self.assertEqual(log.imported_titles, ["Watched"])
+
 
 class SyncTitleReleaseTaskTests(TestCase):
     def test_syncs_the_given_title(self):
@@ -1751,6 +1765,18 @@ class GenerateReleaseNotificationsTests(TestCase):
         self.assertEqual(n.title, self.title)
         self.assertEqual(n.release_schedule, release)
         self.assertIn("Silo", n.message)
+
+    def test_labels_out_collects_a_label_per_notification_created(self):
+        WatchProgress.objects.create(profile=self.watcher, title=self.title, status=WatchProgress.Status.WATCHING)
+        self._release(timedelta(hours=-2))
+        labels = []
+        notifications.generate_release_notifications(now=self.now, labels_out=labels)
+        self.assertEqual(labels, ["Silo — S2E1 (NotifWatcher)"])
+
+    def test_labels_out_defaults_to_not_collecting(self):
+        WatchProgress.objects.create(profile=self.watcher, title=self.title, status=WatchProgress.Status.WATCHING)
+        self._release(timedelta(hours=-2))
+        notifications.generate_release_notifications(now=self.now)  # must not raise
 
     def test_watchlist_only_profile_does_not_get_a_new_release_notification(self):
         watchlist = WatchList.objects.create(profile=self.watcher, name="Watchlist")
@@ -1843,6 +1869,16 @@ class GenerateWatchlistStaleNotificationsTests(TestCase):
         self.assertEqual(n.kind, Notification.Kind.WATCHLIST_STALE)
         self.assertEqual(n.title, self.title)
         self.assertIn("Old Pick", n.message)
+
+    def test_labels_out_collects_a_label_per_notification_created(self):
+        self._add_item(notifications.WATCHLIST_STALE_AGE + timedelta(days=1))
+        labels = []
+        notifications.generate_watchlist_stale_notifications(now=self.now, labels_out=labels)
+        self.assertEqual(labels, ["Old Pick (StaleWatcher)"])
+
+    def test_labels_out_defaults_to_not_collecting(self):
+        self._add_item(notifications.WATCHLIST_STALE_AGE + timedelta(days=1))
+        notifications.generate_watchlist_stale_notifications(now=self.now)  # must not raise
 
     def test_a_custom_non_default_list_is_never_scanned(self):
         # is_watchlist=False - a themed list ("Comfort watches") isn't the
@@ -2661,6 +2697,22 @@ class CheckForNewVersionTaskTests(TestCase):
         tasks.check_for_new_version()
         tasks.check_for_new_version()
         self.assertEqual(Notification.objects.filter(profile=self.owner).count(), 1)
+
+    @patch("tracker.update_check.refresh_latest_version")
+    def test_logs_the_available_version_to_the_owners_datalog(self, mock_refresh):
+        mock_refresh.return_value = "9.9.9"
+        tasks.check_for_new_version()
+        log = DataLog.objects.get(action=DataLog.Action.UPDATE_CHECK)
+        self.assertEqual(log.profile, self.owner)
+        self.assertEqual(log.item_count, 1)
+        self.assertIn("9.9.9", log.detail)
+
+    @patch("tracker.update_check.refresh_latest_version")
+    def test_no_available_update_still_logs_a_zero_count(self, mock_refresh):
+        mock_refresh.return_value = None
+        tasks.check_for_new_version()
+        log = DataLog.objects.get(action=DataLog.Action.UPDATE_CHECK)
+        self.assertEqual(log.item_count, 0)
 
 
 class UpdateAvailableContextProcessorTests(TestCase):
@@ -4981,7 +5033,8 @@ class NuvioGetOrCreateTitleTests(TestCase):
         # watched" while a Nuvio-only duplicate silently absorbed the
         # WatchEvent instead).
         existing = Title.objects.create(
-            media_type=MediaType.MOVIE, name="Disclosure Day", year=2026, external_ids={"trakt": "777", "tmdb": "550"}
+            media_type=MediaType.MOVIE, name="Disclosure Day", year=2026,
+            external_ids={"trakt": "777", "tmdb": "550", "tmdb_kind": "movie"},
         )
         mock_details.return_value = {"name": "Disclosure Day", "year": "2026", "poster_url": None, "genres": []}
         title = nuvio._get_or_create_title(MediaType.MOVIE, "tmdb:550")
@@ -4995,7 +5048,8 @@ class NuvioGetOrCreateTitleTests(TestCase):
     @patch("tracker.integrations.tmdb.find_by_imdb_id")
     def test_reuses_existing_title_when_matched_via_imdb_lookup(self, mock_find, mock_details):
         existing = Title.objects.create(
-            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"simkl": "9", "tmdb": "42"}
+            media_type=MediaType.MOVIE, name="Fathom", year=2020,
+            external_ids={"simkl": "9", "tmdb": "42", "tmdb_kind": "movie"},
         )
         mock_find.return_value = {"id": 42, "kind": "movie", "poster_url": None}
         mock_details.return_value = {"name": "Fathom", "year": "2020", "poster_url": None, "genres": []}
@@ -5014,7 +5068,8 @@ class NuvioGetOrCreateTitleTests(TestCase):
     @patch("tracker.integrations.tmdb.find_match")
     def test_reuses_existing_title_when_matched_via_fuzzy_search_fallback(self, mock_find_match, mock_find_by_imdb_id):
         existing = Title.objects.create(
-            media_type=MediaType.MOVIE, name="Obsession", year=2026, external_ids={"trakt": "5", "tmdb": "88"}
+            media_type=MediaType.MOVIE, name="Obsession", year=2026,
+            external_ids={"trakt": "5", "tmdb": "88", "tmdb_kind": "movie"},
         )
         mock_find_match.return_value = {"id": 88, "kind": "movie", "poster_url": None}
         title = nuvio._get_or_create_title(MediaType.MOVIE, "tt7654321", name_hint="Obsession", year_hint=2026)
@@ -8174,7 +8229,8 @@ class CrossProviderTitleDedupTests(TestCase):
     @patch("tracker.integrations.tmdb.find_match")
     def test_trakt_reuses_a_title_already_tracked_via_another_provider(self, mock_find_match, mock_details):
         existing = Title.objects.create(
-            media_type=MediaType.MOVIE, name="Obsession", year=2026, external_ids={"simkl": "9", "tmdb": "88"}
+            media_type=MediaType.MOVIE, name="Obsession", year=2026,
+            external_ids={"simkl": "9", "tmdb": "88", "tmdb_kind": "movie"},
         )
         mock_find_match.return_value = {"id": 88, "kind": "movie", "poster_url": None}
         mock_details.return_value = {"genres": []}
@@ -8191,7 +8247,8 @@ class CrossProviderTitleDedupTests(TestCase):
         from tracker.integrations import simkl
 
         existing = Title.objects.create(
-            media_type=MediaType.MOVIE, name="Disclosure Day", year=2026, external_ids={"trakt": "5", "tmdb": "42"}
+            media_type=MediaType.MOVIE, name="Disclosure Day", year=2026,
+            external_ids={"trakt": "5", "tmdb": "42", "tmdb_kind": "movie"},
         )
         mock_find_match.return_value = {"id": 42, "kind": "movie", "poster_url": None}
         mock_details.return_value = {"genres": []}
@@ -8429,6 +8486,60 @@ class MergeDuplicateTitlesCommandTests(TestCase):
         Title.objects.create(media_type=MediaType.MOVIE, name="No TMDB Match B", year=2020)
         self.call_command("merge_duplicate_titles", "--commit")
         self.assertEqual(Title.objects.count(), 2)
+
+    def test_an_anime_title_and_a_later_plain_tv_duplicate_are_grouped_together(self):
+        # The bug this guards against: a show already materialized as
+        # MediaType.ANIME via Discover's Anime tab (or promoted there by
+        # reclassify_anime_titles), plus the same show synced afterward
+        # via Nuvio/Trakt/Simkl as plain MediaType.TV - both carry the
+        # same real tmdb_kind="tv" id, but used to group separately
+        # because the old key was (media_type, tmdb_id), not tmdb_kind.
+        # anime_canonical is created first (lower id - "oldest wins").
+        anime_canonical = Title.objects.create(
+            media_type=MediaType.ANIME, name="Black Clover", year=2017, external_ids={"tmdb": "1", "tmdb_kind": "tv"}
+        )
+        tv_dupe = Title.objects.create(
+            media_type=MediaType.TV, name="Black Clover", year=2017,
+            external_ids={"nuvio": "tmdb:1", "tmdb": "1", "tmdb_kind": "tv"},
+        )
+        self.call_command("merge_duplicate_titles", "--commit")
+        self.assertFalse(Title.objects.filter(pk=tv_dupe.pk).exists())
+        survivor = Title.objects.get(pk=anime_canonical.pk)
+        self.assertEqual(survivor.media_type, MediaType.ANIME)
+        self.assertEqual(survivor.external_ids["nuvio"], "tmdb:1")
+
+    def test_anime_classification_wins_even_when_the_older_row_is_plain_tv(self):
+        # Same pair as above, but the plain-TV row is the *older* one (so
+        # it would otherwise become canonical and silently downgrade the
+        # merged title back to TV) - ANIME must win regardless of which
+        # side of the merge it started on.
+        tv_canonical = Title.objects.create(
+            media_type=MediaType.TV, name="Black Clover", year=2017, external_ids={"tmdb": "1", "tmdb_kind": "tv"}
+        )
+        anime_dupe = Title.objects.create(
+            media_type=MediaType.ANIME, name="Black Clover", year=2017,
+            external_ids={"nuvio": "tmdb:1", "tmdb": "1", "tmdb_kind": "tv"},
+        )
+        self.call_command("merge_duplicate_titles", "--commit")
+        self.assertFalse(Title.objects.filter(pk=anime_dupe.pk).exists())
+        survivor = Title.objects.get(pk=tv_canonical.pk)
+        self.assertEqual(survivor.media_type, MediaType.ANIME)
+        self.assertEqual(survivor.external_ids["nuvio"], "tmdb:1")
+
+    def test_legacy_titles_without_tmdb_kind_still_group_by_media_type(self):
+        # A title tracked before tmdb_kind existed as a field falls back
+        # to media_type for grouping (they share the same "movie"/"tv"
+        # string values) - same behavior the old (media_type, tmdb_id)
+        # key already gave every other test in this class.
+        canonical = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"trakt": "5", "tmdb": "1"}
+        )
+        dupe = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"nuvio": "tmdb:1", "tmdb": "1"}
+        )
+        self.call_command("merge_duplicate_titles", "--commit")
+        self.assertFalse(Title.objects.filter(pk=dupe.pk).exists())
+        self.assertTrue(Title.objects.filter(pk=canonical.pk).exists())
 
 
 class RecomputeIsRewatchTests(TestCase):
@@ -19238,6 +19349,27 @@ class PruneOldLogsTaskTests(TestCase):
 
         self.assertEqual(AdminAuditLogEntry.objects.count(), 1)
 
+    def test_logs_the_result_to_the_owners_datalog(self):
+        owner = User.objects.create_superuser("pruneloggingowner", password="pass12345")
+        owner_profile = Profile.objects.create(user=owner, display_name="PruneLoggingOwner")
+        self._old_and_new_logs()
+        cfg = InstanceConfig.load()
+        cfg.log_retention_days = 30
+        cfg.save()
+
+        tasks.prune_old_logs()
+
+        log = DataLog.objects.get(action=DataLog.Action.LOG_RETENTION)
+        self.assertEqual(log.profile, owner_profile)
+        self.assertEqual(log.item_count, 2)
+
+    def test_unset_retention_does_not_log_anything(self):
+        owner = User.objects.create_superuser("pruneloggingowner2", password="pass12345")
+        Profile.objects.create(user=owner, display_name="PruneLoggingOwner2")
+        self._old_and_new_logs()
+        tasks.prune_old_logs()
+        self.assertFalse(DataLog.objects.filter(action=DataLog.Action.LOG_RETENTION).exists())
+
 
 class SaveLogRetentionViewTests(TestCase):
     def setUp(self):
@@ -19340,18 +19472,47 @@ class ReclassifyAnimeTitlesTaskTests(TestCase):
     logic), confirmed here via its real effect on a Title row rather
     than mocking call_command."""
 
+    def setUp(self):
+        self.owner = User.objects.create_superuser("reclassifyowner", password="pass12345")
+        self.owner_profile = Profile.objects.create(user=self.owner, display_name="ReclassifyOwner")
+
     @patch("tracker.integrations.tmdb.get_full_details")
-    def test_reclassifies_a_matching_tv_title_and_logs_the_result(self, mock_details):
+    def test_reclassifies_a_matching_tv_title_and_returns_the_result(self, mock_details):
         mock_details.return_value = {
             "genres": ["Animation"], "original_language": "ja",
         }
         title = Title.objects.create(
             media_type=MediaType.TV, name="Frieren", year=2023, external_ids={"tmdb": "1", "tmdb_kind": "tv"}
         )
-        output = tasks.reclassify_anime_titles()
+        result = tasks.reclassify_anime_titles()
         title.refresh_from_db()
         self.assertEqual(title.media_type, MediaType.ANIME)
-        self.assertIn("1/1 titles reclassified", output)
+        self.assertEqual(result, {"total": 1, "reclassified": ["Frieren"]})
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_logs_the_result_to_the_owners_datalog(self, mock_details):
+        mock_details.return_value = {"genres": ["Animation"], "original_language": "ja"}
+        Title.objects.create(
+            media_type=MediaType.TV, name="Frieren", year=2023, external_ids={"tmdb": "1", "tmdb_kind": "tv"}
+        )
+        tasks.reclassify_anime_titles()
+        log = DataLog.objects.get(action=DataLog.Action.RECLASSIFY_ANIME)
+        self.assertEqual(log.profile, self.owner_profile)
+        self.assertEqual(log.status, DataLog.Status.SUCCESS)
+        self.assertEqual(log.item_count, 1)
+        self.assertEqual(log.imported_titles, ["Frieren"])
+
+    def test_no_op_run_still_logs_a_zero_count(self):
+        tasks.reclassify_anime_titles()
+        log = DataLog.objects.get(action=DataLog.Action.RECLASSIFY_ANIME)
+        self.assertEqual(log.item_count, 0)
+        self.assertEqual(log.imported_titles, [])
+
+    def test_skips_logging_when_no_owner_profile_exists_yet(self):
+        self.owner_profile.delete()
+        self.owner.delete()
+        tasks.reclassify_anime_titles()  # must not raise
+        self.assertFalse(DataLog.objects.filter(action=DataLog.Action.RECLASSIFY_ANIME).exists())
 
 
 class GenerateWatchlistStaleNotificationsTaskTests(TestCase):
@@ -19373,6 +19534,46 @@ class GenerateWatchlistStaleNotificationsTaskTests(TestCase):
         created = tasks.generate_watchlist_stale_notifications()
         self.assertEqual(created, 1)
         self.assertTrue(Notification.objects.filter(profile=profile, kind=Notification.Kind.WATCHLIST_STALE).exists())
+
+    def test_logs_what_was_nudged_to_the_owners_datalog(self):
+        from django.utils import timezone
+
+        owner = User.objects.create_superuser("staletaskowner", password="pass12345")
+        owner_profile = Profile.objects.create(user=owner, display_name="StaleTaskOwner")
+        watchlist = WatchList.objects.create(profile=owner_profile, name="Watchlist", is_watchlist=True)
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Old Pick", year=2019)
+        item = WatchListItem.objects.create(watchlist=watchlist, title=title)
+        WatchListItem.objects.filter(pk=item.pk).update(
+            added_at=timezone.now() - notifications.WATCHLIST_STALE_AGE - timedelta(days=1)
+        )
+        tasks.generate_watchlist_stale_notifications()
+        log = DataLog.objects.get(action=DataLog.Action.WATCHLIST_STALE)
+        self.assertEqual(log.profile, owner_profile)
+        self.assertEqual(log.item_count, 1)
+        self.assertEqual(log.imported_titles, ["Old Pick (StaleTaskOwner)"])
+
+
+class GenerateReleaseNotificationsTaskTests(TestCase):
+    """tracker/tasks.py's generate_release_notifications() shared_task -
+    thin wrapper, see GenerateReleaseNotificationsTests for the actual
+    eligibility/dedupe logic in notifications.py."""
+
+    def test_logs_what_fired_to_the_owners_datalog(self):
+        from django.utils import timezone
+
+        owner = User.objects.create_superuser("releasenotifyowner", password="pass12345")
+        owner_profile = Profile.objects.create(user=owner, display_name="ReleaseNotifyOwner")
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2026)
+        WatchEvent.objects.create(profile=owner_profile, title=title, watched_at=timezone.now())
+        ReleaseSchedule.objects.create(
+            title=title, release_type=ReleaseSchedule.ReleaseType.MOVIE_RELEASE, release_date=timezone.now()
+        )
+        created = tasks.generate_release_notifications()
+        self.assertEqual(created, 1)
+        log = DataLog.objects.get(action=DataLog.Action.RELEASE_NOTIFICATIONS)
+        self.assertEqual(log.profile, owner_profile)
+        self.assertEqual(log.item_count, 1)
+        self.assertEqual(log.imported_titles, ["Fathom (ReleaseNotifyOwner)"])
 
 
 class ToastRenderingTests(TestCase):

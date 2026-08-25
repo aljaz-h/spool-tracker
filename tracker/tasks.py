@@ -244,6 +244,26 @@ def sync_title_release(title_id):
     return release_sync.sync_title_releases(title)
 
 
+def _log_system_datalog(action, item_count, imported_titles=None, detail=""):
+    """Shared tail of every nightly beat job below that logs its own run
+    to DataLog (see _system_profile's own docstring for the "no acting
+    profile" attribution) - same shape reclassify_anime_titles already
+    uses, factored out once a second/third/fourth/fifth task needed the
+    exact same few lines. A no-op (not an error) when there's no owner
+    profile yet to attach the row to."""
+    profile = _system_profile()
+    if profile is None:
+        return
+    DataLog.objects.create(
+        profile=profile,
+        action=action,
+        status=DataLog.Status.SUCCESS,
+        item_count=item_count,
+        detail=detail,
+        imported_titles=(imported_titles or [])[:IMPORTED_TITLES_LOG_CAP],
+    )
+
+
 @shared_task
 def sync_release_schedules():
     """Nightly beat job (see bootstrap_periodic_tasks.py) - queues a
@@ -254,14 +274,15 @@ def sync_release_schedules():
     in a loop - a large library making N blocking TMDB calls serially in
     one task could run long enough to threaten the 30-minute gap before
     generate_release_notifications. Instance-wide, not per-account - no
-    SyncLog row (that model is Trakt/Simkl-account-shaped; nothing in the
-    UI surfaces a "last release sync" for this yet), just the usual task
-    logger."""
-    title_ids = list(selectors.titles_needing_release_sync().values_list("id", flat=True))
-    for title_id in title_ids:
+    SyncLog row (that model is Trakt/Simkl-account-shaped), logged to
+    DataLog instead (see _log_system_datalog) so Settings > Logs shows
+    what got queued, not just the usual task logger."""
+    titles = list(selectors.titles_needing_release_sync().values_list("id", "name"))
+    for title_id, _name in titles:
         sync_title_release.delay(title_id)
-    logger.info("sync_release_schedules: queued %d title(s) for release sync", len(title_ids))
-    return len(title_ids)
+    logger.info("sync_release_schedules: queued %d title(s) for release sync", len(titles))
+    _log_system_datalog(DataLog.Action.RELEASE_SYNC, len(titles), [name for _id, name in titles])
+    return len(titles)
 
 
 @shared_task
@@ -270,8 +291,10 @@ def generate_release_notifications():
     after sync_release_schedules so a freshly-synced release is already
     in ReleaseSchedule by the time this scans it - see
     tracker/notifications.py for the actual eligibility/dedupe logic."""
-    created = notifications.generate_release_notifications()
+    labels = []
+    created = notifications.generate_release_notifications(labels_out=labels)
     logger.info("generate_release_notifications: %d notification(s) created", created)
+    _log_system_datalog(DataLog.Action.RELEASE_NOTIFICATIONS, created, labels)
     return created
 
 
@@ -279,8 +302,10 @@ def generate_release_notifications():
 def generate_watchlist_stale_notifications():
     """Nightly beat job (see bootstrap_periodic_tasks.py) - see
     tracker/notifications.py for the actual age/cooldown logic."""
-    created = notifications.generate_watchlist_stale_notifications()
+    labels = []
+    created = notifications.generate_watchlist_stale_notifications(labels_out=labels)
     logger.info("generate_watchlist_stale_notifications: %d notification(s) created", created)
+    _log_system_datalog(DataLog.Action.WATCHLIST_STALE, created, labels)
     return created
 
 
@@ -296,6 +321,7 @@ def check_for_new_version():
     unactioned doesn't spam a fresh row each time."""
     latest = update_check.refresh_latest_version()
     if latest is None:
+        _log_system_datalog(DataLog.Action.UPDATE_CHECK, 0, detail=f"Already on the latest (v{version.APP_VERSION}).")
         return 0
     message = f"Spool v{latest} is available (you're on v{version.APP_VERSION})."
     created = 0
@@ -305,6 +331,7 @@ def check_for_new_version():
         )
         created += made
     logger.info("check_for_new_version: v%s available, %d notification(s) created", latest, created)
+    _log_system_datalog(DataLog.Action.UPDATE_CHECK, created, detail=f"v{latest} available.")
     return created
 
 
@@ -314,12 +341,16 @@ def reclassify_anime_titles():
     reclassify_anime_titles management command (see its own docstring)
     so a TV title materialized before its anime status was known gets
     promoted to MediaType.ANIME on its own, instead of staying
-    misclassified until an admin re-runs the command by hand."""
-    buf = StringIO()
-    call_command("reclassify_anime_titles", stdout=buf)
-    output = buf.getvalue().strip()
-    logger.info("reclassify_anime_titles: %s", output.splitlines()[-1] if output else "no output")
-    return output
+    misclassified until an admin re-runs the command by hand. Logged to
+    DataLog via _log_system_datalog so the result shows up in Settings >
+    Logs the same way every other maintenance action does, not just
+    Celery's own worker log."""
+    result = {}
+    call_command("reclassify_anime_titles", stdout=StringIO(), result_sink=result)
+    reclassified = result["reclassified"]
+    logger.info("reclassify_anime_titles: %d/%d titles reclassified", len(reclassified), result["total"])
+    _log_system_datalog(DataLog.Action.RECLASSIFY_ANIME, len(reclassified), reclassified)
+    return result
 
 
 def _run_backfill_command(data_log_id, command_name):
@@ -376,15 +407,22 @@ def prune_old_logs():
         return 0
     cutoff = timezone.now() - timedelta(days=retention_days)
     deleted_sync = SyncLog.objects.filter(started_at__lt=cutoff).delete()[0]
+    # Runs after the delete above, so this row itself is never at risk of
+    # being swept up by the same pass.
     deleted_data = DataLog.objects.filter(created_at__lt=cutoff).delete()[0]
     total = deleted_sync + deleted_data
     logger.info("prune_old_logs: removed %d log entries older than %d days", total, retention_days)
+    _log_system_datalog(
+        DataLog.Action.LOG_RETENTION, total,
+        detail=f"{deleted_sync} sync + {deleted_data} data log row(s) older than {retention_days}d removed.",
+    )
     return total
 
 
-def _mdblist_system_profile():
-    """Attaches quota-pause/failure DataLog rows (raised from a background
-    task with no requesting user) to the instance owner - the same "no
+def _system_profile():
+    """Attaches a DataLog row raised from a background task with no
+    requesting user (quota-pause/failure rows, the nightly anime
+    reclassification summary, ...) to the instance owner - the same "no
     specific user" convention _settings_page_context's own
     other_owner_exists check relies on elsewhere in this app."""
     return Profile.objects.filter(user__is_superuser=True).order_by("pk").first()
@@ -477,7 +515,7 @@ def fetch_mdblist_ratings(title_id, force=False):
     cfg = InstanceConfig.load()
     _roll_mdblist_quota(cfg)
     if not force and not _mdblist_quota_ok(cfg):
-        _log_mdblist_quota_pause(cfg, _mdblist_system_profile())
+        _log_mdblist_quota_pause(cfg, _system_profile())
         cfg.save(update_fields=["mdblist_quota_date", "mdblist_quota_count", "mdblist_quota_pause_logged_date"])
         # Still leaves a (fetch_attempted=False) row behind if this title
         # has never been cached at all - views.title_rating_pills_partial
@@ -518,7 +556,7 @@ def fetch_mdblist_ratings(title_id, force=False):
 
     # rate_limited/error - record the attempt and retry soon, but don't
     # clobber an existing good payload with an empty one.
-    profile = _mdblist_system_profile()
+    profile = _system_profile()
     if profile is not None:
         DataLog.objects.create(
             profile=profile,

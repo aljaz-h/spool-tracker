@@ -6,6 +6,7 @@ from django.db import transaction
 from tracker.models import (
     Episode,
     ExternalRating,
+    MediaType,
     Notification,
     Recommendation,
     ReleaseSchedule,
@@ -18,16 +19,20 @@ from tracker.models import (
 
 class Command(BaseCommand):
     help = (
-        "Finds Title rows that share the same media_type and the same "
-        "external_ids['tmdb'] value and merges them into one. Each of "
+        "Finds Title rows that share the same external_ids['tmdb']/"
+        "['tmdb_kind'] pair and merges them into one. Each of "
         "trakt.py/simkl.py/nuvio.py's own _get_or_create_title used to skip "
         "checking for an already-tracked title with the same TMDB id before "
         "creating a new one - so a movie/show already synced through one "
         "provider got a second, duplicate Title (with its own WatchEvent) "
         "the first time a *different* provider synced it too. That gap is "
         "fixed, but titles it already duplicated need merging by hand. "
-        "Dry run by default - pass --commit to actually merge and delete "
-        "the duplicates."
+        "Grouped by tmdb_kind, not local media_type - a title reclassified "
+        "to ANIME (see reclassify_anime_titles) and a same-tmdb_id title "
+        "still classified as plain TV are still one duplicate pair, not two "
+        "unrelated titles (the same gap _get_or_create_title used to have, "
+        "now fixed there too - see its own docstring). Dry run by default - "
+        "pass --commit to actually merge and delete the duplicates."
     )
 
     def add_arguments(self, parser):
@@ -41,7 +46,15 @@ class Command(BaseCommand):
         for title in Title.objects.order_by("id"):
             tmdb_id = title.external_ids.get("tmdb")
             if tmdb_id:
-                groups[(title.media_type, tmdb_id)].append(title)
+                # tmdb_kind is the real namespace TMDB itself uses
+                # (movie/tv ids can collide across kinds) - preferred
+                # whenever a title has it. A title tracked before that
+                # field existed falls back to media_type, which happens
+                # to share the same "movie"/"tv" string values, so it
+                # still groups correctly with any tmdb_kind-carrying
+                # duplicate of the same underlying show.
+                kind_or_media_type = title.external_ids.get("tmdb_kind") or title.media_type
+                groups[(kind_or_media_type, tmdb_id)].append(title)
 
         duplicate_groups = {key: titles for key, titles in groups.items() if len(titles) > 1}
         if not duplicate_groups:
@@ -49,7 +62,7 @@ class Command(BaseCommand):
             return
 
         self.stdout.write(f"Found {len(duplicate_groups)} title(s) with duplicates:")
-        for (_media_type, tmdb_id), titles in duplicate_groups.items():
+        for (_tmdb_kind, tmdb_id), titles in duplicate_groups.items():
             canonical, *dupes = titles  # already ordered by id - oldest wins
             self.stdout.write(
                 f'  "{canonical.name}" ({canonical.year}) [tmdb:{tmdb_id}] - '
@@ -151,6 +164,13 @@ def _merge_title(canonical, dupe):
     if not canonical.poster_url and dupe.poster_url:
         canonical.poster_url = dupe.poster_url
         update_fields.append("poster_url")
+    # ANIME wins regardless of which side of the merge it was on - it's a
+    # strictly more specific classification than plain TV (see
+    # reclassify_anime_titles), not something to lose just because the
+    # plain-TV row happened to be older and so became canonical.
+    if dupe.media_type == MediaType.ANIME and canonical.media_type != MediaType.ANIME:
+        canonical.media_type = MediaType.ANIME
+        update_fields.append("media_type")
     if update_fields:
         canonical.save(update_fields=update_fields)
 

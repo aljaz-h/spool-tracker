@@ -191,7 +191,13 @@ def _get_or_create_title(media_type, content_id, name_hint="", year_hint=None):
     from tracker.integrations import tmdb
     from tracker.models import MediaType, Title, attach_genres, attach_reports_metadata
 
-    title = Title.objects.filter(media_type=media_type, external_ids__nuvio=content_id).first()
+    # Not filtered by media_type: a title this same content_id already
+    # created may since have been reclassified from TV to ANIME (see the
+    # reclassify_anime_titles management command/task) - it's still the
+    # right row to reuse, not a mismatch to fork a duplicate over
+    # (media_type is Spool's own local overlay, not part of what
+    # identifies the title to Nuvio).
+    title = Title.objects.filter(external_ids__nuvio=content_id).first()
     if title:
         return title
 
@@ -233,7 +239,12 @@ def _get_or_create_title(media_type, content_id, name_hint="", year_hint=None):
                 genre_names = details["genres"]
 
     if "tmdb" in external_ids:
-        existing = Title.objects.filter(media_type=media_type, external_ids__tmdb=external_ids["tmdb"]).first()
+        # tmdb_kind (not media_type) disambiguates - see the resync-dedup
+        # lookup's own comment above for why a title already reclassified
+        # to ANIME must still match here rather than forking a duplicate.
+        existing = Title.objects.filter(
+            external_ids__tmdb=external_ids["tmdb"], external_ids__tmdb_kind=external_ids["tmdb_kind"]
+        ).first()
         if existing:
             if existing.external_ids.get("nuvio") != content_id:
                 existing.external_ids = {**existing.external_ids, "nuvio": content_id}
@@ -397,7 +408,9 @@ def upsert_progress_items(profile, items):
             and (duration_ms - position_ms) <= NEAR_COMPLETE_REMAINING_MS
         )
         if near_complete:
-            existing_title = Title.objects.filter(media_type=media_type, external_ids__nuvio=content_id).first()
+            # Not filtered by media_type - see _get_or_create_title's own
+            # resync-dedup lookup for why.
+            existing_title = Title.objects.filter(external_ids__nuvio=content_id).first()
             if existing_title:
                 WatchProgress.objects.filter(profile=profile, title=existing_title).update(
                     status=WatchProgress.Status.COMPLETED

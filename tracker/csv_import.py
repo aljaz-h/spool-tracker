@@ -429,7 +429,10 @@ def _get_or_create_title(media_type, name, year, trakt_id=None, tmdb_id=None):
                 title.save(update_fields=["external_ids"])
             return title
     if trakt_id:
-        title = Title.objects.filter(media_type=media_type, external_ids__trakt=str(trakt_id)).first()
+        # Not filtered by media_type - see the tmdb_id lookup above/
+        # nuvio.py's own _get_or_create_title docstring for why a title
+        # already reclassified from TV to ANIME must still match here.
+        title = Title.objects.filter(external_ids__trakt=str(trakt_id)).first()
         if title:
             if tmdb_id and not title.external_ids.get("tmdb"):
                 title.external_ids = {**title.external_ids, "tmdb": str(tmdb_id), "tmdb_kind": kind}

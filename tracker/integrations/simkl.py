@@ -100,7 +100,11 @@ def _get_or_create_title(media_type, name, year, simkl_id, tmdb_id=None):
     from tracker.integrations import tmdb
     from tracker.models import MediaType, Title, attach_genres, attach_reports_metadata
 
-    title = Title.objects.filter(media_type=media_type, external_ids__simkl=str(simkl_id)).first()
+    # Not filtered by media_type: a title this same simkl_id already
+    # created may since have been reclassified from TV to ANIME (see the
+    # reclassify_anime_titles management command/task) - it's still the
+    # right row to reuse, not a mismatch to fork a duplicate over.
+    title = Title.objects.filter(external_ids__simkl=str(simkl_id)).first()
     if title:
         if tmdb_id and not title.external_ids.get("tmdb"):
             kind = "movie" if media_type == MediaType.MOVIE else "tv"
@@ -128,7 +132,11 @@ def _get_or_create_title(media_type, name, year, simkl_id, tmdb_id=None):
         # Same duplicate-Title bug nuvio.py's _get_or_create_title
         # docstring describes - reuse a title already tracked via another
         # provider instead of forking a second one for this same TMDB id.
-        existing = Title.objects.filter(media_type=media_type, external_ids__tmdb=external_ids["tmdb"]).first()
+        # tmdb_kind (not media_type) disambiguates - a title already
+        # reclassified to ANIME must still match here.
+        existing = Title.objects.filter(
+            external_ids__tmdb=external_ids["tmdb"], external_ids__tmdb_kind=external_ids["tmdb_kind"]
+        ).first()
         if existing:
             if existing.external_ids.get("simkl") != str(simkl_id):
                 existing.external_ids = {**existing.external_ids, "simkl": str(simkl_id)}

@@ -1083,6 +1083,12 @@ class DataLog(models.Model):
         BACKFILL_REWATCHES = "backfill_rewatches", "Backfill Rewatches"
         DISCONNECT = "disconnect", "Disconnect"
         MDBLIST_REFRESH = "mdblist_refresh", "MDBList Refresh"
+        RECLASSIFY_ANIME = "reclassify_anime", "Reclassify Anime"
+        RELEASE_SYNC = "release_sync", "Release Sync"
+        RELEASE_NOTIFICATIONS = "release_notifications", "Release Notifications"
+        WATCHLIST_STALE = "watchlist_stale", "Watchlist Reminders"
+        UPDATE_CHECK = "update_check", "Update Check"
+        LOG_RETENTION = "log_retention", "Log Retention"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"
@@ -1090,7 +1096,7 @@ class DataLog(models.Model):
         FAILED = "failed", "Failed"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="data_logs")
-    action = models.CharField(max_length=20, choices=Action.choices)
+    action = models.CharField(max_length=25, choices=Action.choices)
     # Not constrained to ExternalAccount.Provider's choices - also holds
     # "tmdb" for the backfill_posters/genres/completion actions, which
     # isn't a connectable account. Blank wherever nothing meaningfully

@@ -8,6 +8,29 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.113.0] - 2026-08-25
+
+### Fixed
+
+- Every sync/import path (Trakt, Simkl, Nuvio, the generic scrobble
+  webhook, CSV/JSON import) could fork a duplicate Title for a show
+  already reclassified to Anime (see `reclassify_anime_titles`) - each
+  one's own "have we already tracked this TMDB id" check filtered by
+  local media_type, which no longer matched once a title was promoted
+  from TV to Anime. Now matched by TMDB's own kind (movie/tv) instead,
+  which anime shares with plain TV. `merge_duplicate_titles` (Settings >
+  Maintenance) is grouped the same way now too, and picks up the Anime
+  classification when merging, so it can clean up any duplicate this
+  already created.
+
+### Added
+
+- Every nightly scheduled task (anime reclassification, release sync,
+  release notifications, watchlist-stale reminders, the update check, log
+  retention) now shows up in Settings > Logs - what it actually did, not
+  just Celery's own worker log. The Logs filter panel has matching new
+  entries for each.
+
 ## [0.112.0] - 2026-08-24
 
 ### Added
