@@ -301,6 +301,39 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", defa
 SECURE_HSTS_PRELOAD = env.bool("SECURE_HSTS_PRELOAD", default=False)
 
 
+# Logging - Django's own built-in default silently drops every request-
+# handler exception (a bare 500) once DEBUG=False: its only handler for
+# 'django.request' is mail_admins (dead weight without ADMINS/a working
+# email backend configured, which nothing here sets up), and the default
+# 'console' handler is filtered to DEBUG=True only - so a production 500
+# left no trace anywhere, not even in `docker compose logs`, which is
+# where an operator would actually look. This routes it to stdout
+# instead (already captured by Docker's own log driver) regardless of
+# DEBUG, without ever putting a traceback in front of an end user - that
+# risk stays exactly DEBUG's job, untouched by this.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "simple": {"format": "[{asctime}] {levelname} {name}: {message}", "style": "{"},
+    },
+    "handlers": {
+        "console": {"class": "logging.StreamHandler", "formatter": "simple"},
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+    "loggers": {
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+    },
+}
+
+
 # django-silk (request/SQL/Python profiling) - only meaningful when
 # SILK_ENABLED actually added it to INSTALLED_APPS/MIDDLEWARE above; these
 # settings are otherwise inert.

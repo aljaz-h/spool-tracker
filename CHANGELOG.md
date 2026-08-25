@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.113.1] - 2026-08-25
+
+### Fixed
+
+- A production 500 (`DEBUG=False`) left no trace anywhere - not even
+  `docker compose logs` - because Django's own default logging only
+  sends request-handler tracebacks to `mail_admins`, which does nothing
+  without email configured. Now routed to stdout unconditionally, same
+  as everything else Docker already captures.
+
 ## [0.113.0] - 2026-08-25
 
 ### Fixed
