@@ -8454,6 +8454,91 @@ class MergeDuplicateTitlesCommandTests(TestCase):
         self.assertTrue(all(e.title_id == canonical.pk for e in events))
         self.assertEqual({e.episode.pk for e in events}, {canonical_ep.pk, Episode.objects.get(title=canonical, episode=2).pk})
 
+    def test_commit_dedupes_a_release_schedule_collision_on_the_same_episode(self):
+        # The bug this guards against: both sides independently already
+        # had their own "season premiere" ReleaseSchedule row for the
+        # same colliding episode - blindly moving the dupe's row onto
+        # canonical's episode raised a UniqueViolation on
+        # unique_release_per_title_episode_type instead of completing
+        # (a real production crash, not just a hypothetical).
+        from django.utils import timezone
+
+        canonical = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"trakt": "5", "tmdb": "99"}
+        )
+        dupe = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"nuvio": "tmdb:99", "tmdb": "99"}
+        )
+        canonical_ep = Episode.objects.create(title=canonical, season=1, episode=1)
+        dupe_ep = Episode.objects.create(title=dupe, season=1, episode=1)
+        now = timezone.now()
+        ReleaseSchedule.objects.create(
+            title=canonical, episode=canonical_ep,
+            release_type=ReleaseSchedule.ReleaseType.SEASON_PREMIERE, release_date=now,
+        )
+        colliding = ReleaseSchedule.objects.create(
+            title=dupe, episode=dupe_ep,
+            release_type=ReleaseSchedule.ReleaseType.SEASON_PREMIERE, release_date=now,
+        )
+
+        self.call_command("merge_duplicate_titles", "--commit")  # must not raise
+
+        self.assertFalse(ReleaseSchedule.objects.filter(pk=colliding.pk).exists())
+        self.assertEqual(
+            ReleaseSchedule.objects.filter(
+                title=canonical, episode=canonical_ep, release_type=ReleaseSchedule.ReleaseType.SEASON_PREMIERE
+            ).count(),
+            1,
+        )
+
+    def test_commit_moves_a_non_colliding_release_schedule_onto_canonical(self):
+        # A release for an episode-number collision that canonical's own
+        # side doesn't already have (different release_type) should
+        # still move over, not just get dropped.
+        canonical = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"trakt": "5", "tmdb": "99"}
+        )
+        dupe = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"nuvio": "tmdb:99", "tmdb": "99"}
+        )
+        canonical_ep = Episode.objects.create(title=canonical, season=1, episode=1)
+        dupe_ep = Episode.objects.create(title=dupe, season=1, episode=1)
+        release = ReleaseSchedule.objects.create(
+            title=dupe, episode=dupe_ep,
+            release_type=ReleaseSchedule.ReleaseType.EPISODE, release_date="2026-01-01T00:00:00Z",
+        )
+
+        self.call_command("merge_duplicate_titles", "--commit")
+
+        release.refresh_from_db()
+        self.assertEqual(release.title_id, canonical.pk)
+        self.assertEqual(release.episode_id, canonical_ep.pk)
+
+    def test_commit_keeps_a_release_schedule_for_an_episode_that_moved_without_collision(self):
+        # An episode with no season/episode-number collision moves onto
+        # canonical directly (see the "existing is None" branch) - its
+        # own ReleaseSchedule row must follow it to title=canonical too,
+        # not get left pointing at title=dupe and CASCADE-deleted along
+        # with dupe once the merge finishes.
+        canonical = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"trakt": "5", "tmdb": "99"}
+        )
+        dupe = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"nuvio": "tmdb:99", "tmdb": "99"}
+        )
+        Episode.objects.create(title=canonical, season=1, episode=1)
+        dupe_only_ep = Episode.objects.create(title=dupe, season=1, episode=2)
+        release = ReleaseSchedule.objects.create(
+            title=dupe, episode=dupe_only_ep,
+            release_type=ReleaseSchedule.ReleaseType.EPISODE, release_date="2026-01-01T00:00:00Z",
+        )
+
+        self.call_command("merge_duplicate_titles", "--commit")
+
+        release.refresh_from_db()
+        self.assertEqual(release.title_id, canonical.pk)
+        self.assertEqual(release.episode_id, dupe_only_ep.pk)
+
     def test_commit_keeps_the_more_recently_updated_watch_progress_on_collision(self):
         from django.utils import timezone
 
@@ -19159,6 +19244,40 @@ class RunMergeDuplicatesViewTests(TestCase):
         self.client.login(username="mergeviewmember", password="pass12345")
         resp = self.client.post(reverse("run_merge_duplicates"), {"mode": "preview"})
         self.assertEqual(resp.status_code, 404)
+
+    def test_preview_with_many_duplicate_groups_truncates_the_toast(self):
+        # The bug this guards against: a real library's first-ever run
+        # can find dozens of duplicate groups - one line per group
+        # dumped straight into a toast (fixed-width, auto-dismissing)
+        # is unreadable at that size.
+        for i in range(20):
+            canonical = Title.objects.create(
+                media_type=MediaType.MOVIE, name=f"Movie {i}", year=2020, external_ids={"tmdb": str(i)}
+            )
+            Title.objects.create(
+                media_type=MediaType.MOVIE, name=f"Movie {i}", year=2020,
+                external_ids={"nuvio": f"tmdb:{i}", "tmdb": str(i)},
+            )
+        resp = self.client.post(reverse("run_merge_duplicates"), {"mode": "preview"}, follow=True)
+        toast_text = str(list(resp.context["messages"])[0])
+        self.assertIn("more line(s)", toast_text)
+        self.assertLess(len(toast_text.splitlines()), 20)
+
+
+class SummarizeForToastTests(TestCase):
+    """views._summarize_for_toast - caps long command output (see
+    run_merge_duplicates) before it lands in a toast notification."""
+
+    def test_short_output_passes_through_unchanged(self):
+        output = "line one\nline two"
+        self.assertEqual(views._summarize_for_toast(output), output)
+
+    def test_long_output_is_truncated_with_a_count(self):
+        output = "\n".join(f"line {i}" for i in range(20))
+        result = views._summarize_for_toast(output, max_lines=8)
+        lines = result.splitlines()
+        self.assertEqual(lines[:8], [f"line {i}" for i in range(8)])
+        self.assertIn("12 more line(s)", lines[-1])
 
 
 class RunMaintenanceTaskViewTests(TestCase):

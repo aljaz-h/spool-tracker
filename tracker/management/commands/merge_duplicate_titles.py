@@ -184,11 +184,34 @@ def _merge_episodes(canonical, dupe):
         if existing is None:
             episode.title = canonical
             episode.save(update_fields=["title"])
+            # The episode itself just moved onto canonical without any
+            # collision, but its own ReleaseSchedule rows still point at
+            # title=dupe until this - left alone, dupe.delete() below
+            # would CASCADE-delete them along with dupe, silently losing
+            # a still-valid release date for an episode that otherwise
+            # survived the merge intact.
+            ReleaseSchedule.objects.filter(episode=episode).update(title=canonical)
             canonical_episodes[(episode.season, episode.episode)] = episode
             continue
         WatchEvent.objects.filter(episode=episode).update(title=canonical, episode=existing)
         WatchProgress.objects.filter(current_episode=episode).update(current_episode=existing)
-        ReleaseSchedule.objects.filter(episode=episode).update(title=canonical, episode=existing)
+        # Same collision-dedupe the movie-level ReleaseSchedule pass
+        # below already does - a blind .update() here can collide with a
+        # release existing's own side already has for the same
+        # release_type (the bug this guards against: a real merge with
+        # two independently-synced "season premiere" rows for the same
+        # episode raised a UniqueViolation on unique_release_per_title_
+        # episode_type instead of completing).
+        existing_release_types = set(
+            ReleaseSchedule.objects.filter(title=canonical, episode=existing).values_list("release_type", flat=True)
+        )
+        for release in ReleaseSchedule.objects.filter(episode=episode):
+            if release.release_type in existing_release_types:
+                release.delete()
+            else:
+                release.title = canonical
+                release.episode = existing
+                release.save(update_fields=["title", "episode"])
         episode.delete()
 
 

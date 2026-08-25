@@ -4111,6 +4111,21 @@ def admin_reset_password(request, profile_id):
     return redirect("admin_dashboard")
 
 
+def _summarize_for_toast(output, max_lines=8):
+    """Toast notifications (toasts.html) render in a fixed ~320px-wide box
+    and auto-dismiss after 5 seconds - fine for the usual one-or-two-line
+    command output, but merge_duplicate_titles can legitimately print one
+    line per duplicate found, and a real library's first-ever run of it
+    can easily find dozens. Caps what actually lands in the toast; the
+    command's own full stdout is still there in the server's own logs
+    (see settings.LOGGING) for anyone who needs the complete list."""
+    lines = output.splitlines()
+    if len(lines) <= max_lines:
+        return output
+    shown = lines[:max_lines]
+    return "\n".join(shown) + f"\n... and {len(lines) - max_lines} more line(s) - see the server logs for the full list."
+
+
 @login_required
 @require_POST
 def run_merge_duplicates(request):
@@ -4137,9 +4152,9 @@ def run_merge_duplicates(request):
             status=DataLog.Status.SUCCESS,
             detail=(output.splitlines()[-1][:255] if output else ""),
         )
-        messages.success(request, output or "Done.")
+        messages.success(request, _summarize_for_toast(output) if output else "Done.")
     else:
-        messages.info(request, output or "No duplicate titles found.")
+        messages.info(request, _summarize_for_toast(output) if output else "No duplicate titles found.")
     return redirect(f"{reverse('admin_dashboard')}?tab=maintenance")
 
 

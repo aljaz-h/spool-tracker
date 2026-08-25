@@ -8,6 +8,23 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.113.2] - 2026-08-25
+
+### Fixed
+
+- `merge_duplicate_titles --commit` crashed (500) partway through a real
+  batch of duplicates whenever two colliding episodes each already had
+  their own release-schedule row (e.g. both sides independently tracked
+  a "season premiere" date) - the merge blindly moved one onto the
+  other instead of deduping the collision first. Also stopped a
+  release-schedule row silently disappearing for an episode that moved
+  over without any collision at all.
+- The Maintenance tab's Preview/Commit-merge toast no longer dumps one
+  line per duplicate group into a fixed-width, auto-dismissing
+  notification - a first-ever run against a real library can find
+  dozens, which was unreadable. Long output is now capped with a count,
+  the full list stays in the server's own logs.
+
 ## [0.113.1] - 2026-08-25
 
 ### Fixed
