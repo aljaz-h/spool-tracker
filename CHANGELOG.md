@@ -8,6 +8,28 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.113.3] - 2026-08-26
+
+### Fixed
+
+- Dependency/supply-chain security audit: Django 5.2.16 → 5.2.17 (fixes
+  a GeoDjango WKT/WKB parsing DoS - not reachable here, GIS isn't used,
+  but patched anyway) and sqlparse 0.5.5 → 0.6.0 (fixes four ReDoS/DoS
+  advisories in its lexer/grouping/output paths, pulled in transitively
+  by Django and django-silk).
+- The Docker image is now a multi-stage build - Node/npm (needed only to
+  compile Tailwind's CSS) previously shipped in the final runtime image
+  via Debian's own nodejs/npm packaging, which drags in a large tree of
+  outdated vendored JS tooling (eslint, babel, etc.) carrying dozens of
+  its own CVEs (44 High/5 Critical in a scan of the old image), none of
+  which are used at runtime at all. The compiled CSS now moves from a
+  discarded build stage into the runtime image; node/npm and everything
+  under node_modules no longer ship at all.
+- The Dockerfile now runs `apt-get upgrade` before installing packages,
+  so Debian security patches released since python:3.12-slim's own
+  layer was last rebuilt (an OpenSSL fix, in this pass) land on every
+  build instead of waiting on the next base-image refresh.
+
 ## [0.113.2] - 2026-08-25
 
 ### Fixed

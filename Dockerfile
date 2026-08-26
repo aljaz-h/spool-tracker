@@ -1,22 +1,38 @@
+# Stage 1: compiles Tailwind's CSS output only. Node/npm here pull in
+# Debian's own nodejs/npm packaging, which drags in a large tree of old
+# vendored JS tooling (eslint, babel, etc.) with its own known CVEs -
+# none of that, nor node/npm themselves, are needed once static/dist/
+# app.css exists, so this whole stage (and everything apt/npm installed
+# into it) is discarded rather than shipped in the runtime image below.
+FROM node:20-slim AS css-builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npx @tailwindcss/cli -i ./static/src/app.css -o ./static/dist/app.css --minify
+
+# Stage 2: the actual runtime image - Python/Django plus the one CSS
+# artifact stage 1 produced. No nodejs/npm/node_modules here at all.
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
 
-# Node is needed only at build time to compile Tailwind; the image stays
-# slim because we don't keep node_modules around after collectstatic.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    nodejs npm libpq5 && \
+# `apt-get upgrade` picks up whatever Debian security patches (e.g.
+# openssl) have shipped since python:3.12-slim's own layer was last
+# rebuilt - the base image tag doesn't refresh on every point-release, so
+# without this the image can carry known-fixed CVEs indefinitely between
+# base-image bumps. libpq5 is the actual runtime dependency (psycopg
+# needs it to talk to Postgres) - unlike node/npm above, this one stays.
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
+    libpq5 && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY package*.json ./
-RUN npm ci
-
 COPY . .
-RUN npx @tailwindcss/cli -i ./static/src/app.css -o ./static/dist/app.css --minify
+COPY --from=css-builder /app/static/dist/app.css ./static/dist/app.css
 RUN DJANGO_SECRET_KEY=build-time-only python manage.py collectstatic --noinput
 
 EXPOSE 8000
