@@ -120,6 +120,21 @@
         modal.showModal();
       });
     };
+    // Opens a title detail/preview page's own trailer <dialog> (id
+    // passed in, scoped per title/preview via poster_seed - see
+    // title_detail.html) and only then points its iframe at the real
+    // embed src (kept on data-src until now) so YouTube isn't fetched
+    // at all until someone actually asks for it. The dialog's native
+    // "close" event (Esc, backdrop click, the ✕ button - all of them
+    // fire it) clears the src back out again, since just hiding the
+    // dialog leaves the video (and its audio) still playing behind it.
+    window.openTrailerModal = (id) => {
+      const modal = document.getElementById(id);
+      const iframe = modal.querySelector('iframe');
+      iframe.src = iframe.dataset.src;
+      modal.addEventListener('close', () => { iframe.src = ''; }, { once: true });
+      modal.showModal();
+    };
     // htmx's documented custom-confirm recipe: intercept the cancelable
     // htmx:confirm event and only call issueRequest(true) (proceeding
     // with the original request) once the dialog above resolves true.

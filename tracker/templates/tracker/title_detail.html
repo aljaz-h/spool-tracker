@@ -1,5 +1,5 @@
 {% extends "tracker/base.html" %}
-{% load tracker_extras %}
+{% load tracker_extras icons %}
 {% block title %}{{ display_name }} · Spool{% endblock %}
 {% block content %}
 
@@ -96,75 +96,117 @@
           the whole thing doesn't map to anything real, so shows get
           season-level "mark watched" actions down in the episode
           browser instead (see title_episodes.html) rather than a
-          header control at all.
+          header control at all. "Watch trailer" lives in this same row
+          regardless of media type (it's the one hero action every kind
+          of title can have) - the outer condition has to also open this
+          row for a TV/anime title with a trailer even though neither
+          watched-button branch below applies to it.
         {% endcomment %}
-        {% if is_preview and preview_media_type == "movie" %}
-          <div class="flex flex-wrap items-center gap-5 mt-4 p-3 rounded-xl bg-base-100/50 border border-line/70 w-fit">
-            {% comment %}
-              Not-yet-tracked, so this is a plain (non-HTMX) form - a
-              real page load, unlike every other first-watch popover in
-              the app - each menu item is its own name="when" submit
-              button rather than an hx-post, so no client-side JS is
-              needed to route the click to the right option. Still
-              materializes + redirects to the real title_detail
-              afterward exactly like the old single-button version did
-              (see views.title_preview_mark_watched) - the rest of this
-              preview page (Lists, similar items' own list-popovers, ...)
-              stays untracked-shaped until then, so swapping just this
-              header in place via HTMX would leave the page inconsistent.
-            {% endcomment %}
-            <div class="relative" x-data="{ open: false, showCustom: false }" @keydown.escape.window="open = false">
-              <button type="button" @click="open = !open" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-primary btn-sm">+ Mark as Watched</button>
-              <div
-                x-show="open" x-cloak x-transition @click.outside="open = false"
-                class="absolute z-50 top-full mt-1.5 left-0 w-72 bg-base-200 border border-line rounded-xl p-2 shadow-xl"
-              >
-                <form method="post" action="{% url 'title_preview_mark_watched' preview_media_type preview_tmdb_id %}">
-                  {% csrf_token %}
-                  <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1 border-b border-line">
-                    <div class="font-semibold text-sm">Mark as watched</div>
-                    <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5">&times;</button>
-                  </div>
-                  <div x-show="!showCustom">
-                    <button type="submit" name="when" value="now" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
-                      <span class="min-w-0">
-                        <span class="block text-[13px] font-semibold">Watched now</span>
-                        <span class="block text-[11px] text-ink-faint">Log it at the current date and time</span>
-                      </span>
-                    </button>
-                    <button type="submit" name="when" value="release" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
-                      <span class="min-w-0">
-                        <span class="block text-[13px] font-semibold">On release date</span>
-                        <span class="block text-[11px] text-ink-faint">Log it on the day it came out</span>
-                      </span>
-                    </button>
-                    <button type="button" @click="showCustom = true" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
-                      <span class="min-w-0">
-                        <span class="block text-[13px] font-semibold">Other date</span>
-                        <span class="block text-[11px] text-ink-faint">Pick a custom date and time</span>
-                      </span>
-                    </button>
-                  </div>
-                  <div x-show="showCustom" class="px-2 pb-1 pt-1">
-                    <label class="block text-[11px] text-ink-faint mb-1">Watched at</label>
-                    <input type="datetime-local" name="custom_datetime" value="{% now 'Y-m-d\TH:i' %}" @keydown.enter.prevent class="input input-sm w-full mb-2">
-                    <div class="flex gap-1.5">
-                      <button type="button" @click="showCustom = false" class="btn btn-xs btn-soft flex-1">Back</button>
-                      <button type="submit" name="when" value="custom" class="btn btn-xs btn-primary flex-1">Confirm</button>
+        {% if trailer or is_preview and preview_media_type == "movie" or not is_preview and title.media_type == "movie" %}
+          <div class="flex flex-wrap items-center gap-3 mt-4 p-3 rounded-xl bg-base-100/50 border border-line/70 w-fit">
+            {% if is_preview and preview_media_type == "movie" %}
+              {% comment %}
+                Not-yet-tracked, so this is a plain (non-HTMX) form - a
+                real page load, unlike every other first-watch popover in
+                the app - each menu item is its own name="when" submit
+                button rather than an hx-post, so no client-side JS is
+                needed to route the click to the right option. Still
+                materializes + redirects to the real title_detail
+                afterward exactly like the old single-button version did
+                (see views.title_preview_mark_watched) - the rest of this
+                preview page (Lists, similar items' own list-popovers, ...)
+                stays untracked-shaped until then, so swapping just this
+                header in place via HTMX would leave the page inconsistent.
+              {% endcomment %}
+              <div class="relative" x-data="{ open: false, showCustom: false }" @keydown.escape.window="open = false">
+                <button type="button" @click="open = !open" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-primary btn-sm">+ Mark as Watched</button>
+                <div
+                  x-show="open" x-cloak x-transition @click.outside="open = false"
+                  class="absolute z-50 top-full mt-1.5 left-0 w-72 bg-base-200 border border-line rounded-xl p-2 shadow-xl"
+                >
+                  <form method="post" action="{% url 'title_preview_mark_watched' preview_media_type preview_tmdb_id %}">
+                    {% csrf_token %}
+                    <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1 border-b border-line">
+                      <div class="font-semibold text-sm">Mark as watched</div>
+                      <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5">&times;</button>
                     </div>
-                  </div>
-                </form>
+                    <div x-show="!showCustom">
+                      <button type="submit" name="when" value="now" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
+                        <span class="min-w-0">
+                          <span class="block text-[13px] font-semibold">Watched now</span>
+                          <span class="block text-[11px] text-ink-faint">Log it at the current date and time</span>
+                        </span>
+                      </button>
+                      <button type="submit" name="when" value="release" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
+                        <span class="min-w-0">
+                          <span class="block text-[13px] font-semibold">On release date</span>
+                          <span class="block text-[11px] text-ink-faint">Log it on the day it came out</span>
+                        </span>
+                      </button>
+                      <button type="button" @click="showCustom = true" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
+                        <span class="min-w-0">
+                          <span class="block text-[13px] font-semibold">Other date</span>
+                          <span class="block text-[11px] text-ink-faint">Pick a custom date and time</span>
+                        </span>
+                      </button>
+                    </div>
+                    <div x-show="showCustom" class="px-2 pb-1 pt-1">
+                      <label class="block text-[11px] text-ink-faint mb-1">Watched at</label>
+                      <input type="datetime-local" name="custom_datetime" value="{% now 'Y-m-d\TH:i' %}" @keydown.enter.prevent class="input input-sm w-full mb-2">
+                      <div class="flex gap-1.5">
+                        <button type="button" @click="showCustom = false" class="btn btn-xs btn-soft flex-1">Back</button>
+                        <button type="submit" name="when" value="custom" class="btn btn-xs btn-primary flex-1">Confirm</button>
+                      </div>
+                    </div>
+                  </form>
+                </div>
               </div>
-            </div>
-          </div>
-        {% elif not is_preview and title.media_type == "movie" %}
-          <div class="flex flex-wrap items-center gap-5 mt-4 p-3 rounded-xl bg-base-100/50 border border-line/70 w-fit">
-            {% include "tracker/partials/title_detail_watched_button.html" with title=title watch_count=watch_count %}
+            {% elif not is_preview and title.media_type == "movie" %}
+              {% include "tracker/partials/title_detail_watched_button.html" with title=title watch_count=watch_count %}
+            {% endif %}
+            {% if trailer %}
+              <button
+                type="button"
+                onclick="openTrailerModal('trailer-modal-{{ poster_seed }}')"
+                class="btn btn-sm btn-outline gap-1.5"
+              >
+                {% icon "play" "w-3.5 h-3.5" %} Watch trailer
+              </button>
+            {% endif %}
           </div>
         {% endif %}
       </div>
     </div>
   </div>
+
+  {% if trailer %}
+    {% comment %}
+      Lives outside the hero (not absolutely inside it) since <dialog>'s
+      own top-layer rendering doesn't care where it sits in the DOM -
+      putting it here keeps it out of the hero's own overflow-hidden/
+      relative positioning context entirely. Shared by the hero button
+      above and the Media gallery's own trailer tile below - both just
+      call openTrailerModal() with this same id (base.html). The iframe
+      starts with an empty src (real one parked on data-src) so YouTube
+      is never fetched until the dialog actually opens.
+    {% endcomment %}
+    <dialog id="trailer-modal-{{ poster_seed }}" class="modal">
+      <div class="modal-box max-w-3xl bg-base-200 border border-line p-2">
+        <form method="dialog"><button class="btn btn-xs btn-circle btn-ghost absolute right-1.5 top-1.5 z-10 bg-base-300/90">✕</button></form>
+        <div class="aspect-video rounded-lg overflow-hidden bg-black">
+          <iframe
+            src=""
+            data-src="https://www.youtube.com/embed/{{ trailer.key }}?autoplay=1"
+            title="Trailer"
+            class="w-full h-full"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowfullscreen
+          ></iframe>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop bg-black/60 backdrop-blur-sm"><button>close</button></form>
+    </dialog>
+  {% endif %}
 
   <div class="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8 mb-8">
     <div class="min-w-0">
@@ -174,6 +216,88 @@
       {% if details.overview %}
         <h2 class="font-display text-xl mb-3">Description</h2>
         <p class="max-w-3xl text-[14px] leading-relaxed text-ink-dim mb-6">{{ details.overview }}</p>
+      {% endif %}
+
+      {% if gallery_items %}
+        {% comment %}
+          json_script (not a template-side |escapejs chain) for the
+          lightbox's own image list - only ever one of these per page
+          render (this section doesn't repeat), so a fixed element id is
+          fine. The trailer tile (if any) is always gallery_items[0] but
+          isn't in this list at all - its own onclick opens the trailer
+          <dialog> above directly, never the lightbox.
+        {% endcomment %}
+        {{ gallery_image_urls|json_script:"gallery-image-urls" }}
+        <h2 class="font-display text-xl mb-3 flex items-center gap-2">
+          {% icon "clapperboard" "w-4 h-4 text-ink-faint" %} Media
+        </h2>
+        <div
+          class="relative mb-8"
+          x-data="{
+            showAll: false,
+            images: JSON.parse(document.getElementById('gallery-image-urls').textContent),
+            currentIndex: 0,
+            openLightbox(i) {
+              this.currentIndex = i;
+              this.$refs.lightboxImg.src = this.images[i];
+              this.$refs.lightbox.showModal();
+            },
+            step(dir) {
+              this.currentIndex = (this.currentIndex + dir + this.images.length) % this.images.length;
+              this.$refs.lightboxImg.src = this.images[this.currentIndex];
+            },
+          }"
+        >
+          <div class="flex gap-3 overflow-x-auto scroll-row pb-2">
+            {% for item in gallery_items %}
+              <button
+                type="button"
+                {% if forloop.counter0 >= 5 %}x-show="showAll" x-cloak{% endif %}
+                {% if item.kind == "trailer" %}
+                  onclick="openTrailerModal('trailer-modal-{{ poster_seed }}')"
+                {% else %}
+                  @click="openLightbox({{ item.index }})"
+                {% endif %}
+                class="relative w-40 sm:w-52 aspect-video flex-none rounded-lg overflow-hidden bg-base-300 border border-line group"
+              >
+                <img src="{{ item.thumbnail_url }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+                {% if item.kind == "trailer" %}
+                  <span class="absolute inset-0 bg-black/30 flex items-center justify-center group-hover:bg-black/50 transition-colors">
+                    <span class="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center text-black">
+                      {% icon "play" "w-4 h-4 ml-0.5" %}
+                    </span>
+                  </span>
+                {% endif %}
+              </button>
+            {% endfor %}
+            {% if gallery_items|length > 5 %}
+              <button
+                type="button"
+                x-show="!showAll"
+                @click="showAll = true"
+                class="w-40 sm:w-52 aspect-video flex-none rounded-lg bg-base-300 border border-line flex items-center justify-center font-mono text-sm text-ink-dim hover:text-base-content hover:bg-base-300/70 transition-colors"
+              >+{{ gallery_items|length|add:"-5" }}</button>
+            {% endif %}
+          </div>
+
+          {% comment %}
+            The lightbox - one per page (like the trailer dialog above),
+            reused across every still tile. @close clears the <img> src
+            so a large image isn't left decoded in memory/re-shown stale
+            for a half-second the next time this same dialog opens.
+          {% endcomment %}
+          <dialog x-ref="lightbox" class="modal" @close="$refs.lightboxImg.src = ''">
+            <div class="modal-box max-w-4xl bg-base-200 border border-line p-2">
+              <form method="dialog"><button class="btn btn-xs btn-circle btn-ghost absolute right-1.5 top-1.5 z-10 bg-base-300/90">✕</button></form>
+              <img x-ref="lightboxImg" src="" alt="" class="w-full h-auto rounded-lg">
+              {% if gallery_image_urls|length > 1 %}
+                <button type="button" @click="step(-1)" aria-label="Previous image" class="btn btn-sm btn-circle absolute left-2 top-1/2 -translate-y-1/2 bg-base-300/90">{% icon "chevron-left" "w-4 h-4" %}</button>
+                <button type="button" @click="step(1)" aria-label="Next image" class="btn btn-sm btn-circle absolute right-2 top-1/2 -translate-y-1/2 bg-base-300/90">{% icon "chevron-right" "w-4 h-4" %}</button>
+              {% endif %}
+            </div>
+            <form method="dialog" class="modal-backdrop bg-black/60 backdrop-blur-sm"><button>close</button></form>
+          </dialog>
+        </div>
       {% endif %}
 
       {% if director or cast %}

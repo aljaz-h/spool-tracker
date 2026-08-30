@@ -1116,6 +1116,56 @@ def get_watch_providers(media_type, tmdb_id, region="US"):
     return providers[:6]
 
 
+def get_trailer(media_type, tmdb_id):
+    """{"key": youtube_video_id, "name": str} for the best trailer TMDB
+    has on file, or None if there isn't one - the detail hero's "Watch
+    trailer" button and the Media gallery's own first tile are both
+    absent (not a disabled/empty state) when this is None, per that
+    feature's own contract. Only ever a YouTube id: TMDB does list
+    Vimeo-hosted videos for some titles, but the embed markup this
+    feeds (title_detail.html's trailer <dialog>) is YouTube-specific.
+    Prefers whichever trailer TMDB flags "official" (its own curated
+    pick, usually the studio's real uploaded trailer rather than a fan
+    reupload); among ties (or when nothing is flagged official at all)
+    picks the most recently published one, same "freshest wins"
+    tiebreak get_similar's own caller-side sorting uses elsewhere.
+    "Trailer" specifically, not Teaser/Clip/Featurette/Behind the Scenes -
+    those are real TMDB video types on the same endpoint but aren't a
+    stand-in for the real thing this button promises."""
+    data = _list_request(f"{media_type}/{tmdb_id}/videos")
+    results = (data or {}).get("results") or []
+    trailers = [v for v in results if v.get("site") == "YouTube" and v.get("type") == "Trailer" and v.get("key")]
+    if not trailers:
+        return None
+    official = [v for v in trailers if v.get("official")]
+    pool = official or trailers
+    best = max(pool, key=lambda v: v.get("published_at") or "")
+    return {"key": best["key"], "name": best.get("name") or ""}
+
+
+_BACKDROP_THUMB_BASE = "https://image.tmdb.org/t/p/w300"
+
+
+def get_backdrops(media_type, tmdb_id, limit=12):
+    """[{"url" (full w1280, for the lightbox), "thumbnail_url" (w300, for
+    the gallery strip's own small tiles)}, ...] widescreen backdrop
+    stills for the Media gallery, TMDB's own best-first ordering (its
+    images endpoint sorts by vote_average descending already) -
+    re-sorted explicitly here rather than trusted, since that ordering
+    isn't documented as a guarantee. Two separate sizes rather than one
+    URL downsized via the |poster_size template filter elsewhere in this
+    app: that filter only ever rewrites IMAGE_BASE's own "w500" segment,
+    a no-op against BACKDROP_BASE's "w1280". [] if nothing came back."""
+    data = _list_request(f"{media_type}/{tmdb_id}/images")
+    backdrops = (data or {}).get("backdrops") or []
+    backdrops.sort(key=lambda b: b.get("vote_average") or 0, reverse=True)
+    return [
+        {"url": f"{BACKDROP_BASE}{b['file_path']}", "thumbnail_url": f"{_BACKDROP_THUMB_BASE}{b['file_path']}"}
+        for b in backdrops[:limit]
+        if b.get("file_path")
+    ]
+
+
 _PROVIDER_BUNDLE_NAME_MARKERS = ("channel", "with ads")  # see watch_provider_catalog's own docstring
 
 

@@ -107,9 +107,13 @@ def get_episode_filler_map(mal_id):
 
 def get_anime_details(mal_id):
     """Returns {"score": float|None, "title_japanese": str|None,
-    "source": str|None, "studios": [str]} or None on failure. Cached like
-    get_episode_filler_map (a week - these facts change rarely, if ever,
-    once an anime's aired)."""
+    "source": str|None, "studios": [str], "trailer_youtube_id": str|None}
+    or None on failure. Cached like get_episode_filler_map (a week - these
+    facts change rarely, if ever, once an anime's aired). trailer_youtube_id
+    is MAL's own trailer (usually the Japanese-market one) - preferred
+    over TMDB's own /videos for anime specifically (see
+    views._media_gallery_context), falling back to TMDB's when MAL has
+    none on file."""
     from django.core.cache import cache
 
     key = _cache_key("details", mal_id)
@@ -133,6 +137,7 @@ def get_anime_details(mal_id):
         "title_japanese": data.get("title_japanese"),
         "source": data.get("source"),
         "studios": [s["name"] for s in (data.get("studios") or []) if s.get("name")],
+        "trailer_youtube_id": (data.get("trailer") or {}).get("youtube_id"),
     }
 
     try:

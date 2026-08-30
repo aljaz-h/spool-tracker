@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.114.0] - 2026-08-30
+
+### Added
+
+- Movie/TV/Anime detail pages now offer a trailer and a media gallery.
+  A "Watch trailer" button sits next to the header's watched/status
+  button (hidden entirely when TMDB has no trailer on file, and for
+  anime, MyAnimeList's own trailer via the existing Jikan integration
+  when it has one TMDB doesn't) and opens it in a modal. A new "Media"
+  section between Description and Cast shows the trailer as its first
+  tile alongside backdrop stills, capped at 5 visible with a "+N" tile
+  to expand the rest; clicking a still opens a lightbox with Prev/Next.
+
 ## [0.113.3] - 2026-08-26
 
 ### Fixed

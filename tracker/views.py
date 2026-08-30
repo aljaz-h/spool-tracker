@@ -846,6 +846,63 @@ def _anime_jikan_context(title):
     }
 
 
+def _media_gallery_context(title, tmdb_media_type, tmdb_id):
+    """The detail hero's "Watch trailer" button plus the "Media" gallery
+    section (trailer tile + backdrop stills) - shared by title_detail and
+    title_preview, since a not-yet-tracked preview should offer exactly
+    the same trailer/gallery a real title's page does. title is None on
+    a preview page (no local row yet) - MAL trailer preference (anime
+    only) needs a real Title to resolve a MAL id against
+    (_resolve_mal_id caches it there), so a preview always falls
+    through to TMDB's own trailer even for an anime preview; once
+    materialized, a later visit to the real page picks up MAL's instead
+    if it has one TMDB doesn't.
+
+    trailer is None (not a disabled state) when nothing was found,
+    anywhere TMDB and (for anime) MAL both come up empty - the button/
+    tile are meant to just not exist then, per the feature's own
+    contract. gallery_items always leads with the trailer (if any) as
+    its own {"kind": "trailer"} tile, followed by every backdrop still
+    as a {"kind": "image", "index"} tile - index is this item's own
+    position within gallery_image_urls (trailer-less), which the
+    lightbox's Alpine state indexes directly for Prev/Next rather than
+    re-deriving it from the DOM at click time."""
+    trailer = None
+    if title is not None and title.media_type == MediaType.ANIME:
+        mal_id = _resolve_mal_id(title)
+        if mal_id is not None:
+            mal_details = jikan.get_anime_details(mal_id)
+            youtube_id = (mal_details or {}).get("trailer_youtube_id")
+            if youtube_id:
+                trailer = {"key": youtube_id}
+    if trailer is None and tmdb_id:
+        trailer = tmdb.get_trailer(tmdb_media_type, tmdb_id)
+
+    backdrops = tmdb.get_backdrops(tmdb_media_type, tmdb_id) if tmdb_id else []
+    gallery_image_urls = [b["url"] for b in backdrops]
+    gallery_items = []
+    if trailer:
+        # index=None (unused by the template - the trailer tile's own
+        # onclick opens the trailer modal, not the lightbox) so every
+        # gallery item always carries the same two keys regardless of
+        # kind - thumbnail_url computed here rather than a template-side
+        # `|default:` fallback chain, which would evaluate its fallback
+        # argument (a plain image item has no "thumbnail_url" key) even
+        # when unused, and Django's stricter test-client rendering raises
+        # on that (see _title_display's own docstring for the same trap).
+        gallery_items.append(
+            {
+                "kind": "trailer",
+                "thumbnail_url": f"https://img.youtube.com/vi/{trailer['key']}/hqdefault.jpg",
+                "index": None,
+            }
+        )
+    gallery_items.extend(
+        {"kind": "image", "thumbnail_url": b["thumbnail_url"], "index": i} for i, b in enumerate(backdrops)
+    )
+    return {"trailer": trailer, "gallery_items": gallery_items, "gallery_image_urls": gallery_image_urls}
+
+
 # Known MDBList source -> (display label, vendored icon name in
 # static/icons/, icon tint class, native scale). Deliberately an
 # allowlist, not "every source MDBList returns" - MDBList's less
@@ -1116,6 +1173,7 @@ def title_detail(request, pk):
     details = cast = similar = director = None
     watch_providers = []
     episode_context = {"seasons": [], "season": None, "episodes": [], "season_avg_rating": None, "season_ratings": {}}
+    media_gallery_context = {"trailer": None, "gallery_items": [], "gallery_image_urls": []}
     if tmdb_id:
         tmdb_media_type = tmdb.media_type_for(title)
         details = tmdb.get_full_details(tmdb_media_type, tmdb_id)
@@ -1124,6 +1182,7 @@ def title_detail(request, pk):
         director = tmdb.get_director(tmdb_media_type, tmdb_id)
         watch_providers = tmdb.get_watch_providers(tmdb_media_type, tmdb_id)
         episode_context = _episode_panel_context(request, profile, title, tmdb_id, details)
+        media_gallery_context = _media_gallery_context(title, tmdb_media_type, tmdb_id)
 
     local_context = selectors.title_local_context(profile, title)
     collection_context = _collection_context(details) if tmdb_id else {"collection_name": None, "collection_parts": []}
@@ -1149,6 +1208,7 @@ def title_detail(request, pk):
         **_anime_jikan_context(title),
         **_mdblist_ratings_context(title),
         **collection_context,
+        **media_gallery_context,
     }
     discover_items = (similar or []) + collection_context["collection_parts"]
     if profile is not None and discover_items:
@@ -1985,6 +2045,7 @@ def title_preview(request, media_type, tmdb_id):
         **_preview_recommend_context(profile),
         **_episode_panel_context(request, profile, None, tmdb_id, details),
         **_collection_context(details),
+        **_media_gallery_context(None, tmdb_kind, tmdb_id),
     }
     discover_items = context["similar"] + context["collection_parts"]
     if profile is not None and discover_items:

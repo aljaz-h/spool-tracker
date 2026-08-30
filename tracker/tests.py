@@ -10071,6 +10071,90 @@ class TmdbDetailPageTests(TestCase):
         self.assertEqual(tmdb.get_watch_providers("movie", 1), [])
 
     @patch("tracker.integrations.tmdb._http_session.get")
+    def test_get_trailer_prefers_the_official_youtube_trailer(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "results": [
+                    {"site": "YouTube", "type": "Trailer", "key": "fan1", "official": False, "published_at": "2020-01-01T00:00:00Z"},
+                    {"site": "YouTube", "type": "Trailer", "key": "official1", "official": True, "published_at": "2020-01-01T00:00:00Z"},
+                    {"site": "YouTube", "type": "Teaser", "key": "teaser1", "official": True, "published_at": "2020-06-01T00:00:00Z"},
+                ]
+            }
+        )
+        trailer = tmdb.get_trailer("movie", 42)
+        self.assertEqual(trailer["key"], "official1")
+
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_get_trailer_falls_back_to_most_recent_when_none_are_official(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "results": [
+                    {"site": "YouTube", "type": "Trailer", "key": "older", "official": False, "published_at": "2019-01-01T00:00:00Z"},
+                    {"site": "YouTube", "type": "Trailer", "key": "newer", "official": False, "published_at": "2021-01-01T00:00:00Z"},
+                ]
+            }
+        )
+        trailer = tmdb.get_trailer("movie", 42)
+        self.assertEqual(trailer["key"], "newer")
+
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_get_trailer_ignores_non_youtube_and_non_trailer_videos(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "results": [
+                    {"site": "Vimeo", "type": "Trailer", "key": "v1", "official": True, "published_at": "2020-01-01T00:00:00Z"},
+                    {"site": "YouTube", "type": "Featurette", "key": "f1", "official": True, "published_at": "2020-01-01T00:00:00Z"},
+                ]
+            }
+        )
+        self.assertIsNone(tmdb.get_trailer("movie", 42))
+
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_get_trailer_returns_none_when_no_videos_at_all(self, mock_get):
+        mock_get.return_value = self._response({"results": []})
+        self.assertIsNone(tmdb.get_trailer("movie", 42))
+
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_get_trailer_returns_none_on_request_exception(self, mock_get):
+        import requests
+
+        mock_get.side_effect = requests.RequestException("boom")
+        self.assertIsNone(tmdb.get_trailer("movie", 42))
+
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_get_backdrops_sorted_best_first_with_both_sizes(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "backdrops": [
+                    {"file_path": "/low.jpg", "vote_average": 2.0},
+                    {"file_path": "/high.jpg", "vote_average": 8.0},
+                ]
+            }
+        )
+        backdrops = tmdb.get_backdrops("movie", 42)
+        self.assertEqual(
+            backdrops,
+            [
+                {"url": "https://image.tmdb.org/t/p/w1280/high.jpg", "thumbnail_url": "https://image.tmdb.org/t/p/w300/high.jpg"},
+                {"url": "https://image.tmdb.org/t/p/w1280/low.jpg", "thumbnail_url": "https://image.tmdb.org/t/p/w300/low.jpg"},
+            ],
+        )
+
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_get_backdrops_respects_limit(self, mock_get):
+        mock_get.return_value = self._response(
+            {"backdrops": [{"file_path": f"/{i}.jpg", "vote_average": i} for i in range(5)]}
+        )
+        self.assertEqual(len(tmdb.get_backdrops("movie", 42, limit=2)), 2)
+
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_get_backdrops_returns_empty_list_on_failure(self, mock_get):
+        import requests
+
+        mock_get.side_effect = requests.RequestException("boom")
+        self.assertEqual(tmdb.get_backdrops("movie", 1), [])
+
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_person_details_normalizes_fields(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -11980,6 +12064,7 @@ class TitleDetailViewTests(TestCase):
         # here too so nothing in this class can attempt a real HTTP call.
         for name, default in (
             ("get_director", None), ("get_watch_providers", []), ("get_season_details", None),
+            ("get_trailer", None), ("get_backdrops", []),
         ):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
             patcher.start()
@@ -12048,6 +12133,76 @@ class TitleDetailViewTests(TestCase):
             resp = self.client.get(reverse("title_detail", args=[untracked_tmdb.pk]))
         self.assertEqual(resp.status_code, 200)
         mock_details.assert_not_called()
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.get_trailer")
+    def test_watch_trailer_button_shown_when_a_trailer_exists(self, mock_trailer, mock_details, mock_credits, mock_similar):
+        mock_trailer.return_value = {"key": "abc123", "name": "Official Trailer"}
+        mock_details.return_value = self._details()
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, "Watch trailer")
+        self.assertContains(resp, f"openTrailerModal('trailer-modal-{self.title.pk}')")
+        self.assertContains(resp, "https://www.youtube.com/embed/abc123?autoplay=1")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_watch_trailer_button_hidden_when_no_trailer(self, mock_details, mock_credits, mock_similar):
+        # get_trailer defaults to None via setUp's own unconditional mock.
+        mock_details.return_value = self._details()
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertNotContains(resp, "Watch trailer")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.get_backdrops")
+    @patch("tracker.integrations.tmdb.get_trailer")
+    def test_media_gallery_shows_trailer_tile_then_backdrop_stills(
+        self, mock_trailer, mock_backdrops, mock_details, mock_credits, mock_similar
+    ):
+        mock_trailer.return_value = {"key": "abc123", "name": "Official Trailer"}
+        mock_backdrops.return_value = [
+            {"url": "https://image.tmdb.org/t/p/w1280/a.jpg", "thumbnail_url": "https://image.tmdb.org/t/p/w300/a.jpg"},
+            {"url": "https://image.tmdb.org/t/p/w1280/b.jpg", "thumbnail_url": "https://image.tmdb.org/t/p/w300/b.jpg"},
+        ]
+        mock_details.return_value = self._details()
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, '<h2 class="font-display text-xl mb-3 flex items-center gap-2">')
+        self.assertContains(resp, "https://img.youtube.com/vi/abc123/hqdefault.jpg")
+        self.assertContains(resp, "https://image.tmdb.org/t/p/w300/a.jpg")
+        self.assertContains(resp, "https://image.tmdb.org/t/p/w1280/a.jpg")  # in the lightbox's json_script data
+        self.assertContains(resp, "openLightbox(0)")
+        self.assertContains(resp, "openLightbox(1)")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_media_gallery_absent_when_nothing_available(self, mock_details, mock_credits, mock_similar):
+        # get_trailer/get_backdrops both default to empty via setUp.
+        mock_details.return_value = self._details()
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertNotContains(resp, '<h2 class="font-display text-xl mb-3 flex items-center gap-2">')
+        self.assertNotContains(resp, "gallery-image-urls")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.get_backdrops")
+    def test_media_gallery_caps_visible_tiles_with_a_plus_n_tile(
+        self, mock_backdrops, mock_details, mock_credits, mock_similar
+    ):
+        # No trailer, 6 stills - the 6th should be behind the "+1" tile
+        # (5 visible total, matching the feature's own cap).
+        mock_backdrops.return_value = [
+            {"url": f"https://image.tmdb.org/t/p/w1280/{i}.jpg", "thumbnail_url": f"https://image.tmdb.org/t/p/w300/{i}.jpg"}
+            for i in range(6)
+        ]
+        mock_details.return_value = self._details()
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, ">+1<")
 
     def test_header_shows_mark_as_watched_before_any_plain_watch(self):
         never_watched = Title.objects.create(media_type=MediaType.MOVIE, name="Never Watched", year=2021)
@@ -12366,7 +12521,9 @@ class TitleEpisodeBrowserTests(TestCase):
             media_type=MediaType.TV, name="Silo", year=2023,
             external_ids={"tmdb": "99", "tmdb_kind": "tv"},
         )
-        for name, default in (("get_director", None), ("get_watch_providers", [])):
+        for name, default in (
+            ("get_director", None), ("get_watch_providers", []), ("get_trailer", None), ("get_backdrops", []),
+        ):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -12808,7 +12965,9 @@ class AnimeFillerBadgeTests(TestCase):
             media_type=MediaType.ANIME, name="Bleach", year=2004,
             external_ids={"tmdb": "99", "tmdb_kind": "tv"},
         )
-        for name, default in (("get_director", None), ("get_watch_providers", [])):
+        for name, default in (
+            ("get_director", None), ("get_watch_providers", []), ("get_trailer", None), ("get_backdrops", []),
+        ):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -13016,7 +13175,9 @@ class AnimeFillerAniFillerFallbackTests(TestCase):
             media_type=MediaType.ANIME, name="Black Clover", year=2017,
             external_ids={"tmdb": "99", "tmdb_kind": "tv"},
         )
-        for name, default in (("get_director", None), ("get_watch_providers", [])):
+        for name, default in (
+            ("get_director", None), ("get_watch_providers", []), ("get_trailer", None), ("get_backdrops", []),
+        ):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -13160,6 +13321,15 @@ class JikanGetAnimeDetailsTests(TestCase):
         self.assertIsNone(result["title_japanese"])
         self.assertIsNone(result["source"])
         self.assertEqual(result["studios"], [])
+        self.assertIsNone(result["trailer_youtube_id"])
+
+    @patch("tracker.integrations.jikan.requests.get")
+    def test_extracts_the_trailer_youtube_id(self, mock_get):
+        mock_get.return_value = self._response(
+            {"trailer": {"youtube_id": "abc123", "url": "https://www.youtube.com/watch?v=abc123"}}
+        )
+        result = jikan.get_anime_details(269)
+        self.assertEqual(result["trailer_youtube_id"], "abc123")
 
     @patch("tracker.integrations.jikan.requests.get")
     def test_request_exception_returns_none(self, mock_get):
@@ -13185,7 +13355,9 @@ class AnimeJikanDetailContextTests(TestCase):
             media_type=MediaType.ANIME, name="Bleach", year=2004,
             external_ids={"tmdb": "99", "tmdb_kind": "tv"},
         )
-        for name, default in (("get_director", None), ("get_watch_providers", [])):
+        for name, default in (
+            ("get_director", None), ("get_watch_providers", []), ("get_trailer", None), ("get_backdrops", []),
+        ):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -13226,6 +13398,44 @@ class AnimeJikanDetailContextTests(TestCase):
         self.assertContains(resp, "Studio Pierrot")
         self.assertContains(resp, "Source: Manga")
         self.assertContains(resp, "BLEACH - ブリーチ -")
+
+    @patch("tracker.integrations.jikan.get_episode_filler_map", return_value={})
+    @patch("tracker.integrations.jikan.get_anime_details")
+    @patch("tracker.integrations.jikan.find_match")
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details", return_value={"episodes": []})
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_mal_trailer_is_preferred_over_tmdbs_own(
+        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match, mock_jikan_details, mock_filler_map
+    ):
+        mock_details.return_value = self._details()
+        mock_find_match.return_value = {"mal_id": 269}
+        mock_jikan_details.return_value = {**self._jikan_details(), "trailer_youtube_id": "mal-trailer"}
+        with patch("tracker.integrations.tmdb.get_trailer", return_value={"key": "tmdb-trailer", "name": ""}) as mock_tmdb_trailer:
+            resp = self.client.get(reverse("title_detail", args=[self.anime.pk]))
+        self.assertContains(resp, "https://www.youtube.com/embed/mal-trailer?autoplay=1")
+        self.assertNotContains(resp, "tmdb-trailer")
+        mock_tmdb_trailer.assert_not_called()
+
+    @patch("tracker.integrations.jikan.get_episode_filler_map", return_value={})
+    @patch("tracker.integrations.jikan.get_anime_details")
+    @patch("tracker.integrations.jikan.find_match")
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details", return_value={"episodes": []})
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_falls_back_to_tmdbs_trailer_when_mal_has_none(
+        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details, mock_find_match, mock_jikan_details, mock_filler_map
+    ):
+        mock_details.return_value = self._details()
+        mock_find_match.return_value = {"mal_id": 269}
+        mock_jikan_details.return_value = self._jikan_details()  # no trailer_youtube_id key at all
+        with patch("tracker.integrations.tmdb.get_trailer", return_value={"key": "tmdb-trailer", "name": ""}):
+            resp = self.client.get(reverse("title_detail", args=[self.anime.pk]))
+        self.assertContains(resp, "https://www.youtube.com/embed/tmdb-trailer?autoplay=1")
 
     @patch("tracker.integrations.jikan.get_episode_filler_map", return_value={})
     @patch("tracker.integrations.jikan.get_anime_details")
@@ -13730,7 +13940,10 @@ class MdblistRatingsContextTests(TestCase):
         self.title = Title.objects.create(
             media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
         )
-        for name, default in (("get_director", None), ("get_watch_providers", []), ("get_season_details", None)):
+        for name, default in (
+            ("get_director", None), ("get_watch_providers", []), ("get_season_details", None),
+            ("get_trailer", None), ("get_backdrops", []),
+        ):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -14427,6 +14640,7 @@ class PreviewEpisodeBrowserTests(TestCase):
         self.client.login(username="previewepisodeuser", password="pass12345")
         for name, default in (
             ("get_director", None), ("get_watch_providers", []), ("get_credits", []), ("get_similar", []),
+            ("get_trailer", None), ("get_backdrops", []),
         ):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
             patcher.start()
@@ -15342,7 +15556,9 @@ class TitlePreviewViewTests(TestCase):
         user = User.objects.create_user("previewviewer", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="PreviewViewer")
         self.client.login(username="previewviewer", password="pass12345")
-        for name, default in (("get_director", None), ("get_watch_providers", [])):
+        for name, default in (
+            ("get_director", None), ("get_watch_providers", []), ("get_trailer", None), ("get_backdrops", []),
+        ):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -15377,6 +15593,28 @@ class TitlePreviewViewTests(TestCase):
         self.assertTrue(resp.context["is_preview"])
         self.assertContains(resp, "Fathom")
         self.assertContains(resp, "Lists")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.get_trailer")
+    def test_preview_offers_the_same_trailer_button_a_tracked_title_would(
+        self, mock_trailer, mock_details, mock_credits, mock_similar
+    ):
+        mock_trailer.return_value = {"key": "abc123", "name": ""}
+        mock_details.return_value = self._details()
+        resp = self.client.get(reverse("title_preview", args=["movie", 42]))
+        self.assertContains(resp, "Watch trailer")
+        self.assertContains(resp, "https://www.youtube.com/embed/abc123?autoplay=1")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_preview_has_no_trailer_button_when_tmdb_has_none(self, mock_details, mock_credits, mock_similar):
+        # get_trailer defaults to None via setUp's own unconditional mock.
+        mock_details.return_value = self._details()
+        resp = self.client.get(reverse("title_preview", args=["movie", 42]))
+        self.assertNotContains(resp, "Watch trailer")
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -16291,7 +16529,10 @@ class TitleDetailCastRowPersonLinksTests(TestCase):
             media_type=MediaType.MOVIE, name="Fathom", year=2020,
             external_ids={"tmdb": "42", "tmdb_kind": "movie"},
         )
-        for name, default in (("get_watch_providers", []), ("get_season_details", None), ("get_similar", [])):
+        for name, default in (
+            ("get_watch_providers", []), ("get_season_details", None), ("get_similar", []),
+            ("get_trailer", None), ("get_backdrops", []),
+        ):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
             patcher.start()
             self.addCleanup(patcher.stop)
