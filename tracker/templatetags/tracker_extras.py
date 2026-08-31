@@ -1,7 +1,28 @@
 from django import template
+from django.urls import reverse
 from django.utils import timezone
 
 register = template.Library()
+
+
+@register.simple_tag
+def episode_detail_url(title_pk, season, episode_number):
+    """title_detail's own URL, deep-linked to a specific episode via
+    ?season=N (which views._episode_panel_context already reads off
+    request.GET) and a #episode-N-M fragment - base.html's own
+    scrollToEpisodeAnchor() reads this on page load and jumps straight to
+    (and briefly highlights) that episode's own card in
+    title_episodes.html, matched by its data-episode="N-M" attribute
+    (see that template's own comment for why a data attribute, not an
+    id). Used wherever a specific episode is shown with a link to its
+    title (poster_card.html's Continue Watching/Social Activity rows) -
+    falls back to the plain title_detail URL when there's no specific
+    episode to jump to (a movie, or a show with no current episode
+    resolved yet)."""
+    base = reverse("title_detail", args=[title_pk])
+    if not season or not episode_number:
+        return base
+    return f"{base}?season={season}#episode-{season}-{episode_number}"
 
 
 @register.filter

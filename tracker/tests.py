@@ -1055,8 +1055,8 @@ class TmdbDetailsTests(TestCase):
         self.assertEqual(details["number_of_episodes"], 24)
         self.assertEqual(details["episode_run_time"], 24)
         self.assertEqual(details["seasons"], [
-            {"season_number": 1, "episode_count": 12, "vote_average": 8.1},
-            {"season_number": 2, "episode_count": 12, "vote_average": 0},
+            {"season_number": 1, "episode_count": 12, "vote_average": 8.1, "poster_url": None},
+            {"season_number": 2, "episode_count": 12, "vote_average": 0, "poster_url": None},
         ])
 
     @override_settings(TMDB_API_KEY="test-key")
@@ -1065,6 +1065,18 @@ class TmdbDetailsTests(TestCase):
         mock_get.return_value = self._response({"id": 99, "number_of_episodes": 24, "seasons": []})
         details = tmdb.get_tv_details(99)
         self.assertIsNone(details["episode_run_time"])
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_get_tv_details_builds_a_poster_url_per_season(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 99, "number_of_episodes": 12, "episode_run_time": [24],
+                "seasons": [{"season_number": 1, "episode_count": 12, "vote_average": 8.1, "poster_path": "/s1.jpg"}],
+            }
+        )
+        details = tmdb.get_tv_details(99)
+        self.assertEqual(details["seasons"][0]["poster_url"], "https://image.tmdb.org/t/p/w500/s1.jpg")
 
     @override_settings(TMDB_API_KEY="test-key")
     @patch("tracker.integrations.tmdb._http_session.get")
@@ -7685,6 +7697,26 @@ class EpisodeBrowserSelectorTests(TestCase):
         self.assertEqual(selectors.watched_episode_numbers(self.profile, self.show, season=2), {1})
         self.assertEqual(selectors.watched_episode_numbers(self.profile, self.show, season=99), set())
 
+    def test_watched_episode_counts_by_season_groups_across_every_season(self):
+        self._watch(season=1, episode_num=1)
+        self._watch(season=1, episode_num=2)
+        self._watch(season=2, episode_num=1)
+        self.assertEqual(
+            selectors.watched_episode_counts_by_season(self.profile, self.show), {1: 2, 2: 1}
+        )
+
+    def test_watched_episode_counts_by_season_deduplicates_rewatches(self):
+        event = self._watch(season=1, episode_num=1)
+        from django.utils import timezone
+
+        WatchEvent.objects.create(
+            profile=self.profile, title=self.show, episode=event.episode, watched_at=timezone.now()
+        )
+        self.assertEqual(selectors.watched_episode_counts_by_season(self.profile, self.show), {1: 1})
+
+    def test_watched_episode_counts_by_season_empty_with_no_history(self):
+        self.assertEqual(selectors.watched_episode_counts_by_season(self.profile, self.show), {})
+
 
 class DailyBreakdownTests(TestCase):
     def setUp(self):
@@ -11398,6 +11430,24 @@ class DashboardWatchingWatchlistTests(TestCase):
         self.assertContains(resp, f'hx-delete="/api/watch-progress/{watching_title.pk}"')
         self.assertNotContains(resp, f'hx-delete="/api/watch-progress/{watchlist_title.pk}"')
 
+    def test_watching_a_show_links_straight_to_the_current_episode(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Black Clover", year=2017)
+        ep = Episode.objects.create(title=show, season=1, episode=130)
+        WatchProgress.objects.create(
+            profile=self.profile, title=show, current_episode=ep, status=WatchProgress.Status.WATCHING
+        )
+        resp = self.client.get(reverse("dashboard"))
+        expected = f'{reverse("title_detail", args=[show.pk])}?season=1#episode-1-130'
+        self.assertContains(resp, expected)
+
+    def test_watching_a_movie_links_to_the_plain_title_page(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="A Movie", year=2020, runtime_minutes=100)
+        WatchProgress.objects.create(
+            profile=self.profile, title=movie, position_seconds=100, status=WatchProgress.Status.WATCHING
+        )
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, f'href="{reverse("title_detail", args=[movie.pk])}"')
+
     @patch("tracker.integrations.tmdb.get_similar")
     def test_because_you_watched_row_is_disabled_for_now(self, mock_get_similar):
         title = Title.objects.create(
@@ -12527,6 +12577,17 @@ class TitleEpisodeBrowserTests(TestCase):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
             patcher.start()
             self.addCleanup(patcher.stop)
+        # get_tv_details defaults to this class's own _tv_details() (3
+        # seasons, no ratings/posters) unconditionally - it used to go
+        # unmocked entirely here (a real, uncontrolled network call on
+        # every test in this class), which only ever "worked" because
+        # _list_request degrades to None on any failure and nothing here
+        # asserted on season_ratings/season_cards. Individual tests
+        # override this via mock_tv_details when they need real season
+        # data (ratings, posters, episode counts).
+        tv_details_patcher = patch("tracker.integrations.tmdb.get_tv_details", return_value=self._tv_details())
+        self.mock_tv_details = tv_details_patcher.start()
+        self.addCleanup(tv_details_patcher.stop)
         # title_detail also queues an MDBList ratings fetch for this
         # title (it has a tmdb id) - patched unconditionally so no test
         # here needs its own mock just to avoid a real background dispatch
@@ -12555,13 +12616,17 @@ class TitleEpisodeBrowserTests(TestCase):
             ]
         }
 
-    def _tv_details(self, season_ratings=None, number_of_seasons=3):
+    def _tv_details(self, season_ratings=None, number_of_seasons=3, season_posters=None):
         season_ratings = season_ratings or {}
+        season_posters = season_posters or {}
         return {
             "number_of_episodes": 30,
             "episode_run_time": None,
             "seasons": [
-                {"season_number": s, "episode_count": 10, "vote_average": season_ratings.get(s)}
+                {
+                    "season_number": s, "episode_count": 10, "vote_average": season_ratings.get(s),
+                    "poster_url": season_posters.get(s),
+                }
                 for s in range(1, number_of_seasons + 1)
             ],
         }
@@ -12686,6 +12751,97 @@ class TitleEpisodeBrowserTests(TestCase):
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         self.assertIsNone(resp.context["season_total_runtime"])
         self.assertNotContains(resp, "total</span>")
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_season_cards_carry_poster_episode_count_and_percent(
+        self, mock_details, mock_credits, mock_similar, mock_season
+    ):
+        from django.utils import timezone
+
+        self.mock_tv_details.return_value = self._tv_details(
+            number_of_seasons=2, season_posters={1: "https://image.tmdb.org/t/p/w500/s1.jpg"},
+        )
+        mock_details.return_value = self._details(number_of_seasons=2)
+        mock_season.return_value = self._season(["Ep1", "Ep2"])
+        ep1 = Episode.objects.create(title=self.title, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=self.title, episode=ep1, watched_at=timezone.now())
+
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        cards = resp.context["season_cards"]
+        self.assertEqual(len(cards), 2)
+        self.assertEqual(cards[0]["number"], 1)
+        self.assertEqual(cards[0]["poster_url"], "https://image.tmdb.org/t/p/w500/s1.jpg")
+        self.assertEqual(cards[0]["total_episodes"], 10)
+        self.assertEqual(cards[0]["watched_count"], 1)
+        self.assertEqual(cards[0]["percent"], 10)
+        self.assertEqual(cards[1]["watched_count"], 0)
+        self.assertContains(resp, "https://image.tmdb.org/t/p/w342/s1.jpg")  # downsized via |poster_size
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_season_card_watched_count_is_capped_at_tmdbs_own_episode_count(
+        self, mock_details, mock_credits, mock_similar, mock_season
+    ):
+        # A rewatch-heavy season, or one TMDB revised episode_count down
+        # for after it finished airing, shouldn't show as e.g. "12/10
+        # episodes"/120%.
+        from django.utils import timezone
+
+        self.mock_tv_details.return_value = self._tv_details(number_of_seasons=1)
+        mock_details.return_value = self._details(number_of_seasons=1)
+        mock_season.return_value = self._season([f"Ep{i}" for i in range(1, 13)])
+        for i in range(1, 13):
+            ep = Episode.objects.create(title=self.title, season=1, episode=i)
+            WatchEvent.objects.create(profile=self.profile, title=self.title, episode=ep, watched_at=timezone.now())
+
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        card = resp.context["season_cards"][0]
+        self.assertEqual(card["watched_count"], 10)
+        self.assertEqual(card["percent"], 100)
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_season_progress_strip_reflects_the_selected_season(
+        self, mock_details, mock_credits, mock_similar, mock_season
+    ):
+        from django.utils import timezone
+
+        mock_details.return_value = self._details()
+        mock_season.return_value = {
+            "episodes": [
+                {"episode_number": 1, "name": "Ep1", "still_url": None, "air_date": None, "vote_average": None, "runtime": 40},
+                {"episode_number": 2, "name": "Ep2", "still_url": None, "air_date": None, "vote_average": None, "runtime": 45},
+            ]
+        }
+        ep1 = Episode.objects.create(title=self.title, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=self.title, episode=ep1, watched_at=timezone.now())
+
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertEqual(resp.context["season_watched_count"], 1)
+        self.assertEqual(resp.context["season_remaining_count"], 1)
+        self.assertEqual(resp.context["season_remaining_runtime"], "45m")
+        self.assertContains(resp, "1 watched")
+        self.assertContains(resp, "1 left")
+        self.assertContains(resp, "45m left")
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_season_card_row_links_to_the_episodes_endpoint_per_season(
+        self, mock_details, mock_credits, mock_similar, mock_season
+    ):
+        mock_details.return_value = self._details(number_of_seasons=2)
+        mock_season.return_value = self._season(["Ep1"])
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, f'{reverse("title_episodes", args=[self.title.pk])}?season=2')
 
     @patch("tracker.integrations.tmdb.get_season_details")
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
@@ -16951,6 +17107,34 @@ class PosterSizeFilterTests(TestCase):
         self.assertEqual(poster_size(backdrop, "w185"), backdrop)
 
 
+class EpisodeDetailUrlTagTests(TestCase):
+    """tracker_extras.episode_detail_url - the deep link Continue
+    Watching/Social Activity's poster cards use to jump straight to a
+    specific episode (base.html's scrollToEpisodeAnchor is the other
+    half of this)."""
+
+    def setUp(self):
+        self.title = Title.objects.create(media_type=MediaType.TV, name="Black Clover", year=2017)
+
+    def test_builds_a_season_and_episode_anchor(self):
+        from tracker.templatetags.tracker_extras import episode_detail_url
+
+        url = episode_detail_url(self.title.pk, 1, 130)
+        self.assertEqual(url, f"{reverse('title_detail', args=[self.title.pk])}?season=1#episode-1-130")
+
+    def test_falls_back_to_the_plain_url_with_no_season(self):
+        from tracker.templatetags.tracker_extras import episode_detail_url
+
+        url = episode_detail_url(self.title.pk, None, None)
+        self.assertEqual(url, reverse("title_detail", args=[self.title.pk]))
+
+    def test_falls_back_to_the_plain_url_with_no_episode_number(self):
+        from tracker.templatetags.tracker_extras import episode_detail_url
+
+        url = episode_detail_url(self.title.pk, 1, None)
+        self.assertEqual(url, reverse("title_detail", args=[self.title.pk]))
+
+
 class AnimationSystemTests(TestCase):
     """The animation system's server-driven half: base.html's
     <body data-animations> attribute, set straight from
@@ -19179,6 +19363,30 @@ class TitleDropAndResumeWatchingTests(TestCase):
         self.client.post(reverse("title_drop", args=[self.title.pk]))
         items = selectors.continue_watching(self.profile)
         self.assertNotIn(self.title, [item["title"] for item in items])
+
+    def test_continue_watching_carries_the_current_episode_for_a_show(self):
+        episode = Episode.objects.create(title=self.title, season=1, episode=130)
+        WatchProgress.objects.create(
+            profile=self.profile, title=self.title, current_episode=episode, status=WatchProgress.Status.WATCHING
+        )
+        item = selectors.continue_watching(self.profile)[0]
+        self.assertEqual(item["season"], 1)
+        self.assertEqual(item["episode_number"], 130)
+
+    def test_continue_watching_has_no_episode_for_a_show_with_none_resolved_yet(self):
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.WATCHING)
+        item = selectors.continue_watching(self.profile)[0]
+        self.assertIsNone(item["season"])
+        self.assertIsNone(item["episode_number"])
+
+    def test_continue_watching_has_no_episode_for_a_movie(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="A Movie", year=2020, runtime_minutes=100)
+        WatchProgress.objects.create(
+            profile=self.profile, title=movie, position_seconds=100, status=WatchProgress.Status.WATCHING
+        )
+        item = next(i for i in selectors.continue_watching(self.profile) if i["title"] == movie)
+        self.assertIsNone(item["season"])
+        self.assertIsNone(item["episode_number"])
 
     def test_requires_login(self):
         self.client.logout()

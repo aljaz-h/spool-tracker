@@ -1,5 +1,22 @@
 {% load tracker_extras icons %}
-{# context: title, progress, show_ratings, user_rating, width_class, event_profile (Profile - Dashboard's Social Activity row, shows who watched it), event_episode (Episode, optional - paired with event_profile, shows which episode) plus watched_by_title/watch_count_by_title/my_lists/list_membership from selectors.poster_action_context() #}
+{# context: title, progress (dict, optional - selectors.continue_watching()'s own shape, now also carrying season/episode_number), show_ratings, user_rating, width_class, event_profile (Profile - Dashboard's Social Activity row, shows who watched it), event_episode (Episode, optional - paired with event_profile, shows which episode) plus watched_by_title/watch_count_by_title/my_lists/list_membership from selectors.poster_action_context() #}
+{% comment %}
+  detail_url deep-links straight to whichever specific episode this
+  card is actually showing (Continue Watching's own current_episode, or
+  Social Activity's event_episode) instead of just the title's own page -
+  see episode_detail_url's own docstring. Branched rather than chained
+  through |default: - progress and event_episode are each only ever
+  passed by the one caller that has them, so a fallback filter argument
+  reaching for whichever one *isn't* passed would be reaching for a
+  variable this include's own context never defined at all.
+{% endcomment %}
+{% if progress.season %}
+  {% episode_detail_url title.pk progress.season progress.episode_number as detail_url %}
+{% elif event_episode %}
+  {% episode_detail_url title.pk event_episode.season event_episode.episode as detail_url %}
+{% else %}
+  {% url 'title_detail' title.pk as detail_url %}
+{% endif %}
 {% comment %}
 Two <a> tags to the same URL (image box + text block below) instead of
 one wrapping anchor, so the action bar can sit below the image as a
@@ -14,7 +31,7 @@ to avoid triggering navigation.
     {% if title.poster_url %}
       <img src="{{ title.poster_url|poster_size:"w342" }}" alt="{{ title.name }}" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
     {% endif %}
-    <a href="{% url 'title_detail' title.pk %}" class="absolute inset-0 z-0">
+    <a href="{{ detail_url }}" class="absolute inset-0 z-0">
       <span class="absolute top-2 right-2 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ title.media_type|upper }}</span>
     </a>
     {% if progress %}
@@ -57,7 +74,7 @@ to avoid triggering navigation.
     {% include "tracker/partials/poster_card_watched_button.html" with title=title watched=watched_by_title|get_item:title.pk watch_count=watch_count_by_title|get_item:title.pk %}
     {% include "tracker/partials/poster_card_list_popover.html" with title=title my_lists=my_lists in_list_ids=list_membership|get_item:title.pk %}
   </div>
-  <a href="{% url 'title_detail' title.pk %}" class="block mt-2 min-w-0">
+  <a href="{{ detail_url }}" class="block mt-2 min-w-0">
     {% if progress %}
       <div class="mb-2">
         {% include "tracker/partials/sprocket_bar.html" with percent=progress.percent caption=progress.caption %}

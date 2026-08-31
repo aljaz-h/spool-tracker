@@ -1109,10 +1109,26 @@ def _episode_panel_context(request, profile, title, tmdb_id, details, force_seas
     call, but zero per-season round-trips) for the season-picker
     dropdown to show next to every season, not just the selected one -
     a different figure from season_avg_rating below, which is the mean
-    of the SELECTED season's own episodes' individual ratings."""
+    of the SELECTED season's own episodes' individual ratings.
+
+    season_cards ([{"number", "poster_url", "total_episodes",
+    "watched_count", "percent"}, ...], one per season.number in
+    "seasons") is the season picker's own Trakt-style card grid
+    (title_episodes.html) - poster/total_episodes still come from that
+    same get_tv_details call (get_tv_details' own per-season
+    poster_path), watched_count from one grouped query across every
+    season at once (selectors.watched_episode_counts_by_season).
+
+    season_watched_count/season_remaining_count/season_remaining_runtime
+    are the same idea but for just the SELECTED season, computed off
+    the episodes list below rather than season_cards' own TMDB-reported
+    total - keeps this strip consistent with what the episode list
+    right below it actually shows, even if TMDB's episode_count for a
+    season doesn't quite match how many episodes it returned details for."""
     context = {
         "seasons": [], "season": None, "episodes": [], "season_avg_rating": None,
-        "season_ratings": {}, "season_total_runtime": None,
+        "season_ratings": {}, "season_total_runtime": None, "season_cards": [],
+        "season_watched_count": 0, "season_remaining_count": 0, "season_remaining_runtime": None,
         "season_fully_watched": False, "show_completed": False,
     }
     number_of_seasons = details["number_of_seasons"] if details else None
@@ -1123,6 +1139,35 @@ def _episode_panel_context(request, profile, title, tmdb_id, details, force_seas
     tv_details = tmdb.get_tv_details(tmdb_id) if tmdb_id else None
     if tv_details:
         context["season_ratings"] = {s["season_number"]: s.get("vote_average") or None for s in tv_details["seasons"]}
+
+    # The season picker's own card grid (title_episodes.html) - poster/
+    # episode-count per season come from this same tv_details call
+    # above (no extra TMDB round-trip), watched_count from one grouped
+    # query across every season at once (selectors.watched_episode_
+    # counts_by_season) rather than one query per card. Capped at
+    # total_episodes so a TMDB episode_count revised down after airing
+    # can't show as e.g. "26/24 episodes"/over 100%.
+    watched_counts_by_season = (
+        selectors.watched_episode_counts_by_season(profile, title) if profile and title else {}
+    )
+    tv_seasons_by_number = {s["season_number"]: s for s in tv_details["seasons"]} if tv_details else {}
+    season_cards = []
+    for n in context["seasons"]:
+        tv_season = tv_seasons_by_number.get(n) or {}
+        total_episodes = tv_season.get("episode_count") or 0
+        watched_count = watched_counts_by_season.get(n, 0)
+        if total_episodes:
+            watched_count = min(watched_count, total_episodes)
+        season_cards.append(
+            {
+                "number": n,
+                "poster_url": tv_season.get("poster_url"),
+                "total_episodes": total_episodes,
+                "watched_count": watched_count,
+                "percent": round(watched_count / total_episodes * 100) if total_episodes else 0,
+            }
+        )
+    context["season_cards"] = season_cards
 
     if force_season is not None:
         season = force_season
@@ -1157,6 +1202,14 @@ def _episode_panel_context(request, profile, title, tmdb_id, details, force_seas
     context["season_avg_rating"] = round(sum(rated) / len(rated), 1) if rated else None
     runtimes = [ep["runtime"] for ep in episodes if ep.get("runtime")]
     context["season_total_runtime"] = selectors.format_duration(sum(runtimes)) if runtimes else None
+    # The season picker's own "N watched · N left · runtime left" summary
+    # strip (title_episodes.html) - computed straight off this same
+    # episodes list (not season_cards' TMDB-reported total) so it's
+    # always consistent with what's actually rendered below it.
+    context["season_watched_count"] = sum(1 for ep in episodes if ep["watched"])
+    context["season_remaining_count"] = len(episodes) - context["season_watched_count"]
+    remaining_runtimes = [ep["runtime"] for ep in episodes if ep.get("runtime") and not ep["watched"]]
+    context["season_remaining_runtime"] = selectors.format_duration(sum(remaining_runtimes)) if remaining_runtimes else None
     return context
 
 

@@ -1,5 +1,15 @@
 {% load tracker_extras %}
 {# context: group (dict: title, count, range_label, total_duration, events, timeline_events - same-title/same-day episode watches) #}
+{% comment %}
+  Deep-links to whichever episode was watched LAST in this binge
+  session (timeline_events' own actual-watched-order, not group.events'
+  page sort) - "where this session ended" is the one worth landing on,
+  same idea as Continue Watching's own current_episode. Computed twice
+  (once per <a> below, each in its own {% with %}) rather than once up
+  top - a variable assigned via `as` inside {% with %} doesn't survive
+  past its own {% endwith %}, since {% with %} pushes and pops a real
+  context scope.
+{% endcomment %}
 <div class="group relative" data-history-tile>
   <label
     x-show="selecting" x-cloak
@@ -20,11 +30,18 @@
     {% if group.title.poster_url %}
       <img src="{{ group.title.poster_url|poster_size:"w342" }}" alt="{{ group.title.name }}" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
     {% endif %}
-    <a href="{% url 'title_detail' group.title.pk %}" class="absolute inset-0 z-0" @click="if (selecting) $event.preventDefault()">
-      <div class="absolute inset-0 bg-linear-to-t from-black/50 to-transparent"></div>
-      <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ group.range_label }}</span>
-      <span class="absolute bottom-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ group.title.media_type|upper }}</span>
-    </a>
+    {% with last_event=group.timeline_events|last %}
+      {% if last_event.episode %}
+        {% episode_detail_url group.title.pk last_event.episode.season last_event.episode.episode as detail_url %}
+      {% else %}
+        {% url 'title_detail' group.title.pk as detail_url %}
+      {% endif %}
+      <a href="{{ detail_url }}" class="absolute inset-0 z-0" @click="if (selecting) $event.preventDefault()">
+        <div class="absolute inset-0 bg-linear-to-t from-black/50 to-transparent"></div>
+        <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ group.range_label }}</span>
+        <span class="absolute bottom-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ group.title.media_type|upper }}</span>
+      </a>
+    {% endwith %}
     {% comment %}
       The count badge is a sibling of the poster anchor, not nested
       inside it (same reasoning as poster_card.html's own action bar) -
@@ -109,8 +126,15 @@
       ></div>
     {% endfor %}
   </div>
-  <a href="{% url 'title_detail' group.title.pk %}" class="block mt-1.5 min-w-0" @click="if (selecting) $event.preventDefault()">
-    <div class="text-[11.5px] font-semibold truncate">{{ group.title.name }}</div>
-    <div class="text-[10px] font-mono text-ink-dim mt-0.5">{{ group.count }} episodes{% if group.total_duration %} · {{ group.total_duration }}{% endif %}</div>
-  </a>
+  {% with last_event=group.timeline_events|last %}
+    {% if last_event.episode %}
+      {% episode_detail_url group.title.pk last_event.episode.season last_event.episode.episode as detail_url %}
+    {% else %}
+      {% url 'title_detail' group.title.pk as detail_url %}
+    {% endif %}
+    <a href="{{ detail_url }}" class="block mt-1.5 min-w-0" @click="if (selecting) $event.preventDefault()">
+      <div class="text-[11.5px] font-semibold truncate">{{ group.title.name }}</div>
+      <div class="text-[10px] font-mono text-ink-dim mt-0.5">{{ group.count }} episodes{% if group.total_duration %} · {{ group.total_duration }}{% endif %}</div>
+    </a>
+  {% endwith %}
 </div>

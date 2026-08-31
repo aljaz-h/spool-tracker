@@ -147,18 +147,21 @@ def get_movie_details(tmdb_id):
 
 def get_tv_details(tmdb_id):
     """Returns {"number_of_episodes": int|None, "episode_run_time": int|None,
-    "seasons": [{"season_number": int, "episode_count": int, "vote_average": float|None}, ...]}
-    or None on failure. episode_run_time is TMDB's show-level typical
-    duration (first value of its episode_run_time array, when present) -
-    not a precise per-episode figure, which would need one API call per
-    episode and isn't worth it just for a watch-time estimate. Each
-    season's own vote_average is TMDB's rating for that season's own
-    page (voted on directly, not a mean of its episodes' own ratings) -
-    cheap per-season rating data from this one call, vs. the per-episode
-    average get_season_details' episodes would need a whole extra call
-    per season to compute. Routed through _list_request (same 6h cache
-    as every other TMDB lookup here) - this is called on every page view
-    of a show's detail/episode-browser page (see views._episode_panel_
+    "seasons": [{"season_number": int, "episode_count": int, "vote_average": float|None,
+    "poster_url": str|None}, ...]} or None on failure. episode_run_time is
+    TMDB's show-level typical duration (first value of its episode_run_time
+    array, when present) - not a precise per-episode figure, which would
+    need one API call per episode and isn't worth it just for a watch-time
+    estimate. Each season's own vote_average is TMDB's rating for that
+    season's own page (voted on directly, not a mean of its episodes' own
+    ratings) - cheap per-season rating data from this one call, vs. the
+    per-episode average get_season_details' episodes would need a whole
+    extra call per season to compute. poster_url is that season's own
+    (often different from the show's own poster_path on details) - the
+    season picker's card grid uses this directly rather than needing its
+    own per-season endpoint call. Routed through _list_request (same 6h
+    cache as every other TMDB lookup here) - this is called on every page
+    view of a show's detail/episode-browser page (see views._episode_panel_
     context), previously an uncached request per view."""
     data = _list_request(f"tv/{tmdb_id}")
     if not data or data.get("id") is None:
@@ -172,6 +175,7 @@ def get_tv_details(tmdb_id):
                 "season_number": s.get("season_number"),
                 "episode_count": s.get("episode_count"),
                 "vote_average": s.get("vote_average"),
+                "poster_url": f"{IMAGE_BASE}{s['poster_path']}" if s.get("poster_path") else None,
             }
             for s in (data.get("seasons") or [])
         ],

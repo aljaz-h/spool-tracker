@@ -136,6 +136,7 @@ def continue_watching(profile, media_types=None, limit=8):
 
     for progress in progresses:
         title = progress.title
+        season = episode_number = None
         if title.media_type == MediaType.MOVIE:
             total_seconds = (title.runtime_minutes or 0) * 60
             percent = min(100, round(progress.position_seconds / total_seconds * 100)) if total_seconds else 0
@@ -148,13 +149,21 @@ def continue_watching(profile, media_types=None, limit=8):
             ep = progress.current_episode
             percent, caption = 0, "In progress"
             if ep:
+                season, episode_number = ep.season, ep.episode
                 total_eps = season_totals.get((title.id, ep.season), 0)
                 if total_eps:
                     percent = min(100, round(ep.episode / total_eps * 100))
                     caption = f"S{ep.season}E{ep.episode} of {total_eps}"
                 else:
                     caption = f"S{ep.season}E{ep.episode}"
-        items.append({"title": title, "percent": percent, "caption": caption})
+        # season/episode_number (None for a movie, or a show with no
+        # current_episode yet) let poster_card.html deep-link straight to
+        # this episode (?season=N#episode-N-M) instead of just the
+        # title's own page - see title_episodes.html's own episode-card
+        # ids and app.css's :target styling for the other half of this.
+        items.append(
+            {"title": title, "percent": percent, "caption": caption, "season": season, "episode_number": episode_number}
+        )
     return items
 
 
@@ -1469,6 +1478,23 @@ def watched_episode_numbers(profile, title, season):
         WatchEvent.objects.filter(profile=profile, title=title, episode__season=season).values_list(
             "episode__episode", flat=True
         )
+    )
+
+
+def watched_episode_counts_by_season(profile, title):
+    """{season_number: distinct episode count watched}, across every
+    season of this show - the season picker's own per-card progress bar
+    (views._episode_panel_context). One grouped query (same
+    .values_list().annotate(Count()) idiom used elsewhere in this
+    module, e.g. stats' type_counts) instead of one query per season.
+    distinct=True on the Count so a rewatch (a second WatchEvent for the
+    same episode) doesn't inflate the count past that season's own
+    actual episode total."""
+    return dict(
+        WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=False)
+        .values_list("episode__season")
+        .annotate(c=Count("episode", distinct=True))
+        .order_by()
     )
 
 

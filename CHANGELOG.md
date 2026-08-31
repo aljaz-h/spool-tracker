@@ -8,6 +8,41 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.115.0] - 2026-08-31
+
+### Added
+
+- The episode browser's season selector is now a Trakt-style horizontal
+  poster-card row instead of a dropdown - each card shows the season's
+  own TMDB poster, its rating, and a thin progress bar for watched/total
+  episodes, with the selected season outlined. Uses each season's
+  poster already returned by TMDB's own show-details call, so no new
+  field or migration was needed. The "Season N progress" strip below
+  the row still updates on the same HTMX swap as before.
+
+### Fixed
+
+- The trailer modal's embedded YouTube player no longer fails with
+  "Error 153" - the iframe's `src` was being set while the dialog was
+  still closed (and therefore zero-sized per the browser's own
+  stylesheet), which YouTube's player rejects; the dialog now opens
+  first. Also stopped Django's default referrer policy from stripping
+  the `Referer` header on the cross-origin request to YouTube, which
+  some videos' embed checks reject outright.
+- Clicking an episode from Continue Watching, History, or Social
+  Activity now lands directly on that episode in the media page and
+  briefly highlights it, instead of leaving it to scroll down and find
+  manually.
+- The Discover pages show 3 posters per row on mobile instead of 2.
+- Dashboard rows (Watchlist, Start Watching, Recently Watched, Social
+  Activity, On This Day) can now be scrolled horizontally on mobile -
+  previously only Continue Watching could, so several rows with no
+  "See all" link were stuck showing just one card and a sliver of the
+  next.
+- The episode number badge (e.g. "S1E130") on episode cards is legible
+  again on mobile and in some desktop conditions, where it had blended
+  into the background.
+
 ## [0.114.0] - 2026-08-30
 
 ### Added

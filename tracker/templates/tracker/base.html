@@ -124,17 +124,51 @@
     // passed in, scoped per title/preview via poster_seed - see
     // title_detail.html) and only then points its iframe at the real
     // embed src (kept on data-src until now) so YouTube isn't fetched
-    // at all until someone actually asks for it. The dialog's native
-    // "close" event (Esc, backdrop click, the ✕ button - all of them
-    // fire it) clears the src back out again, since just hiding the
-    // dialog leaves the video (and its audio) still playing behind it.
+    // at all until someone actually asks for it. showModal() has to run
+    // BEFORE the src is set, not after - a closed <dialog> is
+    // display:none per the UA stylesheet, so an iframe inside it lays
+    // out at 0x0 width/height; YouTube's player detects that zero-size
+    // frame during init and refuses to play at all (shows as "Error
+    // 153: Video player configuration error", not a blank/loading
+    // player) - the requestAnimationFrame gives the browser one paint
+    // to actually size the now-visible dialog before the iframe starts
+    // loading into it. The dialog's native "close" event (Esc, backdrop
+    // click, the ✕ button - all of them fire it) clears the src back
+    // out again, since just hiding the dialog leaves the video (and its
+    // audio) still playing behind it.
     window.openTrailerModal = (id) => {
       const modal = document.getElementById(id);
       const iframe = modal.querySelector('iframe');
-      iframe.src = iframe.dataset.src;
       modal.addEventListener('close', () => { iframe.src = ''; }, { once: true });
       modal.showModal();
+      requestAnimationFrame(() => { iframe.src = iframe.dataset.src; });
     };
+    // A title detail page's own #episode-N-M link (built by
+    // tracker_extras.episode_detail_url - Continue Watching/Social
+    // Activity's poster cards) - jumps to and briefly highlights that
+    // specific episode's own card in the episode browser below, instead
+    // of leaving the visitor to scroll down and hunt for it themselves.
+    // Matched by data-episode="N-M" (title_episodes.html's own comment
+    // explains why that's a data attribute and not an id) rather than
+    // left to the browser's native #fragment scroll: that episode's
+    // card actually exists twice in the DOM (a separate mobile-row/
+    // desktop-card layout, toggled by CSS display, not conditional
+    // rendering), and native fragment navigation can't be trusted to
+    // pick whichever copy is actually visible at the current viewport
+    // width over the other, hidden one. block: 'center' rather than the
+    // default 'start' so the topbar's own sticky header never ends up
+    // overlapping it, without needing a scroll-margin-top guess.
+    function scrollToEpisodeAnchor() {
+      const match = location.hash.match(/^#episode-(\d+-\d+)$/);
+      if (!match) return;
+      const candidates = document.querySelectorAll(`[data-episode="${match[1]}"]`);
+      const target = Array.from(candidates).find((el) => el.offsetParent !== null) || candidates[0];
+      if (!target) return;
+      target.scrollIntoView({ block: 'center' });
+      target.classList.add('episode-card-highlight');
+      setTimeout(() => target.classList.remove('episode-card-highlight'), 2000);
+    }
+    document.addEventListener('DOMContentLoaded', scrollToEpisodeAnchor);
     // htmx's documented custom-confirm recipe: intercept the cancelable
     // htmx:confirm event and only call issueRequest(true) (proceeding
     // with the original request) once the dialog above resolves true.

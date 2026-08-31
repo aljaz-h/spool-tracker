@@ -12,6 +12,15 @@ cutoff) edge too whenever percent < 100.
 <div class="relative h-7 rounded-lg overflow-hidden bg-primary/20">
   <div class="absolute inset-y-0 left-0 bg-primary" style="width:{{ percent }}%"></div>
   <div class="absolute inset-0 flex items-center justify-center px-2">
-    <span class="font-mono text-[10.5px] font-bold text-white truncate">{{ caption }}</span>
+    {% comment %}
+      A dark text-shadow (not plain text-white alone) since this caption
+      sits across two very different backgrounds in the same bar -
+      bg-primary/20 (dark, plain white reads fine) on the unfilled side
+      and solid bg-primary (this theme's primary is a bright amber -
+      white-on-amber is a real contrast failure) on the filled side. The
+      shadow keeps it legible over both without needing two different
+      text colors split at the same point the fill itself is.
+    {% endcomment %}
+    <span class="font-mono text-[10.5px] font-bold text-white truncate [text-shadow:0_1px_3px_rgba(0,0,0,0.9)]">{{ caption }}</span>
   </div>
 </div>

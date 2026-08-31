@@ -197,6 +197,24 @@
   background-color: var(--color-base-300);
 }
 
+/* JS-toggled (base.html's scrollToEpisodeAnchor, not :target - see its
+   own comment for why) brief flash on whichever episode card a Continue
+   Watching/Social Activity poster card's own #episode-N-M link jumped
+   to, so it's obvious which one just got scrolled to instead of the
+   visitor having to spot it themselves against a whole season of
+   otherwise-identical cards. */
+.episode-card-highlight {
+  animation: episode-card-flash 2s ease-out;
+}
+@keyframes episode-card-flash {
+  0%, 35% {
+    box-shadow: 0 0 0 2px var(--color-primary);
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
 /* Clips a CSS grid to exactly its first two row tracks - person_detail's
    filmography sections ("show two rows, then a Show all button") rather
    than an item-count cutoff, since the grid's own column count (and so
