@@ -3736,6 +3736,19 @@ class NotificationsPanelViewTests(TestCase):
         resp = self.client.get(reverse("notifications_panel"))
         self.assertEqual(resp.status_code, 200)
 
+    def test_no_raw_template_comment_leaks_into_the_rendered_panel(self):
+        # Regression test: notification_row.html/notifications_panel.html
+        # once opened with a multi-line {# ... #} comment - Django's {# #}
+        # tag only recognizes single-line comments (its tokenizer regex
+        # has no re.DOTALL), so a comment spanning multiple lines silently
+        # falls through as literal text instead of being stripped. Fixed
+        # by switching those to {% comment %}...{% endcomment %}, which
+        # does support multiple lines - this guards against it recurring.
+        Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="x")
+        resp = self.client.get(reverse("notifications_panel"))
+        self.assertNotContains(resp, "{#")
+        self.assertNotContains(resp, "#}")
+
 
 class NotificationsListViewTests(TestCase):
     """The panel's "View all" footer link - the same row/date-grouping
@@ -3756,6 +3769,11 @@ class NotificationsListViewTests(TestCase):
         resp = self.client.get(reverse("notifications_list"))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Sync failed here")
+        # Same regression guard as NotificationsPanelViewTests' own - see
+        # its docstring for why a stray multi-line {# #} comment can
+        # silently leak into rendered output instead of raising.
+        self.assertNotContains(resp, "{#")
+        self.assertNotContains(resp, "#}")
 
     def test_does_not_show_another_profiles_notifications(self):
         other_user = User.objects.create_user("alllistother", password="pass12345")

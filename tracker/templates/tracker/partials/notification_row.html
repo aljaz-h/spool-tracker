@@ -1,8 +1,10 @@
 {% load tracker_extras icons %}
-{# context: n (Notification, select_related title/release_schedule, with
-   .display_message set by _group_notifications_for_panel); changelog_url;
-   dismiss_next (optional - only set by notifications_list.html, see
-   below) #}
+{% comment %}
+  context: n (Notification, select_related title/release_schedule, with
+  .display_message set by _group_notifications_for_panel); changelog_url;
+  dismiss_next (optional - only set by notifications_list.html, see
+  below)
+{% endcomment %}
 <div
   data-notification-row
   class="notification-row group relative flex items-start gap-2.5 px-3 py-2.5 border-b border-l-2 border-line last:border-b-0 {% if not n.read %}bg-primary/5 border-l-primary{% else %}border-l-transparent{% endif %}"
@@ -48,9 +50,11 @@
       sees it appear instead of activating an invisible button.
     {% endcomment %}
     {% if dismiss_next %}
-      {# notifications_list.html - a plain full-page POST+redirect, not
-         htmx (see views.mark_notification_read's own non-HTMX branch
-         and notifications_list's docstring for why). #}
+      {% comment %}
+        notifications_list.html - a plain full-page POST+redirect, not
+        htmx (see views.mark_notification_read's own non-HTMX branch
+        and notifications_list's docstring for why).
+      {% endcomment %}
       <form method="post" action="{% url 'mark_notification_read' n.pk %}">
         {% csrf_token %}
         <input type="hidden" name="next" value="{{ dismiss_next }}">
