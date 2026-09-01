@@ -8,20 +8,6 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
-## [0.117.1] - 2026-09-01
-
-### Fixed
-
-- The previous pass's tooltip migration knocked several absolutely-
-  positioned corner overlays out of position (Settings' Show/hide-
-  password buttons; History's remove ×, sync-source badge, and
-  episode-count badge; the "Watched" checkmark overlay; a couple of
-  others) - `.spool-tooltip`'s own `position: relative` had equal CSS
-  specificity to Tailwind's `.absolute` and happened to compile later,
-  so it silently won and dropped them back into normal document flow.
-  Fixed by giving `.spool-tooltip` zero specificity (`:where()`) so it
-  never outranks a real positioning utility on the same element.
-
 ## [0.117.0] - 2026-09-01
 
 ### Added
