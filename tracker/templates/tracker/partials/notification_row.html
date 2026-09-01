@@ -1,0 +1,75 @@
+{% load tracker_extras icons %}
+{# context: n (Notification, select_related title/release_schedule, with
+   .display_message set by _group_notifications_for_panel); changelog_url;
+   dismiss_next (optional - only set by notifications_list.html, see
+   below) #}
+<div
+  data-notification-row
+  class="notification-row group relative flex items-start gap-2.5 px-3 py-2.5 border-b border-l-2 border-line last:border-b-0 {% if not n.read %}bg-primary/5 border-l-primary{% else %}border-l-transparent{% endif %}"
+>
+  {% comment %}
+    A real poster (or its gradient fallback) for every kind that carries
+    a title - release/recommendation/watchlist-stale kinds always do,
+    per Notification's own docstring - with a small dark corner badge
+    for the per-kind icon, same "marker over the poster's corner" idiom
+    history_group_tile.html already uses for its own sync-source badges.
+    sync_failed/system_update carry no title at all, so those get a
+    plain icon tile instead of a poster.
+  {% endcomment %}
+  <div class="w-8 h-11 rounded-md relative overflow-hidden flex-none {% if n.title %}{% if not n.title.poster_url %}{{ n.title.pk|gradient_class }}{% endif %}{% else %}bg-base-300{% endif %}">
+    {% if n.title and n.title.poster_url %}
+      <img src="{{ n.title.poster_url|poster_size:"w92" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+    {% endif %}
+    {% if n.title %}
+      <span class="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-tl-md bg-black/80 flex items-center justify-center {{ n.kind|notification_icon_tone }}">{% icon n.kind|notification_icon "w-2 h-2" %}</span>
+    {% else %}
+      <span class="absolute inset-0 flex items-center justify-center {{ n.kind|notification_icon_tone }}">{% icon n.kind|notification_icon "w-4 h-4" %}</span>
+    {% endif %}
+  </div>
+  <div class="min-w-0 flex-1">
+    {% if n.title %}
+      <a href="{% url 'title_detail' n.title.pk %}" class="text-[13.5px] {% if not n.read %}font-semibold{% else %}text-ink-dim{% endif %} block line-clamp-2 hover:underline">{{ n.display_message }}</a>
+    {% elif n.kind == "system_update" %}
+      <a href="{{ changelog_url }}" target="_blank" rel="noopener" class="text-[13.5px] {% if not n.read %}font-semibold{% else %}text-ink-dim{% endif %} block line-clamp-2 hover:underline">{{ n.display_message }}</a>
+    {% else %}
+      <div class="text-[13.5px] {% if not n.read %}font-semibold{% else %}text-ink-dim{% endif %} line-clamp-2">{{ n.display_message }}</div>
+    {% endif %}
+    <div class="text-[11.5px] text-ink-faint font-mono mt-0.5">{{ n.created_at|timesince }} ago</div>
+  </div>
+  {% if not n.read %}
+    {% comment %}
+      Replaces the old bare unread dot - doubles as the unread indicator
+      and the dismiss action (mark-as-read is this app's existing
+      single-notification "dismiss", see views.mark_notification_read's
+      own docstring). Always visible below sm: (no hover on touch),
+      hover/focus-reveal at sm: and up - focus-visible is the deliberate
+      addition over list_detail_items.html's own group-hover-only
+      convention, so a keyboard user tabbing through the panel actually
+      sees it appear instead of activating an invisible button.
+    {% endcomment %}
+    {% if dismiss_next %}
+      {# notifications_list.html - a plain full-page POST+redirect, not
+         htmx (see views.mark_notification_read's own non-HTMX branch
+         and notifications_list's docstring for why). #}
+      <form method="post" action="{% url 'mark_notification_read' n.pk %}">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ dismiss_next }}">
+        <button
+          type="submit"
+          title="Dismiss"
+          aria-label="Dismiss notification"
+          class="notification-dismiss w-6 h-6 rounded-md flex-none flex items-center justify-center text-ink-faint hover:text-base-content hover:bg-base-300 cursor-pointer opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+        >{% icon "x" "w-3.5 h-3.5" %}</button>
+      </form>
+    {% else %}
+      <button
+        type="button"
+        hx-post="{% url 'mark_notification_read' n.pk %}"
+        hx-target="#notifications-panel" hx-swap="outerHTML swap:150ms settle:150ms"
+        title="Dismiss"
+        aria-label="Dismiss notification"
+        class="notification-dismiss w-6 h-6 rounded-md flex-none flex items-center justify-center text-ink-faint hover:text-base-content hover:bg-base-300 cursor-pointer opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+      >{% icon "x" "w-3.5 h-3.5" %}</button>
+    {% endif %}
+  {% endif %}
+</div>

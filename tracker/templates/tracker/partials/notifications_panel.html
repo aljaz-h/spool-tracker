@@ -1,9 +1,11 @@
 {% load tracker_extras icons %}
-{# context: notifications (list of Notification, newest first, up to 20) #}
+{# context: has_notifications (bool); groups (dict: "personal"/"system" ->
+   {"recent": [{"date","items"}...], "upcoming": [{"date","items"}...]}) -
+   see views._group_notifications_for_panel #}
 <div id="notifications-panel" x-data="{ category: 'personal' }">
   <div class="flex items-center justify-between px-3 py-2 border-b border-line">
     <span class="text-xs font-semibold text-ink-dim uppercase tracking-wide">Notifications</span>
-    {% if notifications %}
+    {% if has_notifications %}
       <div class="flex items-center gap-1">
         <button
           type="button"
@@ -23,15 +25,17 @@
       </div>
     {% endif %}
   </div>
-  {% if notifications %}
+  {% if has_notifications %}
     {% comment %}
       A simple 2-way segmented toggle, not a 3rd "all" state - System
       groups the two kinds that aren't really "for" the viewer
       (sync_failed, system_update); everything else (new/upcoming
-      release, recommendations) is "For you". Purely a client-side
-      x-show filter over the notifications this same response already
-      fetched - Mark all read/Clear all still act on every notification
-      regardless of which tab is showing, not just the visible ones.
+      release, recommendations, watchlist nudges) is "For you". groups
+      is already split server-side by this same rule (see
+      views._group_notifications_for_panel), so this toggle just shows
+      one whole pre-built tree or the other - Mark all read/Clear all
+      still act on every notification regardless of which tab is
+      showing, not just the visible one.
     {% endcomment %}
     <div class="flex items-center gap-1 px-3 py-1.5 border-b border-line">
       <button
@@ -47,36 +51,39 @@
     </div>
   {% endif %}
   <div class="max-h-96 overflow-y-auto">
-    {% if not notifications %}
-      <div class="px-3 py-8 text-center text-ink-faint text-xs">Nothing yet.</div>
+    {% if not has_notifications %}
+      <div class="px-3 py-10 text-center text-ink-faint text-sm">You're all caught up — nothing new to see here.</div>
     {% else %}
-      {% for n in notifications %}
-        <div
-          x-show="category === '{% if n.kind == "sync_failed" or n.kind == "system_update" %}system{% else %}personal{% endif %}'"
-          class="flex items-start gap-2.5 px-3 py-2.5 border-b border-line last:border-b-0 {% if not n.read %}bg-primary/5{% endif %}"
-        >
-          <div class="min-w-0 flex-1">
-            {% if n.title %}
-              <a href="{% url 'title_detail' n.title.pk %}" class="text-[13.5px] {% if not n.read %}font-semibold{% endif %} block truncate hover:underline">{{ n.message }}</a>
-            {% elif n.kind == "system_update" %}
-              <a href="{{ changelog_url }}" target="_blank" rel="noopener" class="text-[13.5px] {% if not n.read %}font-semibold{% endif %} block truncate hover:underline">{{ n.message }}</a>
-            {% else %}
-              <div class="text-[13.5px] {% if not n.read %}font-semibold{% endif %} truncate">{{ n.message }}</div>
-            {% endif %}
-            <div class="text-[11.5px] text-ink-faint font-mono mt-0.5">{{ n.created_at|timesince }} ago</div>
-          </div>
-          {% if not n.read %}
-            <button
-              type="button"
-              hx-post="{% url 'mark_notification_read' n.pk %}"
-              hx-target="#notifications-panel" hx-swap="outerHTML"
-              class="w-1.5 h-1.5 rounded-full bg-primary flex-none mt-1.5 cursor-pointer"
-              title="Mark as read"
-              aria-label="Mark as read"
-            ></button>
-          {% endif %}
-        </div>
-      {% endfor %}
+      <div x-show="category === 'personal'">
+        {% if not groups.personal.recent and not groups.personal.upcoming %}
+          <div class="px-3 py-8 text-center text-ink-faint text-xs">Nothing here yet.</div>
+        {% endif %}
+        {% for group in groups.personal.recent %}
+          <div class="px-3 py-1.5 text-[11px] font-semibold text-ink-faint uppercase tracking-wide">{{ group.date|notif_day_label }}</div>
+          {% for n in group.items %}{% include "tracker/partials/notification_row.html" with n=n %}{% endfor %}
+        {% endfor %}
+        {% if groups.personal.upcoming %}
+          <div class="px-3 py-1.5 mt-1 text-[11px] font-semibold text-ink-faint uppercase tracking-wide border-t border-line">Upcoming</div>
+          {% for group in groups.personal.upcoming %}
+            <div class="px-3 py-1 text-[11px] font-semibold text-ink-dim">{{ group.date|notif_day_label }}</div>
+            {% for n in group.items %}{% include "tracker/partials/notification_row.html" with n=n %}{% endfor %}
+          {% endfor %}
+        {% endif %}
+      </div>
+      <div x-show="category === 'system'">
+        {% if not groups.system.recent %}
+          <div class="px-3 py-8 text-center text-ink-faint text-xs">Nothing here yet.</div>
+        {% endif %}
+        {% for group in groups.system.recent %}
+          <div class="px-3 py-1.5 text-[11px] font-semibold text-ink-faint uppercase tracking-wide">{{ group.date|notif_day_label }}</div>
+          {% for n in group.items %}{% include "tracker/partials/notification_row.html" with n=n %}{% endfor %}
+        {% endfor %}
+      </div>
     {% endif %}
   </div>
+  {% if has_notifications %}
+    <div class="px-3 py-2 border-t border-line text-center">
+      <a href="{% url 'notifications_list' %}" class="text-xs text-ink-faint hover:text-primary hover:underline">View all notifications</a>
+    </div>
+  {% endif %}
 </div>

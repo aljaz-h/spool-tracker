@@ -120,7 +120,15 @@
           this.$nextTick(() => {
             const rect = button.getBoundingClientRect();
             const panel = this.$refs.panel;
-            const width = 384;
+            // 420, not the other header panels' 384 - the notifications
+            // panel's rows now carry a poster thumbnail and up to
+            // 2 lines of message text (see notification_row.html),
+            // which read as cramped at the narrower width. max-w below
+            // is what actually keeps this on-screen on a phone
+            // narrower than 420+16px; this pixel figure only needs to
+            // roughly match the CSS width for the left-clamp math here
+            // to land in a sane spot, not be exact.
+            const width = 420;
             panel.style.left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)) + 'px';
             panel.style.top = (rect.bottom + 8) + 'px';
           });
@@ -139,7 +147,7 @@
           {% icon "bell" "w-[17px] h-[17px]" %}
           {% include "tracker/partials/notification_badge.html" %}
         </button>
-        <div x-ref="panel" x-cloak :class="{'spool-popover-open': open}" class="spool-popover fixed w-96 bg-base-200 border border-line rounded-lg shadow-lg z-40">
+        <div x-ref="panel" x-cloak :class="{'spool-popover-open': open}" class="spool-popover fixed w-[420px] max-w-[calc(100vw-1rem)] bg-base-200 border border-line rounded-lg shadow-lg z-40">
           <div id="notifications-dropdown-content" aria-live="polite">
             <div class="px-3 py-8 text-center text-ink-faint text-xs">Loading…</div>
           </div>

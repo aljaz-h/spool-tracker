@@ -4444,9 +4444,84 @@ def _notifications_badge_oob(request, profile):
     )
 
 
+_SYSTEM_NOTIFICATION_KINDS = {Notification.Kind.SYNC_FAILED, Notification.Kind.SYSTEM_UPDATE}
+
+
+def _notification_display_message(notification):
+    """The row text once it's about to render under a date header that
+    already carries the same information - only UPCOMING_RELEASE's own
+    "Coming Sep 3: " prefix is stripped (NEW_RELEASE's "Now available: "
+    is a status, not a date, so it stays - see
+    _group_notifications_for_panel's own docstring). Splitting on the
+    first ": " is safe even though a title's own name might contain a
+    colon further into the string, since generate_release_notifications
+    always builds this exact "Coming <when>: <label>" shape and <when>
+    itself never contains a colon."""
+    if notification.kind == Notification.Kind.UPCOMING_RELEASE:
+        return notification.message.split(": ", 1)[-1]
+    return notification.message
+
+
+def _group_notifications_by_day(items, date_fn):
+    """Buckets an already date_fn-sorted list into {"date", "items"}
+    groups - same groupby-on-date shape as _group_history_by_day above,
+    just parameterized on the date function since this is reused for two
+    different date axes (see _group_notifications_for_panel)."""
+    return [{"date": day, "items": list(day_items)} for day, day_items in groupby(items, key=date_fn)]
+
+
+def _group_notifications_for_panel(items):
+    """Splits a profile's recent notifications into the panel/full
+    page's personal/system tabs (the same split the template's per-row
+    x-show used to make client-side, moved server-side so a date header
+    only ever appears on a tab that actually has something under it -
+    see below), then within each tab into a "recent" activity feed and
+    an "upcoming" calendar preview:
+
+    - "recent" is everything except UPCOMING_RELEASE, grouped by when
+      the notification itself fired (created_at's local date) - items
+      arrive pre-sorted newest-first (Notification.Meta.ordering), and
+      date only moves monotonically backward along that ordering, so
+      groupby's adjacency requirement holds without an extra sort, same
+      assumption _group_history_by_day's own docstring relies on.
+    - "upcoming" is UPCOMING_RELEASE only, grouped by the release's own
+      future date instead (re-sorted soonest-first first, since a
+      reminder generated last night for a release 3 days out needs to
+      file under *that* future date, not "today"). This is the "one is
+      a past-tense confirmation, one is a future date" split - a lone
+      "Now available: X" reads fine under "Today", but eight
+      "Coming Sep 3: X" episode rows collapsing under one "Sep 3" header
+      is the whole point of grouping this by release date at all.
+
+    Doing this split in Python rather than filtering rows with Alpine at
+    render time (as before) is what lets an empty tab/section simply
+    never render its header at all, instead of an empty "Today" heading
+    showing up on System because all of today's actual activity happens
+    to be personal-kind."""
+    result = {}
+    for category, is_system in (("personal", False), ("system", True)):
+        bucket = [n for n in items if (n.kind in _SYSTEM_NOTIFICATION_KINDS) == is_system]
+        for n in bucket:
+            n.display_message = _notification_display_message(n)
+        upcoming = [n for n in bucket if n.kind == Notification.Kind.UPCOMING_RELEASE]
+        recent = [n for n in bucket if n.kind != Notification.Kind.UPCOMING_RELEASE]
+        upcoming.sort(key=lambda n: n.release_schedule.release_date if n.release_schedule else n.created_at)
+        result[category] = {
+            "recent": _group_notifications_by_day(recent, lambda n: timezone.localtime(n.created_at).date()),
+            "upcoming": _group_notifications_by_day(
+                upcoming,
+                lambda n: timezone.localtime(n.release_schedule.release_date if n.release_schedule else n.created_at).date(),
+            ),
+        }
+    return result
+
+
 def _render_notifications_panel(request, profile):
-    items = list(Notification.objects.filter(profile=profile).select_related("title")[:20])
-    response = render(request, "tracker/partials/notifications_panel.html", {"notifications": items})
+    items = list(
+        Notification.objects.filter(profile=profile).select_related("title", "release_schedule")[:20]
+    )
+    context = {"has_notifications": bool(items), "groups": _group_notifications_for_panel(items)}
+    response = render(request, "tracker/partials/notifications_panel.html", context)
     response.write(_notifications_badge_oob(request, profile))
     return response
 
@@ -4463,6 +4538,35 @@ def notifications_panel(request):
     return _render_notifications_panel(request, profile)
 
 
+NOTIFICATIONS_LIST_PAGE_SIZE = 30
+
+
+@login_required
+def notifications_list(request):
+    """The panel's "View all" footer link - the same row/date-grouping
+    rendering as the dropdown (_group_notifications_for_panel), just
+    over a full paginated queryset instead of a fixed top-20. Kept
+    deliberately simpler than the dropdown otherwise - no mark-all/
+    clear-all header actions here (those still only ever re-render the
+    dropdown's own fragment shape, see _render_notifications_panel), and
+    a dismissed row here does a plain redirect back to this same page
+    rather than the dropdown's live fade (see mark_notification_read's
+    own non-HTMX branch)."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    page_obj = Paginator(
+        Notification.objects.filter(profile=profile).select_related("title", "release_schedule"),
+        NOTIFICATIONS_LIST_PAGE_SIZE,
+    ).get_page(request.GET.get("page"))
+    items = list(page_obj.object_list)
+    return render(
+        request,
+        "tracker/notifications.html",
+        {"page_obj": page_obj, "has_notifications": bool(items), "groups": _group_notifications_for_panel(items)},
+    )
+
+
 @login_required
 @require_POST
 def mark_notification_read(request, pk):
@@ -4473,7 +4577,14 @@ def mark_notification_read(request, pk):
     if not notification.read:
         notification.read = True
         notification.save(update_fields=["read"])
-    return _render_notifications_panel(request, profile)
+    if request.headers.get("HX-Request"):
+        return _render_notifications_panel(request, profile)
+    # Plain-form fallback for notifications_list.html's own dismiss
+    # button, which isn't htmx (see notifications_list's own docstring
+    # for why that page's dismiss doesn't share the dropdown's live
+    # fade) - back to wherever the form said to return to, same "next"
+    # convention as login/logout.
+    return redirect(request.POST.get("next") or reverse("notifications_list"))
 
 
 @login_required

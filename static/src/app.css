@@ -342,6 +342,18 @@
   body[data-animations="on"] .spool-tooltip:focus-within::after {
     transition: opacity 150ms ease, visibility 0s linear 0s;
   }
+
+  /* Notifications panel/full page (notification_row.html) - the dismiss
+     button's hover/focus reveal and the row's own unread-state fade,
+     both otherwise instant (base opacity/color values are always
+     declared unconditionally in the template, same rule as everything
+     else in this file). */
+  body[data-animations="on"] .notification-dismiss {
+    transition: opacity 150ms ease;
+  }
+  body[data-animations="on"] .notification-row {
+    transition: background-color 150ms ease, border-color 150ms ease;
+  }
 }
 
 .spool-popover {

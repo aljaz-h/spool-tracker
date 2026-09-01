@@ -3651,6 +3651,138 @@ class NotificationsPanelViewTests(TestCase):
         self.assertNotContains(resp, "For you")
         self.assertNotContains(resp, ">System<")
 
+    def test_empty_state_reads_all_caught_up(self):
+        resp = self.client.get(reverse("notifications_panel"))
+        self.assertContains(resp, "caught up")
+
+    def test_view_all_link_shown_once_there_is_something_to_view(self):
+        Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="x")
+        resp = self.client.get(reverse("notifications_panel"))
+        self.assertContains(resp, reverse("notifications_list"))
+
+    def test_view_all_link_absent_when_empty(self):
+        resp = self.client.get(reverse("notifications_panel"))
+        self.assertNotContains(resp, reverse("notifications_list"))
+
+    def test_today_activity_is_grouped_under_a_today_header(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        Notification.objects.create(
+            profile=self.profile, kind=Notification.Kind.NEW_RELEASE, title=title, message="Now available: Fathom"
+        )
+        resp = self.client.get(reverse("notifications_panel"))
+        self.assertContains(resp, ">Today<")
+
+    def test_upcoming_release_drops_its_own_redundant_date_prefix(self):
+        # generate_release_notifications always builds this exact "Coming
+        # <when>: <label>" shape - the date header (built from the same
+        # release_schedule's own release_date) says "Sep 3" once instead.
+        from django.utils import timezone
+
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        release = ReleaseSchedule.objects.create(
+            title=title,
+            release_type=ReleaseSchedule.ReleaseType.MOVIE_RELEASE,
+            release_date=timezone.now() + timedelta(days=2),
+        )
+        Notification.objects.create(
+            profile=self.profile,
+            kind=Notification.Kind.UPCOMING_RELEASE,
+            title=title,
+            release_schedule=release,
+            message="Coming Sep 3: Fathom",
+        )
+        resp = self.client.get(reverse("notifications_panel"))
+        self.assertContains(resp, ">Fathom<")
+        self.assertNotContains(resp, "Coming Sep 3:")
+        self.assertContains(resp, "Upcoming")
+
+    def test_new_release_keeps_its_now_available_wording(self):
+        # Unlike UPCOMING_RELEASE's own date prefix, "Now available: " is
+        # a status, not a date, so it isn't stripped even though the row
+        # also sits under a date header.
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        Notification.objects.create(
+            profile=self.profile, kind=Notification.Kind.NEW_RELEASE, title=title, message="Now available: Fathom"
+        )
+        resp = self.client.get(reverse("notifications_panel"))
+        self.assertContains(resp, "Now available: Fathom")
+
+    def test_renders_a_poster_thumbnail_for_a_title_with_one(self):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, poster_url="https://image.tmdb.org/t/p/w500/x.jpg"
+        )
+        Notification.objects.create(
+            profile=self.profile, kind=Notification.Kind.NEW_RELEASE, title=title, message="Now available: Fathom"
+        )
+        resp = self.client.get(reverse("notifications_panel"))
+        self.assertContains(resp, "https://image.tmdb.org/t/p/w92/x.jpg")
+
+    def test_unread_row_offers_a_dismiss_button(self):
+        n = Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="x")
+        resp = self.client.get(reverse("notifications_panel"))
+        self.assertContains(resp, reverse("mark_notification_read", args=[n.pk]))
+
+    def test_read_row_offers_no_dismiss_button(self):
+        n = Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="x", read=True)
+        resp = self.client.get(reverse("notifications_panel"))
+        self.assertNotContains(resp, reverse("mark_notification_read", args=[n.pk]))
+
+    def test_every_kind_renders_without_error(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        for kind in Notification.Kind.values:
+            Notification.objects.create(
+                profile=self.profile, kind=kind, title=title, message=f"{kind} message"
+            )
+        resp = self.client.get(reverse("notifications_panel"))
+        self.assertEqual(resp.status_code, 200)
+
+
+class NotificationsListViewTests(TestCase):
+    """The panel's "View all" footer link - the same row/date-grouping
+    rendering as the dropdown, over a full paginated queryset."""
+
+    def setUp(self):
+        user = User.objects.create_user("alllistuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="AllListUser")
+        self.client.login(username="alllistuser", password="pass12345")
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.get(reverse("notifications_list"))
+        self.assertNotEqual(resp.status_code, 200)
+
+    def test_renders_the_profiles_own_notifications(self):
+        Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="Sync failed here")
+        resp = self.client.get(reverse("notifications_list"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Sync failed here")
+
+    def test_does_not_show_another_profiles_notifications(self):
+        other_user = User.objects.create_user("alllistother", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="AllListOther")
+        Notification.objects.create(profile=other_profile, kind=Notification.Kind.SYNC_FAILED, message="Not mine at all")
+        resp = self.client.get(reverse("notifications_list"))
+        self.assertNotContains(resp, "Not mine at all")
+
+    def test_paginates_beyond_the_first_page(self):
+        for i in range(35):
+            Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message=f"Sync failed {i}")
+        resp = self.client.get(reverse("notifications_list"))
+        self.assertContains(resp, "Page 1 of 2")
+        resp2 = self.client.get(reverse("notifications_list") + "?page=2")
+        self.assertContains(resp2, "Page 2 of 2")
+
+    def test_dismiss_is_a_plain_form_not_htmx(self):
+        n = Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="Dismiss me")
+        resp = self.client.get(reverse("notifications_list"))
+        content = resp.content.decode()
+        self.assertIn(f'action="{reverse("mark_notification_read", args=[n.pk])}"', content)
+        self.assertNotIn(f'hx-post="{reverse("mark_notification_read", args=[n.pk])}"', content)
+
+    def test_empty_state_reads_all_caught_up(self):
+        resp = self.client.get(reverse("notifications_list"))
+        self.assertContains(resp, "caught up")
+
 
 class MarkNotificationReadViewTests(TestCase):
     def setUp(self):
@@ -3686,16 +3818,36 @@ class MarkNotificationReadViewTests(TestCase):
         # The header bell's badge lives outside #notifications-panel (this
         # view's own hx-target), so it needs its own out-of-band fragment
         # to update without a full page reload - see
-        # views._notifications_badge_oob.
+        # views._notifications_badge_oob. Only the HTMX branch renders the
+        # panel fragment at all (see the plain-form fallback tests below).
         Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="Still unread")
-        resp = self.client.post(reverse("mark_notification_read", args=[self.notification.pk]))
+        resp = self.client.post(reverse("mark_notification_read", args=[self.notification.pk]), HTTP_HX_REQUEST="true")
         self.assertContains(resp, 'id="notifications-badge" hx-swap-oob="true"')
         # One notification (the one just created) is still unread.
         self.assertContains(resp, ">1<")
 
     def test_oob_badge_disappears_once_nothing_is_unread(self):
-        resp = self.client.post(reverse("mark_notification_read", args=[self.notification.pk]))
+        resp = self.client.post(reverse("mark_notification_read", args=[self.notification.pk]), HTTP_HX_REQUEST="true")
         self.assertContains(resp, 'id="notifications-badge" hx-swap-oob="true"></span>')
+
+    def test_non_htmx_request_redirects_back_to_the_full_notifications_page(self):
+        # notifications_list.html's own dismiss button is a plain <form>
+        # POST (no htmx - see notification_row.html and
+        # views.mark_notification_read's own docstring), so a non-HTMX
+        # request needs a real redirect rather than the dropdown
+        # fragment, which would otherwise render as if it were the whole
+        # page.
+        resp = self.client.post(reverse("mark_notification_read", args=[self.notification.pk]))
+        self.assertRedirects(resp, reverse("notifications_list"))
+        self.notification.refresh_from_db()
+        self.assertTrue(self.notification.read)
+
+    def test_non_htmx_request_honors_a_next_param(self):
+        resp = self.client.post(
+            reverse("mark_notification_read", args=[self.notification.pk]),
+            {"next": reverse("notifications_list") + "?page=2"},
+        )
+        self.assertRedirects(resp, reverse("notifications_list") + "?page=2")
 
 
 class MarkAllNotificationsReadViewTests(TestCase):
@@ -17160,6 +17312,63 @@ class PosterSizeFilterTests(TestCase):
 
         backdrop = "https://image.tmdb.org/t/p/w1280/xyz.jpg"
         self.assertEqual(poster_size(backdrop, "w185"), backdrop)
+
+
+class NotifDayLabelFilterTests(TestCase):
+    """tracker_extras.notif_day_label - the notifications panel/full
+    page's date-header label, shorter than day_header's own big-page
+    format and (unlike day_header) symmetric on either side of today,
+    since this panel groups both past-tense activity and future release
+    dates under the same three buckets."""
+
+    def test_today(self):
+        from django.utils import timezone
+
+        from tracker.templatetags.tracker_extras import notif_day_label
+
+        self.assertEqual(notif_day_label(timezone.localdate()), "Today")
+
+    def test_tomorrow(self):
+        from django.utils import timezone
+
+        from tracker.templatetags.tracker_extras import notif_day_label
+
+        self.assertEqual(notif_day_label(timezone.localdate() + timedelta(days=1)), "Tomorrow")
+
+    def test_yesterday(self):
+        from django.utils import timezone
+
+        from tracker.templatetags.tracker_extras import notif_day_label
+
+        self.assertEqual(notif_day_label(timezone.localdate() - timedelta(days=1)), "Yesterday")
+
+    def test_other_dates_use_a_short_month_day_form(self):
+        from django.utils import timezone
+
+        from tracker.templatetags.tracker_extras import notif_day_label
+
+        d = timezone.localdate() + timedelta(days=5)
+        self.assertEqual(notif_day_label(d), f"{d.strftime('%b')} {d.day}")
+
+
+class NotificationIconFilterTests(TestCase):
+    """tracker_extras.notification_icon/notification_icon_tone - per-kind
+    iconography for the notifications panel/full page's row thumbnails.
+    Covers every Kind actually defined on the model (not guessed-at
+    ones), plus the fallback for anything unrecognized."""
+
+    def test_every_known_kind_has_an_icon_and_tone(self):
+        from tracker.templatetags.tracker_extras import notification_icon, notification_icon_tone
+
+        for kind in Notification.Kind.values:
+            self.assertTrue(notification_icon(kind))
+            self.assertTrue(notification_icon_tone(kind))
+
+    def test_unknown_kind_falls_back_to_bell(self):
+        from tracker.templatetags.tracker_extras import notification_icon, notification_icon_tone
+
+        self.assertEqual(notification_icon("made_up_kind"), "bell")
+        self.assertEqual(notification_icon_tone("made_up_kind"), "text-ink-dim")
 
 
 class EpisodeDetailUrlTagTests(TestCase):

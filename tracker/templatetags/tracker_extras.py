@@ -2,6 +2,8 @@ from django import template
 from django.urls import reverse
 from django.utils import timezone
 
+from ..models import Notification
+
 register = template.Library()
 
 
@@ -160,6 +162,57 @@ def day_header(d):
     # Not %-d (platform-specific, breaks on Windows) — build the "no
     # leading zero" day number by hand instead.
     return f"{d.strftime('%A, %b')} {d.day}, {d.year}"
+
+
+@register.filter
+def notif_day_label(d):
+    """Date-header label for the notifications panel/full page - shorter
+    than day_header's own "Weekday, Mon D, Year" (History's own big page
+    can afford that; a narrow dropdown can't), and handles a date on
+    either side of today since this panel groups both past-tense "now
+    available" activity (by created_at) and future "coming up" reminders
+    (by their own release date) under the same three buckets."""
+    today = timezone.localdate()
+    delta = (d - today).days
+    if delta == 0:
+        return "Today"
+    if delta == 1:
+        return "Tomorrow"
+    if delta == -1:
+        return "Yesterday"
+    return f"{d.strftime('%b')} {d.day}"
+
+
+# Icon + accent color per Notification.Kind, for the notifications panel/
+# full page's per-row iconography - grouped by family (release, social,
+# system, watchlist) rather than one icon per kind, since e.g. all three
+# recommendation_* kinds read as the same "someone reached out" family at
+# a glance. Full "text-*" class strings (not bare color names) so the
+# ones already used elsewhere in the app - Tailwind's build only picks up
+# a utility class it finds spelled out somewhere in scanned source, the
+# same reason _GRADIENTS above stores complete class fragments rather
+# than raw hex values for a template to reassemble.
+_NOTIFICATION_ICON_META = {
+    Notification.Kind.NEW_RELEASE: ("calendar-days", "text-primary"),
+    Notification.Kind.UPCOMING_RELEASE: ("calendar-days", "text-primary"),
+    Notification.Kind.RECOMMENDATION_RECEIVED: ("message-circle", "text-info"),
+    Notification.Kind.RECOMMENDATION_WATCHED: ("message-circle", "text-info"),
+    Notification.Kind.RECOMMENDATION_REPLIED: ("message-circle", "text-info"),
+    Notification.Kind.SYNC_FAILED: ("triangle-alert", "text-error"),
+    Notification.Kind.SYSTEM_UPDATE: ("settings", "text-ink-dim"),
+    Notification.Kind.WATCHLIST_STALE: ("clock", "text-accent"),
+}
+_DEFAULT_NOTIFICATION_ICON_META = ("bell", "text-ink-dim")
+
+
+@register.filter
+def notification_icon(kind):
+    return _NOTIFICATION_ICON_META.get(kind, _DEFAULT_NOTIFICATION_ICON_META)[0]
+
+
+@register.filter
+def notification_icon_tone(kind):
+    return _NOTIFICATION_ICON_META.get(kind, _DEFAULT_NOTIFICATION_ICON_META)[1]
 
 
 @register.filter

@@ -1,0 +1,80 @@
+{% extends "tracker/base.html" %}
+{% load tracker_extras icons %}
+{% block title %}Notifications · Spool{% endblock %}
+{% block content %}
+
+  <div class="mb-6">
+    <h1 class="font-display text-4xl">Notifications</h1>
+    <div class="text-ink-dim text-sm mt-1">Everything from the header bell, browsable beyond what fits in the dropdown</div>
+  </div>
+
+  <div x-data="{ category: 'personal' }" class="max-w-2xl">
+    {% if has_notifications %}
+      <div class="flex items-center gap-1 px-1 pb-3">
+        <button
+          type="button" @click="category = 'personal'"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors"
+          :class="category === 'personal' ? 'bg-primary text-primary-content' : 'text-ink-faint hover:text-base-content hover:bg-base-300'"
+        >{% icon "sparkles" "w-3.5 h-3.5" %}For you</button>
+        <button
+          type="button" @click="category = 'system'"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors"
+          :class="category === 'system' ? 'bg-primary text-primary-content' : 'text-ink-faint hover:text-base-content hover:bg-base-300'"
+        >{% icon "bell" "w-3.5 h-3.5" %}System</button>
+      </div>
+    {% endif %}
+    <div class="bg-base-200 border border-line rounded-lg overflow-hidden">
+      {% if not has_notifications %}
+        <div class="px-4 py-14 text-center text-ink-faint text-sm">You're all caught up — nothing new to see here.</div>
+      {% else %}
+        <div x-show="category === 'personal'">
+          {% if not groups.personal.recent and not groups.personal.upcoming %}
+            <div class="px-4 py-10 text-center text-ink-faint text-sm">Nothing here yet.</div>
+          {% endif %}
+          {% for group in groups.personal.recent %}
+            <div class="px-4 py-2 text-xs font-semibold text-ink-faint uppercase tracking-wide bg-base-300/40">{{ group.date|notif_day_label }}</div>
+            {% for n in group.items %}{% include "tracker/partials/notification_row.html" with n=n dismiss_next=request.get_full_path %}{% endfor %}
+          {% endfor %}
+          {% if groups.personal.upcoming %}
+            <div class="px-4 py-2 text-xs font-semibold text-ink-faint uppercase tracking-wide bg-base-300/40 border-t border-line">Upcoming</div>
+            {% for group in groups.personal.upcoming %}
+              <div class="px-4 py-1.5 text-xs font-semibold text-ink-dim">{{ group.date|notif_day_label }}</div>
+              {% for n in group.items %}{% include "tracker/partials/notification_row.html" with n=n dismiss_next=request.get_full_path %}{% endfor %}
+            {% endfor %}
+          {% endif %}
+        </div>
+        <div x-show="category === 'system'">
+          {% if not groups.system.recent %}
+            <div class="px-4 py-10 text-center text-ink-faint text-sm">Nothing here yet.</div>
+          {% endif %}
+          {% for group in groups.system.recent %}
+            <div class="px-4 py-2 text-xs font-semibold text-ink-faint uppercase tracking-wide bg-base-300/40">{{ group.date|notif_day_label }}</div>
+            {% for n in group.items %}{% include "tracker/partials/notification_row.html" with n=n dismiss_next=request.get_full_path %}{% endfor %}
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+
+    {% if page_obj and page_obj.paginator.num_pages > 1 %}
+      <div class="flex justify-between items-center flex-wrap gap-3 mt-5">
+        <span class="font-mono text-xs text-ink-faint">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }} · {{ page_obj.paginator.count }} notification{{ page_obj.paginator.count|pluralize }}</span>
+        <div class="flex gap-1.5">
+          {% if page_obj.has_previous %}
+            <a href="?page={{ page_obj.previous_page_number }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim cursor-pointer">‹ Prev</a>
+          {% endif %}
+          {% for num in page_obj.paginator.page_range %}
+            {% if num == page_obj.number %}
+              <span class="px-3 py-1.5 rounded-md bg-primary text-primary-content font-mono text-xs font-bold">{{ num }}</span>
+            {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}
+              <a href="?page={{ num }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim cursor-pointer">{{ num }}</a>
+            {% endif %}
+          {% endfor %}
+          {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim cursor-pointer">Next ›</a>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+{% endblock %}

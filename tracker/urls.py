@@ -172,6 +172,7 @@ urlpatterns = [
     path("export/csv/", views.export_csv, name="export_csv"),
     path("export/trakt-json/", views.export_trakt_json, name="export_trakt_json"),
     path("notifications/", views.notifications_panel, name="notifications_panel"),
+    path("notifications/all/", views.notifications_list, name="notifications_list"),
     path("notifications/<int:pk>/read/", views.mark_notification_read, name="mark_notification_read"),
     path("notifications/read-all/", views.mark_all_notifications_read, name="mark_all_notifications_read"),
     path("notifications/clear-all/", views.clear_all_notifications, name="clear_all_notifications"),

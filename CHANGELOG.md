@@ -8,6 +8,32 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.116.0] - 2026-09-01
+
+### Added
+
+- The notifications panel (header bell dropdown) has been redesigned:
+  rows now show a poster thumbnail and a per-kind icon (calendar for
+  releases, chat bubble for recommendations, gear for system notices,
+  clock for a stale-watchlist nudge), unread rows get a left accent bar
+  and a hover/keyboard-reveal dismiss button instead of a bare dot, and
+  read rows fade to a more muted style. Rows are grouped under date
+  headers (Today/Tomorrow/Sep 3) instead of repeating the date in every
+  row's text, with upcoming releases collapsed into their own preview
+  section. A proper "you're all caught up" empty state replaces the old
+  blank box, and a new "View all notifications" page (`/notifications/all/`)
+  lists everything beyond what fits in the dropdown.
+
+### Fixed
+
+- The full test suite's cache backend switched from LocMemCache back to
+  DummyCache for `manage.py test` runs - LocMemCache actually persists
+  across tests in the same process (unlike the Redis it replaced, which
+  was always unreachable here), which was silently leaking one test's
+  mocked API response into another test reusing the same id (caught via
+  3 failing MyAnimeList/Jikan tests). DummyCache keeps the same
+  timeout-free speed-up without the cross-test leak risk.
+
 ## [0.115.1] - 2026-09-01
 
 ### Fixed

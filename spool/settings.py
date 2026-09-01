@@ -254,12 +254,25 @@ CACHES = {
 # CACHE_URL only overrides the location above, not the backend - so every
 # cache read/write across the ~1800-test suite was paying up to
 # socket_connect_timeout (2s) before tmdb.py's own try/except degraded it,
-# which dwarfed any test's own runtime. The test runner never touches a
-# real deployment, so swapping to a process-local cache here is safe -
-# same as LocMemCache being Django's own default for any project that
-# doesn't set CACHES at all.
+# which dwarfed any test's own runtime.
+#
+# DummyCache, not LocMemCache - LocMemCache actually works (unlike the
+# always-unreachable Redis it replaces here), which sounds like a strict
+# improvement but isn't: it persists across every test in the same
+# process, and plenty of integration tests across this suite reuse the
+# same id (e.g. JikanGetAnimeDetailsTests' get_anime_details(269), called
+# from several tests each mocking a different response) trusting that
+# each call actually hits their own mock. A real, working cache silently
+# hands a later test an earlier test's stale cached value instead
+# (confirmed - this exact leak broke 3 Jikan tests the one time this was
+# tried with LocMemCache). DummyCache never stores anything at all, so
+# every read/write is an instant, allocation-free no-op - it reproduces
+# the "caching is effectively off" behavior an unreachable Redis was
+# already accidentally providing (just without the 2s timeout tax to get
+# there), rather than genuinely turning caching on for a test suite that
+# was never written with cross-test cache isolation in mind.
 if "test" in sys.argv:
-    CACHES["default"] = {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+    CACHES["default"] = {"BACKEND": "django.core.cache.backends.dummy.DummyCache"}
 
 
 # Third-party API credentials (used by tracker/integrations, §6 of the addendum)
