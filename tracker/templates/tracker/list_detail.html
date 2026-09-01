@@ -26,8 +26,8 @@
               {% csrf_token %}
               <button
                 type="submit"
-                class="inline-flex items-center gap-1 hover:text-base-content underline decoration-dotted underline-offset-2 cursor-pointer spool-tooltip"
-                data-tooltip="{% if watchlist.is_shared %}Make private{% else %}Share with household{% endif %}"
+                class="inline-flex items-center gap-1 hover:text-base-content underline decoration-dotted underline-offset-2 cursor-pointer"
+                title="{% if watchlist.is_shared %}Make private{% else %}Share with household{% endif %}"
               >
                 {% if watchlist.is_shared %}{% icon "users" "w-3.5 h-3.5" %} shared{% else %}{% icon "eye-off" "w-3.5 h-3.5" %} private{% endif %}
               </button>
@@ -74,7 +74,7 @@
         {% endif %}
         {% if can_edit %}
           <button @click="showSearch = !showSearch" class="btn btn-primary btn-sm">+ Add title</button>
-          <form method="post" action="{% url 'delete_list' watchlist.id %}" onsubmit="return confirmSubmit(event, 'Delete \'{{ watchlist.name|escapejs }}\'? This can\'t be undone.');">
+          <form method="post" action="{% url 'delete_list' watchlist.id %}" onsubmit="return confirm('Delete \'{{ watchlist.name|escapejs }}\'? This can\'t be undone.');">
             {% csrf_token %}
             <button type="submit" class="btn btn-sm btn-soft">Delete list</button>
           </form>
@@ -84,22 +84,11 @@
 
     {% if can_edit %}
       <div x-show="showSearch" x-cloak class="bg-base-200 border border-line rounded-2xl p-4 mb-6">
-        <div class="relative">
-          <input
-            type="search" name="q" placeholder="Search titles to add…" autocomplete="off"
-            hx-get="{% url 'search_titles' watchlist.id %}" hx-trigger="input changed delay:200ms" hx-target="#search-results"
-            hx-indicator="#list-search-spinner"
-            class="input w-full bg-base-100 pr-8"
-          >
-          {% comment %}
-            hx-indicator, not a plain descendant span - htmx adds
-            .htmx-request directly to whatever hx-indicator points at, not
-            to an ancestor of it, and this input (a void element) can't
-            contain the spinner as a child the way a <form>-level trigger
-            elsewhere can just drop it in anywhere inside itself.
-          {% endcomment %}
-          <span id="list-search-spinner" class="spool-spinner absolute right-3 top-1/2 -translate-y-1/2" aria-hidden="true"></span>
-        </div>
+        <input
+          type="search" name="q" placeholder="Search titles to add…" autocomplete="off"
+          hx-get="{% url 'search_titles' watchlist.id %}" hx-trigger="input changed delay:200ms" hx-target="#search-results"
+          class="input w-full bg-base-100"
+        >
         <div id="search-results" class="mt-3 flex flex-col gap-1"></div>
       </div>
     {% endif %}

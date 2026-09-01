@@ -26,13 +26,13 @@
         get no marker at all. See WatchEvent.Source.
       {% endcomment %}
       {% if event.source == "nuvio" %}
-        <span class="absolute bottom-1.5 right-1.5 z-10 font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)] spool-tooltip" data-tooltip="Added by Nuvio sync">N</span>
+        <span class="absolute bottom-1.5 right-1.5 z-10 font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)]" title="Added by Nuvio sync">N</span>
       {% elif event.source == "simkl" %}
-        <span class="absolute bottom-1.5 right-1.5 z-10 font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)] spool-tooltip" data-tooltip="Added by Simkl sync">S</span>
+        <span class="absolute bottom-1.5 right-1.5 z-10 font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)]" title="Added by Simkl sync">S</span>
       {% elif event.source == "trakt" %}
-        <span class="absolute bottom-1.5 right-1.5 z-10 font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)] spool-tooltip" data-tooltip="Added by Trakt sync">T</span>
+        <span class="absolute bottom-1.5 right-1.5 z-10 font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)]" title="Added by Trakt sync">T</span>
       {% elif event.source == "webhook" %}
-        <span class="absolute bottom-1.5 right-1.5 z-10 font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)] spool-tooltip" data-tooltip="Added via the Scrobble API">W</span>
+        <span class="absolute bottom-1.5 right-1.5 z-10 font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)]" title="Added via the Scrobble API">W</span>
       {% endif %}
     </div>
     <div class="mt-1.5 min-w-0">
@@ -49,8 +49,7 @@
     hx-confirm="Remove &quot;{{ event.title.name }}&quot; from your watch history? This can't be undone."
     hx-target="#hist-item-{{ event.id }}"
     hx-swap="outerHTML swap:150ms"
-    aria-label="Remove from history"
-    data-tooltip="Remove from history"
-    class="absolute top-1.5 right-1.5 z-20 w-5 h-5 rounded-full bg-black/75 text-white text-xs leading-none flex items-center justify-center hover:bg-error spool-tooltip"
+    title="Remove from history"
+    class="absolute top-1.5 right-1.5 z-20 w-5 h-5 rounded-full bg-black/75 text-white text-xs leading-none flex items-center justify-center hover:bg-error"
   >&times;</button>
 </div>

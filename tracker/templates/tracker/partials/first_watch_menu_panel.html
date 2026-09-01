@@ -5,7 +5,7 @@
     <div class="font-semibold text-sm">Mark as watched</div>
     <div class="text-xs text-ink-faint truncate">{% if season %}S{{ season }}E{{ episode_number }} · {% endif %}{% firstof title.name name %}</div>
   </div>
-  <button type="button" @click="open = false; showCustom = false" aria-label="Close" data-tooltip="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 spool-tooltip flex-none">{% icon "x" "w-4 h-4" %}</button>
+  <button type="button" @click="open = false; showCustom = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 flex-none">{% icon "x" "w-4 h-4" %}</button>
 </div>
 
 <div x-show="!showCustom">

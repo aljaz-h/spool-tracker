@@ -42,9 +42,8 @@ to avoid triggering navigation.
           hx-confirm="Mark &quot;{{ title.name }}&quot; as dropped? Your watch history stays intact - resume any time from its detail page."
           hx-target="#watch-progress-card-{{ title.pk }}"
           hx-swap="outerHTML swap:150ms"
-          aria-label="Drop - keeps your watch history, just leaves Watching"
-          data-tooltip="Drop - keeps your watch history, just leaves Watching"
-          class="w-5 h-5 rounded-full bg-black/75 text-white leading-none flex items-center justify-center hover:bg-error spool-tooltip"
+          title="Drop - keeps your watch history, just leaves Watching"
+          class="w-5 h-5 rounded-full bg-black/75 text-white leading-none flex items-center justify-center hover:bg-error"
         >{% icon "circle" "w-2.5 h-2.5" %}</button>
         <button
           type="button"
@@ -52,9 +51,8 @@ to avoid triggering navigation.
           hx-confirm="Remove &quot;{{ title.name }}&quot; from Watching? This only clears its progress - your watch history isn't touched."
           hx-target="#watch-progress-card-{{ title.pk }}"
           hx-swap="outerHTML swap:150ms"
-          aria-label="Remove from Watching"
-          data-tooltip="Remove from Watching"
-          class="w-5 h-5 rounded-full bg-black/75 text-white text-xs leading-none flex items-center justify-center hover:bg-error spool-tooltip"
+          title="Remove from Watching"
+          class="w-5 h-5 rounded-full bg-black/75 text-white text-xs leading-none flex items-center justify-center hover:bg-error"
         >&times;</button>
       </div>
     {% endif %}

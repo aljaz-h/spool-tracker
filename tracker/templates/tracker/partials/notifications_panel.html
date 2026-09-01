@@ -13,18 +13,16 @@
           type="button"
           hx-post="{% url 'mark_all_notifications_read' %}"
           hx-target="#notifications-panel" hx-swap="outerHTML"
-          aria-label="Mark all read"
-          data-tooltip="Mark all read"
-          class="w-6 h-6 rounded-md flex items-center justify-center text-ink-faint hover:text-primary hover:bg-base-300 cursor-pointer spool-tooltip"
+          title="Mark all read"
+          class="w-6 h-6 rounded-md flex items-center justify-center text-ink-faint hover:text-primary hover:bg-base-300 cursor-pointer"
         >{% icon "eye" "w-3.5 h-3.5" %}</button>
         <button
           type="button"
           hx-post="{% url 'clear_all_notifications' %}"
           hx-target="#notifications-panel" hx-swap="outerHTML"
           hx-confirm="Clear all notifications? This can't be undone."
-          aria-label="Clear all notifications"
-          data-tooltip="Clear all notifications"
-          class="w-6 h-6 rounded-md flex items-center justify-center text-ink-faint hover:text-error hover:bg-base-300 cursor-pointer spool-tooltip"
+          title="Clear all notifications"
+          class="w-6 h-6 rounded-md flex items-center justify-center text-ink-faint hover:text-error hover:bg-base-300 cursor-pointer"
         >{% icon "eraser" "w-3.5 h-3.5" %}</button>
       </div>
     {% endif %}

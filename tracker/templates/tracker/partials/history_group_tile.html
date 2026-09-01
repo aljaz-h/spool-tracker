@@ -22,9 +22,8 @@
     hx-confirm="Remove all {{ group.count }} plays of &quot;{{ group.title.name }}&quot; from your watch history? This can't be undone."
     hx-target="closest [data-history-tile]"
     hx-swap="outerHTML swap:150ms"
-    aria-label="Remove all {{ group.count }} plays"
-    data-tooltip="Remove all {{ group.count }} plays"
-    class="absolute top-1.5 right-1.5 z-20 w-5 h-5 rounded-full bg-black/75 text-white text-xs leading-none flex items-center justify-center hover:bg-error spool-tooltip"
+    title="Remove all {{ group.count }} plays"
+    class="absolute top-1.5 right-1.5 z-20 w-5 h-5 rounded-full bg-black/75 text-white text-xs leading-none flex items-center justify-center hover:bg-error"
   >&times;</button>
 
   <div class="aspect-[2/3] rounded-lg relative overflow-hidden {% if not group.title.poster_url %}{{ group.title.pk|gradient_class }}{% endif %}">
@@ -71,13 +70,13 @@
       {% endcomment %}
       {% for source in group.sync_sources %}
         {% if source == "nuvio" %}
-          <span class="font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)] spool-tooltip" data-tooltip="Added by Nuvio sync">N</span>
+          <span class="font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)]" title="Added by Nuvio sync">N</span>
         {% elif source == "simkl" %}
-          <span class="font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)] spool-tooltip" data-tooltip="Added by Simkl sync">S</span>
+          <span class="font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)]" title="Added by Simkl sync">S</span>
         {% elif source == "trakt" %}
-          <span class="font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)] spool-tooltip" data-tooltip="Added by Trakt sync">T</span>
+          <span class="font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)]" title="Added by Trakt sync">T</span>
         {% elif source == "webhook" %}
-          <span class="font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)] spool-tooltip" data-tooltip="Added via the Scrobble API">W</span>
+          <span class="font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)]" title="Added via the Scrobble API">W</span>
         {% endif %}
       {% endfor %}
       <button
@@ -85,8 +84,8 @@
         @click="togglePanel($el)"
         :aria-expanded="open.toString()"
         aria-haspopup="true"
-        data-tooltip="{{ group.count }} episodes - click to remove one"
-        class="font-mono text-[10px] font-bold bg-primary/90 px-2 py-1 rounded-md text-primary-content shadow-[0_1px_4px_rgba(0,0,0,0.7)] hover:bg-primary spool-tooltip"
+        title="{{ group.count }} episodes - click to remove one"
+        class="font-mono text-[10px] font-bold bg-primary/90 px-2 py-1 rounded-md text-primary-content shadow-[0_1px_4px_rgba(0,0,0,0.7)] hover:bg-primary"
       >{{ group.count }}&times;</button>
       <div
         x-ref="panel"
@@ -104,9 +103,8 @@
               hx-target="closest [data-history-tile]"
               hx-swap="outerHTML swap:150ms"
               hx-confirm="Remove S{{ event.episode.season }}E{{ event.episode.episode }} from your watch history?"
-              aria-label="Remove this episode"
-              data-tooltip="Remove this episode"
-              class="text-ink-faint hover:text-error flex-none spool-tooltip"
+              title="Remove this episode"
+              class="text-ink-faint hover:text-error flex-none"
             >&times;</button>
           </div>
         {% endfor %}
@@ -123,8 +121,8 @@
   <div class="flex gap-px h-[6px] rounded-full overflow-hidden mt-1.5 bg-base-300">
     {% for event in group.timeline_events %}
       <div
-        class="flex-1 bg-primary/55 hover:bg-primary transition-colors spool-tooltip"
-        data-tooltip="S{{ event.episode.season }}E{{ event.episode.episode }} · {{ event.watched_at|time:time_format_str }}"
+        class="flex-1 bg-primary/55 hover:bg-primary transition-colors"
+        title="S{{ event.episode.season }}E{{ event.episode.episode }} · {{ event.watched_at|time:time_format_str }}"
       ></div>
     {% endfor %}
   </div>

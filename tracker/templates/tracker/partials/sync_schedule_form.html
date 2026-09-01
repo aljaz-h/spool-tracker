@@ -23,7 +23,7 @@
       </label>
     {% endif %}
   </form>
-  <form method="post" action="{% url 'disconnect_provider' provider %}" onsubmit="return confirmSubmit(event, 'Disconnect {{ provider|title }}? Future syncs stop; history already imported stays.');" class="mt-1.5">
+  <form method="post" action="{% url 'disconnect_provider' provider %}" onsubmit="return confirm('Disconnect {{ provider|title }}? Future syncs stop; history already imported stays.');" class="mt-1.5">
     {% csrf_token %}
     <button type="submit" class="text-[11px] text-ink-faint hover:text-error">Disconnect</button>
   </form>

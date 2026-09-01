@@ -30,7 +30,7 @@
             <input type="hidden" name="next" value="{{ request.get_full_path }}">
             <button type="submit" class="btn btn-sm btn-soft">{% icon "eye" "w-3.5 h-3.5" %}Mark all read</button>
           </form>
-          <form method="post" action="{% url 'clear_all_notifications' %}" onsubmit="return confirmSubmit(event, 'Clear all notifications? This can\'t be undone.');">
+          <form method="post" action="{% url 'clear_all_notifications' %}" onsubmit="return confirm('Clear all notifications? This can\'t be undone.');">
             {% csrf_token %}
             <input type="hidden" name="next" value="{{ request.get_full_path }}">
             <button type="submit" class="btn btn-sm btn-soft btn-error">{% icon "eraser" "w-3.5 h-3.5" %}Clear all</button>

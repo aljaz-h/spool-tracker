@@ -1,52 +1,42 @@
 {% comment %}
   context: none explicit - reads Django's own `messages` context variable,
   present on every request via django.contrib.messages.context_processors.
-  Included once from every full page (base.html, plus login.html and
-  change_credentials.html - the two standalone pages that don't extend
-  it) so it survives regardless of which shell rendered the page.
-
-  #toast-stack itself always renders, even with zero messages right now -
-  it's the fixed OOB-swap target views._toast_oob appends a single
-  standalone toast into (see toast_item.html) for the handful of views
-  that only ever return an htmx partial fragment, never a full page
-  (api_tokens_card.html's own create/regenerate/delete), where a real
-  Django message would sit unseen in the session until some unrelated
-  later full-page load. Every other messages.success()/error() call site
-  in views.py still goes through the ordinary loop below instead, since
-  it always renders/redirects to a full page.
-
-  The wiring script stays colocated here (not base.html) specifically so
-  it's present on every page that can show a toast, including the two
-  standalone ones above - it's still only ever declared once per page
-  (this partial is only ever included once), so registering the
-  htmx:oobAfterSwap listener here every render costs nothing extra.
+  Included once from base.html (outside {% block content %}) so it survives
+  every full-page render regardless of which template extends base - every
+  messages.success()/messages.error() call site in views.py either renders
+  a full-page template directly or redirects to one, so the message store
+  is always drained by a real full page load, never by an htmx partial
+  swap that would miss this container.
 {% endcomment %}
-<div id="toast-stack" aria-live="polite" class="fixed top-4 inset-x-4 sm:inset-x-auto sm:right-4 sm:w-80 z-[100] flex flex-col gap-2 pointer-events-none">
-  {% for message in messages %}
-    {% include "tracker/partials/toast_item.html" with tag=message.tags text=message %}
-  {% endfor %}
-</div>
-<script>
-  // Arms one toast's dismiss button + 5s auto-dismiss timer -
-  // idempotent (data-toast-wired guard) since this runs both for every
-  // toast already on the page at load and again for any later
-  // OOB-appended one (toast_item.html/views._toast_oob), which
-  // wouldn't otherwise get wired at all since it arrives well after the
-  // page's own initial querySelectorAll pass already ran.
-  function wireToast(el) {
-    if (el.dataset.toastWired) return;
-    el.dataset.toastWired = '1';
-    const dismiss = () => {
-      el.classList.add('spool-toast-leaving');
-      setTimeout(() => el.remove(), 200);
-    };
-    el.querySelector('button').addEventListener('click', dismiss);
-    setTimeout(dismiss, 5000);
-  }
-  document.querySelectorAll('#toast-stack [data-toast]').forEach(wireToast);
-  document.addEventListener('htmx:oobAfterSwap', (e) => {
-    const root = e.target;
-    const toasts = root.matches?.('[data-toast]') ? [root] : root.querySelectorAll?.('[data-toast]') || [];
-    toasts.forEach(wireToast);
-  });
-</script>
+{% if messages %}
+  <div id="toast-stack" aria-live="polite" class="fixed top-4 inset-x-4 sm:inset-x-auto sm:right-4 sm:w-80 z-[100] flex flex-col gap-2 pointer-events-none">
+    {% for message in messages %}
+      <div
+        data-toast
+        role="status"
+        class="spool-toast pointer-events-auto flex items-start gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm shadow-lg
+          {% if message.tags == 'success' %}bg-success/15 border-success/30 text-success
+          {% elif message.tags == 'warning' %}bg-warning/15 border-warning/30 text-warning
+          {% elif message.tags == 'error' %}bg-error/15 border-error/30 text-error
+          {% else %}bg-info/15 border-info/30 text-info{% endif %}"
+      >
+        <div class="flex-1 leading-snug">{{ message|linebreaksbr }}</div>
+        <button type="button" class="flex-none opacity-70 hover:opacity-100 leading-none p-0.5 -m-0.5 cursor-pointer" aria-label="Dismiss">&times;</button>
+      </div>
+    {% endfor %}
+  </div>
+  <script>
+    // One-shot: this partial is only ever rendered as part of a full page
+    // load (see the comment above), so there's no re-swap case to re-arm
+    // for - unlike base.html's own <script>, which registers listeners
+    // that need to survive the whole session.
+    document.querySelectorAll('#toast-stack [data-toast]').forEach((el) => {
+      const dismiss = () => {
+        el.classList.add('spool-toast-leaving');
+        setTimeout(() => el.remove(), 200);
+      };
+      el.querySelector('button').addEventListener('click', dismiss);
+      setTimeout(dismiss, 5000);
+    });
+  </script>
+{% endif %}

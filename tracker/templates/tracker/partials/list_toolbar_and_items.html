@@ -10,19 +10,18 @@
 >
   <div class="inline-flex bg-base-200 border border-line rounded-lg p-1 gap-0.5">
     <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-      <input type="radio" name="type" value="all" class="sr-only" {% if type_filter == "all" %}checked{% endif %}>All
+      <input type="radio" name="type" value="all" class="hidden" {% if type_filter == "all" %}checked{% endif %}>All
     </label>
     <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-      <input type="radio" name="type" value="movie" class="sr-only" {% if type_filter == "movie" %}checked{% endif %}>Movies
+      <input type="radio" name="type" value="movie" class="hidden" {% if type_filter == "movie" %}checked{% endif %}>Movies
     </label>
     <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-      <input type="radio" name="type" value="tv" class="sr-only" {% if type_filter == "tv" %}checked{% endif %}>TV
+      <input type="radio" name="type" value="tv" class="hidden" {% if type_filter == "tv" %}checked{% endif %}>TV
     </label>
     <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-      <input type="radio" name="type" value="anime" class="sr-only" {% if type_filter == "anime" %}checked{% endif %}>Anime
+      <input type="radio" name="type" value="anime" class="hidden" {% if type_filter == "anime" %}checked{% endif %}>Anime
     </label>
   </div>
-  <span class="spool-spinner" aria-hidden="true"></span>
   <label for="list-filters-drawer" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
     {% icon "filter" "w-3.5 h-3.5" %}
     Filters

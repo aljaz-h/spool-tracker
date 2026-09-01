@@ -105,10 +105,8 @@
     // whichever way (Confirm click, Cancel click, backdrop click, Esc).
     // Used by the htmx:confirm handler below (covers every hx-confirm in
     // the app: history delete, bulk delete, the watched button's rewatch
-    // guard, ...) and, via confirmSubmit just below, by every plain
-    // (non-htmx) form/button that used to call the native confirm()
-    // directly (delete list/profile/token, disconnect provider, clear
-    // instance-config field, ...).
+    // guard, ...) and directly by the odd plain (non-htmx) form that
+    // needs the same guard, like title_detail's own "Mark as Watched".
     window.confirmModal = (question) => {
       return new Promise((resolve) => {
         const modal = document.getElementById('confirm_modal');
@@ -121,35 +119,6 @@
         modal.addEventListener('close', onClose, { once: true });
         modal.showModal();
       });
-    };
-    // Adapter for a plain (non-htmx) form's own onsubmit="return
-    // confirmSubmit(event, '...')" or a formaction button's own
-    // onclick="return confirmSubmit(event, '...')" - htmx's own
-    // hx-confirm gets the dialog above for free via the htmx:confirm
-    // listener below, but a plain form submit is synchronous and can't
-    // await confirmModal()'s Promise the way that listener does, so
-    // every native browser confirm() call in a plain form/button needed
-    // its own copy-pasted guard without this. Always returns false to
-    // cancel the real (synchronous) submit/click; if confirmed, re-fires
-    // the submission via requestSubmit(submitter) - which correctly
-    // preserves a submit button's own formaction/formmethod override,
-    // unlike form.submit() - guarded by a one-shot bypass flag so that
-    // re-fired submit doesn't re-enter this same onsubmit handler and
-    // ask again.
-    window.confirmSubmit = (event, question) => {
-      const isButton = event.target.tagName === 'BUTTON';
-      const form = isButton ? event.target.form : event.target;
-      if (form.dataset.confirmSubmitBypass) {
-        delete form.dataset.confirmSubmitBypass;
-        return true;
-      }
-      event.preventDefault();
-      window.confirmModal(question).then((ok) => {
-        if (!ok) return;
-        form.dataset.confirmSubmitBypass = '1';
-        form.requestSubmit(isButton ? event.target : undefined);
-      });
-      return false;
     };
     // Opens a title detail/preview page's own trailer <dialog> (id
     // passed in, scoped per title/preview via poster_seed - see

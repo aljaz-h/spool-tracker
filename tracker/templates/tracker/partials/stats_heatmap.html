@@ -25,8 +25,8 @@
           {% for cell in week %}
             {% if cell %}
               <div
-                class="w-full aspect-square rounded-sm spool-tooltip {% if cell.level == 0 %}bg-base-300{% elif cell.level == 1 %}bg-primary/25{% elif cell.level == 2 %}bg-primary/50{% elif cell.level == 3 %}bg-primary/75{% else %}bg-primary{% endif %}"
-                data-tooltip="{{ cell.date|date:'M j, Y' }} · {{ cell.count }} watched"
+                class="w-full aspect-square rounded-sm {% if cell.level == 0 %}bg-base-300{% elif cell.level == 1 %}bg-primary/25{% elif cell.level == 2 %}bg-primary/50{% elif cell.level == 3 %}bg-primary/75{% else %}bg-primary{% endif %}"
+                title="{{ cell.date|date:'M j, Y' }} · {{ cell.count }} watched"
               ></div>
             {% else %}
               <div class="w-full aspect-square"></div>

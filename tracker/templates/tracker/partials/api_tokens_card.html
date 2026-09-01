@@ -27,27 +27,27 @@
           class="w-full bg-transparent text-[11px] font-mono text-ink-dim focus:outline-none cursor-text"
         >
       </div>
-      <button type="button" @click="show = !show" aria-label="Show/hide token" data-tooltip="Show/hide token" class="text-ink-faint hover:text-base-content p-1.5 flex-none spool-tooltip">
+      <button type="button" @click="show = !show" title="Show/hide token" class="text-ink-faint hover:text-base-content p-1.5 flex-none">
         <span x-show="!show">{% icon "eye" "w-3.5 h-3.5" %}</span>
         <span x-show="show" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
       </button>
       <form
         hx-post="{% url 'regenerate_api_token' token.pk %}"
         hx-target="#api-tokens-card" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-        hx-confirm="Regenerate the &quot;{{ token.name }}&quot; token? Anything still using the old value will stop working."
+        onsubmit="return confirm('Regenerate the &quot;{{ token.name|escapejs }}&quot; token? Anything still using the old value will stop working.');"
         class="flex-none"
       >
         {% csrf_token %}
-        <button type="submit" data-tooltip="Regenerate" aria-label="Regenerate {{ token.name }}" class="text-ink-faint hover:text-base-content p-1.5 spool-tooltip">{% icon "refresh-cw" "w-3.5 h-3.5" %}<span class="spool-spinner" aria-hidden="true"></span></button>
+        <button type="submit" title="Regenerate" aria-label="Regenerate {{ token.name }}" class="text-ink-faint hover:text-base-content p-1.5">{% icon "refresh-cw" "w-3.5 h-3.5" %}</button>
       </form>
       <form
         hx-post="{% url 'delete_api_token' token.pk %}"
         hx-target="#api-tokens-card" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-        hx-confirm="Delete the &quot;{{ token.name }}&quot; token? Anything still using it will stop working."
+        onsubmit="return confirm('Delete the &quot;{{ token.name|escapejs }}&quot; token? Anything still using it will stop working.');"
         class="flex-none"
       >
         {% csrf_token %}
-        <button type="submit" data-tooltip="Delete" aria-label="Delete {{ token.name }}" class="text-ink-faint hover:text-error p-1.5 spool-tooltip">{% icon "trash-2" "w-3.5 h-3.5" %}<span class="spool-spinner" aria-hidden="true"></span></button>
+        <button type="submit" title="Delete" aria-label="Delete {{ token.name }}" class="text-ink-faint hover:text-error p-1.5">{% icon "trash-2" "w-3.5 h-3.5" %}</button>
       </form>
     </div>
   {% endfor %}
@@ -64,7 +64,7 @@
         placeholder="e.g. Living room Kodi" aria-label="New token name"
         class="input input-sm flex-1 min-w-0 bg-base-100"
       >
-      <button type="submit" class="btn btn-sm btn-primary flex-none">+ Add token<span class="spool-spinner ml-1" aria-hidden="true"></span></button>
+      <button type="submit" class="btn btn-sm btn-primary flex-none">+ Add token</button>
     </form>
   {% else %}
     <div class="text-[10.5px] text-ink-faint mt-3 pt-3 border-t border-line">{{ max_api_tokens }} of {{ max_api_tokens }} tokens used - delete one to add another.</div>

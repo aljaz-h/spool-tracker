@@ -43,8 +43,8 @@
           class="input w-full bg-base-100 pr-10"
         >
         <button
-          type="button" @click="showPassword = !showPassword" tabindex="-1" aria-label="Show/hide password" data-tooltip="Show/hide password"
-          class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content spool-tooltip"
+          type="button" @click="showPassword = !showPassword" tabindex="-1" title="Show/hide password"
+          class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content"
         >
           <span x-show="!showPassword">{% icon "eye" "w-4 h-4" %}</span>
           <span x-show="showPassword" x-cloak>{% icon "eye-off" "w-4 h-4" %}</span>
@@ -71,7 +71,5 @@
   <div class="mt-4 text-center text-[11px] text-ink-faint font-mono">
     spool.tracker &middot; v{{ app_version }} &middot; self-hosted
   </div>
-
-  {% include "tracker/partials/toasts.html" %}
 </body>
 </html>

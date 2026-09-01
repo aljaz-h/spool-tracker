@@ -8,48 +8,6 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
-## [0.117.0] - 2026-09-01
-
-### Added
-
-- Audit-and-fix pass replacing remaining native browser UI with the
-  app's existing custom components:
-  - Plain (non-htmx) forms/buttons that called the browser's own
-    `confirm()` directly (delete list/profile/token, disconnect
-    provider, clear instance-config field, revoke API key, merge
-    duplicates, ...) now route through the same themed confirm dialog
-    every `hx-confirm` already used, via a small `confirmSubmit()`
-    adapter (a plain submit can't `await` the dialog's Promise the way
-    htmx's own confirm listener does).
-  - `create_api_token`/`regenerate_api_token`/`delete_api_token` (and
-    the login page's rate-limit response) used to show their message
-    through Django's messages framework from a response that never
-    renders the toast container, so it sat unseen until some unrelated
-    later page load - fixed with a standalone toast (or, for the
-    htmx-partial cases, an out-of-band one).
-  - ~75 leftover `title="..."` hover-hints across the app migrated to
-    the themed tooltip component, adding an explicit `aria-label` to
-    every icon-only control that had no other accessible name.
-  - The shared loading-spinner component (previously only used on
-    Settings' Preferences tab) now also appears on Calendar's filters/
-    refresh, Discover's watched/watchlisted display toggles, History
-    and Lists' filter/search forms, and the API token actions.
-  - ~20 custom-styled radio inputs (season/type/log filter chips) were
-    `display:none`, which drops them from the keyboard tab order
-    entirely - switched to the visually-hidden-but-focusable pattern
-    the rest of the app's own custom checkboxes/radios already use.
-  - A couple of small consistency fixes: a live-filter search field
-    missing `autocomplete="off"` (unlike its own sibling elsewhere),
-    two forms that had hx-post but confirmed via a plain onsubmit
-    instead of hx-confirm.
-  - Native `<details>/<summary>` markers, `<input type="range">`, and
-    the settings date-range picker were already addressed in earlier
-    passes - left as-is. Native `required`-field validation bubbles
-    are a real remaining gap, flagged but not changed in this pass -
-    no existing pattern to build on, and inventing a whole new
-    validation-message system carries more risk than this pass's
-    other fixes.
-
 ## [0.116.1] - 2026-09-01
 
 ### Fixed

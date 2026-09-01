@@ -15,27 +15,18 @@
     {% endcomment %}
     <div class="inline-flex bg-base-200 border border-line rounded-lg p-1 gap-0.5">
       <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-        <input type="radio" name="type" value="all" class="sr-only" {% if type_filter == "all" %}checked{% endif %}>All
+        <input type="radio" name="type" value="all" class="hidden" {% if type_filter == "all" %}checked{% endif %}>All
       </label>
       <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-        <input type="radio" name="type" value="movie" class="sr-only" {% if type_filter == "movie" %}checked{% endif %}>Movies
+        <input type="radio" name="type" value="movie" class="hidden" {% if type_filter == "movie" %}checked{% endif %}>Movies
       </label>
       <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-        <input type="radio" name="type" value="tv" class="sr-only" {% if type_filter == "tv" %}checked{% endif %}>TV
+        <input type="radio" name="type" value="tv" class="hidden" {% if type_filter == "tv" %}checked{% endif %}>TV
       </label>
       <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
-        <input type="radio" name="type" value="anime" class="sr-only" {% if type_filter == "anime" %}checked{% endif %}>Anime
+        <input type="radio" name="type" value="anime" class="hidden" {% if type_filter == "anime" %}checked{% endif %}>Anime
       </label>
     </div>
-    {% comment %}
-      Shared by the radios above (a form-level "change" trigger - this
-      span just needs to be a descendant of the form for htmx's own
-      default .htmx-request-on-the-issuing-element behavior to reach it)
-      and the search field below (its own hx-trigger override means IT,
-      not the form, is the issuing element - hx-indicator is what points
-      that one back at this same span instead).
-    {% endcomment %}
-    <span id="history-toolbar-spinner" class="spool-spinner" aria-hidden="true"></span>
     {% comment %}
       Debounced-as-you-type instead of the form's own change-on-blur
       default (matches what "search bar" usually means) - its own
@@ -52,9 +43,7 @@
         type="text" name="q" value="{{ query }}"
         placeholder="Search history…"
         aria-label="Search history"
-        autocomplete="off"
         hx-trigger="input changed delay:400ms, search"
-        hx-indicator="#history-toolbar-spinner"
         @change.stop=""
         class="bg-base-200 border border-line text-ink-dim text-xs pl-8 pr-3 py-2 rounded-lg w-40 sm:w-56 focus:outline-primary"
       >

@@ -27,7 +27,7 @@ heading/divider left behind.
               {% endif %}
               <form hx-post="{% url 'dismiss_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" class="absolute top-2 right-2 z-10">
                 {% csrf_token %}
-                <button type="submit" class="w-6 h-6 rounded-full bg-black/50 hover:bg-black/70 text-white/90 text-sm leading-none flex items-center justify-center spool-tooltip" aria-label="Dismiss" data-tooltip="Dismiss">&times;</button>
+                <button type="submit" class="w-6 h-6 rounded-full bg-black/50 hover:bg-black/70 text-white/90 text-sm leading-none flex items-center justify-center" title="Dismiss">&times;</button>
               </form>
               <span class="text-3xl">&#127873;</span>
               <div class="text-[13px] font-semibold leading-snug">Mystery recommendation</div>
@@ -53,11 +53,11 @@ heading/divider left behind.
                 <div class="absolute top-2 left-2 z-10 w-6 h-6 rounded-full flex items-center justify-center font-mono text-[11px] font-semibold ring-2 ring-black/40" style="background:{{ rec.from_profile.avatar_color }};color:#fff;">{{ rec.from_profile.display_name|first|upper }}</div>
               {% endif %}
               {% if rec.is_blind %}
-                <span class="absolute bottom-2 left-2 z-10 text-base spool-tooltip" data-tooltip="Was a mystery recommendation">&#127873;</span>
+                <span class="absolute bottom-2 left-2 z-10 text-base" title="Was a mystery recommendation">&#127873;</span>
               {% endif %}
               <form hx-post="{% url 'dismiss_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" class="absolute top-2 right-2 z-10">
                 {% csrf_token %}
-                <button type="submit" class="w-6 h-6 rounded-full bg-black/60 hover:bg-black/80 text-white/90 text-sm leading-none flex items-center justify-center spool-tooltip" aria-label="Dismiss" data-tooltip="Dismiss">&times;</button>
+                <button type="submit" class="w-6 h-6 rounded-full bg-black/60 hover:bg-black/80 text-white/90 text-sm leading-none flex items-center justify-center" title="Dismiss">&times;</button>
               </form>
               <a href="{% url 'title_detail' rec.title.pk %}" class="absolute inset-x-0 bottom-0 z-0 p-2.5 pt-8 bg-gradient-to-t from-black/85 via-black/40 to-transparent">
                 <div class="text-[13px] font-semibold text-white leading-snug line-clamp-2">{{ rec.title.name }}</div>
@@ -172,7 +172,7 @@ heading/divider left behind.
                         <div class="font-semibold text-sm">Add to list</div>
                         <div class="text-xs text-ink-faint truncate">{{ rec.title.name }}</div>
                       </div>
-                      <button type="button" @click="open = false" aria-label="Close" data-tooltip="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 spool-tooltip flex-none">{% icon "x" "w-4 h-4" %}</button>
+                      <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 flex-none">{% icon "x" "w-4 h-4" %}</button>
                     </div>
                     <div class="max-h-56 overflow-y-auto">
                       {% for list in my_lists %}

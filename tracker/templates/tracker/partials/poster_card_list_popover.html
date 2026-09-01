@@ -25,9 +25,8 @@ chip list, so the two popovers read as the same component family.
     @click="togglePanel($el)"
     :aria-expanded="open.toString()"
     aria-haspopup="true"
-    aria-label="Add to list"
-    data-tooltip="Add to list"
-    class="w-full h-9 flex items-center justify-center transition-colors spool-tooltip
+    title="Add to list"
+    class="w-full h-9 flex items-center justify-center transition-colors
       {% if in_list_ids %}bg-primary/20 text-primary hover:bg-primary/30{% else %}text-white/75 hover:text-white hover:bg-white/10{% endif %}"
   >{% icon "list-checks" "w-4 h-4" %}</button>
   <div
@@ -40,7 +39,7 @@ chip list, so the two popovers read as the same component family.
         <div class="font-semibold text-sm">Add to list</div>
         <div class="text-xs text-ink-faint truncate">{{ title.name }}</div>
       </div>
-      <button type="button" @click="open = false" aria-label="Close" data-tooltip="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 spool-tooltip flex-none">{% icon "x" "w-4 h-4" %}</button>
+      <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 flex-none">{% icon "x" "w-4 h-4" %}</button>
     </div>
     <div class="max-h-56 overflow-y-auto">
       {% for list in my_lists %}

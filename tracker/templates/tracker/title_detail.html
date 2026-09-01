@@ -128,7 +128,7 @@
                     {% csrf_token %}
                     <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1 border-b border-line">
                       <div class="font-semibold text-sm">Mark as watched</div>
-                      <button type="button" @click="open = false" aria-label="Close" data-tooltip="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 spool-tooltip">&times;</button>
+                      <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5">&times;</button>
                     </div>
                     <div x-show="!showCustom">
                       <button type="submit" name="when" value="now" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">

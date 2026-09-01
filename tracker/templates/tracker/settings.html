@@ -122,7 +122,7 @@
                 <input type="file" name="avatar_image" accept="image/png,image/jpeg,image/webp" @change="onFileChange($event)" class="hidden">
               </label>
               {% if profile.avatar_image %}
-                <button type="submit" name="remove_photo" value="1" aria-label="Remove photo" data-tooltip="Remove photo" class="btn btn-sm btn-square bg-base-300 border-line text-error hover:bg-error hover:text-error-content hover:border-error flex-none spool-tooltip">
+                <button type="submit" name="remove_photo" value="1" title="Remove photo" class="btn btn-sm btn-square bg-base-300 border-line text-error hover:bg-error hover:text-error-content hover:border-error flex-none">
                   {% icon "trash-2" "w-4 h-4" %}
                 </button>
               {% endif %}
@@ -133,7 +133,7 @@
             <div class="flex flex-wrap gap-2 mb-5">
               {% for c in avatar_colors %}
                 <label class="cursor-pointer">
-                  <input type="radio" name="avatar_color" value="{{ c }}" x-model="color" class="sr-only" {% if c == profile.avatar_color %}checked{% endif %}>
+                  <input type="radio" name="avatar_color" value="{{ c }}" x-model="color" class="hidden" {% if c == profile.avatar_color %}checked{% endif %}>
                   <span class="block w-7 h-7 rounded-full border-2" :class="color === '{{ c }}' ? 'border-base-content' : 'border-transparent'" style="background:{{ c }};"></span>
                 </label>
               {% endfor %}
@@ -161,7 +161,7 @@
             <label class="block text-xs text-ink-dim mb-1">Current password</label>
             <div class="relative mb-3">
               <input :type="showCurrent ? 'text' : 'password'" name="current_password" required class="input w-full bg-base-100 pr-10">
-              <button type="button" @click="showCurrent = !showCurrent" tabindex="-1" aria-label="Show/hide password" data-tooltip="Show/hide password" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content spool-tooltip">
+              <button type="button" @click="showCurrent = !showCurrent" tabindex="-1" title="Show/hide password" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
                 <span x-show="!showCurrent">{% icon "eye" "w-4 h-4" %}</span>
                 <span x-show="showCurrent" x-cloak>{% icon "eye-off" "w-4 h-4" %}</span>
               </button>
@@ -170,7 +170,7 @@
             <label class="block text-xs text-ink-dim mb-1">New password</label>
             <div class="relative mb-1">
               <input :type="showNew ? 'text' : 'password'" name="new_password" required minlength="8" class="input w-full bg-base-100 pr-10">
-              <button type="button" @click="showNew = !showNew" tabindex="-1" aria-label="Show/hide password" data-tooltip="Show/hide password" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content spool-tooltip">
+              <button type="button" @click="showNew = !showNew" tabindex="-1" title="Show/hide password" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
                 <span x-show="!showNew">{% icon "eye" "w-4 h-4" %}</span>
                 <span x-show="showNew" x-cloak>{% icon "eye-off" "w-4 h-4" %}</span>
               </button>
@@ -180,7 +180,7 @@
             <label class="block text-xs text-ink-dim mb-1">Confirm new password</label>
             <div class="relative mb-4">
               <input :type="showConfirm ? 'text' : 'password'" name="confirm_password" required minlength="8" class="input w-full bg-base-100 pr-10">
-              <button type="button" @click="showConfirm = !showConfirm" tabindex="-1" aria-label="Show/hide password" data-tooltip="Show/hide password" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content spool-tooltip">
+              <button type="button" @click="showConfirm = !showConfirm" tabindex="-1" title="Show/hide password" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
                 <span x-show="!showConfirm">{% icon "eye" "w-4 h-4" %}</span>
                 <span x-show="showConfirm" x-cloak>{% icon "eye-off" "w-4 h-4" %}</span>
               </button>
@@ -200,7 +200,7 @@
             <div class="w-13 h-9 rounded-md border-2 border-primary" style="background:#14161c;"></div>
             <span class="text-[10px] text-ink-dim">Dark</span>
           </div>
-          <div class="flex flex-col items-center gap-1.5 opacity-40 cursor-not-allowed spool-tooltip" data-tooltip="Light mode isn't available yet">
+          <div class="flex flex-col items-center gap-1.5 opacity-40 cursor-not-allowed" title="Light mode isn't available yet">
             <div class="w-13 h-9 rounded-md border-2 border-transparent" style="background:#f4f2ec;"></div>
             <span class="text-[10px] text-ink-dim">Coming soon</span>
           </div>
@@ -221,10 +221,10 @@
           class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5"
         >
           <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-100 has-checked:text-base-content">
-            <input type="radio" name="time_format" value="12h" class="sr-only" {% if profile.time_format == "12h" %}checked{% endif %}>12-hour (AM/PM)
+            <input type="radio" name="time_format" value="12h" class="hidden" {% if profile.time_format == "12h" %}checked{% endif %}>12-hour (AM/PM)
           </label>
           <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-100 has-checked:text-base-content">
-            <input type="radio" name="time_format" value="24h" class="sr-only" {% if profile.time_format == "24h" %}checked{% endif %}>24-hour
+            <input type="radio" name="time_format" value="24h" class="hidden" {% if profile.time_format == "24h" %}checked{% endif %}>24-hour
           </label>
           <span class="spool-spinner ml-1" aria-hidden="true"></span>
         </form>
@@ -482,7 +482,7 @@
             <div class="font-semibold text-[13.5px]">Clear watch history</div>
             <div class="text-xs text-ink-dim">Deletes every watch event and rating. Your lists and watchlist are untouched.</div>
           </div>
-          <form method="post" action="{% url 'clear_watch_history' %}" onsubmit="return confirmSubmit(event, 'Clear your entire watch history? This deletes every watch event and rating - permanently. Your lists and watchlist stay as they are.');">
+          <form method="post" action="{% url 'clear_watch_history' %}" onsubmit="return confirm('Clear your entire watch history? This deletes every watch event and rating - permanently. Your lists and watchlist stay as they are.');">
             {% csrf_token %}
             <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content flex-none whitespace-nowrap">Clear history</button>
           </form>
@@ -494,7 +494,7 @@
               <div class="font-semibold text-[13.5px]">Disconnect &amp; wipe Trakt</div>
               <div class="text-xs text-ink-dim">Disconnects Trakt and removes watch history for titles matched via Trakt.</div>
             </div>
-            <form method="post" action="{% url 'disconnect_and_wipe_provider' 'trakt' %}" onsubmit="return confirmSubmit(event, 'Disconnect Trakt and remove watch history for titles matched via Trakt? This is permanent.');">
+            <form method="post" action="{% url 'disconnect_and_wipe_provider' 'trakt' %}" onsubmit="return confirm('Disconnect Trakt and remove watch history for titles matched via Trakt? This is permanent.');">
               {% csrf_token %}
               <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content flex-none whitespace-nowrap">Disconnect &amp; wipe</button>
             </form>
@@ -507,7 +507,7 @@
               <div class="font-semibold text-[13.5px]">Disconnect &amp; wipe Simkl</div>
               <div class="text-xs text-ink-dim">Disconnects Simkl and removes watch history for titles matched via Simkl.</div>
             </div>
-            <form method="post" action="{% url 'disconnect_and_wipe_provider' 'simkl' %}" onsubmit="return confirmSubmit(event, 'Disconnect Simkl and remove watch history for titles matched via Simkl? This is permanent.');">
+            <form method="post" action="{% url 'disconnect_and_wipe_provider' 'simkl' %}" onsubmit="return confirm('Disconnect Simkl and remove watch history for titles matched via Simkl? This is permanent.');">
               {% csrf_token %}
               <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content flex-none whitespace-nowrap">Disconnect &amp; wipe</button>
             </form>
@@ -520,7 +520,7 @@
               <div class="font-semibold text-[13.5px]">Disconnect &amp; wipe Nuvio</div>
               <div class="text-xs text-ink-dim">Disconnects Nuvio and removes watch history for titles matched via Nuvio.</div>
             </div>
-            <form method="post" action="{% url 'disconnect_and_wipe_provider' 'nuvio' %}" onsubmit="return confirmSubmit(event, 'Disconnect Nuvio and remove watch history for titles matched via Nuvio? This is permanent.');">
+            <form method="post" action="{% url 'disconnect_and_wipe_provider' 'nuvio' %}" onsubmit="return confirm('Disconnect Nuvio and remove watch history for titles matched via Nuvio? This is permanent.');">
               {% csrf_token %}
               <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content flex-none whitespace-nowrap">Disconnect &amp; wipe</button>
             </form>
@@ -536,7 +536,7 @@
             {% endif %}
           </div>
           {% if can_delete_own_account %}
-            <form method="post" action="{% url 'delete_own_account' %}" onsubmit="return confirmSubmit(event, 'Permanently delete your account? This deletes your entire watch history, lists, and login - this cannot be undone.');">
+            <form method="post" action="{% url 'delete_own_account' %}" onsubmit="return confirm('Permanently delete your account? This deletes your entire watch history, lists, and login - this cannot be undone.');">
               {% csrf_token %}
               <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content flex-none whitespace-nowrap">Delete my account</button>
             </form>
@@ -565,36 +565,32 @@
                 {% if p.id != profile.id %}
                   <div class="flex items-center gap-1.5 flex-none">
                     {% if p.is_owner %}
-                      <form method="post" action="{% url 'demote_from_owner' p.id %}" onsubmit="return confirmSubmit(event, 'Demote {{ p.display_name|escapejs }} to member? They will lose access to profiles, integrations, and server settings.');">
+                      <form method="post" action="{% url 'demote_from_owner' p.id %}" onsubmit="return confirm('Demote {{ p.display_name|escapejs }} to member? They will lose access to profiles, integrations, and server settings.');">
                         {% csrf_token %}
                         <button
-                          type="submit" aria-label="Demote {{ p.display_name }} to member"
-                          data-tooltip="Demote to member - removes access to profiles, integrations, and server settings"
-                          class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-base-content hover:bg-base-300 spool-tooltip"
+                          type="submit" title="Demote to member - removes access to profiles, integrations, and server settings"
+                          class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-base-content hover:bg-base-300"
                         >{% icon "circle" "w-4 h-4" %}</button>
                       </form>
                     {% else %}
-                      <form method="post" action="{% url 'promote_to_owner' p.id %}" onsubmit="return confirmSubmit(event, 'Make {{ p.display_name|escapejs }} an owner? Owners can manage profiles, integrations, and server settings.');">
+                      <form method="post" action="{% url 'promote_to_owner' p.id %}" onsubmit="return confirm('Make {{ p.display_name|escapejs }} an owner? Owners can manage profiles, integrations, and server settings.');">
                         {% csrf_token %}
                         <button
-                          type="submit" aria-label="Promote {{ p.display_name }} to owner"
-                          data-tooltip="Promote to owner - grants full access to profiles, integrations, and server settings"
-                          class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-primary hover:bg-base-300 spool-tooltip"
+                          type="submit" title="Promote to owner - grants full access to profiles, integrations, and server settings"
+                          class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-primary hover:bg-base-300"
                         >{% icon "crown" "w-4 h-4" %}</button>
                       </form>
                     {% endif %}
                     <button
                       type="button" @click="showReset = !showReset"
-                      aria-label="Reset password for {{ p.display_name }}"
-                      data-tooltip="Reset password - sets a new password for this profile and signs them out of any active sessions"
-                      class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-base-content hover:bg-base-300 spool-tooltip"
+                      title="Reset password - sets a new password for this profile and signs them out of any active sessions"
+                      class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-base-content hover:bg-base-300"
                     >{% icon "key" "w-4 h-4" %}</button>
-                    <form method="post" action="{% url 'delete_profile' p.id %}" onsubmit="return confirmSubmit(event, 'Remove {{ p.display_name|escapejs }}? This deletes their entire watch history.');">
+                    <form method="post" action="{% url 'delete_profile' p.id %}" onsubmit="return confirm('Remove {{ p.display_name|escapejs }}? This deletes their entire watch history.');">
                       {% csrf_token %}
                       <button
-                        type="submit" aria-label="Remove {{ p.display_name }}"
-                        data-tooltip="Remove - permanently deletes this profile and its entire watch history"
-                        class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-error hover:bg-base-300 spool-tooltip"
+                        type="submit" title="Remove - permanently deletes this profile and its entire watch history"
+                        class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-faint hover:text-error hover:bg-base-300"
                       >{% icon "trash-2" "w-4 h-4" %}</button>
                     </form>
                   </div>
@@ -642,7 +638,7 @@
               <div class="flex items-center justify-between mb-1">
                 <label class="block text-xs text-ink-dim">Trakt Client ID {% if trakt_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
                 {% if trakt_configured %}
-                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'trakt' %}" onclick="return confirmSubmit(event, 'Clear the stored Trakt client ID and secret? Spool will fall back to the server .env values, if any.');" class="text-[11px] text-ink-faint hover:text-error underline">Clear</button>
+                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'trakt' %}" onclick="return confirm('Clear the stored Trakt client ID and secret? Spool will fall back to the server .env values, if any.');" class="text-[11px] text-ink-faint hover:text-error underline">Clear</button>
                 {% endif %}
               </div>
               <input type="text" name="trakt_client_id" value="{{ integration_field_values.trakt_client_id|default:'' }}" @keydown.enter.prevent placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
@@ -652,7 +648,7 @@
               <div class="flex gap-1.5">
                 <div class="relative flex-1">
                   <input :type="showTraktSecret ? 'text' : 'password'" name="trakt_client_secret" value="{{ integration_field_values.trakt_client_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
-                  <button type="button" @click="showTraktSecret = !showTraktSecret" tabindex="-1" aria-label="Show/hide" data-tooltip="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content spool-tooltip">
+                  <button type="button" @click="showTraktSecret = !showTraktSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
                     <span x-show="!showTraktSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
                     <span x-show="showTraktSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
                   </button>
@@ -668,7 +664,7 @@
               <div class="flex items-center justify-between mb-1">
                 <label class="block text-xs text-ink-dim">Simkl Client ID {% if simkl_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
                 {% if simkl_configured %}
-                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'simkl' %}" onclick="return confirmSubmit(event, 'Clear the stored Simkl client ID and secret? Spool will fall back to the server .env values, if any.');" class="text-[11px] text-ink-faint hover:text-error underline">Clear</button>
+                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'simkl' %}" onclick="return confirm('Clear the stored Simkl client ID and secret? Spool will fall back to the server .env values, if any.');" class="text-[11px] text-ink-faint hover:text-error underline">Clear</button>
                 {% endif %}
               </div>
               <input type="text" name="simkl_client_id" value="{{ integration_field_values.simkl_client_id|default:'' }}" @keydown.enter.prevent placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
@@ -678,7 +674,7 @@
               <div class="flex gap-1.5">
                 <div class="relative flex-1">
                   <input :type="showSimklSecret ? 'text' : 'password'" name="simkl_client_secret" value="{{ integration_field_values.simkl_client_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
-                  <button type="button" @click="showSimklSecret = !showSimklSecret" tabindex="-1" aria-label="Show/hide" data-tooltip="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content spool-tooltip">
+                  <button type="button" @click="showSimklSecret = !showSimklSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
                     <span x-show="!showSimklSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
                     <span x-show="showSimklSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
                   </button>
@@ -694,13 +690,13 @@
               <div class="flex items-center justify-between mb-1">
                 <label class="block text-xs text-ink-dim">TMDB API Key {% if tmdb_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
                 {% if tmdb_configured %}
-                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'tmdb' %}" onclick="return confirmSubmit(event, 'Clear the stored TMDB API key? Spool will fall back to the server .env value, if any.');" class="text-[11px] text-ink-faint hover:text-error underline">Clear</button>
+                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'tmdb' %}" onclick="return confirm('Clear the stored TMDB API key? Spool will fall back to the server .env value, if any.');" class="text-[11px] text-ink-faint hover:text-error underline">Clear</button>
                 {% endif %}
               </div>
               <div class="flex gap-1.5">
                 <div class="relative flex-1">
                   <input :type="showTmdb ? 'text' : 'password'" name="tmdb_api_key" value="{{ integration_field_values.tmdb_api_key|default:'' }}" @keydown.enter.prevent placeholder="{% if tmdb_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
-                  <button type="button" @click="showTmdb = !showTmdb" tabindex="-1" aria-label="Show/hide" data-tooltip="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content spool-tooltip">
+                  <button type="button" @click="showTmdb = !showTmdb" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
                     <span x-show="!showTmdb">{% icon "eye" "w-3.5 h-3.5" %}</span>
                     <span x-show="showTmdb" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
                   </button>
@@ -716,13 +712,13 @@
               <div class="flex items-center justify-between mb-1">
                 <label class="block text-xs text-ink-dim">MDBList API Key {% if mdblist_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
                 {% if mdblist_configured %}
-                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'mdblist' %}" onclick="return confirmSubmit(event, 'Clear the stored MDBList API key? This turns off supplementary ratings on title pages until a new key is set.');" class="text-[11px] text-ink-faint hover:text-error underline">Clear</button>
+                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'mdblist' %}" onclick="return confirm('Clear the stored MDBList API key? This turns off supplementary ratings on title pages until a new key is set.');" class="text-[11px] text-ink-faint hover:text-error underline">Clear</button>
                 {% endif %}
               </div>
               <div class="flex gap-1.5">
                 <div class="relative flex-1">
                   <input :type="showMdblist ? 'text' : 'password'" name="mdblist_api_key" value="{{ integration_field_values.mdblist_api_key|default:'' }}" @keydown.enter.prevent placeholder="{% if mdblist_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
-                  <button type="button" @click="showMdblist = !showMdblist" tabindex="-1" aria-label="Show/hide" data-tooltip="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content spool-tooltip">
+                  <button type="button" @click="showMdblist = !showMdblist" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
                     <span x-show="!showMdblist">{% icon "eye" "w-3.5 h-3.5" %}</span>
                     <span x-show="showMdblist" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
                   </button>
@@ -745,7 +741,7 @@
               </div>
               <div class="relative">
                 <input :type="showSsoSecret ? 'text' : 'password'" name="sso_shared_secret" value="{{ integration_field_values.sso_shared_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if sso_shared_secret_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
-                <button type="button" @click="showSsoSecret = !showSsoSecret" tabindex="-1" aria-label="Show/hide" data-tooltip="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content spool-tooltip">
+                <button type="button" @click="showSsoSecret = !showSsoSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
                   <span x-show="!showSsoSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
                   <span x-show="showSsoSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
                 </button>
@@ -774,17 +770,17 @@
                     class="w-full bg-transparent text-[11px] font-mono text-ink-dim focus:outline-none cursor-text"
                   >
                 </div>
-                <button type="button" @click="show = !show" aria-label="Show/hide key" data-tooltip="Show/hide key" class="text-ink-faint hover:text-base-content p-1.5 flex-none spool-tooltip">
+                <button type="button" @click="show = !show" title="Show/hide key" class="text-ink-faint hover:text-base-content p-1.5 flex-none">
                   <span x-show="!show">{% icon "eye" "w-3.5 h-3.5" %}</span>
                   <span x-show="show" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
                 </button>
                 <form
                   method="post" action="{% url 'revoke_service_api_key' key.pk %}"
-                  onsubmit="return confirmSubmit(event, 'Revoke the &quot;{{ key.name|escapejs }}&quot; key? Anything still using it will get 401s immediately.');"
+                  onsubmit="return confirm('Revoke the &quot;{{ key.name|escapejs }}&quot; key? Anything still using it will get 401s immediately.');"
                   class="flex-none"
                 >
                   {% csrf_token %}
-                  <button type="submit" data-tooltip="Revoke" aria-label="Revoke {{ key.name }}" class="text-ink-faint hover:text-error p-1.5 spool-tooltip">{% icon "trash-2" "w-3.5 h-3.5" %}</button>
+                  <button type="submit" title="Revoke" aria-label="Revoke {{ key.name }}" class="text-ink-faint hover:text-error p-1.5">{% icon "trash-2" "w-3.5 h-3.5" %}</button>
                 </form>
               </div>
             {% endfor %}
@@ -859,7 +855,7 @@
                   <input type="hidden" name="mode" value="preview">
                   <button type="submit" class="btn btn-xs btn-soft">Preview</button>
                 </form>
-                <form method="post" action="{% url 'run_merge_duplicates' %}" onsubmit="return confirmSubmit(event, 'Merge every duplicate title found? This deletes the duplicate rows and moves their watch history, ratings, and lists onto the original - not reversible.');">
+                <form method="post" action="{% url 'run_merge_duplicates' %}" onsubmit="return confirm('Merge every duplicate title found? This deletes the duplicate rows and moves their watch history, ratings, and lists onto the original - not reversible.');">
                   {% csrf_token %}
                   <input type="hidden" name="mode" value="commit">
                   <button type="submit" class="btn btn-xs btn-outline border-error text-error hover:bg-error hover:text-error-content">Commit merge</button>
