@@ -4545,13 +4545,15 @@ NOTIFICATIONS_LIST_PAGE_SIZE = 30
 def notifications_list(request):
     """The panel's "View all" footer link - the same row/date-grouping
     rendering as the dropdown (_group_notifications_for_panel), just
-    over a full paginated queryset instead of a fixed top-20. Kept
-    deliberately simpler than the dropdown otherwise - no mark-all/
-    clear-all header actions here (those still only ever re-render the
-    dropdown's own fragment shape, see _render_notifications_panel), and
-    a dismissed row here does a plain redirect back to this same page
-    rather than the dropdown's live fade (see mark_notification_read's
-    own non-HTMX branch)."""
+    over a full paginated queryset instead of a fixed top-20. Its own
+    Mark all read/Clear all buttons and per-row dismiss all POST to the
+    exact same views the dropdown uses, but as plain forms rather than
+    htmx - this page can't render the dropdown's fragment shape, so
+    those views redirect back here instead when the request isn't
+    htmx (see mark_notification_read/mark_all_notifications_read/
+    clear_all_notifications' own non-HTMX branches). That also means no
+    live fade here the way the dropdown's own outerHTML swap gets -
+    a plain full-page redirect instead."""
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
@@ -4594,7 +4596,13 @@ def mark_all_notifications_read(request):
     if profile is None:
         raise Http404
     Notification.objects.filter(profile=profile, read=False).update(read=True)
-    return _render_notifications_panel(request, profile)
+    if request.headers.get("HX-Request"):
+        return _render_notifications_panel(request, profile)
+    # notifications_list.html's own "Mark all read" button - a plain
+    # form, not htmx, same reasoning as mark_notification_read's own
+    # non-HTMX branch (that page can't render the dropdown's fragment
+    # shape).
+    return redirect(request.POST.get("next") or reverse("notifications_list"))
 
 
 @login_required
@@ -4608,7 +4616,9 @@ def clear_all_notifications(request):
     if profile is None:
         raise Http404
     Notification.objects.filter(profile=profile).delete()
-    return _render_notifications_panel(request, profile)
+    if request.headers.get("HX-Request"):
+        return _render_notifications_panel(request, profile)
+    return redirect(request.POST.get("next") or reverse("notifications_list"))
 
 
 _CSV_FORMULA_TRIGGERS = ("=", "+", "-", "@")

@@ -3801,6 +3801,26 @@ class NotificationsListViewTests(TestCase):
         resp = self.client.get(reverse("notifications_list"))
         self.assertContains(resp, "caught up")
 
+    def test_mark_all_read_and_clear_all_are_plain_forms_with_text_labels(self):
+        # Unlike the dropdown's icon-only buttons, this page's own
+        # actions carry a visible text label alongside the icon.
+        Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="x")
+        resp = self.client.get(reverse("notifications_list"))
+        content = resp.content.decode()
+        self.assertIn(f'action="{reverse("mark_all_notifications_read")}"', content)
+        self.assertNotIn(f'hx-post="{reverse("mark_all_notifications_read")}"', content)
+        self.assertIn(f'action="{reverse("clear_all_notifications")}"', content)
+        self.assertNotIn(f'hx-post="{reverse("clear_all_notifications")}"', content)
+        self.assertContains(resp, "Mark all read")
+        self.assertContains(resp, "Clear all")
+
+    def test_mark_all_read_and_clear_all_hidden_when_empty(self):
+        # Same "no actions to offer when there's nothing to act on" rule
+        # the dropdown's own header buttons already follow.
+        resp = self.client.get(reverse("notifications_list"))
+        self.assertNotContains(resp, "Mark all read")
+        self.assertNotContains(resp, "Clear all")
+
 
 class MarkNotificationReadViewTests(TestCase):
     def setUp(self):
@@ -3891,8 +3911,22 @@ class MarkAllNotificationsReadViewTests(TestCase):
     def test_badge_clears_via_an_oob_fragment(self):
         Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="One")
         Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="Two")
-        resp = self.client.post(reverse("mark_all_notifications_read"))
+        resp = self.client.post(reverse("mark_all_notifications_read"), HTTP_HX_REQUEST="true")
         self.assertContains(resp, 'id="notifications-badge" hx-swap-oob="true"></span>')
+
+    def test_non_htmx_request_redirects_back_to_the_full_notifications_page(self):
+        # notifications_list.html's own "Mark all read" button is a plain
+        # form, not htmx - see mark_notification_read's own non-HTMX
+        # branch for the same reasoning.
+        Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="One")
+        resp = self.client.post(reverse("mark_all_notifications_read"))
+        self.assertRedirects(resp, reverse("notifications_list"))
+
+    def test_non_htmx_request_honors_a_next_param(self):
+        resp = self.client.post(
+            reverse("mark_all_notifications_read"), {"next": reverse("notifications_list") + "?page=2"}
+        )
+        self.assertRedirects(resp, reverse("notifications_list") + "?page=2")
 
 
 class ClearAllNotificationsViewTests(TestCase):
@@ -3925,8 +3959,19 @@ class ClearAllNotificationsViewTests(TestCase):
 
     def test_badge_clears_via_an_oob_fragment(self):
         Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="One")
-        resp = self.client.post(reverse("clear_all_notifications"))
+        resp = self.client.post(reverse("clear_all_notifications"), HTTP_HX_REQUEST="true")
         self.assertContains(resp, 'id="notifications-badge" hx-swap-oob="true"></span>')
+
+    def test_non_htmx_request_redirects_back_to_the_full_notifications_page(self):
+        Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="One")
+        resp = self.client.post(reverse("clear_all_notifications"))
+        self.assertRedirects(resp, reverse("notifications_list"))
+
+    def test_non_htmx_request_honors_a_next_param(self):
+        resp = self.client.post(
+            reverse("clear_all_notifications"), {"next": reverse("notifications_list") + "?page=2"}
+        )
+        self.assertRedirects(resp, reverse("notifications_list") + "?page=2")
 
 
 class UnreadNotificationCountContextTests(TestCase):

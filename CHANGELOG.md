@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.116.1] - 2026-09-01
+
+### Fixed
+
+- The full notifications page (`/notifications/all/`) is now centered
+  in the available content area instead of sitting flush left with
+  empty space to its right.
+- That page's "Mark all read"/"Clear all" actions moved from the
+  dropdown-only header into the page itself, as text-labeled buttons
+  (not the dropdown's icon-only ones).
+
 ## [0.116.0] - 2026-09-01
 
 ### Added

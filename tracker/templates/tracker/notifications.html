@@ -3,24 +3,39 @@
 {% block title %}Notifications · Spool{% endblock %}
 {% block content %}
 
-  <div class="mb-6">
-    <h1 class="font-display text-4xl">Notifications</h1>
-    <div class="text-ink-dim text-sm mt-1">Everything from the header bell, browsable beyond what fits in the dropdown</div>
-  </div>
+  <div class="max-w-2xl mx-auto">
+    <div class="mb-6">
+      <h1 class="font-display text-4xl">Notifications</h1>
+      <div class="text-ink-dim text-sm mt-1">Everything from the header bell, browsable beyond what fits in the dropdown</div>
+    </div>
 
-  <div x-data="{ category: 'personal' }" class="max-w-2xl">
+    <div x-data="{ category: 'personal' }">
     {% if has_notifications %}
-      <div class="flex items-center gap-1 px-1 pb-3">
-        <button
-          type="button" @click="category = 'personal'"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors"
-          :class="category === 'personal' ? 'bg-primary text-primary-content' : 'text-ink-faint hover:text-base-content hover:bg-base-300'"
-        >{% icon "sparkles" "w-3.5 h-3.5" %}For you</button>
-        <button
-          type="button" @click="category = 'system'"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors"
-          :class="category === 'system' ? 'bg-primary text-primary-content' : 'text-ink-faint hover:text-base-content hover:bg-base-300'"
-        >{% icon "bell" "w-3.5 h-3.5" %}System</button>
+      <div class="flex items-center justify-between gap-3 flex-wrap pb-3">
+        <div class="flex items-center gap-1 px-1">
+          <button
+            type="button" @click="category = 'personal'"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors"
+            :class="category === 'personal' ? 'bg-primary text-primary-content' : 'text-ink-faint hover:text-base-content hover:bg-base-300'"
+          >{% icon "sparkles" "w-3.5 h-3.5" %}For you</button>
+          <button
+            type="button" @click="category = 'system'"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors"
+            :class="category === 'system' ? 'bg-primary text-primary-content' : 'text-ink-faint hover:text-base-content hover:bg-base-300'"
+          >{% icon "bell" "w-3.5 h-3.5" %}System</button>
+        </div>
+        <div class="flex items-center gap-2">
+          <form method="post" action="{% url 'mark_all_notifications_read' %}">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button type="submit" class="btn btn-sm btn-soft">{% icon "eye" "w-3.5 h-3.5" %}Mark all read</button>
+          </form>
+          <form method="post" action="{% url 'clear_all_notifications' %}" onsubmit="return confirm('Clear all notifications? This can\'t be undone.');">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button type="submit" class="btn btn-sm btn-soft btn-error">{% icon "eraser" "w-3.5 h-3.5" %}Clear all</button>
+          </form>
+        </div>
       </div>
     {% endif %}
     <div class="bg-base-200 border border-line rounded-lg overflow-hidden">
@@ -75,6 +90,7 @@
         </div>
       </div>
     {% endif %}
+    </div>
   </div>
 
 {% endblock %}
