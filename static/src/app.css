@@ -398,7 +398,17 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
    for the "purely visual hint" subset flagged in the design-consistency
    audit - accessibility-critical labels stay as native title/aria-label,
    not this. */
-.spool-tooltip {
+/* :where(), not a plain selector - gives this zero specificity so it
+   never fights a Tailwind positioning utility (.absolute/.fixed/etc.)
+   already on the same element for which position: wins, regardless of
+   which one happens to compile later in the stylesheet. A bug from the
+   design-consistency audit: several already-absolute elements
+   (settings.html's Show/hide-password buttons among them) got
+   .spool-tooltip added for its hover hint, and .spool-tooltip's own
+   plain `position: relative` - equal specificity to `.absolute`, and
+   compiled after it - silently won and knocked them out of their
+   absolute positioning. */
+:where(.spool-tooltip) {
   position: relative;
 }
 .spool-tooltip::after {
