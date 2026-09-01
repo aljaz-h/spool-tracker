@@ -4209,6 +4209,17 @@ class LoginRateLimitTests(TestCase):
         resp = self.client.post(reverse("login"), {"username": "ratelimituser", "password": "pass12345"})
         self.assertEqual(resp.status_code, 429)
 
+    def test_lockout_shows_a_themed_toast_not_a_bare_response(self):
+        # Used to be a bare, unstyled HttpResponse replacing the whole
+        # page - now the real (still 429) login page, with the message
+        # going through the same toast component every other page uses.
+        for _ in range(10):
+            self.client.post(reverse("login"), {"username": "ratelimituser", "password": "wrong"})
+        resp = self.client.post(reverse("login"), {"username": "ratelimituser", "password": "pass12345"})
+        self.assertContains(resp, "Too many login attempts", status_code=429)
+        self.assertContains(resp, 'id="toast-stack"', status_code=429)
+        self.assertContains(resp, "Sign in to your household", status_code=429)
+
     def test_correct_password_still_works_under_the_limit(self):
         resp = self.client.post(reverse("login"), {"username": "ratelimituser", "password": "pass12345"})
         self.assertRedirects(resp, reverse("dashboard"))
@@ -4780,17 +4791,17 @@ class AdminDashboardProfileControlsTests(TestCase):
 
     def test_member_row_shows_crown_promote_icon(self):
         resp = self.client.get(reverse("admin_dashboard"))
-        self.assertContains(resp, 'title="Promote to owner')
+        self.assertContains(resp, 'data-tooltip="Promote to owner')
         # crown icon glyph
         self.assertContains(resp, 'd="M11.562 3.266a.5.5 0 0 1 .876 0')
 
     def test_owner_row_shows_circle_demote_icon(self):
         resp = self.client.get(reverse("admin_dashboard"))
-        self.assertContains(resp, 'title="Demote to member')
+        self.assertContains(resp, 'data-tooltip="Demote to member')
 
     def test_every_row_shows_trash_remove_icon(self):
         resp = self.client.get(reverse("admin_dashboard"))
-        self.assertContains(resp, 'title="Remove - permanently deletes')
+        self.assertContains(resp, 'data-tooltip="Remove - permanently deletes')
         self.assertContains(resp, 'd="M3 6h18"')  # trash-2 glyph
 
     def test_no_bare_text_buttons_remain(self):
@@ -7145,8 +7156,8 @@ class TopbarAvatarDedupeTests(TestCase):
         resp = self.client.get(reverse("dashboard"))
         # A single-profile household has no "other_profiles" - the Friends
         # dropdown doesn't render at all, so "Solo" only ever appears once,
-        # via the active-profile dropdown trigger's own title.
-        self.assertEqual(resp.content.decode().count('title="Solo"'), 1)
+        # via the active-profile dropdown trigger's own tooltip.
+        self.assertEqual(resp.content.decode().count('data-tooltip="Solo"'), 1)
 
     def test_multi_profile_shows_others_plus_self(self):
         user = User.objects.create_user("selfprofile", password="pass12345")
@@ -7156,8 +7167,8 @@ class TopbarAvatarDedupeTests(TestCase):
         self.client.login(username="selfprofile", password="pass12345")
         resp = self.client.get(reverse("dashboard"))
         content = resp.content.decode()
-        self.assertEqual(content.count('title="Self"'), 1)
-        self.assertEqual(content.count('title="Other"'), 1)
+        self.assertEqual(content.count('data-tooltip="Self"'), 1)
+        self.assertEqual(content.count('data-tooltip="Other"'), 1)
 
 
 class TopbarMobileLayoutTests(TestCase):
@@ -15441,7 +15452,7 @@ class TitleUnmarkWatchedTests(TestCase):
         WatchEvent.objects.create(profile=self.profile, title=show, watched_at=self.timezone.now())
         resp = self.client.post(reverse("title_unmark_watched", args=[show.pk]), HTTP_HX_REQUEST="true")
         self.assertContains(resp, "text-success")
-        self.assertNotContains(resp, 'title="Mark as watched"')
+        self.assertNotContains(resp, 'data-tooltip="Mark as watched"')
 
     def test_detail_page_response_includes_the_history_card_oob_fragment(self):
         WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
@@ -18129,7 +18140,7 @@ class HistoryToolbarStaysInSyncTests(TestCase):
         )
         self.assertContains(resp, "<form")
         self.assertContains(resp, "bg-primary")  # the dot itself
-        self.assertContains(resp, 'value="movie" class="hidden" checked')
+        self.assertContains(resp, 'value="movie" class="sr-only" checked')
 
     def test_history_content_target_returns_only_the_results_no_toolbar(self):
         resp = self.client.get(
@@ -18165,7 +18176,7 @@ class HistoryToolbarStaysInSyncTests(TestCase):
         )
         self.assertEqual(resp.context["period"], "7")
         self.assertEqual(resp.context["sort"], "old")
-        self.assertContains(resp, 'value="movie" class="hidden" checked')
+        self.assertContains(resp, 'value="movie" class="sr-only" checked')
 
     def test_full_page_load_re_selects_the_applied_period_and_sort(self):
         resp = self.client.get(reverse("history"), {"period": "7", "sort": "old"})
@@ -18678,6 +18689,30 @@ class CustomConfirmModalTests(TestCase):
         resp = self.client.get(reverse("history"))
         self.assertContains(resp, "Remove the selected items from your watch history")
 
+    def test_confirm_submit_adapter_present_on_every_page(self):
+        # Audit fix: plain (non-htmx) forms/buttons used to call the
+        # browser's own native confirm() directly in their onsubmit/
+        # onclick, bypassing the dialog above entirely - confirmSubmit()
+        # is the adapter that routes those through the same confirmModal
+        # dialog instead (a plain submit can't await confirmModal()'s
+        # Promise the way htmx:confirm's own listener does).
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "window.confirmSubmit")
+
+    def test_no_raw_browser_confirm_calls_remain_anywhere(self):
+        # Every one of these pages used to have at least one plain form/
+        # button calling confirm(...) directly - list/profile/token
+        # deletes, provider disconnects, instance-config clears, etc.
+        user = User.objects.create_user("norawconfirmowner", password="pass12345", is_superuser=True)
+        profile = Profile.objects.create(user=user, display_name="NoRawConfirmOwner")
+        watchlist = WatchList.objects.create(profile=profile, name="My List")
+        self.client.login(username="norawconfirmowner", password="pass12345")
+        for url in (reverse("settings"), reverse("list_detail", args=[watchlist.id])):
+            resp = self.client.get(url)
+            content = resp.content.decode()
+            self.assertNotIn("return confirm(", content)
+            self.assertNotIn("onclick=\"return confirm(", content)
+
 
 class HistoryDeleteEpisodeTests(TestCase):
     """The binge-group tile's per-episode delete dropdown - removes one
@@ -18843,7 +18878,7 @@ class HistoryTileDeleteButtonsTests(TestCase):
         # own legitimate opacity-0 for its closed state, unrelated to
         # whether this button is hover-gated.
         content = resp.content.decode()
-        button_start = content.index('title="Remove from history"')
+        button_start = content.index('aria-label="Remove from history"')
         button_markup = content[button_start : content.index(">", button_start)]
         self.assertNotIn("opacity-0", button_markup)
 
@@ -18867,7 +18902,7 @@ class HistoryTileDeleteButtonsTests(TestCase):
         # no longer works now that topbar.html's mobile search bar has
         # its own legitimate, unrelated opacity-0.
         content = resp.content.decode()
-        button_start = content.index('title="Remove all 2 plays"')
+        button_start = content.index('aria-label="Remove all 2 plays"')
         button_markup = content[button_start : content.index(">", button_start)]
         self.assertNotIn("opacity-0", button_markup)
 
@@ -19028,6 +19063,52 @@ class ApiTokenViewsTests(TestCase):
         self.assertEqual(self.client.get(reverse("create_api_token")).status_code, 405)
         self.assertEqual(self.client.get(reverse("regenerate_api_token", args=[token.pk])).status_code, 405)
         self.assertEqual(self.client.get(reverse("delete_api_token", args=[token.pk])).status_code, 405)
+
+    def test_create_shows_a_toast_via_oob_swap(self):
+        # This view only ever returns the api_tokens_card.html fragment,
+        # not a full page - toasts.html's own #toast-stack never renders
+        # here, so a real messages.success()/error() call would sit
+        # unseen in the session until some unrelated later full-page
+        # load instead (see views._toast_oob).
+        resp = self.client.post(reverse("create_api_token"), {"name": "Living room Kodi"})
+        self.assertContains(resp, 'hx-swap-oob="beforeend:#toast-stack"')
+        self.assertContains(resp, "New API token generated")
+
+    def test_create_error_also_shows_a_toast(self):
+        resp = self.client.post(reverse("create_api_token"), {"name": "   "})
+        self.assertContains(resp, 'hx-swap-oob="beforeend:#toast-stack"')
+        self.assertContains(resp, "Give the token a name")
+
+    def test_regenerate_shows_a_toast_via_oob_swap(self):
+        token = ApiToken.objects.create(profile=self.profile, name="X", token=ApiToken.generate_value())
+        resp = self.client.post(reverse("regenerate_api_token", args=[token.pk]))
+        self.assertContains(resp, 'hx-swap-oob="beforeend:#toast-stack"')
+
+    def test_delete_shows_a_toast_via_oob_swap(self):
+        token = ApiToken.objects.create(profile=self.profile, name="X", token=ApiToken.generate_value())
+        resp = self.client.post(reverse("delete_api_token", args=[token.pk]))
+        self.assertContains(resp, 'hx-swap-oob="beforeend:#toast-stack"')
+        self.assertContains(resp, "Token deleted")
+
+    def test_regenerate_and_delete_use_hx_confirm_not_a_plain_onsubmit(self):
+        # Both are genuinely htmx forms (hx-post) - hx-confirm gets the
+        # custom confirm modal for free via base.html's global
+        # htmx:confirm listener, unlike a plain form's onsubmit which
+        # needs the confirmSubmit() adapter instead (see settings.html's
+        # own plain-form actions).
+        token = ApiToken.objects.create(profile=self.profile, name="X", token=ApiToken.generate_value())
+        resp = self.client.get(reverse("settings"))
+        content = resp.content.decode()
+        self.assertIn(f'hx-post="{reverse("regenerate_api_token", args=[token.pk])}"', content)
+        self.assertIn(f'hx-post="{reverse("delete_api_token", args=[token.pk])}"', content)
+        self.assertIn("hx-confirm=\"Regenerate", content)
+        self.assertIn("hx-confirm=\"Delete", content)
+        # confirmSubmit() is used elsewhere on this same page (Revoke API
+        # key, disconnect provider, ...) - just not on these two forms,
+        # which are genuinely htmx and get the dialog for free via
+        # hx-confirm instead.
+        self.assertNotIn("onsubmit=\"return confirmSubmit(event, 'Regenerate", content)
+        self.assertNotIn("onsubmit=\"return confirmSubmit(event, 'Delete the", content)
 
     def test_settings_page_shows_the_add_form_with_no_tokens_yet(self):
         resp = self.client.get(reverse("settings"))
@@ -20486,9 +20567,20 @@ class ToastRenderingTests(TestCase):
         self.profile = Profile.objects.create(user=user, display_name="ToastUser")
         self.client.login(username="toastuser", password="pass12345")
 
-    def test_no_toast_stack_when_there_are_no_messages(self):
+    def test_no_toast_rows_when_there_are_no_messages(self):
+        # #toast-stack itself always renders now (empty, invisible - no
+        # aria-live announcement, nothing painted) even with zero
+        # messages - it's the fixed OOB-swap target views._toast_oob
+        # appends a standalone toast into for the handful of views that
+        # only ever return an htmx partial, never a full page (see
+        # toasts.html's own docstring). What must still never appear
+        # with no messages is an actual toast row.
         resp = self.client.get(reverse("dashboard"))
-        self.assertNotContains(resp, 'id="toast-stack"')
+        self.assertContains(resp, 'id="toast-stack"')
+        # Not a bare "data-toast" check - that substring also appears in
+        # this same partial's own wiring <script> (a querySelectorAll
+        # selector string), regardless of whether any row exists.
+        self.assertNotContains(resp, "<div\n  data-toast")
 
     def test_error_message_renders_with_error_styling(self):
         # create_list with a blank name -> messages.error, redirect to lists.
@@ -20835,14 +20927,14 @@ class RecommendCardReplyVisibilityTests(TestCase):
     def test_no_reply_yet_shows_the_plain_sent_badge(self):
         Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, 'title="Sent"')
+        self.assertContains(resp, 'data-tooltip="Sent"')
 
     def test_reply_shows_next_to_the_recipient_instead_of_the_plain_badge(self):
         rec = Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
         recommendations.reply(rec, reaction="already_seen", message="never seen anything like it")
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         self.assertContains(resp, rec.get_reply_reaction_display())
-        self.assertNotContains(resp, 'title="Sent"')
+        self.assertNotContains(resp, 'data-tooltip="Sent"')
 
 
 class RecommendationReplyEndToEndTests(TestCase):

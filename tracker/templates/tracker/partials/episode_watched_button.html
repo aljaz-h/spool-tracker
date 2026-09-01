@@ -19,8 +19,9 @@
     @click="togglePanel($el)"
     :aria-expanded="open.toString()"
     aria-haspopup="true"
-    title="Watched — manage plays"
-    class="w-10 self-stretch min-h-8 rounded-md flex items-center justify-center border transition-colors flex-none bg-success/90 border-success/60 text-success-content"
+    aria-label="Watched — manage plays"
+    data-tooltip="Watched — manage plays"
+    class="w-10 self-stretch min-h-8 rounded-md flex items-center justify-center border transition-colors flex-none bg-success/90 border-success/60 text-success-content spool-tooltip"
   >{% icon "check" "w-4 h-4" %}</button>
   <div
     x-ref="panel"
@@ -50,8 +51,9 @@
     @click="togglePanel($el)"
     :aria-expanded="open.toString()"
     aria-haspopup="true"
-    title="Mark as watched"
-    class="w-10 self-stretch min-h-8 rounded-md flex items-center justify-center border transition-colors flex-none bg-black/55 border-white/15 text-white/85 hover:bg-black/75 hover:border-white/30"
+    aria-label="Mark as watched"
+    data-tooltip="Mark as watched"
+    class="w-10 self-stretch min-h-8 rounded-md flex items-center justify-center border transition-colors flex-none bg-black/55 border-white/15 text-white/85 hover:bg-black/75 hover:border-white/30 spool-tooltip"
   >{% icon "check" "w-4 h-4" %}</button>
   <div
     x-ref="panel"

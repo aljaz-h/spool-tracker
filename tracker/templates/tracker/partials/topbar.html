@@ -34,7 +34,7 @@
       sidebar.html itself rather than deleted outright, but the only way
       to reach it - this button - is gone.
     {% endcomment %}
-    <a href="{% url 'dashboard' %}" class="flex items-baseline gap-2 flex-none" title="Dashboard">
+    <a href="{% url 'dashboard' %}" class="flex items-baseline gap-2 flex-none spool-tooltip" data-tooltip="Dashboard">
       <span class="font-display text-[28px] text-marquee tracking-wide leading-none">SPOOL</span>
     </a>
     {% comment %}
@@ -192,8 +192,8 @@
               hx-get="{% url 'profile_popup' p.id %}"
               hx-target="#profile-popup-content"
               hx-swap="innerHTML"
-              title="{{ p.display_name }}"
-              class="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-base-300 text-left cursor-pointer"
+              data-tooltip="{{ p.display_name }}"
+              class="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-base-300 text-left cursor-pointer spool-tooltip"
             >
               <div
                 class="w-8 h-8 rounded-full flex-none flex items-center justify-center font-mono text-xs font-semibold {% if p.avatar_image %}bg-cover bg-center{% endif %}"
@@ -227,8 +227,8 @@
           @click="togglePanel($el)"
           :aria-expanded="open.toString()"
           aria-haspopup="true"
-          class="flex items-center gap-2 sm:pr-3 h-9 rounded-full sm:bg-base-200 sm:hover:bg-base-300 flex-none"
-          title="{{ active_profile.display_name }}"
+          class="flex items-center gap-2 sm:pr-3 h-9 rounded-full sm:bg-base-200 sm:hover:bg-base-300 flex-none spool-tooltip"
+          data-tooltip="{{ active_profile.display_name }}"
         >
           <div
             class="w-9 h-9 rounded-full flex items-center justify-center font-mono text-[13px] font-semibold border-2 border-primary flex-none {% if active_profile.avatar_image %}bg-cover bg-center{% endif %}"

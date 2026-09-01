@@ -60,9 +60,9 @@
         <input type="hidden" name="next" value="{{ dismiss_next }}">
         <button
           type="submit"
-          title="Dismiss"
+          data-tooltip="Dismiss"
           aria-label="Dismiss notification"
-          class="notification-dismiss w-6 h-6 rounded-md flex-none flex items-center justify-center text-ink-faint hover:text-base-content hover:bg-base-300 cursor-pointer opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+          class="notification-dismiss spool-tooltip w-6 h-6 rounded-md flex-none flex items-center justify-center text-ink-faint hover:text-base-content hover:bg-base-300 cursor-pointer opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
         >{% icon "x" "w-3.5 h-3.5" %}</button>
       </form>
     {% else %}
@@ -70,9 +70,9 @@
         type="button"
         hx-post="{% url 'mark_notification_read' n.pk %}"
         hx-target="#notifications-panel" hx-swap="outerHTML swap:150ms settle:150ms"
-        title="Dismiss"
+        data-tooltip="Dismiss"
         aria-label="Dismiss notification"
-        class="notification-dismiss w-6 h-6 rounded-md flex-none flex items-center justify-center text-ink-faint hover:text-base-content hover:bg-base-300 cursor-pointer opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+        class="notification-dismiss spool-tooltip w-6 h-6 rounded-md flex-none flex items-center justify-center text-ink-faint hover:text-base-content hover:bg-base-300 cursor-pointer opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
       >{% icon "x" "w-3.5 h-3.5" %}</button>
     {% endif %}
   {% endif %}

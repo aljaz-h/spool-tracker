@@ -35,7 +35,7 @@ one, after a click - see views._render_title_detail_list_popover.
         <div class="font-semibold text-sm">Add to list</div>
         <div class="text-xs text-ink-faint truncate">{{ title.name }}</div>
       </div>
-      <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 flex-none">{% icon "x" "w-4 h-4" %}</button>
+      <button type="button" @click="open = false" aria-label="Close" data-tooltip="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 spool-tooltip flex-none">{% icon "x" "w-4 h-4" %}</button>
     </div>
     <div class="max-h-56 overflow-y-auto">
       {% for list in my_lists %}

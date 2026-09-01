@@ -5,7 +5,7 @@
     <div class="font-semibold text-sm">Watched</div>
     <div class="text-xs text-ink-faint truncate">S{{ season }}E{{ episode_number }} · {{ title.name }}</div>
   </div>
-  <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 flex-none">{% icon "x" "w-4 h-4" %}</button>
+  <button type="button" @click="open = false" aria-label="Close" data-tooltip="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 spool-tooltip flex-none">{% icon "x" "w-4 h-4" %}</button>
 </div>
 
 <a href="{% url 'history' %}?title={{ title.pk }}" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300">

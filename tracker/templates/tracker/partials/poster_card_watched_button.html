@@ -31,8 +31,9 @@ at all) those stay harmless no-ops even once its badge shows a real ×N.
     @click="togglePanel($el)"
     :aria-expanded="open.toString()"
     aria-haspopup="true"
-    title="Watched — manage plays"
-    class="w-full h-9 flex items-center justify-center gap-1 transition-colors bg-success/20 text-success hover:bg-success/30"
+    aria-label="Watched — manage plays"
+    data-tooltip="Watched — manage plays"
+    class="w-full h-9 flex items-center justify-center gap-1 transition-colors bg-success/20 text-success hover:bg-success/30 spool-tooltip"
   >{% icon "check" "w-4 h-4" %}{% if watch_count > 1 %}<span class="font-mono text-[10px]">&times;{{ watch_count }}</span>{% endif %}</button>
   <div
     x-ref="panel"
@@ -58,8 +59,9 @@ at all) those stay harmless no-ops even once its badge shows a real ×N.
     @click="togglePanel($el)"
     :aria-expanded="open.toString()"
     aria-haspopup="true"
-    title="Mark as watched"
-    class="w-full h-9 flex items-center justify-center transition-colors text-white/75 hover:text-white hover:bg-white/10"
+    aria-label="Mark as watched"
+    data-tooltip="Mark as watched"
+    class="w-full h-9 flex items-center justify-center transition-colors text-white/75 hover:text-white hover:bg-white/10 spool-tooltip"
   >{% icon "check" "w-4 h-4" %}</button>
   <div
     x-ref="panel"

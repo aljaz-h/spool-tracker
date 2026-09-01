@@ -17,14 +17,16 @@
   <a
     hx-get="{% url 'calendar' %}?month={{ prev_month_param }}&type={{ type_filter }}&source={{ source_filter }}"
     hx-target="#cal-main" hx-push-url="true"
-    title="{{ prev_month_label }}"
-    class="flex-none w-7 h-7 flex items-center justify-center rounded-lg text-ink-dim cursor-pointer hover:bg-base-300 hover:text-base-content select-none"
-  >{% icon "chevron-left" "w-4 h-4" %}</a>
+    aria-label="{{ prev_month_label }}"
+    data-tooltip="{{ prev_month_label }}"
+    class="flex-none min-w-7 h-7 px-1 flex items-center justify-center gap-0.5 rounded-lg text-ink-dim cursor-pointer hover:bg-base-300 hover:text-base-content select-none spool-tooltip"
+  >{% icon "chevron-left" "w-4 h-4" %}<span class="spool-spinner" aria-hidden="true"></span></a>
   <h3 class="font-display text-base tracking-wide whitespace-nowrap px-0.5">{{ current_month_label }}</h3>
   <a
     hx-get="{% url 'calendar' %}?month={{ next_month_param }}&type={{ type_filter }}&source={{ source_filter }}"
     hx-target="#cal-main" hx-push-url="true"
-    title="{{ next_month_label }}"
-    class="flex-none w-7 h-7 flex items-center justify-center rounded-lg text-ink-dim cursor-pointer hover:bg-base-300 hover:text-base-content select-none"
-  >{% icon "chevron-right" "w-4 h-4" %}</a>
+    aria-label="{{ next_month_label }}"
+    data-tooltip="{{ next_month_label }}"
+    class="flex-none min-w-7 h-7 px-1 flex items-center justify-center gap-0.5 rounded-lg text-ink-dim cursor-pointer hover:bg-base-300 hover:text-base-content select-none spool-tooltip"
+  >{% icon "chevron-right" "w-4 h-4" %}<span class="spool-spinner" aria-hidden="true"></span></a>
 </div>

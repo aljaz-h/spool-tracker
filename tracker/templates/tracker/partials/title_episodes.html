@@ -73,7 +73,7 @@
                   <div class="font-semibold text-sm">Mark episodes</div>
                   <div class="text-xs text-ink-faint truncate">{{ episodes_title_name }}</div>
                 </div>
-                <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 flex-none">{% icon "x" "w-4 h-4" %}</button>
+                <button type="button" @click="open = false" aria-label="Close" data-tooltip="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 spool-tooltip flex-none">{% icon "x" "w-4 h-4" %}</button>
               </div>
 
               {% if season_fully_watched %}
@@ -254,7 +254,7 @@
               <img src="{{ ep.still_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
             {% endif %}
             {% if ep.watched %}
-              <span class="absolute inset-0 bg-black/35 flex items-center justify-center text-success text-base" title="Watched">&#10003;</span>
+              <span class="absolute inset-0 bg-black/35 flex items-center justify-center text-success text-base spool-tooltip" data-tooltip="Watched">&#10003;</span>
             {% endif %}
           </div>
           <div class="min-w-0 flex-1">

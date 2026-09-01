@@ -315,36 +315,38 @@
             <div class="flex flex-col gap-2.5">
               <div class="flex items-center justify-between gap-3">
                 <span class="text-sm font-medium">Watched</span>
-                <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="inline-flex bg-base-100 border border-line rounded-lg p-1 gap-0.5">
-                  <label class="p-1.5 rounded-md cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content" title="Show">
-                    <input type="radio" name="discover_watched_display" value="show" class="hidden" {% if profile.discover_watched_display == "show" %}checked{% endif %}>
+                <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="inline-flex items-center bg-base-100 border border-line rounded-lg p-1 gap-0.5">
+                  <label class="p-1.5 rounded-md cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content spool-tooltip" data-tooltip="Show">
+                    <input type="radio" name="discover_watched_display" value="show" aria-label="Show" class="sr-only" {% if profile.discover_watched_display == "show" %}checked{% endif %}>
                     {% icon "eye" "w-3.5 h-3.5" %}
                   </label>
-                  <label class="p-1.5 rounded-md cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content" title="Dim">
-                    <input type="radio" name="discover_watched_display" value="dim" class="hidden" {% if profile.discover_watched_display == "dim" %}checked{% endif %}>
+                  <label class="p-1.5 rounded-md cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content spool-tooltip" data-tooltip="Dim">
+                    <input type="radio" name="discover_watched_display" value="dim" aria-label="Dim" class="sr-only" {% if profile.discover_watched_display == "dim" %}checked{% endif %}>
                     {% icon "eye-half" "w-3.5 h-3.5" %}
                   </label>
-                  <label class="p-1.5 rounded-md cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content" title="Hide">
-                    <input type="radio" name="discover_watched_display" value="hide" class="hidden" {% if profile.discover_watched_display == "hide" %}checked{% endif %}>
+                  <label class="p-1.5 rounded-md cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content spool-tooltip" data-tooltip="Hide">
+                    <input type="radio" name="discover_watched_display" value="hide" aria-label="Hide" class="sr-only" {% if profile.discover_watched_display == "hide" %}checked{% endif %}>
                     {% icon "eye-off" "w-3.5 h-3.5" %}
                   </label>
+                  <span class="spool-spinner ml-1" aria-hidden="true"></span>
                 </form>
               </div>
               <div class="flex items-center justify-between gap-3">
                 <span class="text-sm font-medium">Watchlisted</span>
-                <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="inline-flex bg-base-100 border border-line rounded-lg p-1 gap-0.5">
-                  <label class="p-1.5 rounded-md cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content" title="Show">
-                    <input type="radio" name="discover_watchlisted_display" value="show" class="hidden" {% if profile.discover_watchlisted_display == "show" %}checked{% endif %}>
+                <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="inline-flex items-center bg-base-100 border border-line rounded-lg p-1 gap-0.5">
+                  <label class="p-1.5 rounded-md cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content spool-tooltip" data-tooltip="Show">
+                    <input type="radio" name="discover_watchlisted_display" value="show" aria-label="Show" class="sr-only" {% if profile.discover_watchlisted_display == "show" %}checked{% endif %}>
                     {% icon "eye" "w-3.5 h-3.5" %}
                   </label>
-                  <label class="p-1.5 rounded-md cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content" title="Dim">
-                    <input type="radio" name="discover_watchlisted_display" value="dim" class="hidden" {% if profile.discover_watchlisted_display == "dim" %}checked{% endif %}>
+                  <label class="p-1.5 rounded-md cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content spool-tooltip" data-tooltip="Dim">
+                    <input type="radio" name="discover_watchlisted_display" value="dim" aria-label="Dim" class="sr-only" {% if profile.discover_watchlisted_display == "dim" %}checked{% endif %}>
                     {% icon "eye-half" "w-3.5 h-3.5" %}
                   </label>
-                  <label class="p-1.5 rounded-md cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content" title="Hide">
-                    <input type="radio" name="discover_watchlisted_display" value="hide" class="hidden" {% if profile.discover_watchlisted_display == "hide" %}checked{% endif %}>
+                  <label class="p-1.5 rounded-md cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content spool-tooltip" data-tooltip="Hide">
+                    <input type="radio" name="discover_watchlisted_display" value="hide" aria-label="Hide" class="sr-only" {% if profile.discover_watchlisted_display == "hide" %}checked{% endif %}>
                     {% icon "eye-off" "w-3.5 h-3.5" %}
                   </label>
+                  <span class="spool-spinner ml-1" aria-hidden="true"></span>
                 </form>
               </div>
             </div>

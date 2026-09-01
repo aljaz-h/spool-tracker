@@ -18,8 +18,9 @@ now share this shape instead of the old plain chip list.
     @click="togglePanel($el)"
     :aria-expanded="open.toString()"
     aria-haspopup="true"
-    title="Add to list"
-    class="w-full h-9 flex items-center justify-center text-white/75 hover:text-white hover:bg-white/10 transition-colors"
+    aria-label="Add to list"
+    data-tooltip="Add to list"
+    class="w-full h-9 flex items-center justify-center text-white/75 hover:text-white hover:bg-white/10 transition-colors spool-tooltip"
   >{% icon "list-checks" "w-4 h-4" %}</button>
   <div
     x-ref="panel"
@@ -31,7 +32,7 @@ now share this shape instead of the old plain chip list.
         <div class="font-semibold text-sm">Add to list</div>
         {% if name %}<div class="text-xs text-ink-faint truncate">{{ name }}</div>{% endif %}
       </div>
-      <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 flex-none">{% icon "x" "w-4 h-4" %}</button>
+      <button type="button" @click="open = false" aria-label="Close" data-tooltip="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 spool-tooltip flex-none">{% icon "x" "w-4 h-4" %}</button>
     </div>
     <div class="max-h-56 overflow-y-auto">
       {% for list in my_lists %}

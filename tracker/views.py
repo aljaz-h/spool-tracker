@@ -3470,9 +3470,15 @@ class SpoolLoginView(auth_views.LoginView):
 
     def post(self, request, *args, **kwargs):
         if ratelimit.is_rate_limited(request, "login", limit=10, window_seconds=300):
-            return HttpResponse(
-                "Too many login attempts. Please wait a few minutes and try again.", status=429
-            )
+            # Themed toast + the real login page (429 still, same as
+            # before - only the body was the bare/unstyled part), not a
+            # bare unstyled HttpResponse replacing the whole page -
+            # login.html now carries its own toasts.html include for
+            # exactly this.
+            messages.error(request, "Too many login attempts. Please wait a few minutes and try again.")
+            response = self.get(request, *args, **kwargs)
+            response.status_code = 429
+            return response
         return super().post(request, *args, **kwargs)
 
     def form_valid(self, form):
@@ -3645,6 +3651,20 @@ def _api_tokens_card_context(profile):
     }
 
 
+def _toast_oob(request, tag, text):
+    """Appended to an htmx partial response so a message shows even
+    though the swapped fragment isn't the full page - toasts.html's own
+    #toast-stack only ever renders as part of a full page, so a real
+    Django messages.success()/error() call from a view that only ever
+    returns a partial (api_tokens_card.html's own create/regenerate/
+    delete) would sit unseen in the session until some unrelated later
+    full-page load instead. Same out-of-band-append pattern as
+    _notifications_badge_oob. tag matches messages.tags' own vocabulary
+    (success/error/warning/info) purely by convention - this never
+    touches the messages framework itself, which is the whole point."""
+    return render_to_string("tracker/partials/toast_item.html", {"tag": tag, "text": text, "oob": True}, request=request)
+
+
 @login_required
 @require_POST
 def create_api_token(request):
@@ -3657,13 +3677,15 @@ def create_api_token(request):
         raise Http404
     name = request.POST.get("name", "").strip()[:60]
     if not name:
-        messages.error(request, "Give the token a name so you can tell it apart later.")
+        tag, text = "error", "Give the token a name so you can tell it apart later."
     elif profile.api_tokens.count() >= ApiToken.MAX_TOKENS_PER_PROFILE:
-        messages.error(request, f"You can have at most {ApiToken.MAX_TOKENS_PER_PROFILE} tokens - delete one first.")
+        tag, text = "error", f"You can have at most {ApiToken.MAX_TOKENS_PER_PROFILE} tokens - delete one first."
     else:
         ApiToken.objects.create(profile=profile, name=name, token=ApiToken.generate_value())
-        messages.success(request, "New API token generated - update your player's config with it.")
-    return render(request, "tracker/partials/api_tokens_card.html", _api_tokens_card_context(profile))
+        tag, text = "success", "New API token generated - update your player's config with it."
+    response = render(request, "tracker/partials/api_tokens_card.html", _api_tokens_card_context(profile))
+    response.write(_toast_oob(request, tag, text))
+    return response
 
 
 @login_required
@@ -3677,8 +3699,9 @@ def regenerate_api_token(request, pk):
         raise Http404
     token = get_object_or_404(ApiToken, pk=pk, profile=profile)
     token.regenerate()
-    messages.success(request, "New API token generated - update your player's config with it.")
-    return render(request, "tracker/partials/api_tokens_card.html", _api_tokens_card_context(profile))
+    response = render(request, "tracker/partials/api_tokens_card.html", _api_tokens_card_context(profile))
+    response.write(_toast_oob(request, "success", "New API token generated - update your player's config with it."))
+    return response
 
 
 @login_required
@@ -3691,8 +3714,9 @@ def delete_api_token(request, pk):
         raise Http404
     token = get_object_or_404(ApiToken, pk=pk, profile=profile)
     token.delete()
-    messages.success(request, "Token deleted.")
-    return render(request, "tracker/partials/api_tokens_card.html", _api_tokens_card_context(profile))
+    response = render(request, "tracker/partials/api_tokens_card.html", _api_tokens_card_context(profile))
+    response.write(_toast_oob(request, "success", "Token deleted."))
+    return response
 
 
 @login_required
