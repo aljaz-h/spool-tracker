@@ -6,6 +6,7 @@ All environment-specific configuration comes from environment variables
 dev and the shipped Docker image.
 """
 
+import sys
 from pathlib import Path
 
 import environ
@@ -249,6 +250,16 @@ CACHES = {
         "OPTIONS": {"socket_connect_timeout": 2, "socket_timeout": 2},
     }
 }
+# `manage.py test` has no real Redis to talk to in most dev/CI shells, and
+# CACHE_URL only overrides the location above, not the backend - so every
+# cache read/write across the ~1800-test suite was paying up to
+# socket_connect_timeout (2s) before tmdb.py's own try/except degraded it,
+# which dwarfed any test's own runtime. The test runner never touches a
+# real deployment, so swapping to a process-local cache here is safe -
+# same as LocMemCache being Django's own default for any project that
+# doesn't set CACHES at all.
+if "test" in sys.argv:
+    CACHES["default"] = {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
 
 
 # Third-party API credentials (used by tracker/integrations, §6 of the addendum)

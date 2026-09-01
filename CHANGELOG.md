@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.115.1] - 2026-09-01
+
+### Fixed
+
+- A show that drops several episodes at once (e.g. a full season on
+  release day) no longer floods the notification bell with one "now
+  available" notification per episode plus a separate season-premiere
+  one - they're now collapsed into a single notification per title per
+  day, with an episode-range caption ("Season 2, Episode 1-8") matching
+  the dashboard's own Up Next card.
+
 ## [0.115.0] - 2026-08-31
 
 ### Added

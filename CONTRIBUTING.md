@@ -15,7 +15,14 @@ data).
 - **Run the full test suite** and make sure it's green:
   `python manage.py test tracker -v 1` (use the venv's own Python — a
   global interpreter without this project's dependencies installed will
-  fail in confusing ways).
+  fail in confusing ways). Don't add `--parallel` on Windows - Django's
+  multiprocessing test runner crashes here with `TypeError: cannot
+  pickle 'traceback' object` partway through this suite (a known
+  Django/Windows `spawn`-vs-`fork` limitation, not something specific
+  to any one test); it may be worth revisiting on Linux/CI. While
+  iterating, run just the test class(es) your change touches
+  (`manage.py test tracker.tests.YourTestClass`) and save the full run
+  for before opening the PR.
 - **Rebuild Tailwind** (`npm run build:css`) if you added or changed any
   template class combinations — the compiled CSS only contains classes it
   has actually seen used somewhere in the templates at build time.

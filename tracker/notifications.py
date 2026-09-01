@@ -15,6 +15,7 @@ from datetime import timedelta
 from django.db.models import Q
 from django.utils import timezone
 
+from . import selectors
 from .models import Notification, Profile, ReleaseSchedule, WatchListItem
 
 # How close to "now" a release has to be to notify on it at all - a
@@ -51,20 +52,55 @@ def _profiles_tracking(title):
     return Profile.objects.filter(id__in=eligible_ids)
 
 
-def _release_label(release):
-    if release.release_type == ReleaseSchedule.ReleaseType.MOVIE_RELEASE or not release.episode:
-        return release.title.name
-    if release.release_type == ReleaseSchedule.ReleaseType.SEASON_PREMIERE:
-        return f"{release.title.name} — Season {release.episode.season} premiere"
-    return f"{release.title.name} — S{release.episode.season}E{release.episode.episode}"
+def _release_label(title, episodes, release_type):
+    """Human label for one title's release-day batch (see
+    generate_release_notifications - episodes is every episode landing
+    for this title on this calendar day, not just one row). A lone
+    season-opener still says "Season N premiere"; 2+ episodes releasing
+    together (a full-season or multi-episode drop) instead get the same
+    episode-range caption as the dashboard's own Up Next card
+    (selectors.episode_range_caption) - "premiere" would undersell the
+    other episodes dropping alongside it in the same notification."""
+    if release_type == ReleaseSchedule.ReleaseType.MOVIE_RELEASE or not episodes:
+        return title.name
+    if len(episodes) > 1:
+        return f"{title.name} — {selectors.episode_range_caption(episodes)}"
+    episode = episodes[0]
+    if release_type == ReleaseSchedule.ReleaseType.SEASON_PREMIERE:
+        return f"{title.name} — Season {episode.season} premiere"
+    return f"{title.name} — S{episode.season}E{episode.episode}"
 
 
 def generate_release_notifications(now=None, labels_out=None):
     """Scans ReleaseSchedule for anything landing in either window and
     creates the matching Notification per eligible profile with that
-    source enabled - get_or_create on (profile, kind, release_schedule)
-    means re-running this (nightly, alongside sync_release_schedules) is
-    idempotent; a release already notified on doesn't notify again.
+    source enabled.
+
+    Multiple episodes of the same title landing on the same calendar day
+    (a full-season or multi-episode drop) are collapsed into a single
+    notification per profile instead of one per episode - matches
+    selectors.up_next()'s own same-day grouping, for the same reason: a
+    profile watching a show that drops 8 episodes at once shouldn't get
+    8 separate "now available" notifications (plus a 9th for the
+    season-premiere row) cluttering their bell. Grouped on
+    (title, calendar day, new-vs-upcoming release_date <= now) - a
+    release_date's own new/upcoming split can't itself change mid-group
+    since every row in a group shares the same release_date, but keeping
+    it in the key rather than assumed is what lets a title with both an
+    already-aired batch and a separately-dated upcoming one in the same
+    window still land in two notifications, matching what would have
+    happened one release at a time before this was grouped.
+
+    get_or_create on (profile, kind, release_schedule) is what makes
+    this idempotent across nightly reruns - each group only ever ties
+    its Notification rows to one anchor ReleaseSchedule row (the
+    lowest-numbered episode in the group, stable across reruns since
+    sync_title_releases only ever updates existing rows in place, never
+    replaces them), so the other rows in the group are never checked or
+    used as a Notification FK on their own - a later run can't
+    "rediscover" them as unnotified and fire one-off notifications for
+    them individually.
+
     Returns the count of newly created rows. labels_out (optional list) -
     same contract as trakt.py/simkl.py/csv_import.py's own labels_out
     param: append a human-readable label for each notification actually
@@ -76,27 +112,41 @@ def generate_release_notifications(now=None, labels_out=None):
     releases = ReleaseSchedule.objects.filter(
         release_date__gte=now - NEW_RELEASE_WINDOW, release_date__lte=now + UPCOMING_RELEASE_WINDOW
     ).select_related("title", "episode")
+
+    groups = {}
     for release in releases:
-        label = _release_label(release)
-        if release.release_date <= now:
-            profiles = _profiles_watching(release.title).filter(notify_new_releases=True)
+        is_new = release.release_date <= now
+        key = (release.title_id, timezone.localtime(release.release_date).date(), is_new)
+        groups.setdefault(key, {"title": release.title, "is_new": is_new, "releases": []})
+        groups[key]["releases"].append(release)
+
+    for group in groups.values():
+        title = group["title"]
+        releases_in_group = sorted(group["releases"], key=lambda r: r.episode.episode if r.episode else 0)
+        anchor = releases_in_group[0]
+        episodes = [r.episode for r in releases_in_group if r.episode]
+        label = _release_label(title, episodes, anchor.release_type)
+
+        if group["is_new"]:
+            profiles = _profiles_watching(title).filter(notify_new_releases=True)
             message = f"Now available: {label}"
             kind = Notification.Kind.NEW_RELEASE
         else:
             # Portable day-of-month formatting - strftime's no-leading-zero
             # flag is spelled differently on Windows (%#d) than everywhere
             # else (%-d), so this composes it by hand instead.
-            local_date = timezone.localtime(release.release_date)
+            local_date = timezone.localtime(anchor.release_date)
             when = f"{local_date.strftime('%b')} {local_date.day}"
-            profiles = _profiles_tracking(release.title).filter(notify_upcoming_releases=True)
+            profiles = _profiles_tracking(title).filter(notify_upcoming_releases=True)
             message = f"Coming {when}: {label}"
             kind = Notification.Kind.UPCOMING_RELEASE
+
         for profile in profiles:
             _, made = Notification.objects.get_or_create(
                 profile=profile,
                 kind=kind,
-                release_schedule=release,
-                defaults={"title": release.title, "message": message},
+                release_schedule=anchor,
+                defaults={"title": title, "message": message},
             )
             created += made
             if made and labels_out is not None:

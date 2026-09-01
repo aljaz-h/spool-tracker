@@ -179,12 +179,14 @@ def _when_label(release_date):
     return f"{d.strftime('%b').upper()} {d.day}"
 
 
-def _episode_range_caption(episodes):
+def episode_range_caption(episodes):
     """Caption for 2+ episodes of the same title releasing on the same
     day (e.g. a full-season drop) - "Season 4, Episode 1-3" when the
     numbers are contiguous, a comma list when they aren't, and an
     explicit S/E per episode in the (rare) case they span more than one
-    season."""
+    season. Not underscore-prefixed - notifications.generate_release_notifications
+    reuses this too, so its release-drop notifications read the same way
+    as the dashboard's own Up Next card."""
     episodes = sorted(episodes, key=lambda e: (e.season, e.episode))
     if len({e.season for e in episodes}) > 1:
         return ", ".join(f"S{e.season}E{e.episode}" for e in episodes)
@@ -242,7 +244,7 @@ def up_next(profile, limit=3):
     for group in groups[:limit]:
         episodes = group["episodes"]
         if len(episodes) > 1:
-            caption = _episode_range_caption(episodes)
+            caption = episode_range_caption(episodes)
         elif episodes:
             caption = f"Season {episodes[0].season}, Episode {episodes[0].episode}"
         else:

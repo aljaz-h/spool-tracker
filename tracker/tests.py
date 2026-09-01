@@ -1846,6 +1846,61 @@ class GenerateReleaseNotificationsTests(TestCase):
         self.assertEqual(second_run_created, 0)
         self.assertEqual(Notification.objects.count(), 1)
 
+    def _season_drop(self, count, delta, release_type_for_first=ReleaseSchedule.ReleaseType.SEASON_PREMIERE):
+        """A full-season drop - `count` episodes of self.title's season 2,
+        all landing at the same release_date, episode 1 tagged as the
+        season premiere (matching how release_sync.py itself always
+        classifies episode 1) unless overridden."""
+        releases = []
+        for number in range(1, count + 1):
+            episode = Episode.objects.create(title=self.title, season=2, episode=number)
+            release_type = release_type_for_first if number == 1 else ReleaseSchedule.ReleaseType.EPISODE
+            releases.append(
+                ReleaseSchedule.objects.create(
+                    title=self.title, episode=episode, release_type=release_type, release_date=self.now + delta
+                )
+            )
+        return releases
+
+    def test_same_day_episode_drop_collapses_into_one_notification(self):
+        WatchProgress.objects.create(profile=self.watcher, title=self.title, status=WatchProgress.Status.WATCHING)
+        # self.episode (S2E1, created in setUp) is left unscheduled here -
+        # count starts at 2 so this drop is entirely fresh episodes.
+        Episode.objects.filter(pk=self.episode.pk).delete()
+        self._season_drop(8, timedelta(hours=-2))
+        created = notifications.generate_release_notifications(now=self.now)
+        self.assertEqual(created, 1)
+        self.assertEqual(Notification.objects.filter(profile=self.watcher).count(), 1)
+        n = Notification.objects.get(profile=self.watcher)
+        self.assertIn("Season 2, Episode 1-8", n.message)
+
+    def test_same_day_drop_rerun_does_not_leak_per_episode_notifications(self):
+        WatchProgress.objects.create(profile=self.watcher, title=self.title, status=WatchProgress.Status.WATCHING)
+        Episode.objects.filter(pk=self.episode.pk).delete()
+        self._season_drop(8, timedelta(hours=-2))
+        notifications.generate_release_notifications(now=self.now)
+        second_run_created = notifications.generate_release_notifications(now=self.now)
+        self.assertEqual(second_run_created, 0)
+        self.assertEqual(Notification.objects.count(), 1)
+
+    def test_multi_episode_drop_uses_episode_range_not_premiere_wording(self):
+        watchlist = WatchList.objects.create(profile=self.watcher, name="Watchlist")
+        WatchListItem.objects.create(watchlist=watchlist, title=self.title)
+        Episode.objects.filter(pk=self.episode.pk).delete()
+        self._season_drop(3, timedelta(days=2))
+        notifications.generate_release_notifications(now=self.now)
+        n = Notification.objects.get(profile=self.watcher)
+        self.assertIn("Season 2, Episode 1-3", n.message)
+        self.assertNotIn("premiere", n.message)
+
+    def test_lone_season_premiere_still_says_premiere(self):
+        WatchProgress.objects.create(profile=self.watcher, title=self.title, status=WatchProgress.Status.WATCHING)
+        Episode.objects.filter(pk=self.episode.pk).delete()
+        self._season_drop(1, timedelta(hours=-2))
+        notifications.generate_release_notifications(now=self.now)
+        n = Notification.objects.get(profile=self.watcher)
+        self.assertIn("Season 2 premiere", n.message)
+
 
 class GenerateWatchlistStaleNotificationsTests(TestCase):
     """tracker/notifications.py's generate_watchlist_stale_notifications() -
