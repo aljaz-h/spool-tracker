@@ -562,7 +562,7 @@ def on_this_day(profile, today=None, limit=8):
         if key in seen_years:
             continue
         seen_years.add(key)
-        entries.append({"title": event.title, "years_ago": today.year - year})
+        entries.append({"title": event.title, "years_ago": today.year - year, "rating": event.user_rating})
         if len(entries) >= limit:
             break
     return entries
@@ -897,6 +897,19 @@ def stats_overview(profile):
     def pct(media_type):
         return round(type_counts.get(media_type, 0) / total_events * 100) if total_events else 0
 
+    # "Completion efficiency" - of every show whose progress has actually
+    # been resolved one way or another (finished or dropped), how many
+    # got finished. Deliberately excludes WATCHING/PLANNED - those
+    # haven't been resolved yet, so counting them as "not completed"
+    # would penalize a show still in progress the same as one abandoned.
+    completed_shows = WatchProgress.objects.filter(
+        profile=profile, status=WatchProgress.Status.COMPLETED, title__media_type__in=[MediaType.TV, MediaType.ANIME]
+    ).count()
+    dropped_shows = WatchProgress.objects.filter(
+        profile=profile, status=WatchProgress.Status.DROPPED, title__media_type__in=[MediaType.TV, MediaType.ANIME]
+    ).count()
+    resolved_shows = completed_shows + dropped_shows
+
     return {
         "current_streak": cur,
         "longest_streak": longest,
@@ -914,12 +927,54 @@ def stats_overview(profile):
         # differed by 700+.
         "movies_watched": events.filter(title__media_type=MediaType.MOVIE).values("title_id").distinct().count(),
         "movies_plays": events.filter(title__media_type=MediaType.MOVIE).count(),
-        "shows_completed": WatchProgress.objects.filter(
-            profile=profile,
-            status=WatchProgress.Status.COMPLETED,
-            title__media_type__in=[MediaType.TV, MediaType.ANIME],
-        ).count(),
+        "shows_completed": completed_shows,
+        "completion_efficiency_pct": round(completed_shows / resolved_shows * 100, 1) if resolved_shows else None,
         "episodes_logged": events.filter(episode__isnull=False).count(),
+        "split": {
+            "movie_pct": pct(MediaType.MOVIE),
+            "tv_pct": pct(MediaType.TV),
+            "anime_pct": pct(MediaType.ANIME),
+        },
+    }
+
+
+def monthly_stats(profile, today=None):
+    """Dashboard sidebar's Monthly Stats panel - this calendar month's
+    watch time/episode count, the percent change in hours watched vs
+    last calendar month, and the same movie/TV/anime split
+    stats_overview() computes lifetime, scoped to this month instead.
+    Deliberately media-type split, not a genre breakdown - Title has no
+    genre data of its own to split by (TMDB's genre ids are only ever
+    used transiently, for Discover's own live API calls), so this reuses
+    the split stats_overview() already has a precedent for instead of
+    adding new genre storage just for one dashboard panel."""
+    today = today or timezone.localdate()
+    month_start = today.replace(day=1)
+    last_month_end = month_start - timedelta(days=1)
+    last_month_start = last_month_end.replace(day=1)
+
+    events = WatchEvent.objects.filter(profile=profile, watched_at__date__gte=month_start)
+    total_minutes = (
+        events.aggregate(total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))["total"] or 0
+    )
+    last_month_minutes = (
+        WatchEvent.objects.filter(
+            profile=profile, watched_at__date__gte=last_month_start, watched_at__date__lte=last_month_end
+        ).aggregate(total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))["total"]
+        or 0
+    )
+    pct_change = round((total_minutes - last_month_minutes) / last_month_minutes * 100) if last_month_minutes else None
+
+    type_counts = dict(events.values_list("title__media_type").annotate(c=Count("id")).order_by())
+    total_events = sum(type_counts.values())
+
+    def pct(media_type):
+        return round(type_counts.get(media_type, 0) / total_events * 100) if total_events else 0
+
+    return {
+        "hours": round(total_minutes / 60, 1),
+        "episodes_logged": events.filter(episode__isnull=False).count(),
+        "pct_change_vs_last_month": pct_change,
         "split": {
             "movie_pct": pct(MediaType.MOVIE),
             "tv_pct": pct(MediaType.TV),
@@ -980,6 +1035,7 @@ def watch_time_breakdown(profile):
         combined_hours = round(combined_minutes / 60)
         days_rounded, hours_display = _days_and_hours_display(combined_minutes)
         result["combined"] = {
+            "minutes": combined_minutes,
             "hours": combined_hours,
             "days": round(combined_hours / 24, 1),
             "days_rounded": days_rounded,
@@ -988,8 +1044,25 @@ def watch_time_breakdown(profile):
         return result
 
     events = WatchEvent.objects.filter(profile=profile)
+    now = timezone.now()
+    last_30_days = bucket(events.filter(watched_at__gte=now - timedelta(days=30)))
+
+    # Volume delta vs. the 30 days immediately before that - same
+    # pct-change shape as monthly_stats()'s calendar-month comparison,
+    # just over a fixed rolling window instead of calendar months so it
+    # means the same thing regardless of where in the month "today" is.
+    prior_30_days_minutes = (
+        events.filter(watched_at__gte=now - timedelta(days=60), watched_at__lt=now - timedelta(days=30))
+        .aggregate(total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))["total"]
+        or 0
+    )
+    last_30_days_minutes = last_30_days["combined"]["minutes"]
+    last_30_days["pct_change_vs_prior_30_days"] = (
+        round((last_30_days_minutes - prior_30_days_minutes) / prior_30_days_minutes * 100) if prior_30_days_minutes else None
+    )
+
     return {
-        "last_30_days": bucket(events.filter(watched_at__gte=timezone.now() - timedelta(days=30))),
+        "last_30_days": last_30_days,
         "all_time": bucket(events),
     }
 
@@ -1092,6 +1165,35 @@ def year_breakdown(profile, media_type):
         .order_by("title__year")
     )
     return [{"year": row["title__year"], "count": row["count"]} for row in qs]
+
+
+def release_year_breakdown(profile):
+    """Stats page's "Release years" panel - a decade histogram of every
+    distinct title (movie, TV show, or anime) this profile has watched,
+    bucketed by the title's own release year (Title.year - always set,
+    never null), not watched_at. Distinct titles rather than events or
+    duration, same reasoning as an achievement like Century Club: a
+    handful of rewatches of one 90s movie shouldn't visually dominate
+    the decade it's already counted once for. None when nothing's been
+    watched yet, so the panel can show its own empty state instead of a
+    zero-count chart."""
+    years = list(Title.objects.filter(watch_events__profile=profile).distinct().values_list("name", "year"))
+    if not years:
+        return None
+    decade_counts = {}
+    for _, year in years:
+        decade_counts[(year // 10) * 10] = decade_counts.get((year // 10) * 10, 0) + 1
+    max_count = max(decade_counts.values())
+    oldest_name, oldest_year = min(years, key=lambda t: t[1])
+    return {
+        "decades": [
+            {"label": f"{decade % 100:02d}s", "count": decade_counts[decade], "pct": round(decade_counts[decade] / max_count * 100)}
+            for decade in sorted(decade_counts)
+        ],
+        "oldest_name": oldest_name,
+        "oldest_year": oldest_year,
+        "latest_year": max(year for _, year in years),
+    }
 
 
 def heatmap_available_years(profile):
@@ -1211,8 +1313,13 @@ def peak_hours(profile):
 
     max_count = max(counts.values(), default=0)
     return [
-        {"label": label, "count": counts[label], "pct": round(counts[label] / max_count * 100) if max_count else 0}
-        for label, _, _ in _TIME_OF_DAY_BUCKETS
+        {
+            "label": label,
+            "range": f"{start:02d}:00 - {end:02d}:00",
+            "count": counts[label],
+            "pct": round(counts[label] / max_count * 100) if max_count else 0,
+        }
+        for label, start, end in _TIME_OF_DAY_BUCKETS
     ]
 
 
@@ -1237,6 +1344,8 @@ def activity_feed(limit=30):
                 "title": event.title,
                 "episode": event.episode,
                 "rating": event.user_rating,
+                "source": event.source,
+                "source_display": event.get_source_display() if event.source else "",
             }
         )
     for wli in (
@@ -1322,6 +1431,21 @@ def _build_group(group_type, run):
         first_by_ep = min(episodes, key=lambda e: (e.season, e.episode))
         last_by_ep = max(episodes, key=lambda e: (e.season, e.episode))
         range_label = f"S{first_by_ep.season}E{first_by_ep.episode}–S{last_by_ep.season}E{last_by_ep.episode}"
+        total_runtime = sum(e.runtime_minutes for e in episodes if e.runtime_minutes)
+        # Whether this binge's last episode is the show's own last known
+        # episode - "finished the series in this sitting" vs. "watched a
+        # run of episodes, more still left" get different Activity page
+        # treatment (a completion badge instead of a plain count). Not
+        # WatchProgress-aware (a rewatch that happens to end on the finale
+        # reads the same as a first watch) - deliberately simple, since
+        # the feed already shows enough context (range_label, day) for
+        # that distinction to be obvious to whoever's reading it.
+        all_episodes = Episode.objects.filter(title=run[0]["title"]).order_by("-season", "-episode").first()
+        total_episodes = Episode.objects.filter(title=run[0]["title"]).count()
+        completed_series = bool(all_episodes) and (last_by_ep.season, last_by_ep.episode) == (
+            all_episodes.season,
+            all_episodes.episode,
+        )
         return {
             "profile": run[0]["profile"],
             "timestamp": run[0]["timestamp"],
@@ -1330,15 +1454,20 @@ def _build_group(group_type, run):
             "count": len(run),
             "range_label": range_label,
             "episodes": run,
+            "total_runtime_display": format_duration(total_runtime) if total_runtime else "",
+            "total_episodes": total_episodes,
+            "completed_series": completed_series,
             "is_group": True,
         }
     if group_type == "movie":
+        total_runtime = sum(i["title"].runtime_minutes for i in run if i["title"].runtime_minutes)
         return {
             "profile": run[0]["profile"],
             "timestamp": run[0]["timestamp"],
             "kind": "watched_movies_group",
             "count": len(run),
             "movies": run,
+            "total_runtime_display": format_duration(total_runtime) if total_runtime else "",
             "is_group": True,
         }
     return {
@@ -1350,6 +1479,84 @@ def _build_group(group_type, run):
         "items": run,
         "is_group": True,
     }
+
+
+def recently_watching_count(minutes=30):
+    """Activity page header's "N watched recently" figure - profiles with
+    a watch event logged in the last `minutes` minutes. Spool has no real
+    presence/session tracking, so this is a loose "who's likely still
+    around" proxy off existing WatchEvent timestamps, not a live signal -
+    deliberately not called "actively watching" anywhere it's used."""
+    since = timezone.now() - timedelta(minutes=minutes)
+    return (
+        WatchEvent.objects.filter(profile__share_activity=True, watched_at__gte=since)
+        .values("profile_id")
+        .distinct()
+        .count()
+    )
+
+
+def household_leaderboard(period="week"):
+    """Activity page's Household Leaderboard - every profile ranked by
+    watch time over the selected window, each with a bar relative to
+    whoever's on top. Same share_activity privacy gate as activity_feed()
+    - a profile that's opted out of the shared feed isn't ranked against
+    everyone else either. One query per profile rather than a single
+    grouped aggregate - a household is a handful of profiles, not
+    thousands, so the simpler per-profile form reads more clearly than a
+    conditional-aggregate would for this little data."""
+    since = timezone.now() - timedelta(days=365 if period == "year" else 7)
+    rows = []
+    for profile in Profile.objects.filter(share_activity=True):
+        events = WatchEvent.objects.filter(profile=profile, watched_at__gte=since)
+        minutes = (
+            events.aggregate(total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))["total"]
+            or 0
+        )
+        if not minutes:
+            continue
+        rows.append(
+            {
+                "profile": profile,
+                "minutes": minutes,
+                "episode_count": events.filter(episode__isnull=False).count(),
+                "movie_count": events.filter(episode__isnull=True, title__media_type=MediaType.MOVIE)
+                .values("title_id")
+                .distinct()
+                .count(),
+            }
+        )
+    rows.sort(key=lambda r: -r["minutes"])
+    max_minutes = rows[0]["minutes"] if rows else 0
+    for r in rows:
+        r["duration"] = format_duration(r["minutes"])
+        r["pct"] = round(r["minutes"] / max_minutes * 100) if max_minutes else 0
+    return rows
+
+
+def household_top_titles(limit=5, days=7):
+    """Activity page's Household Top 5 - titles with the most WatchEvents
+    logged by the household in the window, each with which profiles
+    (small avatar dots) logged one, so a household member can see what's
+    trending among everyone else without reading the whole feed."""
+    since = timezone.now() - timedelta(days=days)
+    counts = {}
+    watcher_ids = {}
+    for title_id, profile_id in WatchEvent.objects.filter(
+        profile__share_activity=True, watched_at__gte=since
+    ).values_list("title_id", "profile_id"):
+        counts[title_id] = counts.get(title_id, 0) + 1
+        watcher_ids.setdefault(title_id, set()).add(profile_id)
+    if not counts:
+        return []
+    top_ids = sorted(counts, key=lambda t: -counts[t])[:limit]
+    titles = Title.objects.in_bulk(top_ids)
+    profiles = Profile.objects.in_bulk({pk for ids in watcher_ids.values() for pk in ids})
+    return [
+        {"title": titles[tid], "count": counts[tid], "watchers": [profiles[pk] for pk in watcher_ids[tid]]}
+        for tid in top_ids
+        if tid in titles
+    ]
 
 
 def plain_watch_count(profile, title):

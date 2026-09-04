@@ -240,6 +240,7 @@ def dashboard(request):
                 "on_this_day": on_this_day,
                 "up_next": selectors.up_next(profile, limit=4),
                 "stats": stats,
+                "monthly_stats": selectors.monthly_stats(profile),
                 "milestone": selectors.milestone_message(stats["streak"], stats["movies_this_year"]),
                 "because_you_watched": because_you_watched,
                 "for_you": for_you,
@@ -3376,9 +3377,12 @@ def stats(request, profile_id=None):
         context["genre_breakdown"] = genres
         context["most_genre"] = genres[0] if genres else None
         context["least_genre"] = genres[-1] if genres else None
+        context["release_years"] = selectors.release_year_breakdown(profile)
         context["daily_breakdown"] = selectors.daily_breakdown(profile)
         context["daily_average"] = selectors.daily_average(profile)
         context["peak_hours"] = selectors.peak_hours(profile)
+        top_peak_bucket = max(context["peak_hours"], key=lambda b: b["count"])
+        context["peak_hours_prime"] = top_peak_bucket if top_peak_bucket["count"] else None
 
         context["heatmap_years"] = selectors.heatmap_available_years(profile)
         year = context["heatmap_years"][0]
@@ -3427,13 +3431,75 @@ def stats_heatmap(request, profile_id=None):
     return render(request, "tracker/partials/stats_heatmap.html", context)
 
 
+ACTIVITY_PAGE_SIZE = 12
+# Wide enough to reliably fill several pages of the grouped feed after a
+# member filter narrows it down (a raw event count, not post-grouping -
+# a household binge session can collapse a dozen raw rows into one card),
+# without pulling in a household's entire history on every request.
+ACTIVITY_FEED_WINDOW = 500
+
+
+def _group_activity_by_day(items):
+    """Buckets an already-sorted (newest first) activity feed into day
+    sections for the Activity page's timeline - "Today"/"Yesterday", or
+    a weekday+date further back. Local calendar date (the same tzinfo
+    every other day-bucketing selector already uses), not the UTC date
+    watched_at/added_at is stored as. Composed by hand rather than
+    strftime's no-leading-zero flag - spelled differently on Windows
+    (%#d) than everywhere else (%-d), same portability note as
+    notifications.py's own due-date formatting."""
+    today = timezone.localdate()
+    yesterday = today - timedelta(days=1)
+    groups = []
+    current_day = None
+    for item in items:
+        day = timezone.localtime(item["timestamp"]).date()
+        if day != current_day:
+            if day == today:
+                label = "Today"
+            elif day == yesterday:
+                label = "Yesterday"
+            else:
+                label = f"{day.strftime('%A')}, {day.strftime('%b')} {day.day}"
+            groups.append({"label": label, "date": day, "items": []})
+            current_day = day
+        groups[-1]["items"].append(item)
+    return groups
+
+
 @login_required
 def activity(request):
     # Hidden entirely (nav item + route) on single-profile instances,
     # not just an empty feed — spool-product-spec.md §5.
     if Profile.objects.count() <= 1:
         raise Http404
-    return render(request, "tracker/activity.html", {"feed": selectors.activity_feed()})
+
+    members = list(Profile.objects.filter(share_activity=True).order_by("display_name"))
+    member_id = request.GET.get("member")
+    selected_member_id = int(member_id) if member_id and member_id.isdigit() else None
+
+    feed = selectors.activity_feed(limit=ACTIVITY_FEED_WINDOW)
+    if selected_member_id is not None:
+        feed = [item for item in feed if item["profile"].pk == selected_member_id]
+
+    page_obj = Paginator(feed, ACTIVITY_PAGE_SIZE).get_page(request.GET.get("page"))
+    leaderboard_period = request.GET.get("period") if request.GET.get("period") in ("week", "year") else "week"
+
+    query_without_page = request.GET.copy()
+    query_without_page.pop("page", None)
+
+    context = {
+        "feed_groups": _group_activity_by_day(page_obj.object_list),
+        "page_obj": page_obj,
+        "base_query": query_without_page.urlencode(),
+        "members": members,
+        "selected_member_id": selected_member_id,
+        "recently_watching_count": selectors.recently_watching_count(),
+        "leaderboard_period": leaderboard_period,
+        "leaderboard": selectors.household_leaderboard(leaderboard_period),
+        "top_titles": selectors.household_top_titles(),
+    }
+    return render(request, "tracker/activity.html", context)
 
 
 def _landing_page_url(page):

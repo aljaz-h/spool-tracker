@@ -22,22 +22,33 @@ class Achievement:
     name: str
     description: str
     check: Callable[[Profile], bool]
+    # (current, target) behind check()'s plain >= comparison - target can
+    # vary per profile (genre_explorer's is however many genres exist in
+    # the DB, not a fixed constant), so it's computed alongside current
+    # rather than stored as a fixed field. Kept as a separate callable
+    # from check() instead of having check() call this and compare, so
+    # every existing boolean-only test/call site keeps working unchanged;
+    # this only feeds the Stats page's own numeric progress bar.
+    progress: Callable[[Profile], tuple]
 
 
-def _genre_explorer(profile):
+def _genre_explorer_progress(profile):
     total_genres = Genre.objects.count()
-    if not total_genres:
-        return False
     watched_genres = (
         WatchEvent.objects.filter(profile=profile, title__genres__isnull=False)
         .values("title__genres__id")
         .distinct()
         .count()
     )
-    return watched_genres >= total_genres
+    return watched_genres, max(total_genres, 1)
 
 
-def _night_owl(profile):
+def _genre_explorer(profile):
+    current, target = _genre_explorer_progress(profile)
+    return current >= target
+
+
+def _night_owl_progress(profile):
     # Same 21:00-05:00 window as selectors.py's own "Night" time-of-day
     # bucket (_TIME_OF_DAY_BUCKETS) - local hour, not the UTC hour
     # watched_at is stored as.
@@ -47,25 +58,40 @@ def _night_owl(profile):
         .filter(Q(hour__gte=21) | Q(hour__lt=5))
         .count()
     )
-    return count >= 20
+    return count, 20
 
 
-def _century_club(profile):
-    return (
+def _night_owl(profile):
+    current, target = _night_owl_progress(profile)
+    return current >= target
+
+
+def _century_club_progress(profile):
+    count = (
         WatchEvent.objects.filter(profile=profile, title__media_type=MediaType.MOVIE)
         .values("title_id")
         .distinct()
         .count()
-        >= 100
     )
+    return count, 100
+
+
+def _century_club(profile):
+    current, target = _century_club_progress(profile)
+    return current >= target
+
+
+def _streak_master_progress(profile):
+    _, longest = selectors.streaks(profile)
+    return longest, 30
 
 
 def _streak_master(profile):
-    _, longest = selectors.streaks(profile)
-    return longest >= 30
+    current, target = _streak_master_progress(profile)
+    return current >= target
 
 
-def _marathoner(profile):
+def _marathoner_progress(profile):
     top_day = (
         WatchEvent.objects.filter(profile=profile)
         .annotate(day=TruncDate("watched_at", tzinfo=timezone.get_current_timezone()))
@@ -74,15 +100,20 @@ def _marathoner(profile):
         .order_by("-count")
         .first()
     )
-    return bool(top_day) and top_day["count"] >= 5
+    return (top_day["count"] if top_day else 0), 5
+
+
+def _marathoner(profile):
+    current, target = _marathoner_progress(profile)
+    return current >= target
 
 
 ACHIEVEMENTS = [
-    Achievement("genre_explorer", "Genre Explorer", "Watched something in every genre", _genre_explorer),
-    Achievement("night_owl", "Night Owl", "20+ watches between 9pm and 5am", _night_owl),
-    Achievement("century_club", "Century Club", "100 movies watched", _century_club),
-    Achievement("streak_master", "Streak Master", "Hit a 30-day watch streak", _streak_master),
-    Achievement("marathoner", "Marathoner", "5+ watches in a single day", _marathoner),
+    Achievement("genre_explorer", "Genre Explorer", "Watched something in every genre", _genre_explorer, _genre_explorer_progress),
+    Achievement("night_owl", "Night Owl", "20+ watches between 9pm and 5am", _night_owl, _night_owl_progress),
+    Achievement("century_club", "Century Club", "100 movies watched", _century_club, _century_club_progress),
+    Achievement("streak_master", "Streak Master", "Hit a 30-day watch streak", _streak_master, _streak_master_progress),
+    Achievement("marathoner", "Marathoner", "5+ watches in a single day", _marathoner, _marathoner_progress),
 ]
 
 
@@ -106,18 +137,28 @@ def achievement_progress(profile):
     up too (not just what's already been unlocked). Calls
     check_and_award first so a badge earned by this very page load
     (e.g. a rewatch that just crossed a threshold) shows as earned
-    immediately."""
+    immediately. current/target/pct power each card's own progress bar -
+    current is clamped to target so an achievement earned well past its
+    threshold (e.g. a 45-day streak against Streak Master's 30) still
+    reads as a filled bar, not an overflowing one."""
     check_and_award(profile)
     earned_at_by_key = dict(
         ProfileAchievement.objects.filter(profile=profile).values_list("key", "earned_at")
     )
-    return [
-        {
-            "key": a.key,
-            "name": a.name,
-            "description": a.description,
-            "earned": a.key in earned_at_by_key,
-            "earned_at": earned_at_by_key.get(a.key),
-        }
-        for a in ACHIEVEMENTS
-    ]
+    results = []
+    for a in ACHIEVEMENTS:
+        current, target = a.progress(profile)
+        current = min(current, target)
+        results.append(
+            {
+                "key": a.key,
+                "name": a.name,
+                "description": a.description,
+                "earned": a.key in earned_at_by_key,
+                "earned_at": earned_at_by_key.get(a.key),
+                "current": current,
+                "target": target,
+                "pct": round(current / target * 100) if target else 100,
+            }
+        )
+    return results

@@ -1,0 +1,115 @@
+{% load icons tracker_extras %}
+{# context: item (one entry from selectors.activity_feed() - watched/rated/added_to_list, or a *_group collapsed summary) #}
+<div class="flex gap-3">
+  <div class="flex flex-col items-center flex-none w-9">
+    {% if item.profile.avatar_image %}
+      <div class="w-9 h-9 rounded-lg bg-cover bg-center flex-none" style="background-image:url('{{ item.profile.avatar_image.url }}')"></div>
+    {% else %}
+      <div class="w-9 h-9 rounded-lg flex items-center justify-center font-mono text-[13px] font-bold flex-none" style="background:{{ item.profile.avatar_color }};color:#fff;">{{ item.profile.display_name|first|upper }}</div>
+    {% endif %}
+    <span class="font-mono text-[10px] text-ink-faint mt-1 whitespace-nowrap">{{ item.timestamp|compact_timesince }}</span>
+  </div>
+
+  <div class="flex-1 min-w-0 flex gap-3 bg-base-200 border border-line rounded-xl p-3">
+    {% if item.kind == "watched" or item.kind == "rated" %}
+      {% if item.episode %}
+        {% episode_detail_url item.title.pk item.episode.season item.episode.episode as detail_url %}
+      {% else %}
+        {% url 'title_detail' item.title.pk as detail_url %}
+      {% endif %}
+      <a href="{{ detail_url }}" class="w-14 aspect-[2/3] rounded-lg relative overflow-hidden flex-none {% if not item.title.poster_url %}{{ item.title.pk|gradient_class }}{% endif %}">
+        {% if item.title.poster_url %}
+          <img src="{{ item.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+        {% endif %}
+      </a>
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-1.5 flex-wrap text-[10px] font-mono font-bold uppercase tracking-wide">
+          <span class="bg-base-300 text-ink-dim px-1.5 py-0.5 rounded">{{ item.title.media_type }}</span>
+          {% if item.episode %}<span class="bg-base-300 text-ink-dim px-1.5 py-0.5 rounded">S{{ item.episode.season }}E{{ item.episode.episode }}</span>{% endif %}
+        </div>
+        <div class="text-[13.5px] mt-1">
+          <b>{{ item.profile.display_name }}</b>
+          {% if item.kind == "rated" %}rated{% else %}watched{% endif %}
+          <b>{{ item.title.name }}</b>
+        </div>
+        {% if item.episode.name %}<div class="text-[11.5px] text-ink-dim truncate">&ldquo;{{ item.episode.name }}&rdquo;</div>{% endif %}
+        {% if item.rating %}<div class="text-warning font-mono text-xs mt-1">&#9733; {{ item.rating }}/10</div>{% endif %}
+        {% if item.source_display %}<div class="text-[10.5px] text-ink-faint mt-1">{{ item.source_display }}</div>{% endif %}
+      </div>
+
+    {% elif item.kind == "watched_group" %}
+      <a href="{% url 'title_detail' item.title.pk %}" class="w-14 aspect-[2/3] rounded-lg relative overflow-hidden flex-none {% if not item.title.poster_url %}{{ item.title.pk|gradient_class }}{% endif %}">
+        {% if item.title.poster_url %}
+          <img src="{{ item.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+        {% endif %}
+      </a>
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-1.5 flex-wrap text-[10px] font-mono font-bold uppercase tracking-wide">
+          {% if item.completed_series %}
+            <span class="bg-success/15 text-success px-1.5 py-0.5 rounded">Series Completed</span>
+          {% else %}
+            <span class="bg-primary/15 text-primary px-1.5 py-0.5 rounded">Binge Session</span>
+          {% endif %}
+          <span class="bg-base-300 text-ink-dim px-1.5 py-0.5 rounded">{{ item.title.media_type }}</span>
+        </div>
+        <div class="text-[13.5px] mt-1"><b>{{ item.profile.display_name }}</b> watched <b>{{ item.count }}</b> episodes of <b>{{ item.title.name }}</b></div>
+        <div class="font-mono text-[11px] text-ink-dim mt-0.5">
+          {{ item.range_label }}
+          {% if item.total_episodes %} &middot; {{ item.count }}/{{ item.total_episodes }} episodes{% endif %}
+          {% if item.total_runtime_display %} &middot; {{ item.total_runtime_display }} total{% endif %}
+        </div>
+        {% if item.completed_series %}<div class="text-success text-[11.5px] mt-1">&#127881; Finished the series</div>{% endif %}
+      </div>
+
+    {% elif item.kind == "watched_movies_group" %}
+      <div class="flex -space-x-6 flex-none">
+        {% for m in item.movies|slice:":3" %}
+          <div class="w-14 aspect-[2/3] rounded-lg relative overflow-hidden border-2 border-base-200 {% if not m.title.poster_url %}{{ m.title.pk|gradient_class }}{% endif %}">
+            {% if m.title.poster_url %}
+              <img src="{{ m.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+      <div class="min-w-0 flex-1">
+        <div class="text-[10px] font-mono font-bold uppercase tracking-wide bg-primary/15 text-primary px-1.5 py-0.5 rounded inline-block">Movie Marathon</div>
+        <div class="text-[13.5px] mt-1"><b>{{ item.profile.display_name }}</b> watched <b>{{ item.count }}</b> movies</div>
+        <div class="text-[11.5px] text-ink-dim truncate mt-0.5">{% for m in item.movies %}{{ m.title.name }}{% if not forloop.last %}, {% endif %}{% endfor %}</div>
+        {% if item.total_runtime_display %}<div class="font-mono text-[11px] text-ink-faint mt-0.5">{{ item.total_runtime_display }} total</div>{% endif %}
+      </div>
+
+    {% elif item.kind == "added_to_list" or item.kind == "added_to_list_group" %}
+      <div class="flex -space-x-6 flex-none">
+        {% if item.kind == "added_to_list_group" %}
+          {% for i in item.items|slice:":3" %}
+            <div class="w-14 aspect-[2/3] rounded-lg relative overflow-hidden border-2 border-base-200 {% if not i.title.poster_url %}{{ i.title.pk|gradient_class }}{% endif %}">
+              {% if i.title.poster_url %}
+                <img src="{{ i.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+              {% endif %}
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="w-14 aspect-[2/3] rounded-lg relative overflow-hidden {% if not item.title.poster_url %}{{ item.title.pk|gradient_class }}{% endif %}">
+            {% if item.title.poster_url %}
+              <img src="{{ item.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+            {% endif %}
+          </div>
+        {% endif %}
+      </div>
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="text-[10px] font-mono font-bold uppercase tracking-wide bg-secondary/15 text-secondary px-1.5 py-0.5 rounded inline-block">Added to List</span>
+          {% if item.watchlist.is_shared %}
+            <span class="text-[10px] font-mono font-bold uppercase tracking-wide bg-base-300 text-ink-dim px-1.5 py-0.5 rounded inline-block">Public List</span>
+          {% endif %}
+        </div>
+        <div class="text-[13.5px] mt-1">
+          <b>{{ item.profile.display_name }}</b> added
+          {% if item.kind == "added_to_list_group" %}<b>{{ item.count }}</b> titles to{% else %}<b>{{ item.title.name }}</b> to{% endif %}
+          &ldquo;{{ item.watchlist.name }}&rdquo;
+        </div>
+        <a href="{% url 'list_detail' item.watchlist.id %}" class="text-[11.5px] text-primary hover:underline mt-0.5 inline-block">View List &rarr;</a>
+      </div>
+    {% endif %}
+  </div>
+</div>

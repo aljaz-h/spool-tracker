@@ -10,15 +10,37 @@
     (Settings &amp; Import, or Django admin under Tracker → Profiles).
   </p>
 {% else %}
-  <div class="flex justify-between items-start flex-wrap gap-3 mb-6">
+  {% comment %}
+    Header - the streak pill moved out in favor of the three lifetime
+    counters (movies/shows/watch time) that used to live in their own
+    footer bar at the very bottom of the page - same numbers, just
+    surfaced where they're seen first instead of only after scrolling
+    through everything else. The streak itself isn't gone - it still
+    drives the milestone banner below via selectors.milestone_message.
+  {% endcomment %}
+  <div class="flex justify-between items-start flex-wrap gap-4 mb-6">
     <div>
-      <h1 class="font-display text-4xl">Welcome back, {{ profile.display_name }}</h1>
-      <div class="text-ink-dim text-sm mt-1">{% now "l, F j" %}</div>
+      <div class="text-ink-faint text-xs font-mono uppercase tracking-wide">{% now "l, F j" %}</div>
+      <h1 class="font-display text-4xl mt-1">Welcome back, <span class="text-primary">{{ profile.display_name }}</span></h1>
     </div>
-    <div class="flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
-      {% icon "flame" "w-4 h-4 text-primary" %}
-      <span>{{ stats.streak }} day streak</span>
-      {% if stats.longest_streak %}<span class="text-ink-faint">&middot; longest {{ stats.longest_streak }}</span>{% endif %}
+    <div class="flex items-center gap-2 flex-wrap">
+      <div class="flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
+        {% icon "flame" "w-4 h-4 text-primary" %}
+        <span>{{ stats.streak }} day streak</span>
+        {% if stats.longest_streak %}<span class="text-ink-faint">&middot; longest {{ stats.longest_streak }}</span>{% endif %}
+      </div>
+      <div class="flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
+        {% icon "clapperboard" "w-4 h-4 text-primary" %}
+        <span>{{ stats.movies_this_year }} movies</span>
+      </div>
+      <div class="flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
+        {% icon "tv" "w-4 h-4 text-primary" %}
+        <span>{{ stats.shows_completed }} shows</span>
+      </div>
+      <div class="flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
+        {% icon "clock" "w-4 h-4 text-primary" %}
+        <span>{{ stats.total_watch_time }} watched</span>
+      </div>
     </div>
   </div>
 
@@ -30,7 +52,7 @@
     </div>
   {% endif %}
 
-  {# ---- Up next: what's about to release for something already tracked - full-width row (Dashboard redesign moved this out of the old side card so it reads as its own section, on equal footing with everything else instead of being squeezed next to Watchlist). ---- #}
+  {# ---- Up next: what's about to release for something already tracked ---- #}
   <div class="mb-8">
     <div class="flex justify-between items-center mb-3.5">
       <h2 class="font-display text-xl">Up Next</h2>
@@ -47,14 +69,14 @@
                 {% endif %}
               </div>
               <div class="min-w-0 flex-1">
-                <div class="text-[13px] font-semibold truncate">{{ item.title.name }}</div>
+                <span class="inline-block font-mono text-[10px] font-bold px-1.5 py-0.5 rounded {% if item.when == "TODAY" or item.when == "TOMORROW" %}bg-primary/20 text-primary{% else %}bg-base-100 text-ink-dim{% endif %}">{{ item.when }}</span>
+                <div class="text-[13px] font-semibold truncate mt-1">{{ item.title.name }}</div>
                 <div class="flex items-center gap-1.5 text-xs text-ink-dim truncate">
                   {% if item.count > 1 %}
                     <span class="font-mono text-[9.5px] font-bold bg-primary/90 text-primary-content px-1.5 py-0.5 rounded flex-none">{{ item.count }}&times;</span>
                   {% endif %}
                   <span class="truncate">{{ item.caption }}</span>
                 </div>
-                <div class="font-mono text-[11px] font-semibold mt-0.5 {% if item.when == "TODAY" or item.when == "TOMORROW" %}text-primary{% else %}text-base-content{% endif %}">{{ item.when }}</div>
               </div>
             </a>
           {% endfor %}
@@ -65,116 +87,123 @@
     {% endif %}
   </div>
 
-  {# ---- Recommended to you: real people, not the bot - its own spotlight, not merged with anything else. Bundles its own bottom margin (and disappears entirely when empty) so there's no orphaned gap either way. ---- #}
-  {% include "tracker/partials/dashboard_recommendations.html" %}
-
-  {# ---- Your queue: in-progress and watchlist ---- #}
-  {% if continue_watching %}
-    <div class="mb-8">
-      <div class="flex justify-between items-center mb-3.5">
-        <h2 class="font-display text-xl">Watching <span class="text-ink-faint text-base font-body">({{ continue_watching|length }})</span></h2>
-      </div>
-      <div class="flex gap-4 overflow-x-auto scroll-row pb-2">
-        {% for item in continue_watching %}
-          {% include "tracker/partials/poster_card.html" with title=item.title progress=item %}
-        {% endfor %}
-      </div>
-    </div>
-  {% endif %}
-
-  <div class="mb-8">
-    <div class="flex justify-between items-center mb-3.5">
-      <h2 class="font-display text-xl">Watchlist{% if watchlist_count %} <span class="text-ink-faint text-base font-body">({{ watchlist_count }})</span>{% endif %}</h2>
-      {% if watchlist_items %}<a href="{% url 'lists' %}" class="text-xs text-ink-faint hover:text-ink-dim">See all lists &rarr;</a>{% endif %}
-    </div>
-    {% if watchlist_items %}
-      {# No horizontal scroll from sm: up - just however many of the newest items fit one row at that width, the rest stay one click away via "See all lists". Below sm:, a phone-width row only ever fits one-and-a-bit items this way, with no scroll to reach the rest and (for the other rows below that have no "See all" link at all) no other way to reach them either - so this scrolls there instead, same scroll-row treatment Cast/Media's own rows already use. #}
-      <div class="relative">
-        <div class="flex flex-nowrap gap-4 overflow-x-auto scroll-row sm:overflow-hidden">
-          {% for item in watchlist_items %}
-            {% include "tracker/partials/poster_card.html" with title=item.title show_ratings=True %}
-          {% endfor %}
+  {% comment %}
+    Main content (Watching/Recently Watched/Watchlist Queue) + a sidebar
+    (On This Day/Social Activity/Monthly Stats) side by side above the
+    lg: breakpoint, stacked below it - same "narrower column, capped
+    item count" idea as the sidebar panels themselves already use
+    (on_this_day/social_activity are sliced client-side in the template,
+    not re-queried, since selectors.py already fetches a small-enough
+    batch for the old full-width row this replaces).
+  {% endcomment %}
+  <div class="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
+    <div class="min-w-0">
+      {# ---- Your queue: in-progress and watchlist ---- #}
+      {% if continue_watching %}
+        <div class="mb-8">
+          <div class="flex justify-between items-center mb-3.5">
+            <h2 class="font-display text-xl">Watching <span class="text-ink-faint text-base font-body">({{ continue_watching|length }})</span></h2>
+          </div>
+          <div class="flex gap-4 overflow-x-auto scroll-row pb-2">
+            {% for item in continue_watching %}
+              {% include "tracker/partials/poster_card.html" with title=item.title progress=item %}
+            {% endfor %}
+          </div>
         </div>
-        <div class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-base-100 to-transparent"></div>
-      </div>
-    {% else %}
-      <p class="text-ink-faint text-sm">Watchlist's empty — future you will thank present you for adding something.</p>
-    {% endif %}
-  </div>
+      {% endif %}
 
-  {% include "tracker/partials/dashboard_featured_lists.html" %}
-
-  {# ---- Start watching: watchlist titles worth surfacing right now (recent release/episode, or trending on TMDB) - see selectors.start_watching(). Replaces "Because you watched" (currently turned off, DASHBOARD_BECAUSE_YOU_WATCHED_ENABLED in views.py). ---- #}
-  {% if start_watching %}
-    <div class="mb-8">
-      <div class="flex justify-between items-center mb-3.5">
-        <h2 class="font-display text-xl">Start Watching</h2>
-      </div>
-      <div class="relative">
-        <div class="flex flex-nowrap gap-4 overflow-x-auto scroll-row sm:overflow-hidden">
-          {% for title in start_watching %}
-            {% include "tracker/partials/poster_card.html" with title=title show_ratings=True %}
-          {% endfor %}
-        </div>
-        <div class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-base-100 to-transparent"></div>
-      </div>
-    </div>
-  {% endif %}
-
-  {# ---- Recently watched: this profile's own last watch events (not deduped by title - a binge shows every episode), newest first - see selectors.recently_watched(). ---- #}
-  {% if recently_watched %}
-    <div class="mb-8">
-      <div class="flex justify-between items-center mb-3.5">
-        <h2 class="font-display text-xl">Recently Watched</h2>
-        <a href="{% url 'history' %}" class="text-xs text-ink-faint hover:text-ink-dim">History &rarr;</a>
-      </div>
-      <div class="relative">
-        <div class="flex flex-nowrap gap-4 overflow-x-auto scroll-row sm:overflow-hidden">
-          {% for event in recently_watched %}
-            {% include "tracker/partials/watch_event_card.html" with event=event %}
-          {% endfor %}
-        </div>
-        <div class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-base-100 to-transparent"></div>
-      </div>
-    </div>
-  {% endif %}
-
-  {# ---- Social Activity: what other profiles in the household have watched most recently - see selectors.social_activity(). ---- #}
-  {% if social_activity %}
-    <div class="mb-8">
-      <div class="flex justify-between items-center mb-3.5">
-        <h2 class="font-display text-xl">Social Activity</h2>
-      </div>
-      <div class="relative">
-        <div class="flex flex-nowrap gap-4 overflow-x-auto scroll-row sm:overflow-hidden">
-          {% for event in social_activity %}
-            {% include "tracker/partials/poster_card.html" with title=event.title show_ratings=True event_profile=event.profile event_episode=event.episode %}
-          {% endfor %}
-        </div>
-        <div class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-base-100 to-transparent"></div>
-      </div>
-    </div>
-  {% endif %}
-
-  {# ---- On This Day: titles this profile watched on today's date in a previous year - see selectors.on_this_day(). ---- #}
-  {% if on_this_day %}
-    <div class="mb-8">
-      <div class="flex justify-between items-center mb-3.5">
-        <h2 class="font-display text-xl">On This Day</h2>
-      </div>
-      <div class="relative">
-        <div class="flex flex-nowrap gap-4 overflow-x-auto scroll-row sm:overflow-hidden">
-          {% for entry in on_this_day %}
-            <div class="flex flex-col gap-1.5">
-              {% include "tracker/partials/poster_card.html" with title=entry.title show_ratings=True %}
-              <div class="text-[11px] text-ink-faint text-center">{{ entry.years_ago }} year{{ entry.years_ago|pluralize }} ago today</div>
+      {# ---- Recently watched: this profile's own last watch events (not deduped by title - a binge shows every episode), newest first - see selectors.recently_watched(). ---- #}
+      {% if recently_watched %}
+        <div class="mb-8">
+          <div class="flex justify-between items-center mb-3.5">
+            <h2 class="font-display text-xl">Recently Watched</h2>
+            <a href="{% url 'history' %}" class="text-xs text-ink-faint hover:text-ink-dim">History &rarr;</a>
+          </div>
+          <div class="relative">
+            <div class="flex flex-nowrap gap-4 overflow-x-auto scroll-row sm:overflow-hidden">
+              {% for event in recently_watched %}
+                {% include "tracker/partials/watch_event_card.html" with event=event %}
+              {% endfor %}
             </div>
-          {% endfor %}
+            <div class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-base-100 to-transparent"></div>
+          </div>
         </div>
-        <div class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-base-100 to-transparent"></div>
+      {% endif %}
+
+      <div class="mb-8">
+        <div class="flex justify-between items-center mb-3.5">
+          <h2 class="font-display text-xl">Watchlist Queue{% if watchlist_count %} <span class="text-ink-faint text-base font-body">({{ watchlist_count }})</span>{% endif %}</h2>
+          {% if watchlist_items %}<a href="{% url 'lists' %}" class="text-xs text-ink-faint hover:text-ink-dim">See all lists &rarr;</a>{% endif %}
+        </div>
+        {% if watchlist_items %}
+          {# No horizontal scroll from sm: up - just however many of the newest items fit one row at that width, the rest stay one click away via "See all lists". Below sm:, a phone-width row only ever fits one-and-a-bit items this way, with no scroll to reach the rest and (for the other rows below that have no "See all" link at all) no other way to reach them either - so this scrolls there instead, same scroll-row treatment Cast/Media's own rows already use. #}
+          <div class="relative">
+            <div class="flex flex-nowrap gap-4 overflow-x-auto scroll-row sm:overflow-hidden">
+              {% for item in watchlist_items %}
+                {% include "tracker/partials/poster_card.html" with title=item.title show_ratings=True %}
+              {% endfor %}
+            </div>
+            <div class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-base-100 to-transparent"></div>
+          </div>
+        {% else %}
+          <p class="text-ink-faint text-sm">Watchlist's empty — future you will thank present you for adding something.</p>
+        {% endif %}
       </div>
+
+      {% include "tracker/partials/dashboard_featured_lists.html" %}
+
+      {# ---- Start watching: watchlist titles worth surfacing right now (recent release/episode, or trending on TMDB) - see selectors.start_watching(). Replaces "Because you watched" (currently turned off, DASHBOARD_BECAUSE_YOU_WATCHED_ENABLED in views.py). ---- #}
+      {% if start_watching %}
+        <div class="mb-8">
+          <div class="flex justify-between items-center mb-3.5">
+            <h2 class="font-display text-xl">Start Watching</h2>
+          </div>
+          <div class="relative">
+            <div class="flex flex-nowrap gap-4 overflow-x-auto scroll-row sm:overflow-hidden">
+              {% for title in start_watching %}
+                {% include "tracker/partials/poster_card.html" with title=title show_ratings=True %}
+              {% endfor %}
+            </div>
+            <div class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-base-100 to-transparent"></div>
+          </div>
+        </div>
+      {% endif %}
     </div>
-  {% endif %}
+
+    <div class="flex flex-col gap-6">
+      {# ---- Recommended to you: real people, not the bot - moved into the sidebar column so it doesn't stretch the full page width for what's usually a single card. ---- #}
+      {% include "tracker/partials/dashboard_recommendations.html" %}
+
+      {# ---- On This Day: titles this profile watched on today's date in a previous year - see selectors.on_this_day(). Capped to 5 in the sidebar - the rest still exist for anyone who wants them (selectors' own limit=8), just not worth the extra sidebar height. ---- #}
+      {% if on_this_day %}
+        <div class="bg-base-200 border border-line rounded-2xl p-4 shadow-md shadow-black/20">
+          <h2 class="font-display text-lg tracking-wide mb-1 flex items-center gap-2">{% icon "history" "w-4 h-4 text-ink-dim" %}On This Day</h2>
+          <div class="divide-y divide-line">
+            {% for entry in on_this_day|slice:":5" %}
+              {% include "tracker/partials/dashboard_on_this_day_item.html" with entry=entry %}
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+
+      {# ---- Social Activity: what other profiles in the household have watched most recently - see selectors.social_activity(). ---- #}
+      {% if social_activity %}
+        <div class="bg-base-200 border border-line rounded-2xl p-4 shadow-md shadow-black/20">
+          <h2 class="font-display text-lg tracking-wide mb-1 flex items-center gap-2">{% icon "users" "w-4 h-4 text-ink-dim" %}Social Activity</h2>
+          <div class="divide-y divide-line">
+            {% for event in social_activity|slice:":5" %}
+              {% include "tracker/partials/dashboard_social_activity_item.html" with event=event %}
+            {% endfor %}
+          </div>
+          {% if show_activity_nav %}
+            <a href="{% url 'activity' %}" class="block text-center text-xs text-ink-faint hover:text-ink-dim mt-3 pt-3 border-t border-line">View Activity &rarr;</a>
+          {% endif %}
+        </div>
+      {% endif %}
+
+      {% include "tracker/partials/dashboard_monthly_stats.html" %}
+    </div>
+  </div>
 
   {# ---- For You: a discover() call scoped to this profile's genre/provider/region preferences (Settings > Preferences) - see selectors.for_you(). ---- #}
   {% if for_you %}
@@ -202,19 +231,6 @@
       {% endfor %}
     </div>
   {% endif %}
-
-  {# ---- Footer stats: the 3 counters that used to be their own tiles up top - still worth surfacing on Dashboard, just demoted to a closing summary now that the streak has its own pill and Up Next/Recommended/Watchlist carry the top of the page. ---- #}
-  <div class="dashboard-rule my-9"></div>
-  <div class="flex flex-wrap items-center justify-between gap-3 bg-base-200 border border-line rounded-2xl px-5 py-4 shadow-md shadow-black/20 text-sm text-ink-dim">
-    <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-      <span><b class="text-base-content">{{ stats.movies_this_year }}</b> movies this year</span>
-      <span class="text-ink-faint">&middot;</span>
-      <span><b class="text-base-content">{{ stats.shows_completed }}</b> shows completed</span>
-      <span class="text-ink-faint">&middot;</span>
-      <span><b class="text-base-content">{{ stats.total_watch_time }}</b> total watch time</span>
-    </div>
-    <a href="{% url 'stats' %}" class="text-xs text-ink-faint hover:text-ink-dim">View full stats &rarr;</a>
-  </div>
 {% endif %}
 
 {% endblock %}

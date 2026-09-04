@@ -6,10 +6,13 @@
   <div class="mb-6 flex items-start justify-between flex-wrap gap-3">
     <div>
       <h1 class="font-display text-4xl">{% if is_own_stats or not profile %}Stats{% else %}{{ profile.display_name }}&rsquo;s Stats{% endif %}</h1>
-      <div class="text-ink-dim text-sm mt-1">Lifetime totals across Movies, TV &amp; Anime</div>
+      <div class="text-ink-dim text-sm mt-1">Lifetime watch analytics, habit telemetry &amp; library breakdowns across Movies, TV &amp; Anime</div>
     </div>
     {% if profile %}
-      <a href="{{ history_url }}" class="btn btn-sm btn-soft">View History</a>
+      <div class="flex items-center gap-2">
+        <a href="{% url 'export_csv' %}" class="btn btn-sm btn-soft">{% icon "download" "w-3.5 h-3.5" %}Export Stats</a>
+        <a href="{{ history_url }}" class="btn btn-sm btn-primary">View History</a>
+      </div>
     {% endif %}
   </div>
 
@@ -17,40 +20,67 @@
     <p class="text-ink-faint text-sm">Your account isn't linked to a household profile yet.</p>
   {% else %}
 
-  <div class="bg-base-200 border border-line rounded-2xl grid grid-cols-1 lg:grid-cols-[1.7fr_1fr_1fr] divide-y lg:divide-y-0 lg:divide-x divide-line">
-    <div class="min-w-0 flex flex-wrap items-center justify-between gap-8 p-6">
-      <div>
-        <div class="flex items-baseline gap-2.5">
-          <span class="font-display text-7xl text-primary leading-none">{{ current_streak }}</span>
-          <span class="font-display text-sm text-ink-dim uppercase tracking-wide">day streak</span>
-        </div>
-        {% if longest_streak %}
-          <div class="text-xs text-ink-faint mt-2">Personal best <span class="text-ink-dim underline decoration-dotted underline-offset-2">{{ longest_streak }} days</span></div>
-        {% endif %}
-      </div>
-      <div class="pl-8 border-l border-line flex items-center gap-3">
-        <div class="w-9 h-9 rounded-lg bg-primary/15 text-primary flex items-center justify-center flex-none">
-          {% icon "clapperboard" "w-4.5 h-4.5" %}
-        </div>
-        <div>
-          <div class="font-display text-2xl text-primary leading-none">{{ movies_watched }}</div>
-          <div class="text-xs text-ink-dim mt-1">Movies watched <span class="text-ink-faint">({{ movies_plays }} plays)</span></div>
+  {% comment %}
+    Four separate cards, not one card divided into columns - each one
+    reads as its own self-contained stat block (own header, own icon,
+    own border) rather than a shared strip, matching how the rest of
+    this page's panels are already separate bordered cards. dial_pct
+    (stats_overview) and pct_change_vs_prior_30_days/completion_efficiency_pct
+    (watch_time_breakdown/stats_overview) are real, computed figures -
+    not decorative placeholders - see their own selector docstrings for
+    exactly what each compares against.
+  {% endcomment %}
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="bg-base-200 border border-line rounded-2xl p-5">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2 text-ink-dim text-sm font-display tracking-wide">
+          {% icon "flame" "w-4 h-4 text-primary" %} Watch Streak
         </div>
       </div>
-      <div class="pl-8 border-l border-line flex items-center gap-3">
-        <div class="w-9 h-9 rounded-lg bg-accent/15 text-accent flex items-center justify-center flex-none">
-          {% icon "tv" "w-4.5 h-4.5" %}
-        </div>
-        <div>
-          <div class="font-display text-2xl text-accent leading-none">{{ shows_completed }}</div>
-          <div class="text-xs text-ink-dim mt-1">Shows completed</div>
-        </div>
+      <div class="flex items-baseline gap-2">
+        <span class="font-display text-6xl text-primary leading-none">{{ current_streak }}</span>
+        <span class="font-display text-sm text-ink-dim tracking-wide">Days</span>
       </div>
+      {% if longest_streak %}
+        <div class="text-xs text-ink-faint mt-2">Personal record <span class="text-primary font-semibold">{{ longest_streak }} days</span></div>
+        <div class="w-full h-1.5 rounded-full bg-base-300 overflow-hidden mt-3">
+          <div class="h-full rounded-full bg-primary" style="width:{{ dial_pct }}%"></div>
+        </div>
+      {% endif %}
     </div>
 
-    <div class="min-w-0 p-5">
-      <h3 class="text-lg mb-4">Last 30 days</h3>
-      <div class="space-y-3">
+    <div class="bg-base-200 border border-line rounded-2xl p-5">
+      <div class="flex items-center gap-2 text-ink-dim text-sm font-display tracking-wide mb-4">
+        {% icon "list-checks" "w-4 h-4 text-ink-dim" %} Quick Totals
+      </div>
+      <div class="flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <span class="w-8 h-8 rounded-lg bg-primary/15 text-primary flex items-center justify-center flex-none">{% icon "clapperboard" "w-4 h-4" %}</span>
+          <div class="min-w-0">
+            <div class="font-display text-2xl leading-none">{{ movies_watched }}</div>
+            <div class="text-[10.5px] text-ink-faint mt-0.5 truncate">{{ movies_plays }} total plays</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-2.5 min-w-0">
+          <span class="w-8 h-8 rounded-lg bg-accent/15 text-accent flex items-center justify-center flex-none">{% icon "tv" "w-4 h-4" %}</span>
+          <div class="min-w-0">
+            <div class="font-display text-2xl leading-none">{{ shows_completed }}</div>
+            <div class="text-[10.5px] text-ink-faint mt-0.5 truncate">Completed sets</div>
+          </div>
+        </div>
+      </div>
+      {% if completion_efficiency_pct is not None %}
+        <div class="text-[11px] text-ink-faint mt-4 pt-3 border-t border-line">Completion efficiency <span class="text-success font-semibold">{{ completion_efficiency_pct }}%</span></div>
+      {% endif %}
+    </div>
+
+    <div class="bg-base-200 border border-line rounded-2xl p-5">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2 text-ink-dim text-sm font-display tracking-wide">
+          {% icon "clock" "w-4 h-4 text-ink-dim" %} Last 30 Days
+        </div>
+      </div>
+      <div class="space-y-2">
         <div class="flex justify-between items-baseline">
           <span class="text-[13px] text-ink-dim">Movies</span>
           <span class="font-mono text-sm"><b>{{ watch_time_breakdown.last_30_days.movie.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.last_30_days.movie.count }} plays)</span></span>
@@ -63,16 +93,21 @@
           <span class="text-[13px] text-ink-dim">Anime</span>
           <span class="font-mono text-sm"><b>{{ watch_time_breakdown.last_30_days.anime.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.last_30_days.anime.count }} eps)</span></span>
         </div>
-        <div class="flex justify-between items-baseline pt-3 border-t border-line">
-          <span class="text-[13px] text-ink-dim">Combined</span>
-          <span class="font-mono text-sm"><b>{{ watch_time_breakdown.last_30_days.combined.days_rounded }} days</b> <span class="text-ink-faint">(&asymp; {{ watch_time_breakdown.last_30_days.combined.hours_display }})</span></span>
-        </div>
+      </div>
+      <div class="flex justify-between items-baseline pt-3 mt-3 border-t border-line">
+        <span class="text-[11px] text-ink-faint">Combined</span>
+        <span class="font-mono text-sm"><b class="text-primary">{{ watch_time_breakdown.last_30_days.combined.days_rounded }} days</b> <span class="text-ink-faint">(&asymp; {{ watch_time_breakdown.last_30_days.combined.hours_display }})</span></span>
       </div>
     </div>
 
-    <div class="min-w-0 p-5">
-      <h3 class="text-lg mb-4">All time</h3>
-      <div class="space-y-3">
+    <div class="bg-base-200 border border-line rounded-2xl p-5">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2 text-ink-dim text-sm font-display tracking-wide">
+          {% icon "history" "w-4 h-4 text-ink-dim" %} All Time Hub
+        </div>
+        <span class="font-mono text-[10px] text-ink-faint uppercase tracking-wide">Lifetime</span>
+      </div>
+      <div class="space-y-2">
         <div class="flex justify-between items-baseline">
           <span class="text-[13px] text-ink-dim">Movies</span>
           <span class="font-mono text-sm"><b>{{ watch_time_breakdown.all_time.movie.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.all_time.movie.count }} plays)</span></span>
@@ -85,10 +120,10 @@
           <span class="text-[13px] text-ink-dim">Anime</span>
           <span class="font-mono text-sm"><b>{{ watch_time_breakdown.all_time.anime.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.all_time.anime.count }} eps)</span></span>
         </div>
-        <div class="flex justify-between items-baseline pt-3 border-t border-line">
-          <span class="text-[13px] text-ink-dim">Combined</span>
-          <span class="font-mono text-sm"><b>{{ total_watch_days_rounded }} days</b> <span class="text-ink-faint">(&asymp; {{ total_watch_hours_display }})</span></span>
-        </div>
+      </div>
+      <div class="flex justify-between items-baseline pt-3 mt-3 border-t border-line">
+        <span class="text-[11px] text-ink-faint">Combined</span>
+        <span class="font-mono text-sm"><b class="text-primary">{{ total_watch_days_rounded }} days</b> <span class="text-ink-faint">(&asymp; {{ total_watch_hours_display }})</span></span>
       </div>
     </div>
   </div>
@@ -96,8 +131,8 @@
   <div class="bg-base-200 border border-line rounded-2xl p-5 mt-5">
     <div class="flex justify-between items-start flex-wrap gap-3 mb-5">
       <div>
-        <h2 class="text-2xl">Your top <span class="text-primary">genres</span></h2>
-        <div class="text-ink-faint text-sm mt-1">Sized by titles watched or time spent</div>
+        <h2 class="font-display text-xl tracking-wide">Your Top <span class="text-primary">Genres</span></h2>
+        <div class="text-ink-faint text-xs mt-1">Sized proportionally by titles watched or total aggregated watch time</div>
       </div>
       <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
         <a href="?genre_type={{ genre_type }}&amp;genre_metric=items" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_metric == "items" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">By items</a>
@@ -106,7 +141,7 @@
     </div>
 
     <div class="bg-base-300/30 border border-line rounded-xl p-5">
-      <div class="flex justify-between items-center flex-wrap gap-3 mb-6">
+      <div class="flex justify-between items-center flex-wrap gap-3 mb-5">
         <div class="inline-flex bg-base-200 border border-line rounded-lg p-1 gap-0.5">
           <a href="?genre_type=tv&amp;genre_metric={{ genre_metric }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_type == "tv" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">TV Shows</a>
           <a href="?genre_type=anime&amp;genre_metric={{ genre_metric }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_type == "anime" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Anime</a>
@@ -121,17 +156,7 @@
       </div>
 
       {% if genre_breakdown %}
-        <div class="flex w-full gap-0.5 mb-1.5">
-          {% for g in genre_breakdown %}
-            <div class="min-w-0" style="flex-grow:{{ g.pct }};flex-basis:0">
-              {% if g.pct >= 3 and forloop.counter0|divisibleby:2 %}
-                <div class="text-[10.5px] font-bold uppercase tracking-wide truncate pl-1.5 border-l-2" style="color:{{ forloop.counter0|color_at_index }};border-color:{{ forloop.counter0|color_at_index }}">{{ g.name }}</div>
-                <div class="text-[10px] text-ink-faint truncate pl-1.5">{{ g.display }}</div>
-              {% endif %}
-            </div>
-          {% endfor %}
-        </div>
-        <div class="flex w-full h-10 rounded-lg overflow-hidden gap-0.5">
+        <div class="flex w-full h-9 rounded-lg overflow-hidden gap-0.5">
           {% for g in genre_breakdown %}
             <div
               tabindex="0" aria-label="{{ g.name }} · {{ g.display }}"
@@ -141,13 +166,12 @@
             >{% if g.pct >= 6 %}{{ g.pct }}%{% endif %}</div>
           {% endfor %}
         </div>
-        <div class="flex w-full gap-0.5 mt-1.5">
+        <div class="flex flex-wrap gap-x-5 gap-y-2 mt-4">
           {% for g in genre_breakdown %}
-            <div class="min-w-0" style="flex-grow:{{ g.pct }};flex-basis:0">
-              {% if g.pct >= 3 and not forloop.counter0|divisibleby:2 %}
-                <div class="text-[10.5px] font-bold uppercase tracking-wide truncate pl-1.5 border-l-2" style="color:{{ forloop.counter0|color_at_index }};border-color:{{ forloop.counter0|color_at_index }}">{{ g.name }}</div>
-                <div class="text-[10px] text-ink-faint truncate pl-1.5">{{ g.display }}</div>
-              {% endif %}
+            <div class="flex items-center gap-1.5 text-[12px]">
+              <span class="w-2.5 h-2.5 rounded-full flex-none" style="background:{{ forloop.counter0|color_at_index }}"></span>
+              <span class="font-semibold">{{ g.name }}</span>
+              <span class="text-ink-faint">{{ g.display }} ({{ g.pct }}%)</span>
             </div>
           {% endfor %}
         </div>
@@ -159,18 +183,35 @@
 
   {% if achievements %}
     <div class="bg-base-200 border border-line rounded-2xl p-5 mt-5">
-      <h2 class="text-2xl mb-1">Achievements</h2>
-      <div class="text-ink-faint text-sm mb-5">{{ achievements_earned_count }} of {{ achievements|length }} badges - collect the rest by watching</div>
+      <div class="flex justify-between items-start flex-wrap gap-3 mb-5">
+        <div>
+          <h2 class="font-display text-xl tracking-wide">Achievements</h2>
+          <div class="text-ink-faint text-xs mt-1">{{ achievements_earned_count }} of {{ achievements|length }} badges unlocked - continue logging media to claim the rest</div>
+        </div>
+        <span class="font-mono text-[11px] font-semibold bg-primary/15 text-primary px-2.5 py-1 rounded-full">{% widthratio achievements_earned_count achievements|length 100 %}% Completed</span>
+      </div>
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {% for a in achievements %}
           <div
-            class="flex flex-col items-center text-center gap-2 rounded-xl p-4 border {% if a.earned %}bg-primary/10 border-primary/30{% else %}bg-base-300/30 border-line opacity-50{% endif %}"
+            class="flex flex-col gap-2 rounded-xl p-4 border {% if a.earned %}bg-primary/10 border-primary/30{% else %}bg-base-300/30 border-line{% endif %}"
           >
             <div class="w-10 h-10 rounded-full flex items-center justify-center {% if a.earned %}bg-primary/20 text-primary{% else %}bg-base-300 text-ink-faint{% endif %}">
               {% icon "crown" "w-5 h-5" %}
             </div>
-            <div class="text-xs font-semibold">{{ a.name }}</div>
-            <div class="text-[10.5px] text-ink-faint leading-snug">{{ a.description }}</div>
+            <div>
+              <div class="text-xs font-semibold">{{ a.name }}</div>
+              <div class="text-[10.5px] text-ink-faint leading-snug mt-0.5">{{ a.description }}</div>
+            </div>
+            {% if a.earned %}
+              <span class="self-start font-mono text-[9px] font-bold uppercase tracking-wide bg-success/15 text-success px-2 py-0.5 rounded-full">Unlocked</span>
+            {% else %}
+              <div>
+                <div class="w-full h-1.5 rounded-full bg-base-100 overflow-hidden">
+                  <div class="h-full rounded-full bg-primary" style="width:{{ a.pct }}%"></div>
+                </div>
+                <div class="text-[10px] font-mono text-ink-faint mt-1">Progress · {{ a.current }}/{{ a.target }}</div>
+              </div>
+            {% endif %}
           </div>
         {% endfor %}
       </div>
@@ -179,16 +220,21 @@
 
   {% if taste_compatibility %}
     <div class="bg-base-200 border border-line rounded-2xl p-5 mt-5">
-      <h2 class="text-2xl mb-1">Taste <span class="text-primary">compatibility</span></h2>
-      <div class="text-ink-faint text-sm mb-5">How much your genre taste overlaps with the rest of the household</div>
+      <h2 class="font-display text-xl tracking-wide">Taste <span class="text-primary">Compatibility</span></h2>
+      <div class="text-ink-faint text-xs mt-1 mb-5">How much your watch logs and genre preferences match with friends &amp; household members</div>
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {% for c in taste_compatibility %}
           <div class="flex items-center gap-3 bg-base-300/30 border border-line rounded-xl p-4">
-            {% if c.profile.avatar_image %}
-              <div class="w-10 h-10 rounded-full bg-cover bg-center flex-none" style="background-image:url('{{ c.profile.avatar_image.url }}')"></div>
-            {% else %}
-              <div class="w-10 h-10 rounded-full flex items-center justify-center font-mono text-sm font-semibold flex-none" style="background:{{ c.profile.avatar_color }};color:#fff;">{{ c.profile.display_name|first|upper }}</div>
-            {% endif %}
+            <div class="relative w-12 h-12 flex-none">
+              <svg viewBox="0 0 36 36" class="w-full h-full -rotate-90" aria-hidden="true">
+                <circle cx="18" cy="18" r="15.5" fill="none" stroke="var(--color-base-300)" stroke-width="3"></circle>
+                <circle
+                  cx="18" cy="18" r="15.5" fill="none" stroke="var(--color-primary)" stroke-width="3" stroke-linecap="round"
+                  stroke-dasharray="{% widthratio c.overlap_pct 100 97 %} 100"
+                ></circle>
+              </svg>
+              <div class="absolute inset-0 flex items-center justify-center font-mono text-[11px] font-bold">{{ c.overlap_pct }}%</div>
+            </div>
             <div class="min-w-0">
               <div class="text-sm font-semibold truncate">You &amp; {{ c.profile.display_name }}</div>
               <div class="text-xs text-ink-dim mt-0.5">
@@ -204,11 +250,33 @@
 
   <div class="grid grid-cols-1 lg:grid-cols-[1fr_0.6fr_1fr] gap-5 mt-5">
     <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
-      <h3 class="text-lg mb-4">Release years</h3>
-      <div class="h-[130px] flex flex-col items-center justify-center gap-1 text-center">
-        <span class="text-sm text-ink-dim">Coming soon</span>
-        <span class="text-xs text-ink-faint">We're double-checking this data before showing it.</span>
-      </div>
+      <h3 class="font-display text-lg tracking-wide mb-1">Release Years</h3>
+      <div class="text-ink-faint text-xs mb-4">Distribution across release decades</div>
+      {% if release_years %}
+        <div class="flex items-end justify-between gap-2 h-[130px]">
+          {% for d in release_years.decades %}
+            <div class="flex flex-col items-center justify-end flex-1 h-full">
+              <div class="font-mono text-[10px] font-bold text-ink-dim mb-1">{{ d.count }}</div>
+              <div
+                tabindex="0" aria-label="{{ d.label }} · {{ d.count }} title{{ d.count|pluralize }}"
+                class="w-full max-w-[28px] rounded-t-md spool-tooltip {% if d.pct == 100 %}bg-primary{% else %}bg-primary/35{% endif %}"
+                style="height:{{ d.pct }}%"
+                data-tooltip="{{ d.label }} · {{ d.count }} title{{ d.count|pluralize }}"
+              ></div>
+              <div class="font-mono text-[10px] text-ink-faint mt-1.5">{{ d.label }}</div>
+            </div>
+          {% endfor %}
+        </div>
+        <div class="flex justify-between items-center mt-3 pt-3 border-t border-line text-[11px] text-ink-faint gap-2">
+          <span class="truncate">Oldest <b class="text-base-content">{{ release_years.oldest_name }}</b> ({{ release_years.oldest_year }})</span>
+          <span class="flex-none">Latest <b class="text-base-content">{{ release_years.latest_year }}</b></span>
+        </div>
+      {% else %}
+        <div class="h-[130px] flex flex-col items-center justify-center gap-1 text-center">
+          <span class="text-sm text-ink-dim">No release-year data yet</span>
+          <span class="text-xs text-ink-faint">Watch a few titles to see this chart.</span>
+        </div>
+      {% endif %}
     </div>
 
     <div
@@ -242,7 +310,7 @@
         },
       }"
     >
-      <h3 class="text-lg mb-4">Split by type</h3>
+      <h3 class="font-display text-lg tracking-wide mb-4">Split by Type</h3>
       <div class="flex flex-col items-center gap-4">
         <div class="relative w-[140px] h-[140px] flex-none">
           <svg viewBox="0 0 36 36" class="w-full h-full" aria-hidden="true">
@@ -294,7 +362,7 @@
 
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mt-5">
     <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
-      <h3 class="text-lg mb-4">Daily breakdown</h3>
+      <h3 class="font-display text-lg tracking-wide mb-4">Daily Breakdown</h3>
       <div class="flex items-end justify-between gap-2 h-[130px]">
         {% for d in daily_breakdown.days %}
           <div class="flex flex-col items-center justify-end flex-1 h-full">
@@ -314,7 +382,7 @@
     </div>
 
     <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
-      <h3 class="text-lg mb-4">Daily average</h3>
+      <h3 class="font-display text-lg tracking-wide mb-4">Daily Average</h3>
       <div class="font-display text-4xl">{{ daily_average.average_duration }}</div>
       {% if daily_average.delta_label %}
         <div class="font-mono text-xs mt-2 {% if daily_average.delta_positive %}text-success{% else %}text-error{% endif %}">{{ daily_average.delta_label }}</div>
@@ -322,19 +390,30 @@
     </div>
 
     <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
-      <h3 class="text-lg mb-1">Peak hours</h3>
-      <div class="text-ink-dim text-xs mb-4">Plays logged in each part of the day, lifetime.</div>
-      <div class="space-y-3">
+      <h3 class="font-display text-lg tracking-wide mb-1 flex items-center gap-2">{% icon "clock" "w-4 h-4 text-ink-dim" %}Peak Hours</h3>
+      <div class="text-ink-dim text-xs mb-4">Plays logged in each part of the day (lifetime)</div>
+      <div class="space-y-3.5">
         {% for bucket in peak_hours %}
-          <div class="flex items-center gap-3">
-            <span class="text-[13px] text-ink-dim w-[70px] flex-none">{{ bucket.label }}</span>
-            <div class="flex-1 h-2 rounded-full bg-base-300 overflow-hidden">
-              <div class="h-full rounded-full bg-primary" style="width:{{ bucket.pct }}%"></div>
+          <div>
+            <div class="flex justify-between items-baseline mb-1.5">
+              <span class="text-[13px] text-ink-dim">{{ bucket.label }} <span class="text-[11px] text-ink-faint font-mono">({{ bucket.range }})</span></span>
+              <span class="font-mono text-xs {% if bucket.pct == 100 %}text-primary font-bold{% else %}text-ink-faint{% endif %}">{{ bucket.count }} play{{ bucket.count|pluralize }}{% if bucket.count %} <span class="text-ink-faint">({{ bucket.pct }}%)</span>{% endif %}</span>
             </div>
-            <span tabindex="0" aria-label="{{ bucket.count }} play{{ bucket.count|pluralize }}" class="font-mono text-xs text-ink-faint w-10 text-right flex-none spool-tooltip" data-tooltip="{{ bucket.count }} play{{ bucket.count|pluralize }}">{{ bucket.count }}</span>
+            <div
+              tabindex="0" aria-label="{{ bucket.count }} play{{ bucket.count|pluralize }}"
+              class="w-full h-2 rounded-full bg-base-300 overflow-hidden spool-tooltip" data-tooltip="{{ bucket.count }} play{{ bucket.count|pluralize }}"
+            >
+              <div class="h-full rounded-full {% if bucket.pct == 100 %}bg-primary{% else %}bg-primary/40{% endif %}" style="width:{{ bucket.pct }}%"></div>
+            </div>
           </div>
         {% endfor %}
       </div>
+      {% if peak_hours_prime %}
+        <div class="flex justify-between items-center mt-4 pt-3 border-t border-line text-[11px] text-ink-faint">
+          <span>Prime viewing window</span>
+          <span class="font-mono text-base-content font-semibold">{{ peak_hours_prime.range }}</span>
+        </div>
+      {% endif %}
     </div>
   </div>
 

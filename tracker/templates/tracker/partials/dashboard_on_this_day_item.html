@@ -1,0 +1,15 @@
+{% load tracker_extras icons %}
+{# context: entry ({"title", "years_ago", "rating"} - selectors.on_this_day()) #}
+<a href="{% url 'title_detail' entry.title.pk %}" class="flex items-center gap-2.5 py-2 group">
+  <div class="w-11 aspect-[2/3] rounded-md relative overflow-hidden flex-none {% if not entry.title.poster_url %}{{ entry.title.pk|gradient_class }}{% endif %}">
+    {% if entry.title.poster_url %}
+      <img src="{{ entry.title.poster_url|poster_size:"w92" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+    {% endif %}
+  </div>
+  <div class="min-w-0 flex-1">
+    <div class="text-[13px] font-semibold truncate group-hover:text-primary transition-colors">{{ entry.title.name }}</div>
+    <div class="text-[11px] text-ink-faint">Watched {{ entry.years_ago }} year{{ entry.years_ago|pluralize }} ago today</div>
+    {% if entry.rating %}<div class="text-[11px] text-primary font-mono mt-0.5">&#9733; {{ entry.rating }}</div>{% endif %}
+  </div>
+  <span class="flex-none text-ink-faint group-hover:text-base-content transition-colors">{% icon "history" "w-4 h-4" %}</span>
+</a>

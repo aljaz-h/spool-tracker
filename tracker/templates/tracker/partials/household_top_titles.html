@@ -1,0 +1,34 @@
+{% load icons tracker_extras %}
+{# context: top_titles (selectors.household_top_titles()) #}
+{% if top_titles %}
+  <div class="bg-base-200 border border-line rounded-2xl p-4 shadow-md shadow-black/20">
+    <div class="flex items-center justify-between mb-3.5">
+      <h2 class="font-display text-lg tracking-wide flex items-center gap-2">{% icon "sparkles" "w-4 h-4 text-ink-dim" %}Household Top 5</h2>
+      <span class="font-mono text-[10px] text-ink-faint uppercase tracking-wide flex-none">This Week</span>
+    </div>
+    <div class="divide-y divide-line">
+      {% for row in top_titles %}
+        <a href="{% url 'title_detail' row.title.pk %}" class="flex items-center gap-2.5 py-2 group">
+          <div class="w-9 aspect-[2/3] rounded-md relative overflow-hidden flex-none {% if not row.title.poster_url %}{{ row.title.pk|gradient_class }}{% endif %}">
+            {% if row.title.poster_url %}
+              <img src="{{ row.title.poster_url|poster_size:"w92" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+            {% endif %}
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="text-[12.5px] font-semibold truncate group-hover:text-primary transition-colors">{{ row.title.name }}</div>
+            <div class="text-[11px] text-ink-faint">{{ row.count }} play{{ row.count|pluralize }} logged this week</div>
+            <div class="flex items-center -space-x-1 mt-1">
+              {% for watcher in row.watchers|slice:":5" %}
+                {% if watcher.avatar_image %}
+                  <div class="w-4 h-4 rounded-full bg-cover bg-center ring-2 ring-base-200" style="background-image:url('{{ watcher.avatar_image.url }}')" title="{{ watcher.display_name }}"></div>
+                {% else %}
+                  <div class="w-4 h-4 rounded-full flex items-center justify-center font-mono text-[7px] font-semibold ring-2 ring-base-200" style="background:{{ watcher.avatar_color }};color:#fff;" title="{{ watcher.display_name }}">{{ watcher.display_name|first|upper }}</div>
+                {% endif %}
+              {% endfor %}
+            </div>
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}

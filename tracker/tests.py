@@ -2561,31 +2561,31 @@ class DashboardRecommendationsTests(TestCase):
 
     def test_no_card_without_pending_recommendations(self):
         resp = self.client.get(reverse("dashboard"))
-        self.assertNotContains(resp, "Recommended to you")
+        self.assertNotContains(resp, "Recommended by Friends")
 
     def test_card_shows_a_pending_recommendation(self):
         Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
         resp = self.client.get(reverse("dashboard"))
-        self.assertContains(resp, "Recommended to you")
+        self.assertContains(resp, "Recommended by Friends")
         self.assertContains(resp, "DashSender")
         self.assertContains(resp, "Fathom")
 
     def test_a_single_recommendation_has_no_count_badge(self):
         Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
         resp = self.client.get(reverse("dashboard"))
-        self.assertNotContains(resp, "new)")
+        self.assertNotContains(resp, "New Recommendations")
 
     def test_multiple_recommendations_show_a_count_badge(self):
         other_title = Title.objects.create(media_type=MediaType.MOVIE, name="Second Title", year=2021)
         Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
         Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=other_title)
         resp = self.client.get(reverse("dashboard"))
-        self.assertContains(resp, "2 new")
+        self.assertContains(resp, "2 New")
 
     def test_add_to_list_button_shown_for_an_unlisted_title(self):
         Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
         resp = self.client.get(reverse("dashboard"))
-        self.assertContains(resp, "+ Add to list")
+        self.assertContains(resp, "Add to Watchlist")
         self.assertNotContains(resp, "On 1 list")
 
     def test_shows_list_membership_when_title_already_on_a_list(self):
@@ -2594,21 +2594,21 @@ class DashboardRecommendationsTests(TestCase):
         WatchListItem.objects.create(watchlist=watchlist, title=self.title)
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, "On 1 list")
-        self.assertNotContains(resp, "+ Add to list")
+        self.assertNotContains(resp, "Add to Watchlist")
 
     def test_dismissed_recommendations_are_not_shown(self):
         Recommendation.objects.create(
             from_profile=self.sender, to_profile=self.recipient, title=self.title, status=Recommendation.Status.DISMISSED
         )
         resp = self.client.get(reverse("dashboard"))
-        self.assertNotContains(resp, "Recommended to you")
+        self.assertNotContains(resp, "Recommended by Friends")
 
     def test_other_profiles_recommendations_are_not_shown(self):
         other_user = User.objects.create_user("dashother", password="pass12345")
         other_profile = Profile.objects.create(user=other_user, display_name="DashOther")
         Recommendation.objects.create(from_profile=self.sender, to_profile=other_profile, title=self.title)
         resp = self.client.get(reverse("dashboard"))
-        self.assertNotContains(resp, "Recommended to you")
+        self.assertNotContains(resp, "Recommended by Friends")
 
     def test_unrevealed_blind_recommendation_hides_the_title(self):
         Recommendation.objects.create(
@@ -2634,7 +2634,7 @@ class DashboardRecommendationsTests(TestCase):
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, "Fathom")
         self.assertNotContains(resp, "Mystery recommendation")
-        self.assertContains(resp, "+ Add to list")
+        self.assertContains(resp, "Add to Watchlist")
 
 
 class RecommendationEndToEndTests(TestCase):
@@ -7772,6 +7772,64 @@ class TasteCompatibilityTests(TestCase):
         self.assertNotContains(resp, "Taste compatibility")
 
 
+class ReleaseYearBreakdownTests(TestCase):
+    """selectors.release_year_breakdown - Stats page's "Release years"
+    decade histogram, over distinct watched titles (any media type),
+    not events."""
+
+    def setUp(self):
+        user = User.objects.create_user("decadewatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="DecadeWatcher")
+
+    def _watch(self, name, year, media_type=MediaType.MOVIE):
+        from django.utils import timezone
+
+        title = Title.objects.create(media_type=media_type, name=name, year=year)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at=timezone.now())
+        return title
+
+    def test_no_watch_history_returns_none(self):
+        self.assertIsNone(selectors.release_year_breakdown(self.profile))
+
+    def test_buckets_by_decade_not_exact_year(self):
+        self._watch("A", 1982)
+        self._watch("B", 1987)
+        self._watch("C", 1999)
+        result = selectors.release_year_breakdown(self.profile)
+        by_label = {d["label"]: d["count"] for d in result["decades"]}
+        self.assertEqual(by_label, {"80s": 2, "90s": 1})
+
+    def test_a_rewatched_title_only_counts_once(self):
+        from django.utils import timezone
+
+        title = self._watch("Rewatched", 2010)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at=timezone.now())
+        result = selectors.release_year_breakdown(self.profile)
+        self.assertEqual(result["decades"], [{"label": "10s", "count": 1, "pct": 100}])
+
+    def test_oldest_and_latest_are_reported(self):
+        self._watch("Oldest One", 1982)
+        self._watch("Newest One", 2024)
+        result = selectors.release_year_breakdown(self.profile)
+        self.assertEqual(result["oldest_name"], "Oldest One")
+        self.assertEqual(result["oldest_year"], 1982)
+        self.assertEqual(result["latest_year"], 2024)
+
+    def test_all_media_types_count_toward_the_same_histogram(self):
+        self._watch("A Movie", 2015, media_type=MediaType.MOVIE)
+        self._watch("A Show", 2015, media_type=MediaType.TV)
+        result = selectors.release_year_breakdown(self.profile)
+        self.assertEqual(result["decades"], [{"label": "10s", "count": 2, "pct": 100}])
+
+    def test_stats_page_shows_the_release_years_panel(self):
+        self._watch("A", 1982)
+        self.client.login(username="decadewatcher", password="pass12345")
+        resp = self.client.get(reverse("stats"))
+        self.assertContains(resp, "Release Years")
+        self.assertContains(resp, "80s")
+        self.assertNotContains(resp, "No release-year data yet")
+
+
 class AchievementsTests(TestCase):
     """tracker/achievements.py - static achievement registry checked
     against existing streak/genre/watch-time data, persisted in
@@ -8211,19 +8269,38 @@ class WatchTimeBreakdownTests(TestCase):
         breakdown = selectors.watch_time_breakdown(self.profile)
         self.assertEqual(
             breakdown["last_30_days"]["combined"],
-            {"hours": 0, "days": 0.0, "days_rounded": 0, "hours_display": "0h"},
+            {"minutes": 0, "hours": 0, "days": 0.0, "days_rounded": 0, "hours_display": "0h"},
         )
         self.assertEqual(
             breakdown["all_time"]["combined"],
-            {"hours": 0, "days": 0.0, "days_rounded": 0, "hours_display": "0h"},
+            {"minutes": 0, "hours": 0, "days": 0.0, "days_rounded": 0, "hours_display": "0h"},
         )
+
+    def test_pct_change_vs_prior_30_days_is_none_without_a_prior_window(self):
+        breakdown = selectors.watch_time_breakdown(self.profile)
+        self.assertIsNone(breakdown["last_30_days"]["pct_change_vs_prior_30_days"])
+
+    def test_pct_change_vs_prior_30_days_compares_the_two_rolling_windows(self):
+        from django.utils import timezone
+
+        now = timezone.now()
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Recent Movie", year=2020, runtime_minutes=120)
+        old_movie = Title.objects.create(media_type=MediaType.MOVIE, name="Older Movie", year=2019, runtime_minutes=60)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=now - timedelta(days=1))
+        WatchEvent.objects.create(profile=self.profile, title=old_movie, watched_at=now - timedelta(days=45))
+
+        breakdown = selectors.watch_time_breakdown(self.profile)
+        # last 30 days: 120min; prior 30 days: 60min -> +100%
+        self.assertEqual(breakdown["last_30_days"]["pct_change_vs_prior_30_days"], 100)
 
     def test_bucket_uses_one_conditional_aggregate_query_not_one_per_type(self):
         """Regression guard: bucket() used to loop over the 3 media types
         and issue 2 queries each (Sum + Count), 6 per bucket / 12 total -
-        now one aggregate() call per bucket via a conditional Sum/Count,
-        confirmed live on Stats (39 -> 28 total page queries)."""
-        self.assertNumQueries(2, selectors.watch_time_breakdown, self.profile)
+        now one aggregate() call per bucket via a conditional Sum/Count
+        (2 total), plus one more for the prior-30-days volume comparison
+        (3 total) - still a huge cut from the original 12, just not the
+        2 this guard originally pinned down."""
+        self.assertNumQueries(3, selectors.watch_time_breakdown, self.profile)
 
 
 class StreaksTests(TestCase):
@@ -8314,7 +8391,7 @@ class StatsPageLast30DaysCombinedTests(TestCase):
 
     def test_combined_rows_lead_with_days_and_show_hours_in_parentheses(self):
         resp = self.client.get(reverse("stats"))
-        self.assertContains(resp, "<b>0 days</b> <span class=\"text-ink-faint\">(&asymp; 2h)</span>")
+        self.assertContains(resp, "<b class=\"text-primary\">0 days</b> <span class=\"text-ink-faint\">(&asymp; 2h)</span>")
 
 
 class BackfillPostersCommandTests(TestCase):
@@ -11651,6 +11728,73 @@ class QuickStatsFormatTests(TestCase):
         self.assertEqual(stats["total_watch_time"], "2h 10m")
 
 
+class MonthlyStatsTests(TestCase):
+    """selectors.monthly_stats() - the Dashboard sidebar's Monthly Stats
+    panel: this calendar month's hours/episodes, percent change vs last
+    month, and a movie/TV/anime split (same idiom as stats_overview()'s
+    own lifetime split, scoped to this month instead)."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("monthlystatsuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="MonthlyStatsUser")
+        self.today = timezone.datetime(2026, 6, 15).date()
+
+    def _at(self, *args):
+        from django.utils import timezone
+
+        return timezone.make_aware(timezone.datetime(*args))
+
+    def test_only_counts_events_from_this_calendar_month(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="This Month", year=2020, runtime_minutes=120)
+        last_month_movie = Title.objects.create(media_type=MediaType.MOVIE, name="Last Month", year=2020, runtime_minutes=90)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self._at(2026, 6, 10))
+        WatchEvent.objects.create(profile=self.profile, title=last_month_movie, watched_at=self._at(2026, 5, 20))
+        stats = selectors.monthly_stats(self.profile, today=self.today)
+        self.assertEqual(stats["hours"], 2.0)
+
+    def test_episodes_logged_excludes_movies(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="A Show", year=2020)
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="A Movie", year=2020)
+        episode = Episode.objects.create(title=show, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=show, episode=episode, watched_at=self._at(2026, 6, 5))
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self._at(2026, 6, 5))
+        stats = selectors.monthly_stats(self.profile, today=self.today)
+        self.assertEqual(stats["episodes_logged"], 1)
+
+    def test_percent_change_vs_last_month(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="X", year=2020, runtime_minutes=120)
+        last_month_movie = Title.objects.create(media_type=MediaType.MOVIE, name="Y", year=2020, runtime_minutes=60)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self._at(2026, 6, 10))
+        WatchEvent.objects.create(profile=self.profile, title=last_month_movie, watched_at=self._at(2026, 5, 20))
+        stats = selectors.monthly_stats(self.profile, today=self.today)
+        self.assertEqual(stats["pct_change_vs_last_month"], 100)
+
+    def test_percent_change_is_none_with_no_watch_history_last_month(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="X", year=2020, runtime_minutes=120)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self._at(2026, 6, 10))
+        stats = selectors.monthly_stats(self.profile, today=self.today)
+        self.assertIsNone(stats["pct_change_vs_last_month"])
+
+    def test_media_type_split_for_this_month_only(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="M", year=2020)
+        show = Title.objects.create(media_type=MediaType.TV, name="S", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self._at(2026, 6, 1))
+        WatchEvent.objects.create(profile=self.profile, title=show, watched_at=self._at(2026, 6, 2))
+        WatchEvent.objects.create(profile=self.profile, title=show, watched_at=self._at(2026, 6, 3))
+        stats = selectors.monthly_stats(self.profile, today=self.today)
+        self.assertEqual(stats["split"]["movie_pct"], 33)
+        self.assertEqual(stats["split"]["tv_pct"], 67)
+
+    def test_no_history_gives_zeroed_stats_not_an_error(self):
+        stats = selectors.monthly_stats(self.profile, today=self.today)
+        self.assertEqual(stats["hours"], 0)
+        self.assertEqual(stats["episodes_logged"], 0)
+        self.assertIsNone(stats["pct_change_vs_last_month"])
+        self.assertEqual(stats["split"], {"movie_pct": 0, "tv_pct": 0, "anime_pct": 0})
+
+
 class DashboardForYouTests(TestCase):
     """Dashboard's "For You" row - see selectors.for_you()."""
 
@@ -12237,6 +12381,103 @@ class ActivityFeedGroupingTests(TestCase):
         self.assertEqual(len(feed), 1)
         self.assertEqual(feed[0]["count"], 3)
 
+    def test_episode_group_reports_total_runtime(self):
+        for i, minutes_ago in enumerate([20, 10, 0]):
+            ep = Episode.objects.create(title=self.show, season=1, episode=1 + i, runtime_minutes=24)
+            WatchEvent.objects.create(profile=self.profile, title=self.show, episode=ep, watched_at=self.now - timedelta(minutes=minutes_ago))
+        feed = selectors.activity_feed()
+        self.assertEqual(feed[0]["total_runtime_display"], "1h 12m")
+
+    def test_group_reporting_partial_progress_not_series_completion(self):
+        # Show has 5 episodes total; this binge only covers 1-3.
+        for n in range(1, 6):
+            Episode.objects.create(title=self.show, season=1, episode=n)
+        for i, minutes_ago in enumerate([20, 10, 0]):
+            WatchEvent.objects.create(
+                profile=self.profile, title=self.show,
+                episode=Episode.objects.get(title=self.show, season=1, episode=1 + i),
+                watched_at=self.now - timedelta(minutes=minutes_ago),
+            )
+        feed = selectors.activity_feed()
+        self.assertFalse(feed[0]["completed_series"])
+        self.assertEqual(feed[0]["total_episodes"], 5)
+
+    def test_group_ending_on_the_last_episode_is_series_completed(self):
+        for n in range(1, 4):
+            Episode.objects.create(title=self.show, season=1, episode=n)
+        for i, minutes_ago in enumerate([20, 10, 0]):
+            WatchEvent.objects.create(
+                profile=self.profile, title=self.show,
+                episode=Episode.objects.get(title=self.show, season=1, episode=1 + i),
+                watched_at=self.now - timedelta(minutes=minutes_ago),
+            )
+        feed = selectors.activity_feed()
+        self.assertTrue(feed[0]["completed_series"])
+        self.assertEqual(feed[0]["total_episodes"], 3)
+
+    def test_single_watch_carries_its_source(self):
+        from tracker.models import WatchEvent as WE
+
+        self._watch(episode_num=1, minutes_ago=10)
+        WatchEvent.objects.filter(profile=self.profile).update(source=WE.Source.TRAKT)
+        feed = selectors.activity_feed()
+        self.assertEqual(feed[0]["source"], "trakt")
+        self.assertEqual(feed[0]["source_display"], "Trakt")
+
+
+class HouseholdActivitySidebarSelectorsTests(TestCase):
+    """household_leaderboard/household_top_titles/recently_watching_count -
+    the Activity page's sidebar panels, all scoped the same way
+    activity_feed() is (share_activity=True only)."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        user_a = User.objects.create_user("boarda", password="pass12345")
+        self.profile_a = Profile.objects.create(user=user_a, display_name="BoardA")
+        user_b = User.objects.create_user("boardb", password="pass12345")
+        self.profile_b = Profile.objects.create(user=user_b, display_name="BoardB")
+        self.movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020, runtime_minutes=90)
+        self.now = timezone.now()
+
+    def test_leaderboard_ranks_by_watch_time_descending(self):
+        WatchEvent.objects.create(profile=self.profile_a, title=self.movie, watched_at=self.now)
+        movie2 = Title.objects.create(media_type=MediaType.MOVIE, name="Second", year=2021, runtime_minutes=200)
+        WatchEvent.objects.create(profile=self.profile_b, title=movie2, watched_at=self.now)
+        board = selectors.household_leaderboard()
+        self.assertEqual([r["profile"] for r in board], [self.profile_b, self.profile_a])
+        self.assertEqual(board[0]["pct"], 100)
+        self.assertLess(board[1]["pct"], 100)
+
+    def test_leaderboard_excludes_events_outside_the_window(self):
+        WatchEvent.objects.create(profile=self.profile_a, title=self.movie, watched_at=self.now - timedelta(days=10))
+        board = selectors.household_leaderboard(period="week")
+        self.assertEqual(board, [])
+
+    def test_leaderboard_excludes_private_profiles(self):
+        self.profile_a.share_activity = False
+        self.profile_a.save(update_fields=["share_activity"])
+        WatchEvent.objects.create(profile=self.profile_a, title=self.movie, watched_at=self.now)
+        board = selectors.household_leaderboard()
+        self.assertEqual(board, [])
+
+    def test_top_titles_ranked_by_watch_count_with_watchers(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Popular Show", year=2020)
+        ep1 = Episode.objects.create(title=show, season=1, episode=1)
+        ep2 = Episode.objects.create(title=show, season=1, episode=2)
+        WatchEvent.objects.create(profile=self.profile_a, title=show, episode=ep1, watched_at=self.now)
+        WatchEvent.objects.create(profile=self.profile_b, title=show, episode=ep2, watched_at=self.now)
+        WatchEvent.objects.create(profile=self.profile_a, title=self.movie, watched_at=self.now)
+        top = selectors.household_top_titles()
+        self.assertEqual(top[0]["title"], show)
+        self.assertEqual(top[0]["count"], 2)
+        self.assertCountEqual(top[0]["watchers"], [self.profile_a, self.profile_b])
+
+    def test_recently_watching_counts_distinct_profiles_in_the_window(self):
+        WatchEvent.objects.create(profile=self.profile_a, title=self.movie, watched_at=self.now)
+        WatchEvent.objects.create(profile=self.profile_b, title=self.movie, watched_at=self.now - timedelta(minutes=45))
+        self.assertEqual(selectors.recently_watching_count(minutes=30), 1)
+
 
 class MultiProfileActivityInterleavingTests(TestCase):
     """Activity is a merged household feed, not grouped/filtered by user -
@@ -12331,7 +12572,7 @@ class ActivityViewTemplateTests(TestCase):
         # Scoped to the feed container itself - the page's own sidebar/
         # topbar chrome legitimately uses x-data/x-show elsewhere
         # (sidebar toggle, notification bell), unrelated to this feature.
-        feed_html = body.split('rounded-2xl p-2">', 1)[1].split("</main>", 1)[0]
+        feed_html = body.split('id="activity-feed"', 1)[1].split("</main>", 1)[0]
         self.assertNotIn("x-data", feed_html)
         self.assertNotIn("x-show", feed_html)
 
@@ -12348,23 +12589,27 @@ class ActivityViewTemplateTests(TestCase):
         self.assertNotContains(resp, "{%")
 
     def test_watched_group_gets_the_primary_accent(self):
+        # A 4th, not-yet-watched episode - this binge only covers 1-3, so
+        # it reads as a partial run (Binge Session), not a series finish.
+        Episode.objects.create(title=self.show, season=1, episode=4)
         for i, minutes_ago in enumerate([30, 20]):
             ep = Episode.objects.create(title=self.show, season=1, episode=1 + i)
             WatchEvent.objects.create(profile=self.profile, title=self.show, episode=ep, watched_at=self.now - timedelta(minutes=minutes_ago))
         resp = self.client.get(reverse("activity"))
-        self.assertContains(resp, "border-l-primary")
+        self.assertContains(resp, "Binge Session")
+        self.assertContains(resp, "bg-primary/15 text-primary")
 
     def test_rated_watch_gets_the_warning_accent(self):
         ep = Episode.objects.create(title=self.show, season=1, episode=1)
         WatchEvent.objects.create(profile=self.profile, title=self.show, episode=ep, watched_at=self.now, user_rating=9)
         resp = self.client.get(reverse("activity"))
-        self.assertContains(resp, "border-l-warning")
+        self.assertContains(resp, "text-warning")
 
     def test_added_to_list_gets_the_secondary_accent(self):
         watchlist = WatchList.objects.create(profile=self.profile, name="Anime")
         WatchListItem.objects.create(watchlist=watchlist, title=self.show)
         resp = self.client.get(reverse("activity"))
-        self.assertContains(resp, "border-l-secondary")
+        self.assertContains(resp, "bg-secondary/15 text-secondary")
 
 
 class TitleDetailViewTests(TestCase):
@@ -17350,6 +17595,46 @@ class RecommendationListPopoverViewTests(TestCase):
         self.assertEqual(resp.status_code, 404)
 
 
+class CompactTimesinceFilterTests(TestCase):
+    """tracker_extras.compact_timesince - Household Activity's compact
+    "2h 11m"/"42m" alternative to Django's verbose built-in timesince."""
+
+    def test_minutes_only_under_an_hour(self):
+        from django.utils import timezone
+
+        from tracker.templatetags.tracker_extras import compact_timesince
+
+        self.assertEqual(compact_timesince(timezone.now() - timedelta(minutes=42)), "42m")
+
+    def test_hours_and_minutes(self):
+        from django.utils import timezone
+
+        from tracker.templatetags.tracker_extras import compact_timesince
+
+        self.assertEqual(compact_timesince(timezone.now() - timedelta(hours=2, minutes=11)), "2h 11m")
+
+    def test_exact_hour_omits_zero_minutes(self):
+        from django.utils import timezone
+
+        from tracker.templatetags.tracker_extras import compact_timesince
+
+        self.assertEqual(compact_timesince(timezone.now() - timedelta(hours=3)), "3h")
+
+    def test_days_and_hours(self):
+        from django.utils import timezone
+
+        from tracker.templatetags.tracker_extras import compact_timesince
+
+        self.assertEqual(compact_timesince(timezone.now() - timedelta(days=2, hours=5)), "2d 5h")
+
+    def test_under_a_minute_reads_as_just_now(self):
+        from django.utils import timezone
+
+        from tracker.templatetags.tracker_extras import compact_timesince
+
+        self.assertEqual(compact_timesince(timezone.now() - timedelta(seconds=10)), "just now")
+
+
 class PosterSizeFilterTests(TestCase):
     """tracker_extras.poster_size - re-points a stored TMDB w500 poster
     URL at a smaller size for small grid-tile contexts (see the
@@ -20772,7 +21057,7 @@ class ReplyToRecommendationViewTests(TestCase):
         self.client.login(username="viewreplyrecipient", password="pass12345")
         self.client.post(reverse("reply_to_recommendation", args=[self.rec.pk]), {"reply_reaction": "watchlisting"})
         resp = self.client.get(reverse("dashboard"))
-        self.assertContains(resp, "Recommended to you")
+        self.assertContains(resp, "Recommended by Friends")
         self.assertContains(resp, "Fathom")
 
 

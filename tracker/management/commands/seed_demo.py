@@ -47,6 +47,16 @@ ANIME = [
 WATCHLIST_MOVIES = [("Dune: Part Two", 2024), ("The Substance", 2024)]
 WATCHLIST_TV = [("Shogun", 2024)]
 
+# Titles demo hasn't watched, used only for the recommendations seeded
+# below - recommendations.send() no-ops on anything demo already has a
+# WatchEvent for, so these are kept out of MOVIES/TV_SHOWS/ANIME above.
+RECOMMENDED_MOVIES = [("Oppenheimer", 2023), ("Poor Things", 2023)]
+RECOMMENDED_TV = [("The Last of Us", 2023)]
+
+# A couple more household members beyond Alex, so Social Activity and
+# the recommendations carousel show more than one sender/face.
+FRIENDS = [("sam", "Sam"), ("jamie", "Jamie")]
+
 # Left partway-through (WatchProgress.WATCHING) instead of fully watched,
 # so Continue Watching/Up Next have something to show.
 IN_PROGRESS_TITLES = {"Severance", "Frieren: Beyond Journey's End"}
@@ -89,7 +99,9 @@ class Command(BaseCommand):
         self._seed_watch_history(demo, watched_titles)
         self._seed_lists(demo, watched_titles)
         self._seed_watchlist_and_releases(demo)
-        self._seed_alex_activity()
+        self._seed_on_this_day(demo, watched_titles)
+        friends = self._seed_friends_activity()
+        self._seed_recommendations(demo, friends)
 
         self.stdout.write(self.style.SUCCESS("Demo data seeded - log in as 'demo' to view it."))
 
@@ -230,8 +242,52 @@ class Command(BaseCommand):
                 release_date=now + timedelta(days=21),
             )
 
-    def _seed_alex_activity(self):
+    def _seed_on_this_day(self, profile, watched_titles):
+        """A couple of WatchEvents dated on today's month/day in prior
+        years - selectors.on_this_day() excludes the current year, and
+        _seed_watch_history's 42-day lookback never reaches that far, so
+        without this the Dashboard's "On This Day" row is always empty."""
+        today = timezone.localdate()
+        movies = [t for t in watched_titles if t.media_type == MediaType.MOVIE]
+        for years_ago, title in zip((1, 2), movies):
+            try:
+                day = today.replace(year=today.year - years_ago)
+            except ValueError:
+                day = today.replace(year=today.year - years_ago, day=28)  # Feb 29 in a non-leap year
+            watched_at = timezone.make_aware(
+                timezone.datetime.combine(day, timezone.datetime.min.time()) + timedelta(hours=20)
+            )
+            WatchEvent.objects.create(
+                profile=profile, title=title, watched_at=watched_at, user_rating=random.choice([7, 8, 9])
+            )
+
+    def _seed_friends_activity(self):
+        """Alex plus a couple more household members with their own light
+        watch history - gives Social Activity more than one face, and
+        gives _seed_recommendations senders other than Alex."""
         alex = Profile.objects.get(display_name="Alex")
+        friends = [alex] + [self._profile(username, display_name) for username, display_name in FRIENDS]
+
         now = timezone.localtime()
-        for i, title in enumerate(Title.objects.filter(media_type=MediaType.MOVIE).order_by("?")[:3]):
-            WatchEvent.objects.create(profile=alex, title=title, watched_at=now - timedelta(days=i, hours=2))
+        movie_pool = list(Title.objects.filter(media_type=MediaType.MOVIE).order_by("?"))
+        for i, friend in enumerate(friends):
+            for j, title in enumerate(movie_pool[i : i + 3]):
+                WatchEvent.objects.create(
+                    profile=friend, title=title, watched_at=now - timedelta(days=i + j, hours=2 + j)
+                )
+        return friends
+
+    def _seed_recommendations(self, demo, friends):
+        """A few pending Recommendations from friends to demo, on titles
+        demo hasn't watched (recommendations.send() no-ops otherwise), so
+        Dashboard's "Recommended by Friends" carousel has more than one
+        card to page through - the last one sent blind, for variety."""
+        from tracker import recommendations
+
+        movies = [self._make_title(MediaType.MOVIE, "movie", name, year) for name, year in RECOMMENDED_MOVIES]
+        tv = [self._make_title(MediaType.TV, "tv", name, year) for name, year in RECOMMENDED_TV]
+        rec_titles = movies + tv
+
+        for i, title in enumerate(rec_titles):
+            sender = friends[i % len(friends)]
+            recommendations.send(sender, demo, title, is_blind=(i == len(rec_titles) - 1))

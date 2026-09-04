@@ -1,6 +1,6 @@
 {% load icons tracker_extras %}
 {% with url_name=request.resolver_match.url_name %}
-<header class="h-16 flex-none border-b border-line grid grid-cols-[1fr_auto_1fr] items-center gap-4 px-7 bg-base-100 sticky top-0 z-30">
+<header class="h-16 flex-none border-b border-line grid grid-cols-[1fr_minmax(0,auto)_1fr] items-center gap-4 px-7 bg-base-100 sticky top-0 z-30">
   {% comment %}
     A three-column grid (1fr / auto / 1fr), not flexbox, on purpose:
     the left block (logo+search) and right block (bell/friends/avatar)
@@ -12,6 +12,18 @@
     content is - `justify-self-start`/`-end` then pins each side's
     content to the correct edge of its own (possibly much wider than
     its content) column.
+
+    The middle track is `minmax(0,auto)`, not bare `auto` - a plain
+    `auto` track sizes to the nav's full max-content width (every pill
+    laid out unwrapped) regardless of how little room is actually left,
+    so at viewport widths too narrow to fit everything but still above
+    the md: breakpoint, the nav's real rendered box stayed at that full
+    width and visibly overlapped the logo/search and icon blocks on
+    either side instead of respecting its own column. `minmax(0,auto)`
+    keeps the same max-content-driven width whenever there's room (wide
+    screens still center exactly as before) but lets the track shrink
+    below that when there isn't, so the nav's own overflow-x-auto
+    finally gets a chance to kick in and scroll internally instead.
 
     Each block also gets an explicit col-start-N. Without it, on
     mobile where the middle <nav> is display:none, CSS grid's

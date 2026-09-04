@@ -1,0 +1,37 @@
+{% load icons %}
+{# context: leaderboard (selectors.household_leaderboard()), leaderboard_period ("week"|"year") #}
+{% if leaderboard %}
+  <div class="bg-base-200 border border-line rounded-2xl p-4 shadow-md shadow-black/20">
+    <div class="flex items-center justify-between mb-3.5">
+      <h2 class="font-display text-lg tracking-wide flex items-center gap-2">{% icon "crown" "w-4 h-4 text-ink-dim" %}Household Leaderboard</h2>
+      <div class="inline-flex bg-base-300 border border-line rounded-lg p-0.5 flex-none">
+        <a href="?{% if selected_member_id %}member={{ selected_member_id }}&amp;{% endif %}period=week" class="px-2.5 py-1 rounded-md text-[10.5px] font-semibold {% if leaderboard_period == "week" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">This Week</a>
+        <a href="?{% if selected_member_id %}member={{ selected_member_id }}&amp;{% endif %}period=year" class="px-2.5 py-1 rounded-md text-[10.5px] font-semibold {% if leaderboard_period == "year" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">This Year</a>
+      </div>
+    </div>
+    <div class="flex flex-col gap-3">
+      {% for row in leaderboard %}
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="font-mono text-[11px] text-ink-faint flex-none w-3">{{ forloop.counter }}</span>
+              {% if row.profile.avatar_image %}
+                <div class="w-5 h-5 rounded-full bg-cover bg-center flex-none" style="background-image:url('{{ row.profile.avatar_image.url }}')"></div>
+              {% else %}
+                <div class="w-5 h-5 rounded-full flex items-center justify-center font-mono text-[9px] font-semibold flex-none" style="background:{{ row.profile.avatar_color }};color:#fff;">{{ row.profile.display_name|first|upper }}</div>
+              {% endif %}
+              <span class="text-[13px] font-semibold truncate">{{ row.profile.display_name }}</span>
+            </div>
+            <span class="font-mono text-[11px] text-ink-dim flex-none">{{ row.duration }}</span>
+          </div>
+          <div class="w-full h-1.5 rounded-full bg-base-300 overflow-hidden">
+            <div class="h-full rounded-full" style="width:{{ row.pct }}%;background:{{ row.profile.avatar_color }}"></div>
+          </div>
+          <div class="text-[10.5px] text-ink-faint mt-0.5">
+            {{ row.episode_count }} episode{{ row.episode_count|pluralize }}{% if row.movie_count %} &middot; {{ row.movie_count }} movie{{ row.movie_count|pluralize }}{% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}

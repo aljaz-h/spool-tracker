@@ -1,63 +1,81 @@
 {% extends "tracker/base.html" %}
+{% load icons %}
 {% block title %}Activity · Spool{% endblock %}
 {% block content %}
 
-  <div class="mb-6">
-    <h1 class="font-display text-4xl">Activity</h1>
-    <div class="text-ink-dim text-sm mt-1">What your household has been watching</div>
+  <div class="mb-5 flex items-start justify-between flex-wrap gap-3">
+    <div>
+      <h1 class="font-display text-4xl">Household Activity</h1>
+      <div class="text-ink-dim text-sm mt-1">What your household has been watching</div>
+    </div>
+    {% if recently_watching_count %}
+      <span class="flex items-center gap-2 bg-base-200 border border-line rounded-full px-3.5 py-1.5 text-xs font-mono text-ink-dim flex-none">
+        {% icon "users" "w-3.5 h-3.5 text-primary" %} {{ recently_watching_count }} watched recently
+      </span>
+    {% endif %}
   </div>
 
-  <div class="bg-base-200 border border-dashed border-line rounded-lg px-4 py-3 text-[12.5px] text-ink-dim mb-5">
-    This page only appears once a Spool server has more than one profile — it's hidden entirely on single-user installs.
+  {% comment %}
+    Member filter pills - links, not htmx/Alpine, so the filtered view is
+    a real bookmarkable/shareable URL (?member=<id>) same as every other
+    filter on this app's list-style pages (Discover, History). All Members
+    always resets page too (dropping ?page along with ?member would be
+    surprising otherwise), so it's a plain "?" rather than base_query-built.
+  {% endcomment %}
+  <div class="flex items-center gap-2 flex-wrap mb-6">
+    <a href="?" class="px-3.5 py-1.5 rounded-full text-xs font-semibold border {% if not selected_member_id %}bg-primary/15 border-primary/40 text-primary{% else %}bg-base-200 border-line text-ink-dim hover:text-base-content{% endif %}">All Members ({{ members|length }})</a>
+    {% for member in members %}
+      <a href="?member={{ member.pk }}" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold border {% if selected_member_id == member.pk %}bg-primary/15 border-primary/40 text-primary{% else %}bg-base-200 border-line text-ink-dim hover:text-base-content{% endif %}">
+        <span class="w-2 h-2 rounded-full flex-none" style="background:{{ member.avatar_color }}"></span>
+        {{ member.display_name }}
+      </a>
+    {% endfor %}
   </div>
 
-  <div class="bg-base-200 border border-line rounded-2xl p-2">
-    {% if not feed %}
-      <div class="py-10 text-center text-ink-faint text-sm">Quiet so far — watch something to get this started.</div>
-    {% else %}
-      {% for item in feed %}
-        {% comment %}
-          A collapsed summary line only, deliberately - full episode-level
-          detail for a binge is History's job, not a quick household
-          glance. The left-border color is a type-at-a-glance cue:
-          watched vs. added vs. rated.
-        {% endcomment %}
-        <div
-          class="flex gap-3 pl-3 pr-3.5 py-3.5 border-l-[3px] {% if not forloop.last %}border-b border-b-line{% endif %}
-            {% if item.kind == "rated" %}border-l-warning{% elif item.kind == "added_to_list" or item.kind == "added_to_list_group" %}border-l-secondary{% else %}border-l-primary{% endif %}"
-        >
-          {% if item.profile.avatar_image %}
-            <div class="w-[34px] h-[34px] rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ item.profile.avatar_image.url }}')"></div>
-          {% else %}
-            <div class="w-[34px] h-[34px] rounded-full flex-none flex items-center justify-center font-mono text-[13px] font-bold" style="background:{{ item.profile.avatar_color }};color:#fff;">
-              {{ item.profile.display_name|first|upper }}
-            </div>
-          {% endif %}
-          <div class="min-w-0 flex-1">
-            <div class="text-[13.5px]">
-              <b>{{ item.profile.display_name }}</b>
-              {% if item.kind == "watched_group" %}
-                watched <b>{{ item.count }}</b> episodes of <b>{{ item.title.name }}</b>
-                <span class="font-mono text-ink-dim">({{ item.range_label }})</span>
-              {% elif item.kind == "watched_movies_group" %}
-                watched <b>{{ item.count }}</b> movies
-              {% elif item.kind == "added_to_list_group" %}
-                added <b>{{ item.count }}</b> titles to {{ item.watchlist.name }}
-              {% elif item.kind == "rated" %}
-                rated <b>{{ item.title.name }}</b> — {{ item.rating }}/10
-              {% elif item.kind == "added_to_list" %}
-                added <b>{{ item.title.name }}</b> to {{ item.watchlist.name }}
-              {% elif item.episode %}
-                watched <b>{{ item.title.name }}</b> — S{{ item.episode.season }}E{{ item.episode.episode }}
-              {% else %}
-                watched <b>{{ item.title.name }}</b>
+  <div class="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
+    <div id="activity-feed" class="min-w-0">
+      {% if not feed_groups %}
+        <div class="bg-base-200 border border-line rounded-2xl py-10 text-center text-ink-faint text-sm">Quiet so far — watch something to get this started.</div>
+      {% else %}
+        {% for group in feed_groups %}
+          <div class="flex items-center justify-between mb-3 {% if not forloop.first %}mt-8{% endif %}">
+            <h2 class="font-display text-sm tracking-wide text-ink-dim">{{ group.label|upper }}</h2>
+            <span class="font-mono text-[11px] text-ink-faint">{{ group.date|date:"l, M j" }}</span>
+          </div>
+          <div class="flex flex-col gap-3">
+            {% for item in group.items %}
+              {% include "tracker/partials/activity_item.html" with item=item %}
+            {% endfor %}
+          </div>
+        {% endfor %}
+
+        {% if page_obj.paginator.num_pages > 1 %}
+          <div class="flex justify-between items-center flex-wrap gap-3 mt-8 pt-4 border-t border-line">
+            <span class="font-mono text-xs text-ink-faint">Showing {{ page_obj.start_index }}&ndash;{{ page_obj.end_index }} of {{ page_obj.paginator.count }} household events</span>
+            <div class="flex gap-1.5">
+              {% if page_obj.has_previous %}
+                <a href="?{{ base_query }}&page={{ page_obj.previous_page_number }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim hover:text-base-content">&lsaquo; Previous</a>
+              {% endif %}
+              {% for num in page_obj.paginator.page_range %}
+                {% if num == page_obj.number %}
+                  <span class="px-3 py-1.5 rounded-md bg-primary text-primary-content font-mono text-xs font-bold">{{ num }}</span>
+                {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}
+                  <a href="?{{ base_query }}&page={{ num }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim hover:text-base-content">{{ num }}</a>
+                {% endif %}
+              {% endfor %}
+              {% if page_obj.has_next %}
+                <a href="?{{ base_query }}&page={{ page_obj.next_page_number }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim hover:text-base-content">Next &rsaquo;</a>
               {% endif %}
             </div>
-            <div class="font-mono text-[11px] text-ink-faint mt-0.5">{{ item.timestamp|timesince }} ago</div>
           </div>
-        </div>
-      {% endfor %}
-    {% endif %}
+        {% endif %}
+      {% endif %}
+    </div>
+
+    <div class="flex flex-col gap-6">
+      {% include "tracker/partials/household_leaderboard.html" %}
+      {% include "tracker/partials/household_top_titles.html" %}
+    </div>
   </div>
 
 {% endblock %}

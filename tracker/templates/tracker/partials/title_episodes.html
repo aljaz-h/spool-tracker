@@ -2,11 +2,60 @@
 {# context: title (Title or None - preview titles have no local row yet), seasons, season, episodes (each optionally carrying filler/recap bools - anime only, from Jikan/MyAnimeList, see views._apply_anime_filler_flags - absent entirely rather than False when there's no match/data, which {% if %} already treats as falsy - and release_in, a "In N days/weeks/months" countdown string for a not-yet-aired episode, None once it's aired), season_avg_rating, season_total_runtime (str, format_duration of the selected season's episodes with a known runtime), season_ratings (dict {season_number: TMDB rating}), season_cards ([{"number", "poster_url", "total_episodes", "watched_count", "percent"}, ...] - the season picker's own poster-card row), season_watched_count/season_remaining_count/season_remaining_runtime (str|None - the selected season's own "N watched · N left · runtime left" summary strip), season_fully_watched/show_completed (bool - whether the "Mark episodes" popover's own rows below should show their unmark reverse instead), preview_media_type/preview_tmdb_id/preview_name (only set when title is None - each per-episode watched button materializes the title on click, see episode_watched_button.html) #}
 <div id="episodes-panel">
   {% if seasons %}
+    <h2 class="font-display text-xl m-0 mb-3">
+      Seasons
+      {% if season_watched_count or season_remaining_count %}
+        <span class="text-[12.5px] text-ink-faint font-mono font-body ml-2">Season {{ season }} progress &middot; {{ season_watched_count }} watched &middot; {{ season_remaining_count }} left{% if season_remaining_runtime %} &middot; {{ season_remaining_runtime }} left{% endif %}</span>
+      {% endif %}
+    </h2>
+
+    {% comment %}
+      Trakt-style season picker - a horizontal row of poster cards
+      (season_cards, see views._episode_panel_context) replacing the old
+      "Season N ▾" dropdown-style popover. Still the same hx-get/
+      hx-target/hx-swap the dropdown's own season buttons used - only
+      the trigger markup changed, not how switching seasons actually
+      works. The selected card gets a colored border rather than a
+      filled background (matching how poster-card selection reads
+      elsewhere in the app - a background fill would fight the poster
+      image itself for attention).
+    {% endcomment %}
+    <div class="flex gap-3 overflow-x-auto scroll-row pb-2 mb-4">
+      {% for card in season_cards %}
+        <button
+          type="button"
+          hx-get="{% if title %}{% url 'title_episodes' title.pk %}{% else %}{% url 'title_preview_episodes' preview_media_type preview_tmdb_id %}{% endif %}?season={{ card.number }}"
+          hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+          class="w-24 sm:w-28 flex-none text-left group"
+        >
+          <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-base-300 border-2 {% if card.number == season %}border-primary{% else %}border-transparent group-hover:border-line{% endif %} {% if not card.poster_url %}{{ title.pk|default:preview_tmdb_id|add:card.number|gradient_class }}{% endif %}">
+            {% if card.poster_url %}
+              <img src="{{ card.poster_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+            {% endif %}
+            {% with rating=season_ratings|get_item:card.number %}
+              {% if rating %}
+                <span class="absolute top-1 right-1 font-mono text-[9px] font-bold bg-black/85 px-1.5 py-0.5 rounded-md text-white/90">&#9733; {{ rating|floatformat:1 }}</span>
+              {% endif %}
+            {% endwith %}
+            {% if card.total_episodes %}
+              <div class="absolute bottom-0 inset-x-0 h-1.5 bg-black/60">
+                <div class="h-full bg-success" style="width: {{ card.percent }}%"></div>
+              </div>
+            {% endif %}
+          </div>
+          <div class="mt-1.5 text-[11.5px] font-semibold truncate {% if card.number == season %}text-primary{% else %}text-base-content{% endif %}">Season {{ card.number }}</div>
+          {% if card.total_episodes %}
+            <div class="text-[10px] font-mono text-ink-faint">{{ card.watched_count }}/{{ card.total_episodes }} eps</div>
+          {% endif %}
+        </button>
+      {% endfor %}
+    </div>
+
     <div class="flex justify-between items-center flex-wrap gap-3 mb-4">
       <h2 class="font-display text-xl m-0">
         Episodes
-        {% if season_avg_rating %}<span class="text-[11px] text-ink-faint font-mono font-body ml-2">&#9733; {{ season_avg_rating }} season avg</span>{% endif %}
-        {% if season_total_runtime %}<span class="text-[11px] text-ink-faint font-mono font-body ml-2">{{ season_total_runtime }} total</span>{% endif %}
+        {% if season_avg_rating %}<span class="text-[12.5px] text-ink-faint font-mono font-body ml-2">&#9733; {{ season_avg_rating }} season avg</span>{% endif %}
+        {% if season_total_runtime %}<span class="text-[12.5px] text-ink-faint font-mono font-body ml-2">{{ season_total_runtime }} total</span>{% endif %}
       </h2>
       <div class="flex items-center gap-2 flex-wrap">
         {% if title or preview_tmdb_id %}
@@ -166,58 +215,6 @@
         {% endif %}
       </div>
     </div>
-
-    {% comment %}
-      Trakt-style season picker - a horizontal row of poster cards
-      (season_cards, see views._episode_panel_context) replacing the old
-      "Season N ▾" dropdown-style popover. Still the same hx-get/
-      hx-target/hx-swap the dropdown's own season buttons used - only
-      the trigger markup changed, not how switching seasons actually
-      works. The selected card gets a colored border rather than a
-      filled background (matching how poster-card selection reads
-      elsewhere in the app - a background fill would fight the poster
-      image itself for attention).
-    {% endcomment %}
-    <div class="flex gap-3 overflow-x-auto scroll-row pb-2 mb-4">
-      {% for card in season_cards %}
-        <button
-          type="button"
-          hx-get="{% if title %}{% url 'title_episodes' title.pk %}{% else %}{% url 'title_preview_episodes' preview_media_type preview_tmdb_id %}{% endif %}?season={{ card.number }}"
-          hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-          class="w-24 sm:w-28 flex-none text-left group"
-        >
-          <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-base-300 border-2 {% if card.number == season %}border-primary{% else %}border-transparent group-hover:border-line{% endif %} {% if not card.poster_url %}{{ title.pk|default:preview_tmdb_id|add:card.number|gradient_class }}{% endif %}">
-            {% if card.poster_url %}
-              <img src="{{ card.poster_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
-            {% endif %}
-            {% with rating=season_ratings|get_item:card.number %}
-              {% if rating %}
-                <span class="absolute top-1 right-1 font-mono text-[9px] font-bold bg-black/85 px-1.5 py-0.5 rounded-md text-white/90">&#9733; {{ rating|floatformat:1 }}</span>
-              {% endif %}
-            {% endwith %}
-            {% if card.total_episodes %}
-              <div class="absolute bottom-0 inset-x-0 h-1.5 bg-black/60">
-                <div class="h-full bg-success" style="width: {{ card.percent }}%"></div>
-              </div>
-            {% endif %}
-          </div>
-          <div class="mt-1.5 text-[11.5px] font-semibold truncate {% if card.number == season %}text-primary{% else %}text-base-content{% endif %}">Season {{ card.number }}</div>
-          {% if card.total_episodes %}
-            <div class="text-[10px] font-mono text-ink-faint">{{ card.watched_count }}/{{ card.total_episodes }} eps</div>
-          {% endif %}
-        </button>
-      {% endfor %}
-    </div>
-
-    {% if season_watched_count or season_remaining_count %}
-      {# "Season N progress" summary - always for the selected season, refreshed by the same swap as everything else here. #}
-      <div class="text-[11.5px] font-mono text-ink-dim mb-4 -mt-2">
-        <span class="font-semibold text-base-content">Season {{ season }} progress</span>
-        <span class="text-ink-faint">·</span> {{ season_watched_count }} watched
-        <span class="text-ink-faint">·</span> {{ season_remaining_count }} left
-        {% if season_remaining_runtime %}<span class="text-ink-faint">·</span> {{ season_remaining_runtime }} left{% endif %}
-      </div>
-    {% endif %}
 
     {% comment %}
       Two different layouts, not one resized with breakpoints: below

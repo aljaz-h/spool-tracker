@@ -1,208 +1,193 @@
 {% load tracker_extras icons %}
 {# context: received_recommendations (list of Recommendation, pending, newest first), my_lists (list of WatchList), list_membership (dict: title pk -> set of watchlist pk already containing it) #}
 {% comment %}
-Standalone dashboard section (not nested in anything else), so the
-dismiss/reply/add-to-list HTMX actions can target this card's own id
-directly - when the last recommendation resolves, the fragment renders
-empty and the whole section disappears along with it, no orphaned
-heading/divider left behind.
+Sidebar panel - same column as On This Day/Social Activity/Monthly Stats,
+not a full-width banner. Narrow enough that thumb+text+actions read
+better stacked than side-by-side, unlike the rest of the dashboard's wide
+rows.
+
+One recommendation at a time (Alpine's own `active` index, x-show over
+every card already rendered in this same response) rather than a list -
+all `received_recommendations` still render into the DOM up front, just
+all-but-one hidden, so no extra request is needed to page through them. A
+dismiss/reply/add-to-list action still re-renders this whole partial as
+one outerHTML swap, same as before - Alpine's `active` state doesn't
+survive that (a fresh x-data), so it resets to the first (now-current)
+card rather than trying to remember a position that may no longer exist
+once the list has shrunk.
 {% endcomment %}
 {% if received_recommendations %}
-  <div id="recommendations-block" class="mb-8">
-    <div class="flex justify-between items-center mb-3.5">
-      <h2 class="font-display text-xl">
-        Recommended to you
-        {% if received_recommendations|length > 1 %}<span class="text-ink-faint text-base font-body">({{ received_recommendations|length }} new)</span>{% endif %}
-      </h2>
+  <div id="recommendations-block" class="bg-base-200 border border-line rounded-2xl p-4 shadow-md shadow-black/20" x-data="{ active: 0 }">
+    <h2 class="font-display text-lg tracking-wide mb-1 flex items-center gap-2">{% icon "sparkles" "w-4 h-4 text-ink-dim" %}Recommended by Friends</h2>
+    <div class="flex items-center justify-between mb-3">
+      <span class="font-mono text-[11px] font-semibold bg-primary/15 text-primary px-2 py-0.5 rounded-full">{% if received_recommendations|length > 1 %}{{ received_recommendations|length }} New{% else %}New{% endif %}</span>
+      {% if received_recommendations|length > 1 %}
+        <div class="flex items-center gap-1">
+          <button type="button" @click="active = (active - 1 + {{ received_recommendations|length }}) % {{ received_recommendations|length }}" aria-label="Previous recommendation" class="w-6 h-6 rounded-full flex items-center justify-center text-ink-dim hover:text-base-content hover:bg-base-300 cursor-pointer">{% icon "chevron-left" "w-3.5 h-3.5" %}</button>
+          <span class="font-mono text-[11px] text-ink-faint" x-text="(active + 1) + ' / {{ received_recommendations|length }}'"></span>
+          <button type="button" @click="active = (active + 1) % {{ received_recommendations|length }}" aria-label="Next recommendation" class="w-6 h-6 rounded-full flex items-center justify-center text-ink-dim hover:text-base-content hover:bg-base-300 cursor-pointer">{% icon "chevron-right" "w-3.5 h-3.5" %}</button>
+        </div>
+      {% endif %}
     </div>
-    <div class="flex flex-wrap gap-4">
-      {% for rec in received_recommendations %}
+    {% for rec in received_recommendations %}
+      <div x-show="active === {{ forloop.counter0 }}" {% if not forloop.first %}x-cloak{% endif %}>
         {% if rec.is_blind and not rec.revealed %}
-          <div class="w-[168px] flex-none">
-            <div class="aspect-[2/3] rounded-lg relative overflow-hidden bg-gradient-to-br from-primary/25 to-base-300 flex flex-col items-center justify-center gap-2 text-center p-3">
-              {% if rec.from_profile.avatar_image %}
-                <div class="absolute top-2 left-2 z-10 w-6 h-6 rounded-full bg-cover bg-center ring-2 ring-black/40" style="background-image:url('{{ rec.from_profile.avatar_image.url }}')"></div>
-              {% else %}
-                <div class="absolute top-2 left-2 z-10 w-6 h-6 rounded-full flex items-center justify-center font-mono text-[11px] font-semibold ring-2 ring-black/40" style="background:{{ rec.from_profile.avatar_color }};color:#fff;">{{ rec.from_profile.display_name|first|upper }}</div>
-              {% endif %}
-              <form hx-post="{% url 'dismiss_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" class="absolute top-2 right-2 z-10">
-                {% csrf_token %}
-                <button type="submit" class="w-6 h-6 rounded-full bg-black/50 hover:bg-black/70 text-white/90 text-sm leading-none flex items-center justify-center" title="Dismiss">&times;</button>
-              </form>
-              <span class="text-3xl">&#127873;</span>
-              <div class="text-[13px] font-semibold leading-snug">Mystery recommendation</div>
-              <form hx-post="{% url 'reveal_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
-                {% csrf_token %}
-                <button type="submit" class="btn btn-xs btn-primary">Open it</button>
-              </form>
+          <div class="flex items-center gap-3">
+            <div class="w-20 aspect-[2/3] rounded-lg relative overflow-hidden flex-none bg-gradient-to-br from-primary/25 to-base-300 flex items-center justify-center">
+              <span class="text-4xl">&#127873;</span>
             </div>
-            <div class="mt-2">
-              <div class="text-xs text-ink-dim truncate">from {{ rec.from_profile.display_name }} &middot; {{ rec.created_at|timesince }} ago</div>
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-semibold">Mystery recommendation</div>
+              <div class="text-[11px] text-ink-dim mt-0.5">from {{ rec.from_profile.display_name }} &middot; {{ rec.created_at|timesince }} ago</div>
             </div>
+          </div>
+          <div class="flex items-center gap-1.5 mt-3">
+            <form class="flex-1" hx-post="{% url 'reveal_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-primary btn-block">Open it</button>
+            </form>
+            <form hx-post="{% url 'dismiss_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
+              {% csrf_token %}
+              <button type="submit" aria-label="Dismiss" data-tooltip="Dismiss" class="btn btn-sm btn-soft btn-square spool-tooltip">{% icon "x" "w-3.5 h-3.5" %}</button>
+            </form>
           </div>
         {% else %}
-          <div class="w-[168px] flex-none">
-            <div class="aspect-[2/3] rounded-lg relative overflow-hidden {% if not rec.title.poster_url %}{{ rec.title.pk|gradient_class }}{% endif %}">
+          <div class="flex items-center gap-3">
+            <a href="{% url 'title_detail' rec.title.pk %}" class="w-20 aspect-[2/3] rounded-lg relative overflow-hidden flex-none {% if not rec.title.poster_url %}{{ rec.title.pk|gradient_class }}{% endif %}">
               {% if rec.title.poster_url %}
-                <img src="{{ rec.title.poster_url|poster_size:"w342" }}" alt="{{ rec.title.name }}" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
-              {% endif %}
-              <a href="{% url 'title_detail' rec.title.pk %}" class="absolute inset-0 z-0"></a>
-              {% if rec.from_profile.avatar_image %}
-                <div class="absolute top-2 left-2 z-10 w-6 h-6 rounded-full bg-cover bg-center ring-2 ring-black/40" style="background-image:url('{{ rec.from_profile.avatar_image.url }}')"></div>
-              {% else %}
-                <div class="absolute top-2 left-2 z-10 w-6 h-6 rounded-full flex items-center justify-center font-mono text-[11px] font-semibold ring-2 ring-black/40" style="background:{{ rec.from_profile.avatar_color }};color:#fff;">{{ rec.from_profile.display_name|first|upper }}</div>
+                <img src="{{ rec.title.poster_url|poster_size:"w185" }}" alt="{{ rec.title.name }}" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
               {% endif %}
               {% if rec.is_blind %}
-                <span class="absolute bottom-2 left-2 z-10 text-base" title="Was a mystery recommendation">&#127873;</span>
+                <span class="absolute bottom-0.5 left-0.5 z-10 text-xs" title="Was a mystery recommendation">&#127873;</span>
               {% endif %}
-              <form hx-post="{% url 'dismiss_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" class="absolute top-2 right-2 z-10">
-                {% csrf_token %}
-                <button type="submit" class="w-6 h-6 rounded-full bg-black/60 hover:bg-black/80 text-white/90 text-sm leading-none flex items-center justify-center" title="Dismiss">&times;</button>
-              </form>
-              <a href="{% url 'title_detail' rec.title.pk %}" class="absolute inset-x-0 bottom-0 z-0 p-2.5 pt-8 bg-gradient-to-t from-black/85 via-black/40 to-transparent">
-                <div class="text-[13px] font-semibold text-white leading-snug line-clamp-2">{{ rec.title.name }}</div>
-              </a>
-            </div>
-            <div class="mt-2">
-              <div class="flex items-center justify-between gap-1">
-                <div class="text-xs text-ink-dim truncate">by {{ rec.from_profile.display_name }} &middot; {{ rec.created_at|timesince }} ago</div>
-                {% comment %}
-                  A reply is a one-shot reaction/message back to
-                  from_profile, deliberately separate from status (see
-                  models.Recommendation's own docstring) - once
-                  replied_at is set there's nothing left to open, so the
-                  trigger itself disappears rather than opening onto a
-                  dead end. Same fixed/getBoundingClientRect() popover
-                  pattern as poster_card_watched_button.html - needed
-                  here too since the popover (240px) is wider than the
-                  whole card (168px) and has to escape it, not just the
-                  reply row. Each reaction is its own tiny form that
-                  submits itself on click - no separate "confirm" step -
-                  and every form in here targets #recommendations-block
-                  the same way every other action on this card does, so
-                  the full-card HTMX swap that follows a submit is also
-                  what closes the popover: a fresh render has no memory
-                  of open=true.
-                {% endcomment %}
-                {% if not rec.replied_at %}
-                  <div class="relative flex-none" x-data="{
-                    open: false,
-                    togglePanel(button) {
-                      this.open = !this.open;
-                      if (!this.open) return;
-                      this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 240, true));
-                    },
-                  }">
-                    <button
-                      type="button"
-                      @click="togglePanel($el)"
-                      :aria-expanded="open.toString()"
-                      aria-haspopup="true"
-                      aria-label="Reply"
-                      class="w-9 h-9 rounded-full flex items-center justify-center flex-none text-ink-dim hover:text-base-content hover:bg-base-300 transition-colors cursor-pointer"
-                    >{% icon "message-circle" "w-4 h-4" %}</button>
-                    <div
-                      x-ref="panel"
-                      x-show="open" x-cloak x-transition @click.outside="open = false" @keydown.escape.window="open = false"
-                      class="fixed z-50 w-60 bg-base-200 border border-line rounded-xl p-2.5 shadow-xl"
-                    >
-                      <div class="flex justify-between gap-1">
-                        <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
-                          {% csrf_token %}
-                          <input type="hidden" name="reply_reaction" value="watchlisting">
-                          <button type="submit" aria-label="Adding to Watchlist" class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-base bg-base-300 hover:bg-primary transition-colors cursor-pointer spool-tooltip" data-tooltip="Adding to Watchlist">&#128077;</button>
-                        </form>
-                        <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
-                          {% csrf_token %}
-                          <input type="hidden" name="reply_reaction" value="already_seen">
-                          <button type="submit" aria-label="Already Seen It" class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-base bg-base-300 hover:bg-primary transition-colors cursor-pointer spool-tooltip" data-tooltip="Already Seen It">&#128525;</button>
-                        </form>
-                        <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
-                          {% csrf_token %}
-                          <input type="hidden" name="reply_reaction" value="excited">
-                          <button type="submit" aria-label="Excited" class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-base bg-base-300 hover:bg-primary transition-colors cursor-pointer spool-tooltip" data-tooltip="Excited">&#128293;</button>
-                        </form>
-                        <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
-                          {% csrf_token %}
-                          <input type="hidden" name="reply_reaction" value="not_for_me">
-                          <button type="submit" aria-label="Not For Me" class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-base bg-base-300 hover:bg-primary transition-colors cursor-pointer spool-tooltip" data-tooltip="Not For Me">&#128517;</button>
-                        </form>
-                      </div>
-                      <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" class="flex items-center gap-1.5 mt-2">
-                        {% csrf_token %}
-                        <input type="text" name="reply_message" maxlength="160" placeholder="Reply…" aria-label="Reply" class="input input-xs flex-1 min-w-0 bg-base-100">
-                        <button type="submit" aria-label="Send" class="w-7 h-7 rounded-full flex items-center justify-center flex-none bg-primary text-primary-content hover:brightness-110 transition-all cursor-pointer">{% icon "send" "w-3.5 h-3.5" %}</button>
-                      </form>
-                    </div>
-                  </div>
+            </a>
+            <div class="min-w-0 flex-1">
+              <a href="{% url 'title_detail' rec.title.pk %}" class="text-sm font-semibold truncate block hover:text-primary transition-colors">{{ rec.title.name }}</a>
+              <div class="text-[11px] text-ink-dim font-mono mt-0.5">{{ rec.title.media_type|upper }}{% if rec.title.year %} &middot; {{ rec.title.year }}{% endif %}</div>
+              <div class="flex items-center gap-1.5 mt-1">
+                {% if rec.from_profile.avatar_image %}
+                  <div class="w-4 h-4 rounded-full bg-cover bg-center flex-none" style="background-image:url('{{ rec.from_profile.avatar_image.url }}')"></div>
+                {% else %}
+                  <div class="w-4 h-4 rounded-full flex items-center justify-center font-mono text-[9px] font-semibold flex-none" style="background:{{ rec.from_profile.avatar_color }};color:#fff;">{{ rec.from_profile.display_name|first|upper }}</div>
                 {% endif %}
+                <span class="text-[11px] text-ink-dim truncate">by <b class="text-base-content">{{ rec.from_profile.display_name }}</b></span>
               </div>
-              {% with in_list_ids=list_membership|get_item:rec.title.pk %}
-                {% comment %}
-                  Same fixed/getBoundingClientRect() list-picker popover as
-                  poster_card_list_popover.html (add_to_list/remove_from_list
-                  dispatch to the same "recommendations-block" HX-Target this
-                  card's other actions already use - see
-                  views._recommendations_context) - lets the recipient add
-                  to any list, not just the one default Watchlist the old
-                  dedicated quick-add button was stuck with.
-                {% endcomment %}
-                <div class="relative mt-1.5" x-data="{
-                  open: false,
-                  togglePanel(button) {
-                    this.open = !this.open;
-                    if (!this.open) return;
-                    this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 288, true));
-                  },
-                }">
-                  <button
-                    type="button"
-                    @click="togglePanel($el)"
-                    :aria-expanded="open.toString()"
-                    aria-haspopup="true"
-                    class="btn btn-xs w-full {% if in_list_ids %}btn-soft text-success{% else %}btn-primary{% endif %}"
-                  >{% if in_list_ids %}&#10003; On {{ in_list_ids|length }} list{{ in_list_ids|length|pluralize }}{% else %}+ Add to list{% endif %}</button>
-                  <div
-                    x-ref="panel"
-                    x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
-                    class="fixed z-50 w-72 bg-base-200 border border-line rounded-xl p-2 shadow-xl"
-                  >
-                    <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1 border-b border-line">
-                      <div class="min-w-0">
-                        <div class="font-semibold text-sm">Add to list</div>
-                        <div class="text-xs text-ink-faint truncate">{{ rec.title.name }}</div>
-                      </div>
-                      <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 flex-none">{% icon "x" "w-4 h-4" %}</button>
-                    </div>
-                    <div class="max-h-56 overflow-y-auto">
-                      {% for list in my_lists %}
-                        <form hx-post="{% if list.id in in_list_ids %}{% url 'remove_from_list' list.id %}{% else %}{% url 'add_to_list' list.id %}{% endif %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
-                          {% csrf_token %}
-                          <input type="hidden" name="title_id" value="{{ rec.title.pk }}">
-                          <button type="submit" class="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
-                            <span class="w-8 h-8 rounded-full flex items-center justify-center flex-none {% if list.id in in_list_ids %}bg-primary/15 text-primary{% else %}bg-base-300 text-ink-dim{% endif %}">{% if list.id in in_list_ids %}{% icon "check" "w-4 h-4" %}{% else %}{% icon "list-checks" "w-4 h-4" %}{% endif %}</span>
-                            <span class="min-w-0 flex-1">
-                              <span class="block text-[13px] font-semibold truncate">{{ list.name }}</span>
-                              <span class="block text-[11px] text-ink-faint">{% if list.id in in_list_ids %}In this list — tap to remove{% else %}Add to this list{% endif %}</span>
-                            </span>
-                          </button>
-                        </form>
-                      {% empty %}
-                        <div class="text-[11px] text-ink-faint px-2 py-1.5">No lists yet.</div>
-                      {% endfor %}
-                    </div>
-                  </div>
-                </div>
-              {% endwith %}
-              {% if rec.replied_at %}
-                <div class="text-[11px] text-ink-dim mt-1.5 truncate">
-                  {% if rec.reply_reaction %}{{ rec.get_reply_reaction_display }}{% endif %}{% if rec.reply_reaction and rec.reply_message %} · {% endif %}{% if rec.reply_message %}&ldquo;{{ rec.reply_message }}&rdquo;{% endif %}
-                </div>
-              {% endif %}
             </div>
           </div>
+          {% if rec.replied_at %}
+            <div class="text-[12px] text-ink-dim mt-2 truncate">
+              {% if rec.reply_reaction %}{{ rec.get_reply_reaction_display }}{% endif %}{% if rec.reply_reaction and rec.reply_message %} &middot; {% endif %}{% if rec.reply_message %}&ldquo;{{ rec.reply_message }}&rdquo;{% endif %}
+            </div>
+          {% endif %}
+          <div class="flex items-center gap-1.5 mt-3">
+            {% with in_list_ids=list_membership|get_item:rec.title.pk %}
+              <div class="relative flex-1" x-data="{
+                open: false,
+                togglePanel(button) {
+                  this.open = !this.open;
+                  if (!this.open) return;
+                  this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 272, true));
+                },
+              }">
+                <button
+                  type="button"
+                  @click="togglePanel($el)"
+                  :aria-expanded="open.toString()"
+                  aria-haspopup="true"
+                  class="btn btn-sm btn-block border-none {% if in_list_ids %}btn-soft text-success{% else %}btn-primary{% endif %}"
+                >{% if in_list_ids %}&#10003; On {{ in_list_ids|length }} list{{ in_list_ids|length|pluralize }}{% else %}{% icon "list-checks" "w-3.5 h-3.5" %}Add to Watchlist{% endif %}</button>
+                <div
+                  x-ref="panel"
+                  x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
+                  class="fixed z-50 w-[272px] bg-base-200 border border-line rounded-xl p-2 shadow-xl"
+                >
+                  <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1 border-b border-line">
+                    <div class="min-w-0">
+                      <div class="font-semibold text-sm">Add to list</div>
+                      <div class="text-xs text-ink-faint truncate">{{ rec.title.name }}</div>
+                    </div>
+                    <button type="button" @click="open = false" aria-label="Close" data-tooltip="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 flex-none spool-tooltip">{% icon "x" "w-4 h-4" %}</button>
+                  </div>
+                  <div class="max-h-56 overflow-y-auto">
+                    {% for list in my_lists %}
+                      <form hx-post="{% if list.id in in_list_ids %}{% url 'remove_from_list' list.id %}{% else %}{% url 'add_to_list' list.id %}{% endif %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
+                        {% csrf_token %}
+                        <input type="hidden" name="title_id" value="{{ rec.title.pk }}">
+                        <button type="submit" class="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
+                          <span class="w-8 h-8 rounded-full flex items-center justify-center flex-none {% if list.id in in_list_ids %}bg-primary/15 text-primary{% else %}bg-base-300 text-ink-dim{% endif %}">{% if list.id in in_list_ids %}{% icon "check" "w-4 h-4" %}{% else %}{% icon "list-checks" "w-4 h-4" %}{% endif %}</span>
+                          <span class="min-w-0 flex-1">
+                            <span class="block text-[13px] font-semibold truncate">{{ list.name }}</span>
+                            <span class="block text-[11px] text-ink-faint">{% if list.id in in_list_ids %}In this list — tap to remove{% else %}Add to this list{% endif %}</span>
+                          </span>
+                        </button>
+                      </form>
+                    {% empty %}
+                      <div class="text-[11px] text-ink-faint px-2 py-1.5">No lists yet.</div>
+                    {% endfor %}
+                  </div>
+                </div>
+              </div>
+            {% endwith %}
+            {% if not rec.replied_at %}
+              <div class="relative flex-none" x-data="{
+                open: false,
+                togglePanel(button) {
+                  this.open = !this.open;
+                  if (!this.open) return;
+                  this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 240, true));
+                },
+              }">
+                <button
+                  type="button"
+                  @click="togglePanel($el)"
+                  :aria-expanded="open.toString()"
+                  aria-haspopup="true"
+                  aria-label="Reply"
+                  data-tooltip="Reply"
+                  class="btn btn-sm btn-soft btn-square spool-tooltip"
+                >{% icon "message-circle" "w-3.5 h-3.5" %}</button>
+                <div
+                  x-ref="panel"
+                  x-show="open" x-cloak x-transition @click.outside="open = false" @keydown.escape.window="open = false"
+                  class="fixed z-50 w-60 bg-base-200 border border-line rounded-xl p-2.5 shadow-xl"
+                >
+                  <div class="flex justify-between gap-1">
+                    <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
+                      {% csrf_token %}
+                      <input type="hidden" name="reply_reaction" value="watchlisting">
+                      <button type="submit" aria-label="Adding to Watchlist" class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-base bg-base-300 hover:bg-primary transition-colors cursor-pointer spool-tooltip" data-tooltip="Adding to Watchlist">&#128077;</button>
+                    </form>
+                    <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
+                      {% csrf_token %}
+                      <input type="hidden" name="reply_reaction" value="already_seen">
+                      <button type="submit" aria-label="Already Seen It" class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-base bg-base-300 hover:bg-primary transition-colors cursor-pointer spool-tooltip" data-tooltip="Already Seen It">&#128525;</button>
+                    </form>
+                    <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
+                      {% csrf_token %}
+                      <input type="hidden" name="reply_reaction" value="excited">
+                      <button type="submit" aria-label="Excited" class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-base bg-base-300 hover:bg-primary transition-colors cursor-pointer spool-tooltip" data-tooltip="Excited">&#128293;</button>
+                    </form>
+                    <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
+                      {% csrf_token %}
+                      <input type="hidden" name="reply_reaction" value="not_for_me">
+                      <button type="submit" aria-label="Not For Me" class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-base bg-base-300 hover:bg-primary transition-colors cursor-pointer spool-tooltip" data-tooltip="Not For Me">&#128517;</button>
+                    </form>
+                  </div>
+                  <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" class="flex items-center gap-1.5 mt-2">
+                    {% csrf_token %}
+                    <input type="text" name="reply_message" maxlength="160" placeholder="Reply…" aria-label="Reply" class="input input-xs flex-1 min-w-0 bg-base-100">
+                    <button type="submit" aria-label="Send" class="w-7 h-7 rounded-full flex items-center justify-center flex-none bg-primary text-primary-content hover:brightness-110 transition-all cursor-pointer">{% icon "send" "w-3.5 h-3.5" %}</button>
+                  </form>
+                </div>
+              </div>
+            {% endif %}
+            <form hx-post="{% url 'dismiss_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
+              {% csrf_token %}
+              <button type="submit" aria-label="Dismiss" data-tooltip="Dismiss" class="btn btn-sm btn-soft btn-square spool-tooltip">{% icon "x" "w-3.5 h-3.5" %}</button>
+            </form>
+          </div>
         {% endif %}
-      {% endfor %}
-    </div>
+      </div>
+    {% endfor %}
   </div>
 {% endif %}

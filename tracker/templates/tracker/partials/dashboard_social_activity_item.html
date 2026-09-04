@@ -1,0 +1,28 @@
+{% load tracker_extras %}
+{# context: event (WatchEvent, select_related title/episode/profile - selectors.social_activity()) #}
+{% if event.episode %}
+  {% episode_detail_url event.title.pk event.episode.season event.episode.episode as detail_url %}
+{% else %}
+  {% url 'title_detail' event.title.pk as detail_url %}
+{% endif %}
+<a href="{{ detail_url }}" class="flex items-start gap-2.5 py-2 group">
+  <div class="w-11 aspect-[2/3] rounded-md relative flex-none {% if not event.title.poster_url %}{{ event.title.pk|gradient_class }}{% endif %}">
+    {% if event.title.poster_url %}
+      <img src="{{ event.title.poster_url|poster_size:"w92" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover rounded-md">
+    {% endif %}
+    {% if event.profile.avatar_image %}
+      <div class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-cover bg-center ring-2 ring-base-200" style="background-image:url('{{ event.profile.avatar_image.url }}')"></div>
+    {% else %}
+      <div class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center font-mono text-[8px] font-semibold ring-2 ring-base-200" style="background:{{ event.profile.avatar_color }};color:#fff;">{{ event.profile.display_name|first|upper }}</div>
+    {% endif %}
+  </div>
+  <div class="min-w-0 flex-1">
+    <div class="text-[12.5px] leading-snug">
+      <span class="font-semibold group-hover:text-primary transition-colors">{{ event.profile.display_name }}</span>
+      {% if event.user_rating %}rated{% else %}watched{% endif %}
+      <span class="font-semibold">{{ event.title.name }}{% if event.episode %} S{{ event.episode.season }}:E{{ event.episode.episode }}{% endif %}</span>
+      {% if event.user_rating %}<span class="text-primary font-mono">&#9733;{{ event.user_rating }}</span>{% endif %}
+    </div>
+    <div class="text-[11px] text-ink-faint mt-0.5">{{ event.watched_at|timesince }} ago{% if event.source %} &middot; {{ event.get_source_display }}{% endif %}</div>
+  </div>
+</a>

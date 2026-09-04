@@ -8,6 +8,54 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.117.0] - 2026-09-04
+
+### Added
+
+- Dashboard redesigned: the header now surfaces streak/movies/shows/watch-time
+  as pills instead of a footer bar, Up Next cards get a day-pill (Today/
+  Tomorrow/date), "Recommended by Friends" moved into the sidebar as a
+  compact one-card-at-a-time carousel, and On This Day/Social Activity rows
+  now show a poster thumbnail (Social Activity overlays the watcher's avatar
+  on the poster's corner). The sidebar's Monthly Stats card gained a
+  centered "View full stats" link, and Social Activity gained a "View
+  Activity" link (both were previously loose page-level links).
+- Stats page redesigned: the old single divided hero card is now four
+  separate cards (Watch Streak, Quick Totals, Last 30 Days, All Time Hub)
+  with a real, computed Completion Efficiency figure; the genre breakdown
+  gained a colored-dot legend; Achievements now show real numeric progress
+  bars (e.g. "12/30"), not just locked/unlocked; Taste Compatibility is a
+  circular percentage ring per household member; and "Release Years" - a
+  placeholder since it shipped - is now a real decade histogram of the
+  library with oldest/latest title callouts.
+- Household Activity page redesigned: a day-grouped timeline (Today/
+  Yesterday/date) replaces the flat list, with per-member filter pills,
+  real pagination, and poster-card entries. Binge sessions and bulk
+  list-adds (already grouped server-side, previously shown as a plain
+  text line) now render as their own cards with total runtime, and a
+  binge that ends on a show's actual finale is called out as "Series
+  Completed" instead of a generic "Binge Session". Added a Household
+  Leaderboard (This Week/This Year, ranked by watch time) and a
+  Household Top 5 (most-watched titles this week, with watcher avatars)
+  sidebar, plus a real "N watched recently" indicator.
+- `seed_demo` now seeds a couple of extra household profiles with their
+  own light watch history, a few pending recommendations (including a
+  blind one), and on-this-day watch history from prior years, so a fresh
+  demo instance has something to show in each of the above instead of
+  empty states.
+
+### Fixed
+
+- The top navbar's center nav could overlap the logo/search and
+  notification/profile icons at viewport widths too narrow to fit every
+  nav item but still above the mobile breakpoint.
+- TV/Anime detail pages: the season-poster row and the per-episode list
+  were both effectively labeled "Episodes", with the season progress
+  summary sitting in an orphaned line below the posters. The season row
+  now has its own "Seasons" heading (with the progress summary inline,
+  matching the Episodes heading's own inline style), separate from
+  "Episodes" below it.
+
 ## [0.116.1] - 2026-09-01
 
 ### Fixed
