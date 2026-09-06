@@ -3474,6 +3474,7 @@ def activity(request):
     if Profile.objects.count() <= 1:
         raise Http404
 
+    profile = Profile.objects.filter(user=request.user).first()
     members = list(Profile.objects.filter(share_activity=True).order_by("display_name"))
     member_id = request.GET.get("member")
     selected_member_id = int(member_id) if member_id and member_id.isdigit() else None
@@ -3498,6 +3499,7 @@ def activity(request):
         "leaderboard_period": leaderboard_period,
         "leaderboard": selectors.household_leaderboard(leaderboard_period),
         "top_titles": selectors.household_top_titles(),
+        "time_format_str": _time_format_str(profile),
     }
     return render(request, "tracker/activity.html", context)
 

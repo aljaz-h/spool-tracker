@@ -17595,46 +17595,6 @@ class RecommendationListPopoverViewTests(TestCase):
         self.assertEqual(resp.status_code, 404)
 
 
-class CompactTimesinceFilterTests(TestCase):
-    """tracker_extras.compact_timesince - Household Activity's compact
-    "2h 11m"/"42m" alternative to Django's verbose built-in timesince."""
-
-    def test_minutes_only_under_an_hour(self):
-        from django.utils import timezone
-
-        from tracker.templatetags.tracker_extras import compact_timesince
-
-        self.assertEqual(compact_timesince(timezone.now() - timedelta(minutes=42)), "42m")
-
-    def test_hours_and_minutes(self):
-        from django.utils import timezone
-
-        from tracker.templatetags.tracker_extras import compact_timesince
-
-        self.assertEqual(compact_timesince(timezone.now() - timedelta(hours=2, minutes=11)), "2h 11m")
-
-    def test_exact_hour_omits_zero_minutes(self):
-        from django.utils import timezone
-
-        from tracker.templatetags.tracker_extras import compact_timesince
-
-        self.assertEqual(compact_timesince(timezone.now() - timedelta(hours=3)), "3h")
-
-    def test_days_and_hours(self):
-        from django.utils import timezone
-
-        from tracker.templatetags.tracker_extras import compact_timesince
-
-        self.assertEqual(compact_timesince(timezone.now() - timedelta(days=2, hours=5)), "2d 5h")
-
-    def test_under_a_minute_reads_as_just_now(self):
-        from django.utils import timezone
-
-        from tracker.templatetags.tracker_extras import compact_timesince
-
-        self.assertEqual(compact_timesince(timezone.now() - timedelta(seconds=10)), "just now")
-
-
 class PosterSizeFilterTests(TestCase):
     """tracker_extras.poster_size - re-points a stored TMDB w500 poster
     URL at a smaller size for small grid-tile contexts (see the

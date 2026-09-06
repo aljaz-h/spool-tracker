@@ -7,7 +7,7 @@
     {% else %}
       <div class="w-9 h-9 rounded-lg flex items-center justify-center font-mono text-[13px] font-bold flex-none" style="background:{{ item.profile.avatar_color }};color:#fff;">{{ item.profile.display_name|first|upper }}</div>
     {% endif %}
-    <span class="font-mono text-[10px] text-ink-faint mt-1 whitespace-nowrap">{{ item.timestamp|compact_timesince }}</span>
+    <span class="font-mono text-[10px] text-ink-faint mt-1 whitespace-nowrap">{{ item.timestamp|time:time_format_str }}</span>
   </div>
 
   <div class="flex-1 min-w-0 flex gap-3 bg-base-200 border border-line rounded-xl p-3">

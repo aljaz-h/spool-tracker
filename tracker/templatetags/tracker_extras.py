@@ -28,24 +28,6 @@ def episode_detail_url(title_pk, season, episode_number):
 
 
 @register.filter
-def compact_timesince(value):
-    """Elapsed time since `value` as "2h 11m"/"42m"/"3d 5h" - the
-    Household Activity feed's own compact alternative to Django's
-    built-in timesince, whose verbose "2 hours, 11 minutes" reads as too
-    long repeated down a dense timeline of cards."""
-    total_minutes = int((timezone.now() - value).total_seconds() // 60)
-    if total_minutes < 1:
-        return "just now"
-    days, rem = divmod(total_minutes, 24 * 60)
-    hours, minutes = divmod(rem, 60)
-    if days:
-        return f"{days}d {hours}h" if hours else f"{days}d"
-    if hours:
-        return f"{hours}h {minutes}m" if minutes else f"{hours}h"
-    return f"{minutes}m"
-
-
-@register.filter
 def eq(value, other):
     """Django's `with` tag only accepts filter expressions, not `==`
     comparisons — this fills that gap for one-line nav-item includes."""
