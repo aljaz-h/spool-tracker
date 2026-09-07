@@ -45,10 +45,13 @@ account.
 - Full watch history with filters, pagination, and per-item removal
 - Calendar of upcoming episodes/season premieres/movie releases, synced nightly from TMDB for anything you're watching, have watchlisted, or have watch history for
 - Shared and private lists (shared lists are creator-only for edit/delete)
-- Stats: watch streaks, genre breakdown, year breakdown, activity heatmap
+- Stats: watch streaks, genre breakdown, year breakdown, activity heatmap, achievement badges, taste compatibility with other profiles
+- Recommend a title to a housemate — including an anonymous "mystery" recommendation
+- Anime enrichment via MyAnimeList (score, studio, source, filler/recap episode badges) and automatic season-numbering reconciliation against TMDB — no separate account or API key needed
 - Activity feed across profiles (only shown once a second profile exists)
 - CSV import with column-mapping and a preview-before-commit step
 - Trakt / Simkl OAuth connect, Nuvio email/password connect, + a daily background sync job
+- A generic [Scrobble API](docs/SCROBBLE_API.md) for any player/script, and a read-only [Reports API](docs/REPORTS_API.md) for external services like spool-wrapped
 
 ## Get started
 
