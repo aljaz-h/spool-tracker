@@ -210,6 +210,13 @@ def get_season_episode_offset(mal_id, virtual_season):
     return offset
 
 
+_NO_MATCH_TTL = 3600  # 1 hour - short enough to retry once an outage clears, long enough that a
+# caller re-checking the same title many times in one run (e.g. once per episode - see
+# tracker/episode_matching.py's own reconcile_episode_seasons backfill) doesn't re-hit Jikan's
+# live search for every single one, which risks tipping a transient 504 into a hard 429 (observed
+# live: a title with 25 affected episodes retried the same failing search 9 times in one run).
+
+
 def resolve_mal_id(title):
     """Best-effort Jikan/MAL id resolution for an anime Title, matched by
     name/year and cached onto external_ids["mal"] once found so it's only
@@ -224,15 +231,39 @@ def resolve_mal_id(title):
     the id AniFiller supplies is a real MAL id, cached identically to one
     Jikan found directly - anifiller.py's own per-episode data is a
     separate, explicitly-secondary fallback, but a MAL id is a MAL id
-    regardless of which source resolved it."""
+    regardless of which source resolved it.
+
+    A genuine "no match anywhere" result is itself cached, briefly (see
+    _NO_MATCH_TTL) - unlike a found id, which is cached permanently on
+    the Title itself since it never changes, "not found today" isn't
+    written back to external_ids (it might resolve later, e.g. once a
+    title gets added to MAL, or once an outage clears) but still
+    shouldn't re-trigger a live search for every caller in a tight loop
+    against the same title."""
+    from django.core.cache import cache
+
     from . import anifiller
 
     mal_id = title.external_ids.get("mal")
     if mal_id is not None:
         return mal_id
+
+    no_match_key = _cache_key("no_mal_match", (title.name, title.year))
+    try:
+        cached_no_match = cache.get(no_match_key)
+    except Exception:
+        logger.warning("Jikan no-match cache read failed, continuing without cache", exc_info=True)
+        cached_no_match = None
+    if cached_no_match:
+        return None
+
     match = find_match(title.name, title.year)
     mal_id = match["mal_id"] if match else anifiller.find_mal_id_by_name(title.name)
     if mal_id is None:
+        try:
+            cache.set(no_match_key, True, _NO_MATCH_TTL)
+        except Exception:
+            logger.warning("Jikan no-match cache write failed, continuing without cache", exc_info=True)
         return None
     title.external_ids["mal"] = mal_id
     title.save(update_fields=["external_ids"])

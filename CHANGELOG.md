@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.118.1] - 2026-09-07
+
+### Fixed
+
+- `jikan.resolve_mal_id` didn't cache a genuine "no match" result, so a
+  title with several affected episodes (e.g. running
+  `reconcile_episode_seasons` against one) re-hit Jikan's live search
+  endpoint once per episode instead of once - observed live tipping a
+  transient 504 into a hard 429 partway through a run. A "no match" is
+  now cached for an hour (long enough to cover one run, short enough to
+  retry again once an outage clears or a title gets added to MAL).
+
 ## [0.118.0] - 2026-09-07
 
 ### Added

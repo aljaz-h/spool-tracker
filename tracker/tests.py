@@ -13719,6 +13719,61 @@ class JikanFindMatchTests(TestCase):
 
 
 @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class JikanResolveMalIdTests(TestCase):
+    """jikan.resolve_mal_id - a found id is cached permanently on the
+    Title itself; a genuine no-match is cached briefly too (_NO_MATCH_TTL)
+    so a caller re-checking the same title many times in a tight loop
+    (e.g. reconcile_episode_seasons, once per episode) doesn't re-hit
+    Jikan's live search for every single one - observed live to help tip
+    a transient 504 into a hard 429."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        # Every test method here resolves against the same title name -
+        # without this, the new negative-result cache persisting across
+        # test methods (LocMemCache isn't reset by TestCase's own DB
+        # transaction rollback) would leak one test's "no match" result
+        # into another's, same class of bug TmdbDetailsTests' own
+        # cache.clear() already guards against.
+        cache.clear()
+        self.anime = Title.objects.create(
+            media_type=MediaType.ANIME, name="Some Anime", year=2023, external_ids={"tmdb": "1", "tmdb_kind": "tv"}
+        )
+
+    def test_already_resolved_id_short_circuits_without_any_lookup(self):
+        self.anime.external_ids["mal"] = 42
+        self.anime.save(update_fields=["external_ids"])
+        with patch("tracker.integrations.jikan.find_match") as mock_find_match:
+            result = jikan.resolve_mal_id(self.anime)
+        self.assertEqual(result, 42)
+        mock_find_match.assert_not_called()
+
+    @patch("tracker.integrations.anifiller.find_mal_id_by_name", return_value=None)
+    @patch("tracker.integrations.jikan.find_match", return_value={"mal_id": 7})
+    def test_a_found_id_is_cached_permanently_on_the_title(self, mock_find_match, mock_anifiller):
+        result = jikan.resolve_mal_id(self.anime)
+        self.assertEqual(result, 7)
+        self.anime.refresh_from_db()
+        self.assertEqual(self.anime.external_ids["mal"], 7)
+
+    @patch("tracker.integrations.anifiller.find_mal_id_by_name", return_value=None)
+    @patch("tracker.integrations.jikan.find_match", return_value=None)
+    def test_repeated_calls_after_a_no_match_do_not_re_hit_jikan(self, mock_find_match, mock_anifiller):
+        self.assertIsNone(jikan.resolve_mal_id(self.anime))
+        self.assertIsNone(jikan.resolve_mal_id(self.anime))
+        self.assertIsNone(jikan.resolve_mal_id(self.anime))
+        self.assertEqual(mock_find_match.call_count, 1)
+
+    @patch("tracker.integrations.anifiller.find_mal_id_by_name", return_value=None)
+    @patch("tracker.integrations.jikan.find_match", return_value=None)
+    def test_a_no_match_is_never_written_to_the_title(self, mock_find_match, mock_anifiller):
+        jikan.resolve_mal_id(self.anime)
+        self.anime.refresh_from_db()
+        self.assertNotIn("mal", self.anime.external_ids)
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
 class JikanEpisodeFillerMapTests(TestCase):
     """jikan.get_episode_filler_map - paginates /anime/{id}/episodes into
     {episode_number: {"filler", "recap"}}. Class-level LocMemCache override
