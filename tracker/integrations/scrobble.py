@@ -97,6 +97,9 @@ def record_scrobble(profile, action, media_type, tmdb_id, season, episode_number
 
     ep = None
     if media_type == MediaType.TV:
+        from tracker import episode_matching
+
+        season, episode_number = episode_matching.resolve_episode_season(title, tmdb_id, season, episode_number)
         ep, _ = Episode.objects.get_or_create(title=title, season=season, episode=episode_number)
 
     if action == "stop" and progress >= STOP_WATCHED_THRESHOLD:

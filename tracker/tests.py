@@ -17,7 +17,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
-from . import achievements, completion, crypto, csv_import, instance_config, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, update_check, views
+from . import achievements, completion, crypto, csv_import, episode_matching, instance_config, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, update_check, views
 from .integrations import anifiller, gemini, jikan, mdblist, nuvio, scrobble, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
@@ -5387,6 +5387,36 @@ class NuvioUpsertHistoryItemsTests(TestCase):
         self.assertEqual(event.episode.season, 1)
         self.assertEqual(event.episode.episode, 1)
 
+    @patch("tracker.integrations.jikan.get_season_episode_offset", return_value=13)
+    @patch("tracker.integrations.jikan.resolve_mal_id", return_value=1)
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value={"seasons": [{"season_number": 1, "episode_count": 25}]})
+    def test_anime_item_reconciles_a_season_tmdb_doesnt_know_about(self, mock_tv_details, mock_resolve_mal, mock_offset):
+        # Same real mismatch tracker/episode_matching.py's own docstring
+        # documents (Hell's Paradise) - TMDB (mocked above) lists the
+        # show as one 25-episode season, Nuvio reports its own "season
+        # 2, episode 7" for what's really TMDB's season 1 episode 20.
+        # Pre-created and already reclassified to ANIME (see
+        # reclassify_anime_titles) - matched here via external_ids__nuvio,
+        # same as any resync of a title Spool already knows about.
+        title = Title.objects.create(
+            media_type=MediaType.ANIME, name="Hell's Paradise", year=2023,
+            external_ids={"nuvio": "tmdb:117465", "tmdb": "117465", "tmdb_kind": "tv"},
+        )
+        items = [
+            {
+                "content_id": "tmdb:117465", "content_type": "series", "watched_at": 1711600000000,
+                "season": 2, "episode": 7, "name": "Hell's Paradise", "year": 2023,
+            }
+        ]
+        created = nuvio.upsert_history_items(self.profile, items)
+        self.assertEqual(created, 1)
+        self.assertFalse(Episode.objects.filter(title=title, season=2).exists())
+        event = WatchEvent.objects.get(profile=self.profile, title=title)
+        self.assertEqual((event.episode.season, event.episode.episode), (1, 20))
+        title = Title.objects.get(external_ids__tmdb="117465")
+        title.media_type = MediaType.ANIME
+        title.save(update_fields=["media_type"])
+
     def test_episode_item_missing_season_episode_entirely_is_skipped(self):
         items = [{"content_id": "tmdb:9999", "content_type": "series", "watched_at": 1711600000000, "name": "No Season Show"}]
         created = nuvio.upsert_history_items(self.profile, items)
@@ -9004,6 +9034,123 @@ class MergeDuplicateTitlesCommandTests(TestCase):
         self.call_command("merge_duplicate_titles", "--commit")
         self.assertFalse(Title.objects.filter(pk=dupe.pk).exists())
         self.assertTrue(Title.objects.filter(pk=canonical.pk).exists())
+
+
+class ReconcileEpisodeSeasonsCommandTests(TestCase):
+    """The one-time backfill for Episode rows created before
+    episode_matching.resolve_episode_season existed to prevent them -
+    same confirmed real case (Hell's Paradise) its own docstring and
+    tracker.episode_matching's tests document."""
+
+    def setUp(self):
+        from django.core.management import call_command
+
+        self.call_command = call_command
+        user = User.objects.create_user("reconcileowner", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ReconcileOwner")
+        self.anime = Title.objects.create(
+            media_type=MediaType.ANIME, name="Hell's Paradise", year=2023,
+            external_ids={"tmdb": "117465", "tmdb_kind": "tv"},
+        )
+
+    def _tv_details_single_season(self, episode_count=25):
+        return {"seasons": [{"season_number": 1, "episode_count": episode_count}]}
+
+    def test_no_titles_with_multiple_seasons_is_a_no_op(self):
+        Episode.objects.create(title=self.anime, season=1, episode=1)
+        self.call_command("reconcile_episode_seasons")
+        self.assertEqual(Episode.objects.filter(title=self.anime).count(), 1)
+
+    @patch("tracker.integrations.jikan.get_season_episode_offset", return_value=13)
+    @patch("tracker.integrations.jikan.resolve_mal_id", return_value=1)
+    @patch("tracker.integrations.tmdb.get_tv_details")
+    def test_dry_run_reports_but_does_not_change_anything(self, mock_tv_details, mock_resolve_mal, mock_offset):
+        mock_tv_details.return_value = self._tv_details_single_season()
+        Episode.objects.create(title=self.anime, season=1, episode=1)
+        orphan = Episode.objects.create(title=self.anime, season=2, episode=7)
+
+        self.call_command("reconcile_episode_seasons")
+
+        self.assertTrue(Episode.objects.filter(pk=orphan.pk).exists())
+        self.assertFalse(Episode.objects.filter(title=self.anime, season=1, episode=20).exists())
+
+    @patch("tracker.integrations.jikan.get_season_episode_offset", return_value=13)
+    @patch("tracker.integrations.jikan.resolve_mal_id", return_value=1)
+    @patch("tracker.integrations.tmdb.get_tv_details")
+    def test_commit_remaps_the_orphan_episode_and_repoints_its_watch_event(
+        self, mock_tv_details, mock_resolve_mal, mock_offset
+    ):
+        from django.utils import timezone
+
+        mock_tv_details.return_value = self._tv_details_single_season()
+        Episode.objects.create(title=self.anime, season=1, episode=1)
+        orphan = Episode.objects.create(title=self.anime, season=2, episode=7)
+        event = WatchEvent.objects.create(profile=self.profile, title=self.anime, episode=orphan, watched_at=timezone.now())
+
+        self.call_command("reconcile_episode_seasons", "--commit")
+
+        self.assertFalse(Episode.objects.filter(pk=orphan.pk).exists())
+        target = Episode.objects.get(title=self.anime, season=1, episode=20)
+        event.refresh_from_db()
+        self.assertEqual(event.episode_id, target.id)
+
+    @patch("tracker.integrations.jikan.get_season_episode_offset", return_value=13)
+    @patch("tracker.integrations.jikan.resolve_mal_id", return_value=1)
+    @patch("tracker.integrations.tmdb.get_tv_details")
+    def test_commit_merges_into_an_already_synced_target_episode(self, mock_tv_details, mock_resolve_mal, mock_offset):
+        from django.utils import timezone
+
+        # The real TMDB-synced episode (season 1, episode 20) already
+        # exists (e.g. from browsing the title detail page) - the
+        # orphan must merge into it, not create a second duplicate.
+        mock_tv_details.return_value = self._tv_details_single_season()
+        Episode.objects.create(title=self.anime, season=1, episode=1)
+        target = Episode.objects.create(title=self.anime, season=1, episode=20, name="Real Episode Name")
+        orphan = Episode.objects.create(title=self.anime, season=2, episode=7)
+        event = WatchEvent.objects.create(profile=self.profile, title=self.anime, episode=orphan, watched_at=timezone.now())
+
+        self.call_command("reconcile_episode_seasons", "--commit")
+
+        self.assertFalse(Episode.objects.filter(pk=orphan.pk).exists())
+        self.assertEqual(Episode.objects.filter(title=self.anime, season=1, episode=20).count(), 1)
+        event.refresh_from_db()
+        self.assertEqual(event.episode_id, target.id)
+        target.refresh_from_db()
+        self.assertEqual(target.name, "Real Episode Name")
+
+    @patch("tracker.integrations.jikan.get_season_episode_offset", return_value=13)
+    @patch("tracker.integrations.jikan.resolve_mal_id", return_value=1)
+    @patch("tracker.integrations.tmdb.get_tv_details")
+    def test_current_watch_progress_is_repointed_too(self, mock_tv_details, mock_resolve_mal, mock_offset):
+        mock_tv_details.return_value = self._tv_details_single_season()
+        Episode.objects.create(title=self.anime, season=1, episode=1)
+        orphan = Episode.objects.create(title=self.anime, season=2, episode=7)
+        progress = WatchProgress.objects.create(
+            profile=self.profile, title=self.anime, current_episode=orphan, status=WatchProgress.Status.WATCHING
+        )
+
+        self.call_command("reconcile_episode_seasons", "--commit")
+
+        target = Episode.objects.get(title=self.anime, season=1, episode=20)
+        progress.refresh_from_db()
+        self.assertEqual(progress.current_episode_id, target.id)
+
+    @patch("tracker.integrations.tmdb.get_tv_details")
+    def test_a_legitimate_multi_season_show_is_left_untouched(self, mock_tv_details):
+        # TMDB already lists 2 real seasons matching what's stored
+        # locally - nothing to reconcile, and this must not even
+        # attempt a Jikan lookup for an ordinary (non-mismatched) show.
+        mock_tv_details.return_value = {
+            "seasons": [{"season_number": 1, "episode_count": 10}, {"season_number": 2, "episode_count": 10}]
+        }
+        Episode.objects.create(title=self.anime, season=1, episode=1)
+        Episode.objects.create(title=self.anime, season=2, episode=1)
+
+        with patch("tracker.integrations.jikan.resolve_mal_id") as mock_resolve_mal:
+            self.call_command("reconcile_episode_seasons", "--commit")
+
+        mock_resolve_mal.assert_not_called()
+        self.assertEqual(Episode.objects.filter(title=self.anime).count(), 2)
 
 
 class RecomputeIsRewatchTests(TestCase):
@@ -13832,7 +13979,7 @@ class AnifillerIntegrationTests(TestCase):
 
 
 class AnimeFillerAniFillerFallbackTests(TestCase):
-    """views._resolve_mal_id/_apply_anime_filler_flags falling back to
+    """jikan.resolve_mal_id/_apply_anime_filler_flags falling back to
     anifiller.py only for whatever Jikan didn't supply - never overriding
     a Jikan-provided answer (see anifiller.py's own docstring for why the
     two sources can legitimately disagree). AnimeFillerBadgeTests covers
@@ -14008,6 +14155,155 @@ class JikanGetAnimeDetailsTests(TestCase):
         self.assertIsNone(jikan.get_anime_details(269))
 
 
+class JikanSeasonEpisodeOffsetTests(TestCase):
+    """jikan.get_season_episode_offset - walks a split-cour anime's own
+    MAL Sequel relation chain to find how many episodes precede a given
+    virtual season, the offset source tracker.episode_matching uses to
+    reconcile a player's own season-splitting against TMDB's (see that
+    module's own docstring for the confirmed real case, Hell's
+    Paradise, this exists for)."""
+
+    def _response(self, data):
+        resp = Mock()
+        resp.json.return_value = {"data": data}
+        resp.raise_for_status = Mock()
+        return resp
+
+    def test_virtual_season_1_has_no_offset(self):
+        self.assertEqual(jikan.get_season_episode_offset(1, 1), 0)
+
+    @patch("tracker.integrations.jikan.requests.get")
+    def test_walks_one_sequel_hop(self, mock_get):
+        mock_get.return_value = self._response(
+            {"episodes": 13, "relations": [{"relation": "Sequel", "entry": [{"mal_id": 2, "type": "anime", "name": "Season 2"}]}]}
+        )
+        self.assertEqual(jikan.get_season_episode_offset(1, 2), 13)
+
+    @patch("tracker.integrations.jikan.requests.get")
+    def test_walks_two_sequel_hops(self, mock_get):
+        first = self._response(
+            {"episodes": 13, "relations": [{"relation": "Sequel", "entry": [{"mal_id": 2, "type": "anime"}]}]}
+        )
+        second = self._response(
+            {"episodes": 12, "relations": [{"relation": "Sequel", "entry": [{"mal_id": 3, "type": "anime"}]}]}
+        )
+        mock_get.side_effect = [first, second]
+        self.assertEqual(jikan.get_season_episode_offset(1, 3), 25)
+
+    @patch("tracker.integrations.jikan.requests.get")
+    def test_no_sequel_relation_returns_none_not_a_guess(self, mock_get):
+        mock_get.return_value = self._response({"episodes": 13, "relations": []})
+        self.assertIsNone(jikan.get_season_episode_offset(1, 2))
+
+    @patch("tracker.integrations.jikan.requests.get")
+    def test_request_failure_mid_chain_returns_none(self, mock_get):
+        mock_get.side_effect = requests.RequestException("boom")
+        self.assertIsNone(jikan.get_season_episode_offset(1, 2))
+
+    @patch("tracker.integrations.jikan.requests.get")
+    def test_non_sequel_relations_are_ignored(self, mock_get):
+        mock_get.return_value = self._response(
+            {"episodes": 13, "relations": [{"relation": "Prequel", "entry": [{"mal_id": 99, "type": "anime"}]}]}
+        )
+        self.assertIsNone(jikan.get_season_episode_offset(1, 2))
+
+    @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+    @patch("tracker.integrations.jikan.requests.get")
+    def test_shares_its_cache_with_get_anime_details(self, mock_get):
+        mock_get.return_value = self._response({"episodes": 13, "relations": [], "score": 8.0})
+        jikan.get_anime_details(1)
+        jikan.get_season_episode_offset(1, 2)
+        self.assertEqual(mock_get.call_count, 1)
+
+
+class ResolveEpisodeSeasonTests(TestCase):
+    """tracker.episode_matching.resolve_episode_season - reconciles a
+    player-reported season/episode against TMDB's own season structure
+    for the title, using MyAnimeList's Sequel relation chain as the
+    episode-count offset when they disagree. See the module's own
+    docstring for the confirmed real-world case (Hell's Paradise: TMDB
+    lists it as one 25-episode season, a player reports "season 2") this
+    exists to fix."""
+
+    def setUp(self):
+        self.anime = Title.objects.create(
+            media_type=MediaType.ANIME, name="Hell's Paradise", year=2023,
+            external_ids={"tmdb": "117465", "tmdb_kind": "tv"},
+        )
+
+    def test_season_already_known_to_tmdb_is_left_unchanged(self):
+        with patch(
+            "tracker.integrations.tmdb.get_tv_details",
+            return_value={"seasons": [{"season_number": 1, "episode_count": 25}, {"season_number": 2, "episode_count": 12}]},
+        ):
+            result = episode_matching.resolve_episode_season(self.anime, "117465", 2, 3)
+        self.assertEqual(result, (2, 3))
+
+    def test_single_tmdb_season_remaps_using_the_mal_sequel_offset(self):
+        with patch(
+            "tracker.integrations.tmdb.get_tv_details", return_value={"seasons": [{"season_number": 1, "episode_count": 25}]}
+        ), patch("tracker.integrations.jikan.resolve_mal_id", return_value=1), patch(
+            "tracker.integrations.jikan.get_season_episode_offset", return_value=13
+        ):
+            result = episode_matching.resolve_episode_season(self.anime, "117465", 2, 7)
+        self.assertEqual(result, (1, 20))
+
+    def test_non_anime_title_is_never_remapped(self):
+        show = Title.objects.create(
+            media_type=MediaType.TV, name="Some Show", year=2020, external_ids={"tmdb": "1", "tmdb_kind": "tv"}
+        )
+        with patch(
+            "tracker.integrations.tmdb.get_tv_details", return_value={"seasons": [{"season_number": 1, "episode_count": 5}]}
+        ) as mock_tv:
+            result = episode_matching.resolve_episode_season(show, "1", 2, 3)
+        self.assertEqual(result, (2, 3))
+        mock_tv.assert_not_called()
+
+    def test_season_1_or_missing_values_never_reach_tmdb(self):
+        with patch("tracker.integrations.tmdb.get_tv_details") as mock_tv:
+            self.assertEqual(episode_matching.resolve_episode_season(self.anime, "117465", 1, 5), (1, 5))
+            self.assertEqual(episode_matching.resolve_episode_season(self.anime, "117465", None, 5), (None, 5))
+            self.assertEqual(episode_matching.resolve_episode_season(self.anime, "117465", 2, None), (2, None))
+        mock_tv.assert_not_called()
+
+    def test_multi_season_show_is_left_alone_even_when_reported_season_is_higher(self):
+        # TMDB already lists 2 real seasons; a scrobble reporting "season
+        # 3" is most likely a genuinely new season TMDB hasn't added yet,
+        # not a split to reconcile - remapping it would misfile a real
+        # new season, so this must be left exactly as reported.
+        with patch(
+            "tracker.integrations.tmdb.get_tv_details",
+            return_value={"seasons": [{"season_number": 1, "episode_count": 12}, {"season_number": 2, "episode_count": 12}]},
+        ):
+            result = episode_matching.resolve_episode_season(self.anime, "117465", 3, 1)
+        self.assertEqual(result, (3, 1))
+
+    def test_no_mal_match_leaves_episode_as_reported(self):
+        with patch(
+            "tracker.integrations.tmdb.get_tv_details", return_value={"seasons": [{"season_number": 1, "episode_count": 25}]}
+        ), patch("tracker.integrations.jikan.resolve_mal_id", return_value=None):
+            result = episode_matching.resolve_episode_season(self.anime, "117465", 2, 7)
+        self.assertEqual(result, (2, 7))
+
+    def test_mal_chain_not_reaching_that_far_leaves_episode_as_reported(self):
+        with patch(
+            "tracker.integrations.tmdb.get_tv_details", return_value={"seasons": [{"season_number": 1, "episode_count": 25}]}
+        ), patch("tracker.integrations.jikan.resolve_mal_id", return_value=1), patch(
+            "tracker.integrations.jikan.get_season_episode_offset", return_value=None
+        ):
+            result = episode_matching.resolve_episode_season(self.anime, "117465", 2, 7)
+        self.assertEqual(result, (2, 7))
+
+    def test_no_tmdb_id_leaves_episode_as_reported(self):
+        result = episode_matching.resolve_episode_season(self.anime, None, 2, 7)
+        self.assertEqual(result, (2, 7))
+
+    def test_tmdb_lookup_failure_leaves_episode_as_reported(self):
+        with patch("tracker.integrations.tmdb.get_tv_details", return_value=None):
+            result = episode_matching.resolve_episode_season(self.anime, "117465", 2, 7)
+        self.assertEqual(result, (2, 7))
+
+
 @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
 class AnimeJikanDetailContextTests(TestCase):
     """The title detail page's MAL score/Japanese title/studio/source
@@ -14142,7 +14438,7 @@ class AnimeJikanDetailContextTests(TestCase):
         mock_filler_map, mock_anifiller_types,
     ):
         # _apply_anime_filler_flags and _anime_jikan_context both need a
-        # mal_id - _resolve_mal_id is shared between them so a single
+        # mal_id - jikan.resolve_mal_id is shared between them so a single
         # title_detail render only ever calls find_match once. Needs a
         # non-empty episode list (unlike this class's other tests) so
         # _apply_anime_filler_flags - gated on there being episodes at
@@ -19393,6 +19689,27 @@ class ScrobbleIntegrationTests(TestCase):
         self.assertIsNone(result)
         self.assertFalse(Title.objects.filter(external_ids__tmdb="100").exists())
         self.assertFalse(WatchProgress.objects.exists())
+
+    @patch("tracker.integrations.jikan.get_season_episode_offset", return_value=13)
+    @patch("tracker.integrations.jikan.resolve_mal_id", return_value=1)
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value={"seasons": [{"season_number": 1, "episode_count": 25}]})
+    def test_anime_scrobble_reconciles_a_season_tmdb_doesnt_know_about(self, mock_tv_details, mock_resolve_mal, mock_offset):
+        # The scrobble API itself only ever passes media_type "tv" (never
+        # "anime" - see api/routers/scrobble.py) - a title only becomes
+        # ANIME via the separate reclassify_anime_titles pass, so this
+        # simulates the real-world timing: by the time a later scrobble
+        # for a season TMDB doesn't know about arrives, Spool has already
+        # reclassified the (pre-existing, tmdb-id-matched) title.
+        Title.objects.create(
+            media_type=MediaType.ANIME, name="Hell's Paradise", year=2023,
+            external_ids={"tmdb": "100", "tmdb_kind": "tv"},
+        )
+        scrobble.record_scrobble(self.profile, "start", MediaType.TV, 100, 2, 7, 10.0, name_hint="Hell's Paradise")
+        title = Title.objects.get(external_ids__tmdb="100")
+        self.assertFalse(Episode.objects.filter(title=title, season=2).exists())
+        episode = Episode.objects.get(title=title, season=1, episode=20)
+        progress = WatchProgress.objects.get(profile=self.profile, title=title)
+        self.assertEqual(progress.current_episode, episode)
 
 
 class ScrobbleApiTests(TestCase):

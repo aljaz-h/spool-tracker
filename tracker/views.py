@@ -793,32 +793,6 @@ def _star_fill(rating):
     return stars
 
 
-def _resolve_mal_id(title):
-    """Best-effort Jikan/MAL id resolution for an anime Title, matched by
-    name/year and cached onto external_ids["mal"] once found so it's only
-    ever looked up once - shared by the episode browser's filler overlay
-    (_apply_anime_filler_flags) and the detail page's MAL score/Japanese
-    title/studio enrichment (_anime_jikan_context) below.
-
-    Falls back to an exact-title match against AniFiller's own (much
-    smaller, ~180-show) bundle when Jikan's live search comes back empty
-    - either a genuine no-match, or Jikan's search endpoint having one of
-    its occasional outages (see jikan.py's own docstring). Either way,
-    the id AniFiller supplies is a real MAL id, cached identically to one
-    Jikan found directly - anifiller.py's own per-episode data is a
-    separate, explicitly-secondary fallback (see _apply_anime_filler_flags),
-    but a MAL id is a MAL id regardless of which source resolved it."""
-    mal_id = title.external_ids.get("mal")
-    if mal_id is not None:
-        return mal_id
-    match = jikan.find_match(title.name, title.year)
-    mal_id = match["mal_id"] if match else anifiller.find_mal_id_by_name(title.name)
-    if mal_id is None:
-        return None
-    title.external_ids["mal"] = mal_id
-    title.save(update_fields=["external_ids"])
-    return mal_id
-
 
 def _anime_jikan_context(title):
     """MAL score/Japanese title/studio/source-material for the detail
@@ -830,7 +804,7 @@ def _anime_jikan_context(title):
     Trakt, instead of a bespoke one-off badge."""
     if title.media_type != MediaType.ANIME:
         return {}
-    mal_id = _resolve_mal_id(title)
+    mal_id = jikan.resolve_mal_id(title)
     if mal_id is None:
         return {}
     details = jikan.get_anime_details(mal_id)
@@ -854,7 +828,7 @@ def _media_gallery_context(title, tmdb_media_type, tmdb_id):
     the same trailer/gallery a real title's page does. title is None on
     a preview page (no local row yet) - MAL trailer preference (anime
     only) needs a real Title to resolve a MAL id against
-    (_resolve_mal_id caches it there), so a preview always falls
+    (jikan.resolve_mal_id caches it there), so a preview always falls
     through to TMDB's own trailer even for an anime preview; once
     materialized, a later visit to the real page picks up MAL's instead
     if it has one TMDB doesn't.
@@ -870,7 +844,7 @@ def _media_gallery_context(title, tmdb_media_type, tmdb_id):
     re-deriving it from the DOM at click time."""
     trailer = None
     if title is not None and title.media_type == MediaType.ANIME:
-        mal_id = _resolve_mal_id(title)
+        mal_id = jikan.resolve_mal_id(title)
         if mal_id is not None:
             mal_details = jikan.get_anime_details(mal_id)
             youtube_id = (mal_details or {}).get("trailer_youtube_id")
@@ -1064,7 +1038,7 @@ def _apply_anime_filler_flags(title, episodes, season, tv_details):
     on why this doesn't hold for the (uncommon) anime MAL splits into
     separate per-season entries instead: those just silently get no
     badges for that season, not wrong ones."""
-    mal_id = _resolve_mal_id(title)
+    mal_id = jikan.resolve_mal_id(title)
     if mal_id is None:
         return
 

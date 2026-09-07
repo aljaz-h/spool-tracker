@@ -105,22 +105,19 @@ def get_episode_filler_map(mal_id):
     return filler_map
 
 
-def get_anime_details(mal_id):
-    """Returns {"score": float|None, "title_japanese": str|None,
-    "source": str|None, "studios": [str], "trailer_youtube_id": str|None}
-    or None on failure. Cached like get_episode_filler_map (a week - these
-    facts change rarely, if ever, once an anime's aired). trailer_youtube_id
-    is MAL's own trailer (usually the Japanese-market one) - preferred
-    over TMDB's own /videos for anime specifically (see
-    views._media_gallery_context), falling back to TMDB's when MAL has
-    none on file."""
+def _get_raw_details(mal_id):
+    """Full cached Jikan /anime/{id} payload - shared by get_anime_details
+    (which narrows it to a handful of detail-page facts) and
+    get_season_episode_offset (which needs episodes/relations instead),
+    so a mal_id already looked up for one never costs a second request
+    for the other."""
     from django.core.cache import cache
 
-    key = _cache_key("details", mal_id)
+    key = _cache_key("raw", mal_id)
     try:
         cached = cache.get(key)
     except Exception:
-        logger.warning("Jikan details cache read failed, continuing without cache", exc_info=True)
+        logger.warning("Jikan raw-details cache read failed, continuing without cache", exc_info=True)
         cached = None
     if cached is not None:
         return cached
@@ -132,7 +129,27 @@ def get_anime_details(mal_id):
         logger.warning("Jikan anime details failed for mal_id=%s", mal_id, exc_info=True)
         return None
     data = resp.json().get("data") or {}
-    result = {
+
+    try:
+        cache.set(key, data, _FILLER_TTL)
+    except Exception:
+        logger.warning("Jikan raw-details cache write failed, continuing without cache", exc_info=True)
+    return data
+
+
+def get_anime_details(mal_id):
+    """Returns {"score": float|None, "title_japanese": str|None,
+    "source": str|None, "studios": [str], "trailer_youtube_id": str|None}
+    or None on failure. Cached like get_episode_filler_map (a week - these
+    facts change rarely, if ever, once an anime's aired). trailer_youtube_id
+    is MAL's own trailer (usually the Japanese-market one) - preferred
+    over TMDB's own /videos for anime specifically (see
+    views._media_gallery_context), falling back to TMDB's when MAL has
+    none on file."""
+    data = _get_raw_details(mal_id)
+    if data is None:
+        return None
+    return {
         "score": data.get("score"),
         "title_japanese": data.get("title_japanese"),
         "source": data.get("source"),
@@ -140,8 +157,83 @@ def get_anime_details(mal_id):
         "trailer_youtube_id": (data.get("trailer") or {}).get("youtube_id"),
     }
 
-    try:
-        cache.set(key, result, _FILLER_TTL)
-    except Exception:
-        logger.warning("Jikan details cache write failed, continuing without cache", exc_info=True)
-    return result
+
+def _next_sequel_mal_id(data):
+    """The first "Sequel" relation entry's own mal_id, or None - a split-
+    cour anime's MAL entries link to each other this way (e.g. "Hell's
+    Paradise" -> Sequel -> "Hell's Paradise Season 2"), each with its
+    own accurate `episodes` count get_season_episode_offset below walks."""
+    for rel in data.get("relations") or []:
+        if rel.get("relation") != "Sequel":
+            continue
+        for entry in rel.get("entry") or []:
+            if entry.get("type") == "anime" and entry.get("mal_id"):
+                return entry["mal_id"]
+    return None
+
+
+_MAX_SEQUEL_HOPS = 6  # a real cour/part chain is never long; guards a malformed/cyclic relation graph
+
+
+def get_season_episode_offset(mal_id, virtual_season):
+    """How many episodes precede `virtual_season` in mal_id's own Sequel
+    chain - e.g. virtual_season=2 returns season 1's own `episodes`
+    count. mal_id is assumed to be the virtual-season-1 entry (whatever
+    resolve_mal_id matched the title to).
+
+    Exists for tracker/episode_matching.py's own season reconciliation:
+    a player reporting its own "season 2" for a show TMDB only lists as
+    one season needs a reliable episode-count offset to resolve that
+    against TMDB's real numbering, and MAL's own separate per-cour
+    entries are a far more stable source for that than trying to infer
+    it from how much of the show Spool itself has ingested so far (which
+    would drift depending on the order episodes happen to arrive in -
+    out-of-order/rewatch scrobbles included).
+
+    Returns None - not a guess - when the chain doesn't reach that far
+    (no further Sequel relation, a request failure, or more hops than
+    _MAX_SEQUEL_HOPS) - resolve_episode_season leaves the episode as
+    reported rather than act on a partial/wrong offset."""
+    if virtual_season <= 1:
+        return 0
+    offset = 0
+    current_id = mal_id
+    for _ in range(min(virtual_season - 1, _MAX_SEQUEL_HOPS)):
+        data = _get_raw_details(current_id)
+        if not data:
+            return None
+        offset += data.get("episodes") or 0
+        next_id = _next_sequel_mal_id(data)
+        if next_id is None:
+            return None
+        current_id = next_id
+    return offset
+
+
+def resolve_mal_id(title):
+    """Best-effort Jikan/MAL id resolution for an anime Title, matched by
+    name/year and cached onto external_ids["mal"] once found so it's only
+    ever looked up once - shared by the episode browser's filler overlay,
+    the detail page's MAL score/Japanese title/studio enrichment, and
+    tracker/episode_matching.py's season reconciliation.
+
+    Falls back to an exact-title match against AniFiller's own (much
+    smaller, ~180-show) bundle when Jikan's live search comes back empty
+    - either a genuine no-match, or Jikan's search endpoint having one of
+    its occasional outages (see this module's own docstring). Either way,
+    the id AniFiller supplies is a real MAL id, cached identically to one
+    Jikan found directly - anifiller.py's own per-episode data is a
+    separate, explicitly-secondary fallback, but a MAL id is a MAL id
+    regardless of which source resolved it."""
+    from . import anifiller
+
+    mal_id = title.external_ids.get("mal")
+    if mal_id is not None:
+        return mal_id
+    match = find_match(title.name, title.year)
+    mal_id = match["mal_id"] if match else anifiller.find_mal_id_by_name(title.name)
+    if mal_id is None:
+        return None
+    title.external_ids["mal"] = mal_id
+    title.save(update_fields=["external_ids"])
+    return mal_id

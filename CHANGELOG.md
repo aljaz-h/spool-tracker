@@ -8,6 +8,30 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.118.0] - 2026-09-07
+
+### Added
+
+- `manage.py reconcile_episode_seasons` - a one-time backfill (dry run
+  by default, `--commit` to apply) that finds and remaps Episode rows
+  affected by the season-numbering mismatch fixed below, merging into
+  an already-synced episode instead of creating a duplicate when one
+  already exists.
+
+### Fixed
+
+- A player reporting its own season split TMDB doesn't know about (e.g.
+  Nuvio splitting one 25-episode TMDB season into "Season 1"/"Season 2"
+  for a show like Hell's Paradise) created an orphan Episode row that
+  showed up correctly in History but was invisible on the title detail
+  page's episode browser (entirely TMDB-season-driven) and never
+  credited against the real episode it corresponded to. Scrobbles and
+  Nuvio sync now reconcile the reported season/episode against TMDB's
+  real structure first, using MyAnimeList's own per-cour episode counts
+  (via the existing Jikan integration) to resolve the correct absolute
+  episode - falling back to leaving it exactly as reported (same as
+  today) whenever TMDB or MAL can't confirm an answer, never guessing.
+
 ## [0.117.0] - 2026-09-04
 
 ### Added

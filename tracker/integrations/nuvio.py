@@ -311,6 +311,11 @@ def upsert_history_items(profile, items, labels_out=None):
             season, episode_num = _season_episode(item, parsed)
             if season is None or episode_num is None:
                 continue
+            from tracker import episode_matching
+
+            season, episode_num = episode_matching.resolve_episode_season(
+                title, title.external_ids.get("tmdb"), season, episode_num
+            )
             episode, _ = Episode.objects.get_or_create(title=title, season=season, episode=episode_num)
             touched_shows.add(title.id)
         else:
@@ -426,6 +431,11 @@ def upsert_progress_items(profile, items):
             season, episode_num = _season_episode(item, parsed)
             if season is None or episode_num is None:
                 continue
+            from tracker import episode_matching
+
+            season, episode_num = episode_matching.resolve_episode_season(
+                title, title.external_ids.get("tmdb"), season, episode_num
+            )
             current_episode, _ = Episode.objects.get_or_create(title=title, season=season, episode=episode_num)
 
         WatchProgress.objects.update_or_create(
