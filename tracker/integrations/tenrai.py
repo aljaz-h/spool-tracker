@@ -27,12 +27,17 @@ DB-backed episode endpoints, which were reliable) - so a lookup failure
 never blocks the page it's attached to, same philosophy as tmdb.py. No
 API key needed for Tenrai's public tier (120 RPM/4 RPS/40,000 RPD, no
 credentials), so unlike tmdb._api_key() there's nothing to gate on
-except the request itself succeeding.
+except the request itself succeeding - though every outbound request
+does go through _get/_throttle below, which paces batch-style callers
+(a cold filler-map fetch, a Sequel-chain walk, reconcile_episode_seasons
+looping either across many episodes) so they stay comfortably under
+that 4 RPS ceiling on their own, without needing a server key.
 """
 
 import hashlib
 import json
 import logging
+import time
 
 import requests
 
@@ -50,9 +55,84 @@ API_BASE = "https://api.tenrai.org/v1"
 _FILLER_TTL = 7 * 24 * 3600
 _MAX_EPISODE_PAGES = 10  # guards against an unbounded loop on a malformed response
 
+# A safety margin under Tenrai's public-tier ceiling (120 RPM/4 RPS, no
+# credentials needed) - see _throttle. Once an X-Server-Key is configured
+# (300 RPM/5 RPS) this stays conservative rather than needing to track
+# which tier is active; the cap only matters for batch-style call
+# patterns (reconcile_episode_seasons, a cold filler-map fetch) that
+# don't exist on this codebase's actual request-volume scale otherwise.
+_MAX_REQUESTS_PER_SECOND = 3
+
 
 def _cache_key(prefix, value):
     return f"tenrai:{prefix}:" + hashlib.sha1(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def _throttle():
+    """Blocks briefly if needed so this process - and, since CACHES is
+    shared Redis in production, every gunicorn worker/Celery task
+    together - doesn't send more than _MAX_REQUESTS_PER_SECOND requests
+    to Tenrai within any given wall-clock second. A single interactive
+    page load never comes close to this; it exists for the loops that
+    can: get_episode_filler_map's pagination (up to _MAX_EPISODE_PAGES
+    sequential requests on a cold cache miss), get_season_episode_offset's
+    Sequel-chain hops (up to _MAX_SEQUEL_HOPS for one title), and
+    reconcile_episode_seasons looping either of those across many
+    episodes/titles in one run with no pacing of its own.
+
+    Fixed-window against a shared cache counter, same approach as
+    ratelimit.is_rate_limited - simple over precise, since this only
+    needs to keep a burst under Tenrai's ceiling, not account requests
+    exactly. A down/unreachable cache backend degrades to unpaced rather
+    than blocking forever - losing pacing during a cache outage is
+    better than every Tenrai-backed page hanging."""
+    from django.conf import settings
+    from django.core.cache import cache
+
+    if not getattr(settings, "TENRAI_THROTTLE_ENABLED", True):
+        return
+
+    for _ in range(60):  # ~3s worst case - never blocks indefinitely on a stuck window
+        window = int(time.time())
+        key = f"tenrai:throttle:{window}"
+        try:
+            try:
+                count = cache.incr(key)
+            except ValueError:
+                # incr() raises when the key doesn't exist yet - the normal
+                # "first request in a new window" path, not a real failure.
+                cache.set(key, 1, timeout=2)
+                return
+        except Exception:
+            logger.warning("Tenrai throttle cache access failed, continuing unpaced", exc_info=True)
+            return
+        if count <= _MAX_REQUESTS_PER_SECOND:
+            return
+        time.sleep(0.05)
+
+
+def _get(url, params=None):
+    """requests.get, paced by _throttle and aware of Tenrai's own 429s:
+    if a request gets rate-limited anyway (the proactive throttle above
+    is a local approximation, not a guarantee - another process could
+    race it, or Tenrai's own window might not align with ours), this
+    sleeps for the Retry-After duration Tenrai names (or 1s if that
+    header's missing/unparsable, capped at 5s) and retries exactly once.
+    Callers still get back a single requests.Response either way - no
+    new exception type to handle, same contract requests.get already
+    has."""
+    _throttle()
+    resp = requests.get(url, params=params, timeout=10)
+    if resp.status_code == 429:
+        try:
+            delay = float(resp.headers.get("Retry-After", 1))
+        except (TypeError, ValueError):
+            delay = 1.0
+        logger.warning("Tenrai rate-limited us, retrying %s in %.1fs", url, delay)
+        time.sleep(min(delay, 5.0))
+        _throttle()
+        resp = requests.get(url, params=params, timeout=10)
+    return resp
 
 
 def find_match(name, year=None):
@@ -62,7 +142,7 @@ def find_match(name, year=None):
     match isn't required, since the "year" field is sometimes null even
     when a match is otherwise good."""
     try:
-        resp = requests.get(f"{API_BASE}/anime", params={"q": name, "limit": 5}, timeout=10)
+        resp = _get(f"{API_BASE}/anime", params={"q": name, "limit": 5})
         resp.raise_for_status()
     except requests.RequestException:
         logger.warning("Tenrai search failed for %r", name, exc_info=True)
@@ -98,7 +178,7 @@ def get_episode_filler_map(mal_id):
     has_next = True
     while has_next and page <= _MAX_EPISODE_PAGES:
         try:
-            resp = requests.get(f"{API_BASE}/anime/{mal_id}/episodes", params={"page": page}, timeout=10)
+            resp = _get(f"{API_BASE}/anime/{mal_id}/episodes", params={"page": page})
             resp.raise_for_status()
         except requests.RequestException:
             logger.warning("Tenrai episodes request failed for mal_id=%s page=%s", mal_id, page, exc_info=True)
@@ -143,7 +223,7 @@ def _get_raw_details(mal_id):
         return cached
 
     try:
-        resp = requests.get(f"{API_BASE}/anime/{mal_id}/full", timeout=10)
+        resp = _get(f"{API_BASE}/anime/{mal_id}/full")
         resp.raise_for_status()
     except requests.RequestException:
         logger.warning("Tenrai anime details failed for mal_id=%s", mal_id, exc_info=True)

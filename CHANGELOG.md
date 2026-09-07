@@ -8,6 +8,23 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.120.0] - 2026-09-07
+
+### Added
+
+- Tenrai's public tier (no server key) caps out at 120 requests/minute,
+  4 requests/second. Steady-state Spool usage never comes close, but a
+  batch-style caller with no pacing of its own could: a cold
+  `get_episode_filler_map` fetch (up to 10 sequential pages), an anime's
+  full `get_season_episode_offset` Sequel-chain walk (up to 6 hops), or
+  `reconcile_episode_seasons`'s per-episode backfill loop triggering
+  either across many titles in one run. Every outbound Tenrai request
+  now goes through a shared pacing guard that keeps this process (and,
+  since the cache backend is shared Redis in production, every worker
+  together) under ~3 requests/second, and a request that still comes
+  back 429 is retried once after honoring the response's `Retry-After`
+  header, instead of the failure just propagating up as a no-match.
+
 ## [0.119.0] - 2026-09-07
 
 ### Changed

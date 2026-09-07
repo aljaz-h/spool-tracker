@@ -13718,6 +13718,115 @@ class TenraiFindMatchTests(TestCase):
         self.assertIsNone(tenrai.find_match("Bleach"))
 
 
+@override_settings(
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
+    TENRAI_THROTTLE_ENABLED=True,
+)
+class TenraiThrottleTests(TestCase):
+    """tenrai._throttle - the pacing guard added so a batch-style caller
+    (reconcile_episode_seasons, a cold filler-map fetch, a Sequel-chain
+    walk) can't burst past Tenrai's public-tier 4 RPS ceiling. Disabled
+    during the real test suite via settings.TENRAI_THROTTLE_ENABLED (see
+    settings.py) since it sleeps on real wall-clock seconds - explicitly
+    re-enabled here, with time.time/time.sleep mocked out so this class
+    itself never actually waits."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    @patch("tracker.integrations.tenrai.time.sleep")
+    @patch("tracker.integrations.tenrai.time.time", return_value=1000.0)
+    def test_allows_requests_up_to_the_per_second_cap_without_sleeping(self, mock_time, mock_sleep):
+        for _ in range(tenrai._MAX_REQUESTS_PER_SECOND):
+            tenrai._throttle()
+        mock_sleep.assert_not_called()
+
+    @patch("tracker.integrations.tenrai.time.sleep")
+    @patch("tracker.integrations.tenrai.time.time")
+    def test_sleeps_once_the_cap_is_exceeded_then_resumes_in_the_next_window(self, mock_time, mock_sleep):
+        # time.time() reports the same window until the first sleep() call
+        # happens, then jumps forward a second - simulating real time
+        # passing while _throttle is blocked, without an actual wait.
+        mock_time.side_effect = lambda: 1000.0 if mock_sleep.call_count == 0 else 1001.0
+
+        for _ in range(tenrai._MAX_REQUESTS_PER_SECOND):
+            tenrai._throttle()
+        mock_sleep.assert_not_called()
+
+        tenrai._throttle()  # one over budget in the same window
+        mock_sleep.assert_called_once()
+
+    @patch("django.core.cache.cache.incr", side_effect=Exception("cache down"))
+    def test_degrades_to_unpaced_when_the_cache_backend_is_unreachable(self, mock_incr):
+        tenrai._throttle()  # must not raise
+
+
+class TenraiThrottleDisabledInTestsTests(TestCase):
+    """Confirms settings.TENRAI_THROTTLE_ENABLED actually does what its own
+    comment in settings.py claims: off by default under `manage.py test`,
+    so every other Tenrai test in this suite never pays a real sleep."""
+
+    @patch("tracker.integrations.tenrai.time.sleep")
+    def test_throttle_is_a_no_op_under_the_real_test_settings(self, mock_sleep):
+        for _ in range(tenrai._MAX_REQUESTS_PER_SECOND + 5):
+            tenrai._throttle()
+        mock_sleep.assert_not_called()
+
+
+class TenraiGetTests(TestCase):
+    """tenrai._get - the requests.get wrapper every Tenrai call site goes
+    through, on top of pacing itself (_throttle, tested separately):
+    retries exactly once on a 429, honoring Retry-After."""
+
+    def _response(self, status_code=200, headers=None):
+        resp = Mock()
+        resp.status_code = status_code
+        resp.headers = headers or {}
+        return resp
+
+    @patch("tracker.integrations.tenrai.time.sleep")
+    @patch("tracker.integrations.tenrai.requests.get")
+    def test_a_normal_response_is_returned_without_retrying(self, mock_get, mock_sleep):
+        mock_get.return_value = self._response(200)
+        resp = tenrai._get("https://api.tenrai.org/v1/anime", params={"q": "Bleach"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(mock_get.call_count, 1)
+        mock_sleep.assert_not_called()
+
+    @patch("tracker.integrations.tenrai.time.sleep")
+    @patch("tracker.integrations.tenrai.requests.get")
+    def test_a_429_is_retried_once_after_sleeping_for_retry_after(self, mock_get, mock_sleep):
+        mock_get.side_effect = [self._response(429, headers={"Retry-After": "2"}), self._response(200)]
+        resp = tenrai._get("https://api.tenrai.org/v1/anime")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(mock_get.call_count, 2)
+        mock_sleep.assert_called_once_with(2.0)
+
+    @patch("tracker.integrations.tenrai.time.sleep")
+    @patch("tracker.integrations.tenrai.requests.get")
+    def test_a_missing_retry_after_header_defaults_to_one_second(self, mock_get, mock_sleep):
+        mock_get.side_effect = [self._response(429), self._response(200)]
+        tenrai._get("https://api.tenrai.org/v1/anime")
+        mock_sleep.assert_called_once_with(1.0)
+
+    @patch("tracker.integrations.tenrai.time.sleep")
+    @patch("tracker.integrations.tenrai.requests.get")
+    def test_a_huge_retry_after_is_capped_at_five_seconds(self, mock_get, mock_sleep):
+        mock_get.side_effect = [self._response(429, headers={"Retry-After": "300"}), self._response(200)]
+        tenrai._get("https://api.tenrai.org/v1/anime")
+        mock_sleep.assert_called_once_with(5.0)
+
+    @patch("tracker.integrations.tenrai.time.sleep")
+    @patch("tracker.integrations.tenrai.requests.get")
+    def test_still_429_after_the_retry_is_returned_as_is_not_raised(self, mock_get, mock_sleep):
+        mock_get.side_effect = [self._response(429), self._response(429)]
+        resp = tenrai._get("https://api.tenrai.org/v1/anime")
+        self.assertEqual(resp.status_code, 429)
+        self.assertEqual(mock_get.call_count, 2)
+
+
 @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
 class TenraiResolveMalIdTests(TestCase):
     """tenrai.resolve_mal_id - a found id is cached permanently on the

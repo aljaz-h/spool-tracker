@@ -274,6 +274,16 @@ CACHES = {
 if "test" in sys.argv:
     CACHES["default"] = {"BACKEND": "django.core.cache.backends.dummy.DummyCache"}
 
+# tenrai.py paces its own outbound requests to stay under Tenrai's public-
+# tier 4 RPS ceiling (see tenrai._throttle) - real time.sleep() calls keyed
+# to actual wall-clock seconds. Fine in production, but pointless (and
+# slow/flaky) in a test: a test method that fires more than a handful of
+# mocked requests in one go (get_season_episode_offset's Sequel-chain hops,
+# get_episode_filler_map's pagination) has no real API to protect, and
+# would otherwise stall for up to a real second waiting for the throttle
+# window to roll over. Disabled here the same way CACHES is swapped above.
+TENRAI_THROTTLE_ENABLED = "test" not in sys.argv
+
 
 # Third-party API credentials (used by tracker/integrations, §6 of the addendum)
 
