@@ -16,7 +16,7 @@ Shared by tracker/integrations/nuvio.py and tracker/integrations/
 scrobble.py's own write paths - the same reconciliation regardless of
 which protocol reported the watch, so it isn't duplicated in both."""
 
-from .integrations import jikan, tmdb
+from .integrations import tenrai, tmdb
 from .models import MediaType
 
 
@@ -31,7 +31,7 @@ def resolve_episode_season(title, tmdb_id, season, episode_number):
     most likely a genuinely new season TMDB just hasn't added yet, not
     a split to reconcile, and guessing there would silently misfile it.
 
-    Anime-only: MyAnimeList (jikan.py) is the only offset source this
+    Anime-only: MyAnimeList (tenrai.py) is the only offset source this
     has, and it only covers anime. A non-anime show with the same kind
     of mismatch (rare, but not impossible for some foreign multi-cour
     series) is left as reported rather than guessed at.
@@ -55,10 +55,10 @@ def resolve_episode_season(title, tmdb_id, season, episode_number):
     if season in real_seasons or len(real_seasons) != 1:
         return season, episode_number
 
-    mal_id = jikan.resolve_mal_id(title)
+    mal_id = tenrai.resolve_mal_id(title)
     if mal_id is None:
         return season, episode_number
-    offset = jikan.get_season_episode_offset(mal_id, season)
+    offset = tenrai.get_season_episode_offset(mal_id, season)
     if offset is None:
         return season, episode_number
 

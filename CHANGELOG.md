@@ -8,6 +8,29 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.119.0] - 2026-09-07
+
+### Changed
+
+- Migrated the MyAnimeList integration (anime filler/recap flags, MAL
+  score/studio/source enrichment, and the season-reconciliation offset
+  lookup added in 0.118.0) from Jikan (api.jikan.moe), now shut down
+  entirely, to Tenrai (api.tenrai.org) - a schema-compatible successor
+  implementing the same Jikan v4 response shape, so this was a base URL
+  swap rather than a rewrite. `tracker/integrations/jikan.py` is now
+  `tenrai.py`; "MAL id"/`external_ids["mal"]` still mean the same thing
+  they always did - Tenrai just serves it now.
+
+### Fixed
+
+- The season-reconciliation MAL episode-count offset (0.118.0) was
+  silently never finding a Sequel relation for any anime, always
+  falling back to leaving the episode as reported - it was reading
+  `relations` off the plain `/anime/{id}` endpoint, which doesn't carry
+  that field (only `/anime/{id}/full` does, same split Jikan v4 itself
+  used). Fixed as part of the Tenrai migration; `reconcile_episode_seasons`
+  now actually resolves real cases end-to-end.
+
 ## [0.118.1] - 2026-09-07
 
 ### Fixed

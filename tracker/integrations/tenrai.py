@@ -1,19 +1,33 @@
-"""Jikan lookups - a free, unauthenticated, unofficial MyAnimeList API
-(https://api.jikan.moe/v4). Used purely to fill gaps TMDB has no data for
-at all: per-episode filler/recap status on the anime episode browser
-(views._episode_panel_context), plus a handful of MAL-specific detail-page
-facts (score, native Japanese title, studio, source material) TMDB either
-doesn't track for anime or tracks less precisely than MAL's own
-community - TMDB stays the source of truth for everything else
-(discovery, matching, posters, completion tracking).
+"""Tenrai lookups - a free, unofficial MyAnimeList API
+(https://api.tenrai.org/documentation) implementing the Jikan v4
+response schema. Used purely to fill gaps TMDB has no data for at all:
+per-episode filler/recap status on the anime episode browser
+(views._episode_panel_context), a handful of MAL-specific detail-page
+facts (score, native Japanese title, studio, source material) TMDB
+either doesn't track for anime or tracks less precisely than MAL's own
+community, and the per-cour episode-count offsets
+tracker/episode_matching.py needs to reconcile a player's own season
+split against TMDB's - TMDB stays the source of truth for everything
+else (discovery, matching, posters, completion tracking).
 
-Every function here is best-effort and silently returns None/empty on any
-failure - no match found, network error, Jikan's own upstream MAL proxy
-erroring (observed live: the search endpoint occasionally 504s, unlike
-the DB-backed episode endpoints which were reliable) - so a lookup
-failure never blocks the page it's attached to, same philosophy as
-tmdb.py. No API key needed, so unlike tmdb._api_key() there's nothing to
-gate on except the request itself succeeding.
+This used to talk to Jikan (api.jikan.moe) directly - migrated here
+once Jikan itself went down entirely. Tenrai deliberately mirrors
+Jikan v4's endpoints/response shape field-for-field (its own docs:
+"existing applications can point requests at this API instead of or
+alongside Jikan with only a base URL update"), which is why every
+function below still reads the same "mal_id"/"data" shape a Jikan
+integration would - "MAL id" throughout this module (and
+Title.external_ids["mal"]) still means a real MyAnimeList id; Tenrai
+is just the proxy currently serving it.
+
+Every function here is best-effort and silently returns None/empty on
+any failure - no match found, network error, a proxy outage (observed
+live against Jikan: the search endpoint occasionally 504s, unlike the
+DB-backed episode endpoints, which were reliable) - so a lookup failure
+never blocks the page it's attached to, same philosophy as tmdb.py. No
+API key needed for Tenrai's public tier (120 RPM/4 RPS/40,000 RPD, no
+credentials), so unlike tmdb._api_key() there's nothing to gate on
+except the request itself succeeding.
 """
 
 import hashlib
@@ -24,34 +38,34 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-API_BASE = "https://api.jikan.moe/v4"
+API_BASE = "https://api.tenrai.org/v1"
 
-# Jikan's public rate limit is modest (a few requests/second, tens/minute)
-# - fine for Spool's actual load (a handful of household profiles, results
-# cached well past any single session's needs) but real: their episodes
-# endpoint is paginated at ~100/episode/page, so a long-running show like
-# Bleach (366 episodes) needs a handful of sequential requests per cold
-# cache miss. _FILLER_TTL is a week (not tmdb.py's 6h _CACHE_TTL) since,
-# unlike trending lists, an aired episode's filler status never changes.
+# A few requests/second, tens/minute is fine for Spool's actual load (a
+# handful of household profiles, results cached well past any single
+# session's needs) but real: the episodes endpoint is paginated at
+# ~100/episode/page, so a long-running show like Bleach (366 episodes)
+# needs a handful of sequential requests per cold cache miss.
+# _FILLER_TTL is a week (not tmdb.py's 6h _CACHE_TTL) since, unlike
+# trending lists, an aired episode's filler status never changes.
 _FILLER_TTL = 7 * 24 * 3600
 _MAX_EPISODE_PAGES = 10  # guards against an unbounded loop on a malformed response
 
 
 def _cache_key(prefix, value):
-    return f"jikan:{prefix}:" + hashlib.sha1(json.dumps(value, sort_keys=True).encode()).hexdigest()
+    return f"tenrai:{prefix}:" + hashlib.sha1(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
 def find_match(name, year=None):
     """Returns {"mal_id": int} for the best search match, or None if
     nothing matched or the request failed. year (if given) only
     disambiguates between multiple results with the same name - an exact
-    match isn't required, since Jikan's own "year" field is sometimes
-    null even when a match is otherwise good."""
+    match isn't required, since the "year" field is sometimes null even
+    when a match is otherwise good."""
     try:
         resp = requests.get(f"{API_BASE}/anime", params={"q": name, "limit": 5}, timeout=10)
         resp.raise_for_status()
     except requests.RequestException:
-        logger.warning("Jikan search failed for %r", name, exc_info=True)
+        logger.warning("Tenrai search failed for %r", name, exc_info=True)
         return None
     results = resp.json().get("data") or []
     if not results:
@@ -65,7 +79,7 @@ def find_match(name, year=None):
 
 def get_episode_filler_map(mal_id):
     """Returns {episode_number: {"filler": bool, "recap": bool}} for every
-    episode Jikan knows about for this anime, or {} on failure. Cached as
+    episode Tenrai knows about for this anime, or {} on failure. Cached as
     a whole (not per-page) since callers only ever want the full map for
     one absolute episode number lookup at a time."""
     from django.core.cache import cache
@@ -74,7 +88,7 @@ def get_episode_filler_map(mal_id):
     try:
         cached = cache.get(key)
     except Exception:
-        logger.warning("Jikan filler-map cache read failed, continuing without cache", exc_info=True)
+        logger.warning("Tenrai filler-map cache read failed, continuing without cache", exc_info=True)
         cached = None
     if cached is not None:
         return cached
@@ -87,7 +101,7 @@ def get_episode_filler_map(mal_id):
             resp = requests.get(f"{API_BASE}/anime/{mal_id}/episodes", params={"page": page}, timeout=10)
             resp.raise_for_status()
         except requests.RequestException:
-            logger.warning("Jikan episodes request failed for mal_id=%s page=%s", mal_id, page, exc_info=True)
+            logger.warning("Tenrai episodes request failed for mal_id=%s page=%s", mal_id, page, exc_info=True)
             break
         payload = resp.json()
         for ep in payload.get("data") or []:
@@ -101,39 +115,45 @@ def get_episode_filler_map(mal_id):
         try:
             cache.set(key, filler_map, _FILLER_TTL)
         except Exception:
-            logger.warning("Jikan filler-map cache write failed, continuing without cache", exc_info=True)
+            logger.warning("Tenrai filler-map cache write failed, continuing without cache", exc_info=True)
     return filler_map
 
 
 def _get_raw_details(mal_id):
-    """Full cached Jikan /anime/{id} payload - shared by get_anime_details
+    """Full cached /anime/{id}/full payload - shared by get_anime_details
     (which narrows it to a handful of detail-page facts) and
     get_season_episode_offset (which needs episodes/relations instead),
     so a mal_id already looked up for one never costs a second request
-    for the other."""
+    for the other. /full specifically, not the plain /anime/{id} this
+    used to call - "relations" (the Sequel-chain data
+    get_season_episode_offset depends on) only exists on /full, same
+    endpoint split Jikan v4 itself uses; calling the plain endpoint
+    left get_season_episode_offset silently unable to find any relation
+    data at all, always falling back to "no offset found" regardless of
+    whether the anime actually had a Sequel entry."""
     from django.core.cache import cache
 
     key = _cache_key("raw", mal_id)
     try:
         cached = cache.get(key)
     except Exception:
-        logger.warning("Jikan raw-details cache read failed, continuing without cache", exc_info=True)
+        logger.warning("Tenrai raw-details cache read failed, continuing without cache", exc_info=True)
         cached = None
     if cached is not None:
         return cached
 
     try:
-        resp = requests.get(f"{API_BASE}/anime/{mal_id}", timeout=10)
+        resp = requests.get(f"{API_BASE}/anime/{mal_id}/full", timeout=10)
         resp.raise_for_status()
     except requests.RequestException:
-        logger.warning("Jikan anime details failed for mal_id=%s", mal_id, exc_info=True)
+        logger.warning("Tenrai anime details failed for mal_id=%s", mal_id, exc_info=True)
         return None
     data = resp.json().get("data") or {}
 
     try:
         cache.set(key, data, _FILLER_TTL)
     except Exception:
-        logger.warning("Jikan raw-details cache write failed, continuing without cache", exc_info=True)
+        logger.warning("Tenrai raw-details cache write failed, continuing without cache", exc_info=True)
     return data
 
 
@@ -212,24 +232,24 @@ def get_season_episode_offset(mal_id, virtual_season):
 
 _NO_MATCH_TTL = 3600  # 1 hour - short enough to retry once an outage clears, long enough that a
 # caller re-checking the same title many times in one run (e.g. once per episode - see
-# tracker/episode_matching.py's own reconcile_episode_seasons backfill) doesn't re-hit Jikan's
+# tracker/episode_matching.py's own reconcile_episode_seasons backfill) doesn't re-hit Tenrai's
 # live search for every single one, which risks tipping a transient 504 into a hard 429 (observed
 # live: a title with 25 affected episodes retried the same failing search 9 times in one run).
 
 
 def resolve_mal_id(title):
-    """Best-effort Jikan/MAL id resolution for an anime Title, matched by
-    name/year and cached onto external_ids["mal"] once found so it's only
-    ever looked up once - shared by the episode browser's filler overlay,
-    the detail page's MAL score/Japanese title/studio enrichment, and
-    tracker/episode_matching.py's season reconciliation.
+    """Best-effort MAL id resolution for an anime Title (via Tenrai),
+    matched by name/year and cached onto external_ids["mal"] once found
+    so it's only ever looked up once - shared by the episode browser's
+    filler overlay, the detail page's MAL score/Japanese title/studio
+    enrichment, and tracker/episode_matching.py's season reconciliation.
 
     Falls back to an exact-title match against AniFiller's own (much
-    smaller, ~180-show) bundle when Jikan's live search comes back empty
-    - either a genuine no-match, or Jikan's search endpoint having one of
+    smaller, ~180-show) bundle when Tenrai's live search comes back empty
+    - either a genuine no-match, or Tenrai's search endpoint having one of
     its occasional outages (see this module's own docstring). Either way,
     the id AniFiller supplies is a real MAL id, cached identically to one
-    Jikan found directly - anifiller.py's own per-episode data is a
+    Tenrai found directly - anifiller.py's own per-episode data is a
     separate, explicitly-secondary fallback, but a MAL id is a MAL id
     regardless of which source resolved it.
 
@@ -252,7 +272,7 @@ def resolve_mal_id(title):
     try:
         cached_no_match = cache.get(no_match_key)
     except Exception:
-        logger.warning("Jikan no-match cache read failed, continuing without cache", exc_info=True)
+        logger.warning("Tenrai no-match cache read failed, continuing without cache", exc_info=True)
         cached_no_match = None
     if cached_no_match:
         return None
@@ -263,7 +283,7 @@ def resolve_mal_id(title):
         try:
             cache.set(no_match_key, True, _NO_MATCH_TTL)
         except Exception:
-            logger.warning("Jikan no-match cache write failed, continuing without cache", exc_info=True)
+            logger.warning("Tenrai no-match cache write failed, continuing without cache", exc_info=True)
         return None
     title.external_ids["mal"] = mal_id
     title.save(update_fields=["external_ids"])

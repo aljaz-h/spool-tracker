@@ -48,7 +48,7 @@ from . import (
     selectors,
     tasks,
 )
-from .integrations import anifiller, gemini, jikan, mdblist, nuvio, simkl, tmdb, trakt
+from .integrations import anifiller, gemini, mdblist, nuvio, simkl, tenrai, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
@@ -794,20 +794,20 @@ def _star_fill(rating):
 
 
 
-def _anime_jikan_context(title):
+def _anime_mal_context(title):
     """MAL score/Japanese title/studio/source-material for the detail
-    hero - anime only, best-effort like every other jikan.py lookup: no
-    match or Jikan unreachable just means these keys are absent, same
-    "missing, not wrong" degrade as everywhere else Jikan is used. The
+    hero - anime only, best-effort like every other tenrai.py lookup: no
+    match or Tenrai unreachable just means these keys are absent, same
+    "missing, not wrong" degrade as everywhere else Tenrai is used. The
     MAL score is persisted as a real ExternalRating row (not just context)
     so it renders via the existing pill_badges.html alongside IMDb/RT/
     Trakt, instead of a bespoke one-off badge."""
     if title.media_type != MediaType.ANIME:
         return {}
-    mal_id = jikan.resolve_mal_id(title)
+    mal_id = tenrai.resolve_mal_id(title)
     if mal_id is None:
         return {}
-    details = jikan.get_anime_details(mal_id)
+    details = tenrai.get_anime_details(mal_id)
     if not details:
         return {}
     if details.get("score") is not None:
@@ -828,7 +828,7 @@ def _media_gallery_context(title, tmdb_media_type, tmdb_id):
     the same trailer/gallery a real title's page does. title is None on
     a preview page (no local row yet) - MAL trailer preference (anime
     only) needs a real Title to resolve a MAL id against
-    (jikan.resolve_mal_id caches it there), so a preview always falls
+    (tenrai.resolve_mal_id caches it there), so a preview always falls
     through to TMDB's own trailer even for an anime preview; once
     materialized, a later visit to the real page picks up MAL's instead
     if it has one TMDB doesn't.
@@ -844,9 +844,9 @@ def _media_gallery_context(title, tmdb_media_type, tmdb_id):
     re-deriving it from the DOM at click time."""
     trailer = None
     if title is not None and title.media_type == MediaType.ANIME:
-        mal_id = jikan.resolve_mal_id(title)
+        mal_id = tenrai.resolve_mal_id(title)
         if mal_id is not None:
-            mal_details = jikan.get_anime_details(mal_id)
+            mal_details = tenrai.get_anime_details(mal_id)
             youtube_id = (mal_details or {}).get("trailer_youtube_id")
             if youtube_id:
                 trailer = {"key": youtube_id}
@@ -1013,24 +1013,24 @@ def title_rating_pills_partial(request, pk):
 
 
 def _apply_anime_filler_flags(title, episodes, season, tv_details):
-    """Overlays Jikan's (MyAnimeList) per-episode filler/recap flags onto
+    """Overlays Tenrai's (MyAnimeList) per-episode filler/recap flags onto
     TMDB's season-relative episode list - TMDB has no filler data of its
-    own. Best-effort like every other tmdb.py/jikan.py lookup: no MAL
-    match, or Jikan unreachable/empty, just leaves every episode without
+    own. Best-effort like every other tmdb.py/tenrai.py lookup: no MAL
+    match, or Tenrai unreachable/empty, just leaves every episode without
     a "filler"/"recap" key, which title_episodes.html's `{% if
     ep.filler %}` already treats as falsy - never an error, never a
     wrong badge, just no badge.
 
     Falls back to anifiller.py's own (much narrower, static-dataset)
-    filler classification for any episode Jikan didn't have an answer
-    for - whether that's every episode (Jikan had nothing at all for
+    filler classification for any episode Tenrai didn't have an answer
+    for - whether that's every episode (Tenrai had nothing at all for
     this show, or was unreachable) or just a gap in an otherwise-populated
-    map. Never the other way around: a Jikan-provided flag always wins,
+    map. Never the other way around: a Tenrai-provided flag always wins,
     since the two sources occasionally disagree (see anifiller.py's own
-    docstring) and Jikan's is the one actually keyed by filler *and*
+    docstring) and Tenrai's is the one actually keyed by filler *and*
     recap, not just filler.
 
-    TMDB's episode_number is season-relative; Jikan's (and AniFiller's)
+    TMDB's episode_number is season-relative; Tenrai's (and AniFiller's)
     is the show's whole absolute count (MAL doesn't split most shows into
     per-season entries), bridged by summing every earlier season's
     episode_count from tv_details (already fetched by the caller for
@@ -1038,11 +1038,11 @@ def _apply_anime_filler_flags(title, episodes, season, tv_details):
     on why this doesn't hold for the (uncommon) anime MAL splits into
     separate per-season entries instead: those just silently get no
     badges for that season, not wrong ones."""
-    mal_id = jikan.resolve_mal_id(title)
+    mal_id = tenrai.resolve_mal_id(title)
     if mal_id is None:
         return
 
-    filler_map = jikan.get_episode_filler_map(mal_id)
+    filler_map = tenrai.get_episode_filler_map(mal_id)
     fallback_types = anifiller.get_episode_types(mal_id)
     if not filler_map and not fallback_types:
         return
@@ -1233,7 +1233,7 @@ def title_detail(request, pk):
         **local_context,
         **episode_context,
         **_recommend_context(profile, title),
-        **_anime_jikan_context(title),
+        **_anime_mal_context(title),
         **_mdblist_ratings_context(title),
         **collection_context,
         **media_gallery_context,
@@ -1879,7 +1879,7 @@ def title_mark_season_watched(request, pk, season):
     request.GET, which this POST doesn't carry.
 
     canon_only=1 (anime only - the "Mark episodes" popover's own second
-    row) skips any episode Jikan/AniFiller flags as filler or recap (see
+    row) skips any episode Tenrai/AniFiller flags as filler or recap (see
     _apply_anime_filler_flags), so a catch-up only logs plays for the
     episodes that actually carry the story forward. A non-anime title or
     one with no filler data at all just marks every episode, same as
@@ -2233,7 +2233,7 @@ def _get_or_create_preview_title(media_type, tmdb_id):
     external_ids, while media_type itself decides local classification,
     so an anime preview materializes as MediaType.ANIME (the filler-badge/
     MAL-enrichment code below is gated on exactly that - see
-    _apply_anime_filler_flags/_anime_jikan_context) rather than a plain
+    _apply_anime_filler_flags/_anime_mal_context) rather than a plain
     MediaType.TV that code never looks at."""
     tmdb_kind = _tmdb_kind(media_type)
     title = Title.objects.filter(external_ids__tmdb=str(tmdb_id), external_ids__tmdb_kind=tmdb_kind).first()

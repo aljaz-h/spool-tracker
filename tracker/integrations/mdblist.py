@@ -13,7 +13,7 @@ fetch): GET https://api.mdblist.com/tmdb/{movie|show}/{tmdbId}?apikey=...
 headers. Every function here is best-effort and never raises to its caller
 - no API key configured, no match, rate-limited, network error - so a
 lookup failure never blocks the page/task it's attached to, same
-philosophy as tmdb.py/jikan.py.
+philosophy as tmdb.py/tenrai.py.
 """
 
 import logging

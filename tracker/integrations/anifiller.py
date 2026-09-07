@@ -1,31 +1,32 @@
 """AniFiller (https://github.com/AniraTeam/AniFiller) - a small,
 community-curated static dataset of canon/filler episode classifications
 for ~180 long-running, manga-adapted anime. Used purely as a fallback for
-jikan.py's own filler/recap lookup (see views._apply_anime_filler_flags/
-_resolve_mal_id) when Jikan has nothing usable for a title - either
-because MAL's own community tagging never covered it, or because Jikan's
-search endpoint is having one of its occasional outages (see jikan.py's
-own docstring; observed live while investigating this).
+tenrai.py's own filler/recap lookup (see views._apply_anime_filler_flags/
+tenrai.resolve_mal_id) when Tenrai has nothing usable for a title -
+either because MAL's own community tagging never covered it, or because
+Tenrai's search endpoint is having one of its occasional outages (see
+tenrai.py's own docstring; observed live while investigating this).
 
-Unlike jikan.py, this isn't a live query API - it's a single JSON bundle
-published as a GitHub Release asset, fetched whole and cached, then
-looked up in memory. Coverage is far narrower than Jikan's in show count
-(~180 curated titles vs. whatever MAL has tagged for any anime), but
-those 180 are exactly the long-running, source-material-adapted shows
-filler is actually a real phenomenon for (Naruto, Bleach, One Piece,
-Fairy Tail, Detective Conan, Gintama, the Dragon Ball franchise, ...), so
-real-world coverage for this feature is better than the show count alone
-suggests.
+Unlike tenrai.py, this isn't a live query API - it's a single JSON
+bundle published as a GitHub Release asset, fetched whole and cached,
+then looked up in memory. Coverage is far narrower than MAL's in show
+count (~180 curated titles vs. whatever MAL has tagged for any anime),
+but those 180 are exactly the long-running, source-material-adapted
+shows filler is actually a real phenomenon for (Naruto, Bleach, One
+Piece, Fairy Tail, Detective Conan, Gintama, the Dragon Ball
+franchise, ...), so real-world coverage for this feature is better than
+the show count alone suggests.
 
-Deliberately never treated as authoritative on its own - Jikan is tried
-first for both MAL id resolution and per-episode filler/recap flags; this
-only fills in whatever Jikan came back without. The two sources can
-disagree (confirmed live: Black Clover episode 66 is tagged "recap" by
-Jikan/MAL but "filler" by AniFiller) - this module never overrides a
-Jikan-provided answer, only supplies one where Jikan had none. It also
-has no separate "recap" category (just manga-canon/anime-canon/
-mixed-manga/filler), so it can only ever contribute a Filler badge, never
-a Recap one - that distinction still comes from Jikan alone."""
+Deliberately never treated as authoritative on its own - Tenrai is
+tried first for both MAL id resolution and per-episode filler/recap
+flags; this only fills in whatever Tenrai came back without. The two
+sources can disagree (confirmed live: Black Clover episode 66 is
+tagged "recap" by MAL but "filler" by AniFiller) - this module never
+overrides a Tenrai-provided answer, only supplies one where Tenrai had
+none. It also has no separate "recap" category (just manga-canon/
+anime-canon/mixed-manga/filler), so it can only ever contribute a
+Filler badge, never a Recap one - that distinction still comes from
+MAL (via Tenrai) alone."""
 
 import logging
 
@@ -35,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 BUNDLE_URL = "https://github.com/AniraTeam/AniFiller/releases/latest/download/anifiller.min.json"
 
-# A week - same staleness tolerance as jikan.py's own filler-map cache
+# A week - same staleness tolerance as tenrai.py's own filler-map cache
 # (aired episodes' classification doesn't change, and this whole bundle
 # is a single static release asset anyway).
 _BUNDLE_TTL = 7 * 24 * 3600
@@ -74,7 +75,7 @@ def _bundle():
 
 def find_mal_id_by_name(name):
     """Case-insensitive exact match against AniFiller's own show titles -
-    only ever consulted when Jikan's own (fuzzy, live-searched) match
+    only ever consulted when Tenrai's own (fuzzy, live-searched) match
     fails, so this deliberately doesn't attempt any fuzzy matching of its
     own: an exact-title miss just means no fallback id, not a wrong one."""
     name_lower = name.strip().lower()
