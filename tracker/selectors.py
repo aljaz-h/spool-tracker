@@ -1567,11 +1567,30 @@ def plain_watch_count(profile, title):
     which would falsely claim the whole thing is done. Scoped to the
     plain events title_mark_watched/title_unmark_watched/
     title_unmark_last_watched actually own, not the episode browser's
-    own separate, always-append rewatch log. Shared by title_local_context
-    (the detail page's single-title case, which only ever renders this
-    button for movies - see title_detail.html) and _badge_watch_counts'
-    own movie branch below."""
+    own separate, always-append rewatch log. A movie's own figure for
+    title_watch_count/_badge_watch_counts below, and what the movie
+    header popover's "Remove last/all watched" actions themselves
+    operate on."""
     return WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=True).count()
+
+
+def title_watch_count(profile, title):
+    """Single-title version of _badge_watch_counts, for the title detail
+    page's own header "Watched" button (title_local_context) - the
+    library grids' poster card badge uses the batched version instead,
+    but both need to agree on the same number for the same title. See
+    _badge_watch_counts for exactly what this means for a show vs. a
+    movie (a movie's plain-event count; a show's minimum watch count
+    across every locally-known episode)."""
+    if title.media_type == MediaType.MOVIE:
+        return plain_watch_count(profile, title)
+    counts = list(
+        WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=False)
+        .values("episode_id")
+        .annotate(n=Count("id"))
+        .values_list("n", flat=True)
+    )
+    return min(counts) if counts else plain_watch_count(profile, title)
 
 
 def _badge_watch_counts(profile, titles):
@@ -1655,7 +1674,7 @@ def title_local_context(profile, title):
     in_list_ids = set(
         WatchListItem.objects.filter(watchlist__profile=profile, title=title).values_list("watchlist_id", flat=True)
     )
-    watch_count = plain_watch_count(profile, title)
+    watch_count = title_watch_count(profile, title)
     return {
         **title_watch_history_context(profile, title),
         "latest_rating": latest_rating,
@@ -1687,6 +1706,21 @@ def watched_episode_numbers(profile, title, season):
         WatchEvent.objects.filter(profile=profile, title=title, episode__season=season).values_list(
             "episode__episode", flat=True
         )
+    )
+
+
+def watched_episode_play_counts(profile, title, season):
+    """{episode_number: play count} for the given season - the episode
+    browser's per-tile ×N badge (episode_watched_button.html), same
+    "how many times has this exact episode been played" figure the
+    "manage plays" popover's own Watch again/Remove last/Remove all
+    actions already operate on, just finally surfaced instead of only
+    ever being a boolean checkmark."""
+    return dict(
+        WatchEvent.objects.filter(profile=profile, title=title, episode__season=season)
+        .values_list("episode__episode")
+        .annotate(n=Count("id"))
+        .order_by()
     )
 
 

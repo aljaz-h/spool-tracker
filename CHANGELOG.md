@@ -8,6 +8,27 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.121.0] - 2026-09-08
+
+### Added
+
+- A rewatch of a TV/anime title was invisible on its own detail page -
+  you could see a poster's `×N` badge in a library grid, but clicking
+  through showed nothing beyond a plain checkmark, and there was no way
+  to see (or log) how many times one specific episode had been
+  rewatched versus just the whole season. TV/anime titles now get their
+  own header "Watched" button (the same control movies already had),
+  showing the same `×N` figure the poster card's own badge already
+  used, with a popover offering whole-show and per-season actions -
+  wording switches from "Mark ... watched" to "Watch ... again" once
+  that scope is already fully watched, alongside unmark options for
+  both. The episode browser's own checkmark also gained its own `×N`
+  badge and an updated "manage plays" popover header, so a specific
+  episode's rewatch count is visible without leaving the page - all
+  reusing the exact same mark/unmark actions the episode browser's
+  existing "Mark episodes" popover already had, kept in sync wherever
+  triggered from.
+
 ## [0.120.0] - 2026-09-07
 
 ### Added

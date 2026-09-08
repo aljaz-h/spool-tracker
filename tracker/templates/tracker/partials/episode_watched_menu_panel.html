@@ -1,8 +1,8 @@
 {% load icons tracker_extras %}
-{# context: title (Title), season, episode_number, id_suffix (str, optional) - the episode watched button's popover menu, mirrors watched_menu_panel.html but scoped to a single episode instead of the whole title. Each POST button targets "closest div.relative" (episode_watched_button.html's own wrapper). #}
+{# context: title (Title), season, episode_number, watch_count (int - how many plays this exact episode has, shown next to the header so a rewatch is visible without leaving this popover), id_suffix (str, optional) - the episode watched button's popover menu, mirrors watched_menu_panel.html but scoped to a single episode instead of the whole title. Each POST button targets "closest div.relative" (episode_watched_button.html's own wrapper). #}
 <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1 border-b border-line">
   <div class="min-w-0">
-    <div class="font-semibold text-sm">Watched</div>
+    <div class="font-semibold text-sm">Watched{% if watch_count > 1 %} &times;{{ watch_count }}{% endif %}</div>
     <div class="text-xs text-ink-faint truncate">S{{ season }}E{{ episode_number }} · {{ title.name }}</div>
   </div>
   <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 flex-none">{% icon "x" "w-4 h-4" %}</button>

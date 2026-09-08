@@ -65,6 +65,16 @@ urlpatterns = [
         views.title_unmark_all_seasons_watched,
         name="title_unmark_all_seasons_watched",
     ),
+    path(
+        "titles/<int:pk>/episodes/<int:season>/rewatch-season/",
+        views.title_rewatch_season,
+        name="title_rewatch_season",
+    ),
+    path(
+        "titles/<int:pk>/rewatch-all-seasons/",
+        views.title_rewatch_all_seasons,
+        name="title_rewatch_all_seasons",
+    ),
     path("titles/<int:pk>/rate/", views.title_rate, name="title_rate"),
     path("titles/<int:pk>/recommend/", views.send_recommendation, name="send_recommendation"),
     path("recommendations/<int:pk>/dismiss/", views.dismiss_recommendation, name="dismiss_recommendation"),

@@ -8075,6 +8075,39 @@ class EpisodeBrowserSelectorTests(TestCase):
     def test_watched_episode_counts_by_season_empty_with_no_history(self):
         self.assertEqual(selectors.watched_episode_counts_by_season(self.profile, self.show), {})
 
+    def test_watched_episode_play_counts_scoped_to_the_given_season(self):
+        from django.utils import timezone
+
+        e1 = self._watch(season=1, episode_num=1)
+        WatchEvent.objects.create(profile=self.profile, title=self.show, episode=e1.episode, watched_at=timezone.now())
+        self._watch(season=1, episode_num=2)
+        self._watch(season=2, episode_num=1)
+        self.assertEqual(selectors.watched_episode_play_counts(self.profile, self.show, season=1), {1: 2, 2: 1})
+        self.assertEqual(selectors.watched_episode_play_counts(self.profile, self.show, season=2), {1: 1})
+        self.assertEqual(selectors.watched_episode_play_counts(self.profile, self.show, season=99), {})
+
+    def test_title_watch_count_is_the_minimum_across_locally_known_episodes(self):
+        from django.utils import timezone
+
+        e1 = self._watch(season=1, episode_num=1)
+        WatchEvent.objects.create(profile=self.profile, title=self.show, episode=e1.episode, watched_at=timezone.now())
+        self._watch(season=1, episode_num=2)
+        # Episode 1 has 2 plays, episode 2 has 1 - the minimum (1) is what
+        # the header button's own ×N badge shows, same figure the poster
+        # card's badge already used (selectors._badge_watch_counts).
+        self.assertEqual(selectors.title_watch_count(self.profile, self.show), 1)
+
+    def test_title_watch_count_zero_with_no_history(self):
+        self.assertEqual(selectors.title_watch_count(self.profile, self.show), 0)
+
+    def test_title_watch_count_falls_back_to_plain_events_for_a_movie(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Oppenheimer", year=2023)
+        from django.utils import timezone
+
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=timezone.now())
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=timezone.now())
+        self.assertEqual(selectors.title_watch_count(self.profile, movie), 2)
+
 
 class DailyBreakdownTests(TestCase):
     def setUp(self):
@@ -12962,9 +12995,13 @@ class TitleDetailViewTests(TestCase):
         self.assertEqual(resp.context["watch_count"], 2)
         self.assertContains(resp, "&times;2")
 
-    def test_header_stays_unwatched_when_only_episode_level_history_exists(self):
-        # A show watched only via the episode browser (no whole-title
-        # header click yet) shouldn't falsely claim to be fully done.
+    def test_header_reflects_episode_level_watch_count(self):
+        # A show watched only via the episode browser (no separate
+        # whole-title action) now surfaces in the header's own "Watched"
+        # button too, via the same per-episode-minimum figure the poster
+        # card's own ×N badge already used (selectors.title_watch_count)
+        # - see test_tv_titles_get_their_own_header_watched_button for
+        # the button/popover itself.
         from django.utils import timezone
 
         show = Title.objects.create(
@@ -12975,21 +13012,23 @@ class TitleDetailViewTests(TestCase):
         WatchEvent.objects.create(profile=self.profile, title=show, episode=episode, watched_at=timezone.now())
         with patch("tracker.integrations.tmdb.get_full_details", return_value=None):
             resp = self.client.get(reverse("title_detail", args=[show.pk]))
-        self.assertFalse(resp.context["is_watched"])
-        # Shows don't get the movie-style single header "Watched" control
-        # at all (see test_header_button_is_movie_only) - nothing to
-        # assert about its state here beyond the context flag above.
-        self.assertNotContains(resp, "+ Mark as Watched")
-        self.assertNotContains(resp, "&#10003; Watched")
+        self.assertTrue(resp.context["is_watched"])
+        self.assertEqual(resp.context["watch_count"], 1)
+        self.assertContains(resp, "&#10003; Watched")
 
-    def test_header_button_is_movie_only(self):
+    def test_tv_titles_get_their_own_header_watched_button(self):
+        # TV/anime don't get the movie-only single-toggle title_mark_watched
+        # action, but do get their own header "Watched" control (see
+        # title_tv_watched_button.html) - a whole-show/season bulk-actions
+        # popover instead of a single WatchEvent toggle.
         show = Title.objects.create(
             media_type=MediaType.TV, name="A Show", year=2021, external_ids={"tmdb": "88", "tmdb_kind": "tv"},
         )
         with patch("tracker.integrations.tmdb.get_full_details", return_value=None):
             resp = self.client.get(reverse("title_detail", args=[show.pk]))
-        self.assertNotContains(resp, "+ Mark as Watched")
+        self.assertContains(resp, "+ Mark as Watched")
         self.assertNotContains(resp, reverse("title_mark_watched", args=[show.pk]))
+        self.assertContains(resp, reverse("title_mark_all_seasons_watched", args=[show.pk]))
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -15758,6 +15797,226 @@ class TitleUnmarkAllSeasonsWatchedTests(TestCase):
         self.assertContains(resp, 'id="history-card"')
         self.assertContains(resp, 'hx-swap-oob="true"')
 
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details", return_value=None)
+    def test_response_includes_the_hero_watched_button_oob_fragment(self, mock_season, mock_details, mock_tv_details):
+        self._watch(1, 1)
+        resp = self.client.post(reverse("title_unmark_all_seasons_watched", args=[self.title.pk]))
+        self.assertContains(resp, f'id="tv-watched-wrap-{self.title.pk}"')
+        self.assertContains(resp, "+ Mark as Watched")
+
+
+class TitleRewatchSeasonTests(TestCase):
+    """The hero "Watched" button's per-season "Watch again" action - the
+    rewatch counterpart to title_mark_season_watched, logging a fresh
+    play for every episode instead of only catching up gaps."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.timezone = timezone
+        user = User.objects.create_user("seasonrewatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="SeasonRewatcher")
+        self.client.login(username="seasonrewatcher", password="pass12345")
+        self.title = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99", "tmdb_kind": "tv"},
+        )
+
+    def _watch(self, season, episode_number):
+        ep = Episode.objects.create(title=self.title, season=season, episode=episode_number)
+        WatchEvent.objects.create(profile=self.profile, title=self.title, episode=ep, watched_at=self.timezone.now())
+        return ep
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_logs_a_fresh_play_for_every_episode_regardless_of_existing_plays(self, mock_season, mock_details):
+        self._watch(1, 1)
+        self._watch(1, 2)
+        mock_season.return_value = {
+            "episodes": [{"episode_number": 1, "name": "Freedom Day"}, {"episode_number": 2, "name": "Holston's Pick"}]
+        }
+        resp = self.client.post(reverse("title_rewatch_season", args=[self.title.pk, 1]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(WatchEvent.objects.filter(profile=self.profile, title=self.title, episode__season=1).count(), 4)
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_new_plays_are_flagged_as_rewatches(self, mock_season, mock_details):
+        self._watch(1, 1)
+        mock_season.return_value = {"episodes": [{"episode_number": 1, "name": "Freedom Day"}]}
+        self.client.post(reverse("title_rewatch_season", args=[self.title.pk, 1]))
+        events = list(
+            WatchEvent.objects.filter(profile=self.profile, title=self.title, episode__season=1).order_by("watched_at")
+        )
+        self.assertEqual(len(events), 2)
+        self.assertFalse(events[0].is_rewatch)
+        self.assertTrue(events[1].is_rewatch)
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("title_rewatch_season", args=[self.title.pk, 1]))
+        self.assertNotEqual(resp.status_code, 200)
+
+    def test_requires_post(self):
+        resp = self.client.get(reverse("title_rewatch_season", args=[self.title.pk, 1]))
+        self.assertEqual(resp.status_code, 405)
+
+
+class TitleRewatchAllSeasonsTests(TestCase):
+    """The hero "Watched" button's whole-show "Watch all seasons again"
+    action - the rewatch counterpart to title_mark_all_seasons_watched."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.timezone = timezone
+        user = User.objects.create_user("showrewatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ShowRewatcher")
+        self.client.login(username="showrewatcher", password="pass12345")
+        self.title = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99", "tmdb_kind": "tv"},
+        )
+
+    def _watch(self, season, episode_number):
+        ep = Episode.objects.create(title=self.title, season=season, episode=episode_number)
+        WatchEvent.objects.create(profile=self.profile, title=self.title, episode=ep, watched_at=self.timezone.now())
+        return ep
+
+    def _details(self, number_of_seasons):
+        return {
+            "tmdb_id": 99, "media_type": "tv", "name": "Silo", "year": "2023",
+            "overview": "", "tagline": "", "genres": [], "runtime": None,
+            "number_of_seasons": number_of_seasons, "number_of_episodes": 30,
+            "backdrop_url": None, "poster_url": None, "vote_average": 7.0,
+            "vote_count": 100, "original_language": "en", "status": None,
+        }
+
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_logs_a_fresh_play_for_every_episode_of_every_season(
+        self, mock_details, mock_season, mock_tv_details
+    ):
+        self._watch(1, 1)
+        self._watch(2, 1)
+        mock_details.return_value = self._details(2)
+        # A callable, not a fixed list - _render_episodes_panel's own
+        # tail (building the primary response's visible episode list)
+        # calls get_season_details once more after the bulk rewatch
+        # itself already called it once per season.
+        mock_season.side_effect = lambda tmdb_id, season: {
+            "episodes": [{"episode_number": 1, "name": f"S{season}E1"}]
+        }
+        resp = self.client.post(reverse("title_rewatch_all_seasons", args=[self.title.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(WatchEvent.objects.filter(profile=self.profile, title=self.title, episode__isnull=False).count(), 4)
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("title_rewatch_all_seasons", args=[self.title.pk]))
+        self.assertNotEqual(resp.status_code, 200)
+
+    def test_requires_post(self):
+        resp = self.client.get(reverse("title_rewatch_all_seasons", args=[self.title.pk]))
+        self.assertEqual(resp.status_code, 405)
+
+
+class TitleTvWatchedButtonTests(TestCase):
+    """title_tv_watched_button.html / tv_watched_menu_panel.html - the
+    hero "Watched" control for TV/anime, and how its popover wording
+    switches between catch-up ("Mark...") and rewatch ("Watch...again")
+    phrasing based on show_completed and each season's own completion."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.timezone = timezone
+        user = User.objects.create_user("tvheroclicker", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="TvHeroClicker")
+        self.client.login(username="tvheroclicker", password="pass12345")
+        self.title = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99", "tmdb_kind": "tv"},
+        )
+
+    def _watch(self, season, episode_number):
+        ep = Episode.objects.create(title=self.title, season=season, episode=episode_number)
+        WatchEvent.objects.create(profile=self.profile, title=self.title, episode=ep, watched_at=self.timezone.now())
+        return ep
+
+    def _details(self, number_of_seasons):
+        return {
+            "tmdb_id": 99, "media_type": "tv", "name": "Silo", "year": "2023",
+            "overview": "", "tagline": "", "genres": [], "runtime": None,
+            "number_of_seasons": number_of_seasons, "number_of_episodes": 30,
+            "backdrop_url": None, "poster_url": None, "vote_average": 7.0,
+            "vote_count": 100, "original_language": "en", "status": None,
+        }
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    def test_never_watched_shows_the_primary_mark_button(self, mock_details):
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, "+ Mark as Watched")
+        self.assertNotContains(resp, "&#10003; Watched")
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    def test_any_episode_watched_shows_the_success_button_with_its_count(self, mock_details):
+        self._watch(1, 1)
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, "&#10003; Watched")
+        self.assertNotContains(resp, "+ Mark as Watched")
+
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_not_completed_offers_catch_up_wording(self, mock_details, mock_tv_details):
+        self._watch(1, 1)
+        mock_details.return_value = self._details(1)
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, "Mark all seasons watched")
+        self.assertNotContains(resp, "Watch all seasons again")
+
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_completed_offers_rewatch_and_unmark_wording(self, mock_details, mock_tv_details):
+        self._watch(1, 1)
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.COMPLETED)
+        mock_details.return_value = self._details(1)
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, "Watch all seasons again")
+        self.assertContains(resp, "Unmark all seasons watched")
+        self.assertNotContains(resp, "Mark all seasons watched")
+
+    @patch("tracker.integrations.tmdb.get_tv_details")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_a_fully_watched_season_offers_its_own_rewatch_row_even_when_the_show_isnt_complete(
+        self, mock_details, mock_tv_details
+    ):
+        self._watch(1, 1)
+        self._watch(2, 1)
+        mock_details.return_value = self._details(2)
+        mock_tv_details.return_value = {
+            "seasons": [
+                {"season_number": 1, "episode_count": 1},
+                {"season_number": 2, "episode_count": 5},
+            ]
+        }
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        # Season 1 (1/1 watched) offers its own rewatch/unmark icon
+        # buttons, even though season 2 (1/5) leaves the whole show
+        # incomplete and the header button itself is still in its
+        # catch-up wording.
+        self.assertContains(resp, "Watch Season 1 again")
+        self.assertContains(resp, "Unmark Season 1")
+        self.assertContains(resp, "Mark Season 2 watched")
+        self.assertContains(resp, "Mark all seasons watched")
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    def test_episode_mark_watched_keeps_the_hero_button_in_sync(self, mock_details):
+        with patch("tracker.integrations.tmdb.get_season_details", return_value=None):
+            resp = self.client.post(reverse("episode_mark_watched", args=[self.title.pk, 1, 1]), HTTP_HX_REQUEST="true")
+        self.assertContains(resp, f'id="tv-watched-wrap-{self.title.pk}"')
+        self.assertContains(resp, "&#10003; Watched")
+
 
 class PreviewEpisodeBrowserTests(TestCase):
     """A TV/anime title's episode browser should show up on its preview
@@ -16421,6 +16680,13 @@ class EpisodeMarkWatchedTests(TestCase):
         self.assertEqual(len(events), 2)
         self.assertFalse(events[0].is_rewatch)
         self.assertTrue(events[1].is_rewatch)
+
+    @patch("tracker.integrations.tmdb.get_season_details", return_value=None)
+    def test_a_second_click_shows_the_x2_badge_on_the_checkmark(self, mock_season):
+        self.client.post(reverse("episode_mark_watched", args=[self.title.pk, 1, 1]))
+        resp = self.client.post(reverse("episode_mark_watched", args=[self.title.pk, 1, 1]), HTTP_HX_REQUEST="true")
+        self.assertContains(resp, "&times;2")
+        self.assertContains(resp, "Watched &times;2")
 
     @patch("tracker.integrations.tmdb.get_season_details")
     def test_on_release_date_uses_the_episodes_own_air_date(self, mock_season):

@@ -1,0 +1,42 @@
+{% load icons %}
+{# context: title (Title, TV/anime), watch_count (int - selectors.title_watch_count: the least-rewatched locally-known episode's own play count), show_completed (bool - whether the whole show has a COMPLETED WatchProgress, drives the popover's mark-vs-rewatch wording), season_cards (list, from views._episode_panel_context - {"number", "total_episodes", "watched_count", ...} per season, drives the popover's own per-season rows), oob (bool, optional - true when appended to another response as an hx-swap-oob fragment, see views._hero_watched_button_oob) #}
+{% comment %}
+The header's "Watched" control for a show/anime - same visual/popover
+shape as title_detail_watched_button.html (movies), but there's no
+single WatchEvent a whole show can toggle, so every action here is a
+season- or whole-show-scoped bulk one instead (tv_watched_menu_panel.html),
+reusing the exact same bulk endpoints the episode browser's own "Mark
+episodes" popover further down already exposes (title_episodes.html) -
+this is a second entry point onto the same actions, not a separate
+feature, which is why both stay in sync via the OOB fragment
+_hero_watched_button_oob appends to every one of those actions'
+responses. One stable outer id (unlike title_detail_watched_button.html's
+two, one per branch) since this partial is only ever updated via that
+OOB swap, never as a direct hx-target of its own popover's buttons
+(those all target #episodes-panel instead, same as the "Mark episodes"
+popover's rows) - a single id that exists in both watch_count states
+keeps the swap matching regardless of which one is currently rendered.
+{% endcomment %}
+<div class="relative" id="tv-watched-wrap-{{ title.pk }}" {% if oob %}hx-swap-oob="true"{% endif %} x-data="{
+  open: false,
+  togglePanel(button) {
+    this.open = !this.open;
+    if (!this.open) return;
+    this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 304, false));
+  },
+}">
+  <button
+    type="button"
+    @click="togglePanel($el)"
+    :aria-expanded="open.toString()"
+    aria-haspopup="true"
+    class="btn btn-sm {% if watch_count > 0 %}bg-success/90 hover:bg-success border-success/60 text-success-content shadow-[0_0_18px_rgba(91,213,138,0.45)]{% else %}btn-primary{% endif %}"
+  >{% if watch_count > 0 %}&#10003; Watched{% if watch_count > 1 %} &times;{{ watch_count }}{% endif %}{% else %}+ Mark as Watched{% endif %}</button>
+  <div
+    x-ref="panel"
+    x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
+    class="fixed z-50 w-80 bg-base-200 border border-line rounded-xl p-2 shadow-xl"
+  >
+    {% include "tracker/partials/tv_watched_menu_panel.html" with title=title show_completed=show_completed season_cards=season_cards %}
+  </div>
+</div>

@@ -1160,8 +1160,10 @@ def _episode_panel_context(request, profile, title, tmdb_id, details, force_seas
     season_data = tmdb.get_season_details(tmdb_id, season)
     episodes = season_data["episodes"] if season_data else []
     watched = selectors.watched_episode_numbers(profile, title, season) if profile and title else set()
+    play_counts = selectors.watched_episode_play_counts(profile, title, season) if profile and title else {}
     for ep in episodes:
         ep["watched"] = ep["episode_number"] in watched
+        ep["watch_count"] = play_counts.get(ep["episode_number"], 0)
         ep["release_in"] = _episode_release_label(ep.get("air_date"))
     if episodes:
         episodes[-1]["is_finale"] = True
@@ -1720,6 +1722,7 @@ def episode_mark_watched(request, pk, season, episode_number):
     completion.sync_show_completion(profile, title)
     completion.sync_watchlist_removal(profile, title)
     recommendations.mark_title_watched(profile, title)
+    watch_count = WatchEvent.objects.filter(profile=profile, title=title, episode=episode).count()
     response = render(
         request,
         "tracker/partials/episode_watched_button.html",
@@ -1728,11 +1731,13 @@ def episode_mark_watched(request, pk, season, episode_number):
             "season": season,
             "episode_number": episode_number,
             "watched": True,
+            "watch_count": watch_count,
             "id_suffix": request.POST.get("id_suffix", ""),
             "preview_tmdb_id": None,
         },
     )
     response.write(_history_card_oob(request, profile, title))
+    response.write(_hero_watched_button_oob(request, profile, title))
     return response
 
 
@@ -1741,9 +1746,9 @@ def _episode_watched_button_response(request, profile, title, season, episode_nu
     re-renders the button/popover off whatever's left for this episode
     (episode_mark_watched builds its own response directly instead, since
     it always knows the answer is watched=True without a query)."""
-    watched = WatchEvent.objects.filter(
+    watch_count = WatchEvent.objects.filter(
         profile=profile, title=title, episode__season=season, episode__episode=episode_number
-    ).exists()
+    ).count()
     response = render(
         request,
         "tracker/partials/episode_watched_button.html",
@@ -1751,12 +1756,14 @@ def _episode_watched_button_response(request, profile, title, season, episode_nu
             "title": title,
             "season": season,
             "episode_number": episode_number,
-            "watched": watched,
+            "watched": watch_count > 0,
+            "watch_count": watch_count,
             "id_suffix": request.POST.get("id_suffix", ""),
             "preview_tmdb_id": None,
         },
     )
     response.write(_history_card_oob(request, profile, title))
+    response.write(_hero_watched_button_oob(request, profile, title))
     return response
 
 
@@ -1841,14 +1848,117 @@ def _mark_episodes_watched_bulk(profile, title, episode_specs):
     return created
 
 
+def _rewatch_episodes_bulk(profile, title, episode_specs):
+    """The rewatch counterpart to _mark_episodes_watched_bulk, shared by
+    title_rewatch_season/title_rewatch_all_seasons - unlike that one
+    (a catch-up, skips episodes that already have a play), this always
+    logs a fresh play for every episode in episode_specs. Only ever
+    offered once the scope in question (one season, or the whole show)
+    is already fully watched (tv_watched_menu_panel.html's own
+    show_completed/per-season gating), so every event created here is
+    guaranteed to come chronologically after at least one earlier play
+    of the same episode - is_rewatch is set directly at creation rather
+    than needing rewatches.recompute_is_rewatch's own reordering check,
+    which exists for imports that can arrive out of chronological order;
+    this can't. Returns how many plays were logged (always
+    len(episode_specs) - nothing is ever skipped)."""
+    now = timezone.now()
+    created = 0
+    for season, episode_number, name in episode_specs:
+        episode, _ = Episode.objects.get_or_create(
+            title=title, season=season, episode=episode_number, defaults={"name": name}
+        )
+        WatchEvent.objects.create(profile=profile, title=title, episode=episode, watched_at=now, is_rewatch=True)
+        created += 1
+    if created:
+        completion.sync_show_completion(profile, title)
+        completion.sync_watchlist_removal(profile, title)
+        recommendations.mark_title_watched(profile, title)
+    return created
+
+
+def _season_cards_and_completion(profile, title, details):
+    """The subset of season_cards/show_completed _episode_panel_context
+    computes, factored out so a caller that only needs *that* (the hero
+    watched button's own popover, _hero_watched_button_oob below) isn't
+    forced to also pay for a get_season_details call resolving and
+    fetching one particular season's full episode list - the rest of
+    what that function builds, and nothing this one needs. Same
+    get_tv_details-backed season_cards construction as
+    _episode_panel_context, just without the season-list tail."""
+    tmdb_id = title.external_ids.get("tmdb") if title else None
+    number_of_seasons = details["number_of_seasons"] if details else None
+    if not number_of_seasons:
+        return {"season_cards": [], "show_completed": False}
+    tv_details = tmdb.get_tv_details(tmdb_id) if tmdb_id else None
+    watched_counts_by_season = selectors.watched_episode_counts_by_season(profile, title) if profile and title else {}
+    tv_seasons_by_number = {s["season_number"]: s for s in tv_details["seasons"]} if tv_details else {}
+    season_cards = []
+    for n in range(1, number_of_seasons + 1):
+        tv_season = tv_seasons_by_number.get(n) or {}
+        total_episodes = tv_season.get("episode_count") or 0
+        watched_count = watched_counts_by_season.get(n, 0)
+        if total_episodes:
+            watched_count = min(watched_count, total_episodes)
+        season_cards.append({"number": n, "total_episodes": total_episodes, "watched_count": watched_count})
+    show_completed = (
+        WatchProgress.objects.filter(profile=profile, title=title, status=WatchProgress.Status.COMPLETED).exists()
+        if profile and title
+        else False
+    )
+    return {"season_cards": season_cards, "show_completed": show_completed}
+
+
+def _hero_watched_button_oob(request, profile, title, episode_context=None):
+    """Appended to an HTMX response body alongside the episode-panel/
+    history-card fragments so the detail page's own hero "Watched"
+    button (title_tv_watched_button.html, TV/anime only - a movie's own
+    header button is always the direct hx-target of its own popover
+    instead, so it never needs a second OOB update here) reflects a
+    mark/unmark/rewatch immediately, regardless of whether the action
+    was triggered from the hero's own popover or the episode browser's
+    "Mark episodes" one further down - both change the exact same
+    underlying watch state, so both need to keep this button in sync.
+
+    episode_context, when the caller already has one
+    (_render_episodes_panel always does, since it builds the full thing
+    for its own primary response anyway), is reused instead of
+    recomputing season_cards/show_completed a second time. Callers with
+    only a single episode's worth of context (episode_mark_watched and
+    friends) leave this None, so it's computed fresh here via
+    _season_cards_and_completion rather than the full
+    _episode_panel_context - deliberately avoids that function's own
+    get_season_details call (resolving whatever season happens to be
+    selected), which this button's own popover has no use for and which
+    episode_mark_watched already made its own single such call to
+    resolve the episode being toggled - see its own docstring."""
+    if title.media_type == MediaType.MOVIE:
+        return ""
+    if episode_context is None:
+        tmdb_id = title.external_ids.get("tmdb")
+        details = tmdb.get_full_details(tmdb.media_type_for(title), tmdb_id) if tmdb_id else None
+        episode_context = _season_cards_and_completion(profile, title, details)
+    return render_to_string(
+        "tracker/partials/title_tv_watched_button.html",
+        {
+            "title": title,
+            "watch_count": selectors.title_watch_count(profile, title),
+            "show_completed": episode_context.get("show_completed", False),
+            "season_cards": episode_context.get("season_cards", []),
+            "oob": True,
+        },
+        request=request,
+    )
+
+
 def _render_episodes_panel(request, profile, title, force_season=None, details=None):
     """Shared tail of every action that leaves the episode browser open on
     the same title (mark/unmark, single episode or bulk season/show):
     builds fresh episode-panel context and re-renders title_episodes.html
-    + the "Your history" OOB fragment. `details` lets a caller that
-    already fetched TMDB's full details (e.g. to enumerate every season
-    for a whole-show bulk action) pass it through instead of this
-    re-fetching it."""
+    + the "Your history"/hero-watched-button OOB fragments. `details`
+    lets a caller that already fetched TMDB's full details (e.g. to
+    enumerate every season for a whole-show bulk action) pass it through
+    instead of this re-fetching it."""
     tmdb_id = title.external_ids.get("tmdb")
     context = {
         "title": title,
@@ -1865,6 +1975,7 @@ def _render_episodes_panel(request, profile, title, force_season=None, details=N
         context.update(_episode_panel_context(request, profile, title, tmdb_id, details, force_season=force_season))
     response = render(request, "tracker/partials/title_episodes.html", context)
     response.write(_history_card_oob(request, profile, title))
+    response.write(_hero_watched_button_oob(request, profile, title, context))
     return response
 
 
@@ -1979,6 +2090,62 @@ def title_unmark_all_seasons_watched(request, pk):
     WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=False).delete()
     completion.sync_show_completion(profile, title)
     return _render_episodes_panel(request, profile, title)
+
+
+@login_required
+@require_POST
+def title_rewatch_season(request, pk, season):
+    """The hero "Watched" button's per-season "Watch again" action
+    (tv_watched_menu_panel.html) - only ever offered once that season is
+    already fully watched, so unlike title_mark_season_watched (a
+    catch-up) this always logs a fresh play for every episode TMDB
+    reports for the season, via _rewatch_episodes_bulk. Re-renders the
+    episode panel pinned to this same season, same as
+    title_mark_season_watched."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    tmdb_id = title.external_ids.get("tmdb")
+    details = None
+    if tmdb_id:
+        season_data = tmdb.get_season_details(tmdb_id, season)
+        episodes = season_data["episodes"] if season_data else []
+        _rewatch_episodes_bulk(
+            profile, title, [(season, ep["episode_number"], ep.get("name") or "") for ep in episodes]
+        )
+        details = tmdb.get_full_details(tmdb.media_type_for(title), tmdb_id)
+    return _render_episodes_panel(request, profile, title, force_season=season, details=details)
+
+
+@login_required
+@require_POST
+def title_rewatch_all_seasons(request, pk):
+    """The hero "Watched" button's whole-show "Watch all seasons again"
+    action - only offered once show_completed - the rewatch counterpart
+    to title_mark_all_seasons_watched, logging a fresh play for every
+    episode of every season via _rewatch_episodes_bulk instead of only
+    catching up gaps. Same per-season get_season_details enumeration as
+    title_mark_all_seasons_watched, for the same reason (real episode
+    names, not just a bare count)."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    tmdb_id = title.external_ids.get("tmdb")
+    details = None
+    if tmdb_id:
+        details = tmdb.get_full_details(tmdb.media_type_for(title), tmdb_id)
+        number_of_seasons = details["number_of_seasons"] if details else 0
+        episode_specs = []
+        for season in range(1, (number_of_seasons or 0) + 1):
+            season_data = tmdb.get_season_details(tmdb_id, season)
+            if season_data:
+                episode_specs.extend(
+                    (season, ep["episode_number"], ep.get("name") or "") for ep in season_data["episodes"]
+                )
+        _rewatch_episodes_bulk(profile, title, episode_specs)
+    return _render_episodes_panel(request, profile, title, details=details)
 
 
 @login_required

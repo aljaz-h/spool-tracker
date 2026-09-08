@@ -1,0 +1,96 @@
+{% load icons tracker_extras %}
+{# context: title (Title), show_completed (bool), season_cards (list of {"number", "total_episodes", "watched_count", ...}) - title_tv_watched_button.html's popover content. Every action here targets #episodes-panel (like title_episodes.html's own "Mark episodes" popover, not "closest div.relative") since the primary response is the episode browser re-rendering, not this button - the button's own visible state only ever updates via the OOB fragment that response carries alongside it (views._hero_watched_button_oob). #}
+<div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1 border-b border-line">
+  <div class="min-w-0">
+    <div class="font-semibold text-sm">Watched</div>
+    <div class="text-xs text-ink-faint truncate">{{ title.name }}</div>
+  </div>
+  <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 flex-none">{% icon "x" "w-4 h-4" %}</button>
+</div>
+
+<a href="{% url 'history' %}?title={{ title.pk }}" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300">
+  <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "history" "w-4 h-4" %}</span>
+  <span class="min-w-0">
+    <span class="block text-[13px] font-semibold">View history plays</span>
+    <span class="block text-[11px] text-ink-faint">See all your past watches</span>
+  </span>
+</a>
+
+{% if show_completed %}
+  <button type="button"
+    hx-post="{% url 'title_rewatch_all_seasons' title.pk %}"
+    hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+    hx-confirm="Log a fresh watch of every episode of every season of “{{ title.name }}”? This can take a moment for shows with many seasons."
+    class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
+  >
+    <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "eye" "w-4 h-4" %}</span>
+    <span class="min-w-0">
+      <span class="block text-[13px] font-semibold">Watch all seasons again</span>
+      <span class="block text-[11px] text-ink-faint">Add another play to every episode</span>
+    </span>
+  </button>
+  <button type="button"
+    hx-post="{% url 'title_unmark_all_seasons_watched' title.pk %}"
+    hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+    hx-confirm="Remove every watched mark for every season of “{{ title.name }}”? This can't be undone."
+    class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
+  >
+    <span class="w-8 h-8 rounded-full bg-error/15 flex items-center justify-center flex-none text-error">{% icon "trash-2" "w-4 h-4" %}</span>
+    <span class="min-w-0">
+      <span class="block text-[13px] font-semibold">Unmark all seasons watched</span>
+      <span class="block text-[11px] text-ink-faint">Remove every episode play</span>
+    </span>
+  </button>
+{% else %}
+  <button type="button"
+    hx-post="{% url 'title_mark_all_seasons_watched' title.pk %}"
+    hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+    hx-confirm="Mark every episode of every season of “{{ title.name }}” as watched? This can take a moment for shows with many seasons."
+    class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
+  >
+    <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "check" "w-4 h-4" %}</span>
+    <span class="min-w-0">
+      <span class="block text-[13px] font-semibold">Mark all seasons watched</span>
+      <span class="block text-[11px] text-ink-faint">Every episode, every season</span>
+    </span>
+  </button>
+{% endif %}
+
+{% if season_cards|length > 1 %}
+  <div class="border-t border-line mt-1 pt-1.5">
+    <div class="px-2 pb-1 text-[10.5px] font-semibold text-ink-faint uppercase tracking-wide">By season</div>
+    <div class="max-h-52 overflow-y-auto flex flex-col gap-0.5 pr-0.5">
+      {% for card in season_cards %}
+        <div class="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg hover:bg-base-300">
+          <div class="min-w-0 text-[12.5px] truncate">
+            <span class="font-semibold">Season {{ card.number }}</span>
+            {% if card.total_episodes %}<span class="text-ink-faint font-mono text-[11px] ml-1.5">{{ card.watched_count }}/{{ card.total_episodes }}</span>{% endif %}
+          </div>
+          <div class="flex items-center gap-1 flex-none">
+            {% if card.total_episodes and card.watched_count == card.total_episodes %}
+              <button type="button" title="Watch Season {{ card.number }} again"
+                hx-post="{% url 'title_rewatch_season' title.pk card.number %}"
+                hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+                hx-confirm="Log a fresh watch of every episode of Season {{ card.number }}?"
+                class="btn btn-square btn-xs bg-base-300 border-line text-ink-dim hover:text-base-content"
+              >{% icon "eye" "w-3.5 h-3.5" %}</button>
+              <button type="button" title="Unmark Season {{ card.number }}"
+                hx-post="{% url 'title_unmark_season_watched' title.pk card.number %}"
+                hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+                hx-confirm="Remove every watched mark for Season {{ card.number }}? This can't be undone."
+                class="btn btn-square btn-xs bg-error/15 border-error/30 text-error hover:bg-error/25"
+              >{% icon "eye-off" "w-3.5 h-3.5" %}</button>
+            {% else %}
+              <button type="button" title="Mark Season {{ card.number }} watched"
+                hx-post="{% url 'title_mark_season_watched' title.pk card.number %}"
+                hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+                hx-confirm="Mark every episode of Season {{ card.number }} as watched?"
+                class="btn btn-square btn-xs bg-base-300 border-line text-ink-dim hover:text-base-content"
+              >{% icon "check" "w-3.5 h-3.5" %}</button>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
