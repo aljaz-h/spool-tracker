@@ -8,6 +8,31 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.122.0] - 2026-09-13
+
+### Fixed
+
+- Movies & TV / Anime (and a person's filmography grid) ran up to ~2
+  queries per tile checking watched/watchlist state against the local
+  library, deliberately avoiding a batched `__in` lookup due to a
+  SQLite JSONField quirk - confirmed via Silk profiling against real
+  traffic at up to 263 queries on a single page load. Now two batched
+  queries total regardless of page size, each still using the same
+  exact-match comparison that avoids the SQLite issue, just OR'd
+  together instead of issued one at a time - 263 queries down to 18 on
+  the same page in a live check, ~3750ms down to ~420ms.
+- A title's detail/preview page fired its independent TMDB lookups
+  (cast, similar titles, watch providers) one after another instead of
+  concurrently - also confirmed via Silk, up to ~1.2s spent outside the
+  DB on a cold cache. These three now run in parallel via the same
+  `ThreadPoolExecutor` pattern `discover()` already used for its own
+  page fetches, with the TMDB API key resolved once up front and
+  passed through explicitly so the worker threads never independently
+  hit the database for it (concurrent SQLite access from multiple
+  threads at once surfaced as "database table is locked" while first
+  building this - the fix mirrors `discover()`'s own existing
+  workaround for the identical hazard).
+
 ## [0.121.0] - 2026-09-08
 
 ### Added

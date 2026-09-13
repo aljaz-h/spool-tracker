@@ -2,7 +2,9 @@
 spool-django-handoff.md §5 ("compute in a model method or manager, not in
 the template")."""
 
+import operator
 from datetime import timedelta
+from functools import reduce
 
 from django.db.models import Count, Q, Sum
 from django.db.models.functions import Coalesce, ExtractDay, ExtractHour, ExtractMonth
@@ -1791,12 +1793,19 @@ def discover_action_context(profile, items):
     a "similar" suggestion) always rendered as untracked - the whole
     reason this exists.
 
-    One .filter(...).first() per item to find its local Title, not a
-    batched __in - see views.search's own per-result TMDB dedupe check
-    for why: a JSONField key-transform's value round-trips through
-    SQLite's json_extract typed, silently breaking a str-vs-id membership
-    check under __in. Bounded to a page's worth of items (~20-24), same
-    as that existing per-result check.
+    Matched via two batched queries (one per tier below), not a per-item
+    .filter().first() and not a plain __in either - see views.search's
+    own per-result TMDB dedupe check for why __in itself is unsafe here:
+    a JSONField key-transform's value round-trips through SQLite's
+    json_extract typed, silently breaking a str-vs-id membership check.
+    Each clause below stays an *exact* equality comparison (just OR'd
+    together via Q objects instead of issued one query at a time), which
+    doesn't hit that bug - confirmed live via Silk profiling: this used
+    to run up to ~2 queries per item, measured at 263 queries on one real
+    Discover page load (up to a page's worth of items, further widened by
+    the "hide watched" display mode tripling the pool - see
+    DISCOVER_HIDE_MODE_PAGE_SIZE), now 2 queries total regardless of page
+    size.
 
     Matches on external_ids__tmdb_kind alongside external_ids__tmdb, not
     tmdb id alone - TMDB's movie and tv id numbering are separate
@@ -1829,22 +1838,54 @@ def discover_action_context(profile, items):
     once per title.
     """
     local_media_types_for_kind = {"movie": [MediaType.MOVIE], "tv": [MediaType.TV, MediaType.ANIME]}
+
+    # Tier 1: titles that already carry the right tmdb_kind - one query
+    # for every item at once, keyed on the exact (tmdb id, tmdb_kind) pair
+    # each clause already checks, so multiple items never collide even
+    # when a movie and a tv show share the same raw numeric tmdb id.
+    tier1_by_key = {}
+    tier1_clauses = [
+        Q(external_ids__tmdb=str(item["tmdb_id"]), external_ids__tmdb_kind=item["media_type"]) for item in items
+    ]
+    if tier1_clauses:
+        for title in Title.objects.filter(reduce(operator.or_, tier1_clauses)):
+            tier1_by_key[(title.external_ids.get("tmdb"), title.external_ids.get("tmdb_kind"))] = title
+
     matched_title_by_key = {}
+    unmatched_items = []
     for item in items:
         key = f"{item['media_type']}:{item['tmdb_id']}"
-        match = Title.objects.filter(
-            external_ids__tmdb=str(item["tmdb_id"]), external_ids__tmdb_kind=item["media_type"]
-        ).first()
+        match = tier1_by_key.get((str(item["tmdb_id"]), item["media_type"]))
+        matched_title_by_key[key] = match
         if match is None:
-            match = Title.objects.filter(
+            unmatched_items.append((key, item))
+
+    # Tier 2: the tmdb_kind-missing fallback (see the docstring above),
+    # only for whatever tier 1 didn't find a match for - also one query
+    # for every remaining item, keyed on tmdb id alone since tmdb_kind is
+    # null on all of these candidates by definition; disambiguated by
+    # media_type same as the original per-item filter did.
+    if unmatched_items:
+        tier2_clauses = [
+            Q(
                 external_ids__tmdb=str(item["tmdb_id"]),
                 external_ids__tmdb_kind__isnull=True,
                 media_type__in=local_media_types_for_kind.get(item["media_type"], []),
-            ).first()
+            )
+            for _, item in unmatched_items
+        ]
+        tier2_candidates_by_tmdb_id = {}
+        for title in Title.objects.filter(reduce(operator.or_, tier2_clauses)):
+            tier2_candidates_by_tmdb_id.setdefault(title.external_ids.get("tmdb"), []).append(title)
+
+        for key, item in unmatched_items:
+            allowed_media_types = local_media_types_for_kind.get(item["media_type"], [])
+            candidates = tier2_candidates_by_tmdb_id.get(str(item["tmdb_id"]), [])
+            match = next((t for t in candidates if t.media_type in allowed_media_types), None)
             if match is not None:
                 match.external_ids = {**match.external_ids, "tmdb_kind": item["media_type"]}
                 match.save(update_fields=["external_ids"])
-        matched_title_by_key[key] = match
+                matched_title_by_key[key] = match
 
     matched_titles = [t for t in matched_title_by_key.values() if t is not None]
     title_ids = [t.pk for t in matched_titles]

@@ -9,6 +9,7 @@ import threading
 import uuid
 import zipfile
 import zoneinfo
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from io import StringIO
 from itertools import groupby
@@ -1207,10 +1208,43 @@ def title_detail(request, pk):
     if tmdb_id:
         tmdb_media_type = tmdb.media_type_for(title)
         details = tmdb.get_full_details(tmdb_media_type, tmdb_id)
-        cast = tmdb.get_credits(tmdb_media_type, tmdb_id)
-        similar = tmdb.get_similar(tmdb_media_type, tmdb_id)
+        # get_credits/get_similar/get_watch_providers are three independent
+        # TMDB endpoints - nothing here needs one's result before calling
+        # another, so they run concurrently instead of one after another
+        # (confirmed via Silk profiling: a title_detail load spent up to
+        # ~1.2s outside the DB, almost entirely these sequential round
+        # trips on a cold cache). Same ThreadPoolExecutor-per-request
+        # pattern tmdb.discover() already uses for its own parallel page
+        # fetches. get_director deliberately stays outside this batch and
+        # sequential below - it hits the exact same /credits endpoint as
+        # get_credits (see its own docstring: "no extra HTTP call" once
+        # that's cached), so running both at once on a cold cache would
+        # race and fire it twice instead of once. episode_context/
+        # media_gallery_context also stay sequential and outside this
+        # batch - unlike the three calls above, both can touch the DB
+        # (watched-episode/WatchProgress queries; media_gallery_context's
+        # anime branch can write a newly-resolved MAL id back to title),
+        # and this codebase's own ThreadPoolExecutor usage is deliberately
+        # scoped to network-only work so a worker thread's DB connection
+        # never outlives the executor block it was opened in (see
+        # tmdb._list_request's own docstring on discover()'s parallel
+        # fetches for the same constraint). api_key resolved once here,
+        # same reason discover() does - each of the three calls below
+        # would otherwise independently hit InstanceConfig's own DB read
+        # from its own worker thread, and concurrent SQLite access from
+        # multiple threads/connections at once errors ("database table is
+        # locked"), confirmed while first building this.
+        api_key = instance_config.get_tmdb_api_key()
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            cast_future = executor.submit(tmdb.get_credits, tmdb_media_type, tmdb_id, api_key=api_key)
+            similar_future = executor.submit(tmdb.get_similar, tmdb_media_type, tmdb_id, api_key=api_key)
+            watch_providers_future = executor.submit(
+                tmdb.get_watch_providers, tmdb_media_type, tmdb_id, api_key=api_key
+            )
+            cast = cast_future.result()
+            similar = similar_future.result()
+            watch_providers = watch_providers_future.result()
         director = tmdb.get_director(tmdb_media_type, tmdb_id)
-        watch_providers = tmdb.get_watch_providers(tmdb_media_type, tmdb_id)
         episode_context = _episode_panel_context(request, profile, title, tmdb_id, details)
         media_gallery_context = _media_gallery_context(title, tmdb_media_type, tmdb_id)
 
@@ -2200,15 +2234,34 @@ def title_preview(request, media_type, tmdb_id):
     details = tmdb.get_full_details(tmdb_kind, tmdb_id)
     if details is None:
         raise Http404
+    # Same parallelization as title_detail's own - see its comment for why
+    # get_director stays out of the batch and sequential below, and why
+    # api_key is resolved once up front rather than left to each call's
+    # own DB read. episode_context/media_gallery_context also stay
+    # sequential and outside the batch here too, for consistency with
+    # title_detail, even though both happen to be DB-free in this view's
+    # specific case (title=None for a not-yet-tracked preview short-
+    # circuits every DB-touching branch either one has).
+    api_key = instance_config.get_tmdb_api_key()
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        cast_future = executor.submit(tmdb.get_credits, tmdb_kind, tmdb_id, api_key=api_key)
+        similar_future = executor.submit(tmdb.get_similar, tmdb_kind, tmdb_id, api_key=api_key)
+        watch_providers_future = executor.submit(tmdb.get_watch_providers, tmdb_kind, tmdb_id, api_key=api_key)
+        cast = cast_future.result()
+        similar = similar_future.result()
+        watch_providers = watch_providers_future.result()
+    director = tmdb.get_director(tmdb_kind, tmdb_id)
+    episode_context = _episode_panel_context(request, profile, None, tmdb_id, details)
+    media_gallery_context = _media_gallery_context(None, tmdb_kind, tmdb_id)
     context = {
         "profile": profile,
         "title": None,
         "poster_seed": tmdb_id,
         "details": details,
-        "cast": tmdb.get_credits(tmdb_kind, tmdb_id),
-        "similar": tmdb.get_similar(tmdb_kind, tmdb_id),
-        "director": tmdb.get_director(tmdb_kind, tmdb_id),
-        "watch_providers": tmdb.get_watch_providers(tmdb_kind, tmdb_id),
+        "cast": cast,
+        "similar": similar,
+        "director": director,
+        "watch_providers": watch_providers,
         "status_badge": tmdb.status_badge(details["status"]),
         "release_info": _release_info(details),
         "tmdb_pill": _tmdb_pill(details),
@@ -2238,9 +2291,9 @@ def title_preview(request, media_type, tmdb_id):
         "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
         "in_list_ids": set(),
         **_preview_recommend_context(profile),
-        **_episode_panel_context(request, profile, None, tmdb_id, details),
+        **episode_context,
         **_collection_context(details),
-        **_media_gallery_context(None, tmdb_kind, tmdb_id),
+        **media_gallery_context,
     }
     discover_items = context["similar"] + context["collection_parts"]
     if profile is not None and discover_items:

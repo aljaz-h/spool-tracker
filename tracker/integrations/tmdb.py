@@ -961,12 +961,19 @@ def get_full_details(media_type, tmdb_id):
     }
 
 
-def get_credits(media_type, tmdb_id, limit=12):
+def get_credits(media_type, tmdb_id, limit=12, api_key=None):
     """[{"name", "character", "profile_url", "tmdb_person_id"}, ...]
     billing-ordered cast, or [] if nothing came back. tmdb_person_id
     (None if TMDB's own entry has no id, which shouldn't normally happen)
-    is what the title detail page's Cast row links to /person/<id>/ with."""
-    data = _list_request(f"{media_type}/{tmdb_id}/credits")
+    is what the title detail page's Cast row links to /person/<id>/ with.
+
+    api_key lets a caller resolve it once and pass it through instead of
+    this call's own _list_request hitting _api_key()'s InstanceConfig DB
+    read - same reasoning as discover()'s own parallel-page fetches,
+    needed here since views.title_detail/title_preview call this
+    alongside get_similar/get_watch_providers from worker threads that
+    should never touch the DB independently/concurrently themselves."""
+    data = _list_request(f"{media_type}/{tmdb_id}/credits", api_key=api_key)
     cast = (data or {}).get("cast") or []
     results = []
     for person in cast[:limit]:
@@ -982,12 +989,13 @@ def get_credits(media_type, tmdb_id, limit=12):
     return results
 
 
-def get_similar(media_type, tmdb_id, limit=12):
+def get_similar(media_type, tmdb_id, limit=12, api_key=None):
     """Normalized results (same shape as discover()'s) for "if you like
     this, check out..." - TMDB's own recommendations, not a fresh
     /discover call, so it reflects TMDB's similarity model rather than
-    just "popular in the same genre"."""
-    data = _list_request(f"{media_type}/{tmdb_id}/recommendations")
+    just "popular in the same genre". api_key - see get_credits' own
+    docstring."""
+    data = _list_request(f"{media_type}/{tmdb_id}/recommendations", api_key=api_key)
     results = (data or {}).get("results") or []
     return [_normalize_result(r, media_type) for r in results[:limit]]
 
@@ -1100,12 +1108,13 @@ def get_season_details(tmdb_id, season_number):
     return {"episodes": episodes}
 
 
-def get_watch_providers(media_type, tmdb_id, region="US"):
+def get_watch_providers(media_type, tmdb_id, region="US", api_key=None):
     """[{"name", "logo_url"}, ...] flatrate/free/ad-supported streaming
     availability for one region - TMDB's data is region-keyed and Spool
     has no per-profile region setting yet, so this defaults to "US"
-    rather than trying to guess. [] if nothing came back for that region."""
-    data = _list_request(f"{media_type}/{tmdb_id}/watch/providers")
+    rather than trying to guess. [] if nothing came back for that region.
+    api_key - see get_credits' own docstring."""
+    data = _list_request(f"{media_type}/{tmdb_id}/watch/providers", api_key=api_key)
     region_data = ((data or {}).get("results") or {}).get(region) or {}
     seen = set()
     providers = []

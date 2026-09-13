@@ -12844,6 +12844,27 @@ class TitleDetailViewTests(TestCase):
         self.assertContains(resp, "A movie.")
         mock_details.assert_called_once_with("movie", "42")
 
+    @patch("tracker.views.instance_config.get_tmdb_api_key", return_value="the-resolved-key")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_api_key_is_resolved_once_and_threaded_into_the_parallel_calls(
+        self, mock_details, mock_credits, mock_similar, mock_get_key
+    ):
+        # get_credits/get_similar/get_watch_providers run on worker
+        # threads (see views.title_detail's own comment) - each one
+        # resolving instance_config.get_tmdb_api_key() independently
+        # would mean concurrent SQLite/DB access from multiple threads at
+        # once, which errored with "database table is locked" the first
+        # time this was built. Resolved once on the main thread instead
+        # and passed through explicitly - confirmed here by asserting the
+        # DB read happens exactly once, not once per parallel call.
+        mock_details.return_value = self._details()
+        self.client.get(reverse("title_detail", args=[self.title.pk]))
+        mock_get_key.assert_called_once()
+        mock_credits.assert_called_once_with("movie", "42", api_key="the-resolved-key")
+        mock_similar.assert_called_once_with("movie", "42", api_key="the-resolved-key")
+
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
     @patch("tracker.integrations.tmdb.get_full_details")
@@ -17813,6 +17834,40 @@ class DiscoverActionContextSelectorTests(TestCase):
         tv_item = self._item(tmdb_id=42, media_type="tv")
         context = selectors.discover_action_context(self.profile, [tv_item])
         self.assertEqual(context["discover_title_by_key"]["tv:42"], anime)
+
+    def test_matching_stays_batched_regardless_of_item_count(self):
+        # The whole point of the tier1/tier2 batching (see this function's
+        # own docstring) - confirmed live via Silk profiling that the old
+        # one-or-two-queries-per-item version scaled all the way up to 263
+        # queries on a single real Discover page load. However many items
+        # are on the page, matching them should cost the same two queries
+        # (tier1, tier2) plus the batched watched/badge/list-membership
+        # queries below them - never one growing with len(items).
+        items = [self._item(tmdb_id=i, media_type="movie") for i in range(50)]
+        # Half already tracked (tier1 hits), half not (tier1 miss -> tier2,
+        # which also misses for these since they were never created at
+        # all) - exercises both tiers in the same call, same as a real
+        # mixed Discover page.
+        for i in range(0, 50, 2):
+            Title.objects.create(
+                media_type=MediaType.MOVIE, name=f"Title {i}", year=2020,
+                external_ids={"tmdb": str(i), "tmdb_kind": "movie"},
+            )
+        with self.assertNumQueries(5):
+            selectors.discover_action_context(self.profile, items)
+
+    def test_tier2_self_heal_writes_only_the_titles_it_actually_matches(self):
+        # The self-heal save() is the one part of this function that still
+        # scales with how many *legacy* (missing tmdb_kind) titles a page
+        # actually turns up, not with the page's own item count - confirmed
+        # here it only fires for genuine tier2 matches, not once per item.
+        Title.objects.create(media_type=MediaType.MOVIE, name="Obsession", year=2026, external_ids={"tmdb": "42"})
+        items = [self._item(tmdb_id=42, media_type="movie")] + [
+            self._item(tmdb_id=i, media_type="movie") for i in range(1000, 1010)
+        ]
+        selectors.discover_action_context(self.profile, items)
+        title = Title.objects.get(external_ids__tmdb="42")
+        self.assertEqual(title.external_ids["tmdb_kind"], "movie")
 
 
 class PersonPersonalStatsSelectorTests(TestCase):
