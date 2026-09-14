@@ -469,6 +469,18 @@ def discover(request, media_type, category):
         tmdb_media_type, category=category, page=page_num, decades=decades, page_size=page_size, **filters
     )
 
+    # Every result carries genre_ids, not names (see tmdb._normalize_result's
+    # own comment) - resolved here against the same genre catalog the
+    # filter panel already needs, capped at 2 per tile so the hover
+    # overlay's "year • genres" line stays one line for a title with a
+    # long genre list.
+    genre_catalog = tmdb.genres(tmdb_media_type)
+    genre_names_by_id = {g["id"]: g["name"] for g in genre_catalog}
+    for item in page["results"]:
+        item["genre_names"] = [
+            genre_names_by_id[gid] for gid in item.get("genre_ids") or [] if gid in genre_names_by_id
+        ][:2]
+
     query_without_page = request.GET.copy()
     query_without_page.pop("page", None)
 
@@ -482,7 +494,7 @@ def discover(request, media_type, category):
         "results": page["results"],
         "current_page": page_num,
         "total_pages": min(page["total_pages"], 500),
-        "genres": tmdb.genres(tmdb_media_type),
+        "genres": genre_catalog,
         "selected_genres": set(genre_ids),
         "providers": tmdb.watch_provider_catalog(tmdb_media_type, region=region),
         "selected_providers": set(provider_ids),
@@ -3213,6 +3225,38 @@ def watchlist_roulette(request, list_id):
     if picked is not None:
         context.update(selectors.poster_action_context(profile, [picked]))
     return render(request, "tracker/partials/roulette_result.html", context)
+
+
+@login_required
+def surprise_me(request):
+    """"Surprise me" - Dashboard's Watchlist Queue and the Lists page both
+    aggregate every list visible to this profile rather than one specific
+    WatchList (there's no single "the" watchlist to scope a per-list Spin
+    to, see selectors.library_watchlist's own docstring), so this picks
+    across that same combined pool and sends the browser straight to the
+    title instead of a picker modal - simpler than list_detail's own
+    "Spin the wheel" (roulette_result.html), which exists to let you
+    browse/filter/re-roll a single list's pool rather than just jump.
+    next mirrors _list_action_redirect's own open-redirect-safe pattern,
+    used only for the empty-pool case since a real pick always redirects
+    to the title itself."""
+    from django.utils.http import url_has_allowed_host_and_scheme
+
+    profile = Profile.objects.filter(user=request.user).first()
+    next_url = request.GET.get("next")
+    fallback = (
+        redirect(next_url)
+        if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure())
+        else redirect("dashboard")
+    )
+    if profile is None:
+        return fallback
+    pool = list(selectors.library_watchlist(profile, [MediaType.MOVIE, MediaType.TV, MediaType.ANIME]))
+    if not pool:
+        messages.info(request, "Your watchlist is empty - add a few titles first.")
+        return fallback
+    picked = random.choice(pool).title
+    return redirect("title_detail", pk=picked.pk)
 
 
 def _parse_tags(raw):

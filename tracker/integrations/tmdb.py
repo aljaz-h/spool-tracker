@@ -337,6 +337,13 @@ def _normalize_result(item, media_type):
         # with_genres/with_origin_country params a /discover call takes -
         # search/multi has no anime-specific endpoint to ask instead.
         "is_anime": ANIMATION_GENRE_ID in (item.get("genre_ids") or []) and item.get("original_language") == "ja",
+        # Raw TMDB genre ids, not names - a list/search/discover result
+        # carries no genre *names* at all, only ids (with_genres is an
+        # id-based filter too), so resolving them to names is left to
+        # whichever caller already has (or can cheaply fetch) a
+        # genre/{media_type}/list catalog for the current page - see
+        # views.discover's own genre_names stamping.
+        "genre_ids": item.get("genre_ids") or [],
         "name": title or "Untitled",
         "year": date[:4] if date else None,
         "poster_url": f"{IMAGE_BASE}{poster_path}" if poster_path else None,

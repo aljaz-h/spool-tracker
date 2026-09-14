@@ -141,6 +141,7 @@ urlpatterns = [
     path("lists/<int:list_id>/toggle-featured/", views.toggle_list_featured, name="toggle_list_featured"),
     path("lists/<int:list_id>/search-titles/", views.search_titles, name="search_titles"),
     path("lists/<int:list_id>/roulette/", views.watchlist_roulette, name="watchlist_roulette"),
+    path("watchlist/surprise-me/", views.surprise_me, name="surprise_me"),
     path("stats/", views.stats, name="stats"),
     path("stats/heatmap/", views.stats_heatmap, name="stats_heatmap"),
     path("profile/<int:profile_id>/stats/", views.stats, name="member_stats"),

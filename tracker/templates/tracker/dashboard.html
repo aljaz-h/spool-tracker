@@ -132,7 +132,12 @@
 
       <div class="mb-8">
         <div class="flex justify-between items-center mb-3.5">
-          <h2 class="font-display text-xl">Watchlist Queue{% if watchlist_count %} <span class="text-ink-faint text-base font-body">({{ watchlist_count }})</span>{% endif %}</h2>
+          <div class="flex items-center gap-3">
+            <h2 class="font-display text-xl">Watchlist Queue{% if watchlist_count %} <span class="text-ink-faint text-base font-body">({{ watchlist_count }})</span>{% endif %}</h2>
+            {% if watchlist_items %}
+              <a href="{% url 'surprise_me' %}?next={{ request.path|urlencode }}" class="text-xs text-ink-faint hover:text-ink-dim flex items-center gap-1">{% icon "sparkles" "w-3.5 h-3.5" %} Surprise me</a>
+            {% endif %}
+          </div>
           {% if watchlist_items %}<a href="{% url 'lists' %}" class="text-xs text-ink-faint hover:text-ink-dim">See all lists &rarr;</a>{% endif %}
         </div>
         {% if watchlist_items %}

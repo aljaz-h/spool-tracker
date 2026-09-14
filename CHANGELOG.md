@@ -8,6 +8,37 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.123.0] - 2026-09-14
+
+### Added
+
+- Movies & TV / Anime discover tiles redesigned: at rest, just the
+  poster; hovering (or keyboard-focusing) reveals title/year/genres and
+  the watched/list-add actions in a panel that clips up from the
+  bottom, with the poster art itself zooming in slightly. Genre names
+  are now resolved and shown (TMDB's discover/search results only ever
+  carried genre ids before). Grid widened by a column and gaps tightened
+  to fit it without shrinking the posters.
+- "Surprise me" - jumps straight to a random title from everything
+  across your visible watchlists (all lists combined, the same pool the
+  Dashboard's Watchlist Queue itself draws from). Buttons on the
+  Dashboard's Watchlist Queue and the Lists page.
+
+### Fixed
+
+- A discover tile's hover-reveal panel could get stuck visually
+  "hovered" - poster zoomed, actions showing - after clicking through to
+  a title and hitting Back, with the pointer nowhere near it, sometimes
+  on more than one tile at once; only a full refresh cleared it.
+  Browsers don't re-run `:hover` hit-testing on a back/forward-cache
+  restore, and confirmed live, their internal hover state didn't
+  reliably self-correct afterward either, no matter what real
+  interaction happened next. The reveal no longer depends on CSS
+  `:hover`/`:focus-within` at all - it's driven by plain classes this
+  page's own JS toggles on real pointer/focus events, so restoring from
+  cache can just clear them outright, a definitive fix rather than a
+  guess about browser-internal state.
+
 ## [0.122.0] - 2026-09-13
 
 ### Fixed

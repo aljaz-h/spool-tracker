@@ -10963,6 +10963,55 @@ class DiscoverViewTests(TestCase):
         self.client.get(reverse("movies", args=["trending"]), {"type": "tv"})
         self.assertEqual(mock_discover.call_args.args[0], "movie")
 
+    @patch(
+        "tracker.integrations.tmdb.genres",
+        return_value=[
+            {"id": 28, "name": "Action"}, {"id": 12, "name": "Adventure"},
+            {"id": 878, "name": "Science Fiction"}, {"id": 18, "name": "Drama"},
+        ],
+    )
+    @patch("tracker.integrations.tmdb.discover")
+    def test_results_are_stamped_with_resolved_genre_names(self, mock_discover, mock_genres):
+        # Each result only ever carries raw TMDB genre ids (see
+        # tmdb._normalize_result's own comment) - discover() resolves them
+        # against the same genre catalog the filter panel already fetches,
+        # for the discover tile's own hover-overlay "year • genres" line.
+        mock_discover.return_value = {
+            "results": [{"tmdb_id": 1, "media_type": "movie", "name": "Dune", "genre_ids": [878, 12]}],
+            "page": 1, "total_pages": 1,
+        }
+        resp = self.client.get(reverse("movies", args=["trending"]))
+        self.assertEqual(resp.context["results"][0]["genre_names"], ["Science Fiction", "Adventure"])
+
+    @patch(
+        "tracker.integrations.tmdb.genres",
+        return_value=[
+            {"id": 28, "name": "Action"}, {"id": 12, "name": "Adventure"},
+            {"id": 878, "name": "Science Fiction"}, {"id": 18, "name": "Drama"},
+        ],
+    )
+    @patch("tracker.integrations.tmdb.discover")
+    def test_genre_names_are_capped_at_two(self, mock_discover, mock_genres):
+        mock_discover.return_value = {
+            "results": [{"tmdb_id": 1, "media_type": "movie", "name": "Dune", "genre_ids": [28, 12, 878, 18]}],
+            "page": 1, "total_pages": 1,
+        }
+        resp = self.client.get(reverse("movies", args=["trending"]))
+        self.assertEqual(len(resp.context["results"][0]["genre_names"]), 2)
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[{"id": 28, "name": "Action"}])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_an_unknown_genre_id_is_silently_skipped(self, mock_discover, mock_genres):
+        # A genre id the catalog fetch didn't return (a transient mismatch,
+        # or a genre TMDB has since removed) shouldn't blow up the page -
+        # just left out of the resolved list.
+        mock_discover.return_value = {
+            "results": [{"tmdb_id": 1, "media_type": "movie", "name": "Dune", "genre_ids": [999]}],
+            "page": 1, "total_pages": 1,
+        }
+        resp = self.client.get(reverse("movies", args=["trending"]))
+        self.assertEqual(resp.context["results"][0]["genre_names"], [])
+
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
     def test_anime_always_uses_tv_and_japan_and_animation_genre(self, mock_discover, mock_genres):
@@ -17605,6 +17654,54 @@ class ListActionNextRedirectTests(TestCase):
             {"title_id": self.title.pk, "next": "https://evil.example/"},
         )
         self.assertRedirects(resp, reverse("list_detail", args=[self.watchlist.id]))
+
+
+class SurpriseMeViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("surpriser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Surpriser")
+        self.client.login(username="surpriser", password="pass12345")
+        self.watchlist = WatchList.objects.create(profile=self.profile, name="Favorites")
+
+    def test_redirects_straight_to_the_only_title_in_the_watchlist(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchListItem.objects.create(watchlist=self.watchlist, title=title)
+        resp = self.client.get(reverse("surprise_me"))
+        self.assertRedirects(resp, reverse("title_detail", args=[title.pk]))
+
+    def test_picks_across_every_visible_list_not_just_one(self):
+        other_list = WatchList.objects.create(profile=self.profile, name="Second list")
+        title = Title.objects.create(media_type=MediaType.TV, name="Only in second list", year=2021)
+        WatchListItem.objects.create(watchlist=other_list, title=title)
+        resp = self.client.get(reverse("surprise_me"))
+        self.assertRedirects(resp, reverse("title_detail", args=[title.pk]))
+
+    def test_empty_watchlist_falls_back_to_next_with_a_message(self):
+        resp = self.client.get(reverse("surprise_me"), {"next": reverse("lists")}, follow=True)
+        self.assertRedirects(resp, reverse("lists"))
+        messages = list(resp.context["messages"])
+        self.assertEqual(len(messages), 1)
+        self.assertIn("empty", str(messages[0]))
+
+    def test_empty_watchlist_with_no_next_falls_back_to_dashboard(self):
+        resp = self.client.get(reverse("surprise_me"))
+        self.assertRedirects(resp, reverse("dashboard"))
+
+    def test_an_unsafe_next_is_ignored(self):
+        resp = self.client.get(reverse("surprise_me"), {"next": "https://evil.example/"})
+        self.assertRedirects(resp, reverse("dashboard"))
+
+    def test_a_title_already_watched_is_still_eligible(self):
+        """Unlike list_detail's own "Spin the wheel" (watchlist_roulette),
+        which deliberately excludes already-watched titles from the pool
+        (it's meant to help you pick something new), surprise_me has no
+        such filter - it's a shortcut into the Watchlist Queue itself,
+        which shows every list item regardless of watched state."""
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Rewatch me", year=2020)
+        WatchListItem.objects.create(watchlist=self.watchlist, title=title)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        resp = self.client.get(reverse("surprise_me"))
+        self.assertRedirects(resp, reverse("title_detail", args=[title.pk]))
 
 
 class PosterActionContextSelectorTests(TestCase):

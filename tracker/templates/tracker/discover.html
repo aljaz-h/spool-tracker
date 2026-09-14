@@ -3,6 +3,22 @@
 {% block title %}{{ page_title }} · Spool{% endblock %}
 {% block content %}
 
+{% comment %}
+  Claws back half of <main>'s own lg: side gutter (px-[calc(2rem+10%)],
+  base.html) for this page specifically, so the results grid gets enough
+  extra width for one more auto-fill column at typical desktop sizes
+  without shrinking the poster size back down. A plain negative margin,
+  not a transform, so it doesn't create a new containing block for any
+  fixed-positioned popover a descendant might open (see discover_tile.html's
+  own comment on that exact hazard). Only the grid/toolbar below is
+  widened - the Movies/TV/Anime type switcher above this block (rendered
+  by base.html itself, outside this template's own {% block content %})
+  stays at <main>'s normal width, a minor, deliberately-accepted
+  misalignment rather than widening that shared partial for every page
+  it appears on.
+{% endcomment %}
+<div class="lg:-mx-[calc(1rem+5%)]">
+
   <div class="mb-6">
     <h1 class="font-display text-4xl">{{ page_title }}</h1>
     <div class="text-ink-dim text-sm mt-1">Browse what's trending, popular, upcoming, and top rated on TMDB{% if not is_anime and collections_enabled %}, or browse by collection{% endif %}</div>
@@ -378,7 +394,7 @@
       "incomplete") changes with it.
     {% endcomment %}
     <div
-      class="grid grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-3 sm:gap-4"
+      class="grid grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(215px,1fr))] gap-1.5 sm:gap-2"
       x-data="{
         resizeTimer: null,
         trimIncompleteLastRow() {
@@ -434,4 +450,5 @@
     {% endif %}
   {% endif %}
 
+</div>
 {% endblock %}

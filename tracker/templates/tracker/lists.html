@@ -1,13 +1,18 @@
 {% extends "tracker/base.html" %}
-{% load tracker_extras %}
+{% load tracker_extras icons %}
 {% block title %}Lists · Spool{% endblock %}
 {% block content %}
 <div x-data="{ showCreate: false }">
 
 
-  <div class="mb-6">
-    <h1 class="font-display text-4xl">Lists</h1>
-    <div class="text-ink-dim text-sm mt-1">{{ watchlists|length }} list{{ watchlists|length|pluralize }}</div>
+  <div class="mb-6 flex items-start justify-between gap-4">
+    <div>
+      <h1 class="font-display text-4xl">Lists</h1>
+      <div class="text-ink-dim text-sm mt-1">{{ watchlists|length }} list{{ watchlists|length|pluralize }}</div>
+    </div>
+    {% if watchlists %}
+      <a href="{% url 'surprise_me' %}?next={{ request.path|urlencode }}" class="btn btn-soft btn-sm mt-1">{% icon "sparkles" "w-4 h-4" %} Surprise me</a>
+    {% endif %}
   </div>
 
   {% if not profile %}

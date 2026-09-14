@@ -456,3 +456,27 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     transform: rotate(360deg);
   }
 }
+
+/* Discover-tile hover/focus reveal (discover_tile.html): the clip-path
+   panel, the poster zoom, and "dim" display-mode's opacity restore all
+   key off .tile-hover/.tile-focus - plain classes base.html's own
+   delegated mouseover/mouseout/focusin/focusout listeners toggle on
+   .discover-tile, not CSS :hover/:focus-within. See that listener's own
+   comment, and discover_tile.html's, for the full why (short version: a
+   bfcache-restore bug that several different :hover/:focus-within-based
+   fixes all failed to actually resolve live - the browser's own hover
+   cache never reliably self-corrected on restore no matter what real
+   interaction happened, so this owns the trigger as a plain class
+   instead of fighting that cache at all). :is() for the OR - either
+   reason (real pointer hover, or keyboard focus) reveals the same way. */
+.discover-tile:is(.tile-hover, .tile-focus) .discover-tile-reveal {
+  clip-path: inset(0 0 0 0);
+}
+.discover-tile:is(.tile-hover, .tile-focus) .discover-tile-zoom {
+  /* the standalone CSS `scale` property, not `transform` - matches the
+     zoom amount the old group-hover:scale-[1.06] utility used */
+  scale: 1.06;
+}
+.discover-tile.discover-tile-dim:is(.tile-hover, .tile-focus) {
+  opacity: 1;
+}

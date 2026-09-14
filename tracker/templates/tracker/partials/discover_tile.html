@@ -1,6 +1,61 @@
 {% load tracker_extras %}
-{# context: item (dict: tmdb_id, media_type, name, year, poster_url, vote_average, optional display_mode), my_lists (list of WatchList, for the list-picker popover), discover_title_by_key/discover_watched/discover_watch_count/discover_list_membership from selectors.discover_action_context(), hide_type_badge (bool, optional - Movies/TV/Anime's own grid passes this, since every tile on that page is already the one type the page picked; every other renderer of this partial (Dashboard, search, a title's Collection/similar row, a person's filmography, ...) mixes movies and shows in the same grid and still needs the label) #}
+{# context: item (dict: tmdb_id, media_type, name, year, poster_url, vote_average, genre_names (list of str, optional - see views.discover's own stamping; absent anywhere else this partial renders), optional display_mode), my_lists (list of WatchList, for the list-picker popover), discover_title_by_key/discover_watched/discover_watch_count/discover_list_membership from selectors.discover_action_context(), hide_type_badge (bool, optional - Movies/TV/Anime's own grid passes this, since every tile on that page is already the one type the page picked; every other renderer of this partial (Dashboard, search, a title's Collection/similar row, a person's filmography, ...) mixes movies and shows in the same grid and still needs the label) #}
 {% comment %}
+Clean-grid, hover-for-detail card: at rest this is just the poster art
+plus its two always-on corner badges (type/rating) - title, year/genres,
+and the watched/list actions all live in one overlay panel that reveals
+from the bottom on hover/focus, rather than sitting in a permanently-
+visible strip below the poster (the old layout - still what
+poster_card.html, the library-grid version of this same tile, uses).
+
+Revealed via an animated `clip-path` (inset(100% 0 0 0) -> inset(0 0 0 0)
+on an always-fully-laid-out, absolutely-positioned panel), not a
+`transform` (translate-y) and no longer a `grid-template-rows` trick
+either (an earlier version of this used grid-rows - clip-path replaced
+it because animating grid-template-rows is a layout property, so the
+browser re-runs layout every frame, which read as choppy/disjointed
+next to the poster's own GPU-composited hover-zoom below; clip-path is
+paint-only, no layout recalculation, and stays perfectly in sync with
+that zoom at the same duration/easing). Not a transform because a
+`transform` on an ancestor creates a new containing block for any
+`position: fixed` descendant, and the watched/list buttons' own popovers
+(poster_card_watched_button.html etc.) are fixed-positioned via
+window.positionPopover's own viewport-relative math (base.html) -
+nesting them inside a transformed overlay would silently break that
+positioning the moment the overlay's transform left its resting value.
+clip-path does not establish a containing block for fixed descendants
+(only transform/perspective/filter/backdrop-filter/will-change/contain
+do), so it doesn't have that problem, and - being absolutely positioned
+the whole time regardless of technique - the panel was never using
+grid-rows/clip-path for its layout space to begin with, only as a clip
+animator.
+
+The poster art itself (the <img>, or the gradient placeholder div when
+there's no poster_url - both plain siblings of the reveal panel below,
+not its ancestors, so scaling them can't touch the popovers'
+containing-block either) gets its own small `scale` zoom on the same
+hover, purely cosmetic ("pop out a bit").
+
+None of this - the reveal, the zoom, or the "dim" mode's opacity below -
+triggers off CSS `:hover`/`:focus-within` at all, deliberately. It's
+driven by `.tile-hover`/`.tile-focus`, plain classes base.html toggles
+itself via delegated mouseover/mouseout/focusin/focusout listeners on
+`.discover-tile` (this template's own marker class on the outer
+wrapper). That's not a style preference - it's the fix for a bfcache bug
+that went through several failed CSS-only and hybrid attempts first (see
+base.html's own comment on that listener for the full history): browsers
+don't re-run :hover hit-testing on a bfcache restore, so a tile clicked
+into and then backed out of stays visually "hovered" with the pointer
+nowhere near it - and, confirmed live across multiple different fixes
+tried, the browser's own internal :hover cache never reliably self-
+corrected afterward no matter what real interaction happened next, or
+where. Owning the trigger as a plain class instead sidesteps that
+category of bug entirely: on restore, base.html unconditionally clears
+every `.tile-hover`/`.tile-focus` it finds - a plain classList.remove is
+definitive, not a guess about an opaque browser cache - and real
+subsequent hover/focus re-adds them exactly as on any fresh load, no
+special-casing needed.
+
 Same two-anchor structure as poster_card.html (image box + text block,
 each their own <a>, action bar as a sibling of the image anchor) - see
 that template's comment for why. These are TMDB preview items that may
@@ -16,15 +71,20 @@ _apply_display_modes per the Filters panel's Display toggle - absent,
 and so always "show", anywhere else this partial renders) "hide" skips the
 tile entirely; "dim" keeps it in the grid but lowered-opacity until
 hovered/focused, per the user's ask for something short of fully hiding
-a title they've already watched or listed.
+a title they've already watched or listed - the same hover/focus
+trigger that reveals the detail overlay below also restores full opacity
+(discover-tile-dim, the marker class app.css keys that restore off),
+so both happen together rather than needing separate interactions.
 {% endcomment %}
 {% if item.display_mode != "hide" %}
 {% with key=item|tmdb_key %}
 {% with matched_title=discover_title_by_key|get_item:key %}
-<div class="relative {% if item.display_mode == "dim" %}opacity-25 hover:opacity-100 focus-within:opacity-100 transition-opacity{% endif %}">
-  <div class="aspect-[2/3] rounded-t-lg relative overflow-hidden {% if not item.poster_url %}{{ item.tmdb_id|gradient_class }}{% endif %}">
+<div class="discover-tile relative {% if item.display_mode == "dim" %}discover-tile-dim opacity-25 transition-opacity{% endif %}">
+  <div class="aspect-[2/3] rounded-lg relative overflow-hidden">
     {% if item.poster_url %}
-      <img src="{{ item.poster_url|poster_size:"w342" }}" alt="{{ item.name }}" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+      <img src="{{ item.poster_url|poster_size:"w342" }}" alt="{{ item.name }}" loading="lazy" class="discover-tile-zoom absolute inset-0 w-full h-full object-cover transition-transform duration-300 ease-out">
+    {% else %}
+      <div class="discover-tile-zoom absolute inset-0 transition-transform duration-300 ease-out {{ item.tmdb_id|gradient_class }}"></div>
     {% endif %}
     <a href="{% url 'title_preview' item|preview_media_type item.tmdb_id %}" class="absolute inset-0 z-0">
       {% if not hide_type_badge %}
@@ -34,20 +94,23 @@ a title they've already watched or listed.
         <span class="absolute top-1.5 right-1.5 z-10 font-mono text-[11px] font-bold bg-black/85 px-2 py-1 rounded-md shadow-[0_1px_4px_rgba(0,0,0,0.7)]"><span class="text-amber-400">&#9733;</span> <span class="text-white">{{ item.vote_average|floatformat:1 }}</span></span>
       {% endif %}
     </a>
+
+    <div class="discover-tile-reveal absolute inset-x-0 bottom-0 z-20 transition-[clip-path] duration-300 ease-out [clip-path:inset(100%_0_0_0)]">
+      <a href="{% url 'title_preview' item|preview_media_type item.tmdb_id %}" class="block min-w-0 bg-gradient-to-t from-black/95 via-black/85 to-black/0 pt-7 px-2 pb-1.5">
+        <div class="text-[12.5px] font-semibold text-white truncate">{{ item.name }}</div>
+        <div class="text-[10.5px] font-mono text-white/70 mt-0.5 truncate">{{ item.year|default:"—" }}{% if item.genre_names %} &middot; {{ item.genre_names|join:", " }}{% endif %}</div>
+      </a>
+      <div class="flex items-stretch bg-base-300">
+        {% if matched_title %}
+          {% include "tracker/partials/poster_card_watched_button.html" with title=matched_title watched=discover_watched|get_item:key watch_count=discover_watch_count|get_item:key %}
+          {% include "tracker/partials/poster_card_list_popover.html" with title=matched_title my_lists=my_lists in_list_ids=discover_list_membership|get_item:key %}
+        {% else %}
+          {% include "tracker/partials/discover_tile_watched_button.html" with media_type=item|preview_media_type tmdb_id=item.tmdb_id name=item.name %}
+          {% include "tracker/partials/discover_tile_list_popover.html" with media_type=item|preview_media_type tmdb_id=item.tmdb_id my_lists=my_lists name=item.name %}
+        {% endif %}
+      </div>
+    </div>
   </div>
-  <div class="flex items-stretch bg-base-300 rounded-b-lg overflow-hidden">
-    {% if matched_title %}
-      {% include "tracker/partials/poster_card_watched_button.html" with title=matched_title watched=discover_watched|get_item:key watch_count=discover_watch_count|get_item:key %}
-      {% include "tracker/partials/poster_card_list_popover.html" with title=matched_title my_lists=my_lists in_list_ids=discover_list_membership|get_item:key %}
-    {% else %}
-      {% include "tracker/partials/discover_tile_watched_button.html" with media_type=item|preview_media_type tmdb_id=item.tmdb_id name=item.name %}
-      {% include "tracker/partials/discover_tile_list_popover.html" with media_type=item|preview_media_type tmdb_id=item.tmdb_id my_lists=my_lists name=item.name %}
-    {% endif %}
-  </div>
-  <a href="{% url 'title_preview' item|preview_media_type item.tmdb_id %}" class="block mt-1.5 min-w-0">
-    <div class="text-[12.5px] font-semibold truncate">{{ item.name }}</div>
-    <div class="text-[10.5px] font-mono text-ink-dim mt-0.5">{{ item.year|default:"—" }}</div>
-  </a>
 </div>
 {% endwith %}
 {% endwith %}

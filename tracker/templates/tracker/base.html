@@ -38,6 +38,47 @@
     document.addEventListener('htmx:configRequest', (e) => {
       e.detail.headers['X-CSRFToken'] = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
     });
+    // Discover tiles' hover/focus reveal (discover_tile.html) is driven
+    // by plain .tile-hover/.tile-focus classes toggled here, not CSS
+    // :hover/:focus-within directly - see discover_tile.html's own
+    // comment for the full history of why (five different :hover/
+    // :focus-within-based fixes for a bfcache-restore bug, each
+    // confirmed live to still fail - browsers don't re-run :hover hit-
+    // testing on a bfcache restore, so a tile clicked into and then
+    // backed out of stays visually "hovered" with the pointer nowhere
+    // near it, and the browser's own internal :hover cache never
+    // reliably self-corrected afterward no matter what real interaction
+    // happened next, or where). Delegated (one listener each on
+    // document, not one pair per tile) so newly-swapped-in tiles - an
+    // htmx-paginated page of results, say - are covered automatically,
+    // no re-init needed. mouseover/mouseout (which bubble), not
+    // mouseenter/mouseleave (which don't) - the relatedTarget check
+    // below reproduces enter/leave semantics (only fire when actually
+    // crossing the tile's own boundary, not moving between its children)
+    // the same way delegating enter/leave always has to.
+    const tileFromEvent = (ev) => ev.target.closest('.discover-tile');
+    const enteredTile = (ev) => {
+      const tile = tileFromEvent(ev);
+      return tile && !tile.contains(ev.relatedTarget) ? tile : null;
+    };
+    document.addEventListener('mouseover', (e) => enteredTile(e)?.classList.add('tile-hover'));
+    document.addEventListener('mouseout', (e) => enteredTile(e)?.classList.remove('tile-hover'));
+    document.addEventListener('focusin', (e) => tileFromEvent(e)?.classList.add('tile-focus'));
+    document.addEventListener('focusout', (e) => enteredTile(e)?.classList.remove('tile-focus'));
+    // Owning the trigger as a plain class (instead of leaving it to
+    // :hover/:focus-within) is what makes the restore fix trivial and
+    // actually reliable: a bfcache restore brings back whatever
+    // .tile-hover/.tile-focus classes were on the DOM at freeze time
+    // (same as it would for :hover, if this still used that) - but
+    // clearing a plain class is a definitive, ordinary DOM mutation, not
+    // a guess about an opaque browser-internal cache, so this doesn't
+    // need to figure out which tile, wait for proof of a real
+    // interaction, or race anything. Just clear all of them, unconditionally,
+    // the moment restore happens.
+    window.addEventListener('pageshow', (e) => {
+      if (!e.persisted) return;
+      document.querySelectorAll('.tile-hover, .tile-focus').forEach((el) => el.classList.remove('tile-hover', 'tile-focus'));
+    });
     // FLIP ("First, Last, Invert, Play") reorder animation - records each
     // of container's children's on-screen position (skipping `skip`, e.g.
     // the item actively being dragged - it gets its own CSS transform for
