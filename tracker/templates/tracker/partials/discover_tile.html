@@ -8,27 +8,32 @@ from the bottom on hover/focus, rather than sitting in a permanently-
 visible strip below the poster (the old layout - still what
 poster_card.html, the library-grid version of this same tile, uses).
 
-Revealed via an animated `clip-path` (inset(100% 0 0 0) -> inset(0 0 0 0)
-on an always-fully-laid-out, absolutely-positioned panel), not a
-`transform` (translate-y) and no longer a `grid-template-rows` trick
-either (an earlier version of this used grid-rows - clip-path replaced
-it because animating grid-template-rows is a layout property, so the
-browser re-runs layout every frame, which read as choppy/disjointed
-next to the poster's own GPU-composited hover-zoom below; clip-path is
-paint-only, no layout recalculation, and stays perfectly in sync with
-that zoom at the same duration/easing). Not a transform because a
-`transform` on an ancestor creates a new containing block for any
-`position: fixed` descendant, and the watched/list buttons' own popovers
+Split into two independently-revealed pieces - discover-tile-reveal-text
+(title/year/genres) and discover-tile-reveal-actions (the watched/list
+buttons) - that look like one unit but deliberately aren't, because they
+can't share an ancestor that clips: the buttons' own popovers
 (poster_card_watched_button.html etc.) are fixed-positioned via
-window.positionPopover's own viewport-relative math (base.html) -
-nesting them inside a transformed overlay would silently break that
-positioning the moment the overlay's transform left its resting value.
-clip-path does not establish a containing block for fixed descendants
-(only transform/perspective/filter/backdrop-filter/will-change/contain
-do), so it doesn't have that problem, and - being absolutely positioned
-the whole time regardless of technique - the panel was never using
-grid-rows/clip-path for its layout space to begin with, only as a clip
-animator.
+window.positionPopover's own viewport-relative math (base.html), and
+confirmed live (an actual screenshot, not just the popover's computed
+position - the position was always correct, the clipping wasn't
+visible in coordinates) - clip-path clips a position:fixed descendant's
+*paint* to its own box exactly like overflow:hidden does, at every inset
+value including a fully "open" inset(0 0 0 0), not just while animating
+- so a popover opened from inside a clipped ancestor rendered, but only
+the sliver of it inside that small bottom panel's own box was ever
+visible, the rest cut clean off. (A `transform` has the same problem
+one level up - it creates a new containing block for fixed descendants
+in the first place, so this was never an option either.) The fix isn't
+a smarter clip - there isn't one; nothing clips only "the part of me
+that isn't a fixed popover" - it's not clipping the buttons' subtree at
+all: discover-tile-reveal-actions lives *outside* the
+overflow-hidden/rounded poster box (a sibling of it, not a descendant),
+positioned by its own known height instead, and reveals via opacity, a
+property that changes compositing alpha but never clips a descendant's
+paint regardless of where that descendant renders. discover-tile-reveal-
+text has no such constraint (a plain text link, nothing fixed-positioned
+inside it), so it keeps the clip-path slide-up animation exactly as
+before, sitting directly above the button row.
 
 The poster art itself (the <img>, or the gradient placeholder div when
 there's no poster_url - both plain siblings of the reveal panel below,
@@ -95,21 +100,30 @@ so both happen together rather than needing separate interactions.
       {% endif %}
     </a>
 
-    <div class="discover-tile-reveal absolute inset-x-0 bottom-0 z-20 transition-[clip-path] duration-300 ease-out [clip-path:inset(100%_0_0_0)]">
+    <div class="discover-tile-reveal-text absolute inset-x-0 bottom-9 z-20 transition-[clip-path] duration-300 ease-out [clip-path:inset(100%_0_0_0)]">
       <a href="{% url 'title_preview' item|preview_media_type item.tmdb_id %}" class="block min-w-0 bg-gradient-to-t from-black/95 via-black/85 to-black/0 pt-7 px-2 pb-1.5">
         <div class="text-[12.5px] font-semibold text-white truncate">{{ item.name }}</div>
         <div class="text-[10.5px] font-mono text-white/70 mt-0.5 truncate">{{ item.year|default:"—" }}{% if item.genre_names %} &middot; {{ item.genre_names|join:", " }}{% endif %}</div>
       </a>
-      <div class="flex items-stretch bg-base-300">
-        {% if matched_title %}
-          {% include "tracker/partials/poster_card_watched_button.html" with title=matched_title watched=discover_watched|get_item:key watch_count=discover_watch_count|get_item:key %}
-          {% include "tracker/partials/poster_card_list_popover.html" with title=matched_title my_lists=my_lists in_list_ids=discover_list_membership|get_item:key %}
-        {% else %}
-          {% include "tracker/partials/discover_tile_watched_button.html" with media_type=item|preview_media_type tmdb_id=item.tmdb_id name=item.name %}
-          {% include "tracker/partials/discover_tile_list_popover.html" with media_type=item|preview_media_type tmdb_id=item.tmdb_id my_lists=my_lists name=item.name %}
-        {% endif %}
-      </div>
     </div>
+  </div>
+
+  {% comment %}
+  Sibling of the overflow-hidden poster box above, not a descendant -
+  see this template's own comment for why: its buttons' popovers must
+  never share an ancestor that clips. Its own h-9 is also why the text
+  block above sits at bottom-9, not bottom-0 - that's this row's fixed
+  height, positioning the text to sit flush above it now that they're
+  no longer stacked in the same flow.
+  {% endcomment %}
+  <div class="discover-tile-reveal-actions absolute inset-x-0 bottom-0 z-20 h-9 flex items-stretch bg-base-300 rounded-b-lg opacity-0 pointer-events-none transition-opacity duration-300 ease-out">
+    {% if matched_title %}
+      {% include "tracker/partials/poster_card_watched_button.html" with title=matched_title watched=discover_watched|get_item:key watch_count=discover_watch_count|get_item:key %}
+      {% include "tracker/partials/poster_card_list_popover.html" with title=matched_title my_lists=my_lists in_list_ids=discover_list_membership|get_item:key %}
+    {% else %}
+      {% include "tracker/partials/discover_tile_watched_button.html" with media_type=item|preview_media_type tmdb_id=item.tmdb_id name=item.name %}
+      {% include "tracker/partials/discover_tile_list_popover.html" with media_type=item|preview_media_type tmdb_id=item.tmdb_id my_lists=my_lists name=item.name %}
+    {% endif %}
   </div>
 </div>
 {% endwith %}

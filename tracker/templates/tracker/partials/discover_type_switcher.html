@@ -1,5 +1,5 @@
 {% load tracker_extras %}
-{# context: none explicit - reads request.resolver_match and the page's own `category` context var (set by views.discover, same one discover.html itself reads). Mobile-only, shown only on the Movies/TV/Anime routes - included from base.html (not discover.html) so that page's own template stays untouched. Switching segments preserves the current category (e.g. staying on "popular" across Movies->TV) instead of resetting to trending; since this is a fresh server render keyed off url_name/category on every request, it stays in sync with the current route with no extra client-side state needed. #}
+{# context: none explicit - reads request.resolver_match and the page's own `category` context var (set by views.discover, same one discover.html itself reads). Mobile-only (md:hidden below - see topbar.html's own comment on why this whole app's mobile/desktop-chrome switch sits at xl:, not the more typical md:), shown only on the Movies/TV/Anime routes - included from base.html (not discover.html) so that page's own template stays untouched. Fills in for the horizontal topbar nav's own Movies/TV/Anime links, which aren't visible below that same xl: breakpoint. Switching segments preserves the current category (e.g. staying on "popular" across Movies->TV) instead of resetting to trending; since this is a fresh server render keyed off url_name/category on every request, it stays in sync with the current route with no extra client-side state needed. #}
 {% with url_name=request.resolver_match.url_name %}
 {% if url_name|in_list:"movies,tv,anime" %}
   {% comment %}
@@ -15,7 +15,7 @@
     {% url 'tv' category=category as tv_url %}
     {% url 'anime' category=category as anime_url %}
   {% endif %}
-  <div class="md:hidden mb-5 inline-flex bg-base-200 border border-line rounded-lg p-1 gap-0.5">
+  <div class="xl:hidden mb-5 inline-flex bg-base-200 border border-line rounded-lg p-1 gap-0.5">
     {% url 'movies' category=category as movies_url %}
     <a href="{{ movies_url }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if url_name == "movies" %}bg-base-300 text-base-content{% else %}text-ink-dim{% endif %}">Movies</a>
     <a href="{{ tv_url }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if url_name == "tv" %}bg-base-300 text-base-content{% else %}text-ink-dim{% endif %}">TV</a>

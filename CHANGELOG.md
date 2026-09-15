@@ -8,6 +8,65 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.124.0] - 2026-09-15
+
+### Added
+
+- Two-factor authentication (Settings → Security): TOTP via any
+  authenticator app, QR code + manual-entry setup, one-time backup
+  codes, and a login-time challenge step for any profile with it
+  enabled - a correct password alone is no longer sufficient once 2FA
+  is on.
+- Sessions now expire after a period of real inactivity
+  (`SESSION_COOKIE_AGE`, 14 days by default) instead of staying signed
+  in indefinitely.
+- Settings reorganized: Import and Export merged into one tab; a new
+  Security tab holds "Change password" (moved from Account) and the
+  new 2FA card; Integrations split into Connected Apps (Trakt/Simkl/
+  Nuvio) and Advanced (Custom Player/Wrapped); the Admin-only Server
+  tab folded into Maintenance. Mobile's settings nav is now a dropdown
+  instead of a horizontal tab strip.
+- A not-yet-tracked TV/anime title's own page now offers a "+ Mark as
+  Watched" button in its header (mark all seasons, or one season) -
+  previously only a movie preview had one there, so marking a
+  never-opened show/anime watched meant scrolling down to the Episodes
+  section to find the same actions.
+- History's own binge/catch-up group tiles now show a "Series
+  completed" badge and an "X/Y episodes" total, the same detail the
+  Activity feed's equivalent grouping already surfaced - a full "mark
+  all seasons watched" catch-up no longer reads as a bare, uninformative
+  "N episodes" entry.
+- Activity page profile avatars are now clickable, opening the same
+  profile popup used elsewhere.
+- Dashboard's mobile view: the "Up Next" cards and the streak/movies/
+  shows/watch-time pills are each a single horizontally-scrollable row
+  instead of wrapping onto several lines of vertical space.
+
+### Fixed
+
+- Two CodeQL findings: test fixtures used `tempfile.mktemp()`, which
+  creates a predictable path with a race between name generation and
+  file creation; a handful of notification views trusted a `?next=`
+  redirect target without validating it stayed on-site.
+- A Discover tile's watched/list-add popovers, once opened, were
+  clipped to the tile's own small reveal panel instead of rendering in
+  full - `clip-path`/`overflow-hidden` clip a `position:fixed`
+  descendant's paint to the ancestor's own box at every inset value,
+  not just mid-animation. The buttons row is now a sibling of the
+  clipped poster box instead of a descendant.
+- Discover tiles on touch devices: a tap always navigated straight
+  through instead of revealing the info/buttons first - touch's
+  synthetic `mouseover`/`mouseout` don't fire consistently between
+  repeated taps on the same element. Touch devices now drive the
+  reveal entirely off `click` (first tap reveals, second tap on the
+  same tile navigates) instead of relying on hover synthesis.
+- The top navbar's mobile/desktop breakpoint (768px) cut off content on
+  several real tablet widths (iPad, Surface Pro 7, Nest Hub) - moved to
+  1280px, the point live device testing showed it actually working.
+- AI Recommendations (Settings) removed - the feature's own UI entry
+  point had already been removed earlier, leaving only a dead settings
+  card and an unused Gemini API key field behind.
+
 ## [0.123.0] - 2026-09-14
 
 ### Added

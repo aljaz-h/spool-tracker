@@ -40,7 +40,8 @@
   <div class="flex items-center gap-2.5 md:gap-3.5 min-w-0 justify-self-start col-start-1">
     {% comment %}
       The hamburger's own sidebar drawer (sidebar.html) was already only
-      ever relevant below md: (md:hidden itself) - now that bottom_nav.html
+      ever relevant below xl: (xl:hidden itself, see this whole file's
+      own note on the xl breakpoint below) - now that bottom_nav.html
       covers the same ground there (plus the More sheet), this trigger has
       nothing left to open on mobile. Left as dead-but-harmless markup in
       sidebar.html itself rather than deleted outright, but the only way
@@ -50,21 +51,30 @@
       <span class="font-display text-[28px] text-marquee tracking-wide leading-none">SPOOL</span>
     </a>
     {% comment %}
-      max-md:hidden - bottom_nav.html's own Search button covers this
-      below md: now, reusing the exact same mobileSearchOpen overlay this
-      button opens; xl:hidden above still governs the wider tablet range
-      (md-xl) where neither the bottom nav nor the inline search bar
-      further right is available.
+      This whole header used to switch from the mobile bottom nav over to
+      this horizontal <nav> (below) at md: (768px) - confirmed live on
+      real devices (several iPads, a Surface Pro 7, a Nest Hub) that md:
+      just isn't wide enough for the full pill row plus both side blocks
+      to lay out without overlapping/clipping; a Nest Hub Max (~1280px,
+      right at xl:) was "almost" fine, just a slight overlap, which is
+      what pins the new threshold at xl: rather than lg: (1024px, still
+      confirmed broken on the Nest Hub) or something custom in between.
+      That collapses what used to be three tiers (mobile bottom-nav below
+      md: / a "tablet" tier from md-xl with the desktop nav but only an
+      icon-triggered search overlay, no room yet for a real inline search
+      box / full desktop from xl: up) down to two: everything below xl:
+      now gets the exact same mobile chrome (bottom_nav.html,
+      bottom_sheet.html's "More" sheet, its own Search button among them)
+      it already used to get below md:, just further out - the "tablet"
+      tier's own icon-search-button (previously here, max-md:hidden
+      xl:hidden) is gone outright, not just re-thresholded:
+      bottom_nav.html's own Search button (opening this exact same
+      mobileSearchOpen overlay) now covers that entire range on its own,
+      so a second, topbar-level trigger for the identical overlay had
+      nothing left to do. Its divider survives, re-paired with the one
+      thing left after it (this search form) at the same xl: threshold.
     {% endcomment %}
-    <button
-      type="button"
-      @click="mobileSearchOpen = true; $refs.mobileSearchInput.focus()"
-      aria-label="Search"
-      class="w-9 h-9 flex-none rounded-lg border border-line bg-base-200 flex items-center justify-center text-ink-dim hover:text-base-content hover:border-primary max-md:hidden xl:hidden"
-    >
-      {% icon "search" "w-[17px] h-[17px]" %}
-    </button>
-    <div class="hidden md:block w-px h-8 bg-line flex-none"></div>
+    <div class="hidden xl:block w-px h-8 bg-line flex-none"></div>
     <form method="get" action="{% url 'search' %}" class="hidden xl:flex items-center gap-2 flex-none xl:w-64 bg-base-200 rounded-full px-4 py-2 focus-within:ring-2 focus-within:ring-primary/60">
       {% icon "search" "w-4 h-4 text-ink-faint flex-none" %}
       <input
@@ -76,7 +86,7 @@
     </form>
   </div>
 
-  <nav aria-label="Primary" class="hidden md:flex items-center justify-self-center min-w-0 overflow-x-auto col-start-2">
+  <nav aria-label="Primary" class="hidden xl:flex items-center justify-self-center min-w-0 overflow-x-auto col-start-2">
     <div class="flex items-center gap-1 bg-base-200 rounded-full p-1">
       {% url 'movies' category="trending" as movies_url %}
       {% include "tracker/partials/nav_item_horizontal.html" with href=movies_url icon_name="clapperboard" label="Movies" is_active=url_name|eq:"movies" %}
@@ -182,15 +192,16 @@
         },
       }">
         {% comment %}
-          max-md:hidden - bottom_sheet.html's own Friends section (in the
-          More sheet) covers this below md: now.
+          max-xl:hidden - bottom_sheet.html's own Friends section (in the
+          More sheet) covers this below xl: now (see the xl: breakpoint
+          note further up this file).
         {% endcomment %}
         <button
           @click="togglePanel($el)"
           :aria-expanded="open.toString()"
           aria-haspopup="true"
           aria-label="Friends"
-          class="w-9 h-9 flex-none rounded-lg border border-line bg-base-200 flex items-center justify-center text-ink-dim hover:text-base-content hover:border-primary max-md:hidden"
+          class="w-9 h-9 flex-none rounded-lg border border-line bg-base-200 flex items-center justify-center text-ink-dim hover:text-base-content hover:border-primary max-xl:hidden"
         >
           {% icon "users" "w-[17px] h-[17px]" %}
         </button>

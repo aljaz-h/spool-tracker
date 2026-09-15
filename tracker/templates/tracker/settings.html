@@ -31,22 +31,82 @@
     </a>
   {% endif %}
 
-  <div class="flex flex-col lg:flex-row gap-6 items-start">
-
-    <nav class="w-full lg:w-[190px] flex-none lg:sticky lg:top-6 flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible pb-1 lg:pb-0">
+  {% comment %}
+    Below lg:, the 8 (13 for an owner) tabs above get a dropdown-style
+    switcher instead of the desktop sidebar (still rendered below, just
+    hidden here via lg:hidden/hidden lg:flex on each) - a horizontal
+    scroll strip was the previous mobile treatment, confirmed live to be
+    a real problem once there were this many tabs to fit: no visible
+    affordance that more tabs exist past whatever the viewport happened
+    to fit, so most of them were only reachable by a viewer who already
+    guessed to swipe. `labels` duplicates each tab's label alongside the
+    settings_nav_button.html includes below (both need to exist - this
+    one to show the *current* tab's name on the trigger button without
+    round-tripping the tab key through the server) - update both
+    together when adding/renaming a tab.
+  {% endcomment %}
+  <div
+    class="lg:hidden mb-4"
+    x-data="{
+      mobileNavOpen: false,
+      labels: {
+        account: 'Account', security: 'Security', preferences: 'Preferences',
+        notifications: 'Notifications', connected_apps: 'Connected Apps', advanced: 'Advanced',
+        data: 'Import &amp; Export', danger: 'Danger Zone'
+        {% if profile.is_owner %}
+        , profiles: 'Profiles', server_integrations: 'Server Integrations', maintenance: 'Maintenance',
+        activity_log: 'Activity Log', logs: 'Logs'
+        {% endif %}
+      },
+    }"
+  >
+    <button
+      type="button"
+      @click="mobileNavOpen = !mobileNavOpen"
+      :aria-expanded="mobileNavOpen.toString()"
+      aria-haspopup="true"
+      class="w-full flex items-center justify-between gap-2 px-4 py-3 rounded-lg bg-base-200 border border-line text-sm font-semibold"
+    >
+      <span x-text="labels[tab] || tab"></span>
+      <span class="text-ink-faint flex-none transition-transform" :class="mobileNavOpen ? 'rotate-180' : ''">{% icon "chevron-down" "w-4 h-4" %}</span>
+    </button>
+    <div x-show="mobileNavOpen" x-cloak @click="mobileNavOpen = false" class="mt-1.5 flex flex-col gap-1 bg-base-200 border border-line rounded-lg p-1.5">
       {% include "tracker/partials/settings_nav_button.html" with key="account" label="Account" icon="user" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="security" label="Security" icon="shield" %}
       {% include "tracker/partials/settings_nav_button.html" with key="preferences" label="Preferences" icon="settings" %}
       {% include "tracker/partials/settings_nav_button.html" with key="notifications" label="Notifications" icon="bell" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="integrations" label="Integrations" icon="plug" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="import" label="Import Data" icon="upload" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="export" label="Export Data" icon="download" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="connected_apps" label="Connected Apps" icon="plug" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="advanced" label="Advanced" icon="layout-dashboard" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="data" label="Import &amp; Export" icon="upload" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="danger" label="Danger Zone" icon="triangle-alert" %}
+
+      {% if profile.is_owner %}
+        <div class="text-[10.5px] font-semibold text-ink-faint uppercase tracking-widest px-3 pt-2.5 pb-1.5">Admin</div>
+        {% include "tracker/partials/settings_nav_button.html" with key="profiles" label="Profiles" icon="users" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="server_integrations" label="Server Integrations" icon="key" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="maintenance" label="Maintenance" icon="refresh-cw" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="activity_log" label="Activity Log" icon="history" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="logs" label="Logs" icon="list-checks" %}
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="flex flex-col lg:flex-row gap-6 items-start">
+
+    <nav class="hidden lg:flex w-[190px] flex-none lg:sticky lg:top-6 flex-col gap-1">
+      {% include "tracker/partials/settings_nav_button.html" with key="account" label="Account" icon="user" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="security" label="Security" icon="shield" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="preferences" label="Preferences" icon="settings" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="notifications" label="Notifications" icon="bell" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="connected_apps" label="Connected Apps" icon="plug" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="advanced" label="Advanced" icon="layout-dashboard" %}
+      {% include "tracker/partials/settings_nav_button.html" with key="data" label="Import &amp; Export" icon="upload" %}
       {% include "tracker/partials/settings_nav_button.html" with key="danger" label="Danger Zone" icon="triangle-alert" %}
 
       {% if profile.is_owner %}
         <div class="text-[10.5px] font-semibold text-ink-faint uppercase tracking-widest px-3 pt-4 pb-1.5">Admin</div>
         {% include "tracker/partials/settings_nav_button.html" with key="profiles" label="Profiles" icon="users" %}
         {% include "tracker/partials/settings_nav_button.html" with key="server_integrations" label="Server Integrations" icon="key" %}
-        {% include "tracker/partials/settings_nav_button.html" with key="server" label="Server" icon="server" %}
         {% include "tracker/partials/settings_nav_button.html" with key="maintenance" label="Maintenance" icon="refresh-cw" %}
         {% include "tracker/partials/settings_nav_button.html" with key="activity_log" label="Activity Log" icon="history" %}
         {% include "tracker/partials/settings_nav_button.html" with key="logs" label="Logs" icon="list-checks" %}
@@ -152,6 +212,10 @@
           {% endif %}
         </div>
 
+      </div>
+
+      {# ==================== SECURITY ==================== #}
+      <div x-show="tab === 'security'" x-cloak class="flex flex-col gap-5 max-w-2xl">
         <div class="bg-base-200 border border-line rounded-2xl p-5" x-data="{ showCurrent: false, showNew: false, showConfirm: false }">
           <h3 class="text-lg mb-3.5">Change password</h3>
           <form method="post" action="{% url 'my_profile' %}">
@@ -189,6 +253,8 @@
             <button type="submit" class="btn btn-soft w-full">Change password</button>
           </form>
         </div>
+
+        {% include "tracker/partials/settings_security_card.html" %}
       </div>
 
       {# ==================== PREFERENCES ==================== #}
@@ -316,8 +382,8 @@
         </form>
       </div>
 
-      {# ==================== INTEGRATIONS ==================== #}
-      <div x-show="tab === 'integrations'" x-cloak class="flex flex-col gap-5 max-w-2xl">
+      {# ==================== CONNECTED APPS ==================== #}
+      <div x-show="tab === 'connected_apps'" x-cloak class="flex flex-col gap-5 max-w-2xl">
         <div class="bg-base-200 border border-line rounded-2xl p-5">
           <h3 class="text-lg mb-3.5">Connected Apps</h3>
 
@@ -380,23 +446,11 @@
             {% endif %}
           </div>
         </div>
+      </div>
 
+      {# ==================== ADVANCED ==================== #}
+      <div x-show="tab === 'advanced'" x-cloak class="flex flex-col gap-5 max-w-2xl">
         {% include "tracker/partials/api_tokens_card.html" %}
-
-        <div class="bg-base-200 border border-line rounded-2xl p-5">
-          <h3 class="text-lg mb-1">AI Recommendations</h3>
-          <div class="text-ink-dim text-xs mb-3">
-            Optional. Powers AI-driven mood-based recommendations - bring your own free
-            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" class="underline hover:text-base-content">Gemini API key</a>, per profile.
-          </div>
-          <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="flex items-center gap-2">
-            <input
-              type="password" name="gemini_api_key" value="{{ profile.gemini_api_key }}" placeholder="AIza…"
-              class="w-full bg-base-100 border border-line rounded-lg px-3.5 py-2 text-sm font-mono focus:outline-primary"
-            >
-            <span class="spool-spinner flex-none" aria-hidden="true"></span>
-          </form>
-        </div>
 
         {% comment %}
           Self-service like the API tokens card above (any profile can
@@ -436,28 +490,29 @@
         </div>
       </div>
 
-      {# ==================== IMPORT DATA ==================== #}
-      <div x-show="tab === 'import'" x-cloak class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl">
-        <h3 class="text-lg mb-1">Import Data</h3>
-        <div class="text-ink-dim text-xs mb-3.5">Upload an export from any tracker as a CSV, JSON, or zip file — including Trakt's own "Export now" zip.</div>
-        <form method="post" action="{% url 'import_csv' %}" enctype="multipart/form-data" class="flex items-center gap-2" x-data="{ fileName: null }">
-          {% csrf_token %}
-          <label class="flex-1 flex items-stretch h-8 rounded-lg border border-line bg-base-100 overflow-hidden cursor-pointer hover:border-primary transition-colors">
-            <span class="flex items-center px-3 text-xs font-semibold bg-base-300 text-ink-dim flex-none">Choose File</span>
-            <span class="flex items-center px-3 text-xs text-ink-faint truncate" x-text="fileName || 'No file chosen'"></span>
-            <input type="file" name="csv_file" accept=".csv,.json,.zip,text/csv,application/json,application/zip" required class="hidden" @change="fileName = $event.target.files[0]?.name || null">
-          </label>
-          <button type="submit" class="btn btn-sm btn-soft">Upload</button>
-        </form>
-      </div>
+      {# ==================== IMPORT & EXPORT ==================== #}
+      <div x-show="tab === 'data'" x-cloak class="flex flex-col gap-5 max-w-2xl">
+        <div class="bg-base-200 border border-line rounded-2xl p-5">
+          <h3 class="text-lg mb-1">Import Data</h3>
+          <div class="text-ink-dim text-xs mb-3.5">Upload an export from any tracker as a CSV, JSON, or zip file — including Trakt's own "Export now" zip.</div>
+          <form method="post" action="{% url 'import_csv' %}" enctype="multipart/form-data" class="flex items-center gap-2" x-data="{ fileName: null }">
+            {% csrf_token %}
+            <label class="flex-1 flex items-stretch h-8 rounded-lg border border-line bg-base-100 overflow-hidden cursor-pointer hover:border-primary transition-colors">
+              <span class="flex items-center px-3 text-xs font-semibold bg-base-300 text-ink-dim flex-none">Choose File</span>
+              <span class="flex items-center px-3 text-xs text-ink-faint truncate" x-text="fileName || 'No file chosen'"></span>
+              <input type="file" name="csv_file" accept=".csv,.json,.zip,text/csv,application/json,application/zip" required class="hidden" @change="fileName = $event.target.files[0]?.name || null">
+            </label>
+            <button type="submit" class="btn btn-sm btn-soft">Upload</button>
+          </form>
+        </div>
 
-      {# ==================== EXPORT DATA ==================== #}
-      <div x-show="tab === 'export'" x-cloak class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl">
-        <h3 class="text-lg mb-1">Export Data</h3>
-        <div class="text-ink-dim text-xs mb-3">Download everything you've watched, rated, or added to a list.</div>
-        <div class="flex gap-2">
-          <a href="{% url 'export_csv' %}" class="btn btn-sm btn-soft">Export as CSV</a>
-          <a href="{% url 'export_trakt_json' %}" class="btn btn-sm btn-soft">Export as Trakt JSON</a>
+        <div class="bg-base-200 border border-line rounded-2xl p-5">
+          <h3 class="text-lg mb-1">Export Data</h3>
+          <div class="text-ink-dim text-xs mb-3">Download everything you've watched, rated, or added to a list.</div>
+          <div class="flex gap-2">
+            <a href="{% url 'export_csv' %}" class="btn btn-sm btn-soft">Export as CSV</a>
+            <a href="{% url 'export_trakt_json' %}" class="btn btn-sm btn-soft">Export as Trakt JSON</a>
+          </div>
         </div>
       </div>
 
@@ -795,8 +850,9 @@
           <a href="#" @click.prevent="setTab('logs')" class="block text-center text-xs text-ink-dim hover:text-base-content mt-3.5 pt-3.5 border-t border-line">View Logs →</a>
         </div>
 
-        {# ==================== ADMIN: SERVER ==================== #}
-        <div x-show="tab === 'server'" x-cloak class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl">
+        {# ==================== ADMIN: MAINTENANCE ==================== #}
+        <div x-show="tab === 'maintenance'" x-cloak class="flex flex-col gap-5 max-w-2xl">
+        <div class="bg-base-200 border border-line rounded-2xl p-5">
           <h3 class="text-lg mb-3">Server</h3>
           <div class="font-mono text-[11.5px] text-ink-faint leading-loose">
             spool&nbsp;&nbsp;&nbsp;&nbsp;v{{ app_version }}<br>
@@ -808,8 +864,7 @@
           </div>
         </div>
 
-        {# ==================== ADMIN: MAINTENANCE ==================== #}
-        <div x-show="tab === 'maintenance'" x-cloak class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl">
+        <div class="bg-base-200 border border-line rounded-2xl p-5">
           <h3 class="text-lg mb-1">Maintenance</h3>
           <div class="text-ink-dim text-xs mb-3.5">One-off cleanup and backfill jobs, normally only run from the command line. Results show up in the Logs tab below.</div>
 
@@ -931,6 +986,7 @@
               </form>
             </div>
           </div>
+        </div>
         </div>
 
         {# ==================== ADMIN: ACTIVITY LOG ==================== #}

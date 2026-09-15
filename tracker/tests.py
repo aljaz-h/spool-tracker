@@ -7,6 +7,7 @@ import zipfile
 from datetime import timedelta
 from unittest.mock import Mock, patch
 
+import pyotp
 import requests
 from itsdangerous import URLSafeTimedSerializer
 from django.conf import settings as django_settings
@@ -17,8 +18,8 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
-from . import achievements, completion, crypto, csv_import, episode_matching, instance_config, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, update_check, views
-from .integrations import anifiller, gemini, mdblist, nuvio, scrobble, tenrai, tmdb, trakt
+from . import achievements, completion, crypto, csv_import, episode_matching, instance_config, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, totp, update_check, views
+from .integrations import anifiller, mdblist, nuvio, scrobble, tenrai, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
@@ -393,10 +394,9 @@ class ParseZipFileTests(TestCase):
         with zipfile.ZipFile(buf, "w") as zf:
             for name, content in entries.items():
                 zf.writestr(name, content)
-        path = tempfile.mktemp(suffix=".zip")
-        with open(path, "wb") as f:
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as f:
             f.write(buf.getvalue())
-        return path
+            return f.name
 
     def test_extracts_rows_from_csv_and_json_entries_and_skips_others(self):
         json_content = json.dumps(
@@ -479,10 +479,9 @@ class ParseFileTests(TestCase):
     both."""
 
     def _write(self, suffix, content):
-        path = tempfile.mktemp(suffix=suffix)
-        with open(path, "wb") as f:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
             f.write(content if isinstance(content, bytes) else content.encode())
-        return path
+            return f.name
 
     def test_dispatches_csv_with_mapping(self):
         path = self._write(".csv", "title,type,watched_at\nFathom,movie,2024-01-05\n")
@@ -3494,18 +3493,6 @@ class SaveAppearanceViewTests(TestCase):
         resp = self.client.post(reverse("save_appearance"), {"time_format": "24h"})
         self.assertNotEqual(resp.status_code, 200)
 
-    def test_saves_gemini_api_key(self):
-        self.client.post(reverse("save_appearance"), {"gemini_api_key": "AIzaSyTest123"})
-        self.profile.refresh_from_db()
-        self.assertEqual(self.profile.gemini_api_key, "AIzaSyTest123")
-
-    def test_gemini_api_key_can_be_cleared(self):
-        self.profile.gemini_api_key = "AIzaSyTest123"
-        self.profile.save(update_fields=["gemini_api_key"])
-        self.client.post(reverse("save_appearance"), {"gemini_api_key": ""})
-        self.profile.refresh_from_db()
-        self.assertEqual(self.profile.gemini_api_key, "")
-
 
 class DiscoverPreferenceOptionsViewTests(TestCase):
     """views.discover_preference_options - the Preferences tab's lazily-
@@ -4214,6 +4201,242 @@ class LoginRateLimitTests(TestCase):
         self.assertRedirects(resp, reverse("dashboard"))
 
 
+class TotpModuleTests(TestCase):
+    """tracker/totp.py's own pure functions, independent of any view -
+    generate_secret/verify_code/backup-code hashing all have real crypto
+    behavior worth pinning down directly rather than only ever exercising
+    it indirectly through enable_totp/TotpChallengeView."""
+
+    def test_generate_secret_is_a_valid_base32_totp_secret(self):
+        secret = totp.generate_secret()
+        # pyotp.random_base32's own default length - not asserting an
+        # exact number since that's pyotp's implementation detail, just
+        # that it round-trips through TOTP() without erroring and that a
+        # code generated from it verifies against itself.
+        code = pyotp.TOTP(secret).now()
+        self.assertTrue(totp.verify_code(secret, code))
+
+    def test_verify_code_rejects_a_wrong_code(self):
+        secret = totp.generate_secret()
+        self.assertFalse(totp.verify_code(secret, "000000"))
+
+    def test_verify_code_rejects_empty_secret_or_code(self):
+        self.assertFalse(totp.verify_code("", "123456"))
+        self.assertFalse(totp.verify_code(totp.generate_secret(), ""))
+
+    def test_provisioning_qr_data_uri_is_a_png_data_uri(self):
+        uri = totp.provisioning_qr_data_uri(totp.generate_secret(), "someuser")
+        self.assertTrue(uri.startswith("data:image/png;base64,"))
+
+    def test_generate_backup_codes_returns_the_expected_count_all_unique(self):
+        codes = totp.generate_backup_codes()
+        self.assertEqual(len(codes), totp.BACKUP_CODE_COUNT)
+        self.assertEqual(len(set(codes)), totp.BACKUP_CODE_COUNT)
+
+    def test_consume_backup_code_matches_and_removes_only_that_one(self):
+        plain = totp.generate_backup_codes()
+        hashed = totp.hash_backup_codes(plain)
+        remaining = totp.consume_backup_code(hashed, plain[0])
+        self.assertEqual(len(remaining), len(hashed) - 1)
+        # The hash for the consumed code is gone; every other code's hash
+        # (still unused) still verifies against its own plaintext.
+        for code in plain[1:]:
+            self.assertIsNotNone(totp.consume_backup_code(remaining, code))
+
+    def test_consume_backup_code_returns_none_for_an_unknown_code(self):
+        hashed = totp.hash_backup_codes(totp.generate_backup_codes())
+        self.assertIsNone(totp.consume_backup_code(hashed, "0000-0000"))
+
+
+class SettingsSecurityCardTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("securitycarduser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="SecurityCardUser")
+        self.client.login(username="securitycarduser", password="pass12345")
+
+    def test_not_enabled_shows_setup_qr_and_generates_a_stable_secret(self):
+        resp = self.client.get(reverse("settings_security_card"))
+        self.assertContains(resp, "Scan this QR code")
+        self.profile.refresh_from_db()
+        first_secret = self.profile.totp_secret
+        self.assertTrue(first_secret)
+        # A second view of the same not-yet-confirmed setup must reuse
+        # the same secret, not silently regenerate a different QR out
+        # from under whatever's already been scanned.
+        self.client.get(reverse("settings_security_card"))
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.totp_secret, first_secret)
+
+    def test_enabled_shows_on_status_not_setup(self):
+        self.profile.totp_secret = totp.generate_secret()
+        self.profile.totp_enabled = True
+        self.profile.save(update_fields=["totp_secret", "totp_enabled"])
+        resp = self.client.get(reverse("settings_security_card"))
+        self.assertContains(resp, "On")
+        self.assertNotContains(resp, "Scan this QR code")
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class EnableTotpViewTests(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        user = User.objects.create_user("enabletotpuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="EnableTotpUser")
+        self.client.login(username="enabletotpuser", password="pass12345")
+        # Same as a real "load the tab, get a QR" first step.
+        self.client.get(reverse("settings_security_card"))
+        self.profile.refresh_from_db()
+
+    def test_wrong_code_does_not_enable(self):
+        resp = self.client.post(reverse("enable_totp"), {"code": "000000"})
+        self.assertContains(resp, "That code")
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.totp_enabled)
+
+    def test_correct_code_enables_and_issues_backup_codes(self):
+        code = pyotp.TOTP(self.profile.totp_secret).now()
+        resp = self.client.post(reverse("enable_totp"), {"code": code})
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.totp_enabled)
+        self.assertEqual(len(self.profile.totp_backup_codes), totp.BACKUP_CODE_COUNT)
+        self.assertContains(resp, "now on")
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("enable_totp"), {"code": "123456"})
+        self.assertEqual(resp.status_code, 302)
+
+    def test_rate_limited_after_repeated_wrong_attempts(self):
+        for _ in range(10):
+            self.client.post(reverse("enable_totp"), {"code": "000000"})
+        resp = self.client.post(reverse("enable_totp"), {"code": "000000"})
+        self.assertContains(resp, "Too many attempts")
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class DisableTotpViewTests(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        user = User.objects.create_user("disabletotpuser", password="pass12345")
+        self.secret = totp.generate_secret()
+        self.profile = Profile.objects.create(
+            user=user,
+            display_name="DisableTotpUser",
+            totp_secret=self.secret,
+            totp_enabled=True,
+            totp_backup_codes=totp.hash_backup_codes(totp.generate_backup_codes()),
+        )
+        self.client.login(username="disabletotpuser", password="pass12345")
+
+    def test_wrong_password_does_not_disable(self):
+        resp = self.client.post(reverse("disable_totp"), {"current_password": "wrong"})
+        self.assertContains(resp, "incorrect")
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.totp_enabled)
+
+    def test_correct_password_disables_and_clears_backup_codes(self):
+        self.client.post(reverse("disable_totp"), {"current_password": "pass12345"})
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.totp_enabled)
+        self.assertEqual(self.profile.totp_backup_codes, [])
+
+    def test_disabling_leaves_a_fresh_pending_secret_ready_for_next_setup(self):
+        # Not the same secret as before - _security_card_context regenerates
+        # one as part of rendering the "not enabled" state disable_totp's
+        # own response falls through to, same as any other first visit to
+        # an unconfigured Security tab would (see that function's own
+        # docstring for why "not enabled" always carries a real secret).
+        old_secret = self.secret
+        self.client.post(reverse("disable_totp"), {"current_password": "pass12345"})
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.totp_secret)
+        self.assertNotEqual(self.profile.totp_secret, old_secret)
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class TotpLoginChallengeTests(TestCase):
+    """SpoolLoginView + TotpChallengeView together - a profile with 2FA on
+    never reaches an authenticated session off a correct password alone."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        user = User.objects.create_user("totploginuser", password="pass12345")
+        self.secret = totp.generate_secret()
+        self.plain_backup_codes = totp.generate_backup_codes()
+        self.profile = Profile.objects.create(
+            user=user,
+            display_name="TotpLoginUser",
+            totp_secret=self.secret,
+            totp_enabled=True,
+            totp_backup_codes=totp.hash_backup_codes(self.plain_backup_codes),
+        )
+
+    def test_correct_password_alone_does_not_log_in(self):
+        resp = self.client.post(reverse("login"), {"username": "totploginuser", "password": "pass12345"})
+        self.assertRedirects(resp, reverse("totp_challenge"))
+        self.assertFalse(resp.wsgi_request.user.is_authenticated)
+
+    def test_a_profile_without_2fa_still_logs_in_directly(self):
+        other = User.objects.create_user("no2fauser", password="pass12345")
+        Profile.objects.create(user=other, display_name="No2faUser")
+        resp = self.client.post(reverse("login"), {"username": "no2fauser", "password": "pass12345"})
+        self.assertRedirects(resp, reverse("dashboard"))
+
+    def test_challenge_get_with_nothing_pending_redirects_to_login(self):
+        resp = self.client.get(reverse("totp_challenge"))
+        self.assertRedirects(resp, reverse("login"))
+
+    def test_wrong_code_rejected_and_still_not_authenticated(self):
+        self.client.post(reverse("login"), {"username": "totploginuser", "password": "pass12345"})
+        resp = self.client.post(reverse("totp_challenge"), {"code": "000000"})
+        self.assertContains(resp, "That code")
+        self.assertFalse(resp.wsgi_request.user.is_authenticated)
+
+    def test_correct_code_completes_login(self):
+        self.client.post(reverse("login"), {"username": "totploginuser", "password": "pass12345"})
+        code = pyotp.TOTP(self.secret).now()
+        resp = self.client.post(reverse("totp_challenge"), {"code": code})
+        self.assertRedirects(resp, reverse("dashboard"))
+
+    def test_a_backup_code_also_completes_login_and_is_then_consumed(self):
+        self.client.post(reverse("login"), {"username": "totploginuser", "password": "pass12345"})
+        backup_code = self.plain_backup_codes[0]
+        resp = self.client.post(reverse("totp_challenge"), {"code": backup_code})
+        self.assertRedirects(resp, reverse("dashboard"))
+        self.profile.refresh_from_db()
+        self.assertEqual(len(self.profile.totp_backup_codes), len(self.plain_backup_codes) - 1)
+
+    def test_a_used_backup_code_cannot_be_reused(self):
+        self.client.post(reverse("login"), {"username": "totploginuser", "password": "pass12345"})
+        backup_code = self.plain_backup_codes[0]
+        self.client.post(reverse("totp_challenge"), {"code": backup_code})
+        self.client.logout()
+
+        self.client.post(reverse("login"), {"username": "totploginuser", "password": "pass12345"})
+        resp = self.client.post(reverse("totp_challenge"), {"code": backup_code})
+        self.assertContains(resp, "That code")
+        self.assertFalse(resp.wsgi_request.user.is_authenticated)
+
+    def test_remember_me_unchecked_expires_session_at_browser_close_after_totp(self):
+        self.client.post(reverse("login"), {"username": "totploginuser", "password": "pass12345"})
+        code = pyotp.TOTP(self.secret).now()
+        self.client.post(reverse("totp_challenge"), {"code": code})
+        self.assertTrue(self.client.session.get_expire_at_browser_close())
+
+    def test_rate_limited_after_repeated_wrong_codes(self):
+        self.client.post(reverse("login"), {"username": "totploginuser", "password": "pass12345"})
+        for _ in range(10):
+            self.client.post(reverse("totp_challenge"), {"code": "000000"})
+        resp = self.client.post(reverse("totp_challenge"), {"code": "000000"})
+        self.assertContains(resp, "Too many attempts")
+
+
 @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
 class PasswordChangeRateLimitTests(TestCase):
     def setUp(self):
@@ -4593,7 +4816,6 @@ class SettingsConnectedAppsTests(TestCase):
     def test_section_is_renamed(self):
         resp = self.client.get(reverse("settings"))
         self.assertContains(resp, "Connected Apps")
-        self.assertNotContains(resp, "Import &amp; Export")
 
     def test_connect_button_disabled_when_trakt_not_configured(self):
         resp = self.client.get(reverse("settings"))
@@ -5087,10 +5309,9 @@ class RunDataImportTaskTests(TestCase):
         self.profile = Profile.objects.create(user=user, display_name="Importer")
 
     def _write(self, content):
-        path = tempfile.mktemp(suffix=".csv")
-        with open(path, "w") as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             f.write(content)
-        return path
+            return f.name
 
     def test_success_updates_log_and_removes_temp_file(self):
         path = self._write("title,type,watched_at\nFathom,movie,2024-01-05\n")
@@ -10056,94 +10277,6 @@ class TmdbSearchYearAndAutocorrectTests(TestCase):
         mock_get.return_value = self._response([])
         tmdb.search("dune")
         self.assertEqual(mock_get.call_count, 1)
-
-
-class GeminiGenerateTests(TestCase):
-    def test_no_key_returns_none_without_a_request(self):
-        with patch("tracker.integrations.gemini.requests.post") as mock_post:
-            self.assertIsNone(gemini.generate("", "hello"))
-        mock_post.assert_not_called()
-
-    @patch("tracker.integrations.gemini.requests.post")
-    def test_returns_the_reply_text(self, mock_post):
-        resp = Mock()
-        resp.json.return_value = {"candidates": [{"content": {"parts": [{"text": "Try Groundhog Day."}]}}]}
-        resp.raise_for_status = Mock()
-        mock_post.return_value = resp
-        self.assertEqual(gemini.generate("test-key", "what should I watch"), "Try Groundhog Day.")
-        self.assertEqual(mock_post.call_args.kwargs["params"], {"key": "test-key"})
-
-    @patch("tracker.integrations.gemini.requests.post")
-    def test_network_failure_returns_none(self, mock_post):
-        mock_post.side_effect = requests.RequestException("boom")
-        self.assertIsNone(gemini.generate("test-key", "hi"))
-
-    @patch("tracker.integrations.gemini.requests.post")
-    def test_unexpected_response_shape_returns_none(self, mock_post):
-        resp = Mock()
-        resp.json.return_value = {"unexpected": "shape"}
-        resp.raise_for_status = Mock()
-        mock_post.return_value = resp
-        self.assertIsNone(gemini.generate("test-key", "hi"))
-
-
-class GeminiPromptTests(TestCase):
-    def setUp(self):
-        user = User.objects.create_user("promptuser", password="pass12345")
-        self.profile = Profile.objects.create(user=user, display_name="PromptUser")
-
-    def test_includes_the_mood(self):
-        prompt = gemini.build_recommendation_prompt(self.profile, "something light and funny")
-        self.assertIn("something light and funny", prompt)
-
-    def test_includes_recent_watch_history(self):
-        title = Title.objects.create(media_type=MediaType.MOVIE, name="Paddington", year=2014)
-        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
-        prompt = gemini.build_recommendation_prompt(self.profile, "something cozy")
-        self.assertIn("Paddington", prompt)
-
-    def test_no_history_still_produces_a_prompt(self):
-        prompt = gemini.build_recommendation_prompt(self.profile, "a thriller")
-        self.assertIn("a thriller", prompt)
-
-
-class RecommendViewTests(TestCase):
-    def setUp(self):
-        user = User.objects.create_user("recommenduser", password="pass12345")
-        self.profile = Profile.objects.create(user=user, display_name="RecommendUser", gemini_api_key="test-key")
-        self.client.login(username="recommenduser", password="pass12345")
-
-    def test_requires_login(self):
-        self.client.logout()
-        resp = self.client.post(reverse("recommend"), {"mood": "something fun"})
-        self.assertEqual(resp.status_code, 302)
-
-    def test_get_not_allowed(self):
-        resp = self.client.get(reverse("recommend"))
-        self.assertEqual(resp.status_code, 405)
-
-    def test_empty_mood_shows_a_prompt_error(self):
-        resp = self.client.post(reverse("recommend"), {"mood": ""})
-        self.assertContains(resp, "Type what you")
-
-    def test_no_api_key_shows_a_setup_error(self):
-        self.profile.gemini_api_key = ""
-        self.profile.save(update_fields=["gemini_api_key"])
-        resp = self.client.post(reverse("recommend"), {"mood": "something fun"})
-        self.assertContains(resp, "Add a free Gemini API key")
-
-    @patch("tracker.integrations.gemini.generate")
-    def test_success_renders_the_reply(self, mock_generate):
-        mock_generate.return_value = "Try Paddington."
-        resp = self.client.post(reverse("recommend"), {"mood": "something cozy"})
-        self.assertContains(resp, "Try Paddington.")
-        self.assertEqual(mock_generate.call_args.args[0], "test-key")
-
-    @patch("tracker.integrations.gemini.generate")
-    def test_gemini_failure_shows_a_friendly_error(self, mock_generate):
-        mock_generate.return_value = None
-        resp = self.client.post(reverse("recommend"), {"mood": "something cozy"})
-        self.assertContains(resp, "reach Gemini")
 
 
 @override_settings(
@@ -16174,6 +16307,32 @@ class PreviewEpisodeBrowserTests(TestCase):
         self.assertEqual(resp.context["season"], 2)
         mock_season.assert_called_once_with(500, 2)
 
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_preview_page_offers_a_hero_mark_watched_button(self, mock_details, mock_season):
+        # Regression test - a not-yet-tracked TV/anime title's header used
+        # to have no "+ Mark as Watched" button at all (only the movie
+        # branch did), so marking one watched required scrolling down to
+        # the Episodes section. The hero button should always be there,
+        # offering the same bulk actions as that section's own popover.
+        mock_details.return_value = self._details()
+        mock_season.return_value = self._season()
+        resp = self.client.get(reverse("title_preview", args=["tv", 500]))
+        self.assertContains(resp, "+ Mark as Watched")
+        self.assertContains(resp, reverse("title_preview_mark_all_seasons_watched", args=["tv", 500]))
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_preview_page_hero_button_shown_even_without_a_trailer(self, mock_details, mock_season):
+        # get_trailer is patched to None (see setUp) for every test in this
+        # class - this asserts the hero row itself doesn't disappear along
+        # with the (absent) trailer button.
+        mock_details.return_value = self._details()
+        mock_season.return_value = self._season()
+        resp = self.client.get(reverse("title_preview", args=["tv", 500]))
+        self.assertNotContains(resp, "Watch trailer")
+        self.assertContains(resp, "+ Mark as Watched")
+
 
 class ReleaseDateForHelperTests(TestCase):
     """views._release_date_for - the first-watch popover's "On release
@@ -19388,6 +19547,29 @@ class HistoryConsecutiveEpisodeGroupingTests(TestCase):
         grouped = views._group_consecutive_episodes(events)
         self.assertEqual(grouped[0]["range_label"], "S1E3–S1E19")
 
+    def test_completed_series_true_when_the_run_ends_on_the_last_known_episode(self):
+        # Same "N episodes, no sense of how much of the show that is"
+        # complaint the Activity feed's own watched_group already solves
+        # (selectors._build_group) - History's own group tile should read
+        # the same way, including for a bulk "mark all seasons watched"
+        # catch-up, which logs every episode with an identical timestamp
+        # and so groups here exactly like any other same-day binge.
+        for i in range(1, 4):
+            self._watch(episode_num=i, minutes_ago=(10 - i))
+        events = list(WatchEvent.objects.filter(title=self.show).order_by("-watched_at"))
+        grouped = views._group_consecutive_episodes(events)
+        self.assertTrue(grouped[0]["completed_series"])
+        self.assertEqual(grouped[0]["total_episodes"], 3)
+
+    def test_completed_series_false_when_episodes_remain_unwatched(self):
+        for i in range(1, 4):
+            self._watch(episode_num=i, minutes_ago=(10 - i))
+        Episode.objects.create(title=self.show, season=1, episode=4)  # not watched
+        events = list(WatchEvent.objects.filter(title=self.show).order_by("-watched_at"))
+        grouped = views._group_consecutive_episodes(events)
+        self.assertFalse(grouped[0]["completed_series"])
+        self.assertEqual(grouped[0]["total_episodes"], 4)
+
     def test_history_page_renders_group_tile_for_a_binge(self):
         from django.utils import timezone
 
@@ -19404,6 +19586,39 @@ class HistoryConsecutiveEpisodeGroupingTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "3 episodes")
         self.assertContains(resp, "S1E1–S1E3")
+
+    def test_history_page_shows_series_completed_badge_and_episode_total(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("histcompleter", password="pass12345")
+        profile = Profile.objects.create(user=user, display_name="HistCompleter")
+        show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
+        for i in range(1, 4):
+            ep = Episode.objects.create(title=show, season=1, episode=i)
+            WatchEvent.objects.create(
+                profile=profile, title=show, episode=ep, watched_at=timezone.now() - timedelta(minutes=i)
+            )
+        self.client.login(username="histcompleter", password="pass12345")
+        resp = self.client.get(reverse("history"))
+        self.assertContains(resp, "Series completed")
+        self.assertContains(resp, "3/3 episodes")
+
+    def test_history_page_omits_completed_badge_when_the_show_isnt_finished(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("histunfinished", password="pass12345")
+        profile = Profile.objects.create(user=user, display_name="HistUnfinished")
+        show = Title.objects.create(media_type=MediaType.TV, name="Bleach", year=2004)
+        for i in range(1, 3):
+            ep = Episode.objects.create(title=show, season=1, episode=i)
+            WatchEvent.objects.create(
+                profile=profile, title=show, episode=ep, watched_at=timezone.now() - timedelta(minutes=i)
+            )
+        Episode.objects.create(title=show, season=1, episode=3)  # not watched yet
+        self.client.login(username="histunfinished", password="pass12345")
+        resp = self.client.get(reverse("history"))
+        self.assertNotContains(resp, "Series completed")
+        self.assertContains(resp, "2/3 episodes")
 
     def test_group_lists_the_source_when_every_event_came_from_the_same_sync(self):
         events = [

@@ -17,29 +17,37 @@
     surfaced where they're seen first instead of only after scrolling
     through everything else. The streak itself isn't gone - it still
     drives the milestone banner below via selectors.milestone_message.
+
+    Below sm:, these four pills used to flex-wrap onto their own stack
+    of near-full-width rows - a lot of vertical space for what's really
+    a small amount of information. flex-none + overflow-x-auto/scroll-row
+    (same scroll-row treatment the poster rows further down already use)
+    turns that into one horizontally-scrollable row instead; sm: and up
+    goes back to flex-wrap now that there's enough width for it to read
+    as a normal wrapped group rather than a scroll.
   {% endcomment %}
   <div class="flex justify-between items-start flex-wrap gap-4 mb-6">
     <div>
       <div class="text-ink-faint text-xs font-mono uppercase tracking-wide">{% now "l, F j" %}</div>
       <h1 class="font-display text-4xl mt-1">Welcome back, <span class="text-primary">{{ profile.display_name }}</span></h1>
     </div>
-    <div class="flex items-center gap-2 flex-wrap">
-      <div class="flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
+    <div class="flex items-center gap-2 overflow-x-auto scroll-row pb-1 -mb-1 sm:flex-wrap sm:overflow-visible sm:pb-0 sm:mb-0 max-w-full">
+      <div class="flex-none flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
         {% icon "flame" "w-4 h-4 text-primary" %}
-        <span>{{ stats.streak }} day streak</span>
-        {% if stats.longest_streak %}<span class="text-ink-faint">&middot; longest {{ stats.longest_streak }}</span>{% endif %}
+        <span class="text-nowrap">{{ stats.streak }} day streak</span>
+        {% if stats.longest_streak %}<span class="text-ink-faint text-nowrap">&middot; longest {{ stats.longest_streak }}</span>{% endif %}
       </div>
-      <div class="flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
+      <div class="flex-none flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
         {% icon "clapperboard" "w-4 h-4 text-primary" %}
-        <span>{{ stats.movies_this_year }} movies</span>
+        <span class="text-nowrap">{{ stats.movies_this_year }} movies</span>
       </div>
-      <div class="flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
+      <div class="flex-none flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
         {% icon "tv" "w-4 h-4 text-primary" %}
-        <span>{{ stats.shows_completed }} shows</span>
+        <span class="text-nowrap">{{ stats.shows_completed }} shows</span>
       </div>
-      <div class="flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
+      <div class="flex-none flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
         {% icon "clock" "w-4 h-4 text-primary" %}
-        <span>{{ stats.total_watch_time }} watched</span>
+        <span class="text-nowrap">{{ stats.total_watch_time }} watched</span>
       </div>
     </div>
   </div>
@@ -60,9 +68,20 @@
     </div>
     {% if up_next %}
       <div class="bg-base-200 border border-line rounded-2xl p-4 shadow-md shadow-black/20">
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {% comment %}
+          Below sm:, a vertical stack of these ate a lot of scroll depth
+          for just 3-4 cards - a horizontal scroll-row (same scroll-row
+          treatment Recently Watched/Watchlist Queue's own mobile rows
+          already use) reaches all of them in far less vertical space.
+          sm: and up switches back to the plain grid (still every card
+          visible at once there, just as columns instead of a scroll) -
+          grid replaces flex outright at that breakpoint, so the mobile-
+          only overflow-x-auto/scroll-row/pb-1 don't need their own
+          undo, they simply stop applying once display becomes grid.
+        {% endcomment %}
+        <div class="flex gap-3 overflow-x-auto scroll-row pb-1 sm:grid sm:grid-cols-2 sm:gap-4 sm:pb-0 lg:grid-cols-4">
           {% for item in up_next %}
-            <a href="{% url 'title_detail' item.title.pk %}" class="flex items-center gap-3 bg-base-300 border border-line rounded-xl p-3 hover:border-primary/40 transition-colors">
+            <a href="{% url 'title_detail' item.title.pk %}" class="w-[240px] flex-none sm:w-auto flex items-center gap-3 bg-base-300 border border-line rounded-xl p-3 hover:border-primary/40 transition-colors">
               <div class="w-12 aspect-[2/3] rounded-md relative overflow-hidden flex-none {% if not item.title.poster_url %}{{ item.title.pk|gradient_class }}{% endif %}">
                 {% if item.title.poster_url %}
                   <img src="{{ item.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">

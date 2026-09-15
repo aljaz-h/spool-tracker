@@ -145,12 +145,24 @@ class Profile(models.Model):
     notify_new_releases = models.BooleanField(default=True)
     notify_upcoming_releases = models.BooleanField(default=True)
     notify_sync_failures = models.BooleanField(default=True)
-    # Settings - bring-your-own free Gemini API key, optional and per
-    # profile (not instance-wide like Trakt/Simkl/TMDB in InstanceConfig -
-    # this powers a personal "what should I watch" ask, not a shared
-    # sync). Stored in cleartext, same as every other integration
-    # credential this app already stores.
-    gemini_api_key = models.CharField(max_length=255, blank=True, default="")
+    # Settings → Security - optional per-profile TOTP two-factor auth
+    # (see tracker/totp.py). totp_secret gets written as soon as setup
+    # starts (so the QR code shown stays stable across page reloads
+    # mid-setup instead of regenerating into a different one each time),
+    # but totp_enabled stays False until the profile proves they can
+    # actually produce a matching code with it - enabling on the strength
+    # of "the QR was scanned" alone would risk a mistyped/failed scan
+    # silently locking the account on its very next login with no way in.
+    totp_secret = models.CharField(max_length=32, blank=True, default="")
+    totp_enabled = models.BooleanField(default=False)
+    # Single-use recovery codes, hashed with Django's own password hasher
+    # (see tracker/totp.py) rather than stored in cleartext like this
+    # model's other integration credentials - these are a full
+    # authentication-bypass secret, the same class of thing a real
+    # account password is. Shown to the profile once, right after they
+    # enable 2FA; regenerating (disable, then re-enable) replaces this
+    # list wholesale.
+    totp_backup_codes = models.JSONField(default=list, blank=True)
     # Settings → Integrations "Wrapped" card - opt-in to the companion
     # spool-wrapped app's recap/Year-in-Review reports (see
     # api/routers/reports.py). Self-service like ApiToken minting, not
@@ -198,8 +210,8 @@ class ApiToken(models.Model):
     a profile hands to their own player/script so it can POST scrobble
     events to api/routers/scrobble.py without a browser session (see
     docs/SCROBBLE_API.md). Stored in cleartext like every other
-    integration credential in this app (Profile.gemini_api_key,
-    InstanceConfig's own docstring) rather than hashed like a password -
+    integration credential in this app (see InstanceConfig's own
+    docstring) rather than hashed like a password -
     this is a revocable, narrowly-scoped ("record a watch for this
     profile") credential a person may legitimately need to re-view/
     re-copy into a player's config, not an account login.

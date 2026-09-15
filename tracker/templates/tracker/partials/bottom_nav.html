@@ -1,9 +1,9 @@
 {% load icons tracker_extras %}
-{# context: none explicit - reads request.resolver_match directly, same as sidebar.html/topbar.html. Mobile-only (md:hidden) floating tab bar, purely additive alongside the existing sidebar drawer/topbar - never shown at/above the md breakpoint. #}
+{# context: none explicit - reads request.resolver_match directly, same as sidebar.html/topbar.html. Mobile-only (xl:hidden) floating tab bar, purely additive alongside the existing sidebar drawer/topbar - never shown at/above the xl breakpoint (topbar.html's own comment on that threshold explains why it's xl:, not the more typical md:). #}
 {% with url_name=request.resolver_match.url_name %}
 <nav
   aria-label="Primary"
-  class="md:hidden fixed inset-x-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40 flex items-stretch gap-1 px-2 py-1 rounded-[22px] bg-base-200/80 backdrop-blur-md border border-line shadow-2xl"
+  class="xl:hidden fixed inset-x-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40 flex items-stretch gap-1 px-2 py-1 rounded-[22px] bg-base-200/80 backdrop-blur-md border border-line shadow-2xl"
 >
   {% url 'dashboard' as home_url %}
   {% include "tracker/partials/nav_item_bottom.html" with href=home_url icon_name="home" label="Home" is_active=url_name|eq:"dashboard" %}

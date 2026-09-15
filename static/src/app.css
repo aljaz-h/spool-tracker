@@ -457,20 +457,37 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   }
 }
 
-/* Discover-tile hover/focus reveal (discover_tile.html): the clip-path
-   panel, the poster zoom, and "dim" display-mode's opacity restore all
-   key off .tile-hover/.tile-focus - plain classes base.html's own
-   delegated mouseover/mouseout/focusin/focusout listeners toggle on
-   .discover-tile, not CSS :hover/:focus-within. See that listener's own
-   comment, and discover_tile.html's, for the full why (short version: a
-   bfcache-restore bug that several different :hover/:focus-within-based
-   fixes all failed to actually resolve live - the browser's own hover
-   cache never reliably self-corrected on restore no matter what real
-   interaction happened, so this owns the trigger as a plain class
-   instead of fighting that cache at all). :is() for the OR - either
-   reason (real pointer hover, or keyboard focus) reveals the same way. */
-.discover-tile:is(.tile-hover, .tile-focus) .discover-tile-reveal {
+/* Discover-tile hover/focus reveal (discover_tile.html): the text panel's
+   clip-path, the button row's opacity, the poster zoom, and "dim"
+   display-mode's opacity restore all key off .tile-hover/.tile-focus -
+   plain classes base.html's own delegated mouseover/mouseout/focusin/
+   focusout listeners toggle on .discover-tile, not CSS :hover/
+   :focus-within. See that listener's own comment, and discover_tile.
+   html's, for the full why (short version: a bfcache-restore bug that
+   several different :hover/:focus-within-based fixes all failed to
+   actually resolve live - the browser's own hover cache never reliably
+   self-corrected on restore no matter what real interaction happened,
+   so this owns the trigger as a plain class instead of fighting that
+   cache at all). :is() for the OR - either reason (real pointer hover,
+   or keyboard focus) reveals the same way.
+
+   discover-tile-reveal-actions uses opacity, not clip-path, even though
+   it's revealing the exact same way visually as discover-tile-reveal-
+   text right above it - see discover_tile.html's own comment for why
+   they can't share a technique: the actions row holds the watched/list
+   buttons' own fixed-positioned popovers, and clip-path (like
+   overflow:hidden) clips a fixed descendant's paint to its own box at
+   every inset value, confirmed live via an actual screenshot - the
+   popover rendered, but almost entirely cut off. opacity has no such
+   effect on descendants regardless of where they render, so it's the
+   one property here that's actually safe on an ancestor of a fixed
+   popover trigger. */
+.discover-tile:is(.tile-hover, .tile-focus) .discover-tile-reveal-text {
   clip-path: inset(0 0 0 0);
+}
+.discover-tile:is(.tile-hover, .tile-focus) .discover-tile-reveal-actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 .discover-tile:is(.tile-hover, .tile-focus) .discover-tile-zoom {
   /* the standalone CSS `scale` property, not `transform` - matches the

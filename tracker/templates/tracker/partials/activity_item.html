@@ -2,11 +2,27 @@
 {# context: item (one entry from selectors.activity_feed() - watched/rated/added_to_list, or a *_group collapsed summary) #}
 <div class="flex gap-3">
   <div class="flex flex-col items-center flex-none w-9">
-    {% if item.profile.avatar_image %}
-      <div class="w-9 h-9 rounded-lg bg-cover bg-center flex-none" style="background-image:url('{{ item.profile.avatar_image.url }}')"></div>
-    {% else %}
-      <div class="w-9 h-9 rounded-lg flex items-center justify-center font-mono text-[13px] font-bold flex-none" style="background:{{ item.profile.avatar_color }};color:#fff;">{{ item.profile.display_name|first|upper }}</div>
-    {% endif %}
+    {% comment %}
+    Opens the same profile_popup_modal the header's own Friends dropdown
+    does (topbar.html) - one <dialog> shared across the whole app, so
+    this doesn't need its own modal markup, just the same onclick/hx-get
+    trigger pointed at this row's own profile.
+    {% endcomment %}
+    <button
+      type="button"
+      onclick="profile_popup_modal.showModal()"
+      hx-get="{% url 'profile_popup' item.profile.id %}"
+      hx-target="#profile-popup-content"
+      hx-swap="innerHTML"
+      title="{{ item.profile.display_name }}"
+      class="flex-none rounded-lg hover:opacity-80 transition-opacity"
+    >
+      {% if item.profile.avatar_image %}
+        <div class="w-9 h-9 rounded-lg bg-cover bg-center" style="background-image:url('{{ item.profile.avatar_image.url }}')"></div>
+      {% else %}
+        <div class="w-9 h-9 rounded-lg flex items-center justify-center font-mono text-[13px] font-bold" style="background:{{ item.profile.avatar_color }};color:#fff;">{{ item.profile.display_name|first|upper }}</div>
+      {% endif %}
+    </button>
     <span class="font-mono text-[10px] text-ink-faint mt-1 whitespace-nowrap">{{ item.timestamp|time:time_format_str }}</span>
   </div>
 

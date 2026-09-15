@@ -6,7 +6,6 @@ from . import views
 urlpatterns = [
     path("sw.js", views.service_worker, name="service_worker"),
     path("", views.dashboard, name="dashboard"),
-    path("recommend/", views.recommend, name="recommend"),
     path("profile/<int:profile_id>/popup/", views.profile_popup, name="profile_popup"),
     path("movies/<str:category>/", views.discover, {"media_type": "movie"}, name="movies"),
     path("tv/<str:category>/", views.discover, {"media_type": "tv"}, name="tv"),
@@ -212,5 +211,9 @@ urlpatterns = [
     path("import/csv/commit/", views.import_csv_commit, name="import_csv_commit"),
     path("import/csv/result/", views.import_csv_result, name="import_csv_result"),
     path("accounts/login/", views.SpoolLoginView.as_view(), name="login"),
+    path("accounts/login/2fa/", views.TotpChallengeView.as_view(), name="totp_challenge"),
     path("accounts/logout/", auth_views.LogoutView.as_view(next_page="login"), name="logout"),
+    path("settings/security/card/", views.settings_security_card, name="settings_security_card"),
+    path("settings/security/totp/enable/", views.enable_totp, name="enable_totp"),
+    path("settings/security/totp/disable/", views.disable_totp, name="disable_totp"),
 ]

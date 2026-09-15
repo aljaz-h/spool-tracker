@@ -19,6 +19,7 @@ import django
 import requests
 from django.conf import settings as django_settings
 from django.contrib import messages
+from django.contrib.auth import login as auth_login
 from django.contrib.auth import logout, update_session_auth_hash
 from django.contrib.auth import views as auth_views
 from django.contrib.auth.decorators import login_required
@@ -33,6 +34,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
+from django.views import View
 from django.views.decorators.http import require_POST
 from itsdangerous import URLSafeTimedSerializer
 
@@ -48,8 +50,9 @@ from . import (
     scheduling,
     selectors,
     tasks,
+    totp,
 )
-from .integrations import anifiller, gemini, mdblist, nuvio, simkl, tenrai, tmdb, trakt
+from .integrations import anifiller, mdblist, nuvio, simkl, tenrai, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
@@ -257,38 +260,6 @@ def dashboard(request):
             }
         )
     return render(request, "tracker/dashboard.html", context)
-
-
-@login_required
-@require_POST
-def recommend(request):
-    """A free-text mood plus this profile's own watch history/genre taste,
-    handed to Gemini. Bring-your-own-key (Settings), optional and per
-    profile - every failure mode (no key, bad key, Gemini unreachable)
-    renders the same partial with a plain-language error instead of a
-    500, since this is a nice-to-have, not something that should be able
-    to break whatever page embeds it."""
-    profile = Profile.objects.filter(user=request.user).first()
-    if profile is None:
-        raise Http404
-    mood = request.POST.get("mood", "").strip()
-    if not mood:
-        return render(request, "tracker/partials/recommendation_result.html", {"error": "Type what you're in the mood for first."})
-    if not profile.gemini_api_key:
-        return render(
-            request,
-            "tracker/partials/recommendation_result.html",
-            {"error": "Add a free Gemini API key in Settings to turn this on."},
-        )
-    prompt = gemini.build_recommendation_prompt(profile, mood)
-    reply = gemini.generate(profile.gemini_api_key, prompt)
-    if reply is None:
-        return render(
-            request,
-            "tracker/partials/recommendation_result.html",
-            {"error": "Couldn't reach Gemini - check your API key in Settings, or try again in a moment."},
-        )
-    return render(request, "tracker/partials/recommendation_result.html", {"reply": reply})
 
 
 @login_required
@@ -2671,12 +2642,30 @@ def _build_episode_group(title, run):
     first_by_ep = min(episodes, key=lambda e: (e.season, e.episode))
     last_by_ep = max(episodes, key=lambda e: (e.season, e.episode))
     total_minutes = sum((e.episode.runtime_minutes or e.title.runtime_minutes or 0) for e in run)
+    # Same "did this group's last episode happen to be the show's own
+    # last known one" check selectors._build_group already does for the
+    # Activity feed's own watched_group - kept in sync here so a binge
+    # (including a bulk "mark all seasons watched" catch-up, which logs
+    # every episode with the exact same timestamp and so groups the same
+    # way any other same-day run does) reads the same "Series Completed"
+    # vs. plain episode-count way in History as it already does in
+    # Activity, rather than just "watched <title>" with no sense of how
+    # much of it. Not WatchProgress-aware, deliberately, same reasoning
+    # as that other copy's own comment.
+    all_episodes = Episode.objects.filter(title=title).order_by("-season", "-episode").first()
+    total_episodes = Episode.objects.filter(title=title).count()
+    completed_series = bool(all_episodes) and (last_by_ep.season, last_by_ep.episode) == (
+        all_episodes.season,
+        all_episodes.episode,
+    )
     return {
         "is_group": True,
         "title": title,
         "count": len(run),
         "range_label": f"S{first_by_ep.season}E{first_by_ep.episode}–S{last_by_ep.season}E{last_by_ep.episode}",
         "total_duration": selectors.format_duration(total_minutes) if total_minutes else None,
+        "total_episodes": total_episodes,
+        "completed_series": completed_series,
         "events": run,
         "timeline_events": sorted(run, key=lambda e: e.watched_at),
         # A sync writes a whole session's episodes in one batch, so in
@@ -3237,18 +3226,10 @@ def surprise_me(request):
     title instead of a picker modal - simpler than list_detail's own
     "Spin the wheel" (roulette_result.html), which exists to let you
     browse/filter/re-roll a single list's pool rather than just jump.
-    next mirrors _list_action_redirect's own open-redirect-safe pattern,
-    used only for the empty-pool case since a real pick always redirects
-    to the title itself."""
-    from django.utils.http import url_has_allowed_host_and_scheme
-
+    next (see _safe_next_redirect) is used only for the empty-pool case,
+    since a real pick always redirects to the title itself."""
     profile = Profile.objects.filter(user=request.user).first()
-    next_url = request.GET.get("next")
-    fallback = (
-        redirect(next_url)
-        if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure())
-        else redirect("dashboard")
-    )
+    fallback = _safe_next_redirect(request, request.GET, redirect("dashboard"))
     if profile is None:
         return fallback
     pool = list(selectors.library_watchlist(profile, [MediaType.MOVIE, MediaType.TV, MediaType.ANIME]))
@@ -3418,20 +3399,30 @@ def _render_title_detail_list_popover(request, profile, title):
     )
 
 
-def _list_action_redirect(request, list_id):
-    """add_to_list/remove_from_list default to list_detail, but the title
-    detail page also posts to these (to add/remove itself from a list
-    without a dedicated endpoint per action) and needs to land back on
-    itself, not list_detail - "next" opts into that, validated against
-    open-redirect the same way Django's own LoginView handles ?next=."""
+def _safe_next_redirect(request, params, fallback):
+    """Redirects to params["next"] (request.POST or request.GET - whichever
+    the caller's own form/link uses) if present and validated against
+    open-redirect the same way Django's own LoginView handles ?next= -
+    never anywhere off this host, since "next" is attacker-controllable
+    input (a crafted link/form someone else hosts, not just this app's
+    own pages). Falls back to `fallback` (an HttpResponseRedirect,
+    typically redirect('some_view')) otherwise."""
     from django.utils.http import url_has_allowed_host_and_scheme
 
-    next_url = request.POST.get("next")
+    next_url = params.get("next")
     if next_url and url_has_allowed_host_and_scheme(
         next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
     ):
         return redirect(next_url)
-    return redirect("list_detail", list_id=list_id)
+    return fallback
+
+
+def _list_action_redirect(request, list_id):
+    """add_to_list/remove_from_list default to list_detail, but the title
+    detail page also posts to these (to add/remove itself from a list
+    without a dedicated endpoint per action) and needs to land back on
+    itself, not list_detail - "next" opts into that."""
+    return _safe_next_redirect(request, request.POST, redirect("list_detail", list_id=list_id))
 
 
 @login_required
@@ -3784,12 +3775,32 @@ class SpoolLoginView(auth_views.LoginView):
     def form_valid(self, form):
         """"Keep me signed in" (checked by default, matching this app's
         prior no-checkbox-at-all behavior) keeps Django's own persistent
-        session (SESSION_COOKIE_AGE, 2 weeks by default) - unchecking it
-        is the only way to opt into the browser-close-expires session
-        Django's set_expiry(0) gives, since SESSION_EXPIRE_AT_BROWSER_CLOSE
-        isn't set globally (every other login flow - bootstrap_admin's
-        first-run account, etc. - still wants the normal persistent
-        session by default)."""
+        session (SESSION_COOKIE_AGE, an idle timeout - see settings.py)
+        - unchecking it is the only way to opt into the browser-close-
+        expires session Django's set_expiry(0) gives, since
+        SESSION_EXPIRE_AT_BROWSER_CLOSE isn't set globally (every other
+        login flow - bootstrap_admin's first-run account, etc. - still
+        wants the normal persistent session by default).
+
+        A profile with 2FA on (Settings → Security) never reaches
+        auth_login() here at all, even though the password's already
+        verified by this point (form.get_user() only succeeds once
+        AuthenticationForm's own clean() has confirmed it) - that's
+        deliberate: TotpChallengeView is the only place that actually
+        calls auth_login(), once a real code (or backup code) comes back
+        too, so a correct password alone is never enough on its own to
+        establish a session for a 2FA-enabled profile. Stashed in the
+        (still-anonymous) session, not a hidden form field or query
+        param the challenge step would otherwise have to trust blindly."""
+        user = form.get_user()
+        profile = Profile.objects.filter(user=user).first()
+        if profile is not None and profile.totp_enabled:
+            self.request.session["pending_2fa_user_id"] = user.pk
+            self.request.session["pending_2fa_remember_me"] = bool(self.request.POST.get("remember_me"))
+            next_url = self.request.POST.get("next") or self.request.GET.get("next") or ""
+            if next_url:
+                self.request.session["pending_2fa_next"] = next_url
+            return redirect("totp_challenge")
         response = super().form_valid(form)
         if not self.request.POST.get("remember_me"):
             self.request.session.set_expiry(0)
@@ -3891,6 +3902,7 @@ def _settings_page_context(request, profile):
         "can_delete_own_account": not profile.is_owner or other_owner_exists,
         "api_tokens": profile.api_tokens.all(),
         "max_api_tokens": ApiToken.MAX_TOKENS_PER_PROFILE,
+        **_security_card_context(profile),
     }
     if profile.is_owner:
         db_engine = django_settings.DATABASES["default"]["ENGINE"].rsplit(".", 1)[-1]
@@ -3918,7 +3930,7 @@ def settings_view(request):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
-    return render(request, "tracker/settings.html", {**_settings_page_context(request, profile), "active_tab": "integrations"})
+    return render(request, "tracker/settings.html", {**_settings_page_context(request, profile), "active_tab": "connected_apps"})
 
 
 @login_required
@@ -4356,9 +4368,16 @@ def my_profile(request):
         return redirect("my_profile")
 
     if request.method == "POST" and request.POST.get("action") == "change_password":
+        # "Change password" lives on the Security tab, not Account - see
+        # settings_nav_button's own key="security" - so every redirect
+        # out of this branch carries ?tab=security (Alpine's tab state
+        # reads the URL param over the view's own hardcoded active_tab
+        # below, same precedence _settings_page_context's other callers
+        # already rely on) rather than landing back on Account.
+        security_tab_url = reverse("my_profile") + "?tab=security"
         if ratelimit.is_rate_limited(request, "change_password", limit=10, window_seconds=300):
             messages.error(request, "Too many attempts. Please wait a few minutes and try again.")
-            return redirect("my_profile")
+            return redirect(security_tab_url)
         current_password = request.POST.get("current_password", "")
         new_password = request.POST.get("new_password", "")
         confirm_password = request.POST.get("confirm_password", "")
@@ -4377,9 +4396,156 @@ def my_profile(request):
             # user's own password change immediately logs them out.
             update_session_auth_hash(request, request.user)
             messages.success(request, "Password changed.")
-        return redirect("my_profile")
+        return redirect(security_tab_url)
 
     return render(request, "tracker/settings.html", {**_settings_page_context(request, profile), "active_tab": "account"})
+
+
+def _security_card_context(profile, backup_codes_to_show=None, error=None):
+    """Settings → Security's own card (settings_security_card.html) is a
+    self-contained htmx fragment, same pattern as api_tokens_card.html -
+    setup/verify/disable all swap just this card, not the whole
+    settings page. Not-yet-enabled always carries a totp_secret (a fresh
+    one generated and persisted here the first time this is rendered
+    with none set) so the QR code stays the same one across page
+    reloads mid-setup - see Profile.totp_secret's own docstring for why
+    a stable-but-unconfirmed secret, not an ephemeral one regenerated on
+    every view, is what avoids a scan that silently never gets used.
+
+    error is a plain context key, not messages.error() - toasts.html's
+    own docstring is explicit that the toast stack only ever drains on a
+    full page load, never an htmx partial swap, so a message queued from
+    here (this always renders just this one card, via hx-swap) would sit
+    unseen until some unrelated later page happened to trigger a full
+    reload. Rendered inline in the template instead, same reasoning
+    recommendation_result.html's own plain error/reply context already
+    uses for exactly this class of htmx-only response."""
+    if not profile.totp_enabled and not profile.totp_secret:
+        profile.totp_secret = totp.generate_secret()
+        profile.save(update_fields=["totp_secret"])
+    context = {"profile": profile, "error": error}
+    if not profile.totp_enabled:
+        context["totp_qr_data_uri"] = totp.provisioning_qr_data_uri(profile.totp_secret, profile.user.username)
+        context["totp_secret_display"] = profile.totp_secret
+    if backup_codes_to_show:
+        context["backup_codes_to_show"] = backup_codes_to_show
+    return context
+
+
+@login_required
+def settings_security_card(request):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    return render(request, "tracker/partials/settings_security_card.html", _security_card_context(profile))
+
+
+@login_required
+@require_POST
+def enable_totp(request):
+    """Settings → Security's "Turn on" flow - requires one real code back
+    from whatever scanned the QR shown by _security_card_context before
+    actually flipping totp_enabled (see Profile.totp_secret's own
+    docstring for why), then issues this profile's one and only set of
+    backup codes, shown in the response this once and never again in
+    plaintext."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    if ratelimit.is_rate_limited(request, "totp_setup", limit=10, window_seconds=300):
+        context = _security_card_context(profile, error="Too many attempts. Please wait a few minutes and try again.")
+        return render(request, "tracker/partials/settings_security_card.html", context)
+    if not totp.verify_code(profile.totp_secret, request.POST.get("code", "")):
+        context = _security_card_context(profile, error="That code didn't match — check your authenticator app and try again.")
+        return render(request, "tracker/partials/settings_security_card.html", context)
+    plain_codes = totp.generate_backup_codes()
+    profile.totp_enabled = True
+    profile.totp_backup_codes = totp.hash_backup_codes(plain_codes)
+    profile.save(update_fields=["totp_enabled", "totp_backup_codes"])
+    return render(
+        request,
+        "tracker/partials/settings_security_card.html",
+        _security_card_context(profile, backup_codes_to_show=plain_codes),
+    )
+
+
+@login_required
+@require_POST
+def disable_totp(request):
+    """Requires the account password again, not just being signed in -
+    the same "prove it's really you" bar delete_own_account/change_password
+    already set for anything this consequential, since turning 2FA back
+    off is exactly what an attacker with a hijacked, still-logged-in
+    session would want to do first."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    if ratelimit.is_rate_limited(request, "totp_disable", limit=10, window_seconds=300):
+        context = _security_card_context(profile, error="Too many attempts. Please wait a few minutes and try again.")
+        return render(request, "tracker/partials/settings_security_card.html", context)
+    if not request.user.check_password(request.POST.get("current_password", "")):
+        context = _security_card_context(profile, error="Current password is incorrect.")
+        return render(request, "tracker/partials/settings_security_card.html", context)
+    profile.totp_secret = ""
+    profile.totp_enabled = False
+    profile.totp_backup_codes = []
+    profile.save(update_fields=["totp_secret", "totp_enabled", "totp_backup_codes"])
+    return render(request, "tracker/partials/settings_security_card.html", _security_card_context(profile))
+
+
+class TotpChallengeView(View):
+    """Second step of login for a profile with 2FA enabled - SpoolLoginView's
+    form_valid defers the actual auth_login() call to here once the
+    password's already been verified, stashing which user is mid-login in
+    the (still-anonymous) session rather than trusting a hidden form
+    field, which anyone could tamper with to claim to be finishing
+    someone else's login. GET with nothing pending (this page reloaded
+    directly, a stale bookmark, the session having since expired) just
+    sends them back to start over at the real login form."""
+
+    template_name = "tracker/totp_challenge.html"
+
+    def _pending_user(self, request):
+        user_id = request.session.get("pending_2fa_user_id")
+        return User.objects.filter(pk=user_id).first() if user_id else None
+
+    def get(self, request):
+        if self._pending_user(request) is None:
+            return redirect("login")
+        return render(request, self.template_name, {})
+
+    def post(self, request):
+        user = self._pending_user(request)
+        if user is None:
+            return redirect("login")
+        if ratelimit.is_rate_limited(request, "totp_challenge", limit=10, window_seconds=300):
+            messages.error(request, "Too many attempts. Please wait a few minutes and try again.")
+            return render(request, self.template_name, {})
+        profile = Profile.objects.filter(user=user).first()
+        code = request.POST.get("code", "")
+        verified = totp.verify_code(profile.totp_secret, code)
+        if not verified:
+            # A backup code is a fallback for "lost the authenticator
+            # device entirely", not a second guess at the same code - only
+            # tried once the real TOTP check has already failed, and
+            # consumed (removed from the profile's remaining list) the
+            # moment it succeeds, so it can never be reused.
+            remaining = totp.consume_backup_code(profile.totp_backup_codes, code)
+            if remaining is not None:
+                profile.totp_backup_codes = remaining
+                profile.save(update_fields=["totp_backup_codes"])
+                verified = True
+        if not verified:
+            messages.error(request, "That code didn't match. You can also use one of your backup codes.")
+            return render(request, self.template_name, {})
+
+        remember_me = request.session.pop("pending_2fa_remember_me", True)
+        next_url = request.session.pop("pending_2fa_next", "")
+        request.session.pop("pending_2fa_user_id", None)
+        auth_login(request, user)
+        if not remember_me:
+            request.session.set_expiry(0)
+        return _safe_next_redirect(request, {"next": next_url}, redirect(_landing_page_url(profile.default_landing_page)))
 
 
 @login_required
@@ -4688,9 +4854,6 @@ def save_appearance(request):
     if watchlisted_display in Profile.DiscoverDisplay.values:
         profile.discover_watchlisted_display = watchlisted_display
         update_fields.append("discover_watchlisted_display")
-    if "gemini_api_key" in request.POST:
-        profile.gemini_api_key = request.POST.get("gemini_api_key", "").strip()
-        update_fields.append("gemini_api_key")
     # One hidden marker for the whole Wrapped card (not one per checkbox)
     # since all three fields submit together from a single form here -
     # still needed at all because wrapped_enabled/wrapped_email_enabled
@@ -4890,9 +5053,9 @@ def mark_notification_read(request, pk):
     # Plain-form fallback for notifications_list.html's own dismiss
     # button, which isn't htmx (see notifications_list's own docstring
     # for why that page's dismiss doesn't share the dropdown's live
-    # fade) - back to wherever the form said to return to, same "next"
-    # convention as login/logout.
-    return redirect(request.POST.get("next") or reverse("notifications_list"))
+    # fade) - back to wherever the form said to return to, validated via
+    # _safe_next_redirect same as login/logout's own ?next=.
+    return _safe_next_redirect(request, request.POST, redirect("notifications_list"))
 
 
 @login_required
@@ -4908,7 +5071,7 @@ def mark_all_notifications_read(request):
     # form, not htmx, same reasoning as mark_notification_read's own
     # non-HTMX branch (that page can't render the dropdown's fragment
     # shape).
-    return redirect(request.POST.get("next") or reverse("notifications_list"))
+    return _safe_next_redirect(request, request.POST, redirect("notifications_list"))
 
 
 @login_required
@@ -4924,7 +5087,7 @@ def clear_all_notifications(request):
     Notification.objects.filter(profile=profile).delete()
     if request.headers.get("HX-Request"):
         return _render_notifications_panel(request, profile)
-    return redirect(request.POST.get("next") or reverse("notifications_list"))
+    return _safe_next_redirect(request, request.POST, redirect("notifications_list"))
 
 
 _CSV_FORMULA_TRIGGERS = ("=", "+", "-", "@")

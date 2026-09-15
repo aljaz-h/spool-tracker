@@ -1,4 +1,4 @@
-{% load tracker_extras %}
+{% load tracker_extras icons %}
 {# context: group (dict: title, count, range_label, total_duration, events, timeline_events - same-title/same-day episode watches) #}
 {% comment %}
   Deep-links to whichever episode was watched LAST in this binge
@@ -133,8 +133,20 @@
       {% url 'title_detail' group.title.pk as detail_url %}
     {% endif %}
     <a href="{{ detail_url }}" class="block mt-1.5 min-w-0" @click="if (selecting) $event.preventDefault()">
+      {% comment %}
+        Same "did this run end on the show's own last known episode"
+        check the Activity feed's watched_group already surfaces (see
+        views._build_episode_group) - without it a full-series bulk
+        catch-up (every episode logged with the same timestamp, so it
+        groups exactly like any other binge) read here as just
+        "N episodes", no sense of whether that was the whole show or
+        one session out of many still to come.
+      {% endcomment %}
+      {% if group.completed_series %}
+        <div class="inline-flex items-center gap-1 text-[9.5px] font-mono font-bold uppercase tracking-wide text-success mb-0.5">{% icon "check" "w-2.5 h-2.5" %} Series completed</div>
+      {% endif %}
       <div class="text-[11.5px] font-semibold truncate">{{ group.title.name }}</div>
-      <div class="text-[10px] font-mono text-ink-dim mt-0.5">{{ group.count }} episodes{% if group.total_duration %} · {{ group.total_duration }}{% endif %}</div>
+      <div class="text-[10px] font-mono text-ink-dim mt-0.5">{{ group.count }}{% if group.total_episodes %}/{{ group.total_episodes }}{% endif %} episodes{% if group.total_duration %} · {{ group.total_duration }}{% endif %}</div>
     </a>
   {% endwith %}
 </div>

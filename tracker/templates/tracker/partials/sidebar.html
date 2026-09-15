@@ -5,7 +5,7 @@
   x-cloak
   @click="sidebarOpen = false"
   x-transition.opacity
-  class="fixed inset-0 bg-black/60 z-40 md:hidden"
+  class="fixed inset-0 bg-black/60 z-40 xl:hidden"
 ></div>
 
 <aside
@@ -18,7 +18,7 @@
   x-transition:leave="transition ease-in duration-150"
   x-transition:leave-start="translate-x-0"
   x-transition:leave-end="-translate-x-full"
-  class="fixed md:hidden top-0 left-0 h-screen w-64 z-50 flex flex-col bg-base-200 border-r border-line p-3.5 overflow-y-auto"
+  class="fixed xl:hidden top-0 left-0 h-screen w-64 z-50 flex flex-col bg-base-200 border-r border-line p-3.5 overflow-y-auto"
 >
   <div class="flex items-center justify-between gap-2 pb-5 mb-4 border-b border-line">
     <a href="{% url 'dashboard' %}" class="flex items-baseline gap-2" @click="sidebarOpen = false">

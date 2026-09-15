@@ -1,0 +1,54 @@
+{% load static %}
+{% comment %}
+Second step of login for a profile with 2FA on (Settings → Security) -
+password already checked by this point (SpoolLoginView.form_valid only
+ever redirects here once form.get_user() succeeded), this is the only
+place that actually calls auth_login(). Standalone document, not
+extending base.html, same reasoning as login.html itself: nothing here
+runs as an authenticated session yet.
+{% endcomment %}
+<!doctype html>
+<html lang="en" data-theme="spool">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verify it's you · Spool</title>
+  <link rel="icon" type="image/x-icon" href="{% static 'img/favicon.ico' %}">
+  <link rel="apple-touch-icon" href="{% static 'img/apple-touch-icon.png' %}">
+  <link rel="manifest" href="{% static 'img/manifest.webmanifest' %}">
+  <meta name="theme-color" content="#14161c">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Public+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'dist/app.css' %}">
+</head>
+<body class="bg-base-100 text-base-content min-h-screen flex flex-col items-center justify-center p-6">
+  <div class="w-full max-w-sm bg-base-200 border border-line rounded-2xl p-8">
+    <h1 class="font-display text-3xl text-marquee tracking-wide">SPOOL</h1>
+    <p class="text-ink-dim text-sm mt-1 mb-6">Enter the code from your authenticator app</p>
+
+    {% if messages %}
+      {% for message in messages %}
+        <p class="text-error text-sm mb-3">{{ message }}</p>
+      {% endfor %}
+    {% endif %}
+
+    <form method="post">
+      {% csrf_token %}
+      <label class="block text-xs text-ink-dim mb-1" for="id_code">6-digit code</label>
+      <input
+        type="text" name="code" id="id_code" autofocus required inputmode="numeric" autocomplete="one-time-code"
+        placeholder="123456" maxlength="12" class="input w-full mb-5 bg-base-100 font-mono tracking-widest text-center text-lg"
+      >
+      <button type="submit" class="btn btn-primary w-full">Verify</button>
+    </form>
+
+    <div class="border-t border-dashed border-line my-5"></div>
+
+    <p class="text-center text-xs text-ink-dim">Lost your device? Enter one of your backup codes above instead.</p>
+  </div>
+
+  <div class="mt-4 text-center text-[11px] text-ink-faint font-mono">
+    spool.tracker &middot; v{{ app_version }} &middot; self-hosted
+  </div>
+</body>
+</html>

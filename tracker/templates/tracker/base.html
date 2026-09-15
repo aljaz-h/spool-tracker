@@ -61,8 +61,51 @@
       const tile = tileFromEvent(ev);
       return tile && !tile.contains(ev.relatedTarget) ? tile : null;
     };
-    document.addEventListener('mouseover', (e) => enteredTile(e)?.classList.add('tile-hover'));
-    document.addEventListener('mouseout', (e) => enteredTile(e)?.classList.remove('tile-hover'));
+    if (!window.matchMedia('(hover: none)').matches) {
+      document.addEventListener('mouseover', (e) => enteredTile(e)?.classList.add('tile-hover'));
+      document.addEventListener('mouseout', (e) => enteredTile(e)?.classList.remove('tile-hover'));
+    } else {
+      // A touch device has no real hover - a tap synthesizes mouseover
+      // then click back to back, so without this a tile would only ever
+      // get as far as "revealed" for the instant before that same tap's
+      // own click immediately navigated through it anyway - the reveal,
+      // and the watched/list buttons inside it, would be permanently
+      // unreachable by touch. First tried gating this off a flag set in
+      // the mouseover handler above and consumed in the click handler
+      // below (mirroring the desktop mouseover/mouseout pair as closely
+      // as possible) - confirmed live it's flaky, roughly 1 run in 3:
+      // whether a browser fires mouseout for a tile between two taps on
+      // that same tile (nothing moved a real pointer away, there's
+      // nothing physically dragging across it either) isn't consistent,
+      // and when it doesn't, tap two's mouseover finds .tile-hover
+      // already gone and treats it as a fresh reveal again, silently
+      // re-blocking the navigation the user just asked for a second
+      // time. So: don't drive this off mouseover/mouseout for touch at
+      // all - track it entirely from click, which does fire exactly
+      // once per tap, no synthesis inconsistency to race.
+      let openTile = null;
+      const closeOpenTile = () => {
+        if (!openTile) return;
+        openTile.classList.remove('tile-hover');
+        openTile = null;
+      };
+      document.addEventListener('click', (e) => {
+        const tile = tileFromEvent(e);
+        if (!tile) {
+          closeOpenTile(); // tapped off the grid entirely - close whatever was open, same as any other popover's click-outside
+          return;
+        }
+        if (!e.target.closest('.discover-tile a[href]')) return; // tapped a watched/list button, not the poster/title link - its own handler runs, reveal state untouched
+        if (tile === openTile) {
+          openTile = null; // second tap on the tile that's already open - let this one navigate
+          return;
+        }
+        e.preventDefault(); // first tap on this tile (open, possibly closing a different one first) - reveal only
+        closeOpenTile();
+        tile.classList.add('tile-hover');
+        openTile = tile;
+      });
+    }
     document.addEventListener('focusin', (e) => tileFromEvent(e)?.classList.add('tile-focus'));
     document.addEventListener('focusout', (e) => enteredTile(e)?.classList.remove('tile-focus'));
     // Owning the trigger as a plain class (instead of leaving it to
@@ -256,7 +299,7 @@
     {% include "tracker/partials/sidebar.html" %}
     <div class="min-h-screen flex flex-col">
       {% include "tracker/partials/topbar.html" %}
-      <main class="p-4 sm:p-6 lg:p-8 pb-28 md:pb-16 lg:px-[calc(2rem+10%)]">
+      <main class="p-4 sm:p-6 lg:p-8 pb-28 xl:pb-16 lg:px-[calc(2rem+10%)]">
         {% include "tracker/partials/discover_type_switcher.html" %}
         {% block content %}{% endblock %}
       </main>

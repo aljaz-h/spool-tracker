@@ -161,6 +161,24 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
+# Session
+#
+# An idle timeout, not a flat expiry from login - SESSION_SAVE_EVERY_REQUEST
+# refreshes the cookie's expiry on every authenticated request, so a
+# session only actually goes stale after this many seconds of no activity
+# at all, not a countdown that starts the moment you sign in and keeps
+# ticking no matter how much you're actively using the site in between.
+# There was no idle expiration at all before this (Django's own
+# SESSION_COOKIE_AGE default is a flat two weeks from login, active or
+# not) - sign in, close the laptop, come back weeks later still signed
+# in, is exactly the "not good for safety" gap this closes. Configurable,
+# not hardcoded, since how long counts as reasonable depends on the
+# household (a shared/public machine wants this much shorter than a
+# personal one).
+SESSION_COOKIE_AGE = env.int("SESSION_COOKIE_AGE", default=60 * 60 * 24 * 14)  # 14 days
+SESSION_SAVE_EVERY_REQUEST = True
+
+
 # Internationalization
 
 LANGUAGE_CODE = "en-us"
