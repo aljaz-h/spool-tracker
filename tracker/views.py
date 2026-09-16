@@ -424,6 +424,17 @@ def discover(request, media_type, category):
     }
     if is_anime:
         filters["origin_country"] = "JP"
+    else:
+        # Movies/TV only - Anime's own origin_country is a fixed part of
+        # what makes that page "Anime" at all (above), not something a
+        # url param should override. Powers title_detail's own "click a
+        # country to see everything from there" chips (see
+        # tmdb.get_full_details's countries_display) - a plain query
+        # param, so it naturally doesn't persist once someone leaves this
+        # page and comes back to a plain, unfiltered /movies//tv/ URL.
+        origin_country_param = request.GET.get("origin_country", "").strip().upper()
+        if origin_country_param:
+            filters["origin_country"] = origin_country_param
 
     # "Display" preference - Show/Dim/Hide for titles already watched or on
     # the watchlist. A persisted per-profile rendering preference (Settings
@@ -454,6 +465,11 @@ def discover(request, media_type, category):
 
     query_without_page = request.GET.copy()
     query_without_page.pop("page", None)
+    # The origin_country filter banner's own "×" link - clears just that
+    # one param (e.g. landed here from a title_detail country chip)
+    # while keeping every other active filter untouched.
+    query_without_origin_country = query_without_page.copy()
+    query_without_origin_country.pop("origin_country", None)
 
     context = {
         "profile": profile,
@@ -475,6 +491,15 @@ def discover(request, media_type, category):
         "selected_runtime_bucket": selected_runtime_bucket,
         "languages": DISCOVER_LANGUAGES,
         "selected_language": filters["original_language"] or "",
+        # Anime's own forced "JP" (is_anime, above) is never surfaced
+        # here - that one's a fixed part of what makes the page "Anime"
+        # at all, not a removable filter someone landed on by clicking a
+        # title_detail country chip, so it gets no dismissible banner.
+        "selected_origin_country": filters.get("origin_country") if not is_anime else "",
+        "selected_origin_country_name": (
+            tmdb.country_name(filters["origin_country"]) if not is_anime and filters.get("origin_country") else ""
+        ),
+        "query_without_origin_country": query_without_origin_country.urlencode(),
         "certifications": tmdb.MOVIE_CERTIFICATIONS,
         "selected_certification": selected_certification,
         "tv_statuses": list(tmdb.TV_STATUSES),
@@ -2642,22 +2667,20 @@ def _build_episode_group(title, run):
     first_by_ep = min(episodes, key=lambda e: (e.season, e.episode))
     last_by_ep = max(episodes, key=lambda e: (e.season, e.episode))
     total_minutes = sum((e.episode.runtime_minutes or e.title.runtime_minutes or 0) for e in run)
-    # Same "did this group's last episode happen to be the show's own
-    # last known one" check selectors._build_group already does for the
-    # Activity feed's own watched_group - kept in sync here so a binge
-    # (including a bulk "mark all seasons watched" catch-up, which logs
-    # every episode with the exact same timestamp and so groups the same
-    # way any other same-day run does) reads the same "Series Completed"
-    # vs. plain episode-count way in History as it already does in
-    # Activity, rather than just "watched <title>" with no sense of how
-    # much of it. Not WatchProgress-aware, deliberately, same reasoning
-    # as that other copy's own comment.
-    all_episodes = Episode.objects.filter(title=title).order_by("-season", "-episode").first()
-    total_episodes = Episode.objects.filter(title=title).count()
-    completed_series = bool(all_episodes) and (last_by_ep.season, last_by_ep.episode) == (
-        all_episodes.season,
-        all_episodes.episode,
-    )
+    # Same real-total/WatchProgress-backed check selectors.
+    # episode_totals_for_group already does for the Activity feed's own
+    # watched_group - kept in sync here so a binge (including a bulk
+    # "mark all seasons watched" catch-up, which logs every episode with
+    # the exact same timestamp and so groups the same way any other
+    # same-day run does) reads the same "Series Completed" vs. plain
+    # episode-count way in History as it already does in Activity,
+    # rather than just "watched <title>" with no sense of how much of
+    # it. See that function's own docstring for why this isn't just a
+    # local Episode.objects.filter(title=title) count/last-episode
+    # check - confirmed live that one falsely claims "Series Completed"
+    # the moment a single season's worth of episodes exists locally,
+    # regardless of how many seasons the show actually has.
+    total_episodes, completed_series = selectors.episode_totals_for_group(run[0].profile, title)
     return {
         "is_group": True,
         "title": title,

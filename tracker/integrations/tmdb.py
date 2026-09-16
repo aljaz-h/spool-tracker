@@ -799,15 +799,28 @@ PROFILE_BASE = "https://image.tmdb.org/t/p/w185"
 # and doesn't need a badge, whereas everything else here is worth calling
 # out (spool-product-spec.md has no prior art for this; picked to mirror
 # how Trakt/TMDB's own web UIs label the same statuses).
+#
+# Every status gets a real color, not just the two "obvious" ones - a
+# gray/neutral "ink-dim" badge for Ended/Pilot/Rumored used to read as
+# "this one wasn't handled" (confirmed as actual user feedback), not as
+# a deliberate choice. In Production shares Ongoing's own green (still
+# actively being made, same "good news" read as Returning Series) rather
+# than the cooler "upcoming" blue Planned/Post Production get - those two
+# are still ahead of release, In Production is already happening now.
+# Ended/Pilot/Rumored share warning's amber - none of them are bad news
+# the way Cancelled is, just each one open-ended/unresolved in its own
+# way (finished its run, never picked up past a pilot, or not even
+# confirmed yet), so they read as "worth a second look" rather than
+# either "good" or "bad".
 STATUS_BADGES = {
     "Returning Series": {"label": "Ongoing", "color": "success"},
-    "Ended": {"label": "Ended", "color": "ink-dim"},
+    "Ended": {"label": "Ended", "color": "warning"},
     "Canceled": {"label": "Cancelled", "color": "error"},
-    "In Production": {"label": "In Production", "color": "info"},
+    "In Production": {"label": "In Production", "color": "success"},
     "Planned": {"label": "Upcoming", "color": "info"},
-    "Pilot": {"label": "Pilot", "color": "ink-dim"},
+    "Pilot": {"label": "Pilot", "color": "warning"},
     "Post Production": {"label": "Post Production", "color": "info"},
-    "Rumored": {"label": "Rumored", "color": "ink-dim"},
+    "Rumored": {"label": "Rumored", "color": "warning"},
 }
 
 
@@ -870,6 +883,71 @@ _ISO_COUNTRY_NAMES = {
 }
 
 
+def country_name(country_code):
+    """The display name for an ISO 3166-1 alpha-2 code, via the same
+    curated _ISO_COUNTRY_NAMES map get_full_details' own tv/anime branch
+    uses - falls back to the raw code itself when it's not in that map,
+    same "slightly-off display beats an error" convention as everywhere
+    else here. A thin public wrapper so a caller outside this module
+    (views.discover's own origin_country filter banner) doesn't need to
+    reach into a leading-underscore "private" module dict directly."""
+    return _ISO_COUNTRY_NAMES.get(country_code, country_code) if country_code else ""
+
+
+def country_flag(country_code):
+    """🇯🇵 from "JP" - a flag emoji is just two Regional Indicator Symbol
+    letters, one per character of the ISO 3166-1 alpha-2 code, each
+    offset from U+1F1E6 by the same amount its own letter is offset from
+    'A' - computed rather than a second hand-maintained lookup table
+    alongside _ISO_COUNTRY_NAMES, since (unlike a country's *name*, which
+    has no such trick) this works for any valid 2-letter code, in or out
+    of that curated map. Returns "" for anything that isn't exactly 2
+    letters (an already-unresolved/unknown code) rather than rendering a
+    nonsense flag."""
+    if not country_code or len(country_code) != 2 or not country_code.isalpha():
+        return ""
+    return "".join(chr(0x1F1E6 + ord(c) - ord("A")) for c in country_code.upper())
+
+
+# ISO 639-1 -> (English name, a representative country's ISO 3166-1 code
+# to flag it with) for the title detail Details panel's "original
+# language" row. A language isn't a country, so the flag is inherently a
+# "closest single answer" pick (same curated-not-exhaustive spirit as
+# _ISO_COUNTRY_NAMES above) - the one country TMDB's own original_language
+# value overwhelmingly means in practice for that language. A code
+# missing from this map falls back to the raw uppercased code with no
+# flag, same "slightly-off display beats an error" convention.
+_LANGUAGES = {
+    "en": ("English", "US"), "ja": ("Japanese", "JP"), "ko": ("Korean", "KR"),
+    "zh": ("Chinese", "CN"), "fr": ("French", "FR"), "de": ("German", "DE"),
+    "es": ("Spanish", "ES"), "it": ("Italian", "IT"), "pt": ("Portuguese", "PT"),
+    "ru": ("Russian", "RU"), "hi": ("Hindi", "IN"), "ar": ("Arabic", "SA"),
+    "th": ("Thai", "TH"), "tr": ("Turkish", "TR"), "nl": ("Dutch", "NL"),
+    "sv": ("Swedish", "SE"), "no": ("Norwegian", "NO"), "da": ("Danish", "DK"),
+    "fi": ("Finnish", "FI"), "pl": ("Polish", "PL"), "cs": ("Czech", "CZ"),
+    "hu": ("Hungarian", "HU"), "el": ("Greek", "GR"), "he": ("Hebrew", "IL"),
+    "id": ("Indonesian", "ID"), "vi": ("Vietnamese", "VN"), "uk": ("Ukrainian", "UA"),
+    "ro": ("Romanian", "RO"), "fa": ("Persian", "IR"), "ur": ("Urdu", "PK"),
+    "bn": ("Bengali", "BD"), "ta": ("Tamil", "IN"), "ms": ("Malay", "MY"),
+    "fil": ("Filipino", "PH"), "sr": ("Serbian", "RS"), "hr": ("Croatian", "HR"),
+    "bg": ("Bulgarian", "BG"), "sk": ("Slovak", "SK"), "lt": ("Lithuanian", "LT"),
+    "lv": ("Latvian", "LV"), "et": ("Estonian", "EE"), "is": ("Icelandic", "IS"),
+    "ca": ("Catalan", "ES"), "cn": ("Cantonese", "HK"), "zh-tw": ("Chinese", "TW"),
+}
+
+
+def language_display(language_code):
+    """{"code", "name", "flag"} for a raw ISO 639-1 original_language code
+    - the title detail Details panel's own richer version of the plain
+    uppercased code the hero row still shows. Returns name=the raw code
+    uppercased and flag="" for anything not in _LANGUAGES above (rather
+    than raising), same fallback convention as _ISO_COUNTRY_NAMES."""
+    if not language_code:
+        return None
+    name, flag_country = _LANGUAGES.get(language_code, (language_code.upper(), None))
+    return {"code": language_code, "name": name, "flag": country_flag(flag_country) if flag_country else ""}
+
+
 def get_full_details(media_type, tmdb_id):
     """{"name", "year", "overview", "tagline", "genres": [str,...],
     "runtime": int|None (movie), "number_of_seasons"/"number_of_episodes":
@@ -894,7 +972,13 @@ def get_full_details(media_type, tmdb_id):
     normalized to None here since "$0" reads as data, not "no data"),
     "production_companies": [str,...], "countries": [str,...] (movie:
     full names from production_countries; tv/anime: origin_country's ISO
-    codes resolved through _ISO_COUNTRY_NAMES above), "networks": [str,...]
+    codes resolved through _ISO_COUNTRY_NAMES above), "original_language_display":
+    {"code", "name", "flag"}|None (see language_display - the Details
+    panel's richer version of the plain original_language code above),
+    "countries_display": [{"code", "name", "flag"}, ...] (ditto, the
+    Details panel's richer version of "countries" above - same list,
+    same order, just carrying each one's own code/flag alongside its
+    name instead of discarding them), "networks": [str,...]
     (tv/anime only, always [] for a movie - broadcast/streaming networks,
     used for Title.network/the Reports API), "collection_id": int|None
     (movie only - TMDB's belongs_to_collection, e.g. "Iron Man Collection";
@@ -929,6 +1013,19 @@ def get_full_details(media_type, tmdb_id):
                 "episode_number": raw_last.get("episode_number"),
                 "name": raw_last.get("name") or "",
             }
+    # (code, name) pairs, computed once - movies carry both straight from
+    # production_countries; tv/anime only ever carry origin_country's own
+    # bare codes, resolved to a name through _ISO_COUNTRY_NAMES same as
+    # everywhere else here. countries below (plain names) keeps the exact
+    # shape get_reports_metadata's own countries[0] already depends on;
+    # countries_display is the Details panel's own richer version (adds
+    # a flag, and the code itself for the "click to filter" link) without
+    # disturbing that existing shape.
+    country_pairs = (
+        [(c["iso_3166_1"], c["name"]) for c in data.get("production_countries") or [] if c.get("name")]
+        if is_movie
+        else [(code, _ISO_COUNTRY_NAMES.get(code, code)) for code in data.get("origin_country") or []]
+    )
     return {
         "tmdb_id": tmdb_id,
         "media_type": media_type,
@@ -945,6 +1042,7 @@ def get_full_details(media_type, tmdb_id):
         "vote_average": data.get("vote_average"),
         "vote_count": data.get("vote_count"),
         "original_language": data.get("original_language"),
+        "original_language_display": language_display(data.get("original_language")),
         "status": data.get("status"),
         "certification": _extract_certification(data, is_movie),
         "release_date": date if is_movie else None,
@@ -955,11 +1053,8 @@ def get_full_details(media_type, tmdb_id):
         "budget": data.get("budget") if is_movie and data.get("budget") else None,
         "revenue": data.get("revenue") if is_movie and data.get("revenue") else None,
         "production_companies": [c["name"] for c in data.get("production_companies") or [] if c.get("name")],
-        "countries": (
-            [c["name"] for c in data.get("production_countries") or [] if c.get("name")]
-            if is_movie
-            else [_ISO_COUNTRY_NAMES.get(code, code) for code in data.get("origin_country") or []]
-        ),
+        "countries": [name for _, name in country_pairs],
+        "countries_display": [{"code": code, "name": name, "flag": country_flag(code)} for code, name in country_pairs],
         # tv/anime only - Title.network/the Reports API's per-entry
         # "network" field (see Title's own field comment). Movies have no
         # equivalent concept, so this key is simply absent for a movie.

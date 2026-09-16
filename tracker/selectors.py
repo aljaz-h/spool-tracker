@@ -10,6 +10,7 @@ from django.db.models import Count, Q, Sum
 from django.db.models.functions import Coalesce, ExtractDay, ExtractHour, ExtractMonth
 from django.utils import timezone
 
+from .integrations import tmdb
 from .models import (
     DataLog,
     Episode,
@@ -1426,6 +1427,39 @@ def _group_consecutive_watches(items):
     return grouped
 
 
+def episode_totals_for_group(profile, title):
+    """The real total_episodes/completed_series pair for a show, shared by
+    _build_group (Activity feed) and views._build_episode_group (History) -
+    both used to derive this from Episode.objects.filter(title=title), the
+    locally-known episode rows, which only ever include whatever's actually
+    been watched/browsed so far. That silently breaks the moment a show
+    isn't 100% locally known: marking only Season 1 of Reacher (4 seasons)
+    watched made "S1E8" both the last *locally created* episode and the
+    count of them, so it read as "Series Completed" after a single season -
+    confirmed live, not hypothetical. total_episodes now comes from TMDB's
+    own count (get_tv_details, cached ~6h - already warm here in practice,
+    since marking episodes watched just called completion.sync_show_
+    completion, which fetches this exact same endpoint) with the old local-
+    count as a fallback for a title with no tmdb id at all. completed_series
+    now just reads WatchProgress directly - completion.sync_show_completion
+    already sets that to COMPLETED using this same TMDB total the moment a
+    profile's watched at least that many distinct episodes, so reusing it
+    here is both cheaper (no recomputation) and correct regardless of
+    *which* episodes made up this particular run (a late catch-up of
+    earlier episodes correctly completes the series here too, not just a
+    run that happens to end on the finale)."""
+    tmdb_id = title.external_ids.get("tmdb") if title.external_ids else None
+    details = tmdb.get_tv_details(tmdb_id) if tmdb_id else None
+    if details and details.get("number_of_episodes"):
+        total_episodes = details["number_of_episodes"]
+    else:
+        total_episodes = Episode.objects.filter(title=title).count()
+    completed_series = WatchProgress.objects.filter(
+        profile=profile, title=title, status=WatchProgress.Status.COMPLETED
+    ).exists()
+    return total_episodes, completed_series
+
+
 def _build_group(group_type, run):
     """run is ordered newest-first (matches the feed's own sort)."""
     if group_type == "episode":
@@ -1434,20 +1468,7 @@ def _build_group(group_type, run):
         last_by_ep = max(episodes, key=lambda e: (e.season, e.episode))
         range_label = f"S{first_by_ep.season}E{first_by_ep.episode}–S{last_by_ep.season}E{last_by_ep.episode}"
         total_runtime = sum(e.runtime_minutes for e in episodes if e.runtime_minutes)
-        # Whether this binge's last episode is the show's own last known
-        # episode - "finished the series in this sitting" vs. "watched a
-        # run of episodes, more still left" get different Activity page
-        # treatment (a completion badge instead of a plain count). Not
-        # WatchProgress-aware (a rewatch that happens to end on the finale
-        # reads the same as a first watch) - deliberately simple, since
-        # the feed already shows enough context (range_label, day) for
-        # that distinction to be obvious to whoever's reading it.
-        all_episodes = Episode.objects.filter(title=run[0]["title"]).order_by("-season", "-episode").first()
-        total_episodes = Episode.objects.filter(title=run[0]["title"]).count()
-        completed_series = bool(all_episodes) and (last_by_ep.season, last_by_ep.episode) == (
-            all_episodes.season,
-            all_episodes.episode,
-        )
+        total_episodes, completed_series = episode_totals_for_group(run[0]["profile"], run[0]["title"])
         return {
             "profile": run[0]["profile"],
             "timestamp": run[0]["timestamp"],

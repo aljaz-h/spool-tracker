@@ -8,6 +8,53 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.125.0] - 2026-09-17
+
+### Added
+
+- Title Details panel: original language and country now show their
+  full name and a flag (e.g. "🇯🇵 Japanese", "🇺🇸 United States")
+  instead of a bare code, and each is a clickable link to Discover
+  pre-filtered to that language/country - a plain query param, so it
+  doesn't linger once you leave and come back to a plain Discover URL.
+  Status now reuses the exact same colored badge the header already
+  shows instead of printing the raw TMDB status string as plain text.
+- TV/anime status badges: every status now gets a real color, not just
+  Ongoing/Cancelled - In Production shares Ongoing's green (still
+  actively being made), Ended/Pilot/Rumored share a warning amber
+  (previously all three rendered as plain uncolored gray).
+- A not-yet-tracked TV/anime title's own page now offers a "+ Mark as
+  Watched" button in its header (mark all seasons, or one season) -
+  previously only a movie preview had one there.
+- History's own binge/catch-up group tiles now show a "Series
+  completed" badge and an "X/Y episodes" total, matching the Activity
+  feed's own equivalent grouping.
+
+### Fixed
+
+- Clickable elements built from a bare `<div>`/`<a>` plus an Alpine
+  `@click` or htmx trigger (rather than a real `<button>` or `<a href>`)
+  didn't show a pointer cursor on hover - confirmed on calendar day
+  cells with nothing scheduled, likely elsewhere too. Neither browsers
+  nor Tailwind give those a pointer cursor by default; now a global CSS
+  rule does.
+- Marking only one season of a multi-season show watched could read as
+  "Series Completed" in History/Activity, because that detection only
+  ever looked at locally-known episode rows - which, right after such a
+  catch-up, are *only* that one season, so its own last episode looked
+  like the finale. Now checks the show's real episode count/WatchProgress
+  instead.
+- A not-yet-tracked TV/anime title's own "Mark as Watched" popover
+  could render fully clipped (empty box, no menu) for a title with a
+  shorter hero backdrop, the same class of `position:absolute`/
+  `overflow-hidden` clipping bug fixed elsewhere last release - it now
+  uses the same fixed/viewport-relative positioning every other popover
+  on that page already does.
+- Discover's origin_country filter (previously hardcoded to Japan for
+  Anime only) is now also settable via `?origin_country=` on Movies/TV,
+  with a dismissible "Filtered to X" banner - powers the Details panel's
+  new clickable country link above.
+
 ## [0.124.0] - 2026-09-15
 
 ### Added

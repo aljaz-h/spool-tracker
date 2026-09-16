@@ -76,7 +76,7 @@
         <button type="button" @click="togglePanel($el)" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
           {% icon "filter" "w-3.5 h-3.5" %}
           Filters
-          {% if selected_genres or selected_providers or selected_decades or selected_runtime_bucket or request.GET.rating_from or request.GET.rating_to or selected_language or selected_certification or selected_status or selected_availability %}
+          {% if selected_genres or selected_providers or selected_decades or selected_runtime_bucket or request.GET.rating_from or request.GET.rating_to or selected_language or selected_certification or selected_status or selected_availability or selected_origin_country %}
             <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
           {% endif %}
         </button>
@@ -375,6 +375,22 @@
       </div>
     {% endif %}
   </div>
+
+  {% if selected_origin_country %}
+    {% comment %}
+      A plain query param (origin_country), not a persisted per-profile
+      setting - landed on from title_detail's own "click a country" chip
+      (see tmdb.get_full_details' countries_display), or a shared/
+      bookmarked URL. Shown here (not just as the Filters button's own
+      dot) since origin_country has no dropdown of its own in that panel
+      to otherwise surface it in - same "Filtered to X" banner shape
+      History's own title filter already uses.
+    {% endcomment %}
+    <div class="flex items-center justify-between gap-3 bg-base-200 border border-line rounded-lg px-4 py-2.5 mb-4 text-sm">
+      <span>Filtered to <b>{{ selected_origin_country_name }}</b></span>
+      <a href="?{{ query_without_origin_country }}" class="text-ink-faint hover:text-base-content" aria-label="Clear country filter">{% icon "x" "w-4 h-4" %}</a>
+    </div>
+  {% endif %}
 
   {% if not results %}
     <div class="py-16 text-center text-ink-faint text-sm">

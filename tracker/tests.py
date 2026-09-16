@@ -10447,6 +10447,7 @@ class TmdbDetailPageTests(TestCase):
         self.assertEqual(details["revenue"], 200_000_000)
         self.assertEqual(details["production_companies"], ["A24", "Studio B"])
         self.assertEqual(details["countries"], ["United States of America"])
+        self.assertEqual(details["countries_display"], [{"code": "US", "name": "United States of America", "flag": "🇺🇸"}])
 
     @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_movie_budget_revenue_zero_becomes_none(self, mock_get):
@@ -10506,6 +10507,25 @@ class TmdbDetailPageTests(TestCase):
         self.assertIsNone(details["revenue"])
         self.assertEqual(details["production_companies"], ["HBO"])
         self.assertEqual(details["countries"], ["US"])
+
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_get_full_details_tv_countries_display_resolves_code_to_name_and_flag(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 99, "name": "Cinder Street", "first_air_date": "2022-01-01", "genres": [],
+                "origin_country": ["JP"],
+            }
+        )
+        details = tmdb.get_full_details("tv", 99)
+        self.assertEqual(details["countries_display"], [{"code": "JP", "name": "Japan", "flag": "🇯🇵"}])
+
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_get_full_details_original_language_display(self, mock_get):
+        mock_get.return_value = self._response(
+            {"id": 99, "name": "Cinder Street", "first_air_date": "2022-01-01", "genres": [], "original_language": "ja"}
+        )
+        details = tmdb.get_full_details("tv", 99)
+        self.assertEqual(details["original_language_display"], {"code": "ja", "name": "Japanese", "flag": "🇯🇵"})
 
     @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_includes_raw_status(self, mock_get):
@@ -10985,8 +11005,11 @@ class TmdbStatusBadgeTests(TestCase):
     def test_cancelled_show_maps_to_an_error_badge(self):
         self.assertEqual(tmdb.status_badge("Canceled"), {"label": "Cancelled", "color": "error"})
 
-    def test_ended_show_maps_to_a_neutral_badge(self):
-        self.assertEqual(tmdb.status_badge("Ended"), {"label": "Ended", "color": "ink-dim"})
+    def test_ended_show_maps_to_a_warning_badge(self):
+        self.assertEqual(tmdb.status_badge("Ended"), {"label": "Ended", "color": "warning"})
+
+    def test_in_production_maps_to_a_success_badge_like_ongoing(self):
+        self.assertEqual(tmdb.status_badge("In Production"), {"label": "In Production", "color": "success"})
 
     def test_a_released_movie_gets_no_badge(self):
         self.assertIsNone(tmdb.status_badge("Released"))
@@ -10994,6 +11017,40 @@ class TmdbStatusBadgeTests(TestCase):
     def test_unknown_or_missing_status_gets_no_badge(self):
         self.assertIsNone(tmdb.status_badge("Some Future TMDB Status"))
         self.assertIsNone(tmdb.status_badge(None))
+
+
+class CountryFlagTests(TestCase):
+    def test_known_code_renders_its_flag(self):
+        self.assertEqual(tmdb.country_flag("JP"), "🇯🇵")
+        self.assertEqual(tmdb.country_flag("US"), "🇺🇸")
+
+    def test_lowercase_code_still_works(self):
+        self.assertEqual(tmdb.country_flag("jp"), "🇯🇵")
+
+    def test_a_code_not_in_the_curated_names_map_still_flags_correctly(self):
+        # country_flag is computed straight from the code, not looked up
+        # in _ISO_COUNTRY_NAMES - it works for any valid 2-letter code,
+        # in or out of that curated map.
+        self.assertEqual(tmdb.country_flag("EG"), "🇪🇬")
+
+    def test_invalid_input_returns_empty_string(self):
+        self.assertEqual(tmdb.country_flag(""), "")
+        self.assertEqual(tmdb.country_flag(None), "")
+        self.assertEqual(tmdb.country_flag("USA"), "")
+        self.assertEqual(tmdb.country_flag("1A"), "")
+
+
+class LanguageDisplayTests(TestCase):
+    def test_known_language_resolves_name_and_flag(self):
+        self.assertEqual(tmdb.language_display("ja"), {"code": "ja", "name": "Japanese", "flag": "🇯🇵"})
+        self.assertEqual(tmdb.language_display("en"), {"code": "en", "name": "English", "flag": "🇺🇸"})
+
+    def test_unknown_language_falls_back_to_the_raw_code_with_no_flag(self):
+        self.assertEqual(tmdb.language_display("xx"), {"code": "xx", "name": "XX", "flag": ""})
+
+    def test_no_code_returns_none(self):
+        self.assertIsNone(tmdb.language_display(""))
+        self.assertIsNone(tmdb.language_display(None))
 
 
 @override_settings(
@@ -11155,6 +11212,57 @@ class DiscoverViewTests(TestCase):
         kwargs = mock_discover.call_args.kwargs
         self.assertEqual(kwargs["origin_country"], "JP")
         self.assertIn(tmdb.ANIMATION_GENRE_ID, kwargs["genre_ids"])
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_origin_country_param_is_passed_through_on_movies(self, mock_discover, mock_genres):
+        # Powers title_detail's own "click a country" chips (see
+        # tmdb.get_full_details's countries_display) - a plain query
+        # param, not previously wired up to anything at all outside
+        # Anime's own hardcoded "JP" case above.
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        self.client.get(reverse("movies", args=["popular"]), {"origin_country": "kr"})
+        self.assertEqual(mock_discover.call_args.kwargs["origin_country"], "KR")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_origin_country_param_is_passed_through_on_tv(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        self.client.get(reverse("tv", args=["popular"]), {"origin_country": "kr"})
+        self.assertEqual(mock_discover.call_args.kwargs["origin_country"], "KR")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_no_origin_country_param_means_none(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        self.client.get(reverse("movies", args=["popular"]))
+        self.assertIsNone(mock_discover.call_args.kwargs.get("origin_country"))
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_origin_country_param_cannot_override_animes_own_japan(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        self.client.get(reverse("anime", args=["popular"]), {"origin_country": "kr"})
+        self.assertEqual(mock_discover.call_args.kwargs["origin_country"], "JP")
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_origin_country_filter_banner_shown_with_a_clear_link(self, mock_discover, mock_genres):
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("movies", args=["popular"]), {"origin_country": "JP", "language": "ja"})
+        self.assertContains(resp, "Filtered to")
+        self.assertContains(resp, "Japan")
+        self.assertContains(resp, "language=ja")  # the "x" clear link keeps other active filters
+        self.assertNotContains(resp, "origin_country=JP")  # ...but drops this one
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_no_origin_country_filter_banner_on_anime(self, mock_discover, mock_genres):
+        # Anime's own origin_country is a fixed part of what makes the
+        # page "Anime" at all, not a removable filter - no banner for it.
+        mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
+        resp = self.client.get(reverse("anime", args=["popular"]))
+        self.assertNotContains(resp, "Filtered to")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
@@ -12765,6 +12873,14 @@ class ActivityFeedGroupingTests(TestCase):
         self.assertEqual(feed[0]["total_episodes"], 5)
 
     def test_group_ending_on_the_last_episode_is_series_completed(self):
+        # completed_series now reads WatchProgress directly (see
+        # selectors.episode_totals_for_group's own docstring for why a
+        # local Episode.objects.filter(title=title) last-known-episode
+        # check isn't good enough - confirmed live it falsely claims
+        # "Series Completed" the moment just one season's worth of
+        # episodes exists locally, regardless of the show's real season
+        # count), so this needs a real WatchProgress row rather than
+        # just locally-known Episode rows lining up.
         for n in range(1, 4):
             Episode.objects.create(title=self.show, season=1, episode=n)
         for i, minutes_ago in enumerate([20, 10, 0]):
@@ -12773,9 +12889,50 @@ class ActivityFeedGroupingTests(TestCase):
                 episode=Episode.objects.get(title=self.show, season=1, episode=1 + i),
                 watched_at=self.now - timedelta(minutes=minutes_ago),
             )
+        WatchProgress.objects.create(profile=self.profile, title=self.show, status=WatchProgress.Status.COMPLETED)
         feed = selectors.activity_feed()
         self.assertTrue(feed[0]["completed_series"])
         self.assertEqual(feed[0]["total_episodes"], 3)
+
+    def test_completed_series_ignores_a_locally_known_episode_that_isnt_really_the_finale(self):
+        # The exact bug report this fix addresses: marking only Season 1
+        # of a 4-season show watched used to read as "Series Completed"
+        # because S1's own last episode was also the *locally created*
+        # last episode - nothing else had ever been fetched/created for
+        # this title. No WatchProgress row here (the show genuinely
+        # isn't complete), so this must stay false even though every
+        # locally-known episode is included in the run.
+        for n in range(1, 9):
+            Episode.objects.create(title=self.show, season=1, episode=n)
+        for i, minutes_ago in enumerate(range(8, 0, -1)):
+            WatchEvent.objects.create(
+                profile=self.profile, title=self.show,
+                episode=Episode.objects.get(title=self.show, season=1, episode=1 + i),
+                watched_at=self.now - timedelta(minutes=minutes_ago),
+            )
+        feed = selectors.activity_feed()
+        self.assertEqual(feed[0]["count"], 8)
+        self.assertFalse(feed[0]["completed_series"])
+
+    def test_total_episodes_uses_tmdbs_real_count_not_just_local_rows(self):
+        # The show has a tmdb id and TMDB reports 32 total episodes
+        # (4 seasons of 8) - only season 1's 8 episodes exist locally
+        # (the ones just watched). total_episodes should reflect the
+        # real 32, not the 8 that happen to exist as local rows.
+        self.show.external_ids = {"tmdb": "12345", "tmdb_kind": "tv"}
+        self.show.save(update_fields=["external_ids"])
+        for n in range(1, 9):
+            Episode.objects.create(title=self.show, season=1, episode=n)
+        for i, minutes_ago in enumerate(range(8, 0, -1)):
+            WatchEvent.objects.create(
+                profile=self.profile, title=self.show,
+                episode=Episode.objects.get(title=self.show, season=1, episode=1 + i),
+                watched_at=self.now - timedelta(minutes=minutes_ago),
+            )
+        with patch("tracker.integrations.tmdb.get_tv_details", return_value={"number_of_episodes": 32}):
+            feed = selectors.activity_feed()
+        self.assertEqual(feed[0]["total_episodes"], 32)
+        self.assertFalse(feed[0]["completed_series"])
 
     def test_single_watch_carries_its_source(self):
         from tracker.models import WatchEvent as WE
@@ -13026,6 +13183,51 @@ class TitleDetailViewTests(TestCase):
         self.assertContains(resp, "A movie.")
         mock_details.assert_called_once_with("movie", "42")
 
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_details_panel_language_is_a_clickable_name_and_flag(self, mock_details, mock_credits, mock_similar):
+        mock_details.return_value = self._details(
+            original_language_display={"code": "ja", "name": "Japanese", "flag": "🇯🇵"}
+        )
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, "🇯🇵")
+        self.assertContains(resp, "Japanese")
+        self.assertContains(resp, reverse("movies", args=["popular"]) + "?language=ja")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_details_panel_country_is_a_clickable_name_and_flag(self, mock_details, mock_credits, mock_similar):
+        mock_details.return_value = self._details(
+            countries_display=[{"code": "JP", "name": "Japan", "flag": "🇯🇵"}]
+        )
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, "🇯🇵")
+        self.assertContains(resp, "Japan")
+        self.assertContains(resp, reverse("movies", args=["popular"]) + "?origin_country=JP")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_details_panel_status_reuses_the_hero_badge(self, mock_details, mock_credits, mock_similar):
+        mock_details.return_value = self._details(status="Ended")
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        # The hero's own copy plus the Details panel's copy - both should
+        # carry the shared badge_color_classes output for "warning".
+        self.assertContains(resp, "border-warning/30 bg-warning/15 text-warning", count=2)
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_details_panel_omits_status_row_when_theres_no_badge(self, mock_details, mock_credits, mock_similar):
+        # "Released" (a movie's default/expected state) gets no badge at
+        # all (tmdb.STATUS_BADGES) - the Details panel's own Status row
+        # should disappear along with it, not fall back to plain text.
+        mock_details.return_value = self._details(status="Released")
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertNotContains(resp, "Status")
+
     @patch("tracker.views.instance_config.get_tmdb_api_key", return_value="the-resolved-key")
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -13261,7 +13463,7 @@ class TitleDetailViewTests(TestCase):
     def test_shows_a_status_badge_for_an_ended_show(self, mock_details, mock_credits, mock_similar):
         mock_details.return_value = self._details(status="Ended")
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertEqual(resp.context["status_badge"], {"label": "Ended", "color": "ink-dim"})
+        self.assertEqual(resp.context["status_badge"], {"label": "Ended", "color": "warning"})
         self.assertContains(resp, "Ended")
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
@@ -18659,6 +18861,26 @@ class PosterSizeFilterTests(TestCase):
         self.assertEqual(poster_size(backdrop, "w185"), backdrop)
 
 
+class BadgeColorClassesFilterTests(TestCase):
+    """tracker_extras.badge_color_classes - maps tmdb.STATUS_BADGES' own
+    "color" key to the pill classes title_detail.html's status badge (the
+    hero, and Details' own copy of it) renders with."""
+
+    def test_known_colors_map_to_their_own_pill_classes(self):
+        from tracker.templatetags.tracker_extras import badge_color_classes
+
+        self.assertEqual(badge_color_classes("success"), "border-success/30 bg-success/15 text-success")
+        self.assertEqual(badge_color_classes("error"), "border-error/30 bg-error/15 text-error")
+        self.assertEqual(badge_color_classes("info"), "border-info/30 bg-info/15 text-info")
+        self.assertEqual(badge_color_classes("warning"), "border-warning/30 bg-warning/15 text-warning")
+
+    def test_unknown_color_falls_back_to_neutral(self):
+        from tracker.templatetags.tracker_extras import badge_color_classes
+
+        self.assertEqual(badge_color_classes("ink-dim"), "border-line bg-base-300/60 text-ink-dim")
+        self.assertEqual(badge_color_classes(None), "border-line bg-base-300/60 text-ink-dim")
+
+
 class NotifDayLabelFilterTests(TestCase):
     """tracker_extras.notif_day_label - the notifications panel/full
     page's date-header label, shorter than day_header's own big-page
@@ -19550,12 +19772,17 @@ class HistoryConsecutiveEpisodeGroupingTests(TestCase):
     def test_completed_series_true_when_the_run_ends_on_the_last_known_episode(self):
         # Same "N episodes, no sense of how much of the show that is"
         # complaint the Activity feed's own watched_group already solves
-        # (selectors._build_group) - History's own group tile should read
-        # the same way, including for a bulk "mark all seasons watched"
-        # catch-up, which logs every episode with an identical timestamp
-        # and so groups here exactly like any other same-day binge.
+        # (selectors.episode_totals_for_group) - History's own group tile
+        # should read the same way, including for a bulk "mark all
+        # seasons watched" catch-up, which logs every episode with an
+        # identical timestamp and so groups here exactly like any other
+        # same-day binge. completed_series reads WatchProgress directly
+        # now (see that function's own docstring for why a local
+        # Episode.objects.filter(title=title) last-known-episode check
+        # isn't good enough), so this needs a real WatchProgress row.
         for i in range(1, 4):
             self._watch(episode_num=i, minutes_ago=(10 - i))
+        WatchProgress.objects.create(profile=self.profile, title=self.show, status=WatchProgress.Status.COMPLETED)
         events = list(WatchEvent.objects.filter(title=self.show).order_by("-watched_at"))
         grouped = views._group_consecutive_episodes(events)
         self.assertTrue(grouped[0]["completed_series"])
@@ -19569,6 +19796,22 @@ class HistoryConsecutiveEpisodeGroupingTests(TestCase):
         grouped = views._group_consecutive_episodes(events)
         self.assertFalse(grouped[0]["completed_series"])
         self.assertEqual(grouped[0]["total_episodes"], 4)
+
+    def test_completed_series_ignores_a_locally_known_episode_that_isnt_really_the_finale(self):
+        # The exact bug report this fix addresses: marking only Season 1
+        # of a multi-season show watched used to read as "Series
+        # Completed" in History too, for the same reason as the Activity
+        # feed's own version of this bug - S1's own last episode was
+        # also the *locally created* last episode, nothing else having
+        # ever been fetched/created for this title. No WatchProgress row
+        # here (the show genuinely isn't complete), so this must stay
+        # false even though every locally-known episode is in the run.
+        for i in range(1, 9):
+            self._watch(episode_num=i, minutes_ago=(9 - i))
+        events = list(WatchEvent.objects.filter(title=self.show).order_by("-watched_at"))
+        grouped = views._group_consecutive_episodes(events)
+        self.assertEqual(grouped[0]["count"], 8)
+        self.assertFalse(grouped[0]["completed_series"])
 
     def test_history_page_renders_group_tile_for_a_binge(self):
         from django.utils import timezone
@@ -19598,6 +19841,7 @@ class HistoryConsecutiveEpisodeGroupingTests(TestCase):
             WatchEvent.objects.create(
                 profile=profile, title=show, episode=ep, watched_at=timezone.now() - timedelta(minutes=i)
             )
+        WatchProgress.objects.create(profile=profile, title=show, status=WatchProgress.Status.COMPLETED)
         self.client.login(username="histcompleter", password="pass12345")
         resp = self.client.get(reverse("history"))
         self.assertContains(resp, "Series completed")

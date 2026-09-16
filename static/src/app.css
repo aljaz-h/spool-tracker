@@ -94,6 +94,33 @@
   --color-primary-content: var(--color-secondary-content);
 }
 
+/* Real <button> elements and <a href> already get a pointer cursor for
+   free (Tailwind's own preflight sets the former, browsers the latter)
+   - everything else this app makes clickable via a bare Alpine @click
+   or an htmx hx-get/post/delete/patch/put (a plain <div>/<a> without
+   an href, e.g. calendar_main.html's empty day cells - real, confirmed
+   live, not hypothetical: those only carry @click, no href, so they
+   sat there with the ordinary arrow cursor despite being just as
+   clickable as any button) doesn't, since neither is a native browser
+   affordance for those attributes. :not(form) on the hx-* list is
+   deliberate - a <form hx-post=...> is submitted, not clicked; its own
+   submit button already has a pointer cursor regardless. Exact
+   @click(.prevent) attribute names only (not @click.outside/.self,
+   Alpine's dismiss-on-outside-click helpers, which don't mark the
+   element carrying them as itself a click target) - see the catalog
+   this was checked against via `grep -rohE '@click(\.[a-z]+)*=' tracker/templates`. */
+[\@click],
+[\@click\.prevent] {
+  cursor: pointer;
+}
+[hx-get]:not(form),
+[hx-post]:not(form),
+[hx-delete]:not(form),
+[hx-patch]:not(form),
+[hx-put]:not(form) {
+  cursor: pointer;
+}
+
 /* Dual-handle range sliders (discovery filter drawer's Year/Runtime/
    Rating) - two overlapping native <input type=range> per slider, each
    contributing only its thumb (native track hidden/transparent); a

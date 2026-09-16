@@ -49,18 +49,31 @@
       needing to know the title's length ahead of time.
     {% endcomment %}
     <div class="relative z-10 h-full flex flex-col sm:flex-row sm:flex-wrap gap-4 sm:gap-5 p-4 sm:p-6 lg:p-8 lg:px-[calc(2rem+10%)] items-start sm:items-end">
-      <div class="w-[92px] sm:w-[130px] aspect-[2/3] flex-none rounded-lg overflow-hidden border border-white/10 bg-cover bg-center {% if not display_poster_url %}{{ poster_seed|gradient_class }}{% endif %}"
-           {% if display_poster_url %}style="background-image:url('{{ display_poster_url|poster_size:"w185" }}')"{% endif %}>
+      <div class="w-[92px] sm:w-[130px] flex-none">
+        <div class="aspect-[2/3] rounded-lg overflow-hidden border border-white/10 bg-cover bg-center {% if not display_poster_url %}{{ poster_seed|gradient_class }}{% endif %}"
+             {% if display_poster_url %}style="background-image:url('{{ display_poster_url|poster_size:"w185" }}')"{% endif %}>
+        </div>
+        {% comment %}
+          TV/anime only - details.number_of_seasons is always None for a
+          movie (see tmdb._normalize_result/get_full_details), so this
+          naturally never renders there, no separate media_type check
+          needed. Same figure this page's own header row already shows
+          next to the title (release_info/runtime/season-count line
+          below) - duplicated here, under the poster itself, since
+          that's specifically where it was asked for; not worth
+          removing from the header line over it; a real difference here
+          it's next to the poster art rather than mixed into the meta
+          row further right, which is what mattered for the ask.
+        {% endcomment %}
+        {% if details.number_of_seasons %}
+          <div class="mt-1.5 text-center font-mono text-[10px] text-ink-dim leading-tight">{{ details.number_of_seasons }} season{{ details.number_of_seasons|pluralize }}<br>({{ details.number_of_episodes }} EP)</div>
+        {% endif %}
       </div>
       <div class="min-w-0 flex-1">
         <h1 class="font-display text-2xl sm:text-4xl">{{ display_name }}
           <span class="text-ink-dim text-base sm:text-2xl font-body align-middle">{{ display_year }}</span>
           {% if status_badge %}
-            <span class="align-middle font-mono text-[11px] uppercase tracking-wide px-2 py-0.5 rounded-full border
-              {% if status_badge.color == 'success' %}border-success/30 bg-success/15 text-success
-              {% elif status_badge.color == 'error' %}border-error/30 bg-error/15 text-error
-              {% elif status_badge.color == 'info' %}border-info/30 bg-info/15 text-info
-              {% else %}border-line bg-base-300/60 text-ink-dim{% endif %}">{{ status_badge.label }}</span>
+            <span class="align-middle font-mono text-[11px] uppercase tracking-wide px-2 py-0.5 rounded-full border {{ status_badge.color|badge_color_classes }}">{{ status_badge.label }}</span>
           {% endif %}
         </h1>
         {% if mal_title_japanese %}
@@ -196,17 +209,42 @@
                 trying to relabel itself as watched, which it isn't set
                 up to do) so at least this popover itself doesn't sit
                 open on stale content after a real click.
+
+                fixed + window.positionPopover, not the movie form's own
+                plain `absolute top-full` (confirmed live: this panel got
+                silently clipped for a title with a shorter hero - the
+                hero backdrop above is `overflow-hidden`, and an
+                `absolute` child never contributes to its ancestor's own
+                auto height in the first place, so anything taller than
+                the hero's own flow content - a real risk here once "By
+                season" adds rows, unlike the movie form's fixed 3-item
+                menu - got cut off with no visible box at all past that
+                edge). Same fixed/viewport-relative pattern every other
+                popover on this page already uses for exactly this
+                reason (title_tv_watched_button.html and friends) -
+                see discover_tile.html's own comment for the fuller
+                history of this exact clip-path/overflow-hidden class of
+                bug.
               {% endcomment %}
               <div
                 class="relative"
-                x-data="{ open: false }"
+                x-data="{
+                  open: false,
+                  togglePanel(button) {
+                    this.open = !this.open;
+                    if (!this.open) return;
+                    this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 288, false));
+                  },
+                }"
                 @keydown.escape.window="open = false"
+                @scroll.window="open = false"
                 @htmx:after-request.camel="if ($event.detail.successful) open = false"
               >
-                <button type="button" @click="open = !open" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-primary btn-sm">+ Mark as Watched</button>
+                <button type="button" @click="togglePanel($el)" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-primary btn-sm">+ Mark as Watched</button>
                 <div
+                  x-ref="panel"
                   x-show="open" x-cloak x-transition @click.outside="open = false"
-                  class="absolute z-50 top-full mt-1.5 left-0 w-72 bg-base-200 border border-line rounded-xl p-2 shadow-xl"
+                  class="fixed z-50 w-72 bg-base-200 border border-line rounded-xl p-2 shadow-xl"
                 >
                   <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1 border-b border-line">
                     <div class="font-semibold text-sm">Mark as watched</div>
@@ -421,20 +459,42 @@
         physical position either way, just written once instead of
         branching on media_type.
       {% endcomment %}
-      {% if details.status or details.original_language or details.budget or details.revenue or details.production_companies or details.countries %}
+      {% if status_badge or details.original_language_display or details.budget or details.revenue or details.production_companies or details.countries_display %}
         <h2 class="font-display text-xl mb-3">Details</h2>
         <div class="bg-base-200 border border-line rounded-2xl p-4 mb-8">
+          {% comment %}
+            Language/country each link back to Discover, pre-filtered to
+            everything else in that same language/from that same country
+            (views.discover already reads ?language=/?origin_country=,
+            the latter newly wired for exactly this - see its own
+            comment for why that's a plain query param rather than a
+            persisted setting: it naturally doesn't survive leaving this
+            page and coming back to a plain, unfiltered Discover URL).
+            Bold is the only "this is clickable" signal, deliberately -
+            everything else in this panel is already plain text at the
+            same size/weight, so a link needs to look different without
+            needing its own icon or underline to read as interactive.
+            Status reuses the exact same badge (label + color) the hero
+            above already computes (tmdb.status_badge) rather than the
+            raw TMDB status string ("Returning Series" instead of
+            "Ongoing", no color) this row used to just print as plain
+            text - one badge, shown in the two places this page cares
+            about it, via the shared badge_color_classes filter.
+          {% endcomment %}
+          {% firstof preview_media_type title.media_type as details_media_type %}
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
-            {% if details.status %}
+            {% if status_badge %}
               <div>
                 <div class="text-[10px] text-ink-faint uppercase tracking-wide mb-0.5">Status</div>
-                <div class="text-[13px] font-medium">{{ details.status }}</div>
+                <span class="inline-block font-mono text-[11px] uppercase tracking-wide px-2 py-0.5 rounded-full border {{ status_badge.color|badge_color_classes }}">{{ status_badge.label }}</span>
               </div>
             {% endif %}
-            {% if details.original_language %}
+            {% if details.original_language_display %}
               <div>
                 <div class="text-[10px] text-ink-faint uppercase tracking-wide mb-0.5">Original language</div>
-                <div class="text-[13px] font-medium uppercase">{{ details.original_language }}</div>
+                <a href="{% url details_media_type|discover_url_name 'popular' %}?language={{ details.original_language_display.code }}" class="text-[13px] font-bold hover:underline">
+                  {% if details.original_language_display.flag %}{{ details.original_language_display.flag }} {% endif %}{{ details.original_language_display.name }}
+                </a>
               </div>
             {% endif %}
             {% if details.budget %}
@@ -455,10 +515,14 @@
                 <div class="text-[13px] font-medium">{{ details.production_companies|join:", " }}</div>
               </div>
             {% endif %}
-            {% if details.countries %}
+            {% if details.countries_display %}
               <div>
                 <div class="text-[10px] text-ink-faint uppercase tracking-wide mb-0.5">Country</div>
-                <div class="text-[13px] font-medium">{{ details.countries|join:", " }}</div>
+                <div class="text-[13px] flex flex-wrap gap-x-1.5">
+                  {% for country in details.countries_display %}
+                    <a href="{% url details_media_type|discover_url_name 'popular' %}?origin_country={{ country.code }}" class="font-bold hover:underline">{% if country.flag %}{{ country.flag }} {% endif %}{{ country.name }}</a>{% if not forloop.last %}<span class="text-ink-faint">,</span>{% endif %}
+                  {% endfor %}
+                </div>
               </div>
             {% endif %}
           </div>

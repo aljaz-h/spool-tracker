@@ -222,3 +222,35 @@ def format_money(amount):
     reaches here (see tmdb.get_full_details), so this only ever runs on
     a real figure."""
     return f"${amount:,}"
+
+
+_BADGE_COLOR_CLASSES = {
+    "success": "border-success/30 bg-success/15 text-success",
+    "error": "border-error/30 bg-error/15 text-error",
+    "info": "border-info/30 bg-info/15 text-info",
+    "warning": "border-warning/30 bg-warning/15 text-warning",
+}
+_DEFAULT_BADGE_COLOR_CLASSES = "border-line bg-base-300/60 text-ink-dim"
+
+
+_DISCOVER_URL_NAMES = {"movie": "movies", "tv": "tv", "anime": "anime"}
+
+
+@register.filter
+def discover_url_name(media_type):
+    """"movie"/"tv"/"anime" -> the Discover URL name for that media type -
+    "movies" (plural) is the only irregular one. Used by title_detail's
+    clickable language/country Details rows to link back to the matching
+    Discover page (?language=.../?origin_country=...) for the same kind
+    of title being viewed."""
+    return _DISCOVER_URL_NAMES.get(media_type, "movies")
+
+
+@register.filter
+def badge_color_classes(color):
+    """Maps a semantic color name (tmdb.STATUS_BADGES' own "color" key)
+    to the pill classes that render it - factored out since title_detail
+    renders the exact same status badge in two places (the hero, and the
+    Details panel's own copy of it), which used to mean the same if/elif
+    chain duplicated verbatim in both."""
+    return _BADGE_COLOR_CLASSES.get(color, _DEFAULT_BADGE_COLOR_CLASSES)
