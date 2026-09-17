@@ -10,7 +10,7 @@ stats were never wrong, there was just never any data behind them.
 """
 
 from .integrations import tmdb
-from .models import Episode, MediaType, WatchEvent, WatchListItem, WatchProgress
+from .models import Episode, MediaType, Profile, WatchEvent, WatchListItem, WatchProgress
 
 
 def _tmdb_id(title):
@@ -102,6 +102,38 @@ def sync_show_completion(profile, title):
         WatchProgress.objects.filter(profile=profile, title=title, status=WatchProgress.Status.COMPLETED).update(
             status=WatchProgress.Status.WATCHING
         )
+
+
+def resync_completed_profiles(title):
+    """Re-validates every profile's WatchProgress.COMPLETED for title
+    against TMDB's *current* episode count - sync_show_completion above
+    only ever runs when a profile takes a fresh watch action (marks/
+    unmarks an episode), so a show correctly marked COMPLETED at the
+    time stays marked that way even once TMDB reports more episodes
+    later (a currently-airing show renewed, or simply continuing to air
+    past where a profile had caught up) - nothing re-checks it until
+    that profile happens to watch something new for this exact title.
+    Confirmed as a real, reported case, not hypothetical: a show marked
+    complete when it only had N aired episodes kept showing the same
+    "fully watched" treatment after being picked up for N+more, despite
+    the profile demonstrably not being caught up anymore.
+
+    Hooked into tasks.sync_title_release (the nightly per-title release
+    sync, which already re-fetches this exact title's fresh TMDB details
+    for every title with any WatchProgress row at all - see
+    selectors.titles_needing_release_sync) rather than run on its own
+    schedule - piggybacking on a sync that already has to happen anyway
+    for the same titles, instead of a second nightly TMDB pass over the
+    same set. The per-profile sync_show_completion call below still
+    makes its own get_tv_details call - a second one for the same title
+    on the same run - but that hits get_tv_details' own 6h cache instead
+    of a second live request, not worth threading the already-fetched
+    details dict through just to skip a cache hit."""
+    completed_profile_ids = WatchProgress.objects.filter(
+        title=title, status=WatchProgress.Status.COMPLETED
+    ).values_list("profile_id", flat=True)
+    for profile in Profile.objects.filter(id__in=completed_profile_ids):
+        sync_show_completion(profile, title)
 
 
 def sync_watchlist_removal(profile, title):

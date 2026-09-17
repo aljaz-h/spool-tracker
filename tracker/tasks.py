@@ -9,7 +9,7 @@ from django.conf import settings as django_settings
 from django.core.management import call_command
 from django.utils import timezone
 
-from . import csv_import, instance_config, notifications, release_sync, selectors, update_check, version
+from . import completion, csv_import, instance_config, notifications, release_sync, selectors, update_check, version
 from .integrations import mdblist, nuvio, simkl, tmdb, trakt
 from .models import (
     DataLog,
@@ -236,12 +236,24 @@ def sync_title_release(title_id):
     (CELERY_WORKER_CONCURRENCY) process a household's titles in
     parallel instead of serializing every one of them inside a single
     task. Silently no-ops if the title's gone by the time this runs
-    (e.g. a rare merge/dedupe race) rather than erroring the task."""
+    (e.g. a rare merge/dedupe race) rather than erroring the task.
+
+    Also re-validates completion (completion.resync_completed_profiles)
+    for this exact title - see that function's own docstring for why:
+    sync_show_completion only runs on a fresh watch action, so a show
+    marked COMPLETED earlier stays marked that way even once TMDB
+    reports more episodes later, with nothing to catch that until this
+    same nightly pass. titles_needing_release_sync already includes
+    every title with any WatchProgress row (COMPLETED included), so
+    this doesn't widen what gets touched on a given run, just what
+    happens once it's here."""
     try:
         title = Title.objects.get(pk=title_id)
     except Title.DoesNotExist:
         return 0
-    return release_sync.sync_title_releases(title)
+    touched = release_sync.sync_title_releases(title)
+    completion.resync_completed_profiles(title)
+    return touched
 
 
 def _log_system_datalog(action, item_count, imported_titles=None, detail=""):

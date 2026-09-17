@@ -1308,6 +1308,74 @@ class CompletionShowTests(TestCase):
         self.assertIsNone(ep.runtime_minutes)
 
 
+class ResyncCompletedProfilesTests(TestCase):
+    """completion.resync_completed_profiles - re-validates a stale
+    WatchProgress.COMPLETED against TMDB's *current* episode count (see
+    its own docstring for the real bug this fixes: a currently-airing
+    show correctly marked complete at N episodes stays marked that way
+    forever once TMDB reports more, since sync_show_completion only
+    otherwise runs on a fresh watch action for that exact title)."""
+
+    def setUp(self):
+        user = User.objects.create_user("resyncwatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ResyncWatcher")
+        self.title = Title.objects.create(
+            media_type=MediaType.TV, name="Lanterns", year=2025, external_ids={"tmdb": "99"}
+        )
+
+    def _log_episodes(self, count):
+        for i in range(1, count + 1):
+            ep = Episode.objects.create(title=self.title, season=1, episode=i)
+            WatchEvent.objects.create(profile=self.profile, title=self.title, episode=ep, watched_at="2024-01-01T00:00:00Z")
+
+    def test_downgrades_a_stale_completion_once_tmdb_reports_more_episodes(self):
+        self._log_episodes(4)
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.COMPLETED)
+        details = {"number_of_episodes": 8, "episode_run_time": 45, "seasons": []}
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            completion.resync_completed_profiles(self.title)
+        progress = WatchProgress.objects.get(profile=self.profile, title=self.title)
+        self.assertEqual(progress.status, WatchProgress.Status.WATCHING)
+
+    def test_leaves_a_genuinely_still_complete_show_alone(self):
+        self._log_episodes(8)
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.COMPLETED)
+        details = {"number_of_episodes": 8, "episode_run_time": 45, "seasons": []}
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            completion.resync_completed_profiles(self.title)
+        progress = WatchProgress.objects.get(profile=self.profile, title=self.title)
+        self.assertEqual(progress.status, WatchProgress.Status.COMPLETED)
+
+    def test_never_touches_a_profile_that_isnt_completed(self):
+        # WATCHING (or no row at all) is left entirely alone - this only
+        # exists to catch a *stale* COMPLETED, not to run completion
+        # logic for everyone tracking the title.
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.WATCHING)
+        with patch("tracker.completion.tmdb.get_tv_details") as mock_details:
+            completion.resync_completed_profiles(self.title)
+        mock_details.assert_not_called()
+
+    def test_multiple_completed_profiles_are_each_resynced_independently(self):
+        other_user = User.objects.create_user("resyncother", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="ResyncOther")
+        self._log_episodes(4)
+        for i in range(1, 9):
+            ep, _ = Episode.objects.get_or_create(title=self.title, season=1, episode=i)
+            WatchEvent.objects.create(profile=other_profile, title=self.title, episode=ep, watched_at="2024-01-01T00:00:00Z")
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.COMPLETED)
+        WatchProgress.objects.create(profile=other_profile, title=self.title, status=WatchProgress.Status.COMPLETED)
+        details = {"number_of_episodes": 8, "episode_run_time": 45, "seasons": []}
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            completion.resync_completed_profiles(self.title)
+        # self.profile only watched 4/8 - downgraded; other_profile watched all 8 - stays completed.
+        self.assertEqual(
+            WatchProgress.objects.get(profile=self.profile, title=self.title).status, WatchProgress.Status.WATCHING
+        )
+        self.assertEqual(
+            WatchProgress.objects.get(profile=other_profile, title=self.title).status, WatchProgress.Status.COMPLETED
+        )
+
+
 class CompletionWatchlistRemovalTests(TestCase):
     """completion.sync_watchlist_removal - the Trakt/Simkl-style behavior
     of a finished title coming off the profile's auto-managed Watchlist
@@ -1736,8 +1804,10 @@ class SyncTitleReleaseTaskTests(TestCase):
             media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "1"}
         )
         with patch("tracker.tasks.release_sync.sync_title_releases", return_value=1) as mock_sync:
-            touched = tasks.sync_title_release(title.id)
+            with patch("tracker.tasks.completion.resync_completed_profiles") as mock_resync:
+                touched = tasks.sync_title_release(title.id)
         mock_sync.assert_called_once_with(title)
+        mock_resync.assert_called_once_with(title)
         self.assertEqual(touched, 1)
 
     def test_missing_title_returns_zero_without_error(self):

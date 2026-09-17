@@ -8,6 +8,21 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.126.1] - 2026-09-17
+
+### Fixed
+
+- A show's WatchProgress could stay stuck COMPLETED long after it
+  stopped being accurate - completion was only ever re-checked when a
+  profile took a fresh watch action on that exact title, so a
+  currently-airing show correctly marked complete at N aired episodes
+  kept reading as fully watched (green checkmark) even once TMDB
+  reported more episodes later, with nothing to trigger a re-check.
+  Nightly release sync (which already re-fetches fresh episode counts
+  for every title with any WatchProgress row) now also re-validates
+  completion for any profile marked COMPLETED, downgrading it back to
+  watching if it's fallen behind.
+
 ## [0.126.0] - 2026-09-17
 
 ### Added
