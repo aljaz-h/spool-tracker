@@ -8,6 +8,39 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.126.0] - 2026-09-17
+
+### Added
+
+- Watched-button (checkmark) now distinguishes a TV/anime title that's
+  watched but not yet finished from one that's actually complete - an
+  in-progress show gets a blue play icon instead of the same green
+  checkmark a fully completed show or a watched movie gets, wherever
+  that button appears (Dashboard, Watchlist, Lists, Discover grid,
+  similar-titles rows).
+- Mobile "More" sheet: reordered (History/Profile/Stats, Lists/
+  Activity/Settings), and the Friends section is now a single collapsed
+  toggle row ("N Friends" + a chevron) instead of always showing the
+  full name/last-active list - tap it (or the chevron) to expand, in
+  the same card with a thin divider between the toggle and the list.
+- Mobile bottom navbar: the active tab now gets a filled pill around
+  both its icon and label (previously just a text-color change), same
+  treatment the desktop nav's own active tab already had; the bar
+  itself is also slightly taller.
+- Movies/TV/Anime discover page: the mobile type switcher is now
+  centered with an icon per option (clapperboard/tv/sparkles, matching
+  the desktop sidebar's own icons for these).
+
+### Fixed
+
+- "Series Completed" could still show on an *earlier* History/Activity
+  entry after a show was eventually finished later - e.g. a 2-episode
+  and a 16-episode entry from partway into season 1 of a 64-episode
+  show both read "Series Completed" once the show was finished weeks
+  later, because completion was checked against the show's current
+  state rather than whether that specific entry actually ended on the
+  real finale.
+
 ## [0.125.0] - 2026-09-17
 
 ### Added

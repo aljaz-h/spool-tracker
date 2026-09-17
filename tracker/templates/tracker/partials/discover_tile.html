@@ -1,5 +1,5 @@
 {% load tracker_extras %}
-{# context: item (dict: tmdb_id, media_type, name, year, poster_url, vote_average, genre_names (list of str, optional - see views.discover's own stamping; absent anywhere else this partial renders), optional display_mode), my_lists (list of WatchList, for the list-picker popover), discover_title_by_key/discover_watched/discover_watch_count/discover_list_membership from selectors.discover_action_context(), hide_type_badge (bool, optional - Movies/TV/Anime's own grid passes this, since every tile on that page is already the one type the page picked; every other renderer of this partial (Dashboard, search, a title's Collection/similar row, a person's filmography, ...) mixes movies and shows in the same grid and still needs the label) #}
+{# context: item (dict: tmdb_id, media_type, name, year, poster_url, vote_average, genre_names (list of str, optional - see views.discover's own stamping; absent anywhere else this partial renders), optional display_mode), my_lists (list of WatchList, for the list-picker popover), discover_title_by_key/discover_watched/discover_watch_count/discover_in_progress/discover_list_membership from selectors.discover_action_context(), hide_type_badge (bool, optional - Movies/TV/Anime's own grid passes this, since every tile on that page is already the one type the page picked; every other renderer of this partial (Dashboard, search, a title's Collection/similar row, a person's filmography, ...) mixes movies and shows in the same grid and still needs the label) #}
 {% comment %}
 Clean-grid, hover-for-detail card: at rest this is just the poster art
 plus its two always-on corner badges (type/rating) - title, year/genres,
@@ -118,7 +118,7 @@ so both happen together rather than needing separate interactions.
   {% endcomment %}
   <div class="discover-tile-reveal-actions absolute inset-x-0 bottom-0 z-20 h-9 flex items-stretch bg-base-300 rounded-b-lg opacity-0 pointer-events-none transition-opacity duration-300 ease-out">
     {% if matched_title %}
-      {% include "tracker/partials/poster_card_watched_button.html" with title=matched_title watched=discover_watched|get_item:key watch_count=discover_watch_count|get_item:key %}
+      {% include "tracker/partials/poster_card_watched_button.html" with title=matched_title watched=discover_watched|get_item:key watch_count=discover_watch_count|get_item:key in_progress=discover_in_progress|get_item:key %}
       {% include "tracker/partials/poster_card_list_popover.html" with title=matched_title my_lists=my_lists in_list_ids=discover_list_membership|get_item:key %}
     {% else %}
       {% include "tracker/partials/discover_tile_watched_button.html" with media_type=item|preview_media_type tmdb_id=item.tmdb_id name=item.name %}

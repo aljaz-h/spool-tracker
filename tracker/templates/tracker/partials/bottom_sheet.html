@@ -69,11 +69,29 @@
     </button>
   </div>
 
+  {% comment %}
+    Reading order (this is a 3-col grid, auto-placed by DOM order) is
+    History/Profile/Stats, then Lists/Activity/Settings underneath -
+    requested layout, not the original History/Lists/Activity on top of
+    Profile/Settings/Stats.
+  {% endcomment %}
   <div class="grid grid-cols-3 gap-3 px-5 pb-6">
     {% url 'history' as history_url %}
     <a href="{{ history_url }}" @click="bottomSheetOpen = false" class="flex flex-col items-center justify-center gap-2 py-4 rounded-2xl bg-base-300 text-ink-dim hover:text-base-content text-xs font-semibold transition-colors">
       {% icon "history" "w-5 h-5" %}
       History
+    </a>
+
+    {% url 'my_profile' as profile_url %}
+    <a href="{{ profile_url }}" @click="bottomSheetOpen = false" class="flex flex-col items-center justify-center gap-2 py-4 rounded-2xl bg-base-300 text-ink-dim hover:text-base-content text-xs font-semibold transition-colors">
+      {% icon "user" "w-5 h-5" %}
+      Profile
+    </a>
+
+    {% url 'stats' as stats_url %}
+    <a href="{{ stats_url }}" @click="bottomSheetOpen = false" class="flex flex-col items-center justify-center gap-2 py-4 rounded-2xl bg-base-300 text-ink-dim hover:text-base-content text-xs font-semibold transition-colors">
+      {% icon "bar-chart-3" "w-5 h-5" %}
+      Stats
     </a>
 
     {% url 'lists' as lists_url %}
@@ -90,22 +108,10 @@
       </a>
     {% endif %}
 
-    {% url 'my_profile' as profile_url %}
-    <a href="{{ profile_url }}" @click="bottomSheetOpen = false" class="flex flex-col items-center justify-center gap-2 py-4 rounded-2xl bg-base-300 text-ink-dim hover:text-base-content text-xs font-semibold transition-colors">
-      {% icon "user" "w-5 h-5" %}
-      Profile
-    </a>
-
     {% url 'settings' as settings_url %}
     <a href="{{ settings_url }}" @click="bottomSheetOpen = false" class="flex flex-col items-center justify-center gap-2 py-4 rounded-2xl bg-base-300 text-ink-dim hover:text-base-content text-xs font-semibold transition-colors">
       {% icon "settings" "w-5 h-5" %}
       Settings
-    </a>
-
-    {% url 'stats' as stats_url %}
-    <a href="{{ stats_url }}" @click="bottomSheetOpen = false" class="flex flex-col items-center justify-center gap-2 py-4 rounded-2xl bg-base-300 text-ink-dim hover:text-base-content text-xs font-semibold transition-colors">
-      {% icon "bar-chart-3" "w-5 h-5" %}
-      Stats
     </a>
   </div>
 
@@ -118,30 +124,67 @@
       on) - just laid out as an inline list instead of a small floating
       panel, which wouldn't read well stacked on top of an already
       full-width sheet.
+
+      Collapsed by default to a single toggle row (tap anywhere on it to
+      expand into the full name/last-active list below, sharing this
+      same card rather than sitting in its own separate block) - showing
+      every friend's full row here always ate a lot of vertical space on
+      a household with more than a couple of people. No avatar circles/
+      count-overflow logic to keep in sync with the row's own measured
+      width here - just the one line of text plus a chevron that flips
+      with the expanded state, same rotate-180 pattern settings.html's
+      own mobile nav dropdown uses.
+
+      grid-cols-[1fr_auto_1fr] (not equal 1fr/1fr/1fr thirds) is
+      deliberate - it's what actually keeps "N Friends" visually
+      centered on the row as a whole regardless of how wide "Friends" or
+      the chevron end up being either side of it, the same "flanked by
+      two equal flexible tracks" trick this needs since the two sides
+      aren't the same width. justify-self-end (a grid-item property)
+      positions the chevron's own span, rather than wrapping it in a
+      nested flex container and justify-end-ing its child - confirmed
+      live that the flex+justify-end version put the icon at its span's
+      *start* specifically once rotate-180 was also active, not the
+      end (unclear why, but real and reproducible); pinning position at
+      the grid level sidesteps whatever that interaction was entirely.
     {% endcomment %}
-    <div class="px-5 pb-6">
-      <div class="text-[11px] font-semibold text-ink-dim uppercase tracking-wide border-t border-line pt-4 mb-2">Friends</div>
-      <div class="flex flex-col -mx-1">
-        {% for p in other_profiles %}
-          <button
-            type="button"
-            @click="bottomSheetOpen = false"
-            onclick="profile_popup_modal.showModal()"
-            hx-get="{% url 'profile_popup' p.id %}"
-            hx-target="#profile-popup-content"
-            hx-swap="innerHTML"
-            class="w-full flex items-center gap-2.5 px-1 py-2 rounded-lg hover:bg-base-300 text-left cursor-pointer"
-          >
-            <div
-              class="w-8 h-8 rounded-full flex-none flex items-center justify-center font-mono text-xs font-semibold {% if p.avatar_image %}bg-cover bg-center{% endif %}"
-              style="{% if p.avatar_image %}background-image:url('{{ p.avatar_image.url }}'){% else %}background:{{ p.avatar_color }};color:#fff;{% endif %}"
-            >{% if not p.avatar_image %}{{ p.display_name|first|upper }}{% endif %}</div>
-            <div class="min-w-0 flex-1">
-              <div class="text-sm font-medium truncate">{{ p.display_name }}</div>
-              <div class="text-[10.5px] text-ink-faint font-mono">{% if p.last_seen_at %}Active {{ p.last_seen_at|timesince }} ago{% else %}No activity yet{% endif %}</div>
-            </div>
-          </button>
-        {% endfor %}
+    <div class="px-5 pb-6" x-data="{ expanded: false }">
+      <div class="bg-base-300 rounded-2xl overflow-hidden">
+        <button
+          type="button"
+          @click="expanded = !expanded"
+          :aria-expanded="expanded.toString()"
+          class="w-full grid grid-cols-[1fr_auto_1fr] items-center text-ink-dim hover:text-base-content px-4 py-3 transition-colors"
+        >
+          <span class="text-[11px] font-semibold uppercase tracking-wide justify-self-start">Friends</span>
+          <span class="text-xs font-semibold justify-self-center">{{ other_profiles|length }} Friend{{ other_profiles|length|pluralize }}</span>
+          <span class="justify-self-end transition-transform" :class="expanded ? 'rotate-180' : ''">
+            {% icon "chevron-down" "w-4 h-4" %}
+          </span>
+        </button>
+
+        <div x-show="expanded" x-cloak class="border-t border-line flex flex-col p-1">
+          {% for p in other_profiles %}
+            <button
+              type="button"
+              @click="bottomSheetOpen = false"
+              onclick="profile_popup_modal.showModal()"
+              hx-get="{% url 'profile_popup' p.id %}"
+              hx-target="#profile-popup-content"
+              hx-swap="innerHTML"
+              class="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-base-200 text-left cursor-pointer"
+            >
+              <div
+                class="w-8 h-8 rounded-full flex-none flex items-center justify-center font-mono text-xs font-semibold {% if p.avatar_image %}bg-cover bg-center{% endif %}"
+                style="{% if p.avatar_image %}background-image:url('{{ p.avatar_image.url }}'){% else %}background:{{ p.avatar_color }};color:#fff;{% endif %}"
+              >{% if not p.avatar_image %}{{ p.display_name|first|upper }}{% endif %}</div>
+              <div class="min-w-0 flex-1">
+                <div class="text-sm font-medium truncate">{{ p.display_name }}</div>
+                <div class="text-[10.5px] text-ink-faint font-mono">{% if p.last_seen_at %}Active {{ p.last_seen_at|timesince }} ago{% else %}No activity yet{% endif %}</div>
+              </div>
+            </button>
+          {% endfor %}
+        </div>
       </div>
     </div>
   {% endif %}

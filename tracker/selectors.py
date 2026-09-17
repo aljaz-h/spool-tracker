@@ -1427,7 +1427,7 @@ def _group_consecutive_watches(items):
     return grouped
 
 
-def episode_totals_for_group(profile, title):
+def episode_totals_for_group(title, last_episode):
     """The real total_episodes/completed_series pair for a show, shared by
     _build_group (Activity feed) and views._build_episode_group (History) -
     both used to derive this from Episode.objects.filter(title=title), the
@@ -1440,23 +1440,30 @@ def episode_totals_for_group(profile, title):
     own count (get_tv_details, cached ~6h - already warm here in practice,
     since marking episodes watched just called completion.sync_show_
     completion, which fetches this exact same endpoint) with the old local-
-    count as a fallback for a title with no tmdb id at all. completed_series
-    now just reads WatchProgress directly - completion.sync_show_completion
-    already sets that to COMPLETED using this same TMDB total the moment a
-    profile's watched at least that many distinct episodes, so reusing it
-    here is both cheaper (no recomputation) and correct regardless of
-    *which* episodes made up this particular run (a late catch-up of
-    earlier episodes correctly completes the series here too, not just a
-    run that happens to end on the finale)."""
+    count as a fallback for a title with no tmdb id at all.
+
+    last_episode is this specific group's own last episode by number,
+    (season, episode) - completed_series is whether *that* is the show's
+    real series finale (its last season's own last episode, per TMDB's
+    season list), not "is the show fully watched as of right now" -
+    reading current WatchProgress here instead (tried first, reverted)
+    retroactively marked *every* History/Activity entry for a show
+    "Series Completed" the instant it was eventually finished, including
+    ones from long before that happened - confirmed live, a 2/64- and a
+    16/64-episode entry, both from partway into season 1, both read
+    "Series Completed" once the profile finished the whole 64-episode
+    series much later. A past entry should only ever read that way if
+    *it* was actually the one that finished the show."""
     tmdb_id = title.external_ids.get("tmdb") if title.external_ids else None
     details = tmdb.get_tv_details(tmdb_id) if tmdb_id else None
-    if details and details.get("number_of_episodes"):
+    if details and details.get("number_of_episodes") and details.get("seasons"):
         total_episodes = details["number_of_episodes"]
+        final_season = max(details["seasons"], key=lambda s: s["season_number"])
+        completed_series = last_episode == (final_season["season_number"], final_season.get("episode_count"))
     else:
         total_episodes = Episode.objects.filter(title=title).count()
-    completed_series = WatchProgress.objects.filter(
-        profile=profile, title=title, status=WatchProgress.Status.COMPLETED
-    ).exists()
+        final_known = Episode.objects.filter(title=title).order_by("-season", "-episode").first()
+        completed_series = bool(final_known) and last_episode == (final_known.season, final_known.episode)
     return total_episodes, completed_series
 
 
@@ -1468,7 +1475,9 @@ def _build_group(group_type, run):
         last_by_ep = max(episodes, key=lambda e: (e.season, e.episode))
         range_label = f"S{first_by_ep.season}E{first_by_ep.episode}–S{last_by_ep.season}E{last_by_ep.episode}"
         total_runtime = sum(e.runtime_minutes for e in episodes if e.runtime_minutes)
-        total_episodes, completed_series = episode_totals_for_group(run[0]["profile"], run[0]["title"])
+        total_episodes, completed_series = episode_totals_for_group(
+            run[0]["title"], (last_by_ep.season, last_by_ep.episode)
+        )
         return {
             "profile": run[0]["profile"],
             "timestamp": run[0]["timestamp"],
@@ -1788,6 +1797,24 @@ def poster_action_context(profile, titles):
     # badge existed for shows at all.
     watch_count_by_title = _badge_watch_counts(profile, titles)
 
+    # A show that's watched but not COMPLETED (mid-season, or a new
+    # season aired since finishing an earlier one) shouldn't read as
+    # "done" the same way a finished show or a watched movie does -
+    # confirmed as real user feedback: the checkmark button gave no
+    # visual difference between "watching S1E5 of 38" and "actually
+    # finished the whole series", both a plain green check. A movie has
+    # no such partial state (watched == fully watched, always), so this
+    # is always False for one regardless of watched_by_title.
+    completed_ids = set(
+        WatchProgress.objects.filter(
+            profile=profile, title_id__in=title_ids, status=WatchProgress.Status.COMPLETED
+        ).values_list("title_id", flat=True)
+    )
+    in_progress_by_title = {
+        t.pk: t.media_type != MediaType.MOVIE and watched_by_title[t.pk] and t.pk not in completed_ids
+        for t in titles
+    }
+
     my_lists = list(WatchList.objects.filter(profile=profile).order_by("name"))
     list_membership = {tid: set() for tid in title_ids}
     for title_id, list_id in WatchListItem.objects.filter(
@@ -1798,6 +1825,7 @@ def poster_action_context(profile, titles):
     return {
         "watched_by_title": watched_by_title,
         "watch_count_by_title": watch_count_by_title,
+        "in_progress_by_title": in_progress_by_title,
         "my_lists": my_lists,
         "list_membership": list_membership,
     }
@@ -1916,6 +1944,17 @@ def discover_action_context(profile, items):
     # The checkmark's ×N badge - same _badge_watch_counts poster_action_context
     # uses, see its own docstring for the movie/show distinction.
     badge_counts_by_title = _badge_watch_counts(profile, matched_titles)
+    # Same "watched but not COMPLETED" distinction poster_action_context's
+    # own in_progress_by_title makes (see its docstring) - kept here too
+    # since discover_tile.html reuses that exact button/popover for any
+    # matched title, same misleading "green check = done" issue applies
+    # equally to a partway-through show surfacing again on Trending/
+    # Popular or a "similar titles" row.
+    completed_title_ids = set(
+        WatchProgress.objects.filter(
+            profile=profile, title_id__in=title_ids, status=WatchProgress.Status.COMPLETED
+        ).values_list("title_id", flat=True)
+    )
     list_membership_by_title = {}
     for title_id, list_id in WatchListItem.objects.filter(
         watchlist__profile=profile, title_id__in=title_ids
@@ -1924,16 +1963,22 @@ def discover_action_context(profile, items):
 
     discover_watched = {}
     discover_watch_count = {}
+    discover_in_progress = {}
     discover_list_membership = {}
     for key, title in matched_title_by_key.items():
-        discover_watched[key] = bool(title and title.pk in watched_title_ids)
+        is_watched = bool(title and title.pk in watched_title_ids)
+        discover_watched[key] = is_watched
         discover_watch_count[key] = badge_counts_by_title.get(title.pk, 0) if title else 0
+        discover_in_progress[key] = bool(
+            title and title.media_type != MediaType.MOVIE and is_watched and title.pk not in completed_title_ids
+        )
         discover_list_membership[key] = list_membership_by_title.get(title.pk, set()) if title else set()
 
     return {
         "discover_title_by_key": matched_title_by_key,
         "discover_watched": discover_watched,
         "discover_watch_count": discover_watch_count,
+        "discover_in_progress": discover_in_progress,
         "discover_list_membership": discover_list_membership,
     }
 

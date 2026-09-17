@@ -12873,14 +12873,14 @@ class ActivityFeedGroupingTests(TestCase):
         self.assertEqual(feed[0]["total_episodes"], 5)
 
     def test_group_ending_on_the_last_episode_is_series_completed(self):
-        # completed_series now reads WatchProgress directly (see
-        # selectors.episode_totals_for_group's own docstring for why a
-        # local Episode.objects.filter(title=title) last-known-episode
-        # check isn't good enough - confirmed live it falsely claims
-        # "Series Completed" the moment just one season's worth of
-        # episodes exists locally, regardless of the show's real season
-        # count), so this needs a real WatchProgress row rather than
-        # just locally-known Episode rows lining up.
+        # No tmdb id on self.show, so this falls to the local-Episode
+        # fallback (see episode_totals_for_group's own docstring) - the
+        # group's own last episode (S1E3) matches the last *locally
+        # known* one, so this reads as completed without needing any
+        # WatchProgress row at all (completed_series no longer reads
+        # WatchProgress - see that function's docstring for why: it used
+        # to retroactively mark every past entry for a show "Series
+        # Completed" the moment it was eventually finished).
         for n in range(1, 4):
             Episode.objects.create(title=self.show, season=1, episode=n)
         for i, minutes_ago in enumerate([20, 10, 0]):
@@ -12889,36 +12889,18 @@ class ActivityFeedGroupingTests(TestCase):
                 episode=Episode.objects.get(title=self.show, season=1, episode=1 + i),
                 watched_at=self.now - timedelta(minutes=minutes_ago),
             )
-        WatchProgress.objects.create(profile=self.profile, title=self.show, status=WatchProgress.Status.COMPLETED)
         feed = selectors.activity_feed()
         self.assertTrue(feed[0]["completed_series"])
         self.assertEqual(feed[0]["total_episodes"], 3)
 
     def test_completed_series_ignores_a_locally_known_episode_that_isnt_really_the_finale(self):
         # The exact bug report this fix addresses: marking only Season 1
-        # of a 4-season show watched used to read as "Series Completed"
-        # because S1's own last episode was also the *locally created*
-        # last episode - nothing else had ever been fetched/created for
-        # this title. No WatchProgress row here (the show genuinely
-        # isn't complete), so this must stay false even though every
-        # locally-known episode is included in the run.
-        for n in range(1, 9):
-            Episode.objects.create(title=self.show, season=1, episode=n)
-        for i, minutes_ago in enumerate(range(8, 0, -1)):
-            WatchEvent.objects.create(
-                profile=self.profile, title=self.show,
-                episode=Episode.objects.get(title=self.show, season=1, episode=1 + i),
-                watched_at=self.now - timedelta(minutes=minutes_ago),
-            )
-        feed = selectors.activity_feed()
-        self.assertEqual(feed[0]["count"], 8)
-        self.assertFalse(feed[0]["completed_series"])
-
-    def test_total_episodes_uses_tmdbs_real_count_not_just_local_rows(self):
-        # The show has a tmdb id and TMDB reports 32 total episodes
-        # (4 seasons of 8) - only season 1's 8 episodes exist locally
-        # (the ones just watched). total_episodes should reflect the
-        # real 32, not the 8 that happen to exist as local rows.
+        # of a 4-season show (32 real episodes) watched used to read as
+        # "Series Completed" because S1's own last episode was also the
+        # *locally created* last episode - nothing else had ever been
+        # fetched/created for this title. With a real tmdb id/season
+        # list, S1E8 no longer looks like the finale just because it's
+        # all that's known locally.
         self.show.external_ids = {"tmdb": "12345", "tmdb_kind": "tv"}
         self.show.save(update_fields=["external_ids"])
         for n in range(1, 9):
@@ -12929,9 +12911,59 @@ class ActivityFeedGroupingTests(TestCase):
                 episode=Episode.objects.get(title=self.show, season=1, episode=1 + i),
                 watched_at=self.now - timedelta(minutes=minutes_ago),
             )
-        with patch("tracker.integrations.tmdb.get_tv_details", return_value={"number_of_episodes": 32}):
+        tv_details = {
+            "number_of_episodes": 32,
+            "seasons": [{"season_number": n, "episode_count": 8} for n in range(1, 5)],
+        }
+        with patch("tracker.integrations.tmdb.get_tv_details", return_value=tv_details):
             feed = selectors.activity_feed()
+        self.assertEqual(feed[0]["count"], 8)
         self.assertEqual(feed[0]["total_episodes"], 32)
+        self.assertFalse(feed[0]["completed_series"])
+
+    def test_completed_series_true_when_the_run_actually_ends_on_the_real_finale(self):
+        self.show.external_ids = {"tmdb": "12345", "tmdb_kind": "tv"}
+        self.show.save(update_fields=["external_ids"])
+        for n in range(1, 9):
+            Episode.objects.create(title=self.show, season=4, episode=n)
+        for i, minutes_ago in enumerate(range(8, 0, -1)):
+            WatchEvent.objects.create(
+                profile=self.profile, title=self.show,
+                episode=Episode.objects.get(title=self.show, season=4, episode=1 + i),
+                watched_at=self.now - timedelta(minutes=minutes_ago),
+            )
+        tv_details = {
+            "number_of_episodes": 32,
+            "seasons": [{"season_number": n, "episode_count": 8} for n in range(1, 5)],
+        }
+        with patch("tracker.integrations.tmdb.get_tv_details", return_value=tv_details):
+            feed = selectors.activity_feed()
+        self.assertTrue(feed[0]["completed_series"])
+
+    def test_completed_series_stays_false_on_an_earlier_history_entry_even_after_the_show_is_later_finished(self):
+        # The other half of the bug report: even once the show genuinely
+        # is fully watched (a real WatchProgress row, same as
+        # completion.sync_show_completion would leave behind), an
+        # *earlier* entry that didn't itself end on the finale must stay
+        # "not completed" - completed_series is about this group, not
+        # "is the show done as of right now."
+        self.show.external_ids = {"tmdb": "12345", "tmdb_kind": "tv"}
+        self.show.save(update_fields=["external_ids"])
+        for n in range(1, 9):
+            Episode.objects.create(title=self.show, season=1, episode=n)
+        for i, minutes_ago in enumerate(range(8, 0, -1)):
+            WatchEvent.objects.create(
+                profile=self.profile, title=self.show,
+                episode=Episode.objects.get(title=self.show, season=1, episode=1 + i),
+                watched_at=self.now - timedelta(minutes=minutes_ago),
+            )
+        WatchProgress.objects.create(profile=self.profile, title=self.show, status=WatchProgress.Status.COMPLETED)
+        tv_details = {
+            "number_of_episodes": 32,
+            "seasons": [{"season_number": n, "episode_count": 8} for n in range(1, 5)],
+        }
+        with patch("tracker.integrations.tmdb.get_tv_details", return_value=tv_details):
+            feed = selectors.activity_feed()
         self.assertFalse(feed[0]["completed_series"])
 
     def test_single_watch_carries_its_source(self):
@@ -16991,6 +17023,33 @@ class PosterCardWatchedButtonPopoverTests(TestCase):
         self.assertContains(resp, "View history plays")
         self.assertContains(resp, f'id="watched-popover-{show.pk}"')
 
+    def test_a_show_watched_but_not_completed_gets_the_in_progress_treatment(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+        episode = Episode.objects.create(title=show, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=show, episode=episode, watched_at=self.timezone.now())
+        WatchListItem.objects.create(watchlist=self.watchlist, title=show)
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.pk]))
+        self.assertContains(resp, "bg-info/20 text-info")
+        self.assertContains(resp, "Watching — manage plays")
+        self.assertNotContains(resp, "bg-success/20 text-success")
+
+    def test_a_fully_completed_show_still_gets_the_green_check(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+        episode = Episode.objects.create(title=show, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=show, episode=episode, watched_at=self.timezone.now())
+        WatchProgress.objects.create(profile=self.profile, title=show, status=WatchProgress.Status.COMPLETED)
+        WatchListItem.objects.create(watchlist=self.watchlist, title=show)
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.pk]))
+        self.assertContains(resp, "bg-success/20 text-success")
+        self.assertContains(resp, "Watched — manage plays")
+        self.assertNotContains(resp, "bg-info/20 text-info")
+
+    def test_a_watched_movie_always_gets_the_green_check(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.timezone.now())
+        resp = self.client.get(reverse("list_detail", args=[self.watchlist.pk]))
+        self.assertContains(resp, "bg-success/20 text-success")
+        self.assertNotContains(resp, "bg-info/20 text-info")
+
 
 class WatchedButtonTemplateSelectionTests(TestCase):
     """title_detail's own header "Watched" control shares
@@ -18141,6 +18200,43 @@ class PosterActionContextSelectorTests(TestCase):
         context = selectors.poster_action_context(self.profile, [show])
         self.assertEqual(context["watch_count_by_title"][show.pk], 1)
 
+    def test_watched_show_without_completed_watchprogress_is_in_progress(self):
+        # The checkmark shouldn't read as "done" for a show that's only
+        # partway through - confirmed as real user feedback (a show mid-
+        # season and a fully finished one both showed the exact same
+        # plain green check).
+        show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+        WatchEvent.objects.create(profile=self.profile, title=show, watched_at="2024-01-01T00:00:00Z")
+        context = selectors.poster_action_context(self.profile, [show])
+        self.assertTrue(context["in_progress_by_title"][show.pk])
+
+    def test_watched_show_with_completed_watchprogress_is_not_in_progress(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+        WatchEvent.objects.create(profile=self.profile, title=show, watched_at="2024-01-01T00:00:00Z")
+        WatchProgress.objects.create(profile=self.profile, title=show, status=WatchProgress.Status.COMPLETED)
+        context = selectors.poster_action_context(self.profile, [show])
+        self.assertFalse(context["in_progress_by_title"][show.pk])
+
+    def test_unwatched_show_is_not_in_progress(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023)
+        context = selectors.poster_action_context(self.profile, [show])
+        self.assertFalse(context["in_progress_by_title"][show.pk])
+
+    def test_a_watched_movie_is_never_in_progress(self):
+        # Movies have no partial-watch state at all - watched is always
+        # "fully watched", regardless of any (nonexistent, for a movie)
+        # WatchProgress row.
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at="2024-01-01T00:00:00Z")
+        context = selectors.poster_action_context(self.profile, [movie])
+        self.assertFalse(context["in_progress_by_title"][movie.pk])
+
+    def test_anime_gets_the_same_in_progress_treatment_as_tv(self):
+        anime = Title.objects.create(media_type=MediaType.ANIME, name="Frieren", year=2023)
+        WatchEvent.objects.create(profile=self.profile, title=anime, watched_at="2024-01-01T00:00:00Z")
+        context = selectors.poster_action_context(self.profile, [anime])
+        self.assertTrue(context["in_progress_by_title"][anime.pk])
+
 
 class DiscoverActionContextSelectorTests(TestCase):
     """discover_action_context - poster_action_context's counterpart for
@@ -18211,7 +18307,33 @@ class DiscoverActionContextSelectorTests(TestCase):
         context = selectors.discover_action_context(self.profile, [])
         self.assertEqual(context["discover_title_by_key"], {})
         self.assertEqual(context["discover_watched"], {})
+        self.assertEqual(context["discover_in_progress"], {})
         self.assertEqual(context["discover_list_membership"], {})
+
+    def test_a_previously_watched_show_without_completed_watchprogress_is_in_progress(self):
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "77", "tmdb_kind": "tv"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        context = selectors.discover_action_context(self.profile, [self._item(tmdb_id=77, media_type="tv")])
+        self.assertTrue(context["discover_in_progress"]["tv:77"])
+
+    def test_a_completed_show_is_not_in_progress(self):
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "77", "tmdb_kind": "tv"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        WatchProgress.objects.create(profile=self.profile, title=title, status=WatchProgress.Status.COMPLETED)
+        context = selectors.discover_action_context(self.profile, [self._item(tmdb_id=77, media_type="tv")])
+        self.assertFalse(context["discover_in_progress"]["tv:77"])
+
+    def test_a_watched_movie_is_never_in_progress(self):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        context = selectors.discover_action_context(self.profile, [self._item()])
+        self.assertFalse(context["discover_in_progress"]["movie:42"])
 
     def test_a_tv_item_does_not_match_an_unrelated_movie_with_the_same_tmdb_id(self):
         # TMDB's movie and tv id numbering are separate namespaces - a
@@ -18298,9 +18420,9 @@ class DiscoverActionContextSelectorTests(TestCase):
         # own docstring) - confirmed live via Silk profiling that the old
         # one-or-two-queries-per-item version scaled all the way up to 263
         # queries on a single real Discover page load. However many items
-        # are on the page, matching them should cost the same two queries
-        # (tier1, tier2) plus the batched watched/badge/list-membership
-        # queries below them - never one growing with len(items).
+        # are on the page, matching them should cost the same fixed set of
+        # queries (tier1, tier2, watched/badge/completed-for-in_progress/
+        # list-membership) - never one growing with len(items).
         items = [self._item(tmdb_id=i, media_type="movie") for i in range(50)]
         # Half already tracked (tier1 hits), half not (tier1 miss -> tier2,
         # which also misses for these since they were never created at
@@ -18311,7 +18433,7 @@ class DiscoverActionContextSelectorTests(TestCase):
                 media_type=MediaType.MOVIE, name=f"Title {i}", year=2020,
                 external_ids={"tmdb": str(i), "tmdb_kind": "movie"},
             )
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(6):
             selectors.discover_action_context(self.profile, items)
 
     def test_tier2_self_heal_writes_only_the_titles_it_actually_matches(self):
@@ -19770,19 +19892,16 @@ class HistoryConsecutiveEpisodeGroupingTests(TestCase):
         self.assertEqual(grouped[0]["range_label"], "S1E3–S1E19")
 
     def test_completed_series_true_when_the_run_ends_on_the_last_known_episode(self):
-        # Same "N episodes, no sense of how much of the show that is"
-        # complaint the Activity feed's own watched_group already solves
-        # (selectors.episode_totals_for_group) - History's own group tile
-        # should read the same way, including for a bulk "mark all
-        # seasons watched" catch-up, which logs every episode with an
-        # identical timestamp and so groups here exactly like any other
-        # same-day binge. completed_series reads WatchProgress directly
-        # now (see that function's own docstring for why a local
-        # Episode.objects.filter(title=title) last-known-episode check
-        # isn't good enough), so this needs a real WatchProgress row.
+        # No tmdb id on self.show, so this falls to the local-Episode
+        # fallback (see selectors.episode_totals_for_group's own
+        # docstring) - the group's own last episode (S1E3) matches the
+        # last *locally known* one, so this reads as completed without
+        # needing any WatchProgress row (completed_series no longer
+        # reads WatchProgress at all - see that function's docstring for
+        # why: it used to retroactively mark every past entry for a show
+        # "Series Completed" the moment it was eventually finished).
         for i in range(1, 4):
             self._watch(episode_num=i, minutes_ago=(10 - i))
-        WatchProgress.objects.create(profile=self.profile, title=self.show, status=WatchProgress.Status.COMPLETED)
         events = list(WatchEvent.objects.filter(title=self.show).order_by("-watched_at"))
         grouped = views._group_consecutive_episodes(events)
         self.assertTrue(grouped[0]["completed_series"])
@@ -19799,18 +19918,49 @@ class HistoryConsecutiveEpisodeGroupingTests(TestCase):
 
     def test_completed_series_ignores_a_locally_known_episode_that_isnt_really_the_finale(self):
         # The exact bug report this fix addresses: marking only Season 1
-        # of a multi-season show watched used to read as "Series
-        # Completed" in History too, for the same reason as the Activity
-        # feed's own version of this bug - S1's own last episode was
-        # also the *locally created* last episode, nothing else having
-        # ever been fetched/created for this title. No WatchProgress row
-        # here (the show genuinely isn't complete), so this must stay
-        # false even though every locally-known episode is in the run.
+        # of a 4-season show (32 real episodes) watched used to read as
+        # "Series Completed" in History too, for the same reason as the
+        # Activity feed's own version of this bug - S1's own last
+        # episode was also the *locally created* last episode, nothing
+        # else having ever been fetched/created for this title. With a
+        # real tmdb id/season list, S1E8 no longer looks like the finale
+        # just because it's all that's known locally.
+        self.show.external_ids = {"tmdb": "12345", "tmdb_kind": "tv"}
+        self.show.save(update_fields=["external_ids"])
         for i in range(1, 9):
             self._watch(episode_num=i, minutes_ago=(9 - i))
         events = list(WatchEvent.objects.filter(title=self.show).order_by("-watched_at"))
-        grouped = views._group_consecutive_episodes(events)
+        tv_details = {
+            "number_of_episodes": 32,
+            "seasons": [{"season_number": n, "episode_count": 8} for n in range(1, 5)],
+        }
+        with patch("tracker.integrations.tmdb.get_tv_details", return_value=tv_details):
+            grouped = views._group_consecutive_episodes(events)
         self.assertEqual(grouped[0]["count"], 8)
+        self.assertEqual(grouped[0]["total_episodes"], 32)
+        self.assertFalse(grouped[0]["completed_series"])
+
+    def test_completed_series_stays_false_on_an_earlier_entry_even_after_the_show_is_later_finished(self):
+        # The other half of the bug: even once the show genuinely is
+        # fully watched (a real WatchProgress row), an *earlier* group
+        # that didn't itself end on the finale must stay "not completed" -
+        # completed_series is about this group, not "is the show done as
+        # of right now" - confirmed live: a 2/64- and a 16/64-episode
+        # History entry for Fullmetal Alchemist: Brotherhood, both from
+        # partway into season 1, both read "Series Completed" once the
+        # profile finished the whole 64-episode series much later.
+        self.show.external_ids = {"tmdb": "12345", "tmdb_kind": "tv"}
+        self.show.save(update_fields=["external_ids"])
+        for i in range(1, 9):
+            self._watch(episode_num=i, minutes_ago=(9 - i))
+        WatchProgress.objects.create(profile=self.profile, title=self.show, status=WatchProgress.Status.COMPLETED)
+        events = list(WatchEvent.objects.filter(title=self.show).order_by("-watched_at"))
+        tv_details = {
+            "number_of_episodes": 32,
+            "seasons": [{"season_number": n, "episode_count": 8} for n in range(1, 5)],
+        }
+        with patch("tracker.integrations.tmdb.get_tv_details", return_value=tv_details):
+            grouped = views._group_consecutive_episodes(events)
         self.assertFalse(grouped[0]["completed_series"])
 
     def test_history_page_renders_group_tile_for_a_binge(self):
@@ -19841,7 +19991,6 @@ class HistoryConsecutiveEpisodeGroupingTests(TestCase):
             WatchEvent.objects.create(
                 profile=profile, title=show, episode=ep, watched_at=timezone.now() - timedelta(minutes=i)
             )
-        WatchProgress.objects.create(profile=profile, title=show, status=WatchProgress.Status.COMPLETED)
         self.client.login(username="histcompleter", password="pass12345")
         resp = self.client.get(reverse("history"))
         self.assertContains(resp, "Series completed")

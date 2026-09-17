@@ -1,5 +1,5 @@
 {% load icons %}
-{# context: title (Title), watched (bool, ANY watch event - plain or per-episode), watch_count (int - see selectors._badge_watch_counts: a movie's own plain/episode-less watch count, or a show's minimum per-episode watch count) #}
+{# context: title (Title), watched (bool, ANY watch event - plain or per-episode), watch_count (int - see selectors._badge_watch_counts: a movie's own plain/episode-less watch count, or a show's minimum per-episode watch count), in_progress (bool - see selectors.poster_action_context's own in_progress_by_title docstring: watched but not yet COMPLETED - always False for a movie, which has no partial-watch state) #}
 {% comment %}
 Both states are popover triggers using the same fixed/
 getBoundingClientRect()-positioned pattern as poster_card_list_popover.html.
@@ -15,6 +15,13 @@ counts for a show vs. a movie); the popover's "Remove last/all watched"
 actions only ever delete *plain* events regardless of what this badge
 shows - for a show rewatched via the episode browser (no plain events
 at all) those stay harmless no-ops even once its badge shows a real ×N.
+
+in_progress swaps the green check for a blue play icon - confirmed as
+real user feedback: a show only partway through a season (or with a new
+season out since finishing an earlier one) read exactly the same as a
+fully finished one, both just a plain green checkmark. The popover
+itself (watched_menu_panel.html) is unchanged either way - same
+rewatch/undo/history actions apply regardless of completion state.
 {% endcomment %}
 {% if watched %}
 <div class="relative flex-1" id="watched-popover-{{ title.pk }}" x-data="{
@@ -31,9 +38,9 @@ at all) those stay harmless no-ops even once its badge shows a real ×N.
     @click="togglePanel($el)"
     :aria-expanded="open.toString()"
     aria-haspopup="true"
-    title="Watched — manage plays"
-    class="w-full h-9 flex items-center justify-center gap-1 transition-colors bg-success/20 text-success hover:bg-success/30"
-  >{% icon "check" "w-4 h-4" %}{% if watch_count > 1 %}<span class="font-mono text-[10px]">&times;{{ watch_count }}</span>{% endif %}</button>
+    title="{% if in_progress %}Watching — manage plays{% else %}Watched — manage plays{% endif %}"
+    class="w-full h-9 flex items-center justify-center gap-1 transition-colors {% if in_progress %}bg-info/20 text-info hover:bg-info/30{% else %}bg-success/20 text-success hover:bg-success/30{% endif %}"
+  >{% if in_progress %}{% icon "play" "w-4 h-4" %}{% else %}{% icon "check" "w-4 h-4" %}{% endif %}{% if watch_count > 1 %}<span class="font-mono text-[10px]">&times;{{ watch_count }}</span>{% endif %}</button>
   <div
     x-ref="panel"
     x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"

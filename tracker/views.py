@@ -2313,6 +2313,7 @@ _EMPTY_DISCOVER_CONTEXT = {
     "discover_title_by_key": {},
     "discover_watched": {},
     "discover_watch_count": {},
+    "discover_in_progress": {},
     "discover_list_membership": {},
 }
 
@@ -2667,20 +2668,20 @@ def _build_episode_group(title, run):
     first_by_ep = min(episodes, key=lambda e: (e.season, e.episode))
     last_by_ep = max(episodes, key=lambda e: (e.season, e.episode))
     total_minutes = sum((e.episode.runtime_minutes or e.title.runtime_minutes or 0) for e in run)
-    # Same real-total/WatchProgress-backed check selectors.
-    # episode_totals_for_group already does for the Activity feed's own
-    # watched_group - kept in sync here so a binge (including a bulk
-    # "mark all seasons watched" catch-up, which logs every episode with
-    # the exact same timestamp and so groups the same way any other
-    # same-day run does) reads the same "Series Completed" vs. plain
-    # episode-count way in History as it already does in Activity,
-    # rather than just "watched <title>" with no sense of how much of
-    # it. See that function's own docstring for why this isn't just a
-    # local Episode.objects.filter(title=title) count/last-episode
-    # check - confirmed live that one falsely claims "Series Completed"
-    # the moment a single season's worth of episodes exists locally,
-    # regardless of how many seasons the show actually has.
-    total_episodes, completed_series = selectors.episode_totals_for_group(run[0].profile, title)
+    # Same real-total/real-finale check selectors.episode_totals_for_group
+    # already does for the Activity feed's own watched_group - kept in
+    # sync here so a binge (including a bulk "mark all seasons watched"
+    # catch-up, which logs every episode with the exact same timestamp
+    # and so groups the same way any other same-day run does) reads the
+    # same "Series Completed" vs. plain episode-count way in History as
+    # it already does in Activity. See that function's own docstring for
+    # why this checks *this group's own* last episode against the show's
+    # real finale rather than "is the show fully watched right now" -
+    # the latter used to retroactively mark every past History entry for
+    # a show "Series Completed" the moment it was eventually finished.
+    total_episodes, completed_series = selectors.episode_totals_for_group(
+        title, (last_by_ep.season, last_by_ep.episode)
+    )
     return {
         "is_group": True,
         "title": title,

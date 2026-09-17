@@ -3,7 +3,7 @@
 {% with url_name=request.resolver_match.url_name %}
 <nav
   aria-label="Primary"
-  class="xl:hidden fixed inset-x-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40 flex items-stretch gap-1 px-2 py-1 rounded-[22px] bg-base-200/80 backdrop-blur-md border border-line shadow-2xl"
+  class="xl:hidden fixed inset-x-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40 flex items-stretch gap-1 px-2 py-1.5 rounded-[22px] bg-base-200/80 backdrop-blur-md border border-line shadow-2xl"
 >
   {% url 'dashboard' as home_url %}
   {% include "tracker/partials/nav_item_bottom.html" with href=home_url icon_name="home" label="Home" is_active=url_name|eq:"dashboard" %}
@@ -41,7 +41,7 @@
     aria-haspopup="true"
     aria-label="Search"
     class="flex flex-col items-center justify-center gap-0.5 flex-1 py-2 rounded-2xl text-[10px] font-medium transition-colors"
-    :class="mobileSearchOpen ? 'text-primary' : 'text-ink-dim'"
+    :class="mobileSearchOpen ? 'text-primary bg-primary/15' : 'text-ink-dim'"
   >
     {% icon "search" "w-5 h-5" %}
     <span>Search</span>
@@ -53,7 +53,7 @@
     :aria-expanded="bottomSheetOpen.toString()"
     aria-haspopup="dialog"
     class="flex flex-col items-center justify-center gap-0.5 flex-1 py-2 rounded-2xl text-[10px] font-medium transition-colors"
-    :class="bottomSheetOpen ? 'text-primary' : 'text-ink-dim'"
+    :class="bottomSheetOpen ? 'text-primary bg-primary/15' : 'text-ink-dim'"
   >
     {% icon "ellipsis" "w-5 h-5" %}
     <span>More</span>
