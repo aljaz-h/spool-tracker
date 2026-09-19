@@ -100,16 +100,12 @@ to avoid triggering navigation.
         {% include "tracker/partials/episode_watched_button.html" with title=title season=progress.season episode_number=progress.episode_number watched=True watch_count=progress.watch_count %}
       {% else %}
         {% comment %}
-        poster_card_watched_button.html is built for the portrait card's
-        own dedicated action bar (flex-1, filling all the width it's
-        given) - reused here alone inside a row that also has to fit the
-        title/subtitle link, so its flex-1/w-full are overridden back to
-        a compact, fixed-ish width via arbitrary child selectors rather
-        than forking the partial.
+        compact=True gives the shared watched button the same fixed-width
+        solid pill episode_watched_button.html (the show cards' button
+        above) uses, instead of the portrait card's full-width flat
+        action-bar cell - so movies and shows read identically here.
         {% endcomment %}
-        <div class="flex-none [&>div]:flex-none [&>div>button]:w-10">
-          {% include "tracker/partials/poster_card_watched_button.html" with title=title watched=watched_by_title|get_item:title.pk watch_count=watch_count_by_title|get_item:title.pk in_progress=in_progress_by_title|get_item:title.pk %}
-        </div>
+        {% include "tracker/partials/poster_card_watched_button.html" with title=title compact=True watched=watched_by_title|get_item:title.pk watch_count=watch_count_by_title|get_item:title.pk in_progress=in_progress_by_title|get_item:title.pk %}
       {% endif %}
     </div>
   </div>

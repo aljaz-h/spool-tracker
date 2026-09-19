@@ -8,6 +8,27 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.132.1] - 2026-09-20
+
+### Fixed
+
+- Marking an episode watched in Spool now puts the show on the Dashboard's
+  Watching row, pointing at the latest episode watched. Previously only
+  shows with progress reported by a player such as Nuvio appeared there.
+- Movie cards in the Watching row now use the same watched button style as
+  TV and anime cards.
+- The Settings → Notifications sync failure toggle is now labeled
+  "Trakt/Simkl/Nuvio". Nuvio sync failures already sent a notification
+  under that toggle; only the label was missing.
+
+## [0.132.0] - 2026-09-20
+
+### Added
+
+- Movie Details panel now shows the US digital release date from TMDB,
+  marked "(upcoming)" while it's still in the future. It's omitted when
+  TMDB has no digital date yet, which is common for new releases.
+
 ## [0.131.2] - 2026-09-19
 
 ### Fixed

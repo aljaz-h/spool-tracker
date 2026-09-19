@@ -1,5 +1,5 @@
 {% load icons %}
-{# context: title (Title), watched (bool, ANY watch event - plain or per-episode), watch_count (int - see selectors._badge_watch_counts: a movie's own plain/episode-less watch count, or a show's minimum per-episode watch count), in_progress (bool - see selectors.poster_action_context's own in_progress_by_title docstring: watched but not yet COMPLETED - always False for a movie, which has no partial-watch state) #}
+{# context: title (Title), watched (bool, ANY watch event - plain or per-episode), watch_count (int - see selectors._badge_watch_counts: a movie's own plain/episode-less watch count, or a show's minimum per-episode watch count), in_progress (bool - see selectors.poster_action_context's own in_progress_by_title docstring: watched but not yet COMPLETED - always False for a movie, which has no partial-watch state), compact (bool, optional - the Dashboard Watching row's movie card: a fixed-width solid pill matching episode_watched_button.html instead of the portrait card's full-width flat action-bar cell) #}
 {% comment %}
 Both states are popover triggers using the same fixed/
 getBoundingClientRect()-positioned pattern as poster_card_list_popover.html.
@@ -24,7 +24,7 @@ itself (watched_menu_panel.html) is unchanged either way - same
 rewatch/undo/history actions apply regardless of completion state.
 {% endcomment %}
 {% if watched %}
-<div class="relative flex-1" id="watched-popover-{{ title.pk }}" x-data="{
+<div class="relative {% if compact %}flex-none{% else %}flex-1{% endif %}" id="watched-popover-{{ title.pk }}" x-data="{
   open: false,
   togglePanel(button) {
     this.open = !this.open;
@@ -39,8 +39,8 @@ rewatch/undo/history actions apply regardless of completion state.
     :aria-expanded="open.toString()"
     aria-haspopup="true"
     title="{% if in_progress %}Watching — manage plays{% else %}Watched — manage plays{% endif %}"
-    class="w-full h-9 flex items-center justify-center gap-1 transition-colors {% if in_progress %}bg-info/20 text-info hover:bg-info/30{% else %}bg-success/20 text-success hover:bg-success/30{% endif %}"
-  >{% if in_progress %}{% icon "play" "w-4 h-4" %}{% else %}{% icon "check" "w-4 h-4" %}{% endif %}{% if watch_count > 1 %}<span class="font-mono text-[10px]">&times;{{ watch_count }}</span>{% endif %}</button>
+    class="{% if compact %}w-10 self-stretch min-h-8 rounded-md border flex-none flex items-center justify-center gap-0.5 transition-colors {% if in_progress %}bg-info/90 border-info/60 text-info-content{% else %}bg-success/90 border-success/60 text-success-content{% endif %}{% else %}w-full h-9 flex items-center justify-center gap-1 transition-colors {% if in_progress %}bg-info/20 text-info hover:bg-info/30{% else %}bg-success/20 text-success hover:bg-success/30{% endif %}{% endif %}"
+  >{% if in_progress %}{% icon "play" "w-4 h-4" %}{% else %}{% icon "check" "w-4 h-4" %}{% endif %}{% if watch_count > 1 %}<span class="font-mono {% if compact %}text-[9px]{% else %}text-[10px]{% endif %}">&times;{{ watch_count }}</span>{% endif %}</button>
   <div
     x-ref="panel"
     x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
@@ -50,7 +50,7 @@ rewatch/undo/history actions apply regardless of completion state.
   </div>
 </div>
 {% else %}
-<div class="relative flex-1" id="watched-btn-{{ title.pk }}" x-data="{
+<div class="relative {% if compact %}flex-none{% else %}flex-1{% endif %}" id="watched-btn-{{ title.pk }}" x-data="{
   open: false,
   showCustom: false,
   togglePanel(button) {
@@ -66,7 +66,7 @@ rewatch/undo/history actions apply regardless of completion state.
     :aria-expanded="open.toString()"
     aria-haspopup="true"
     title="Mark as watched"
-    class="w-full h-9 flex items-center justify-center transition-colors text-white/75 hover:text-white hover:bg-white/10"
+    class="{% if compact %}w-10 self-stretch min-h-8 rounded-md border flex-none flex items-center justify-center transition-colors bg-black/55 border-white/15 text-white/85 hover:bg-black/75 hover:border-white/30{% else %}w-full h-9 flex items-center justify-center transition-colors text-white/75 hover:text-white hover:bg-white/10{% endif %}"
   >{% icon "check" "w-4 h-4" %}</button>
   <div
     x-ref="panel"

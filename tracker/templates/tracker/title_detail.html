@@ -459,7 +459,7 @@
         physical position either way, just written once instead of
         branching on media_type.
       {% endcomment %}
-      {% if status_badge or details.original_language_display or details.budget or details.revenue or details.production_companies or details.countries_display %}
+      {% if status_badge or details.original_language_display or details.digital_release_date or details.budget or details.revenue or details.production_companies or details.countries_display %}
         <h2 class="font-display text-xl mb-3">Details</h2>
         <div class="bg-base-200 border border-line rounded-2xl p-4 mb-8">
           {% comment %}
@@ -495,6 +495,12 @@
                 <a href="{% url details_media_type|discover_url_name 'popular' %}?language={{ details.original_language_display.code }}" class="text-[13px] font-bold hover:underline">
                   {% if details.original_language_display.flag %}{{ details.original_language_display.flag }} {% endif %}{{ details.original_language_display.name }}
                 </a>
+              </div>
+            {% endif %}
+            {% if details.digital_release_date %}
+              <div>
+                <div class="text-[10px] text-ink-faint uppercase tracking-wide mb-0.5">Digital release</div>
+                <div class="text-[13px] font-medium">{{ details.digital_release_date|date:"M j, Y" }}{% if details.digital_release_upcoming %} <span class="text-ink-faint">(upcoming)</span>{% endif %}</div>
               </div>
             {% endif %}
             {% if details.budget %}

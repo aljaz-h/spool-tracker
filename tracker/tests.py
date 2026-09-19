@@ -4,6 +4,7 @@ import os
 import shutil
 import tempfile
 import zipfile
+from datetime import date as _date
 from datetime import timedelta
 from unittest.mock import Mock, patch
 
@@ -1107,6 +1108,65 @@ class TmdbDetailsTests(TestCase):
 
     @override_settings(TMDB_API_KEY="test-key")
     @patch("tracker.integrations.tmdb._http_session.get")
+    def test_get_full_details_movie_digital_release_is_the_earliest_us_type_4_entry(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 42, "title": "Fathom", "release_date": "2020-05-01",
+                "release_dates": {
+                    "results": [
+                        {"iso_3166_1": "FR", "release_dates": [{"type": 4, "release_date": "2020-01-01T00:00:00.000Z"}]},
+                        {
+                            "iso_3166_1": "US",
+                            "release_dates": [
+                                {"type": 3, "release_date": "2020-05-01T00:00:00.000Z"},
+                                {"type": 4, "release_date": "2030-08-02T00:00:00.000Z"},
+                                {"type": 4, "release_date": "2030-07-15T00:00:00.000Z"},
+                            ],
+                        },
+                    ]
+                },
+            }
+        )
+        details = tmdb.get_full_details("movie", 42)
+        self.assertEqual(details["digital_release_date"], _date(2030, 7, 15))
+        self.assertTrue(details["digital_release_upcoming"])
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_get_full_details_movie_past_digital_release_is_not_upcoming(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 42, "title": "Fathom", "release_date": "2020-05-01",
+                "release_dates": {
+                    "results": [
+                        {"iso_3166_1": "US", "release_dates": [{"type": 4, "release_date": "2020-07-01T00:00:00.000Z"}]}
+                    ]
+                },
+            }
+        )
+        details = tmdb.get_full_details("movie", 42)
+        self.assertEqual(details["digital_release_date"], _date(2020, 7, 1))
+        self.assertFalse(details["digital_release_upcoming"])
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_get_full_details_digital_release_none_without_a_us_type_4_entry(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "id": 42, "title": "Fathom", "release_date": "2020-05-01",
+                "release_dates": {
+                    "results": [
+                        {"iso_3166_1": "US", "release_dates": [{"type": 3, "release_date": "2020-05-01T00:00:00.000Z"}]}
+                    ]
+                },
+            }
+        )
+        details = tmdb.get_full_details("movie", 42)
+        self.assertIsNone(details["digital_release_date"])
+        self.assertFalse(details["digital_release_upcoming"])
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_tv_certification_reads_us_rating(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -1306,6 +1366,90 @@ class CompletionShowTests(TestCase):
                 completion.sync_show_completion(self.profile, self.title)  # should not raise
         ep = Episode.objects.get(title=self.title, season=1, episode=1)
         self.assertIsNone(ep.runtime_minutes)
+
+
+class EnsureWatchingOnEpisodeMarkTests(TestCase):
+    """sync_show_completion(ensure_watching=True) - a show partially
+    watched through Spool alone (no Nuvio progress) still lands on the
+    Dashboard's Watching row."""
+
+    def setUp(self):
+        user = User.objects.create_user("ensurewatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="EnsureWatcher")
+        self.title = Title.objects.create(
+            media_type=MediaType.TV, name="Fathom", year=2020, external_ids={"tmdb": "99"}
+        )
+        self.details = {"number_of_episodes": 10, "episode_run_time": 24, "seasons": []}
+
+    def _watch(self, number, when):
+        ep, _ = Episode.objects.get_or_create(title=self.title, season=1, episode=number)
+        WatchEvent.objects.create(profile=self.profile, title=self.title, episode=ep, watched_at=when)
+        return ep
+
+    def _sync(self, **kwargs):
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=self.details):
+            completion.sync_show_completion(self.profile, self.title, **kwargs)
+
+    def test_a_partially_watched_show_gets_a_watching_row_at_the_latest_episode(self):
+        self._watch(1, "2024-01-01T00:00:00Z")
+        ep2 = self._watch(2, "2024-01-02T00:00:00Z")
+        self._sync(ensure_watching=True)
+        progress = WatchProgress.objects.get(profile=self.profile, title=self.title)
+        self.assertEqual(progress.status, WatchProgress.Status.WATCHING)
+        self.assertEqual(progress.current_episode, ep2)
+
+    def test_without_the_flag_an_import_style_sync_creates_no_row(self):
+        self._watch(1, "2024-01-01T00:00:00Z")
+        self._sync()
+        self.assertFalse(WatchProgress.objects.filter(profile=self.profile, title=self.title).exists())
+
+    def test_a_nuvio_episode_ahead_of_the_latest_watched_one_is_not_pulled_backward(self):
+        self._watch(1, "2024-01-01T00:00:00Z")
+        ep5 = Episode.objects.create(title=self.title, season=1, episode=5)
+        WatchProgress.objects.create(
+            profile=self.profile, title=self.title, current_episode=ep5, status=WatchProgress.Status.WATCHING
+        )
+        self._sync(ensure_watching=True)
+        self.assertEqual(WatchProgress.objects.get(profile=self.profile, title=self.title).current_episode, ep5)
+
+    def test_a_later_watched_episode_moves_an_existing_row_forward(self):
+        ep1 = self._watch(1, "2024-01-01T00:00:00Z")
+        WatchProgress.objects.create(
+            profile=self.profile, title=self.title, current_episode=ep1, status=WatchProgress.Status.WATCHING
+        )
+        ep3 = self._watch(3, "2024-01-03T00:00:00Z")
+        self._sync(ensure_watching=True)
+        self.assertEqual(WatchProgress.objects.get(profile=self.profile, title=self.title).current_episode, ep3)
+
+    def test_a_dropped_show_stays_dropped(self):
+        self._watch(1, "2024-01-01T00:00:00Z")
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.DROPPED)
+        self._sync(ensure_watching=True)
+        self.assertEqual(
+            WatchProgress.objects.get(profile=self.profile, title=self.title).status, WatchProgress.Status.DROPPED
+        )
+
+    def test_a_fully_watched_show_is_completed_not_watching(self):
+        for n in range(1, 11):
+            self._watch(n, f"2024-01-{n:02d}T00:00:00Z")
+        self._sync(ensure_watching=True)
+        self.assertEqual(
+            WatchProgress.objects.get(profile=self.profile, title=self.title).status,
+            WatchProgress.Status.COMPLETED,
+        )
+
+    @patch("tracker.views.tmdb.get_season_details", return_value=None)
+    @patch("tracker.completion.tmdb.get_tv_details")
+    def test_marking_an_episode_in_the_app_puts_the_show_on_the_watching_row(self, mock_details, mock_season):
+        mock_details.return_value = self.details
+        self.client.login(username="ensurewatcher", password="pass12345")
+        self._watch(1, "2024-01-01T00:00:00Z")
+        ep2 = Episode.objects.create(title=self.title, season=1, episode=2)
+        resp = self.client.post(reverse("episode_mark_watched", args=[self.title.pk, 1, 2]))
+        self.assertLess(resp.status_code, 400)
+        progress = WatchProgress.objects.get(profile=self.profile, title=self.title)
+        self.assertEqual(progress.status, WatchProgress.Status.WATCHING)
+        self.assertEqual(progress.current_episode, ep2)
 
 
 class ResyncCompletedProfilesTests(TestCase):
@@ -2060,6 +2204,12 @@ class NotifySyncFailureTests(TestCase):
         self.assertEqual(n.kind, Notification.Kind.SYNC_FAILED)
         self.assertIn("Trakt", n.message)
         self.assertIn("connection timed out", n.message)
+
+    def test_a_nuvio_failure_notifies_too(self):
+        notifications.notify_sync_failure(self.profile, "nuvio", "login failed")
+        n = Notification.objects.get(profile=self.profile)
+        self.assertEqual(n.kind, Notification.Kind.SYNC_FAILED)
+        self.assertIn("Nuvio", n.message)
 
     def test_long_error_messages_are_truncated(self):
         notifications.notify_sync_failure(self.profile, "trakt", "x" * 1000)
@@ -12634,6 +12784,23 @@ class DashboardWatchingWatchlistTests(TestCase):
         self.assertIn("aspect-video", window)
         self.assertNotIn("Add to list", window)
 
+    def test_the_movie_cards_watched_button_matches_the_show_cards_solid_pill(self):
+        # Reported live: the movie card's button (portrait action-bar
+        # cell, translucent flat fill) looked different from the show
+        # cards' - both should be the same fixed-width solid pill.
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="A Movie", year=2020, runtime_minutes=100)
+        WatchProgress.objects.create(
+            profile=self.profile, title=movie, position_seconds=100, status=WatchProgress.Status.WATCHING
+        )
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at="2024-01-01T00:00:00Z")
+        resp = self.client.get(reverse("dashboard"))
+        content = resp.content.decode()
+        card_start = content.index(f'id="watch-progress-card-{movie.pk}"')
+        window = content[card_start : card_start + 4000]
+        self.assertIn("w-10 self-stretch min-h-8 rounded-md border", window)
+        self.assertIn("bg-success/90 border-success/60", window)
+        self.assertNotIn("h-9", window)
+
     def test_start_watching_shows_a_watchlist_title_with_a_recent_release(self):
         from django.utils import timezone
 
@@ -13750,6 +13917,28 @@ class TitleDetailViewTests(TestCase):
         self.assertContains(resp, "🇯🇵")
         self.assertContains(resp, "Japan")
         self.assertContains(resp, reverse("movies", args=["popular"]) + "?origin_country=JP")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_details_panel_shows_the_digital_release_date_and_upcoming_hint(
+        self, mock_details, mock_credits, mock_similar
+    ):
+        mock_details.return_value = self._details(
+            digital_release_date=_date(2030, 7, 15), digital_release_upcoming=True
+        )
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, "Digital release")
+        self.assertContains(resp, "Jul 15, 2030")
+        self.assertContains(resp, "(upcoming)")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_details_panel_omits_the_digital_release_row_when_unknown(self, mock_details, mock_credits, mock_similar):
+        mock_details.return_value = self._details(digital_release_date=None)
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertNotContains(resp, "Digital release")
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])

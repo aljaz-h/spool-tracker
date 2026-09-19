@@ -15,6 +15,7 @@ match found, network error - so a lookup failure never blocks whatever
 it's attached to.
 """
 
+import datetime
 import hashlib
 import itertools
 import json
@@ -861,6 +862,32 @@ def _extract_certification(data, is_movie):
     return us.get("rating") or None
 
 
+RELEASE_TYPE_DIGITAL = 4
+
+
+def _extract_digital_release(data):
+    """The US digital release date (release type 4) as a datetime.date, from
+    a movie's append_to_response=release_dates payload, or None when TMDB
+    has no digital entry for it (common for new/upcoming titles until
+    close to release - None means unknown, not "never released
+    digitally"). Several type-4 entries can exist (a re-release, an
+    extended cut), so the earliest wins. US-only, same simplification as
+    _extract_certification."""
+    countries = (data.get("release_dates") or {}).get("results") or []
+    us = next((c for c in countries if c.get("iso_3166_1") == "US"), None)
+    if not us:
+        return None
+    dates = []
+    for rd in us.get("release_dates") or []:
+        if rd.get("type") != RELEASE_TYPE_DIGITAL or not rd.get("release_date"):
+            continue
+        try:
+            dates.append(datetime.date.fromisoformat(rd["release_date"][:10]))
+        except ValueError:
+            continue
+    return min(dates) if dates else None
+
+
 #  ISO 3166-1 alpha-2 -> display name, for tv/anime's origin_country codes
 #  (movies get full names straight from TMDB's own production_countries,
 #  see below) - a curated map, not a live /configuration/countries fetch,
@@ -1026,6 +1053,7 @@ def get_full_details(media_type, tmdb_id):
         if is_movie
         else [(code, _ISO_COUNTRY_NAMES.get(code, code)) for code in data.get("origin_country") or []]
     )
+    digital_release_date = _extract_digital_release(data) if is_movie else None
     return {
         "tmdb_id": tmdb_id,
         "media_type": media_type,
@@ -1046,6 +1074,8 @@ def get_full_details(media_type, tmdb_id):
         "status": data.get("status"),
         "certification": _extract_certification(data, is_movie),
         "release_date": date if is_movie else None,
+        "digital_release_date": digital_release_date,
+        "digital_release_upcoming": bool(digital_release_date and digital_release_date > datetime.date.today()),
         "first_air_date": None if is_movie else data.get("first_air_date"),
         "last_air_date": None if is_movie else data.get("last_air_date"),
         "next_episode_to_air": next_episode,

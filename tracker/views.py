@@ -1759,7 +1759,7 @@ def episode_mark_watched(request, pk, season, episode_number):
     watched_at = _resolve_watched_at(request, lambda: ep_air_date)
     WatchEvent.objects.create(profile=profile, title=title, episode=episode, watched_at=watched_at)
     rewatches.recompute_is_rewatch(profile, title, episode)
-    completion.sync_show_completion(profile, title)
+    completion.sync_show_completion(profile, title, ensure_watching=True)
     completion.sync_watchlist_removal(profile, title)
     recommendations.mark_title_watched(profile, title)
     watch_count = WatchEvent.objects.filter(profile=profile, title=title, episode=episode).count()
@@ -1882,7 +1882,7 @@ def _mark_episodes_watched_bulk(profile, title, episode_specs):
         WatchEvent.objects.create(profile=profile, title=title, episode=episode, watched_at=now)
         created += 1
     if created:
-        completion.sync_show_completion(profile, title)
+        completion.sync_show_completion(profile, title, ensure_watching=True)
         completion.sync_watchlist_removal(profile, title)
         recommendations.mark_title_watched(profile, title)
     return created
@@ -1911,7 +1911,7 @@ def _rewatch_episodes_bulk(profile, title, episode_specs):
         WatchEvent.objects.create(profile=profile, title=title, episode=episode, watched_at=now, is_rewatch=True)
         created += 1
     if created:
-        completion.sync_show_completion(profile, title)
+        completion.sync_show_completion(profile, title, ensure_watching=True)
         completion.sync_watchlist_removal(profile, title)
         recommendations.mark_title_watched(profile, title)
     return created
@@ -2602,7 +2602,7 @@ def title_preview_episode_mark_watched(request, media_type, tmdb_id, season, epi
     watched_at = _resolve_watched_at(request, lambda: ep_air_date)
     WatchEvent.objects.create(profile=profile, title=title, episode=episode, watched_at=watched_at)
     rewatches.recompute_is_rewatch(profile, title, episode)
-    completion.sync_show_completion(profile, title)
+    completion.sync_show_completion(profile, title, ensure_watching=True)
     completion.sync_watchlist_removal(profile, title)
     recommendations.mark_title_watched(profile, title)
     return render(

@@ -57,13 +57,51 @@ def _backfill_episode_runtimes(title, tmdb_id):
                 ).update(runtime_minutes=ep["runtime"])
 
 
-def sync_show_completion(profile, title):
+def _ensure_watching(profile, title):
+    """Puts a partially-watched show on the Dashboard's Watching row (a
+    WATCHING WatchProgress row pointing at the latest episode watched),
+    so an episode marked in Spool alone shows up there without needing a
+    player like Nuvio to have reported progress first. An existing row is
+    left alone unless the latest watched episode is later than its
+    current_episode (Nuvio's own in-progress episode can be ahead of
+    what's been marked watched, and shouldn't be pulled backward); a
+    DROPPED row stays dropped."""
+    latest = (
+        WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=False)
+        .select_related("episode")
+        .order_by("-watched_at")
+        .first()
+    )
+    progress = WatchProgress.objects.filter(profile=profile, title=title).first()
+    if progress is None:
+        WatchProgress.objects.create(
+            profile=profile,
+            title=title,
+            status=WatchProgress.Status.WATCHING,
+            current_episode=latest.episode if latest else None,
+        )
+        return
+    if progress.status != WatchProgress.Status.WATCHING or latest is None:
+        return
+    current = progress.current_episode
+    if current is None or (latest.episode.season, latest.episode.episode) > (current.season, current.episode):
+        progress.current_episode = latest.episode
+        progress.save(update_fields=["current_episode", "updated_at"])
+
+
+def sync_show_completion(profile, title, ensure_watching=False):
     """Marks WatchProgress COMPLETED once a profile has logged at least as
     many distinct episodes of a show as TMDB reports it has in total.
     Also backfills Episode.runtime_minutes from TMDB's show-level typical
     duration for any episode that doesn't have one yet, then falls back
     to each episode's own runtime from the season endpoint for whatever
-    that coarse pass didn't cover (see _backfill_episode_runtimes)."""
+    that coarse pass didn't cover (see _backfill_episode_runtimes).
+
+    ensure_watching is only passed by the in-app "mark episode watched"
+    actions - a partially-watched show then also lands on the Watching
+    row (see _ensure_watching). Imports/syncs leave it off so a
+    mid-series title pulled in from Trakt/Simkl/CSV doesn't suddenly
+    flood the row, or resurrect one that was dismissed from it."""
     tmdb_id = _tmdb_id(title)
     if not tmdb_id:
         return
@@ -102,6 +140,8 @@ def sync_show_completion(profile, title):
         WatchProgress.objects.filter(profile=profile, title=title, status=WatchProgress.Status.COMPLETED).update(
             status=WatchProgress.Status.WATCHING
         )
+        if ensure_watching:
+            _ensure_watching(profile, title)
 
 
 def resync_completed_profiles(title):
