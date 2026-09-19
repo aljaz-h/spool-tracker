@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.131.2] - 2026-09-19
+
+### Fixed
+
+- The Dashboard's Watchlist Queue, "Start Watching" row, and "Surprise
+  me" only draw from the real, auto-managed Watchlist now - a custom
+  list (a chronological marathon order, a curated share, ...) no
+  longer leaks its titles into them as if they were watchlisted.
+
 ## [0.131.1] - 2026-09-19
 
 ### Changed

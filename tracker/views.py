@@ -3293,13 +3293,14 @@ def watchlist_roulette(request, list_id):
 @login_required
 def surprise_me(request):
     """"Surprise me" - Dashboard's Watchlist Queue and the Lists page both
-    aggregate every list visible to this profile rather than one specific
-    WatchList (there's no single "the" watchlist to scope a per-list Spin
-    to, see selectors.library_watchlist's own docstring), so this picks
-    across that same combined pool and sends the browser straight to the
-    title instead of a picker modal - simpler than list_detail's own
-    "Spin the wheel" (roulette_result.html), which exists to let you
-    browse/filter/re-roll a single list's pool rather than just jump.
+    pick from this profile's visible real Watchlist(s) (own + possibly a
+    shared one from another profile - still not one single row to scope
+    a per-list Spin to, see selectors.library_watchlist's own docstring),
+    not every list, so this picks across that same pool and sends the
+    browser straight to the title instead of a picker modal - simpler
+    than list_detail's own "Spin the wheel" (roulette_result.html), which
+    exists to let you browse/filter/re-roll a single list's pool
+    (watchlist or custom) rather than just jump.
     next (see _safe_next_redirect) is used only for the empty-pool case,
     since a real pick always redirects to the title itself."""
     profile = Profile.objects.filter(user=request.user).first()

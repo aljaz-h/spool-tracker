@@ -12779,11 +12779,22 @@ class DashboardWatchingWatchlistTests(TestCase):
 
     def test_shows_watchlist_items(self):
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Listed Movie", year=2020)
-        watchlist = WatchList.objects.create(profile=self.profile, name="My List")
+        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
         WatchListItem.objects.create(watchlist=watchlist, title=title)
         resp = self.client.get(reverse("dashboard"))
         self.assertEqual(len(resp.context["watchlist_items"]), 1)
         self.assertEqual(resp.context["watchlist_items"][0].title, title)
+
+    def test_a_custom_non_watchlist_list_never_shows_up_in_the_watchlist_queue(self):
+        # Reported live: a chronological-order or shared curation list's
+        # items were leaking into the Watchlist Queue alongside the real
+        # auto-managed Watchlist.
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Iron Man 2", year=2010)
+        custom_list = WatchList.objects.create(profile=self.profile, name="Marvel in order", is_watchlist=False)
+        WatchListItem.objects.create(watchlist=custom_list, title=title)
+        resp = self.client.get(reverse("dashboard"))
+        self.assertEqual(len(resp.context["watchlist_items"]), 0)
+        self.assertEqual(resp.context["watchlist_count"], 0)
 
     def test_poster_cards_get_a_fixed_width_not_an_empty_class(self):
         # regression test: poster_card.html's width_class fallback must
@@ -12794,7 +12805,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         # falls back to sizing itself from its own (unconstrained,
         # variable-length) title text instead of a fixed width.
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Listed Movie", year=2020)
-        watchlist = WatchList.objects.create(profile=self.profile, name="My List")
+        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
         WatchListItem.objects.create(watchlist=watchlist, title=title)
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, "w-[168px]")
@@ -12852,9 +12863,9 @@ class DashboardWatchingWatchlistTests(TestCase):
         self.assertContains(resp, f'href="{reverse("stats")}"')
 
     def test_watchlist_caps_to_one_row_but_the_header_count_shows_the_total(self):
+        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
         for i in range(15):
             title = Title.objects.create(media_type=MediaType.MOVIE, name=f"Watchlist Movie {i}", year=2020)
-            watchlist = WatchList.objects.create(profile=self.profile, name=f"List {i}", is_watchlist=(i == 0))
             WatchListItem.objects.create(watchlist=watchlist, title=title)
         resp = self.client.get(reverse("dashboard"))
         self.assertEqual(resp.context["watchlist_count"], 15)
@@ -18602,7 +18613,7 @@ class SurpriseMeViewTests(TestCase):
         user = User.objects.create_user("surpriser", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="Surpriser")
         self.client.login(username="surpriser", password="pass12345")
-        self.watchlist = WatchList.objects.create(profile=self.profile, name="Favorites")
+        self.watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
 
     def test_redirects_straight_to_the_only_title_in_the_watchlist(self):
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
@@ -18610,10 +18621,24 @@ class SurpriseMeViewTests(TestCase):
         resp = self.client.get(reverse("surprise_me"))
         self.assertRedirects(resp, reverse("title_detail", args=[title.pk]))
 
-    def test_picks_across_every_visible_list_not_just_one(self):
-        other_list = WatchList.objects.create(profile=self.profile, name="Second list")
-        title = Title.objects.create(media_type=MediaType.TV, name="Only in second list", year=2021)
-        WatchListItem.objects.create(watchlist=other_list, title=title)
+    def test_ignores_a_custom_non_watchlist_list(self):
+        # Reported live: a chronological-order/shared curation list's
+        # items were being picked as if they were on the real Watchlist.
+        custom_list = WatchList.objects.create(profile=self.profile, name="Marvel in order", is_watchlist=False)
+        title = Title.objects.create(media_type=MediaType.TV, name="Only in a custom list", year=2021)
+        WatchListItem.objects.create(watchlist=custom_list, title=title)
+        resp = self.client.get(reverse("surprise_me"))
+        self.assertRedirects(resp, reverse("dashboard"))
+
+    def test_picks_across_every_visible_watchlist_not_just_one(self):
+        other_profile = Profile.objects.create(
+            user=User.objects.create_user("surpriser2", password="pass12345"), display_name="Surpriser2"
+        )
+        other_watchlist = WatchList.objects.create(
+            profile=other_profile, name="Watchlist", is_watchlist=True, is_shared=True
+        )
+        title = Title.objects.create(media_type=MediaType.TV, name="On someone else's shared watchlist", year=2021)
+        WatchListItem.objects.create(watchlist=other_watchlist, title=title)
         resp = self.client.get(reverse("surprise_me"))
         self.assertRedirects(resp, reverse("title_detail", args=[title.pk]))
 
@@ -18637,7 +18662,7 @@ class SurpriseMeViewTests(TestCase):
         which deliberately excludes already-watched titles from the pool
         (it's meant to help you pick something new), surprise_me has no
         such filter - it's a shortcut into the Watchlist Queue itself,
-        which shows every list item regardless of watched state."""
+        which doesn't filter by watched state."""
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Rewatch me", year=2020)
         WatchListItem.objects.create(watchlist=self.watchlist, title=title)
         WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")

@@ -419,8 +419,10 @@ def milestone_message(streak, movies_this_year):
     return None
 
 
-def _visible_watchlist_items(profile, media_types=None):
+def _visible_watchlist_items(profile, media_types=None, watchlist_only=False):
     qs = WatchListItem.objects.filter(Q(watchlist__profile=profile) | Q(watchlist__is_shared=True))
+    if watchlist_only:
+        qs = qs.filter(watchlist__is_watchlist=True)
     if media_types:
         qs = qs.filter(title__media_type__in=media_types)
     return qs.select_related("title").prefetch_related("title__ratings").order_by("-added_at").distinct()
@@ -529,12 +531,13 @@ def recommended_for_you(profile, media_type, limit=12, sample_size=6):
 
 
 def start_watching(profile, media_types, limit=12):
-    """Dashboard's "Start watching" row - watchlist titles worth
-    surfacing right now: a movie that recently released, a show that
-    recently dropped a new episode/season, or anything currently
-    trending on TMDB. Recency comes from ReleaseSchedule (already
-    populated by the Trakt/Simkl calendar sync - up_next() reads the
-    same model's future side, this reads its recent-past side);
+    """Dashboard's "Start watching" row - real-Watchlist titles (not
+    custom-list ones) worth surfacing right now: a movie that recently
+    released, a show that recently dropped a new episode/season, or
+    anything currently trending on TMDB. Recency comes from
+    ReleaseSchedule (already populated by the Trakt/Simkl calendar sync -
+    up_next() reads the same model's future side, this reads its
+    recent-past side);
     trending comes from a live TMDB call, intersected against the
     watchlist by tmdb id (that call is cached 6h by tmdb._list_request,
     so this isn't a per-request cost). Already-WATCHING titles are
@@ -551,7 +554,7 @@ def start_watching(profile, media_types, limit=12):
         )
     )
     watchlist_titles = {}
-    for item in _visible_watchlist_items(profile, media_types):
+    for item in _visible_watchlist_items(profile, media_types, watchlist_only=True):
         if item.title_id not in watching_ids:
             watchlist_titles[item.title_id] = item.title
     if not watchlist_titles:
@@ -704,12 +707,16 @@ def on_this_day(profile, today=None, limit=8):
 
 
 def library_watchlist(profile, media_types):
-    """Movies & TV / Anime 'Watchlist' tab — every title on any list visible
-    to this profile (own + shared), scoped to the section's media types.
-    There's no separate 'watchlist' model; the tab is a filtered view over
-    WatchList/WatchListItem (spool-product-spec.md doesn't define a
-    distinct concept for it)."""
-    return _visible_watchlist_items(profile, media_types)
+    """Dashboard's Watchlist Queue + surprise_me()'s pool — titles on the
+    real, auto-managed Watchlist (WatchList.is_watchlist=True) visible to
+    this profile (own + possibly a shared one from another profile),
+    scoped to the section's media types. Deliberately excludes custom
+    lists (chronological orders, curated shares, ...) - those aren't a
+    "queue" of things to watch next, and previously leaked in here
+    because this reused the same unfiltered query recently_added_to_lists
+    excludes from, which showed a custom list's items as if they were
+    watchlisted."""
+    return _visible_watchlist_items(profile, media_types, watchlist_only=True)
 
 
 def library_history(profile, media_types, limit=50):
