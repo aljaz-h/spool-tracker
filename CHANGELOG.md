@@ -12,1520 +12,998 @@ migration/env step or breaking an existing workflow.
 
 ### Changed
 
-- Dashboard's Watching row: a movie's card no longer shows the
-  add-to-list button alongside its mark-watched one - this row is about
-  tracking progress, not list management, and the pair read as cramped
-  next to the show cards' own single button.
+- Movie cards in the Dashboard's Watching row no longer show an
+  add-to-list button next to the mark-watched button, matching the
+  single-button layout TV and anime cards already use.
 
 ## [0.131.0] - 2026-09-19
 
 ### Changed
 
-- Dashboard's Watching row: movies now get the same landscape card
-  (backdrop image, caption, mark-watched button) TV/anime already got,
-  instead of the old portrait poster - the row previously mixed both
-  card shapes.
+- Movies in the Dashboard's Watching row now use the same landscape card
+  layout as TV and anime, with backdrop artwork, progress information,
+  and a mark-watched action, instead of the old portrait poster.
 
 ## [0.130.0] - 2026-09-19
 
 ### Added
 
-- Person (actor/director) page: a "Best Works" row showing that
-  person's own highest-rated credits, ahead of the Acting/Directing/
-  Writing sections.
+- Person (actor/director) pages now show a "Best Works" row with that
+  person's highest-rated credits, above the Acting/Directing/Writing
+  sections.
 
 ### Fixed
 
-- Person page's clamped filmography grid cut off with a sharp edge
-  instead of a fade, and once expanded via "Show all N credits" there
-  was no way back - a "Show less" button now sits alongside it.
-- Stats' "Your Top Genres" card (By items/By watch time, TV/Anime/
-  Movies) had the same full-page-reload-scrolls-to-top bug as the
-  Household Leaderboard - now HTMX-swapped in place too.
+- The filmography grid's clamped view now fades out at the bottom
+  instead of cutting off sharply, and a "Show less" button lets you
+  collapse an expanded section again.
+- The "Your Top Genres" toggle on the Stats page now updates in place
+  instead of reloading the page and resetting scroll position, matching
+  the Household Leaderboard fix below.
 
 ## [0.129.0] - 2026-09-19
 
 ### Added
 
-- Dashboard's mobile header stat pills and Up Next row now use an
-  edge-fade + prev/next arrow overlay instead of a visible scrollbar as
-  the "there's more" hint when horizontally scrollable.
+- The Dashboard's mobile header stats and Up Next row now use an edge
+  fade with previous/next arrows instead of a visible scrollbar when
+  scrolling horizontally.
 
 ### Fixed
 
-- Topbar avatar circle's border was hardcoded to the theme orange,
-  never reflecting a profile's own chosen avatar color.
-- A TV/anime title's hero "Watched" button showed the same green
-  checkmark for a show still in progress as for one actually finished -
-  now splits the same way the poster-card watched button already does
-  (blue "Watching" while incomplete, green "Watched" only once
-  COMPLETED).
-- Peak Hours (Stats) no longer shows a redundant percentage next to
-  each bucket's play count.
-- Household Leaderboard's This Week/This Year toggle (Activity page)
-  reloaded the whole page and scrolled back to the top - now swaps in
-  place via HTMX.
-- Deleting a title's entire watch History (any of the four delete
-  paths: bulk delete, per-episode, group, or single-tile) left a stale
-  COMPLETED WatchProgress behind if it had ever been bulk-marked
-  watched, so Up Next/Calendar kept showing it as still being watched
-  with nothing in History to show for it. Now re-validates completion
-  against what's left of the watch history immediately.
-- Plain `<button>` and `<select>` elements never got a pointer cursor
-  (a real gap in Tailwind/daisyUI, not just this app's own templates) -
-  now fixed globally instead of patching each affected template
-  (recommendation send buttons, History's Filters panel, Settings'
-  preference dropdowns, and others).
+- The topbar avatar's border now reflects the profile's chosen avatar
+  color instead of always showing the theme's orange.
+- A TV/anime title's "Watched" button now distinguishes an in-progress
+  show (blue "Watching") from a fully completed one (green "Watched"),
+  matching the poster card's own watched button.
+- Peak Hours on the Stats page no longer shows a redundant percentage
+  next to each time bucket's play count.
+- The Household Leaderboard's This Week/This Year toggle now updates in
+  place instead of reloading the page and resetting scroll position.
+- Deleting a title's entire watch history no longer leaves it stuck
+  showing as watched in Up Next and Calendar; `WatchProgress` completion
+  now re-validates immediately after any History deletion.
+- `<button>` and `<select>` elements now consistently show a pointer
+  cursor on hover across the app.
 
 ## [0.128.0] - 2026-09-18
 
 ### Added
 
-- Dashboard's "Watching" row now shows a landscape still of the actual
-  in-progress episode (same treatment Recently Watched already used)
-  instead of the show's cover poster, for any title with a resolved
-  current episode - the episode badge ("S1 · E5") moved to the top-left
-  corner, a "Season Finale" badge appears when it's the season's last
-  episode (per TMDB, not just whatever's synced locally), and a
-  mark-watched checkmark now sits directly on the card. The caption also
-  switched from "S1E5 of 21" to "N eps left · Xh Ym remaining", using
-  TMDB's own remaining-episode runtimes.
+- The Dashboard's Watching row now shows a landscape still of the
+  in-progress episode instead of the show's cover poster, with a
+  "Season Finale" badge when applicable, a mark-watched button on the
+  card, and a caption showing episodes and time remaining.
 
 ## [0.127.0] - 2026-09-18
 
 ### Added
 
-- Dashboard's "For You"/"Because you watched" rows replaced with three
-  "Recommended for You" rows (Movies/TV/Anime), each based on this
-  profile's own recent watch history for that media_type (TMDB's
-  "similar to X" recommendations aggregated across several recently
-  watched titles, not just the single latest one) rather than a
-  preference-only or single-anchor row. A profile with no watch history
-  yet for a given media_type still gets a preference-scoped row (Settings
-  → Preferences), the same fallback "For You" used to be.
+- The Dashboard's "For You" and "Because you watched" rows are replaced
+  by three "Recommended for You" rows (Movies, TV, Anime), each based on
+  recent watch history for that type via TMDB's similar-title
+  recommendations, falling back to genre/provider preferences for
+  profiles with no watch history yet.
 
 ## [0.126.1] - 2026-09-17
 
 ### Fixed
 
-- A show's WatchProgress could stay stuck COMPLETED long after it
-  stopped being accurate - completion was only ever re-checked when a
-  profile took a fresh watch action on that exact title, so a
-  currently-airing show correctly marked complete at N aired episodes
-  kept reading as fully watched (green checkmark) even once TMDB
-  reported more episodes later, with nothing to trigger a re-check.
-  Nightly release sync (which already re-fetches fresh episode counts
-  for every title with any WatchProgress row) now also re-validates
-  completion for any profile marked COMPLETED, downgrading it back to
-  watching if it's fallen behind.
+- A show's completion status could stay stuck as Completed even after
+  new episodes aired, since it was only re-checked on a fresh watch
+  action. The nightly release sync now also re-validates completion and
+  downgrades a show back to Watching if it's fallen behind.
 
 ## [0.126.0] - 2026-09-17
 
 ### Added
 
-- Watched-button (checkmark) now distinguishes a TV/anime title that's
-  watched but not yet finished from one that's actually complete - an
-  in-progress show gets a blue play icon instead of the same green
-  checkmark a fully completed show or a watched movie gets, wherever
-  that button appears (Dashboard, Watchlist, Lists, Discover grid,
-  similar-titles rows).
-- Mobile "More" sheet: reordered (History/Profile/Stats, Lists/
-  Activity/Settings), and the Friends section is now a single collapsed
-  toggle row ("N Friends" + a chevron) instead of always showing the
-  full name/last-active list - tap it (or the chevron) to expand, in
-  the same card with a thin divider between the toggle and the list.
-- Mobile bottom navbar: the active tab now gets a filled pill around
-  both its icon and label (previously just a text-color change), same
-  treatment the desktop nav's own active tab already had; the bar
-  itself is also slightly taller.
-- Movies/TV/Anime discover page: the mobile type switcher is now
-  centered with an icon per option (clapperboard/tv/sparkles, matching
-  the desktop sidebar's own icons for these).
+- The watched checkmark now distinguishes a TV/anime title that's
+  watched but not finished (blue play icon) from one that's fully
+  complete (green checkmark), everywhere that button appears.
+- The mobile "More" sheet is reorganized, and the Friends section
+  collapses into a single toggle row instead of always listing everyone.
+- The active tab in the mobile bottom navbar now gets a filled pill
+  around its icon and label, matching the desktop nav; the bar itself is
+  slightly taller.
+- The mobile Movies/TV/Anime type switcher is now centered with an icon
+  per option.
 
 ### Fixed
 
-- "Series Completed" could still show on an *earlier* History/Activity
-  entry after a show was eventually finished later - e.g. a 2-episode
-  and a 16-episode entry from partway into season 1 of a 64-episode
-  show both read "Series Completed" once the show was finished weeks
-  later, because completion was checked against the show's current
-  state rather than whether that specific entry actually ended on the
-  real finale.
+- "Series Completed" could incorrectly show on an earlier History/
+  Activity entry after a show was later finished - it's now based on
+  whether that specific entry actually ended on the real series finale,
+  not the show's current state.
 
 ## [0.125.0] - 2026-09-17
 
 ### Added
 
-- Title Details panel: original language and country now show their
-  full name and a flag (e.g. "🇯🇵 Japanese", "🇺🇸 United States")
-  instead of a bare code, and each is a clickable link to Discover
-  pre-filtered to that language/country - a plain query param, so it
-  doesn't linger once you leave and come back to a plain Discover URL.
-  Status now reuses the exact same colored badge the header already
-  shows instead of printing the raw TMDB status string as plain text.
-- TV/anime status badges: every status now gets a real color, not just
-  Ongoing/Cancelled - In Production shares Ongoing's green (still
-  actively being made), Ended/Pilot/Rumored share a warning amber
-  (previously all three rendered as plain uncolored gray).
-- A not-yet-tracked TV/anime title's own page now offers a "+ Mark as
-  Watched" button in its header (mark all seasons, or one season) -
-  previously only a movie preview had one there.
-- History's own binge/catch-up group tiles now show a "Series
-  completed" badge and an "X/Y episodes" total, matching the Activity
-  feed's own equivalent grouping.
+- The title Details panel now shows original language and country as a
+  full name with a flag, each linking to Discover pre-filtered to that
+  language/country; Status now reuses the same colored badge shown in
+  the header.
+- TV/anime status badges now all get a real color instead of some
+  rendering as plain gray.
+- A not-yet-tracked TV/anime title's page now offers a "+ Mark as
+  Watched" button in its header, matching what movies already had.
+- History's binge/catch-up group tiles now show a "Series completed"
+  badge and an episode count total, matching the Activity feed.
 
 ### Fixed
 
-- Clickable elements built from a bare `<div>`/`<a>` plus an Alpine
-  `@click` or htmx trigger (rather than a real `<button>` or `<a href>`)
-  didn't show a pointer cursor on hover - confirmed on calendar day
-  cells with nothing scheduled, likely elsewhere too. Neither browsers
-  nor Tailwind give those a pointer cursor by default; now a global CSS
-  rule does.
-- Marking only one season of a multi-season show watched could read as
-  "Series Completed" in History/Activity, because that detection only
-  ever looked at locally-known episode rows - which, right after such a
-  catch-up, are *only* that one season, so its own last episode looked
-  like the finale. Now checks the show's real episode count/WatchProgress
-  instead.
-- A not-yet-tracked TV/anime title's own "Mark as Watched" popover
-  could render fully clipped (empty box, no menu) for a title with a
-  shorter hero backdrop, the same class of `position:absolute`/
-  `overflow-hidden` clipping bug fixed elsewhere last release - it now
-  uses the same fixed/viewport-relative positioning every other popover
-  on that page already does.
-- Discover's origin_country filter (previously hardcoded to Japan for
-  Anime only) is now also settable via `?origin_country=` on Movies/TV,
-  with a dismissible "Filtered to X" banner - powers the Details panel's
-  new clickable country link above.
+- Clickable elements built without a real button or link now show a
+  pointer cursor on hover.
+- Marking only one season of a multi-season show watched no longer
+  incorrectly shows as "Series Completed" in History/Activity.
+- A not-yet-tracked TV/anime title's "Mark as Watched" popover no longer
+  renders clipped on titles with a shorter hero backdrop.
+- Discover's `origin_country` filter (previously hardcoded to Japan for
+  Anime) is now also available on Movies/TV via a URL parameter, with a
+  dismissible "Filtered to X" banner.
 
 ## [0.124.0] - 2026-09-15
 
 ### Added
 
 - Two-factor authentication (Settings → Security): TOTP via any
-  authenticator app, QR code + manual-entry setup, one-time backup
-  codes, and a login-time challenge step for any profile with it
-  enabled - a correct password alone is no longer sufficient once 2FA
-  is on.
-- Sessions now expire after a period of real inactivity
-  (`SESSION_COOKIE_AGE`, 14 days by default) instead of staying signed
-  in indefinitely.
-- Settings reorganized: Import and Export merged into one tab; a new
-  Security tab holds "Change password" (moved from Account) and the
-  new 2FA card; Integrations split into Connected Apps (Trakt/Simkl/
-  Nuvio) and Advanced (Custom Player/Wrapped); the Admin-only Server
-  tab folded into Maintenance. Mobile's settings nav is now a dropdown
-  instead of a horizontal tab strip.
-- A not-yet-tracked TV/anime title's own page now offers a "+ Mark as
-  Watched" button in its header (mark all seasons, or one season) -
-  previously only a movie preview had one there, so marking a
-  never-opened show/anime watched meant scrolling down to the Episodes
-  section to find the same actions.
-- History's own binge/catch-up group tiles now show a "Series
-  completed" badge and an "X/Y episodes" total, the same detail the
-  Activity feed's equivalent grouping already surfaced - a full "mark
-  all seasons watched" catch-up no longer reads as a bare, uninformative
-  "N episodes" entry.
-- Activity page profile avatars are now clickable, opening the same
-  profile popup used elsewhere.
-- Dashboard's mobile view: the "Up Next" cards and the streak/movies/
-  shows/watch-time pills are each a single horizontally-scrollable row
-  instead of wrapping onto several lines of vertical space.
+  authenticator app, QR code and manual setup, one-time backup codes,
+  and a login challenge for any profile with it enabled.
+- Sessions now expire after a period of inactivity (`SESSION_COOKIE_AGE`,
+  14 days by default) instead of staying signed in indefinitely.
+- Settings is reorganized: Import and Export are merged into one tab, a
+  new Security tab holds password change and 2FA, Integrations is split
+  into Connected Apps and Advanced, and the Admin Server tab is folded
+  into Maintenance. Mobile's settings nav is now a dropdown.
+- A not-yet-tracked TV/anime title's page now offers a "+ Mark as
+  Watched" button in its header, matching movies.
+- History's binge/catch-up group tiles now show a "Series completed"
+  badge and an episode count total.
+- Activity page profile avatars are now clickable, opening the profile
+  popup.
+- The Dashboard's mobile "Up Next" cards and stat pills now scroll
+  horizontally in a single row instead of wrapping onto multiple lines.
 
 ### Fixed
 
-- Two CodeQL findings: test fixtures used `tempfile.mktemp()`, which
-  creates a predictable path with a race between name generation and
-  file creation; a handful of notification views trusted a `?next=`
-  redirect target without validating it stayed on-site.
-- A Discover tile's watched/list-add popovers, once opened, were
-  clipped to the tile's own small reveal panel instead of rendering in
-  full - `clip-path`/`overflow-hidden` clip a `position:fixed`
-  descendant's paint to the ancestor's own box at every inset value,
-  not just mid-animation. The buttons row is now a sibling of the
-  clipped poster box instead of a descendant.
-- Discover tiles on touch devices: a tap always navigated straight
-  through instead of revealing the info/buttons first - touch's
-  synthetic `mouseover`/`mouseout` don't fire consistently between
-  repeated taps on the same element. Touch devices now drive the
-  reveal entirely off `click` (first tap reveals, second tap on the
-  same tile navigates) instead of relying on hover synthesis.
-- The top navbar's mobile/desktop breakpoint (768px) cut off content on
-  several real tablet widths (iPad, Surface Pro 7, Nest Hub) - moved to
-  1280px, the point live device testing showed it actually working.
-- AI Recommendations (Settings) removed - the feature's own UI entry
-  point had already been removed earlier, leaving only a dead settings
-  card and an unused Gemini API key field behind.
+- Two CodeQL findings: an insecure temp-file helper in test fixtures,
+  and unvalidated `?next=` redirect targets in notification views.
+- A Discover tile's watched/list-add popovers no longer get clipped
+  inside the tile's own reveal panel.
+- On touch devices, tapping a Discover tile now reveals its info/actions
+  on the first tap and navigates on the second, instead of always
+  navigating straight through.
+- The top navbar's mobile/desktop breakpoint moved from 768px to
+  1280px, fixing cut-off content on several real tablet widths.
+- Removed the unused AI Recommendations settings card and its Gemini
+  API key field.
 
 ## [0.123.0] - 2026-09-14
 
 ### Added
 
-- Movies & TV / Anime discover tiles redesigned: at rest, just the
-  poster; hovering (or keyboard-focusing) reveals title/year/genres and
-  the watched/list-add actions in a panel that clips up from the
-  bottom, with the poster art itself zooming in slightly. Genre names
-  are now resolved and shown (TMDB's discover/search results only ever
-  carried genre ids before). Grid widened by a column and gaps tightened
-  to fit it without shrinking the posters.
-- "Surprise me" - jumps straight to a random title from everything
-  across your visible watchlists (all lists combined, the same pool the
-  Dashboard's Watchlist Queue itself draws from). Buttons on the
-  Dashboard's Watchlist Queue and the Lists page.
+- Movies & TV / Anime discover tiles are redesigned: hovering (or
+  keyboard-focusing) a tile reveals title, year, genres, and the
+  watched/list actions, with the poster zooming in slightly. Genre names
+  are now resolved and shown. The grid is a column wider with tighter
+  gaps.
+- "Surprise me" jumps to a random title from your visible watchlists,
+  available on the Dashboard's Watchlist Queue and the Lists page.
 
 ### Fixed
 
 - A discover tile's hover-reveal panel could get stuck visually
-  "hovered" - poster zoomed, actions showing - after clicking through to
-  a title and hitting Back, with the pointer nowhere near it, sometimes
-  on more than one tile at once; only a full refresh cleared it.
-  Browsers don't re-run `:hover` hit-testing on a back/forward-cache
-  restore, and confirmed live, their internal hover state didn't
-  reliably self-correct afterward either, no matter what real
-  interaction happened next. The reveal no longer depends on CSS
-  `:hover`/`:focus-within` at all - it's driven by plain classes this
-  page's own JS toggles on real pointer/focus events, so restoring from
-  cache can just clear them outright, a definitive fix rather than a
-  guess about browser-internal state.
+  "hovered" after navigating away and back; the reveal no longer depends
+  on CSS `:hover`/`:focus-within`.
 
 ## [0.122.0] - 2026-09-13
 
 ### Fixed
 
-- Movies & TV / Anime (and a person's filmography grid) ran up to ~2
-  queries per tile checking watched/watchlist state against the local
-  library, deliberately avoiding a batched `__in` lookup due to a
-  SQLite JSONField quirk - confirmed via Silk profiling against real
-  traffic at up to 263 queries on a single page load. Now two batched
-  queries total regardless of page size, each still using the same
-  exact-match comparison that avoids the SQLite issue, just OR'd
-  together instead of issued one at a time - 263 queries down to 18 on
-  the same page in a live check, ~3750ms down to ~420ms.
-- A title's detail/preview page fired its independent TMDB lookups
-  (cast, similar titles, watch providers) one after another instead of
-  concurrently - also confirmed via Silk, up to ~1.2s spent outside the
-  DB on a cold cache. These three now run in parallel via the same
-  `ThreadPoolExecutor` pattern `discover()` already used for its own
-  page fetches, with the TMDB API key resolved once up front and
-  passed through explicitly so the worker threads never independently
-  hit the database for it (concurrent SQLite access from multiple
-  threads at once surfaced as "database table is locked" while first
-  building this - the fix mirrors `discover()`'s own existing
-  workaround for the identical hazard).
+- Movies & TV / Anime pages (and a person's filmography grid) now check
+  watched/watchlist state in two batched queries instead of up to ~2 per
+  tile, cutting query count and load time substantially on large pages.
+- A title's detail/preview page now runs its TMDB lookups (cast, similar
+  titles, watch providers) concurrently instead of sequentially,
+  reducing time spent outside the database on a cold cache.
 
 ## [0.121.0] - 2026-09-08
 
 ### Added
 
-- A rewatch of a TV/anime title was invisible on its own detail page -
-  you could see a poster's `×N` badge in a library grid, but clicking
-  through showed nothing beyond a plain checkmark, and there was no way
-  to see (or log) how many times one specific episode had been
-  rewatched versus just the whole season. TV/anime titles now get their
-  own header "Watched" button (the same control movies already had),
-  showing the same `×N` figure the poster card's own badge already
-  used, with a popover offering whole-show and per-season actions -
-  wording switches from "Mark ... watched" to "Watch ... again" once
-  that scope is already fully watched, alongside unmark options for
-  both. The episode browser's own checkmark also gained its own `×N`
-  badge and an updated "manage plays" popover header, so a specific
-  episode's rewatch count is visible without leaving the page - all
-  reusing the exact same mark/unmark actions the episode browser's
-  existing "Mark episodes" popover already had, kept in sync wherever
-  triggered from.
+- TV/anime titles now get their own header "Watched" button (previously
+  movie-only), showing the same rewatch count as the poster card badge,
+  with a popover for whole-show and per-season actions. The episode
+  browser's own watched checkmark also gained a rewatch count and an
+  updated "manage plays" popover.
 
 ## [0.120.0] - 2026-09-07
 
 ### Added
 
-- Tenrai's public tier (no server key) caps out at 120 requests/minute,
-  4 requests/second. Steady-state Spool usage never comes close, but a
-  batch-style caller with no pacing of its own could: a cold
-  `get_episode_filler_map` fetch (up to 10 sequential pages), an anime's
-  full `get_season_episode_offset` Sequel-chain walk (up to 6 hops), or
-  `reconcile_episode_seasons`'s per-episode backfill loop triggering
-  either across many titles in one run. Every outbound Tenrai request
-  now goes through a shared pacing guard that keeps this process (and,
-  since the cache backend is shared Redis in production, every worker
-  together) under ~3 requests/second, and a request that still comes
-  back 429 is retried once after honoring the response's `Retry-After`
-  header, instead of the failure just propagating up as a no-match.
+- Outbound requests to Tenrai (the MyAnimeList data source) are now
+  rate-limited to stay under its public-tier request cap, with an
+  automatic retry on a 429 response.
 
 ## [0.119.0] - 2026-09-07
 
 ### Changed
 
-- Migrated the MyAnimeList integration (anime filler/recap flags, MAL
-  score/studio/source enrichment, and the season-reconciliation offset
-  lookup added in 0.118.0) from Jikan (api.jikan.moe), now shut down
-  entirely, to Tenrai (api.tenrai.org) - a schema-compatible successor
-  implementing the same Jikan v4 response shape, so this was a base URL
-  swap rather than a rewrite. `tracker/integrations/jikan.py` is now
-  `tenrai.py`; "MAL id"/`external_ids["mal"]` still mean the same thing
-  they always did - Tenrai just serves it now.
+- The MyAnimeList integration (anime filler/recap flags, MAL enrichment,
+  season-reconciliation lookups) migrated from Jikan, which has shut
+  down, to Tenrai, a schema-compatible successor.
 
 ### Fixed
 
-- The season-reconciliation MAL episode-count offset (0.118.0) was
-  silently never finding a Sequel relation for any anime, always
-  falling back to leaving the episode as reported - it was reading
-  `relations` off the plain `/anime/{id}` endpoint, which doesn't carry
-  that field (only `/anime/{id}/full` does, same split Jikan v4 itself
-  used). Fixed as part of the Tenrai migration; `reconcile_episode_seasons`
-  now actually resolves real cases end-to-end.
+- The season-reconciliation MAL episode-count offset added in 0.118.0
+  was silently never finding a match; it's now fixed as part of the
+  Tenrai migration.
 
 ## [0.118.1] - 2026-09-07
 
 ### Fixed
 
-- `jikan.resolve_mal_id` didn't cache a genuine "no match" result, so a
-  title with several affected episodes (e.g. running
-  `reconcile_episode_seasons` against one) re-hit Jikan's live search
-  endpoint once per episode instead of once - observed live tipping a
-  transient 504 into a hard 429 partway through a run. A "no match" is
-  now cached for an hour (long enough to cover one run, short enough to
-  retry again once an outage clears or a title gets added to MAL).
+- A "no match" result from the MyAnimeList lookup is now cached for an
+  hour, preventing repeated live requests (and hitting rate limits) when
+  reconciling a title with several affected episodes.
 
 ## [0.118.0] - 2026-09-07
 
 ### Added
 
-- `manage.py reconcile_episode_seasons` - a one-time backfill (dry run
-  by default, `--commit` to apply) that finds and remaps Episode rows
-  affected by the season-numbering mismatch fixed below, merging into
-  an already-synced episode instead of creating a duplicate when one
-  already exists.
+- `manage.py reconcile_episode_seasons` - a one-time backfill command
+  (dry run by default, `--commit` to apply) that remaps episodes
+  affected by the season-numbering mismatch fixed below.
 
 ### Fixed
 
-- A player reporting its own season split TMDB doesn't know about (e.g.
-  Nuvio splitting one 25-episode TMDB season into "Season 1"/"Season 2"
-  for a show like Hell's Paradise) created an orphan Episode row that
-  showed up correctly in History but was invisible on the title detail
-  page's episode browser (entirely TMDB-season-driven) and never
-  credited against the real episode it corresponded to. Scrobbles and
+- A player reporting its own season split that doesn't match TMDB's
+  (e.g. Nuvio splitting one TMDB season into two) could create an
+  orphaned episode invisible to the episode browser. Scrobbles and
   Nuvio sync now reconcile the reported season/episode against TMDB's
-  real structure first, using MyAnimeList's own per-cour episode counts
-  (via the existing Jikan integration) to resolve the correct absolute
-  episode - falling back to leaving it exactly as reported (same as
-  today) whenever TMDB or MAL can't confirm an answer, never guessing.
+  real structure, using MyAnimeList's per-cour episode counts to resolve
+  the correct episode.
 
 ## [0.117.0] - 2026-09-04
 
 ### Added
 
-- Dashboard redesigned: the header now surfaces streak/movies/shows/watch-time
-  as pills instead of a footer bar, Up Next cards get a day-pill (Today/
-  Tomorrow/date), "Recommended by Friends" moved into the sidebar as a
-  compact one-card-at-a-time carousel, and On This Day/Social Activity rows
-  now show a poster thumbnail (Social Activity overlays the watcher's avatar
-  on the poster's corner). The sidebar's Monthly Stats card gained a
-  centered "View full stats" link, and Social Activity gained a "View
-  Activity" link (both were previously loose page-level links).
-- Stats page redesigned: the old single divided hero card is now four
-  separate cards (Watch Streak, Quick Totals, Last 30 Days, All Time Hub)
-  with a real, computed Completion Efficiency figure; the genre breakdown
-  gained a colored-dot legend; Achievements now show real numeric progress
-  bars (e.g. "12/30"), not just locked/unlocked; Taste Compatibility is a
-  circular percentage ring per household member; and "Release Years" - a
-  placeholder since it shipped - is now a real decade histogram of the
-  library with oldest/latest title callouts.
-- Household Activity page redesigned: a day-grouped timeline (Today/
-  Yesterday/date) replaces the flat list, with per-member filter pills,
-  real pagination, and poster-card entries. Binge sessions and bulk
-  list-adds (already grouped server-side, previously shown as a plain
-  text line) now render as their own cards with total runtime, and a
-  binge that ends on a show's actual finale is called out as "Series
-  Completed" instead of a generic "Binge Session". Added a Household
-  Leaderboard (This Week/This Year, ranked by watch time) and a
-  Household Top 5 (most-watched titles this week, with watcher avatars)
-  sidebar, plus a real "N watched recently" indicator.
-- `seed_demo` now seeds a couple of extra household profiles with their
-  own light watch history, a few pending recommendations (including a
-  blind one), and on-this-day watch history from prior years, so a fresh
-  demo instance has something to show in each of the above instead of
-  empty states.
+- Dashboard redesign: header stats are now pills, Up Next cards show a
+  day pill, "Recommended by Friends" moved into the sidebar as a compact
+  carousel, and On This Day/Social Activity rows show a poster
+  thumbnail.
+- Stats page redesign: the hero card is now four separate cards with a
+  computed Completion Efficiency figure; the genre breakdown gained a
+  colored legend; Achievements show real progress bars; Taste
+  Compatibility is a circular percentage ring; Release Years is now a
+  real decade histogram.
+- Household Activity page redesign: a day-grouped timeline replaces the
+  flat list, with per-member filter pills, pagination, and poster-card
+  entries. Binge sessions and bulk list-adds render as their own cards
+  with total runtime; a binge ending on a show's finale is called out
+  as "Series Completed". Added a Household Leaderboard and a Household
+  Top 5 sidebar.
+- `seed_demo` now seeds additional household profiles with their own
+  watch history, pending recommendations, and on-this-day history.
 
 ### Fixed
 
 - The top navbar's center nav could overlap the logo/search and
-  notification/profile icons at viewport widths too narrow to fit every
-  nav item but still above the mobile breakpoint.
-- TV/Anime detail pages: the season-poster row and the per-episode list
-  were both effectively labeled "Episodes", with the season progress
-  summary sitting in an orphaned line below the posters. The season row
-  now has its own "Seasons" heading (with the progress summary inline,
-  matching the Episodes heading's own inline style), separate from
-  "Episodes" below it.
+  notification/profile icons at certain viewport widths.
+- TV/Anime detail pages: the season-poster row and episode list are now
+  separately labeled "Seasons" and "Episodes".
 
 ## [0.116.1] - 2026-09-01
 
 ### Fixed
 
-- The full notifications page (`/notifications/all/`) is now centered
-  in the available content area instead of sitting flush left with
-  empty space to its right.
-- That page's "Mark all read"/"Clear all" actions moved from the
-  dropdown-only header into the page itself, as text-labeled buttons
-  (not the dropdown's icon-only ones).
+- The full notifications page is now centered in the content area
+  instead of sitting flush left.
+- That page's "Mark all read"/"Clear all" actions moved into the page
+  itself as labeled buttons.
 
 ## [0.116.0] - 2026-09-01
 
 ### Added
 
-- The notifications panel (header bell dropdown) has been redesigned:
-  rows now show a poster thumbnail and a per-kind icon (calendar for
-  releases, chat bubble for recommendations, gear for system notices,
-  clock for a stale-watchlist nudge), unread rows get a left accent bar
-  and a hover/keyboard-reveal dismiss button instead of a bare dot, and
-  read rows fade to a more muted style. Rows are grouped under date
-  headers (Today/Tomorrow/Sep 3) instead of repeating the date in every
-  row's text, with upcoming releases collapsed into their own preview
-  section. A proper "you're all caught up" empty state replaces the old
-  blank box, and a new "View all notifications" page (`/notifications/all/`)
-  lists everything beyond what fits in the dropdown.
+- The notifications panel is redesigned: rows show a poster thumbnail
+  and a per-kind icon, unread rows get an accent bar and a dismiss
+  button, and rows are grouped under date headers. A new "View all
+  notifications" page lists everything beyond what fits in the dropdown.
 
 ### Fixed
 
-- The full test suite's cache backend switched from LocMemCache back to
-  DummyCache for `manage.py test` runs - LocMemCache actually persists
-  across tests in the same process (unlike the Redis it replaced, which
-  was always unreachable here), which was silently leaking one test's
-  mocked API response into another test reusing the same id (caught via
-  3 failing MyAnimeList/Jikan tests). DummyCache keeps the same
-  timeout-free speed-up without the cross-test leak risk.
+- The test suite's cache backend switched from `LocMemCache` back to
+  `DummyCache`, fixing a cross-test data leak that caused intermittent
+  test failures.
 
 ## [0.115.1] - 2026-09-01
 
 ### Fixed
 
-- A show that drops several episodes at once (e.g. a full season on
-  release day) no longer floods the notification bell with one "now
-  available" notification per episode plus a separate season-premiere
-  one - they're now collapsed into a single notification per title per
-  day, with an episode-range caption ("Season 2, Episode 1-8") matching
-  the dashboard's own Up Next card.
+- A show that drops several episodes at once no longer floods the
+  notification bell with one notification per episode; they're now
+  collapsed into a single notification per title per day.
 
 ## [0.115.0] - 2026-08-31
 
 ### Added
 
-- The episode browser's season selector is now a Trakt-style horizontal
-  poster-card row instead of a dropdown - each card shows the season's
-  own TMDB poster, its rating, and a thin progress bar for watched/total
-  episodes, with the selected season outlined. Uses each season's
-  poster already returned by TMDB's own show-details call, so no new
-  field or migration was needed. The "Season N progress" strip below
-  the row still updates on the same HTMX swap as before.
+- The episode browser's season selector is now a horizontal poster-card
+  row (season poster, rating, progress bar) instead of a dropdown.
 
 ### Fixed
 
 - The trailer modal's embedded YouTube player no longer fails with
-  "Error 153" - the iframe's `src` was being set while the dialog was
-  still closed (and therefore zero-sized per the browser's own
-  stylesheet), which YouTube's player rejects; the dialog now opens
-  first. Also stopped Django's default referrer policy from stripping
-  the `Referer` header on the cross-origin request to YouTube, which
-  some videos' embed checks reject outright.
+  "Error 153".
 - Clicking an episode from Continue Watching, History, or Social
-  Activity now lands directly on that episode in the media page and
-  briefly highlights it, instead of leaving it to scroll down and find
-  manually.
-- The Discover pages show 3 posters per row on mobile instead of 2.
+  Activity now lands directly on that episode and briefly highlights
+  it.
+- Discover pages show 3 posters per row on mobile instead of 2.
 - Dashboard rows (Watchlist, Start Watching, Recently Watched, Social
-  Activity, On This Day) can now be scrolled horizontally on mobile -
-  previously only Continue Watching could, so several rows with no
-  "See all" link were stuck showing just one card and a sliver of the
-  next.
-- The episode number badge (e.g. "S1E130") on episode cards is legible
-  again on mobile and in some desktop conditions, where it had blended
-  into the background.
+  Activity, On This Day) can now be scrolled horizontally on mobile.
+- The episode number badge on episode cards is legible again in some
+  conditions where it had blended into the background.
 
 ## [0.114.0] - 2026-08-30
 
 ### Added
 
-- Movie/TV/Anime detail pages now offer a trailer and a media gallery.
-  A "Watch trailer" button sits next to the header's watched/status
-  button (hidden entirely when TMDB has no trailer on file, and for
-  anime, MyAnimeList's own trailer via the existing Jikan integration
-  when it has one TMDB doesn't) and opens it in a modal. A new "Media"
-  section between Description and Cast shows the trailer as its first
-  tile alongside backdrop stills, capped at 5 visible with a "+N" tile
-  to expand the rest; clicking a still opens a lightbox with Prev/Next.
+- Movie/TV/Anime detail pages now offer a trailer and a media gallery,
+  with a "Watch trailer" button and a "Media" section showing the
+  trailer and backdrop stills; clicking a still opens a lightbox.
 
 ## [0.113.3] - 2026-08-26
 
 ### Fixed
 
-- Dependency/supply-chain security audit: Django 5.2.16 → 5.2.17 (fixes
-  a GeoDjango WKT/WKB parsing DoS - not reachable here, GIS isn't used,
-  but patched anyway) and sqlparse 0.5.5 → 0.6.0 (fixes four ReDoS/DoS
-  advisories in its lexer/grouping/output paths, pulled in transitively
-  by Django and django-silk).
-- The Docker image is now a multi-stage build - Node/npm (needed only to
-  compile Tailwind's CSS) previously shipped in the final runtime image
-  via Debian's own nodejs/npm packaging, which drags in a large tree of
-  outdated vendored JS tooling (eslint, babel, etc.) carrying dozens of
-  its own CVEs (44 High/5 Critical in a scan of the old image), none of
-  which are used at runtime at all. The compiled CSS now moves from a
-  discarded build stage into the runtime image; node/npm and everything
-  under node_modules no longer ship at all.
+- Dependency security updates: Django 5.2.16 → 5.2.17 and sqlparse
+  0.5.5 → 0.6.0, addressing several DoS/ReDoS advisories.
+- The Docker image is now a multi-stage build - Node/npm (needed only
+  to compile CSS) no longer ships in the final runtime image, removing
+  a large tree of outdated JS tooling and its CVEs.
 - The Dockerfile now runs `apt-get upgrade` before installing packages,
-  so Debian security patches released since python:3.12-slim's own
-  layer was last rebuilt (an OpenSSL fix, in this pass) land on every
-  build instead of waiting on the next base-image refresh.
+  so Debian security patches land on every build.
 
 ## [0.113.2] - 2026-08-25
 
 ### Fixed
 
-- `merge_duplicate_titles --commit` crashed (500) partway through a real
-  batch of duplicates whenever two colliding episodes each already had
-  their own release-schedule row (e.g. both sides independently tracked
-  a "season premiere" date) - the merge blindly moved one onto the
-  other instead of deduping the collision first. Also stopped a
-  release-schedule row silently disappearing for an episode that moved
-  over without any collision at all.
-- The Maintenance tab's Preview/Commit-merge toast no longer dumps one
-  line per duplicate group into a fixed-width, auto-dismissing
-  notification - a first-ever run against a real library can find
-  dozens, which was unreadable. Long output is now capped with a count,
-  the full list stays in the server's own logs.
+- `merge_duplicate_titles --commit` no longer crashes when two
+  colliding episodes each already have their own release-schedule row.
+- The Maintenance tab's merge-preview/commit toast no longer dumps one
+  line per duplicate group into a fixed-width notification; long output
+  is now capped with a count.
 
 ## [0.113.1] - 2026-08-25
 
 ### Fixed
 
-- A production 500 (`DEBUG=False`) left no trace anywhere - not even
-  `docker compose logs` - because Django's own default logging only
-  sends request-handler tracebacks to `mail_admins`, which does nothing
-  without email configured. Now routed to stdout unconditionally, same
-  as everything else Docker already captures.
+- Production errors (`DEBUG=False`) are now logged to stdout, so they
+  show up in `docker compose logs` instead of disappearing silently.
 
 ## [0.113.0] - 2026-08-25
 
-### Fixed
-
-- Every sync/import path (Trakt, Simkl, Nuvio, the generic scrobble
-  webhook, CSV/JSON import) could fork a duplicate Title for a show
-  already reclassified to Anime (see `reclassify_anime_titles`) - each
-  one's own "have we already tracked this TMDB id" check filtered by
-  local media_type, which no longer matched once a title was promoted
-  from TV to Anime. Now matched by TMDB's own kind (movie/tv) instead,
-  which anime shares with plain TV. `merge_duplicate_titles` (Settings >
-  Maintenance) is grouped the same way now too, and picks up the Anime
-  classification when merging, so it can clean up any duplicate this
-  already created.
-
 ### Added
 
-- Every nightly scheduled task (anime reclassification, release sync,
-  release notifications, watchlist-stale reminders, the update check, log
-  retention) now shows up in Settings > Logs - what it actually did, not
-  just Celery's own worker log. The Logs filter panel has matching new
-  entries for each.
+- Every nightly scheduled task now shows up in Settings → Logs with
+  what it actually did, not just the worker's own log.
+
+### Fixed
+
+- Every sync/import path could create a duplicate title for a show
+  already reclassified as Anime; titles are now matched by TMDB's own
+  kind instead of local media type. `merge_duplicate_titles` can clean
+  up any duplicates this already created.
 
 ## [0.112.0] - 2026-08-24
 
 ### Added
 
-- `reclassify_anime_titles` now also runs as a nightly scheduled task
-  (4:30am, alongside the other instance-wide nightly jobs), not just as
-  a manually-run management command - a TV title that should be anime no
-  longer stays misclassified until an admin re-runs it by hand.
+- `reclassify_anime_titles` now also runs as a nightly scheduled task,
+  not just as a manually-run command.
 
 ### Fixed
 
-- The episode browser's per-episode "watched" button and "Mark episodes"
-  popover (season/all-seasons catch-up, including the anime canon-only
-  variants) are no longer hidden on a title's preview page - previously
-  you had to add a show to a list/watchlist before you could mark any of
-  its episodes watched. Clicking now materializes the title on the spot,
-  same as the header's own "Mark as Watched" already did for movies.
+- The episode browser's per-episode watched button and "Mark episodes"
+  popover are no longer hidden on a title's preview page - marking an
+  episode watched now materializes the title on the spot.
 
 ## [0.111.0] - 2026-08-24
 
 ### Added
 
 - Settings → Logs' "Items" column is now a collapsible list of what was
-  actually imported (title, or "Title S1E2" for an episode), not just a
-  count - covers Trakt/Simkl/Nuvio syncs and CSV/JSON/ZIP import, capped
-  at 200 entries per log row to keep large imports from bloating the log
-  table.
+  actually imported, not just a count, covering all sync and import
+  paths.
 
 ## [0.110.1] - 2026-08-24
 
 ### Changed
 
 - The episode browser's "Mark season watched" and "Mark all watched"
-  buttons are now one "Mark episodes" popover (matching the header+icon-row
-  shape of the mark-watched/add-to-list popovers), each action now also
-  offering a "(canon only)" variant for anime - skips any episode Jikan/
-  AniFiller flags as filler or recap, so a catch-up only logs plays for
-  the episodes that actually carry the story forward.
+  buttons are combined into one "Mark episodes" popover, with a
+  "(canon only)" option for anime that skips filler/recap episodes.
 
 ## [0.110.0] - 2026-08-23
 
 ### Added
 
-- Anime filler/recap badges now fall back to [AniFiller](https://github.com/AniraTeam/AniFiller),
-  a small static canon/filler dataset, for anything Jikan/MyAnimeList
-  can't answer - a genuine no-match, or Jikan's own search endpoint
-  having one of its occasional outages. Used strictly as a fallback:
-  AniFiller only fills episodes Jikan had no answer for, never overriding
-  one Jikan already gave (the two sources occasionally disagree), and it
-  can only ever contribute a Filler badge, not Recap.
+- Anime filler/recap badges now fall back to AniFiller for anything
+  MyAnimeList can't answer, used strictly as a fallback and never
+  overriding a MyAnimeList answer.
 
 ## [0.109.1] - 2026-08-23
 
 ### Fixed
 
-- Anime added via Discover's Anime tab (mark watched, add to watchlist,
-  add to any list) now actually materializes as an anime title instead
-  of a plain TV one - the preview-materialize flow only ever knew
-  "movie"/"tv", so every anime added that way silently lost its anime
-  classification, and with it the filler/recap episode badges and MAL
-  score/Japanese title/studio enrichment (both gated on that
-  classification) that never fired as a result. Run
-  `manage.py reclassify_anime_titles` once to reclassify anime added
-  before this fix.
+- Anime added via Discover's Anime tab now correctly materializes as an
+  anime title instead of a plain TV title. Run
+  `manage.py reclassify_anime_titles` once to fix anime added before
+  this fix.
 
 ## [0.109.0] - 2026-08-18
 
 ### Added
 
-- A read-only Reports API (`/api/reports/`, see
-  [docs/REPORTS_API.md](docs/REPORTS_API.md)) for external services to
-  generate reports from watch history - built against
-  [spool-wrapped](https://github.com/aljaz-h/spool-wrapped), a companion
-  app that turns it into "Wrapped"-style recap cards and a Year in
-  Review report. Opt-in per profile (Settings → Integrations → Wrapped -
-  a profile that hasn't opted in is completely invisible to the API,
-  the only opt-out mechanism there is), authorized by a new
-  `ServiceAPIKey` credential type (one per external service, minted by
-  an owner in Settings → Server Integrations - deliberately separate
-  from `ApiToken`, which can only ever act as one profile and never
-  read anything back). Settings → Server Integrations also gained a
-  "Manage Wrapped" SSO button, an `itsdangerous`-signed one-time
-  redirect into spool-wrapped's own admin UI.
+- A read-only Reports API (`/api/reports/`) for external services to
+  generate reports from watch history, built for the companion app
+  [spool-wrapped](https://github.com/aljaz-h/spool-wrapped). Opt-in per
+  profile via Settings → Integrations → Wrapped, authorized by a new
+  `ServiceAPIKey` credential type.
 - `Title.country`/`studio`/`network`/`cast`/`directors`/`writers` -
-  production metadata (country, studio/network, top cast, directors,
-  writers) that powers the Reports API's Year in Review fields, fetched
-  from TMDB the same time every import path already looks a title up
-  there (Trakt/Simkl/CSV import/Nuvio/the Scrobble API/Discover's own
-  preview materialize). A title tracked before this shipped has none of
-  it yet - run `manage.py enrich_titles_reports_metadata` once after
-  upgrading to backfill it (rate-limited, safe to re-run).
+  production metadata that powers the Reports API, fetched from TMDB on
+  import. Run `manage.py enrich_titles_reports_metadata` once after
+  upgrading to backfill it for existing titles.
 
 ## [0.108.0] - 2026-08-18
 
-### Fixed
-
-- Every fixed-position popover (mark watched, add-to-list, Filters, the
-  episode season picker, ...) now flips to whichever side of its button
-  actually has room, instead of always opening the same fixed direction
-  and clipping off-screen when the button sits near the top or bottom
-  edge of the viewport. Centralized into one shared `window.positionPopover`
-  helper (base.html) rather than duplicating the flip math into every
-  popover's own Alpine component.
-
 ### Changed
 
-- The streaming-service picker (Discover's Filters and Settings →
-  Preferences) no longer dumps TMDB's full ~50-100 entry regional
-  catalog on screen - it shows the 10 most popular (TMDB's own
-  popularity ranking) with a "Show N more" toggle for the rest, and
-  drops bundle/add-on listings that duplicate a service already shown
-  plainly (e.g. "Starz Amazon Channel", "Amazon Prime Video with Ads").
+- The streaming-service picker no longer dumps TMDB's full ~50-100 entry
+  catalog on screen; it shows the 10 most popular with a "Show N more"
+  toggle.
+
+### Fixed
+
+- Every fixed-position popover now flips to whichever side of its
+  button has room, instead of clipping off-screen near the top or
+  bottom edge of the viewport.
 
 ## [0.107.0] - 2026-08-18
 
-### Fixed
-
-- Every fixed-position popover positioned via `getBoundingClientRect()`
-  on open (mark watched, add-to-list, the history episode-remove menu,
-  the episode season picker, and Settings' sync-log Filters) stayed
-  visually pinned to its original screen position if the page was
-  scrolled while it was open, instead of following or closing with the
-  button it was anchored to - same root cause the Filters popup fix
-  already addressed, just not carried to its siblings. All now close on
-  scroll the same way.
-
 ### Changed
 
-- Title detail's "Lists" section and the Dashboard's "Recommended to
-  you" cards now use the same list-picker popover every poster
-  card/discover tile already has, instead of their own plain chip row
-  and single-purpose "+ Add to Watchlist" button respectively. The
-  recommendation card's quick-add can now target any list, not just one
-  hardcoded Watchlist - the now-redundant `add_recommendation_to_watchlist`
-  endpoint was removed in favor of the generic add_to_list/remove_from_list
-  views every other list-picker already uses.
+- Title detail's Lists section and the Dashboard's "Recommended to you"
+  cards now use the same list-picker popover every poster card has,
+  instead of their own simplified controls.
+
+### Fixed
+
+- Every fixed-position popover now closes when the page is scrolled
+  instead of staying visually pinned to its original screen position.
 
 ## [0.106.0] - 2026-08-15
 
 ### Added
 
 - Settings → Integrations' "Custom Player" card now supports up to 5
-  named API tokens per profile instead of exactly one unnamed token -
-  one per app/device (e.g. "Living room Kodi", "Phone"), each
-  independently regenerable and deletable without disturbing the
-  others. `Profile.api_token` is replaced by a new `ApiToken` model
-  (migration 0050 backfills any existing token as a row named "Custom
-  Player" first, so an already-configured player keeps working
-  unchanged after upgrading; migration 0051 then drops the old field).
+  named API tokens per profile instead of exactly one.
 
 ## [0.105.0] - 2026-08-14
 
 ### Changed
 
-- Redesigned the recommendation reply UI: a compact circular reply
-  button now sits at the right edge of the "by {sender} · {time} ago"
-  row, opening a small popover instead of the reaction row/message
-  input sitting permanently expanded on the card. Each reaction is now
-  a one-tap send (no separate confirm step); the message field gets its
-  own small send button. The reaction set itself changed to four,
-  reworded around what's actually useful to hear back on a
-  recommendation: Adding to Watchlist 👍, Already Seen It 😍, Excited
-  🔥, Not For Me 😅 (previously six: Interested/Maybe Later/Hard
-  Pass/Already Seen It/Say Less/Bold Choice). Existing replies made
-  under the old set keep displaying their original text as-is.
+- Redesigned the recommendation reply UI: a compact reply button opens
+  a small popover instead of a permanently-expanded reaction row. The
+  reaction set changed to four options focused on what's actually
+  useful to hear back.
 
 ## [0.104.0] - 2026-08-14
 
 ### Added
 
-- Optional production request/SQL/Python profiling via
-  [django-silk](https://github.com/jazzband/django-silk), off by
-  default (`SILK_ENABLED` in `.env`) so a normal install pays no
-  per-request cost and doesn't expose anything extra. When enabled,
-  `/silk/` (restricted to `is_staff` accounts) shows per-request
-  timing, every SQL query a request ran, and cProfile-level call-stack
-  data - meant to be turned on temporarily to capture real traffic,
-  then back off. See `docs/CONFIGURATION.md`.
+- Optional production request/SQL/Python profiling via django-silk, off
+  by default (`SILK_ENABLED` in `.env`).
 
 ### Fixed
 
 - Startup now fails fast with a clear error if `DJANGO_SECRET_KEY` is
-  missing or still a placeholder (`changeme`, or this codebase's own
-  dev-only default) while `DEBUG=False`, instead of silently signing
-  sessions/CSRF tokens with a publicly-known key. Raised at Django's
-  own settings-import time, so it applies identically to gunicorn,
-  Celery worker/beat, and any `manage.py` command - not just one entry
-  point. `DEBUG=True` local dev is unaffected.
-- A handful of accessibility gaps found in a codebase audit: two
-  icon-only buttons with no accessible name (a roulette modal's close
-  button, a list card's "Feature on Dashboard" toggle), two auth pages
-  (`login.html`, `change_credentials.html`) with no heading element at
-  all, and the desktop nav landmark missing a distinguishing
-  `aria-label`.
+  missing or a placeholder while `DEBUG=False`.
+- A handful of accessibility gaps: unlabeled icon-only buttons, missing
+  page headings, and a missing nav landmark label.
 
 ## [0.103.1] - 2026-08-14
 
 ### Fixed
 
-- Mobile search still needed two taps to raise the keyboard even after
-  the previous fix (double `requestAnimationFrame`) - iOS Safari's rule
-  turned out to be stricter than "eventually focusable": `.focus()` has
-  to run synchronously in the click handler with zero deferral, which
-  was never possible while the panel used `x-show`/`x-cloak`
-  (`display:none` makes an element unfocusable outright, no matter when
-  you call `.focus()`). The panel now uses opacity + pointer-events
-  instead - a normal, always-focusable DOM node - so the trigger's plain
-  `focus()` call actually works.
-- That same fix incidentally addresses a second, separate bug: opening
-  and closing mobile search left the bottom nav's `position: fixed`
-  visibly desynced from the page on the next scroll (drifting partway
-  up, snapping back on scroll-up). Also scoped the background
-  scroll-lock added for the bottom sheet (0.102.1) back down to just
-  the bottom sheet itself - it was never actually needed for search or
-  the sidebar drawer, and toggling `overflow-hidden` on `<body>` is a
-  known trigger for this exact class of iOS Safari fixed-position bug.
-- Calendar's day grid ran narrower than the page on mobile, with dead
-  space to its right - `items-start` on the stacked (mobile) layout's
-  cross axis left `#cal-main` sized to its own intrinsic content width
-  instead of filling the column, starving the day grid of width it
-  should have had. `items-stretch` below `lg:` fixes it; `items-start`
-  still governs the desktop side-by-side layout's height-matching,
-  unrelated axis.
+- Mobile search now reliably raises the keyboard on the first tap.
+- Opening and closing mobile search no longer desyncs the bottom nav's
+  fixed position on scroll.
+- Calendar's day grid no longer runs narrower than the page on mobile.
 
 ## [0.103.0] - 2026-08-13
 
 ### Added
 
-- Recommendations are now a two-way exchange: a recipient can reply to
-  a recommendation with a quick reaction chip (Interested, Maybe Later,
-  Hard Pass, Already Seen It, Say Less, Bold Choice) and/or a short
-  custom message, from the Dashboard's "Recommended to you" card.
-  Deliberately independent of `Recommendation.status` - a reply doesn't
-  mean watched, and is a one-shot action (no editing after). The sender
-  sees the reply next to that recipient's row on the title's own
-  "Recommend to" card (`recommend_card.html`), and gets notified
-  (`Notification.Kind.RECOMMENDATION_REPLIED`) with a link straight
-  back to it.
+- Recommendations are now a two-way exchange: a recipient can reply
+  with a quick reaction chip and/or a short message from the
+  Dashboard's "Recommended to you" card, and the sender gets notified.
 
 ## [0.102.1] - 2026-08-13
 
 ### Fixed
 
 - Four mobile-viewport bugs: Settings' Danger Zone buttons no longer
-  shrink below their own label's width and wrap mid-word - the row wraps
-  instead, dropping the button to its own line on narrow screens; the
-  Calendar's day-of-week header now abbreviates to a single letter below
-  `sm:`, freeing up room the 3-letter labels were fighting the day cells
-  for; the bottom nav's "More" sheet no longer drags the page behind it
-  along with the drag gesture (`@touchmove.prevent` on the sheet, plus a
-  new `x-effect` in `base.html` that locks background scroll for as long
-  as the sidebar drawer, mobile search bar, or bottom sheet is open);
-  and the mobile bottom nav's Search button now raises the keyboard on
-  the first tap instead of the second - it was calling `.focus()` via
-  `$nextTick`, which resolves before `x-transition`'s own two-frame-
-  deferred display flip actually makes the input focusable, so the call
-  silently no-opped on the first tap. Swapped for a double
-  `requestAnimationFrame`, which lands after that and still counts as
-  part of the original tap for iOS Safari's keyboard-popup rule.
+  wrap mid-word, the Calendar's day-of-week header abbreviates on
+  narrow screens, the bottom nav's "More" sheet no longer drags the
+  page behind it, and the mobile search button now raises the keyboard
+  on the first tap.
 
 ## [0.102.0] - 2026-08-13
 
 ### Added
 
-- Design-consistency pass replacing native/inconsistent browser UI with
-  themed components: a shared dismissible toast stack (`partials/toasts.html`,
-  included once from `base.html`) for Django's `messages` framework,
-  replacing 6 templates' own copy-pasted inline banners (3 of which always
-  rendered a success message with error-red styling); a CSS-only themed
-  tooltip (`.spool-tooltip`/`data-tooltip`, hover- and focus-visible-driven)
-  applied to ~20 supplementary hint labels across Settings, Stats,
-  Person, and Title Detail that previously relied on native `title=`
-  bubbles; a shared loading spinner (`.spool-spinner`, driven by htmx's
-  own `.htmx-request` class - no per-element JS) on the ~14
-  highest-value htmx call sites (Settings' auto-save forms, Watchlist
-  Roulette).
-- Confirm dialogs (`hx-confirm`) were audited and found already fully
-  themed via `base.html`'s existing `confirm_modal` - no changes needed.
+- Design-consistency pass: a shared dismissible toast stack replaces
+  several templates' own inline banners, a themed tooltip replaces
+  native browser tooltips across Settings/Stats/Person/Title Detail,
+  and a shared loading spinner replaces ad hoc per-element indicators.
+- Interface animations: an off-by-default Settings → Appearance toggle
+  enables subtle transitions on actions, popovers, and pagination,
+  respecting `prefers-reduced-motion`.
 
 ### Fixed
 
-- The two multi-select checkboxes on History tiles now use the shared
-  daisyUI `checkbox` class instead of a bare `accent-primary` native
-  checkbox, matching every other toggle in the app.
-- `change_credentials`'s success message (previously silently dropped -
-  `dashboard.html`, its redirect target, never rendered `messages` at
-  all) and every other page's messages now render consistently through
-  the shared toast.
-
-### Added
-
-- Interface animations: an off-by-default Settings → Appearance toggle
-  (`Profile.animations_enabled`) enables subtle (150-300ms,
-  opacity/transform-only) transitions on mark-watched/list actions,
-  popovers, list/episode pagination, and the mobile bottom sheet's
-  drag-release. Centralized in `static/src/app.css`, gated behind
-  `body[data-animations]` and `prefers-reduced-motion`, which always
-  overrides the profile setting.
+- History's multi-select checkboxes now use the shared themed checkbox
+  style.
+- `change_credentials`'s success message, and every other page's
+  messages, now render consistently through the shared toast.
 
 ## [0.100.0] - 2026-08-13
 
 ### Added
 
 - Discover preferences: Settings → Preferences gains favorite genres, a
-  streaming-services picker, and a region setting. These pre-fill
-  Movies/TV/Anime's own genre and provider filters, scope the existing
-  Availability filter to a real region instead of a hardcoded "US", and
-  power a new personalized "For You" row on the Dashboard.
+  streaming-services picker, and a region setting, which pre-fill
+  Discover's filters and power a personalized "For You" row on the
+  Dashboard.
 
 ## [0.99.0] - 2026-08-13
 
 ### Added
 
-- Blind recommendations: an optional "Send as mystery 🎁" toggle on the
-  Recommend-to card hides the title behind a mystery card (and a
-  title-free notification) until the recipient opens it.
+- Blind recommendations: an optional "Send as mystery" toggle hides the
+  title behind a mystery card until the recipient opens it.
 
 ## [0.98.0] - 2026-08-13
 
 ### Added
 
-- Achievements: a Stats page badge grid (Genre Explorer, Night Owl,
-  Century Club, Streak Master, Marathoner) checked against existing
-  watch history and persisted once earned.
+- Achievements: a Stats page badge grid checked against existing watch
+  history and persisted once earned.
 
 ## [0.97.0] - 2026-08-13
 
 ### Added
 
 - Taste Compatibility: a Stats page panel showing genre overlap between
-  you and each other household profile, plus the genre you both lean on
-  most.
+  you and each other household profile.
 
 ## [0.96.0] - 2026-08-13
 
 ### Added
 
-- "On This Day": Dashboard row surfacing titles you watched on today's
-  date in a previous year, newest year first.
+- "On This Day": a Dashboard row surfacing titles you watched on
+  today's date in a previous year.
 
 ## [0.95.0] - 2026-08-13
 
 ### Added
 
-- Watchlist time capsule: a nightly job nudges you about titles that have
-  sat unwatched on your default Watchlist for 6+ months ("still
-  interested?"), re-nudging every 6 months for as long as it stays there.
+- Watchlist time capsule: a nightly job nudges you about titles that
+  have sat unwatched on your Watchlist for 6+ months.
 
 ## [0.94.0] - 2026-08-13
 
 ### Added
 
-- Watch-roulette: a "Spin" button on any list page picks a random title
-  from that list, with optional type and max-runtime filters, so "what
-  should we watch" has a one-click answer instead of scrolling the grid.
+- Watch-roulette: a "Spin" button on any list page picks a random
+  title, with optional type and max-runtime filters.
 
 ## [0.93.2] - 2026-08-12
 
 ### Changed
 
-- Mobile bottom nav: swapped Stats for Search (opens the existing mobile
-  search overlay), moved Stats into the More sheet, and added a Friends
-  list to More so switching to another household profile's view doesn't
-  need the topbar anymore. The mobile topbar itself now shows just the
-  logo plus notifications/profile - the hamburger menu, search icon, and
-  Friends button are redundant with the bottom nav below md: and are
-  hidden there (still available at tablet/desktop widths where the
-  bottom nav isn't shown).
+- Mobile bottom nav: swapped Stats for Search, moved Stats into the
+  More sheet, and added a Friends list to More.
 
 ### Fixed
 
-- Calendar's upcoming-releases panel had no height limit below the `lg:`
-  breakpoint (only synced to match the grid's height at `lg:` and up),
-  so on mobile it just grew the page indefinitely instead of scrolling
-  within a fixed panel like it does on desktop.
+- Calendar's upcoming-releases panel now has a proper height limit on
+  mobile instead of growing the page indefinitely.
 
 ## [0.93.1] - 2026-08-12
 
 ### Fixed
 
-- Discover pagination (Movies/TV/Anime, and the Filters panel's Display
-  toggle in hide mode) merges up to 9 real TMDB pages into one Spool
-  page, previously fetched one-after-another - now the first page fetches
-  alone (its own total_pages tells the rest how many pages actually
-  exist to fetch), and the remainder fetch in parallel, cutting worst-case
-  latency roughly in proportion to how many pages get merged. Also
-  switched TMDB requests onto a shared, connection-pooled session instead
-  of opening a fresh one per call.
-
+- Discover pagination now merges up to 9 TMDB pages in parallel instead
+  of one after another, reducing worst-case latency. TMDB requests now
+  use a shared, connection-pooled session.
 
 ## [0.93.0] - 2026-08-12
 
 ### Added
 
-- A floating mobile-only bottom navigation bar (Home, Discover, Calendar,
-  Stats, More), purely additive alongside the existing sidebar/topbar -
-  desktop is unaffected. Discover links into the real Movies/TV/Anime
-  pages with a mobile segmented switcher shown at the top of those three
-  routes (preserves the current category when switching). More opens a
-  swipe-dismissible, focus-trapped bottom sheet with shortcuts to
-  History, Lists, Activity, Profile, and Settings.
+- A floating mobile-only bottom navigation bar (Home, Discover,
+  Calendar, Stats, More), alongside the existing sidebar/topbar on
+  desktop.
 
 ## [0.92.5] - 2026-08-12
 
 ### Fixed
 
-- Paginate list/Watchlist views (60 items/page) instead of loading every
-  item into Python regardless of list size. Drag-reordering still works
-  across pages - the server splices a page's new order back into the
-  full list rather than assuming a single page's worth of positions.
-- `sync_release_schedules` (the nightly release-sync beat job) now fans
-  out a per-title task instead of looping through every title's TMDB
-  call synchronously in one task - a large library could otherwise run
-  long enough to threaten the 30-minute gap before the notifications job
-  that follows it.
+- List/Watchlist views are now paginated (60 items/page) instead of
+  loading every item at once. Drag-reordering still works across pages.
+- The nightly release-sync job now fans out per-title instead of
+  looping through every title synchronously.
 
 ## [0.92.4] - 2026-08-12
 
 ### Fixed
 
-- `docker-compose.yml`/`docker-compose.prod.yml`'s `web` service
-  hardcoded `--workers 3` in its own startup `command:`, which overrides
-  the Dockerfile's `CMD` entirely - meaning `GUNICORN_WORKERS`/
-  `GUNICORN_THREADS` never actually took effect in a real `docker
-  compose up` deployment despite being configurable env vars. Both
-  compose files now read them the same way the Dockerfile does.
-- Added `CELERY_WORKER_CONCURRENCY` (default 4) - every periodic/
-  on-demand Celery task does blocking network I/O (TMDB/Trakt/Simkl/
-  Nuvio/MDBList), so Celery's own per-CPU-core default concurrency could
-  leave a slow sync serializing behind other queued work.
+- Docker Compose's `web` service now respects `GUNICORN_WORKERS`/
+  `GUNICORN_THREADS` instead of silently overriding them with a
+  hardcoded worker count.
+- Added `CELERY_WORKER_CONCURRENCY` (default 4) so a slow sync task no
+  longer serializes behind other queued work.
 
 ## [0.92.3] - 2026-08-12
 
 ### Fixed
 
 - Removed `sync_all_connected_accounts`, a leftover blanket daily-sync
-  Celery task superseded by per-account scheduled tasks a while back -
-  it hadn't been wired to any schedule since, but stayed reachable
-  enough (its own test, a stale docstring reference) to risk someone
-  reintroducing it as a schedule and double-syncing accounts.
+  task superseded by per-account scheduled tasks.
 
 ## [0.92.2] - 2026-08-12
 
 ### Fixed
 
-- Add composite database indexes for `WatchEvent(profile,title)`,
-  `Notification(profile,read)`, `WatchProgress(profile,status)`, and
-  `Recommendation(to_profile,status)` - the four highest-traffic
-  profile-scoped lookups (a title's own watch history, the unread-badge
-  count on every page load, the Watching tab, a profile's pending
-  recommendations) weren't covered by any existing index.
-- Batch `continue_watching()`'s per-show episode-count lookup into a
-  single grouped query instead of one `Episode.objects.filter(...).count()`
-  per row - the Dashboard's Watching section calls this with no limit, so
-  query count scaled with how many shows a profile has in progress.
+- Added composite database indexes for the four highest-traffic
+  profile-scoped lookups.
+- Batched `continue_watching()`'s per-show episode-count lookup into a
+  single query instead of one per row.
 
 ## [0.92.1] - 2026-08-12
 
 ### Fixed
 
-- Enable GZip compression for dynamic HTML responses - WhiteNoise already
-  compresses static assets, but pages themselves (Dashboard, Discover,
-  History, ...) were going out uncompressed.
+- Enabled GZip compression for dynamic HTML responses, not just static
+  assets.
 
 ## [0.92.0] - 2026-08-12
 
 ### Changed
 
-- Split the combined Movies & TV page (with its `?type=movie|tv` toggle)
-  into separate Movies and TV pages/nav entries, each with its own
-  trending/popular/upcoming/top-rated categories and filters - almost
-  nobody actually wants both mixed in one feed. Collections stays under
-  Movies. Old `/movies-tv/...` links now 404; a profile's stored "Movies
-  & TV" default landing page preference still resolves to the new Movies
-  page instead of falling back to the dashboard.
+- Split the combined Movies & TV page into separate Movies and TV
+  pages/nav entries, each with its own categories and filters.
 
 ## [0.91.0] - 2026-08-12
 
 ### Fixed
 
-- A lightweight accessibility pass: every popover/dropdown menu (topbar,
-  watched/list pickers, filter panels, season picker) now closes on
-  Escape and exposes its open/closed state via `aria-expanded`; the two
-  header search inputs get a visible focus ring instead of none at all;
-  decorative icons are hidden from screen readers instead of being
-  announced; the confirm dialog announces its question on open; several
-  unlabeled form controls (Settings' profile/appearance fields, Discover's
-  filter selects, search inputs) now have a proper accessible name; and
-  the Stats page's type-split legend is keyboard-operable real buttons
-  instead of click/hover-only `<div>`s.
+- An accessibility pass: popovers now close on Escape and expose
+  `aria-expanded`; search inputs get a visible focus ring; decorative
+  icons are hidden from screen readers; several unlabeled form controls
+  now have accessible names.
 
 ## [0.90.0] - 2026-08-12
 
 ### Added
 
 - A generic Scrobble API (`POST /api/scrobble`) - any player or script
-  can now report watches directly with a per-profile bearer token
-  (Settings → Integrations → Custom Player), instead of needing a
-  bespoke, reverse-engineered integration built for it. See
-  [docs/SCROBBLE_API.md](docs/SCROBBLE_API.md).
+  can report watches with a per-profile bearer token.
 
 ## [0.89.0] - 2026-08-12
 
 ### Added
 
-- Free-text tags on Lists - organize beyond one flat watchlist (e.g.
-  "comfort watches," "in progress"). Set at creation or edited any time
-  from a list's own page, and the Lists overview page gets a tag filter
-  row once any list has one.
+- Free-text tags on Lists, set at creation or edited any time, with a
+  tag filter row on the Lists overview page.
 
 ## [0.88.0] - 2026-08-12
 
 ### Added
 
 - A "Dropped" watch status - quitting a show partway through can now be
-  recorded from its "Your history" card or straight from the Dashboard's
-  Watching tile, instead of the only option being to delete its progress
-  entirely. Dropping keeps your current episode/position, so a title can
-  be resumed later from right where it was left off.
+  recorded instead of only being able to delete its progress entirely.
 
 ## [0.87.0] - 2026-08-12
 
 ### Changed
 
 - The web process now reuses Postgres connections across requests
-  (`CONN_MAX_AGE`, with health checks) instead of opening a fresh one on
-  every single request - db and web are separate containers, so this was
-  paying a full TCP+auth handshake per request for no reason.
-- Added a GIN index on `Title.external_ids`, the field Trakt/Simkl sync
-  and CSV import all dedupe against on every row they touch.
+  instead of opening a fresh one per request.
+- Added a GIN index on `Title.external_ids`.
 - gunicorn's worker/thread counts are now configurable via
-  `GUNICORN_WORKERS`/`GUNICORN_THREADS` env vars instead of a hardcoded
-  `--workers 3`, and now use threads so one worker can keep serving
-  requests while another is blocked on an external API call (TMDB/Trakt/
-  Simkl/Gemini).
+  `GUNICORN_WORKERS`/`GUNICORN_THREADS` and now use threads.
 
 ## [0.86.0] - 2026-08-12
 
 ### Added
 
-- PWA support - Spool can now be installed to a phone's home screen and
-  runs in a standalone, fullscreen window instead of a browser tab. Adds
-  a web manifest and a deliberately conservative service worker that only
-  ever caches static assets (icons/CSS/JS) - every page render, HTMX
-  partial, and API call still always hits the network, so nothing here
-  can show stale watch history/lists.
+- PWA support - Spool can be installed to a phone's home screen and
+  runs in a standalone window. A conservative service worker only ever
+  caches static assets; page/API data always hits the network.
 
 ## [0.85.0] - 2026-08-12
 
 ### Fixed
 
 - Movies & TV and Anime's "hide watched/watchlisted" Display filter no
-  longer leaves near-empty pages (sometimes just a handful of tiles, or
-  one) as you paginate - the raw candidate pool fetched per page is now
-  tripled whenever that filter is hiding titles, so there's a much
-  bigger pool for it to filter down from.
+  longer leaves near-empty pages as you paginate.
 
 ## [0.84.3] - 2026-08-12
 
 ### Changed
 
-- The Calendar's month switcher (prev/next + current month) now sits
-  centered in the same row as the All/Movies/TV/Anime filter, instead of
-  its own row above the grid.
+- The Calendar's month switcher now sits centered in the same row as
+  the type filter.
 
 ## [0.84.2] - 2026-08-12
-
-### Fixed
-
-- The Calendar's agenda sidebar now scrolls to today's date on load
-  instead of sitting at its oldest past entry (up to 30 days back).
-- Clicking a date on the Calendar grid no longer scrolls the agenda
-  sidebar so far that the sticky header cuts off the top of the target
-  date's entries.
 
 ### Changed
 
 - The Calendar's Both/Watching/Watchlist source filter is temporarily
-  disabled - it now always shows everything.
+  disabled and always shows everything.
+
+### Fixed
+
+- The Calendar's agenda sidebar now scrolls to today's date on load.
+- Clicking a date on the Calendar grid no longer scrolls the agenda
+  sidebar past the target date's entries.
 
 ## [0.84.1] - 2026-08-12
 
 ### Changed
 
-- The Import Data file picker is now custom-styled to match the rest of
-  the site, same as the profile photo upload.
+- The Import Data file picker is now custom-styled to match the rest
+  of the site.
 
 ## [0.84.0] - 2026-08-11
 
 ### Added
 
 - A movie/TV/anime's TMDB rating now shows on its preview page too, not
-  only after it's been added to a list or watched.
+  only after it's tracked.
 
 ### Changed
 
-- Dashboard's "Up Next" card now collapses multiple episodes of the same
-  show releasing on the same day (e.g. a full-season drop) into one card
-  with a "N×" count and an episode-range caption, instead of each one
-  eating a separate slot.
-- Dashboard's "Recently Watched" cards are bigger, and now fall back to
-  TMDB's episode name when the locally stored one is blank.
+- Dashboard's "Up Next" card now collapses multiple episodes of the
+  same show releasing on the same day into one card.
+- Dashboard's "Recently Watched" cards are bigger and fall back to
+  TMDB's episode name when the local one is blank.
 
 ## [0.83.2] - 2026-08-11
 
 ### Changed
 
 - The profile photo upload's file picker is now custom-styled to match
-  the rest of the site instead of the browser's default "Choose File"
-  button.
-- A friend's profile popup now shows "Member since" next to their role,
-  matching what's already shown on your own Account settings page.
+  the rest of the site.
+- A friend's profile popup now shows "Member since" next to their role.
 
 ## [0.83.1] - 2026-08-11
 
 ### Changed
 
 - The profile dropdown's Settings and Log out entries now show an icon
-  next to their label, matching the other header menus.
+  next to their label.
 
 ## [0.83.0] - 2026-08-11
+
+### Added
+
+- History's binge-grouped episode tiles now show a sync-source badge,
+  covering Simkl and Trakt rows too, not just Nuvio.
+
+### Changed
+
+- Removed the redundant MOVIE/TV badge from Movies & TV/Anime's own
+  grid tiles, since every tile there is already the one type the page
+  picked.
 
 ### Fixed
 
 - The streak counter no longer resets to 0 just because you haven't
-  watched anything *yet* today - it only breaks once both today and
-  yesterday are missed, instead of requiring today's watch before it'll
-  show any streak at all.
-
-### Added
-
-- History's binge-grouped episode tiles now show a sync-source badge
-  (N/S/T) next to the play-count badge on the poster, not below the
-  title - and it now covers Simkl- and Trakt-synced rows too, not just
-  Nuvio. Rows added directly in Spool still get no badge at all.
-
-### Changed
-
-- Removed the MOVIE/TV badge from Movies & TV/Anime's own grid tiles -
-  every tile there is already the one type the page's toggle/category
-  picked, so the label was redundant. Still shown everywhere else
-  (Dashboard, search, a title's Collection/similar row, ...) where a
-  grid can mix movies and shows.
+  watched anything yet today.
 
 ## [0.82.3] - 2026-08-11
 
 ### Fixed
 
-- The Movies & TV / Anime and History Filters panels now close when
-  the page is scrolled, instead of staying visually stuck at the
-  screen position they first opened at (their trigger button isn't in
-  a sticky header, so the panel's once-computed position no longer
-  matched the button once you scrolled past it).
+- The Movies & TV/Anime and History Filters panels now close when the
+  page is scrolled instead of staying visually stuck at their original
+  position.
 
 ## [0.82.2] - 2026-08-09
 
 ### Fixed
 
 - The header bell's unread-count badge now updates immediately after
-  marking a notification (or all of them) read, or clearing them all -
-  it previously only refreshed on a full page reload, since it lives
-  outside the notifications dropdown's own swapped region.
+  marking a notification read or clearing them all.
 
 ## [0.82.1] - 2026-08-09
 
 ### Changed
 
-- Runtime bucket labels shortened to `< 90min` / `90-120 min` /
-  `120-150min` / `>150min`.
-- Genres in the Filters panel no longer scroll in a boxed sub-container
-  - they wrap freely, same as the Year decade chips.
+- Runtime bucket labels shortened for clarity.
+- Genres in the Filters panel no longer scroll in a boxed
+  sub-container; they wrap freely.
 
 ## [0.82.0] - 2026-08-09
 
 ### Added
 
-- Redesigned the sign-in page: a "Keep me signed in" checkbox (checked
-  by default; unchecking it expires the session at browser close
-  instead of the usual 2 weeks), a password visibility toggle, "Need
-  access?" / "Locked out? Ask a household admin to reset your
-  password." in place of an email-based reset flow this self-hosted
-  app has no SMTP for, and a footer showing the instance's version
-  (`spool.tracker · vX.Y.Z · self-hosted`).
+- Redesigned the sign-in page: a "Keep me signed in" checkbox, a
+  password visibility toggle, self-service "locked out" guidance in
+  place of an email reset flow, and a footer showing the instance's
+  version.
 
 ## [0.81.1] - 2026-08-09
 
 ### Changed
 
 - Genre/Year/Runtime pills in the Filters panel use a darker unselected
-  background (matching the Language/Availability/Age Rating dropdowns)
-  instead of the lighter shade that blended into the panel itself.
+  background, matching the other filter controls.
 
 ## [0.81.0] - 2026-08-09
 
+### Added
+
+- Marking something as watched for the first time now asks when:
+  "Watched now", "On release date", or "Other date".
+- `tmdb.discover_by_decades()` - merges one `/discover` call per
+  selected decade so picking several decades at once shows a genuine
+  interleaved mix instead of one burying the other.
+
 ### Changed
 
-- Movies & TV / Anime Filters panel: Runtime is now 4 toggle buttons
-  (Under 90 min / 90-120 min / 2-2.5h / 150 min+) instead of a slider,
-  and Year is now a multi-select decade chip row (1950s-2020s, same
-  chip style as Genres) instead of a slider - picking several decades
-  at once (e.g. 1980s and 2020s) shows a genuine interleaved mix of
-  both rather than one burying the other.
+- The Movies & TV/Anime Filters panel: Runtime is now toggle buttons
+  instead of a slider, and Year is now a multi-select decade chip row
+  instead of a slider.
 - History's Filters button now opens the same dropdown popover style as
-  every other page's Filters panel, replacing the old slide-in drawer.
-
-### Added
-
-- `tmdb.discover_by_decades()` - merges one `/discover` call per
-  selected decade (TMDB's date filters can't OR disjoint ranges the
-  way genre filters can), interleaved round-robin so no single decade
-  dominates the results.
-
-### Added
-
-- Marking something as watched for the very first time now opens a
-  popover asking when: "Watched now", "On release date" (the movie's
-  release date or the episode's air date), or "Other date" (a custom
-  date and time). Applies everywhere a "mark as watched" checkmark
-  appears - poster cards, the title detail header, the episode browser,
-  and not-yet-tracked Discover items. Already-watched content keeps the
-  existing rewatch/undo popover unchanged - this only replaces the old
-  silent instant-log-at-"now" behavior for a genuinely first watch.
+  every other page's Filters panel.
 
 ## [0.79.1] - 2026-08-09
 
 ### Changed
 
 - The Collection row now includes the movie you're currently viewing
-  alongside its siblings, instead of omitting it - e.g. viewing Iron Man
-  2 now shows all three Iron Man movies, not just 1 and 3.
+  alongside its siblings, instead of omitting it.
 
 ## [0.79.0] - 2026-08-09
 
 ### Added
 
-- A "Collection" row on a movie's detail/preview page (e.g. Iron Man 2
-  showing Iron Man 1 and 3 below it), sourced from TMDB - shown above "If
-  you like this, check out" whenever the movie belongs to a franchise
-  with other entries. TV/anime shows have no franchise-grouping concept
-  in TMDB's data, so this only ever appears for movies.
+- A "Collection" row on a movie's detail/preview page, sourced from
+  TMDB, shown whenever the movie belongs to a franchise with other
+  entries.
 
 ## [0.78.1] - 2026-08-07
 
 ### Changed
 
-- Rating pills are bigger and show each service's actual logo (TMDB,
-  IMDb, Rotten Tomatoes, Metacritic, Trakt) instead of a plain color dot.
+- Rating pills are bigger and show each service's actual logo instead
+  of a plain color dot.
 
 ## [0.78.0] - 2026-08-07
 
-### Changed
-
-- Rating pills redesigned to match the rest of the page: muted, bordered,
-  no solid color fills, with a small colored dot as the only accent.
-  Each provider now shows on its own native scale (IMDb/Trakt out of 10,
-  Metacritic out of 100, Rotten Tomatoes as a percentage) instead of
-  MDBList's normalized score, and the always-on TMDB rating (from
-  Spool's own TMDB integration, not MDBList's) is back as the first
-  pill.
-
 ### Added
 
-- The rating row now fills itself in automatically once a title's first-
-  ever MDBList fetch completes, instead of requiring a manual page
-  reload to see it.
+- The rating row now fills itself in automatically once a title's first
+  MDBList fetch completes.
+
+### Changed
+
+- Rating pills redesigned to match the rest of the page; each provider
+  now shows on its own native scale instead of a normalized score.
 
 ## [0.77.0] - 2026-08-07
 
 ### Added
 
 - A "Clear" link next to each configured Trakt/Simkl/TMDB/MDBList
-  credential in Server Integrations, for actually removing a
-  server-stored override (a blank field there always meant "leave
-  unchanged", so there was previously no way to fall back to the
-  server's .env value once a credential had been saved from the UI).
-
-### Fixed
-
-- Pressing Enter in any Server Integrations field used to submit the
-  form via whichever "Test connection" button happened to be first on
-  the page, regardless of which field you were actually in - e.g. typing
-  an MDBList key and hitting Enter would test Trakt instead. Enter no
-  longer implicitly submits any of these fields.
-- Saving or testing a credential re-rendered the field blank, which
-  looked like the value had been deleted even though it was saved (or,
-  for Test, was never meant to be saved in the first place). Both now
-  show back exactly what was just submitted.
+  credential in Server Integrations, for removing a server-stored
+  override.
 
 ### Changed
 
 - A title's rating row now shows only IMDb/Rotten Tomatoes/Metacritic/
-  Trakt (via MDBList) as icons instead of text labels, moved above the
-  description instead of below it, and no longer duplicates the TMDB
-  rating shown elsewhere on the page.
+  Trakt as icons, moved above the description.
+
+### Fixed
+
+- Pressing Enter in a Server Integrations field no longer submits the
+  wrong "Test connection" button.
+- Saving or testing a credential no longer re-renders the field blank.
 
 ## [0.76.2] - 2026-08-07
 
 ### Changed
 
-- Server Integrations' inline "Test" buttons now match the height of
-  their input field and use the app's regular soft-button style instead
-  of a bold outline that didn't match the rest of the design.
+- Server Integrations' inline "Test" buttons now match their input
+  field's height and use the app's regular button style.
 
 ## [0.76.1] - 2026-08-07
 
 ### Changed
 
 - Server Integrations' "Test connection" buttons moved inline next to
-  each field instead of sitting below it, and every secret/API key field
-  gets an eye icon to reveal what you typed without needing to retype it.
+  each field, and secret/API key fields gained a reveal toggle.
 
 ## [0.76.0] - 2026-08-07
 
 ### Added
 
-- Optional supplementary ratings from [MDBList](https://mdblist.com) (IMDb,
-  Rotten Tomatoes, Metacritic, and more) alongside the TMDB rating on a
-  title's page. Configure a free MDBList API key in Admin Dashboard →
-  Server Integrations to enable it; leave it blank to keep showing the
-  TMDB rating only. Ratings are fetched lazily (only for titles someone
-  actually opens, never the whole catalog at once) as a background job so
-  a page load never waits on it, refreshed on a schedule that adapts to
-  how recent and how popular a title is, and respect MDBList's free-tier
-  daily request quota (pausing for the day and logging it to Settings →
-  Logs if ever close to the limit). Admins can also force an immediate
-  refresh from a title's page.
+- Optional supplementary ratings from MDBList (IMDb, Rotten Tomatoes,
+  Metacritic, and more) alongside the TMDB rating. Configure a free
+  MDBList API key in Admin Dashboard → Server Integrations to enable
+  it.
 
 ## [0.75.1] - 2026-08-06
 
 ### Fixed
 
-- A title matched/imported before this app started recording which TMDB
-  catalog (movie vs. TV) it came from could permanently show as
-  untracked on Trending/Popular/similar/Because You Watched, even though
-  it was correctly marked watched in History. It now matches via its
-  local movie/TV type as a fallback and fixes its own record so this
-  only ever has to happen once per title.
+- A title imported before this app tracked which TMDB catalog it came
+  from could permanently show as untracked on Trending/Popular/similar
+  rows, even though it was correctly marked watched in History.
 
 ## [0.75.0] - 2026-08-06
 
 ### Added
 
 - The episode browser's watched checkmark now offers a menu once an
-  episode is watched (View history plays / Watch again / Remove last
-  watched / Remove all watched history), instead of blindly logging
-  another play on every click - undoing a watch no longer requires going
-  to History.
-- "Mark season watched" / "Mark all watched" flip to "Unmark season
-  watched" / "Unmark all watched" once every episode in that scope is
-  already watched, clearing every play in one action.
+  episode is watched (view plays, watch again, remove last/all
+  watched), instead of always logging another play.
+- "Mark season watched"/"Mark all watched" flip to "Unmark" once every
+  episode in that scope is already watched.
 
 ## [0.74.0] - 2026-08-06
 
 ### Added
 
-- Notifications get a "For you" / "System" toggle to separate release and
-  recommendation notifications from sync-failure/update-available ones,
-  a wider panel, and slightly larger text.
+- Notifications get a "For you"/"System" toggle to separate release and
+  recommendation notifications from sync-failure/update-available ones.
 
 ### Changed
 
-- Settings → Logs now updates itself live: a "running" sync/backfill/import
-  row flips to success/failed on its own, no manual refresh.
-- Marking or unmarking a watch (an episode, a whole season, a whole show,
-  or the header's own Watched toggle) now updates the title page's "Your
-  history" card immediately - it used to only refresh on the next full
-  page load.
+- Settings → Logs now updates itself live instead of requiring a
+  manual refresh.
+- Marking or unmarking a watch now updates the title page's "Your
+  history" card immediately.
 
 ## [0.73.0] - 2026-08-05
 
 ### Changed
 
 - Settings' left-hand nav now has an icon next to every item.
-- The Logs filter panel gets a stronger shadow and a lighter surface so
-  it visually separates from the page instead of blending into it.
 - "Keep logs for" moved from the Logs tab header into the Maintenance
-  tab, alongside the other cleanup-job settings.
+  tab.
 
 ## [0.72.0] - 2026-08-05
 
 ### Added
 
-- Settings → Logs gets a proper filter panel: a "Filters" button opens a
-  panel with Profile / Action Type / Provider / Status pill filters and a
-  date range (with Today/Last 7 days/Last 30 days/This month presets),
-  replacing the old plain Profile/Sort dropdown pair. Disconnecting
-  Trakt/Simkl/Nuvio is now logged (previously invisible in the Logs tab
-  entirely), and every log entry that relates to a specific provider
-  (including the TMDB-touching backfill maintenance actions) is now
-  taggable and filterable by it.
+- Settings → Logs gets a proper filter panel: Profile / Action Type /
+  Provider / Status pill filters and a date range, replacing the old
+  plain dropdown pair.
 
 ## [0.71.0] - 2026-08-05
 
 ### Added
 
-- Settings → Logs: a "Keep logs for N days" field (blank = keep forever,
-  the previous behavior) - a nightly job prunes SyncLog/DataLog rows past
-  that age. Never touches the separate Activity Log, which is a security
-  audit trail meant to outlive routine sync/import log rows.
+- Settings → Logs: a "Keep logs for N days" field - a nightly job
+  prunes old sync/import log rows past that age.
 
 ### Changed
 
@@ -1535,1070 +1013,720 @@ migration/env step or breaking an existing workflow.
 
 ### Added
 
-- Settings → Server Integrations: a "Test connection" button next to each
-  of Trakt/Simkl/TMDB's credential fields, making one live request with
-  the currently typed (or already-saved, if left blank) value and
-  reporting success/failure without saving anything. TMDB's check fully
-  validates the key; Trakt/Simkl's only confirm the client ID is live,
-  since neither checks the secret outside the OAuth flow.
-- Settings → Profiles: the server owner can now reset another profile's
-  password directly (a "Set new password" form next to promote/demote/
-  delete), for when a household member forgets theirs. Logged to the
-  existing Activity Log; the target's other sessions are invalidated on
-  their next request, same as any password change.
-- Settings → Maintenance (new tab, owner-only): one-click buttons for the
-  `merge_duplicate_titles` (preview/commit) and `backfill_posters`/
-  `backfill_genres`/`backfill_completion`/`backfill_rewatches` management
-  commands, previously reachable only via `docker compose exec web
-  python manage.py ...`. The three TMDB-touching backfills run in the
-  background (Celery) since a real library can take longer than a
-  request's timeout; results show up automatically in the existing Logs
-  tab.
-
-### Fixed
-
-- Saving Server Integrations credentials, or running any of the actions
-  above, no longer bounces the admin back to the Profiles tab - it now
-  stays on the tab they were on.
-
-### Added
-
-- Search now has a trigram GIN index (`pg_trgm`) on title name for
-  Postgres deployments, speeding up the search bar's substring match on
-  larger libraries. Postgres-only - both the extension activation and
-  the index degrade to a no-op/plain index on SQLite automatically
-  (confirmed via `sqlmigrate`), so the dev-fallback path is unaffected.
+- Settings → Server Integrations: a "Test connection" button next to
+  each credential field, reporting success/failure without saving.
+- Settings → Profiles: the server owner can now reset another
+  profile's password directly.
+- Settings → Maintenance: one-click buttons for `merge_duplicate_titles`
+  and the TMDB backfill management commands, previously reachable only
+  via the command line.
+- Search now has a trigram index on title name for Postgres
+  deployments, speeding up substring matching on larger libraries.
 
 ### Changed
 
-- Poster/backdrop/still images in every grid, carousel, and list context
-  (Discover, History, Watchlist, Dashboard, Calendar, Cast, episode
-  browser) now render as `<img loading="lazy">` instead of a CSS
-  background-image, so images below the fold no longer all load
-  eagerly on page load. Above-the-fold hero images (title/person/
-  collection header posters) are left eager on purpose. Visually
-  verified via screenshot - identical layout, badges, and aspect ratios.
+- Images across the app now render as `<img loading="lazy">` instead
+  of a CSS background image, so images below the fold no longer all
+  load eagerly.
+
+### Fixed
+
+- Saving Server Integrations credentials, or running any Maintenance
+  action, no longer bounces the admin back to the Profiles tab.
 
 ## [0.68.0] - 2026-08-05
 
 ### Fixed
 
 - History's day-grouped pagination no longer loads a profile's entire
-  watch history into memory before paginating - it now fetches only the
-  distinct watched dates, then just the events on the requested page.
-  Measured on a 25k-event profile: ~580ms → ~77ms per page load (7.5x),
-  and a deep page (e.g. page 50) now costs the same as page 1 instead of
-  scaling with total history size.
-- `get_movie_details`/`get_tv_details` (TMDB runtime/episode-count
-  lookups, called on every TV show detail/episode-browser page view)
-  now go through the same 6h cache every other TMDB lookup already uses
-  - previously an uncached request per page view.
-- Stats page: `current_streak`/`longest_streak` and
-  `watch_time_breakdown` issued redundant per-type queries (12 queries
-  for watch-time breakdown alone); now 2 conditional-aggregate queries.
-  Measured: 39 → 28 queries for one Stats page load.
-- Poster images in grid/carousel tiles (Discover, History, Watchlist,
-  Dashboard, Calendar) now request TMDB's smaller w185/w342 sizes
-  instead of the w500 stored on every title, cutting image payload for
-  the highest-tile-count pages.
+  watch history into memory before paginating.
+- TMDB runtime/episode-count lookups now go through the same cache
+  every other TMDB lookup uses.
+- Stats page queries for streak and watch-time breakdown are now
+  batched instead of issuing one query per type.
+- Poster images in grid/carousel tiles now request smaller TMDB image
+  sizes, cutting page weight.
 
 ## [0.67.0] - 2026-08-05
 
 ### Changed
 
-- Upgraded Django 5.1.15 → 5.2.16 LTS. Django 5.1 reached end-of-life on
-  2025-12-03 and stopped receiving security patches; 5.2 is the current
-  LTS release, supported until 2028-04. No code changes were needed -
-  full test suite (1155 tests) passes unchanged, no deprecation warnings.
+- Upgraded Django 5.1.15 → 5.2.16 LTS.
 
 ## [0.66.0] - 2026-08-05
 
 ### Added
 
-- Rate limiting on login and password/credential-change endpoints (10
-  attempts per 5 minutes per IP) - Django doesn't protect these by
-  default. Fails open if the cache backend is briefly unreachable rather
-  than locking everyone out.
+- Rate limiting on login and password/credential-change endpoints.
 - CSV/JSON/zip import now enforces a 50MB upload size limit.
 
 ### Changed
 
-- Trakt/Simkl OAuth tokens and any Trakt/Simkl/TMDB credentials entered
-  via Settings → Server are now encrypted at rest (previously plaintext
-  columns) - same Fernet convention `crypto.py` already used for Nuvio's
-  refresh token. Existing values are encrypted in place by this upgrade's
-  migration, no action needed.
+- Trakt/Simkl OAuth tokens and server-entered credentials are now
+  encrypted at rest.
 - `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SECURE_SSL_REDIRECT`,
-  and HSTS are now configurable via `.env` (all default off, so this
-  doesn't change behavior for existing installs) - see
-  docs/CONFIGURATION.md for when to turn them on.
-- CSV history export neutralizes formula-injection characters
-  (`=`/`+`/`-`/`@`) in exported title names, and CSV/JSON/zip import
-  truncates title length and validates year/season/episode fields before
-  they reach the database.
-- Bumped `cryptography` to 50.0.0 (patches a padding-oracle CVE in a
-  code path this app doesn't use, but worth clearing anyway).
+  and HSTS are now configurable via `.env`.
+- CSV export neutralizes formula-injection characters in exported
+  title names; CSV/JSON/zip import validates and truncates fields
+  before they reach the database.
+- Bumped `cryptography` to 50.0.0.
 
 ### Security
 
-- Full access-control/IDOR review of owner-only pages and profile-scoped
-  data - no issues found; documented for future reference.
+- Full access-control/IDOR review of owner-only pages and
+  profile-scoped data - no issues found.
 
 ## [0.65.3] - 2026-08-05
 
 ### Fixed
 
-- Trakt/Simkl import (both the "Export now" zip/JSON upload and the OAuth
-  sync) now uses the TMDB id Trakt/Simkl already hand over for each item
-  instead of re-deriving it with a fuzzy name/year search - the fuzzy
-  search could come up empty or match the wrong TMDB entry, leaving an
-  already-watched title (visible in History) showing as unwatched on the
-  Movies & TV / Anime grid because it never linked up with the grid's own
-  live TMDB data. A title that's already missing this link gets it
-  backfilled the next time it's re-imported or re-synced.
+- Trakt/Simkl import now uses the TMDB id Trakt/Simkl already provide
+  instead of re-deriving it with a fuzzy search, fixing titles that
+  showed as unwatched on the Discover grid despite being in History.
 
 ## [0.65.2] - 2026-08-02
 
 ### Fixed
 
 - Movies & TV / Anime's results grid no longer leaves a stray tile or
-  two dangling alone on the last row - the column count is purely a
-  function of the responsive auto-fill grid's CSS, not knowable
-  server-side, so this measures the actually-rendered grid after paint
-  and hides whichever tiles landed in an incomplete final row, re-run
-  on window resize.
+  two dangling alone on the last row.
 
 ## [0.65.1] - 2026-08-02
 
 ### Fixed
 
 - Calendar's agenda sidebar no longer grows unbounded when it has more
-  releases than the calendar grid has room for - `align-items: stretch`
-  can only grow a shorter flex item up to match a taller one, never the
-  reverse, so a long agenda list was dragging the whole row down to its
-  own height instead of being capped and scrolling internally. Now
-  pinned to the calendar grid's actual rendered height via JS
-  (ResizeObserver, kept in sync across month navigation), in both
-  directions - a short list stretches to fill it, a long one scrolls
-  inside it.
-- The refresh button's tooltip and confirmation now make clear the sync
-  runs in the background (same as Settings' "Sync now" buttons) and
-  won't be reflected until the page is reloaded a few seconds later -
-  clicking it doesn't refresh what's currently on screen.
+  releases than the grid has room for.
+- The refresh button's tooltip now makes clear the sync runs in the
+  background and won't be reflected until the page is reloaded.
 
 ## [0.65.0] - 2026-08-02
 
 ### Added
 
-- Calendar: a manual refresh button (next to the source filter) kicks
-  off the release sync immediately instead of waiting for its nightly
-  run.
+- Calendar: a manual refresh button kicks off the release sync
+  immediately instead of waiting for its nightly run.
 
 ### Changed
 
-- Calendar's source filter ("Watching & Watchlist"/"Watching only"/
-  "Watchlist only") is now a Both/Watching/Watchlist segmented tab
-  control matching the rest of the app, sized to the agenda sidebar's
-  width, instead of a plain dropdown.
+- Calendar's source filter is now a segmented tab control matching the
+  rest of the app.
 - The agenda sidebar now stretches to match the calendar grid's actual
-  height instead of a fixed max-height, so a short release list no
-  longer leaves empty space below it when the grid is taller.
+  height.
 
 ## [0.64.1] - 2026-08-02
 
 ### Added
 
 - Episode browser: an upcoming episode now shows a countdown pill
-  ("Tomorrow", "In 8 days", "In 3 weeks", "In 2 months") based on its
-  TMDB air date, so you can tell when it's actually coming out instead
-  of just that it hasn't aired yet. No pill for an episode TMDB hasn't
-  scheduled a date for at all.
+  based on its TMDB air date.
 
 ## [0.64.0] - 2026-08-02
 
 ### Changed
 
 - Calendar's release sync now pulls a TV show's whole current season
-  (every dated episode, past and future) instead of only TMDB's single
-  "next episode" - a weekly show now shows all its upcoming air dates at
-  once instead of one at a time, and already-aired episodes populate the
-  calendar's past months instead of leaving them empty. Also backfills
-  the previous season when the current one premiered within the last 60
-  days, and falls back to the last-aired season for a show with nothing
-  currently upcoming (ended, or between seasons). Movie releases are now
-  synced regardless of whether the date has already passed, so a movie
-  added to a list after it came out still shows up when browsing back.
+  instead of only TMDB's single "next episode". Movie releases are now
+  synced regardless of whether the date has already passed.
 
 ## [0.63.1] - 2026-08-02
 
 ### Fixed
 
-- Nuvio sync now backfills the History "N" marker onto rows that were
-  logged before the marker existed - it re-pulls the whole Nuvio history
-  on every sync anyway, so a matching already-logged row just gets its
-  source tagged instead of being skipped outright. Trigger a sync (or
-  wait for the next scheduled one) to have it apply to existing history.
+- Nuvio sync now backfills the History "N" source marker onto rows
+  logged before the marker existed.
 
 ## [0.63.0] - 2026-08-02
 
 ### Added
 
-- History: rows synced in from Nuvio now carry a small "N" marker (poster
-  corner on single tiles, next to the title on binge-group tiles) so
-  they're visually distinguishable from manually-logged/other-source
-  entries - a deliberately temporary debug aid, not a general provenance
-  display.
-- Dashboard's Social Activity row: episode watches now show a "S1:E5"
-  style pill in the poster's bottom-right corner alongside the existing
-  "who watched it" pill, so you can tell which episode without opening
-  the title.
+- History rows synced from Nuvio now carry a small "N" marker so
+  they're visually distinguishable from other sources.
+- Dashboard's Social Activity row: episode watches now show a
+  season/episode pill on the poster.
 
 ## [0.62.3] - 2026-08-02
 
 ### Changed
 
 - Dashboard's Watching row: the progress bar now sits above the title
-  instead of below it, redesigned as a filled pill (rounded to match
-  the watched/list button row above it, slightly shorter) with its
-  caption ("S1E1 of 8", "126 min left") centered inside the bar itself
-  rather than as separate text underneath.
+  as a filled pill with its caption centered inside it.
 
 ## [0.62.2] - 2026-08-02
 
 ### Changed
 
-- Person detail page redesign: header and personal stats now live in one
-  unified card (photo with an accent ring, "Known for X - also Y, Z"
-  computed from actual credit counts rather than TMDB's single guess or
-  display order, birthday formatted with the full month name, inline
-  stat row with a tooltip on the credit-cap figure). Each filmography
-  section's All/Watched/Unwatched filter now uses the same segmented-tab
-  style as the Movies & TV page's Movies/TV and category tabs. Each
-  section also now shows only its first two rows by default, with a
-  "Show all N credits" button to reveal the rest - the clip is exactly
-  two grid rows regardless of viewport width or which filter is active,
-  not a fixed item count.
+- Person detail page redesign: header and personal stats now live in
+  one unified card. Each filmography section shows only its first two
+  rows by default, with a "Show all N credits" button to reveal the
+  rest.
 
 ## [0.62.1] - 2026-08-02
 
 ### Fixed
 
-- A movie and a tv/anime title sharing the same raw TMDB numeric id (TMDB
-  numbers movies and tv shows in separate, overlapping namespaces) could
-  get treated as the same title anywhere a TMDB id alone was matched
-  against the local library - a tv credit on a person's filmography page
-  could show an unrelated already-tracked movie's watched badge/count
-  and link straight through to that movie's page instead of its own.
-  Matching now also checks the stored `tmdb_kind` (movie vs. tv), not
-  just the numeric id, in `discover_action_context` (Cast/similar/
-  filmography tiles, Movies & TV/Anime grids, search), `title_preview`'s
-  already-tracked redirect, and preview materialization (mark
-  watched/add to list/watchlist).
+- A movie and a TV/anime title sharing the same raw TMDB numeric id
+  could get treated as the same title when matched against the local
+  library; matching now also checks the stored TMDB kind (movie vs.
+  TV).
 
 ## [0.62.0] - 2026-08-02
 
 ### Added
 
-- Person detail page (`/person/<tmdb_id>/`) - click through from any cast
-  or director credit on a movie, TV, or anime title page. Shows TMDB's
-  bio/photo/birthday alongside household-specific stats computed from
-  your own watch history (titles watched vs. total credits, your average
-  rating across their rated work, total watch time, and overlap with any
-  other profile that shares activity), plus a filmography grouped into
-  Acting/Directing/Writing sections, each filterable to All/Watched/
-  Unwatched and sorted watched-first, newest release first within each
-  group.
+- Person detail page (`/person/<tmdb_id>/`) - click through from any
+  cast or director credit to see their bio/photo alongside
+  household-specific stats and a filmography grouped by
+  Acting/Directing/Writing.
 
 ### Changed
 
-- Cast/director entries on the title detail page are now links (when
-  TMDB has a person id for them) instead of plain text.
+- Cast/director entries on the title detail page are now links when
+  TMDB has a person id for them.
 
 ## [0.61.6] - 2026-08-02
 
 ### Changed
 
-- Removed the redundant circular "watched" checkmark on episode
-  thumbnails in the episode browser - the box watched-button next to it
-  already shows the same state.
+- Removed the redundant watched checkmark on episode thumbnails in the
+  episode browser.
 - The "Details" panel on a show/anime's title page now sits between
-  Cast and Episodes instead of after Episodes (unchanged for movies,
-  which never have an episode browser to sit above).
+  Cast and Episodes.
 
 ## [0.61.5] - 2026-08-01
 
 ### Fixed
 
-- Horizontally-scrolling card rows (Cast/similar titles on the title
-  detail page, Watching/Featured Lists on the dashboard) now use a thin,
-  theme-colored scrollbar instead of falling back to the raw OS one.
+- Horizontally-scrolling card rows now use a thin, theme-colored
+  scrollbar instead of the raw OS one.
 
 ## [0.61.4] - 2026-08-01
 
 ### Removed
 
-- The "Not in your library yet — this is a live preview from TMDB..."
-  banner on preview title pages.
+- The "Not in your library yet" banner on preview title pages.
 
 ## [0.61.3] - 2026-08-01
 
 ### Changed
 
-- Title detail hero now sits flush against the navbar (removed the
-  leftover top gap from `<main>`'s own padding) and no longer has the
-  film-strip perforation borders down its left/right edges.
+- Title detail hero now sits flush against the navbar and no longer
+  has film-strip perforation borders.
 - "If you like this, check out" is now a single horizontally scrolling
-  row instead of a wrapping grid, matching the Cast row's pattern.
+  row instead of a wrapping grid.
 
 ## [0.61.2] - 2026-08-01
 
 ### Fixed
 
-- Title detail hero's full-bleed edges (0.61.1) left a growing gap on
-  wide monitors - the negative margin reused `<main>`'s own padding
-  percentage verbatim, but percentage margins/padding resolve against
-  the *element's own* containing block, and this div's containing block
-  is already narrowed by that same padding, not the wider box `<main>`'s
-  own percentage is based on. Corrected to the value that actually
-  cancels it at every width (verified at 1280/1920/2560px).
+- Title detail hero's full-bleed edges left a growing gap on wide
+  monitors; corrected the margin so it cancels out at every width.
 
 ## [0.61.1] - 2026-08-01
 
+### Added
+
+- A "Details" panel below Cast (status, original language, budget,
+  revenue, production companies, country - whichever the title
+  actually has).
+
 ### Changed
 
-- Title detail page's hero backdrop is now full-bleed (edge-to-edge,
-  taller, no card border) instead of sitting in a padded, rounded panel -
-  poster/title/watched-button sit directly on the image behind a
-  stronger two-layer gradient scrim. The "Watched" pill now has a soft
-  green glow instead of reading as a plain button.
-- Added a "Details" panel (status, original language, budget, revenue,
-  production companies, country - whichever the title actually has)
-  directly below Cast, and moved "If you like this, check out" to
-  follow it immediately - closes the large empty gap that used to sit
-  between Cast and the carousel on titles with a short main column next
-  to a tall sidebar.
+- Title detail page's hero backdrop is now full-bleed instead of
+  sitting in a padded panel.
+- "If you like this, check out" now follows the new Details panel
+  immediately.
 - Sidebar's "Recommend to" list now caps at 4 visible people with a
-  "+N more" / "Show less" toggle, instead of always rendering the full
-  friend list and growing the sidebar indefinitely as it does.
+  "+N more" toggle.
 
 ## [0.61.0] - 2026-08-01
 
-### Fixed
-
-- Trakt/Simkl/Nuvio sync each only checked their *own* provider id for an
-  already-tracked title before creating a new one, so a title already
-  synced through one provider got a second, duplicate Title (with its own
-  WatchEvent) the first time a different provider synced it - symptoms
-  were a title showing "not watched" on Movies & TV/Anime despite History
-  showing it watched, or the same watch appearing twice in History at the
-  exact same timestamp. All three now check for an existing Title matched
-  by TMDB id first. New `manage.py merge_duplicate_titles` command
-  (`--commit` to apply, dry run by default) cleans up any duplicates
-  already created before this fix - see the README.
-
 ### Added
 
-- Title detail page's synopsis now has a "Description" heading above it,
-  matching Cast/Lists/Your History's own section headers instead of
-  reading as an unlabeled paragraph.
+- Title detail page's synopsis now has a "Description" heading above
+  it.
+
+### Fixed
+
+- Trakt/Simkl/Nuvio sync could each create a duplicate title for one
+  already synced through a different provider; all three now check for
+  an existing title matched by TMDB id first. A new
+  `manage.py merge_duplicate_titles` command cleans up any duplicates
+  already created.
 
 ## [0.60.5] - 2026-07-31
 
 ### Changed
 
-- The episode browser's "Mark season watched"/"Mark all watched" buttons
-  now match the season dropdown's height exactly, instead of sitting
-  visibly shorter next to it.
+- The episode browser's "Mark season watched"/"Mark all watched"
+  buttons now match the season dropdown's height.
 - An episode card's per-episode watched button is now a box that fills
-  the available height next to the episode's title/runtime line, instead
-  of a small fixed-size circle - same fill/checkmark idea as the poster
-  grid's own watched button, just narrower.
+  the available height, matching the poster grid's own watched button.
 
 ## [0.60.4] - 2026-07-31
 
 ### Added
 
-- History tiles' delete (×) button is now always visible instead of
-  hover-only. Binge-group tiles get their own delete button too - it
-  removes every play in the group at once, guarded by a confirm dialog
-  that states the exact count (e.g. `Remove all 150 plays of "Bleach"
-  from your watch history?`) so a single click can't silently wipe a
-  whole binge.
+- History tiles' delete button is now always visible instead of
+  hover-only. Binge-group tiles get their own delete button, guarded
+  by a confirm dialog stating the exact play count.
 
 ## [0.60.3] - 2026-07-31
 
 ### Changed
 
-- History now paginates by calendar date (10 dates per page) instead of
-  by rendered tile count - a page's length is predictable regardless of
-  how many tiles a given date happens to produce, and a heavy binge day
-  no longer changes how many *other* dates fit alongside it on the page.
+- History now paginates by calendar date (10 dates per page) instead
+  of by rendered tile count.
 
 ## [0.60.2] - 2026-07-31
 
 ### Fixed
 
-- History paginated by raw watch-event rows instead of the tiles actually
-  rendered on screen, so a single day with a big binge-marked run
-  (consecutive episodes of one show collapse into one group tile) could
-  eat an entire page's row budget and leave that page showing just one
-  tile with the rest blank. Pagination now operates on the grouped tiles
-  themselves, so a page's density matches what's actually on screen.
+- History paginated by raw watch-event rows instead of the tiles
+  actually rendered, so a heavy binge day could eat an entire page's
+  budget. Pagination now operates on the grouped tiles themselves.
 
 ## [0.60.1] - 2026-07-31
 
-### Fixed
-
-- Nuvio-synced "Watching" entries could sit stuck at "0 min left"/
-  "1 min left" indefinitely — Nuvio's own continue-watching feed can keep
-  reporting something as in-progress even once actually finished (many
-  players never clear a completed entry on their own), and every sync was
-  force-writing that back as `WATCHING` with no way out. An item within 2
-  minutes of its own duration is now treated as finished instead and
-  marked `COMPLETED`, dropping it out of Watching on the next sync -
-  watch history is untouched either way.
-
 ### Added
 
-- A dismiss ("×", shown on hover) on Dashboard Watching tiles for entries
-  that don't fit the above — abandoned partway through, for instance,
-  which nothing can auto-detect. Removes only the progress row; your
-  watch history is never touched.
+- A dismiss option on Dashboard Watching tiles for entries abandoned
+  partway through, which nothing can auto-detect. Removes only the
+  progress row; watch history is untouched.
+
+### Fixed
+
+- Nuvio-synced "Watching" entries could sit stuck near-finished
+  indefinitely; an item within 2 minutes of its own duration is now
+  treated as finished and marked completed.
 
 ## [0.60.0] - 2026-07-31
 
 ### Added
 
-- **Nuvio Cloud integration** — a third sync source alongside Trakt/Simkl,
-  per-profile, pulling watch history and continue-watching progress. Unlike
-  Trakt/Simkl, Nuvio has no public developer API or OAuth flow: each
-  profile connects with its own email/password (never stored — exchanged
-  once for a refresh token, which is encrypted at rest with a new Fernet
-  helper keyed off `DJANGO_SECRET_KEY`), needs no server-owner setup step,
-  and picks which Nuvio profile to sync from if the account has more than
-  one. Runs on the same daily background schedule and "Sync now" flow as
-  Trakt/Simkl, and shows up in the same Settings & Import → Logs tab.
-- New `tmdb.find_by_imdb_id` — matches a title by IMDb id directly rather
-  than a fuzzy title/year search, used when Nuvio hands over an IMDb id.
+- Nuvio Cloud integration - a third sync source alongside Trakt/Simkl,
+  per-profile, pulling watch history and continue-watching progress via
+  email/password login.
+- New `tmdb.find_by_imdb_id` - matches a title by IMDb id directly,
+  used when Nuvio hands over an IMDb id.
 
 ### Note
 
-- Nuvio has no documented API. This integration
-  (`tracker/integrations/nuvio.py`) is built from a third-party
-  open-source reference implementation
-  ([github.com/ellite/scrob](https://github.com/ellite/scrob)), not
-  official docs, and is unverified against a live Nuvio account — same
-  caveat this project already carries for Simkl. A failed sync surfaces
-  its real error in Settings & Import → Logs rather than failing silently.
+- Nuvio has no documented API; this integration is built from a
+  third-party open-source reference implementation and is unverified
+  against a live account.
 
 ## [0.59.1] - 2026-07-31
 
-### Fixed
-
-- Importing a real Trakt "Export now" zip could 500 partway through and
-  miss most rewatch history. Root-caused against an actual export:
-  1. The zip's ~85 non-history JSON files (aggregated watched-movies/
-     watched-shows, ratings, lists, collection, network data, etc.) were
-     being parsed too, dumping thousands of spurious "missing title"/
-     "unparseable watched_at" errors — only `watched-history-*.json`
-     turned out to hold real per-play events; the aggregate files can't
-     reconstruct rewatch history anyway (just a play count, no per-play
-     timestamps). Non-history JSON files are now skipped entirely.
-  2. A real export's ~10,500 watch events took ~85s to commit
-     synchronously (measured, with zero TMDB lookups) — well past any
-     reverse-proxy/request timeout, which is what produced the 500 and
-     left only a partial, timing-dependent slice of history imported.
-     Imports over 500 rows now run in the background via Celery (the
-     same mechanism Trakt/Simkl sync already uses) instead of inside the
-     request — Settings → Logs shows it as `running` immediately and
-     flips to `success`/`failed` once the worker finishes. Small
-     imports are unaffected and still commit instantly with the same
-     result page as before.
-
 ### Added
 
-- Import Data now accepts `.json` and `.zip` files, not just `.csv` —
-  including Trakt's own "Export now" zip (a bundle of JSON files, not
-  CSVs). JSON entries are read either in Trakt's own history/API shape
-  or a generic flat object (same field names as the CSV importer's
-  columns); a zip is walked for every `.csv`/`.json` file inside and
-  each is parsed and merged into one import, skipping anything that
-  isn't watch-history data (images, a README, etc.).
+- Import Data now accepts `.json` and `.zip` files, not just `.csv`,
+  including Trakt's own export zip.
 - Rows sourced from Trakt-shaped JSON/zip imports now carry a Trakt id,
-  so they dedupe against a title already synced in via Trakt OAuth
-  instead of only matching by name/year the way CSV imports always have.
+  so they dedupe against a title already synced via Trakt OAuth.
+
+### Fixed
+
+- Importing a real Trakt export zip could fail partway through and
+  miss most rewatch history. Non-history JSON files in the zip are now
+  skipped entirely, and imports over 500 rows now run in the background
+  instead of inside the request, avoiding request timeouts.
 
 ### Note
 
-- The exact JSON structure inside Trakt's real export zip is unverified
-  against a live export (matches the existing caveat on the Trakt OAuth
-  sync code) — if your real file doesn't match, its rows will show up as
-  parse errors in the preview step rather than failing silently or
-  importing wrong data.
+- The exact JSON structure inside a real Trakt export zip is
+  unverified against a live export; a mismatched file will show as
+  parse errors in the preview step rather than importing wrong data.
 
 ## [0.58.1] - 2026-07-31
 
 ### Changed
 
-- Settings → Logs is wider now (matches the rest of Settings on most
-  panels, but the log table needed the extra room) and gained a profile
-  filter and a newest/oldest sort toggle.
+- Settings → Logs is wider now and gained a profile filter and a
+  newest/oldest sort toggle.
 - The merged sync/import/export/connect feed now looks back over the
-  most recent 1000 rows per table instead of 200 (filtering to one
-  profile narrows the same cap to just that profile's rows), so older
-  history stays reachable through pagination instead of silently falling
-  off the end. Note this only affects `SyncLog`, which already had
-  history before this feature shipped — `DataLog` (CSV import/export,
-  Trakt/Simkl connect attempts) only started recording with v0.58.0, so
-  there's nothing from before that date to surface.
+  most recent 1000 rows per table instead of 200.
 
 ## [0.58.0] - 2026-07-30
 
 ### Added
 
-- Settings → Admin → **Logs** — a new tab that relocates the old
-  standalone Sync Log page and broadens it into one paginated,
-  reverse-chronological feed across every profile: Trakt/Simkl syncs
-  *and* connect attempts, and CSV import/export, each with status, item
-  counts, and an expandable/copyable error message where applicable.
-  Connect failures (expired OAuth state, missing authorization code, a
-  failed token exchange) and CSV import failures were previously only
-  ever shown once via a transient message — now persisted via a new
-  `DataLog` model alongside the existing `SyncLog`.
-- `/settings/sync-log/` now redirects to `Settings → Logs` instead of
-  rendering its own page — old links/bookmarks still work.
+- Settings → Admin → Logs - a new tab that broadens the old Sync Log
+  page into one paginated feed across every profile, covering
+  Trakt/Simkl syncs and connect attempts, and CSV import/export, each
+  with status and an expandable error message.
+- `/settings/sync-log/` now redirects to Settings → Logs.
 
 ## [0.57.0] - 2026-07-30
 
 ### Added
 
-- `manage.py seed_demo` — populates a disposable dev database with
-  realistic demo data (a profile with weeks of watch history, lists, a
-  watchlist, and upcoming releases). Refuses to run outside `DEBUG` unless
-  `--force` is passed, since it's throwaway data never meant for a real
-  instance.
-- `setup.sh` / `setup.ps1` — one-shot install scripts that write a working
-  `.env` (random `DJANGO_SECRET_KEY`/`DB_PASSWORD`, prompted hostname) and
-  bring the Docker Compose stack up, so a new user doesn't have to
-  hand-edit `.env` just to get started.
+- `manage.py seed_demo` - populates a disposable dev database with
+  realistic demo data.
+- `setup.sh`/`setup.ps1` - one-shot install scripts that write a
+  working `.env` and bring the Docker Compose stack up.
 - `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`.
-- A GitHub Pages landing page (`docs/index.html`) and a banner + real
-  screenshots (`docs/images/`) captured against `seed_demo` data.
+- A GitHub Pages landing page and real screenshots.
 
 ### Changed
 
-- `README.md` rewritten with a banner, badge row, table of contents, a
-  Screenshots section, and the new setup scripts as the lead install path
-  — content/instructions otherwise unchanged.
+- `README.md` rewritten with a banner, badge row, table of contents,
+  and a Screenshots section.
 
 ## [0.56.8] - 2026-07-29
 
 ### Changed
 
-- Stats page hero card's streak/movies/shows items now spread across the
-  full width of the card (`justify-between`) instead of clumping on the
-  left with dead space before the "Last 30 days" column.
+- Stats page hero card's streak/movies/shows items now spread across
+  the full card width instead of clumping on the left.
 
 ## [0.56.7] - 2026-07-29
 
 ### Changed
 
-- Finished matching the Stats page hero card to the mockup: movies-watched
-  and shows-completed are now two separate icon-badged items (a new
-  vendored `tv` icon alongside the existing `clapperboard`), each past its
-  own divider, instead of one combined "2041 / 95" line.
+- Movies-watched and shows-completed on the Stats page hero card are
+  now two separate icon-badged items instead of one combined line.
 
 ## [0.56.6] - 2026-07-29
 
 ### Changed
 
-- Applied the same streak treatment to the Stats page's hero card: the
-  150px dial is gone, replaced by a bold typographic headline ("Personal
-  best N days" now sits under the number instead of in its own tile), with
-  movies-watched/shows-completed alongside it past a divider.
+- The Stats page's hero card now uses a bold typographic headline for
+  the streak instead of a dial.
 
 ## [0.56.5] - 2026-07-29
 
 ### Changed
 
-- Reworked the profile popup's streak card: the day-streak dial (a small
-  ring with the number boxed inside) is now a bold typographic headline —
-  no shape, just scale and weight, matching the app's poster-title type.
-  "Longest streak" moved from its own stat tile to a "Personal best N days"
-  line under the headline; movies-watched/shows-completed and total watch
-  time now sit below a divider as a clean 2-column row.
+- Reworked the profile popup's streak card into a bold typographic
+  headline with a "Personal best N days" line and a clean stats row
+  below it.
 
 ## [0.56.4] - 2026-07-29
 
 ### Changed
 
-- Applied the same days-first flip to the profile popup's "Combined"
-  rows (Last 30 days/All time) - "2h (≈ 0d)" becomes "0d (≈ 2h)",
-  matching the Stats page change from the previous release. The
-  standalone "Total watch time" hero figure in the popup is unchanged.
+- Applied the same days-first display flip to the profile popup's
+  "Combined" rows as the Stats page change in the previous release.
 
 ## [0.56.3] - 2026-07-29
 
 ### Changed
 
-- Stats page's "Combined" rows (Last 30 days and All time) now lead
-  with a whole rounded day count and show the precise hour/minute
-  figure in parentheses - "8 days (≈ 198h)" instead of
-  "198h (≈ 8.2 days)". Days round to the nearest whole day (430.6
-  rounds up to 431, not down to 430).
+- Stats page's "Combined" rows now lead with a whole rounded day count
+  and show the precise hour/minute figure in parentheses.
 
 ## [0.56.2] - 2026-07-29
 
 ### Changed
 
-- "Social Activity" cards are back to the normal vertical poster style
-  (poster_card.html, with the full watched/add-to-list action bar) -
-  the watcher avatar+name pill from the previous release now overlays
-  the poster's top-left corner instead of living on a horizontal still-
-  image card. "Recently Watched" keeps the horizontal episode-still
-  cards from the previous release; only Social Activity changed.
+- "Social Activity" cards are back to the normal vertical poster
+  style, with the watcher pill overlaid on the poster's corner;
+  "Recently Watched" keeps the horizontal still-image cards.
 
 ## [0.56.1] - 2026-07-29
 
-### Changed
-
-- "Recently Watched" no longer dedupes by title - a 3-episode binge now
-  shows as 3 separate cards, each using that specific episode's own
-  still image (falls back to the show's poster when TMDB has none),
-  fixing the row looking sparse/half-empty for anyone who mostly binges
-  a few shows rather than sampling many different titles.
-- "Recently Watched" and "Social Activity" cards are now horizontal
-  (16:9), matching an episode still's actual aspect ratio instead of a
-  vertical movie-poster crop.
-- "Social Activity" cards now show a small avatar + name pill in the
-  top-left corner so it's clear who watched what.
-- Watchlist/Start Watching/Recently Watched/Social Activity's single-row
-  layout now fades to the page background at the right edge instead of
-  hard-clipping whichever card lands on the boundary.
-
 ### Added
 
-- New `tracker/partials/watch_event_card.html` partial (horizontal,
-  still/poster-backed card with an optional watcher pill) backing
-  Recently Watched and Social Activity.
+- New `watch_event_card.html` partial backing Recently Watched and
+  Social Activity.
+
+### Changed
+
+- "Recently Watched" no longer dedupes by title - a binge now shows as
+  separate cards, each using that episode's own still image.
+- "Recently Watched" and "Social Activity" cards are now horizontal,
+  matching an episode still's aspect ratio.
+- "Social Activity" cards now show a small avatar and name pill in the
+  top-left corner.
+- Single-row carousels now fade to the page background at the right
+  edge instead of hard-clipping the boundary card.
 
 ## [0.56.0] - 2026-07-29
 
 ### Added
 
-- Three new Dashboard rows, replacing "Because you watched" (disabled
-  for now, not removed - `DASHBOARD_BECAUSE_YOU_WATCHED_ENABLED` in
-  views.py):
-  - "Start Watching" - watchlist titles worth starting right now: a
-    recent release/new episode, or something currently trending on
-    TMDB. Skips anything already in progress.
-  - "Recently Watched" - your own last watched titles, with a "History
-    →" link.
-  - "Social Activity" - what other profiles in the household have
-    watched most recently.
-  - All three use the same single-row, no-scroll layout as Watchlist.
+- Three new Dashboard rows, replacing "Because you watched" (disabled,
+  not removed): "Start Watching" (watchlist titles worth starting
+  now), "Recently Watched", and "Social Activity".
 
 ## [0.55.2] - 2026-07-29
 
 ### Changed
 
-- Dashboard "Up Next" now shows 4 cards instead of 3, wrapped together
-  in one full-width tile with a subtle shadow, instead of sitting bare
-  on the page.
-- Dashboard's footer stats bar is now wrapped in its own tile too,
-  matching Up Next.
-- Replaced the dotted "filmstrip" section dividers on the Dashboard with
-  a plain thin line (`.dashboard-rule`, replacing `.filmstrip-rule`).
+- Dashboard "Up Next" now shows 4 cards instead of 3, wrapped in one
+  full-width tile.
+- Dashboard's footer stats bar is now wrapped in its own tile too.
+- Replaced the dotted section dividers on the Dashboard with a plain
+  thin line.
 
 ## [0.55.1] - 2026-07-29
 
 ### Changed
 
-- Dashboard's "Up Next" cards: the release-day label ("TOMORROW"/"FRI"/
-  etc.) now sits as a third line under the episode caption, left-aligned
-  with the title, instead of being pushed to the card's far right -
-  matching the reference mockup.
+- Dashboard's "Up Next" cards: the release-day label now sits as a
+  third line under the episode caption instead of on the card's far
+  right.
 
 ## [0.55.0] - 2026-07-28
 
 ### Changed
 
-- Redesigned the top of the Dashboard:
-  - Removed the 4 stat tiles (day streak, movies this year, shows
-    completed, total watch time).
-  - Day streak now shows as a pill in the top-right corner, next to
-    "longest streak".
-  - "Up Next" is now its own full-width row with a "Full calendar →"
-    link to the calendar page, instead of a side card.
-  - "Recommended to you" now renders as poster cards (avatar badge,
-    dismiss button, and "Add to Watchlist" overlaid on the artwork)
-    instead of a thin list of rows.
-  - Watchlist no longer scrolls through every item - it shows as many
-    of the newest items as fit one row, with "See all lists →" for the
-    rest; the header count still reflects the true total.
-  - Movies this year / shows completed / total watch time now sit in a
-    closing footer bar with a "View full stats →" link, instead of
-    their own tiles.
+- Redesigned the top of the Dashboard: removed the 4 stat tiles, day
+  streak now shows as a pill, "Up Next" is its own full-width row,
+  "Recommended to you" now renders as poster cards, Watchlist shows as
+  many newest items as fit one row, and movies/shows/watch-time moved
+  into a closing footer bar.
 
 ## [0.54.6] - 2026-07-28
 
 ### Changed
 
-- Title detail page: added a bold divider dot between the release date
-  and the runtime/season count, and gave the "Released"/"Releases"/
-  "Premieres" lead-in word and the runtime/season-count stat a bolder,
-  brighter style so they stand out from the muted date text, matching
-  the reference movie mockup.
+- Title detail page: added a bold divider dot and bolder styling
+  between the release date and the runtime/season count.
 
 ## [0.54.5] - 2026-07-28
 
 ### Changed
 
 - Title detail page: genres now render as individual colored badges
-  (matching the rating/language tag style) instead of a comma-separated
-  list behind a bold divider dot.
-- Title detail page: dropped the redundant "Ended"/"Cancelled"/"Ongoing"
-  text from the air-date row for shows - that status is already shown as
-  its own badge next to the title, so the date row now only shows dates.
+  instead of a comma-separated list.
+- Dropped the redundant Ended/Cancelled/Ongoing text from the air-date
+  row for shows, since that status is already shown as its own badge.
 
 ## [0.54.4] - 2026-07-28
 
 ### Changed
 
-- Title detail page: "N seasons · N episodes" is now "N seasons (N EP)".
+- Title detail page: "N seasons · N episodes" is now "N seasons (N
+  EP)".
 
 ## [0.54.3] - 2026-07-28
 
 ### Fixed
 
-- Moved the bold "·" divider on the title detail page - it now sits
-  between the rating/language tags and the genre list, not between the
-  rating and language tags themselves.
+- Moved a misplaced divider dot on the title detail page so it sits
+  between the tags and the genre list, not between the tags
+  themselves.
 
 ## [0.54.2] - 2026-07-28
 
 ### Changed
 
-- Added a bold "·" divider between the age rating and language tags on
-  the title detail page, matching the dot separator already used in the
-  row below.
+- Added a divider dot between the age rating and language tags on the
+  title detail page.
 
 ## [0.54.1] - 2026-07-28
 
 ### Changed
 
 - Split the title detail page's metadata into two rows to reduce
-  clutter on longer entries: age rating, language, and genres now sit
-  in their own row right under the title, and release/air dates,
-  runtime, and season/episode counts stay in the row below.
+  clutter: age rating/language/genres in one row, release info in the
+  row below.
 
 ## [0.54.0] - 2026-07-28
 
 ### Added
 
-- Movie and TV/Anime detail pages now show release/air date info next to
-  the title. Movies show their release date ("Released"/"Releases" for
-  past/future). Shows and anime don't reduce to one date the way a movie
-  does - seasons can drop all at once or air weekly over months - so
-  they show a status-aware summary instead: ongoing shows just their
-  first-aired date, ended/cancelled shows the full first-to-last-aired
-  span, and anything not yet aired shows its scheduled premiere date (or
-  "Coming Soon" if TMDB hasn't scheduled one yet).
+- Movie and TV/Anime detail pages now show release/air date info next
+  to the title, with a status-aware summary for shows (first-aired
+  date, full aired span, or scheduled premiere).
 
 ## [0.53.0] - 2026-07-28
 
 ### Changed
 
-- Moved the Watched/Watchlisted "Display" preference back into the
-  Filters panel (where it's actually used) as a 3-way eye-icon toggle -
-  open eye for Show, half-shut eye for Dim, closed eye for Hide -
-  instead of Settings → Preferences' dropdowns. It's still the same
-  persisted per-profile preference and saves instantly on click; it just
-  no longer requires leaving the page to change.
+- Moved the Watched/Watchlisted "Display" preference into the Filters
+  panel as a 3-way eye-icon toggle instead of Settings → Preferences.
 
 ## [0.52.2] - 2026-07-28
 
 ### Fixed
 
-- The new Filters dropdown (and, it turns out, the topbar's notification/
-  friends/profile dropdowns too) closed itself the instant you clicked
-  anything inside it - a select, a genre chip, a row's expand chevron -
-  before the click could register. `@click.outside` was bound to the
-  trigger button itself, so Alpine treated any click that wasn't
-  literally on the button as "outside" and closed the panel, including
-  clicks on the panel's own content. Moved it to the wrapper containing
-  both the button and the panel.
+- The Filters dropdown (and the topbar's notification/friends/profile
+  dropdowns) no longer closes itself the instant you click anything
+  inside it.
 
 ## [0.52.1] - 2026-07-28
 
+### Changed
+
+- Genres, Year, Runtime, and Rating are now each their own row inside
+  a "Discover" section; Language/Availability/Age Rating/Status
+  collapse into an "Access" section.
+
 ### Fixed
 
-- The Filters panel is now a dropdown popover anchored under the Filters
-  button instead of a sliding sidebar drawer. daisyUI's drawer keeps
-  `will-change: transform` permanently set on the sliding panel, which on
-  Windows Chrome/Edge disables ClearType subpixel text rendering inside
-  it - the whole panel looked noticeably softer/blurrier than the rest of
-  the page. The dropdown uses the same positioned-popover pattern as the
-  topbar's notification/profile menus, which never had this problem.
-- Genres, Year, Runtime, and Rating are now each their own row inside
-  "Discover" (label + current value + a chevron that expands it), instead
-  of Genres being an odd label-plus-separate-dropdown-button. Access
-  (Language/Availability/Age Rating or Status) collapses into one row the
-  same way.
+- The Filters panel is now a dropdown popover instead of a sliding
+  sidebar drawer, fixing blurry text rendering on Windows Chrome/Edge.
 
 ## [0.52.0] - 2026-07-28
 
 ### Changed
 
-- Redesigned the Movies & TV/Anime "Filters" drawer: Genres/Year/Runtime/
-  Rating and Language/Availability/Age Rating now live in two collapsible
-  "Discover"/"Access" sections instead of one long flat list, genres get
-  their own scrollable chip well again (with a fade-out hint when there's
-  more below), and Apply/Clear now stay pinned to the bottom of the drawer
-  while scrolling instead of requiring a trip back down after every
-  adjustment.
-- Moved the "Display" (Watched/Watchlisted: Show/Dim/Hide) controls out of
-  the Filters drawer entirely, into Settings → Preferences as a persisted
-  per-profile preference. It changes how already-returned results render,
-  not which titles come back, so it never belonged alongside real filters -
-  it's now remembered across visits instead of resetting with every Clear.
+- Redesigned the Movies & TV/Anime Filters drawer into two collapsible
+  "Discover"/"Access" sections, with Apply/Clear pinned to the bottom
+  while scrolling.
+- Moved the "Display" controls out of the Filters drawer into Settings
+  → Preferences as a persisted per-profile preference.
 
 ## [0.51.0] - 2026-07-27
 
 ### Added
 
-- Anime title pages now show a few more MyAnimeList-sourced details
-  alongside TMDB's own: a MAL score badge next to IMDb/RT/Trakt, the
-  native Japanese title under the English one, and the animation studio
-  + source material (Manga/Light Novel/Original/...) in the metadata
-  row. TMDB still drives everything else for anime (discovery, posters,
-  matching) - this is additive detail, best-effort like the filler
-  badges, never blocking the page if MyAnimeList has no match.
+- Anime title pages now show a MAL score badge, the native Japanese
+  title, and the studio/source material alongside TMDB's own details.
 
 ## [0.50.0] - 2026-07-27
 
 ### Added
 
-- Anime episodes now show a Filler or Recap badge in the episode browser,
-  sourced from Jikan (an unofficial MyAnimeList API) - TMDB has no filler
-  data of its own. Best-effort: a title is matched to MyAnimeList by
-  name/year once and cached, and any lookup failure (no match, Jikan
-  unreachable) just means no badge, never a broken page.
-- The sidebar now credits data sources: TMDB (movie/TV/anime metadata)
-  and Jikan/MyAnimeList (anime filler data) - previously nothing in the
-  app mentioned either, despite TMDB's own terms requiring it.
+- Anime episodes now show a Filler or Recap badge in the episode
+  browser, sourced from Jikan (an unofficial MyAnimeList API).
+- The sidebar now credits TMDB and Jikan/MyAnimeList as data sources.
 
 ## [0.49.0] - 2026-07-27
 
 ### Added
 
-- A list's own creator can now share/unshare it with the household at any
-  time (a toggle next to the title/count on the Lists detail page) - the
-  "Shared with household" checkbox previously only ever set this at
-  creation time, with no way to change it on an existing list afterward.
+- A list's own creator can now share/unshare it with the household at
+  any time instead of only at creation.
 
 ### Changed
 
-- Dragging a title to reorder a list now reorders live as you drag over
-  another item (not just once you drop), with a smooth slide animation
-  for the items shifting out of the way, instead of a single snap-into-
-  place jump on drop.
+- Dragging a title to reorder a list now reorders live as you drag,
+  with a smooth slide animation.
 
 ## [0.48.1] - 2026-07-27
 
 ### Fixed
 
-- A stray developer comment above the Lists detail page was rendering as
-  visible text at the top of the page instead of being stripped - Django's
-  `{# #}` comment syntax doesn't support embedded newlines (unlike
-  `{% comment %}`), so a multi-line one meant for the daisyUI drawer
-  structure leaked straight into the HTML.
+- A stray developer comment above the Lists detail page was rendering
+  as visible text at the top of the page.
 
 ## [0.48.0] - 2026-07-27
 
 ### Added
 
 - Lists gained the same All/Movies/TV/Anime toggle and Filters drawer
-  (Period/Sort) as History, so a big mixed list can be narrowed down.
-  Sort includes a new "Manual order" option alongside the usual
-  added/name/year choices.
-- Titles in a list can now be manually reordered by dragging them (only
-  while the list is fully unfiltered, since a filtered view can't
-  unambiguously reposition items relative to whatever's hidden) - handy
-  for putting a franchise in watch order rather than add-order.
-- The instance owner can feature any shared list on the Dashboard (a
-  star toggle on the Lists page), surfacing it in a new "Featured Lists"
-  rail every profile sees - a way to spotlight a curated list (a
-  chronological Marvel watch order, for example) for the whole household.
+  as History, plus a "Manual order" sort option.
+- Titles in a list can now be manually reordered by dragging them
+  (while unfiltered).
+- The instance owner can feature any shared list on the Dashboard,
+  surfacing it in a new "Featured Lists" rail.
 
 ## [0.47.1] - 2026-07-27
 
 ### Fixed
 
-- History's Filters button now shows a live active-filter dot - it
-  previously only reflected whatever period/sort was true on the very
-  first page load, since HTMX only ever swapped the results below the
-  toolbar, never the toolbar itself.
+- History's Filters button now shows a live active-filter dot.
 - Switching the All/Movies/TV/Anime toggle no longer silently drops an
-  applied Period/Sort filter - the toolbar's own form only ever
-  submitted its own fields (type/search/title), never period/sort
-  (which live in the Filters drawer), resetting them to their defaults
-  on every type change.
+  applied Period/Sort filter.
 
 ## [0.47.0] - 2026-07-27
 
 ### Added
 
-- History gained a search box (searches by title name) next to the
-  All/Movies/TV/Anime toggle.
-- History's Period and Sort dropdowns moved into a Filters drawer,
-  matching the Movies & TV/Anime filter panel's own pattern.
-- The Sort filter gained "Most watched"/"Least watched" - switches
-  History from its usual day-by-day listing to a leaderboard of titles
-  ordered by how many times each was watched, within whatever
-  type/period/search filters are active.
+- History gained a search box next to the All/Movies/TV/Anime toggle.
+- History's Period and Sort dropdowns moved into a Filters drawer.
+- The Sort filter gained "Most watched"/"Least watched", ranking
+  titles by play count.
 
 ## [0.46.0] - 2026-07-27
 
 ### Added
 
-- The notifications panel gained a "Clear all" action (eraser icon)
-  that deletes every notification outright, next to the existing
-  "Mark all read" action (now an eye icon instead of text).
+- The notifications panel gained a "Clear all" action alongside "Mark
+  all read".
 
 ### Changed
 
-- The notifications panel is slightly wider (288px → 320px).
+- The notifications panel is slightly wider.
 
 ## [0.45.0] - 2026-07-27
 
 ### Added
 
 - TV shows and anime now get the same "watched ×N" rewatch counter
-  movies already had on the poster card checkmark. Since a show has no
-  single "watched" click, the count is the minimum watch count across
-  every episode you've engaged with - "of the episodes you've watched,
-  the least-rewatched one has been watched this many times."
-- Clicking into any movie/show/anime you haven't tracked yet now shows
-  the same Lists chip picker a tracked title's page uses, instead of a
-  single dedicated "+ Add to Watchlist" button - "Watchlist" is just
-  one of the chips, alongside any custom list.
+  movies already had, based on the least-rewatched episode.
+- Clicking into any untracked movie/show/anime now shows the same
+  Lists chip picker a tracked title's page uses.
 - The episode browser now shows each episode's own runtime, and the
-  season header shows the selected season's total runtime (e.g. "5h
-  52m total") next to its average rating.
+  season's total runtime.
 
 ## [0.44.1] - 2026-07-27
 
 ### Fixed
 
-- The Year/Runtime/Rating range sliders' handle-crossing fix in 0.44.0
-  didn't actually work in practice - clamping the bound value from an
-  `@input` handler doesn't stop Chrome (and others) from rendering the
-  thumb at the raw pointer position while the mouse is still down, so it
-  visibly sailed through the other handle anyway. Fixed properly this
-  time by binding each handle's own min/max to the other handle's live
-  value, a constraint the browser enforces natively during the drag
-  itself.
-- The Display panel's "Dim" opacity was too subtle - lowered further.
+- The Year/Runtime/Rating range sliders' handle-crossing fix from
+  0.44.0 didn't actually work in practice; fixed properly by binding
+  each handle's min/max to the other's live value.
+- The Display panel's "Dim" opacity was too subtle; lowered further.
 
 ## [0.44.0] - 2026-07-27
 
 ### Added
 
-- The Movies & TV/Anime filter panel gained three new filters: Availability
-  (streaming now / all digital releases, via TMDB's watch-provider data,
-  region fixed to US), Status (TV/Anime only - Returning Series, Planned,
-  In Production, Ended, Canceled, Pilot; no TMDB equivalent for movies),
-  and a Display section that controls how already-watched or watchlisted
-  titles show up in results - Show (default), Dim (kept in the grid at
-  lowered opacity, full brightness on hover), or Hide entirely.
+- The Movies & TV/Anime filter panel gained Availability, Status
+  (TV/Anime only), and a Display section controlling how
+  already-watched/watchlisted titles show up in results.
 
 ### Fixed
 
-- The Year/Runtime/Rating range sliders in the filter panel let you drag
-  one handle past the other, producing an inverted range that broke the
-  underlying filter. Each handle now clamps against the other's current
-  value while dragging.
+- The Year/Runtime/Rating range sliders let you drag one handle past
+  the other, producing an inverted range; each handle now clamps
+  against the other.
 
 ## [0.43.0] - 2026-07-26
 
 ### Added
 
-- Title detail pages now show an age rating badge (e.g. "R", "TV-MA")
-  next to the language badge.
-- The Movies & TV filter panel has an Age Rating filter (movies only -
-  TMDB has no equivalent filter for TV/anime).
+- Title detail pages now show an age rating badge next to the language
+  badge.
+- The Movies & TV filter panel has an Age Rating filter (movies only).
 
 ### Fixed
 
-- Anime browsing could surface explicit hentai content - TMDB's own
-  "adult" flag isn't reliable for this (verified live: well-known
-  explicit titles come back flagged non-adult, indistinguishable by
-  genre from ordinary anime). Movies/TV/Anime browsing now excludes
-  TMDB's hentai/ecchi/adult/erotic/porn keyword tags server-side. This
-  is a real reduction, not a guarantee - some explicit titles on TMDB
-  carry no matching tag at all, a gap in TMDB's own data this can't
-  fully close.
+- Anime browsing could surface explicit content; browsing now excludes
+  TMDB's hentai/ecchi/adult keyword tags server-side. This reduces but
+  doesn't guarantee against it, since some titles carry no matching
+  tag.
 
 ## [0.42.0] - 2026-07-26
 
 ### Added
 
-- Search now tolerates typos ("avangers" finds "The Avengers") - TMDB's
-  own search API has no fuzzy matching at all (a single typo'd letter
-  returns zero results), so a misspelled word gets a spelling-corrected
-  retry merged in behind the direct results.
+- Search now tolerates typos via a spelling-corrected retry merged in
+  behind direct results.
 - Search now understands a trailing year to disambiguate a same-named
-  movie/show ("avengers 2012" surfaces the 2012 film first, not a
-  1960s TV series or an unrelated sequel).
-- The search results page has an All/Movie/TV/Anime tab filter,
-  narrowing both the "In your library" and "Discover more on TMDB"
-  sections the same way.
+  movie/show.
+- The search results page has an All/Movie/TV/Anime tab filter.
 
 ### Changed
 
 - Added a new dependency, `pyspellchecker`, for the typo-correction
-  above - needs an image rebuild to pick up (`docker compose build`).
+  above.
 
 ## [0.41.0] - 2026-07-26
 
 ### Changed
 
-- Reworked the title detail page for mobile:
-  - The poster/title header now stacks the poster above the title
-    instead of squeezing both side by side, which used to wrap the
-    title across several lines and clip it inside the header's fixed
-    height on narrow screens.
-  - Episodes below the `sm:` breakpoint now render as a compact row
-    (small thumbnail + title inline) instead of a full-width
-    video-thumbnail card per episode - the same card grid as before
-    on `sm:` and up.
-  - The 10-star "Your rating" row shrinks and wraps instead of
-    risking overflow on narrow screens.
-  - Reduced the app's main content padding on mobile/tablet
-    (affects every page, not just title detail) so content isn't
-    losing 64px total width to padding on a phone-sized screen.
+- Reworked the title detail page for mobile: the poster/title header
+  now stacks instead of squeezing side by side, episodes render as a
+  compact row, the rating control shrinks and wraps, and content
+  padding is reduced.
 
 ## [0.40.0] - 2026-07-26
 
 ### Added
 
-- A search button now shows up on mobile/tablet (below the desktop's
-  own inline search bar's `xl:` breakpoint) - tapping it drops a
-  full-width search bar under the header. Previously there was no way
-  to search at all outside the desktop layout.
+- A search button now shows up on mobile/tablet, dropping a full-width
+  search bar under the header.
 
 ### Fixed
 
-- The topbar's notifications/friends/profile icon cluster drifted back
-  to the middle of the header on mobile instead of sitting at the
-  right edge - a CSS grid auto-placement quirk (not a track-sizing
-  one): once the middle nav is `display:none`, grid auto-placement
-  drops the next item into the vacated column instead of skipping it,
-  so the icon cluster landed in the header's middle column with the
-  actual right-hand column sitting empty. Fixed by giving each of the
-  header's three blocks an explicit column position instead of relying
-  on auto-placement.
+- The topbar's icon cluster no longer drifts to the middle of the
+  header on mobile.
 - Tightened the gap between the topbar's icons on mobile/tablet.
 
 ## [0.39.1] - 2026-07-26
@@ -2606,1376 +1734,848 @@ migration/env step or breaking an existing workflow.
 ### Fixed
 
 - A show watched to completion entirely through the episode browser
-  (one-by-one, or via "Mark season watched"/"Mark all watched") now
-  correctly shows the green "watched" checkmark on poster cards
-  (Dashboard, Watchlist, Search, Discover) - it previously only lit up
-  once you'd also clicked the poster card's own one-click watch button,
-  since the checkmark was keyed off whole-title plays only and ignored
-  per-episode ones entirely.
+  now correctly shows the green watched checkmark on poster cards.
 
 ## [0.39.0] - 2026-07-25
 
 ### Added
 
-- The episode browser can now mark a whole season, or a whole show,
-  as watched in one click ("Mark season watched" / "Mark all watched"
-  next to the Episodes heading) - catches up every episode that
-  doesn't already have a play logged, without touching ones you've
-  already watched.
-- The season picker is now a custom dropdown (replacing the plain
-  browser `<select>`) showing every season's own TMDB rating next to
-  it, not just the currently-selected one.
+- The episode browser can now mark a whole season, or a whole show, as
+  watched in one click.
+- The season picker is now a custom dropdown showing every season's
+  own TMDB rating.
 
 ### Changed
 
 - A show's title page no longer has the single "+ Mark as Watched"
-  header button/popover a movie gets - a show isn't one item the way a
-  movie is (many seasons, many episodes), so a single whole-title
-  "watched" toggle didn't map to anything real. That control now
-  belongs only to movies; shows use the new season/whole-show actions
-  in the episode browser instead.
+  header button a movie gets; shows use the new season/whole-show
+  actions in the episode browser instead.
 
 ## [0.38.0] - 2026-07-25
 
 ### Added
 
 - TV/anime episode tiles now show TMDB's own rating for that episode,
-  and the season header shows the average across the season's rated
-  episodes.
+  and the season header shows the average.
 
 ### Changed
 
-- The episode browser (season picker + episode grid) now shows up on a
-  TV/anime title's preview page too, not just after it's been added to
-  a list, marked watched, or imported - previously it was hidden
-  entirely until the title had a real library row. A preview's
-  episodes are read-only (no watched button, since there's nothing to
-  attach a watch to yet) and never show as watched; adding the title
-  to your library unlocks marking episodes watched as before.
+- The episode browser now shows up on a TV/anime title's preview page
+  too, read-only until the title is added to your library.
 
 ## [0.37.0] - 2026-07-25
 
 ### Changed
 
-- The topbar's Friends dropdown "Active X ago" badge now reflects when
-  that profile actually last used the app, not when they last watched
-  something (which could be a backdated Trakt/Simkl/CSV import
-  timestamp, unrelated to real presence). A new `Profile.last_seen_at`
-  field is stamped by a new middleware on every request (throttled to
-  once a minute, so normal browsing isn't a DB write on every page
-  load). **New migration** (`0023_profile_last_seen_at`) - run it as
+- The topbar's Friends dropdown "Active X ago" badge now reflects real
+  app usage (`Profile.last_seen_at`) instead of last watch timestamp,
+  which could be a backdated import. **New migration** - run it as
   usual on upgrade.
-- The title detail page's own "Watched" header button now opens the
-  same rewatch/undo/history menu the poster card's watched button
-  already has, instead of a plain toggle that only ever cleared the
-  whole watch history. Behaves identically either way - a title
-  watched once still shows the popover with all four actions; a
-  never-watched title still logs its first watch on a single click.
+- The title detail page's "Watched" header button now opens the same
+  rewatch/undo/history menu the poster card's watched button has.
 
 ## [0.36.0] - 2026-07-25
 
 ### Added
 
-- The poster card's watched checkmark now shows a "×N" play-count badge
-  once a title's been watched more than once.
-- Clicking an already-watched title's checkmark now opens a menu
-  instead of silently logging another play: View history plays (jumps
-  to History filtered to just that title), Mark as watched again,
-  Remove last watched (undoes a single play), and Remove all watched
-  history. A never-watched title still logs its first watch on a
-  single click, unchanged.
+- The poster card's watched checkmark now shows a "×N" play-count
+  badge once watched more than once.
+- Clicking an already-watched title's checkmark now opens a menu (view
+  plays, watch again, remove last/all watched) instead of silently
+  logging another play.
 - The History page can now be filtered to a single title via
-  `?title=<id>` (what the new menu's "View history plays" link uses),
-  with a "Filtered to X · Clear" banner and the filter preserved across
-  type/period/sort changes and pagination.
+  `?title=<id>`.
 
 ## [0.35.1] - 2026-07-25
 
 ### Changed
 
-- The new Settings page hugged the left edge with the sidebar+content
-  column left-aligned, leaving a large empty gap on wide screens.
-  Constrained and centered the whole page (header included) instead.
+- Constrained and centered the Settings page instead of leaving it
+  hugging the left edge with a large empty gap on wide screens.
 
 ## [0.35.0] - 2026-07-25
 
 ### Changed
 
-- Merged "My Profile," "Settings & Import," and the owner-only "Admin
-  Dashboard" - three separate pages, each only reachable from the
-  profile dropdown - into a single Settings page with a left sidebar
-  (Account, Preferences, Notifications, Integrations, Import Data,
-  Export Data, Danger Zone, plus an owner-only Admin group: Profiles,
-  Server Integrations, Server, Activity Log), switching between
-  sections instantly with no page reload. The profile dropdown's three
-  links collapsed into one "Settings" entry.
-- Every existing form still posts to the exact same endpoint it always
-  did - this is a reorganization, not a rewrite. The two account forms
-  that used to rely on posting back to whatever page rendered them
-  (only ever My Profile before) now target it explicitly, since the
-  page can load from three different URLs.
+- Merged My Profile, Settings & Import, and Admin Dashboard into a
+  single Settings page with a left sidebar, switching between sections
+  instantly.
 - The "share my activity" privacy toggle moved from its own card into
-  the Account tab (next to the rest of your profile info), matching
-  where the reference design for this change put it.
+  the Account tab.
 
 ## [0.34.1] - 2026-07-24
 
 ### Changed
 
-- Dropped the "self-hosted" subtitle next to the SPOOL wordmark
-  (topbar and the mobile sidebar) and sized the wordmark up a bit
-  (24px → 28px in the topbar, 28px → 32px in the mobile sidebar) now
-  that it's not sharing the space.
+- Dropped the "self-hosted" subtitle next to the SPOOL wordmark and
+  sized the wordmark up slightly.
 
 ## [0.34.0] - 2026-07-24
 
 ### Changed
 
-- Removed the "AI Pick" Gemini mood-search box from the Dashboard - it
-  needs a configured API key to do anything, so it was dead weight for
-  most profiles, and it was crowding out "Recommended to you" (which
-  is more interesting anyway, since it's from a real person, not a
-  bot). The Gemini integration itself is untouched and still
-  configurable in Settings; only its Dashboard entry point is gone for
-  now.
-- "Recommended to you" is now its own standalone, richer section
-  instead of a plain list of text rows sharing a card with the ask
-  box: each recommendation is a small card with the title's poster,
-  the sender's actual avatar (not just their name), a relative
-  timestamp ("2 days ago"), and - new - a one-click "+ Add to
-  Watchlist" action alongside the existing dismiss (×). Previously the
-  only thing you could do with a recommendation was dismiss it; there
-  was no way to act on it. The section also now shows a count badge
-  ("2 new") once there's more than one pending.
-- Adding a recommended title to the Watchlist doesn't dismiss the
-  recommendation - it stays pending (showing "Added") until the title
-  is actually watched, so it keeps nudging you until you've seen it,
-  not just queued it.
+- Removed the "AI Pick" Gemini mood-search box from the Dashboard,
+  since it needed a configured API key to do anything.
+- "Recommended to you" is now its own standalone section with poster
+  art, sender avatar, a relative timestamp, and a one-click "+ Add to
+  Watchlist" action alongside dismiss.
+- Adding a recommended title to the Watchlist no longer dismisses the
+  recommendation - it stays pending until the title is actually
+  watched.
 
 ## [0.33.1] - 2026-07-24
 
 ### Fixed
 
-- Docking "Up next" beside the Watchlist carousel (0.33.0) broke
-  horizontal scrolling for large watchlists - a grid item's width
-  defaults to fitting its content, so the Watchlist column stretched
-  to fit every poster instead of scrolling within its own space,
-  pushing the whole row (Up Next included) off the right edge of the
-  page. Constrained the column so the carousel scrolls in place again.
+- Docking "Up next" beside the Watchlist carousel broke horizontal
+  scrolling for large watchlists; constrained the column so the
+  carousel scrolls in place again.
 
 ## [0.33.0] - 2026-07-24
 
 ### Changed
 
-- Reorganized the Dashboard into clear purpose-driven sections instead
-  of a flat stack of same-weight boxes: "your numbers" (stat cards),
-  "pick something" (AI Pick), and "your queue" (Watching/Watchlist/Up
-  Next), each separated by a visible film-strip divider instead of
-  uniform spacing.
+- Reorganized the Dashboard into purpose-driven sections separated by
+  a visible divider.
 - Merged "What should I watch?" and "Recommended to you" into a single
-  AI Pick module - the ask box and the recommendations it's produced
-  now live in one card instead of two visually unrelated ones stacked
-  on top of each other.
-- Removed "Recently added to lists" - it was showing the same items as
-  the Watchlist row directly above it, adding visual repetition with
-  no new information.
-- The "Watching" section (continue-watching carousel) now disappears
-  entirely when nothing's in progress, instead of showing an empty
-  header with placeholder text.
-- "Up next" now sits docked beside the Watchlist carousel rather than
-  floating below it next to the now-removed "Recently added" section.
+  AI Pick module.
+- Removed "Recently added to lists", which duplicated the Watchlist
+  row above it.
+- The "Watching" section now disappears entirely when nothing's in
+  progress.
+- "Up next" now sits docked beside the Watchlist carousel.
 
 ## [0.32.7] - 2026-07-24
 
 ### Changed
 
-- The poster card action bar's "marked" state (watched checkmark,
-  on-a-list icon) only changed the icon's color against the same dark
-  gray background, which was hard to notice at a glance. Added a
-  tinted background pill behind the icon when active (green for
-  watched, amber for on-a-list) so the marked state pops instead of
-  blending in.
+- The poster card action bar's "marked" state now shows a tinted
+  background pill behind the icon (green for watched, amber for
+  on-a-list) instead of only a color change.
 
 ## [0.32.6] - 2026-07-24
 
 ### Changed
 
-- Poster card action bar was semi-transparent black over the poster
-  art, with a dark gradient fading up from the bottom to keep the
-  overlaid title readable. Made the bar opaque dark gray instead of
-  translucent black, dropped the gradient, and moved the bar below the
-  poster (flush against it) instead of floating on top of it, so the
-  full poster art is visible. The redundant title caption that used to
-  sit on the poster (readable only because of that gradient) is gone
-  too - the title below the poster already shows it.
+- The poster card action bar is now opaque dark gray and sits below
+  the poster instead of floating translucent over the art. Removed the
+  redundant title caption that used to sit on the poster.
 
 ## [0.32.5] - 2026-07-24
 
 ### Changed
 
-- Poster cards (library grids and Discover preview tiles) traded their
-  floating circular icon buttons for a full-width flat action bar
-  along the poster's bottom edge, matching a reference design the user
-  provided. Still just the two actions Spool supports - mark as
-  watched and add to list - now spanning the card edge-to-edge instead
-  of sitting as an inset pill. The watched indicator changed from a
-  filled green circle to a plain green checkmark so it reads
-  consistently with the flat bar.
+- Poster cards traded their floating circular icon buttons for a
+  full-width flat action bar along the poster's bottom edge.
 
 ## [0.32.4] - 2026-07-24
 
 ### Changed
 
-- Stats' Peak Hours widget showed a bare, unlabeled count per bucket
-  ("6992") with nothing indicating what it meant. Added a caption
-  under the heading ("Plays logged in each part of the day, lifetime")
-  and a hover tooltip on each number, and widened the count column so
-  4-digit totals aren't cramped.
-
+- Stats' Peak Hours widget now has a caption explaining what its
+  counts mean, and a hover tooltip on each number.
 
 ## [0.32.3] - 2026-07-24
 
 ### Fixed
 
 - TV/anime watch time was silently undercounted whenever TMDB's
-  show-level "typical episode length" was missing (common for anime
-  and foreign shows) - those episodes counted as 0 minutes toward
-  every watch-time stat, permanently, with no retry. Added a fallback
-  that pulls each episode's own runtime from TMDB's season/episode
-  endpoint (already fetched elsewhere in the app for episode names,
-  but the runtime field was being discarded) whenever the coarser
-  show-level figure isn't available.
-
-  **If your TV/anime total watch time looks too low, re-run
-  `python manage.py backfill_completion`** (already existed, safe to
-  re-run) to recompute it against the fix - no migration needed, it
-  just needs to talk to TMDB again for shows it couldn't fully cover
-  the first time.
-
+  show-level episode length was missing (common for anime and foreign
+  shows). Added a fallback that pulls each episode's own runtime from
+  TMDB's season/episode endpoint. **Re-run
+  `python manage.py backfill_completion`** if your TV/anime total
+  watch time looks too low.
 
 ## [0.32.2] - 2026-07-24
 
-### Fixed
-
-- Topbar's center nav pills were visibly off-center (dragged right)
-  because they were centered within the leftover flex space between
-  two unequal-width siblings (logo+search vs. the icon cluster), not
-  the header's true center. Rebuilt the header as a 3-column grid
-  (1fr / auto / 1fr) so the center column is genuinely centered
-  regardless of how wide either side is.
-
 ### Changed
 
-- Reverted the SPOOL logo back to its single-line "SPOOL · self-hosted"
-  layout, removing the live clock added last round.
+- Reverted the SPOOL logo back to its single-line layout, removing the
+  live clock.
 - Moved the topbar's vertical divider to sit between the logo and the
-  search bar, instead of between the search bar and the nav.
+  search bar.
 
+### Fixed
+
+- Topbar's center nav pills were visibly off-center; rebuilt the
+  header as a 3-column grid so the center column is genuinely
+  centered.
 
 ## [0.32.1] - 2026-07-24
 
 ### Changed
 
-- Desktop topbar's profile trigger is now a pill (avatar + display name
-  + a chevron that flips when the dropdown is open) instead of a bare
-  avatar circle, on screens sm: and up. Mobile keeps the plain avatar
-  circle to stay compact.
-
+- Desktop topbar's profile trigger is now a pill (avatar, name,
+  chevron) instead of a bare avatar circle.
 
 ## [0.32.0] - 2026-07-24
 
 ### Changed
 
 - Redesigned the desktop topbar's nav into a centered pill/segmented
-  control - each link is now a rounded pill with icon and label, and
-  the active page's pill fills solid instead of an underline. The
-  search bar is now a plain rounded pill instead of a bordered box,
-  and a live clock (date + time, respecting the 12h/24h preference)
-  now sits under the SPOOL logo. Notifications, Friends, and the
-  profile avatar are unchanged.
-
+  control, with a plain rounded search bar and a live clock under the
+  logo.
 
 ## [0.31.3] - 2026-07-22
 
 ### Changed
 
-- Neutral secondary buttons (Sync now, Save, Change password, Cancel,
-  Connect, and others) switched from a bordered/outlined look to
-  daisyUI's `btn-soft` style - a faint tinted background with no
-  border, which doesn't read as a disproportionately thick outline on
-  small buttons with short labels the way a fixed-width border does.
-  Destructive (red-outlined) and already-solid/filled buttons are
-  unchanged.
-
+- Neutral secondary buttons switched from a bordered/outlined look to
+  a soft filled style.
 
 ## [0.31.2] - 2026-07-22
 
 ### Changed
 
-- Moved Notifications and Privacy from Settings & Import to My Profile
-  - they're personal preferences, not import/integration setup. The
-  underlying save endpoints are unchanged.
-
+- Moved Notifications and Privacy from Settings & Import to My
+  Profile.
 
 ## [0.31.1] - 2026-07-22
 
 ### Added
 
-- Settings & Import: a "Sync now" button on Trakt/Simkl for an immediate
-  one-off sync, alongside the existing scheduled sync - doesn't change
-  the schedule itself.
+- Settings & Import: a "Sync now" button on Trakt/Simkl for an
+  immediate one-off sync.
 - Admin Dashboard: profiles can now be demoted back from owner to
-  member, not just promoted.
+  member.
 
 ### Changed
 
 - Admin Dashboard's Profiles card: the Promote/Remove text links are
-  now icon buttons (crown/ring/trash) with a tooltip on hover
-  explaining what each does.
-
+  now icon buttons with tooltips.
 
 ## [0.31.0] - 2026-07-21
 
 ### Added
 
-- Settings & Import: a personal Timezone dropdown under Appearance -
-  household members in a different timezone than the server now see
-  their own local times, activated per-request by a new
-  `ProfileTimezoneMiddleware`. Blank (the default) keeps using the
-  server's own `TIME_ZONE`.
-- Admin Dashboard: an Activity Log card recording who created, removed,
-  or promoted a profile, and when.
-- Admin Dashboard: a "Promote" control letting the owner hand another
-  profile owner-level access.
+- Settings & Import: a personal Timezone dropdown, so household
+  members in a different timezone see their own local times.
+- Admin Dashboard: an Activity Log recording profile
+  creation/removal/promotion, and a "Promote" control for owner-level
+  access.
 - My Profile: a Danger Zone with self-service account deletion for
-  Members - previously the only way to leave was asking the owner to
-  remove you. An owner can only delete their own account once another
-  owner exists to take over.
+  Members.
 
 ### Changed
 
 - Settings & Import's "Import & Export" card is renamed to "Connected
   Apps".
 - Trakt/Simkl's "Connect" button is disabled with an explanatory note
-  when the server owner hasn't configured credentials for that
-  provider yet, instead of linking through to an error.
-- Moved the "Spool vX.Y.Z" footer from Settings & Import to Admin
-  Dashboard's Server card, next to the Django version/database/debug
-  info - it's server metadata, not a personal preference.
-
+  when the server owner hasn't configured credentials yet.
+- Moved the version footer from Settings & Import to Admin Dashboard's
+  Server card.
 
 ## [0.30.0] - 2026-07-21
 
 ### Added
 
-- My Profile: an optional one-line bio field, a "Member since" date, and
-  read-only Trakt/Simkl connected-status badges next to the page
-  heading.
-- My Profile: a live thumbnail preview of a chosen photo before saving,
-  instead of just the filename text.
-- Change password: a show/hide (eye icon) toggle on all three password
-  fields, and an "at least 8 characters" hint under New password.
+- My Profile: an optional bio field, a "Member since" date, and
+  Trakt/Simkl connected-status badges.
+- My Profile: a live thumbnail preview of a chosen photo before
+  saving.
+- Change password: a show/hide toggle on all three password fields.
 
 ### Changed
 
-- My Profile's "Remove" photo button is now a red trash-can icon
-  instead of a text button.
-
-
+- My Profile's "Remove" photo button is now a red trash-can icon.
 
 ## [0.29.8] - 2026-07-21
 
 ### Changed
 
-- Moved the desktop topbar's search bar back next to the logo (it had
-  briefly moved next to the icon cluster) and widened it slightly
-  (`w-56` → `w-72`).
+- Moved the desktop topbar's search bar back next to the logo and
+  widened it slightly.
 
 ## [0.29.7] - 2026-07-21
 
 ### Changed
 
-- The desktop topbar's search bar now shows a search icon and a slight
-  vertical divider before the input text, instead of being a bare
-  text field.
+- The desktop topbar's search bar now shows a search icon and a
+  divider before the input text.
 
 ## [0.29.6] - 2026-07-21
 
 ### Changed
 
 - Reordered the desktop topbar: the search bar now sits between the
-  nav links and the notifications/friends/avatar cluster instead of
-  next to the logo, and a vertical divider separates the logo from
-  the rest of the header.
+  nav links and the icon cluster.
 
 ## [0.29.5] - 2026-07-21
 
 ### Fixed
 
-- Topbar's Notifications/Friends/avatar icon cluster sat left-of-center
-  on mobile instead of hugging the right edge - it's a `flex-none`
-  sibling of the middle `<nav>`, which is `display:none` below `md:`
-  and so isn't there to push it over as it does on desktop. Added
-  `ml-auto` (with an explicit `md:ml-0` reset) so the cluster is pushed
-  to the header's right edge on mobile without affecting desktop, where
-  the nav's own flex-grow already claims that space.
+- Topbar's icon cluster sat left-of-center on mobile instead of
+  hugging the right edge.
 
 ## [0.29.4] - 2026-07-21
 
 ### Fixed
 
-- Topbar's Notifications and Friends dropdowns ran off the left edge of
-  the screen on mobile - they were positioned with `absolute right-0`
-  off their trigger button, but on a narrow phone the icon cluster
-  isn't pushed all the way to the true right edge (the middle nav is
-  hidden below `md:`), so a fixed-width panel anchored that way
-  overflowed. Switched all three header dropdowns (bell, Friends,
-  avatar) to `fixed` positioning with JS-computed, viewport-clamped
-  coordinates - the same idiom already used by the poster card and
-  history group popovers - so every panel stays fully on-screen
-  regardless of button position or viewport width.
-- Movies & TV, Anime, Collections, Dashboard's "Because you watched",
-  Search, and title detail's "If you like this" grids showed only a
-  single oversized card per row on mobile - their `minmax()` floor was
-  wide enough to force the grid down to one column on a phone-width
-  screen. Added a smaller mobile-first floor with a `sm:` override
-  restoring the original desktop size. Also fixed a latent bug in
-  Search's library-results grid where the poster card's own hardcoded
-  width was silently overriding the grid's track sizing entirely.
-- Calendar's month grid was cramped and illegible on mobile - full
-  poster thumbnails packed into ~40-50px-wide day cells. Below the
-  `sm:` breakpoint, cells are now shorter and show a single presence
-  dot instead of thumbnails, relying on the existing tap-through to the
-  agenda sidebar for full detail.
+- Topbar's Notifications and Friends dropdowns ran off the left edge
+  of the screen on mobile; switched to viewport-clamped positioning.
+- Several discover/similar grids showed only a single oversized card
+  per row on mobile; added a smaller mobile-first floor width.
+- Calendar's month grid was cramped and illegible on mobile; cells
+  below `sm:` now show a single presence dot instead of thumbnails.
 
 ## [0.29.3] - 2026-07-21
 
 ### Fixed
 
-- Uneven spacing between the topbar's bell/Friends/avatar icons - the
-  avatar button still carried a `-ml-2` left over from the old design,
-  where household avatars sat in a tightly-overlapped stack. Removed
-  now that the Friends dropdown replaced that stack, so the parent's
-  own gap spaces all three evenly.
+- Uneven spacing between the topbar's bell/Friends/avatar icons.
 
 ## [0.29.2] - 2026-07-21
 
 ### Added
 
 - History's day-group headers now show total watch time next to the
-  "1 movie · 4 episodes" count - in minutes, hours, or days depending
-  on how much was watched that day (e.g. "45m", "5h 0m", "2d 17h"),
-  matching Trakt/Simkl's own watch-time formatting.
+  item count.
 
 ## [0.29.1] - 2026-07-21
 
 ### Changed
 
 - The topbar's household-member avatar circles are now a single
-  Friends icon that opens a dropdown - each row shows the person's
-  avatar, name, and when they were last active (time since their most
-  recent watch, or "No activity yet"), then opens the same stats
-  popup as before. A growing household no longer crowds the header
-  with an ever-longer row of circles.
+  Friends icon that opens a dropdown listing each person's avatar,
+  name, and last-active time.
 
 ## [0.29.0] - 2026-07-20
 
 ### Added
 
 - The detail page's "Mark as Watched" header button is now a real
-  watched/unwatched status toggle (like a Follow/Following button),
-  not a static call-to-action that never changed once clicked. Once
-  watched it turns into a green "✓ Watched" indicator, and clicking it
-  again removes the watch mark (confirmed first, since undoing a watch
-  is a meaningful action) - a new title_unmark_watched action, separate
-  from the poster card/episode browser's own quick-action buttons,
-  which keep their existing "always log a fresh rewatch, never unmark"
-  behavior.
-- A not-yet-tracked preview page (a TMDB search/discovery result you
-  haven't watched or listed yet) now offers "Mark as Watched"
-  independently of "Add to Watchlist" - previously the only way to log
-  a watch for something you'd already seen was to add it to a
-  watchlist first, which isn't the same fact about a title and
-  shouldn't have been a prerequisite.
+  watched/unwatched status toggle instead of a static call-to-action.
+- A not-yet-tracked preview page now offers "Mark as Watched"
+  independently of "Add to Watchlist".
 
 ## [0.28.1] - 2026-07-20
 
 ### Changed
 
-- Redesigned the title detail page's Lists and Recommend To cards.
-  Lists now uses filled/outlined chip toggles (matching the Filters
-  drawer's genre-chip language) so membership is obvious at a glance,
-  with "+ New list" as its own clearly separate, dashed-outline action
-  instead of another same-looking "+". Recommend To now shows each
-  profile's real avatar (color circle or photo, same as everywhere
-  else in the app) with a compact icon-only send button, instead of a
-  full-width text button and no avatars at all.
+- Redesigned the title detail page's Lists and Recommend To cards with
+  filled/outlined chip toggles and real profile avatars.
 
 ## [0.28.0] - 2026-07-20
 
 ### Fixed
 
 - Recommending a title no longer requires adding it to a watchlist
-  first - the "Recommend to" card now also shows on a not-yet-tracked
-  preview page (TMDB search/discover results you haven't watched or
-  listed yet), and materializes the title itself when you actually
-  click Recommend, same as every other preview action.
-- Sending a recommendation now actually notifies the recipient (header
-  bell) - it previously only ever showed up passively on their
-  Dashboard, with nothing pointing them at it.
-- Movies & TV / Anime's discovery grid (and Dashboard's "Because you
-  watched" row, a title's "similar" grid, ...) now correctly shows the
-  green watched checkmark and list membership for a title you've
-  already watched or listed elsewhere, reappearing there on a
-  Trending/Popular page or as a suggestion - it previously always
-  rendered as untracked, regardless of your real history.
-- Marking a title (or episode) watched again once it's already green
-  now asks for confirmation first, instead of silently logging another
-  rewatch on a stray double-click - the first "mark watched" stays a
-  single uninterrupted click.
-- Replaced the browser's own native confirm() popup with a styled
-  in-app dialog everywhere the app asks for confirmation before an
-  action (History's single/per-episode/bulk delete, the new rewatch
-  guard above) - one global handler, no per-template changes needed at
-  each call site.
+  first.
+- Sending a recommendation now actually notifies the recipient via the
+  header bell.
+- Discovery grids now correctly show the watched checkmark and list
+  membership for a title you've already watched or listed elsewhere.
+- Marking a title watched again once it's already marked now asks for
+  confirmation first.
+- Replaced the browser's native confirm popup with a styled in-app
+  dialog everywhere the app asks for confirmation.
 
 ## [0.27.1] - 2026-07-20
 
 ### Removed
 
-- The topbar's "+ Add title" button - it never had any click handler
-  wired up, so it did nothing. With the search bar now able to find
-  and add any title, a dead button offering the same job was just
-  confusing. (The Lists detail page's own "+ Add title" button, which
-  toggles that page's inline search and does work, is unrelated and
-  unchanged.)
+- The topbar's non-functional "+ Add title" button, superseded by the
+  search bar.
 
 ## [0.27.0] - 2026-07-20
 
 ### Added
 
-- Profile pictures: My Profile now has a Photo uploader (JPG/PNG/WEBP,
-  up to 5MB) that takes priority over the color-circle avatar everywhere
-  one is shown - topbar, Activity feed, Admin Dashboard's profile list,
-  and the household profile popup. "Remove" reverts to the color
-  circle. Uploads are validated server-side (Pillow decodes the actual
-  bytes, not just the filename/content-type) before being saved.
-  Uploaded files are served at `/media/...` by Django itself - this
-  self-hosted stack has no reverse proxy of its own to delegate to, and
-  whitenoise (already in use) is static-asset-only.
-- New profiles now get a random starting avatar color instead of every
-  profile sharing the same hardcoded default - prefers a color no
-  existing profile is already using, so a small household doesn't end
-  up with two coincidentally-matching avatars.
-- The navbar avatar circles (both the active-profile dropdown and the
-  household stack) are a bit bigger - 36px, up from 30px.
+- Profile pictures: My Profile now has a photo uploader that takes
+  priority over the color-circle avatar everywhere one is shown.
+- New profiles now get a random starting avatar color instead of a
+  shared default.
+- The navbar avatar circles are a bit bigger.
 
 ### Fixed
 
-- `STORAGES` in settings.py only defined a `staticfiles` backend;
-  Django 4.2+ replaces its *entire* default STORAGES dict when you set
-  it at all, so there was no `default` file-storage backend for any
-  `FileField`/`ImageField` to resolve to. Discovered while adding the
-  avatar-upload feature above - added the missing `default` entry
-  (`FileSystemStorage`).
+- Added a missing default file-storage backend, discovered while
+  adding the avatar-upload feature above.
 
 ## [0.26.1] - 2026-07-20
 
 ### Added
 
-- "Last 30 days" now gets its own Combined row (Movies + TV + Anime
-  summed), matching the Combined row "All time" already had - on both
-  the Stats page and the profile popup (click a household avatar), the
-  two places this watch-time breakdown is shown.
+- "Last 30 days" now gets its own Combined row, matching "All time",
+  on both the Stats page and the profile popup.
 
 ## [0.26.0] - 2026-07-20
 
 ### Added
 
-- Send a household member a movie/TV/anime recommendation. A "Recommend
-  to" card on a title's own page lets you point any other profile at
-  it in one click - no message field, deliberately kept simple. It
-  shows up on their Dashboard under "Recommended to you" until they
-  either watch it or dismiss it. The moment they watch any part of it
-  (a movie, or a single episode of a show - finishing a whole series
-  isn't required), you get a notification in the header bell linking
-  straight to the title. Recommending something they've already
-  watched, or recommending the same title to the same person twice
-  while one's still pending, is caught and reflected in the card
-  instead of silently doing nothing.
-- Fulfillment is resolved by an explicit call
-  (recommendations.mark_title_watched) at every place a watch event
-  gets created - the manual mark-watched/rate actions, CSV import, and
-  Trakt/Simkl sync - the same pattern this codebase already uses for
-  rewatch detection and watchlist auto-removal, not a signal (used
-  nowhere else here), so a missed call site is a visible test gap
-  rather than a quiet one.
+- Send a household member a movie/TV/anime recommendation via a
+  "Recommend to" card on a title's page. It shows up on their
+  Dashboard until watched or dismissed, and you get notified once they
+  watch any part of it.
 
 ## [0.25.0] - 2026-07-19
 
 ### Added
 
-- History's binge-group tiles (the "10×" badge) now open a dropdown
-  listing every episode in the group, each with its own delete action -
-  no need to nuke the whole binge just to remove one episode marked by
-  mistake. Deleting shrinks the group in place (recomputed range/count/
-  duration), degrades to a plain tile once only one episode is left, or
-  removes the tile outright once none are.
+- History's binge-group tiles now open a dropdown listing every
+  episode in the group, each with its own delete action.
 
 ### Changed
 
-- History's poster tiles are slightly bigger (132px → 150px minimum
-  width).
+- History's poster tiles are slightly bigger.
 
 ## [0.24.1] - 2026-07-19
 
 ### Fixed
 
 - Activity's per-row explanatory comment was leaking onto the page as
-  literal text above every entry. Django's `{# ... #}` comment tag is
-  single-line only - a multi-line one silently isn't recognized as a
-  comment at all and renders as-is instead of being stripped. Swapped
-  it for the `{% comment %}...{% endcomment %}` block tag, which does
-  support multiple lines, and added a regression test asserting no
-  stray `{#`/`{%` text ever appears in the rendered page.
+  literal text above every entry.
 
 ## [0.24.0] - 2026-07-19
 
 ### Changed
 
-- Activity is back to being a lightweight household glance, not a
-  second History page. Dropped the expand-to-full-episode-list/chevron
-  interaction on grouped entries entirely - a group now shows only its
-  collapsed summary line (count, episode range, one relative time).
-  Full episode-level detail for a binge is what History is for.
-- Each row now carries a left-border color by activity type (watched,
-  added to a list, rated) so the feed can be scanned for "what kind of
-  thing happened" without reading every line.
+- Activity is back to being a lightweight household glance: a group
+  now shows only its collapsed summary line, with full episode-level
+  detail left to History.
+- Each row now carries a left-border color by activity type.
 
 ### Fixed
 
 - A binge summary could silently merge two real, hours-apart viewing
-  sessions of the same show into one group (same profile+title, and
-  nothing else happened in between across the whole household feed to
-  break the run) - the exact cause of a "14 episodes... 7 hours ago"
-  entry where 5 of those episodes were actually watched the day before.
-  Consecutive watches/list-adds now also need to be within 6 hours of
-  each other to stay in the same group; a real, hours-long continuous
-  binge still stays one group since the check is chain-based (each
-  episode vs. the previous one), not a hard cap from the first episode.
-
-Also confirmed (no changes needed): the feed already interleaves every
-profile's activity by timestamp rather than grouping by user - a quiet
-household member's activity from days ago just naturally sorts below a
-more recently active one's.
+  sessions into one group; consecutive watches now need to be within 6
+  hours of each other to stay grouped.
 
 ## [0.23.0] - 2026-07-19
 
 ### Added
 
-- Spool now tells you when a newer version is out, instead of you having
-  to remember to check. A nightly job compares the running version
-  against the VERSION file on the repo's master branch (this project
-  doesn't cut GitHub Releases, so that file is already the versioning
-  source of truth) and, if there's a newer one, surfaces it two ways:
-  a notification in the header bell, and a banner at the top of
-  Settings & Import. Both link straight to the GitHub changelog so you
-  can see what's new before deciding to upgrade. Owner-only (a
-  household member has no way to actually perform an upgrade), and
-  self-correcting - once you actually upgrade, both alerts clear on
-  their own without needing anything reset.
+- Spool now tells you when a newer version is out via a notification
+  and a Settings banner, both linking to the GitHub changelog.
+  Owner-only, and self-correcting once you upgrade.
 
 ## [0.22.0] - 2026-07-19
 
 ### Added
 
-- A "Because you watched X" discovery row on the Dashboard - TMDB's own
-  recommendations for the most recently watched title that has a TMDB
-  id, rendered as the same preview cards Movies & TV/Anime's discovery
-  grid uses. This was one of the original Dashboard carousel ideas that
-  had quietly dropped out somewhere along the way in favor of just
-  Watchlist - the Dashboard was otherwise 100% "things you already
-  have," with nothing suggesting what to watch next. Also fills the
-  dead space that used to sit below "Up next" on a lighter day.
+- A "Because you watched X" discovery row on the Dashboard, using
+  TMDB's own recommendations for your most recently watched title.
 
 ### Fixed
 
-- "Recently added to lists" was showing the same handful of titles as
-  the Watchlist carousel directly above it (Watchlist adds counted as
-  "added to a list" too), so the two rows usually looked like
-  duplicates. It now only shows adds to actual custom lists, so it
-  carries information the Watchlist row doesn't.
-- Dashboard's "Total watch time" stat now reads "217d 4h 3m" style,
-  matching the Stats page's own watch-time breakdown format, instead of
-  a flat "7342H" that read inconsistently next to it.
+- "Recently added to lists" no longer duplicates the Watchlist
+  carousel above it; it now only shows adds to custom lists.
+- Dashboard's "Total watch time" stat now matches the Stats page's own
+  watch-time format.
 
 ## [0.21.0] - 2026-07-19
 
 ### Added
 
-- The navbar search box actually does something now - it was pure
-  decoration before. Type anything and press Enter to jump to a results
-  page with two sections: matches already in your library (full
-  watched/list-picker actions, same as everywhere else) and everything
-  else TMDB has for that query that isn't tracked yet (the same preview
-  cards Movies & TV/Anime's own discovery grid uses, so you can add it
-  straight from search).
-- A "What should I watch?" box on the Dashboard - describe your mood in
-  plain language and get a few specific picks back, grounded in your
-  own recent watch history and favorite genres. Powered by Gemini,
-  optional and bring-your-own-key per profile (Settings → AI
-  Recommendations, with a link to get a free key) - nothing here is
-  required or instance-wide, and every failure mode (no key, bad key,
-  Gemini unreachable) degrades to a plain-language inline message
-  instead of breaking the Dashboard.
+- The navbar search box now actually works - type and press Enter to
+  jump to a results page covering both your library and TMDB.
+- A "What should I watch?" box on the Dashboard, powered by Gemini and
+  optional/bring-your-own-key per profile.
 
 ## [0.20.0] - 2026-07-19
 
 ### Added
 
-- Sync Log now surfaces problems instead of just listing them. When a
-  provider's most recent syncs are consecutively failing (an unresolved
-  streak, not a blip that already recovered), a banner appears above the
-  table - e.g. "Trakt sync has failed 4 times in a row since Jul 17 -
-  the access token may have expired or been revoked", with a direct
-  Reconnect link when it's your own account and the errors look
-  auth-shaped (a 401/Unauthorized). Other profiles' broken syncs get the
-  same banner without a reconnect link, since only the account owner can
-  reconnect their own integration.
-- Error messages are no longer stuck truncated with only a native hover
-  tooltip - click one to expand the full text in a monospace, selectable
-  block with a Copy button.
-- Status now pairs a check/x icon with the existing success/failed
-  color, instead of relying on color alone.
-- Failures under a second get a small "fast fail" badge on the Duration
-  column - a sub-second failure almost always means the request was
-  rejected before reaching Trakt/Simkl at all (an auth problem), not a
-  timeout, and that distinction isn't obvious from the number alone.
+- Sync Log now surfaces problems: a banner appears when a provider's
+  syncs are consecutively failing, with a direct reconnect link when
+  it looks auth-related.
+- Error messages can now be expanded into a full, copyable block
+  instead of a truncated hover tooltip.
+- Status now pairs a check/x icon with the existing color.
+- Failures under a second get a "fast fail" badge, usually indicating
+  an auth problem rather than a timeout.
 
 ## [0.19.0] - 2026-07-19
 
 ### Fixed
 
-- Trakt/Simkl syncs now recover from an expired or revoked access token
-  instead of failing every run forever. Previously the `refresh_token`
-  captured at connect time was stored but never actually used anywhere -
-  once an access token stopped working, every sync 401'd indefinitely
-  until the user manually disconnected and reconnected. A sync that hits
-  a 401 now refreshes the token via the stored refresh_token and retries
-  once before giving up; the new tokens are saved back to the account.
-  Requires the exact `redirect_uri` used at connect time (Trakt's refresh
-  grant requires it match), so a new `ExternalAccount.redirect_uri` field
-  captures that at connect time - accounts connected before this ships
-  won't have one yet and fall back to the old behavior (manual reconnect)
-  until they reconnect once.
-- `generate_release_notifications`'s nightly Celery task referenced an
-  undefined variable in its return statement, meaning it crashed after
-  every run (its actual work still happened and got logged - the crash
-  was purely in the return value).
+- Trakt/Simkl syncs now recover from an expired or revoked access
+  token by refreshing it and retrying, instead of failing every run
+  forever. Requires the account's original redirect URI; accounts
+  connected before this ships fall back to manual reconnect until
+  reconnected once.
+- `generate_release_notifications`'s nightly task no longer crashes on
+  its return statement.
 
 ## [0.18.0] - 2026-07-19
 
 ### Added
 
-- Settings → Danger Zone: a red-treatment card at the bottom of the
-  page for permanent, destructive data actions. "Clear watch history"
-  wipes every watch event and rating (and in-progress "watching" state)
-  for your profile in one go - your lists and watchlist are untouched,
-  since history and curation are kept conceptually separate everywhere
-  else in this app. Each connected provider (Trakt/Simkl) also gets a
-  "Disconnect & wipe" action alongside the existing plain "Disconnect" -
-  it removes the integration the same way, plus your own watch history
-  for titles that provider matched. That match is approximated by
-  "this title carries that provider's external id" (per-watch-event
-  provenance isn't tracked), so a title also tracked another way keeps
-  losing its full history here, not just the provider-specific slice -
-  documented as a known limitation rather than silently glossed over.
-  Both actions only ever touch your own profile's watch data; shared
-  library rows (Titles/Episodes) and other profiles' history are never
-  touched.
-
-This is the third of the planned Settings rounds. Account deletion
-itself was deliberately left out - it's a better fit for My Profile
-than here, and wasn't part of this round's scope.
+- Settings → Danger Zone: "Clear watch history" wipes every watch
+  event/rating for your profile; each connected provider also gets a
+  "Disconnect & wipe" action. Both only ever touch your own profile's
+  watch data.
 
 ## [0.17.0] - 2026-07-19
 
 ### Added
 
-- In-app notifications: a bell in the header with an unread badge and a
-  dropdown feed. No email or push - purely in-app for now. Three
-  sources, each its own toggle on Settings → Notifications: new
-  episode/season alerts for what you're actively watching, calendar
-  reminders for anything you're watching or have watchlisted (including
-  shared lists), and Trakt/Simkl sync failure alerts. The two release-
-  based sources run as a nightly background job right after the
-  existing release-schedule sync; sync failures notify immediately,
-  the moment a sync actually fails.
-
-This is the second of the planned Settings rounds - a Danger Zone
-(destructive account/data actions) is still deliberately left for a
-follow-up round.
-
-### Added
-
-- Settings & Import: the "Import your history" card is now "Import &
-  Export" - export your full watch history as CSV (round-trips with the
-  existing CSV import) or as Trakt-compatible JSON.
-- A new Privacy card (only shown with more than one profile on the
-  server): a "Show my activity to other profiles on this server"
-  toggle. Off, a profile's watches/ratings/list-adds are entirely
-  absent from the household Activity feed, not just unlabeled.
-- Appearance gained two more preferences: a default landing page (where
-  logging in takes you - Dashboard, Movies & TV, Anime, History,
-  Calendar, Lists, or Stats), and a preferred language, which pre-fills
-  Movies & TV/Anime's own language filter instead of "Any language"
-  (not full TMDB response localization - titles/overviews stay in
-  TMDB's own language).
-
-This is the first of a few Settings rounds - Notifications (in-app,
-no email/push planned yet) and a Danger Zone (destructive data/account
-actions) are deliberately left for follow-up rounds rather than
-bundled into this one.
-
-### Added
-
-- A "Collections" tab on the Movies & TV page, alongside Trending/
-  Popular/Upcoming/Top Rated - browse movie franchises (John Wick,
-  Toy Story, Indiana Jones, ...) and click into one to see every movie
-  in it. TMDB has no dedicated endpoint for this, so the list is
-  derived from what's currently popular on TMDB rather than a
-  hand-maintained list, and refreshes naturally as that does. Movie-
-  only for now (not shown on the Anime page); studio/network browsing
-  (Marvel Studios, A24, Pixar, ...) is a separate, not-yet-built
-  feature. Turned off by default for now (not enough distinct
-  collections surfacing yet to feel worth a permanent nav tab) - the
-  feature itself is fully built and one flag away from coming back.
-
-### Added
-
-- The member-profile popup (clicking another household profile's avatar
-  in the header) now shows real stats instead of a handful of plain
-  boxes: the same circular streak ring, a Last 30 Days/All Time watch-
-  time breakdown, and genre chips the main Stats page uses, plus a
-  dimmed/blurred backdrop so the popup reads as focused. A "View full
-  stats →" link deep-links to that member's own full Stats page.
-- The Stats and History pages can now be viewed scoped to any household
-  profile, not just your own (`/profile/<id>/stats/`,
-  `/profile/<id>/history/`) - read-only when viewing someone else (no
-  bulk-select/delete on their History). The Stats page also gained a
-  "View History" link through to the matching History view.
-
-### Added
-
-- The Watchlist is now a real, auto-managed watchlist instead of just a
-  regular list that happened to be named "Watchlist": a title comes off
-  it automatically once it's finished - a movie watched at least once,
-  or every episode of a show/anime watched - the same behavior Trakt
-  and Simkl's own watchlists have. This only ever affects the one list
-  flagged as the Watchlist; custom lists are never touched, even if a
-  movie on one gets watched, and even if a custom list happens to be
-  named "Watchlist" too. Existing installs get their current "Watchlist"
-  list flagged automatically via a data migration.
-
-### Fixed
-
-- Watching every episode of a show manually via the episode browser
-  (added in 0.10.0) never updated its "completed" status - only
-  Trakt/Simkl sync and CSV import did. The per-episode watched button
-  now runs the same completion check they do.
+- In-app notifications: a bell in the header with an unread badge and
+  a dropdown feed, covering new episode/season alerts, calendar
+  reminders, and Trakt/Simkl sync failures - each with its own toggle
+  in Settings → Notifications.
+- Settings & Import: "Import your history" is now "Import & Export",
+  adding CSV/Trakt-JSON export.
+- A new Privacy card: a "Show my activity to other profiles" toggle -
+  when off, your watches, ratings, and list-adds are left out of the
+  household Activity feed entirely, not just unlabeled.
+- Appearance gained a default landing page preference and a preferred
+  language filter default.
+- A "Collections" tab on the Movies & TV page - browse movie
+  franchises, derived from what's currently popular on TMDB. Movie
+  only, turned off by default for now.
+- The member-profile popup now shows real stats (streak, watch-time
+  breakdown, genre chips) instead of a handful of plain boxes.
+- The Stats and History pages can now be viewed scoped to any
+  household profile (`/profile/<id>/stats/`, `/profile/<id>/history/`),
+  read-only for others.
+- The Watchlist is now a real, auto-managed watchlist: a title comes
+  off it automatically once finished, the same behavior Trakt and
+  Simkl have. Existing installs get their current "Watchlist" list
+  flagged automatically via a data migration.
 
 ### Changed
 
 - Added proportional breathing room to the main content area on
-  desktop/tablet (`lg:` and up) - an extra 10% of the viewport width on
-  each side, on top of the existing base padding, so wide pages don't
-  stretch page content edge-to-edge. The header/navbar itself stays
-  full-width and is unaffected; mobile is unaffected too.
+  desktop/tablet.
+
+### Fixed
+
+- Watching every episode of a show manually via the episode browser
+  now correctly updates its completed status, matching Trakt/Simkl
+  sync and CSV import.
 
 ## [0.12.0] - 2026-07-17
 
 ### Changed
 
-- Reworked the app's primary navigation: the collapsible left sidebar is
-  now a mobile-only drawer (opened via the header's hamburger button),
-  and desktop/tablet screens get the nav links folded directly into the
-  header as a single row instead - logo, search, nav links, and the
-  add-title/profile controls all in one bar, rather than a separate
-  strip underneath. The "Dashboard" nav item is gone - the SPOOL logo in
-  the header is now itself a link back to the dashboard, on every screen
-  size. "Settings & Import" and "Admin Dashboard" moved out of the main
-  nav (they no longer need their own always-visible slot) and into the
-  profile dropdown menu, alongside "My Profile" and "Log out".
+- Reworked the app's primary navigation: the sidebar is now a
+  mobile-only drawer, and desktop/tablet get nav links folded into the
+  header as a single row. The SPOOL logo now links back to the
+  dashboard on every screen size.
 
 ## [0.11.0] - 2026-07-17
 
 ### Added
 
-- A "mark as watched" button on each episode tile in the title detail
-  page's episode browser, in the same style as the round check button
-  used on Movies & TV/Anime poster cards. Logs a `WatchEvent` for that
-  specific episode (materializing a local `Episode` row with its TMDB
-  name if one doesn't exist yet); clicking again logs a rewatch, same
-  no-unwatch behavior as every other watched button in the app.
+- A "mark as watched" button on each episode tile in the episode
+  browser, logging a `WatchEvent` for that specific episode.
 
 ## [0.10.1] - 2026-07-16
 
 ### Fixed
 
-- The backdrop's "Directed by X" text (removed in 0.10.0 when the
-  director moved into the Cast row) was supposed to stay - the two
-  aren't mutually exclusive. Restored it alongside the Cast row entry.
+- Restored the backdrop's "Directed by X" text alongside the Cast row
+  entry, which shouldn't have been removed in 0.10.0.
 
 ## [0.10.0] - 2026-07-16
 
 ### Added
 
 - Title detail pages for TV shows/anime now have an episode browser: a
-  season dropdown (not every season on one page) and a grid of episode
-  tiles (thumbnail, name, "SEASON FINALE" badge on the last episode of
-  a season) with a green checkmark on episodes you've already watched.
-  Opens on the season you're currently partway through by default (the
-  highest season you have any watched episode in), or Season 1 if
-  you haven't started the show yet.
+  season dropdown and a grid of episode tiles with a checkmark on
+  episodes you've already watched.
 
 ### Changed
 
-- The director now appears as the first entry in the Cast row (with a
-  divider before the rest of the cast), instead of small text overlaid
-  on the backdrop image - movies only, since TMDB doesn't credit a
-  single director at the series level for TV/anime.
+- The director now appears as the first entry in the Cast row instead
+  of small text overlaid on the backdrop image (movies only).
 
 ## [0.9.3] - 2026-07-16
 
 ### Fixed
 
-- Poster cards (Dashboard, Discover, History, Calendar) had a faint
-  white border baked into every poster image, meant to be an almost-
-  invisible edge definition - on bright/light-colored posters it showed
-  up as an obvious pale rim around the whole card instead of blending
-  in. Removed it; the rounded-corner clipping alone is enough to define
-  the card's edge.
+- Removed a faint white border baked into poster images that showed up
+  as an obvious pale rim on bright/light-colored posters.
 
 ## [0.9.2] - 2026-07-16
 
 ### Changed
 
-- Watch activity's heatmap now fills the full width of its card - it
-  was a fixed-pixel-size grid that left blank space in a wide card and
-  needed horizontal scrolling in a narrow one. Cells now scale
-  fluidly with the container (staying square) instead of a fixed 11px.
+- Watch activity's heatmap now fills the full width of its card
+  instead of a fixed-pixel-size grid.
 - The year selector next to it is now a dropdown instead of a row of
-  tabs, which used to overflow on smaller screens.
+  tabs.
 
 ## [0.9.1] - 2026-07-16
 
 ### Fixed
 
-- "Your top genres" showed illegible truncated labels ("R..", "8...")
-  for the long tail of minor genres, whose segments are too narrow to
-  fit a name + count. Labels are now suppressed below a minimum share
-  (~3%) - the segment still renders at its correct proportional width
-  and color, it just doesn't try to cram text into a sliver too thin to
-  hold it.
+- "Your top genres" showed illegible truncated labels for minor
+  genres; labels are now suppressed below a minimum share.
 
 ## [0.9.0] - 2026-07-16
-
-### Fixed
-
-- "Your top genres" always showed "No genre data yet" - it turned out no
-  import path (Trakt, Simkl, CSV) has ever fetched or attached genre
-  data to a title, for anyone, ever, since the feature was first built.
-  Genre-fetching is now wired into all three import paths (and the
-  discover/preview "materialize" flow), via TMDB's title-details
-  endpoint, which already returns genre names alongside the runtime/
-  poster data those paths already fetch.
 
 ### Added
 
 - `backfill_genres` management command - a one-time pass over existing
-  titles that already have a TMDB id but no genres yet, fetching and
-  attaching them the same way new imports now do. Run it after
-  upgrading to pick up genre data for your existing library.
+  titles to fetch and attach genre data.
 
 ### Changed
 
 - Release years is temporarily disabled ("Coming soon") while its
-  underlying data gets double-checked - it's still a reserved tile, not
-  removed.
+  underlying data gets double-checked.
+
+### Fixed
+
+- "Your top genres" always showed "No genre data yet", since no import
+  path had ever fetched genre data. Genre-fetching is now wired into
+  all import paths via TMDB.
 
 ## [0.8.0] - 2026-07-16
 
 ### Added
 
-- Redesigned Stats' genre panel into a new full-width "Your top genres"
-  section, styled after Simkl's own genre chart: a single segmented bar
-  proportioned by each genre's share, with alternating above/below
-  labels so narrow segments still get room for a name, MOST/LEAST
-  callouts, and a toggle between sizing by title/episode count or by
-  total watch time (a new per-genre watch-time aggregation).
-- Release years is now its own tile (previously bundled into the same
-  panel as genres), unchanged in content.
+- Redesigned Stats' genre panel into a full-width "Your top genres"
+  section: a single segmented bar with MOST/LEAST callouts and a
+  toggle between sizing by title/episode count or by total watch time.
+- Release years is now its own tile.
 
 ### Changed
 
 - The Movies/TV Shows/Anime genre-type selector moved from plain text
-  tabs to pill buttons inside the new genre panel.
+  tabs to pill buttons.
 
 ## [0.7.2] - 2026-07-16
 
-### Fixed
-
-- Split by type's pie was rendering with its edge visibly flattened/cut
-  off in places - the wedges' radius exactly touched the SVG's own clip
-  boundary, and anti-aliasing right at that edge was clipping it. Pulled
-  the radius in slightly so the circle has margin to render cleanly.
-
 ### Changed
 
-- The hover/default readout under the pie now shows just the percentage
-  - dropped the duration ("88d 1h 53m TV"), since that's already shown
-  per-type in the All time panel above and was redundant here.
+- The hover/default readout under the "Split by type" pie now shows
+  just the percentage, dropping the redundant duration.
+
+### Fixed
+
+- Split by type's pie was rendering with its edge visibly clipped;
+  pulled the radius in slightly.
 
 ## [0.7.1] - 2026-07-16
 
 ### Changed
 
-- Split by type is a full pie again (no center hole) per feedback -
-  rebuilt as three filled SVG wedges instead of stroked ring arcs. The
-  hover readout (percentage + duration + type) that used to live in the
-  donut's center hole now sits just below the chart instead, with the
-  legend staying put as a horizontal row beneath that. Hover/tap
-  behavior (pop the slice, bold the legend entry) is unchanged.
+- Split by type is a full pie again (no center hole), rebuilt as three
+  filled SVG wedges. The hover readout moved below the chart.
 
 ## [0.7.0] - 2026-07-16
 
 ### Added
 
-- Stats' "Split by type" donut is now interactive: hovering (or tapping)
-  a slice pops it outward slightly, bolds its legend row, and swaps the
-  previously-empty center hole from dead space to that segment's own
-  readout ("73% · 87d 17h TV"). With nothing hovered, the center shows
-  your largest category by default instead of sitting blank.
+- Stats' "Split by type" donut is now interactive: hovering a slice
+  pops it outward and shows its own readout in the center hole.
 
 ### Changed
 
-- Rebuilt the donut as three individually-hoverable SVG arcs (replacing
-  the single flat CSS conic-gradient) so each slice can respond on its
-  own - this also meant staying a donut rather than a full pie, since the
-  hole is what gives the hover readout somewhere to live.
-- The legend moved from three stacked rows to one horizontal row
-  (Movies · TV shows · Anime) under the chart, and each entry is now
-  itself hoverable/tappable too, mirroring whichever slice it represents.
+- Rebuilt the donut as three individually-hoverable SVG arcs. The
+  legend moved to one horizontal row, each entry also
+  hoverable/tappable.
 
 ## [0.6.7] - 2026-07-16
 
 ### Changed
 
-- Refined Stats' row-alignment pass from 0.6.6: row 2's first and third
-  boxes (Genres & release years / Watch activity) are now equal width
-  with a narrower middle box (Split by type, whose donut+legend never
-  needed as much room); row 3's three boxes (Daily breakdown / Daily
-  average / Peak hours) are now a plain equal three-way split. Row 1 is
-  unchanged.
+- Refined Stats' row-alignment: row 2's outer boxes are now equal
+  width with a narrower middle box; row 3 is a plain equal three-way
+  split.
 
 ## [0.6.6] - 2026-07-16
 
 ### Changed
 
-- Stats' three rows each used their own column-width ratio (the top row
-  1.7:1:1, the second 1.3:0.8:1, the third a plain equal three-way
-  split), so box edges didn't line up between rows even though each row
-  was internally fine - the page read as "all over the place" looking
-  down it. All three rows now share the same 1.7:1:1 column template, so
-  every box's left/right edge lines up cleanly with the row above and
-  below it.
+- All three Stats rows now share the same column-width ratio, so box
+  edges line up cleanly across rows.
 
 ## [0.6.5] - 2026-07-16
 
 ### Changed
 
-- Per a hand-drawn mockup: Stats' top row (streak / Last 30 days / All
-  time) is now one combined bordered card with thin divider lines
-  between its three sections, instead of three separate boxes with gaps
-  between them - the gaps made the row read as misaligned even though
-  each box's own height matched.
+- Stats' top row (streak / Last 30 days / All time) is now one
+  combined bordered card with thin divider lines instead of three
+  separate boxes.
 
 ## [0.6.4] - 2026-07-16
 
 ### Added
 
 - Calendar sidebar now keeps showing a release for 30 days after it
-  airs, instead of dropping it from the agenda the instant its release
-  time passes - a weekly show no longer disappears the moment Thursday
-  ticks over.
+  airs instead of dropping it the instant its release time passes.
 
 ### Changed
 
 - Clicking a calendar date with releases now also highlights that
-  date's matching entry in the sidebar (violet underline + a subtle
-  tint on the whole block), not just the grid cell you clicked -
-  previously the grid and sidebar had no visual link between them.
+  date's matching sidebar entry.
 
 ## [0.6.3] - 2026-07-16
 
 ### Fixed
 
 - Navigating the Calendar to any past month always rendered an empty
-  grid, even for months that genuinely had releases - `calendar_releases()`
-  was hardcoded to `release_date >= now`, a filter meant for the sidebar's
-  "what's upcoming" agenda, but the month grid reused the same query. The
-  grid now queries the specific month being viewed instead, so past
-  months show their own releases again (ReleaseSchedule rows aren't
-  deleted once their date passes - the data was always there, it just
-  wasn't being asked for). The sidebar's agenda is unaffected and still
-  only ever shows what's upcoming from now, regardless of which month the
-  grid is showing.
+  grid, even for months that had releases; the grid now queries the
+  specific month being viewed.
 
 ## [0.6.2] - 2026-07-16
 
 ### Changed
 
-- Calendar sidebar's date groups (Jul 18, Jul 19, ...) were just bold
-  text the same size as everything else, so the list of upcoming
-  releases read as one undifferentiated block. Restyled each date to
-  match History's own day-group header (font-display, underlined),
-  making each date's releases read as a clearly separated group -
-  today's date header is also now tinted primary, matching the main
-  grid's own "today" highlight.
+- Calendar sidebar's date groups are now styled to match History's own
+  day-group header, with today's date tinted primary.
 
 ## [0.6.1] - 2026-07-16
 
 ### Fixed
 
-- Clicking a date on the Calendar gave no indication it had been
-  selected. Today's date now stays selected (violet border) until you
-  click a different date, at which point the border moves there instead
-  - today keeps its filled circle number regardless, since that's a
-  fixed "this is today" marker, not the selection state.
+- Clicking a date on the Calendar now visibly stays selected until you
+  click a different date.
 
 ## [0.6.0] - 2026-07-15
 
 ### Changed
 
-- History's binge-group tile no longer expands into a dropdown. Per
-  feedback, the episode list (previously an expand/collapse chevron
-  revealing a chip list) is now a single always-visible segmented
-  timeline bar under the poster - one thin segment per episode, in the
-  order they were actually watched (not the page's own newest/oldest
-  sort), with a hover tooltip on each segment showing that episode's
-  number and watched time. No expand/collapse state at all.
+- History's binge-group tile no longer expands into a dropdown; the
+  episode list is now a single always-visible segmented timeline bar
+  with a hover tooltip per segment.
 
 ## [0.5.4] - 2026-07-15
 
 ### Changed
 
-- Reverted the collapsed sidebar's icon image back to a plain "S" letter
-  (per feedback preferring that over the app icon) - still in its own
-  centered row from the 0.5.3 fix, so it no longer suffers the original
-  clipping/placement problem. The browser tab favicon (0.5.2) is
-  unaffected and still uses the app icon.
+- Reverted the collapsed sidebar's icon back to a plain "S" letter, in
+  its own centered row.
 
 ## [0.5.3] - 2026-07-15
 
 ### Fixed
 
-- The collapsed sidebar's icon (added in 0.5.2) was crammed into the same
-  padded, baseline-aligned row as the expanded "SPOOL" wordmark, leaving
-  it only ~20px of space for a 28px image - it rendered clipped and
-  undersized. It now has its own centered row sized for the collapsed
-  rail, rendering at its full 36px.
+- The collapsed sidebar's icon was cramped into too little space; it
+  now has its own centered row at full size.
 
 ## [0.5.2] - 2026-07-15
 
 ### Added
 
-- A real browser tab icon (favicon.ico + 16/32px PNGs + an apple-touch-
-  icon) - there wasn't one before, so tabs just showed a generic blank
-  page icon.
+- A real browser tab icon (favicon + apple-touch-icon).
 
 ### Changed
 
-- The collapsed sidebar's brand mark was a bare "S" rendered in the
-  display font, sitting at the same baseline/padding as the full "SPOOL"
-  wordmark it replaces - it looked like stray text, not a logo. It's now
-  the same app icon used for the favicon, sized as a proper small badge.
+- The collapsed sidebar's brand mark is now the same app icon used for
+  the favicon, sized as a proper small badge.
 
 ## [0.5.1] - 2026-07-15
 
 ### Changed
 
-- History's binge-group tile (the collapsed "S1E215–S1E221 · 7×" card)
-  now shows total watch time on the card itself ("7 episodes · 2h 48m"),
-  not just the episode count - previously you'd have to expand it and
-  sum seven rows yourself to know how long a session actually was.
-- The expanded episode list was redesigned from tight table-like rows
-  (an episode number, a runtime-looking time column, and a delete button
-  each in their own column) to wrapping, lighter pill chips ("S1E221 ×").
-  The old time column was actually each episode's watched-at clock time,
-  not its runtime, which read as a confusing, easily-misread duration
-  figure sitting right next to the real per-episode data - it's now a
-  hover tooltip on each chip instead of a persistent column.
+- History's binge-group tile now shows total watch time on the card
+  itself, not just the episode count.
+- The expanded episode list was redesigned from table-like rows into
+  wrapping, lighter pill chips.
 
 ## [0.5.0] - 2026-07-15
 
 ### Added
 
-- History's tiles can now be removed in bulk: a "Select" toggle in the
-  filter bar puts every tile into checkbox mode, and a floating bar
-  ("N selected · Delete selected") appears once at least one is checked.
-  A collapsed binge-group tile's single checkbox stands in for every
-  episode it collapses - checking it counts and deletes all of them at
-  once, not just the group card itself.
+- History's tiles can now be removed in bulk via a "Select" toggle and
+  a floating "N selected · Delete selected" bar. A binge-group tile's
+  checkbox stands in for every episode in it.
 
 ## [0.4.0] - 2026-07-14
 
 ### Added
 
-- Three new Stats panels, per a hand-drawn mockup: "Daily breakdown" (a
-  7-day bar chart, today included, peak day labeled with its duration),
-  "Daily average" (average watch time per day over the last 7 days, with
-  a delta vs. the preceding 7-day period), and "Peak hours" (lifetime
-  distribution of watch events across Morning/Afternoon/Evening/Night,
-  bucketed by local time of day).
+- Three new Stats panels: "Daily breakdown" (7-day bar chart), "Daily
+  average" (with a delta vs. the preceding period), and "Peak hours"
+  (lifetime distribution by time of day).
 
 ## [0.3.4] - 2026-07-14
 
-### Fixed
-
-- Stats page's bottom row ("Genres & release years" / "Split by type" /
-  "Watch activity") wasn't respecting its intended column-width ratio -
-  a classic CSS Grid gotcha where a bare `Nfr` track's implicit minimum
-  is its content's min-content size, not zero, so a box with wide
-  content (the genre pills, the heatmap) could grow past its intended
-  share regardless of the fr ratio. Fixed by giving every grid item
-  `min-w-0` so the ratio actually governs the layout.
-
 ### Changed
 
-- Per a hand-drawn layout request: the streak/stats box now sits in the
-  same row as "Last 30 days" and "All time" (previously its own row
-  above them), visibly wider than the other two, which are equal width.
-  "Total watch time" and "Episodes logged" - previously shown standalone
-  in that box - were dropped as redundant now that "All time"'s Combined
-  line sits right next to it showing the same totals.
+- The streak/stats box now sits in the same row as "Last 30 days" and
+  "All time", visibly wider than the other two.
+
+### Fixed
+
+- Stats page's bottom row wasn't respecting its intended column-width
+  ratio due to a CSS Grid min-width quirk; fixed by giving every grid
+  item `min-w-0`.
 
 ## [0.3.3] - 2026-07-14
 
 ### Fixed
 
-- Extended the 0.3.1 badge restyle (solid background, bold text, drop
-  shadow) to History's tiles too - the episode/date-range badge and
-  media-type badge on single-episode and binge-group cards, and the
-  existing episode-count "3×" badge, now all match.
+- Extended the 0.3.1 badge restyle to History's tiles too, so every
+  badge type now matches.
 
 ## [0.3.2] - 2026-07-14
 
 ### Changed
 
-- Stats page reorganized to a requested layout: "Genres & release years",
-  "Split by type", and "Watch activity" now sit side by side in one row
-  (in that order) instead of three separate stacked full-width sections,
-  matching the streak/watch-time box and the Last 30 days/All time row
-  above it. "Split by type"'s donut+legend now stacks vertically to fit
-  its narrower column.
+- Stats page reorganized: "Genres & release years", "Split by type",
+  and "Watch activity" now sit side by side in one row.
 
 ## [0.3.1] - 2026-07-14
 
 ### Fixed
 
-- The MOVIE/TV/ANIME badge on poster cards was a low-contrast, tiny
-  label that blended into the poster art, unlike the rating badge next
-  to it. Restyled to match the rating badge's solid background/shadow/
-  weight, and bumped both badges up slightly in size.
+- The MOVIE/TV/ANIME badge on poster cards was low-contrast and
+  blended into the poster art; restyled to match the rating badge.
 
 ## [0.3.0] - 2026-07-14
 
 ### Added
 
-- Discover grid (Movies & TV / Anime, and "If you like this") poster
-  tiles now get the same watched/add-to-list quick actions as library
-  poster cards. Since these are TMDB previews with no local Title row
-  yet, the first click materializes the title (get-or-create by TMDB id,
-  same idiom the existing "Add to Watchlist" button already used) before
-  acting - every action after that flows through the normal endpoints.
+- Discover grid poster tiles now get the same watched/add-to-list
+  quick actions as library poster cards, materializing the title on
+  first click.
 
 ### Fixed
 
-- Poster cards (Dashboard's carousels especially) could render at wildly
-  inconsistent sizes - a short title like "Bleach" as small as 40px wide,
-  a long one like "Berserk: The Golden Age Arc - Memorial Edition" as
-  wide as 287px. Root cause: `poster_card.html`'s width fallback used
-  Django's `default_if_none` filter (changed in 0.2.0 to accommodate one
-  call site's `width_class=""`), but an *omitted* template variable
-  resolves to an empty string, not `None` - so `default_if_none` never
-  substituted the fallback width, and cards without one fell back to
-  sizing themselves from their own unconstrained overlaid title text.
-  Reverted to `default` (the original, correct filter for this), and
-  the one call site that genuinely wants to defer to its grid's own
-  sizing now passes a real class (`w-full`) instead of an empty string.
-- Strengthened the bottom-of-poster gradient (reaching about halfway up
-  the card instead of a thin sliver at the very bottom) so the action
-  buttons stay legible against bright poster art.
+- Poster cards could render at wildly inconsistent sizes due to a
+  template filter bug; fixed the width fallback.
+- Strengthened the bottom-of-poster gradient so action buttons stay
+  legible against bright poster art.
 
 ## [0.2.1] - 2026-07-14
 
 ### Fixed
 
-- The poster card list-picker popover (added in 0.2.0) rendered
-  overlapping/inside the poster art in a garbled, hard-to-read way on
-  small cards — it was positioned against its own tiny trigger button,
-  which left it nowhere to go but on top of the ~250px-tall card. Now
-  positioned via the button's actual screen coordinates so it floats
-  freely above the page instead.
-- The sidebar could render fully off-screen (not just collapsed to
-  icon-only) at browser widths between roughly 768–900px, a pre-existing
-  bug from a mismatch between Tailwind's `md:` breakpoint (768px) and a
-  separate hardcoded 900px threshold in the sidebar's own show/hide
-  logic — the two are now consistent.
+- The poster card list-picker popover rendered overlapping/garbled on
+  small cards; now positioned via the button's actual screen
+  coordinates.
+- The sidebar could render fully off-screen at certain browser widths
+  due to a breakpoint mismatch.
 
 ## [0.2.0] - 2026-07-14
 
 ### Added
 
-- Poster cards (Dashboard's carousels, Lists) now have a persistent quick-action
-  bar — mark as watched, or add/remove from any list — without leaving the
-  grid, styled after Trakt's own poster cards. Cards are also a bit bigger
-  and grids a bit denser across Dashboard, Lists, Discover, and "If you
-  like this."
+- Poster cards now have a persistent quick-action bar (mark as
+  watched, or add/remove from any list) without leaving the grid.
+  Cards are also a bit bigger and grids a bit denser.
 
 ### Fixed
 
-- `list_detail_items.html`'s `width_class=""` override (meant to defer
-  poster card sizing entirely to its grid) never actually worked — Django's
-  `default` filter treats an empty string as falsy too, not just a missing
-  value, so it was silently ignored.
+- A width-override meant to defer poster card sizing to its grid never
+  actually worked due to a template filter issue.
 
 ## [0.1.0] - 2026-07-14
 
-First tracked release — baseline for version tracking itself, covering
+First tracked release - baseline for version tracking itself, covering
 everything shipped so far.
 
 ### Added
 
-- Milestone celebration banner on the Dashboard (streak/movie-count
-  thresholds) and warmer, less generic empty-state copy across
-  Dashboard, Calendar, History, and Activity.
-- Redesigned title detail rating control: a single draggable fill gauge
-  instead of ten individual stars.
-- Film-strip perforation accents on the title detail hero and Dashboard
-  header, and heavier icon stroke weight across the sidebar/topbar.
-- An Ongoing / Ended / Cancelled status badge on the title detail hero,
+- Milestone celebration banner on the Dashboard and warmer empty-state
+  copy across Dashboard, Calendar, History, and Activity.
+- Redesigned title detail rating control: a single draggable fill
+  gauge instead of ten individual stars.
+- Film-strip perforation accents on the title detail hero and
+  Dashboard header, and heavier icon stroke weight across the
+  sidebar/topbar.
+- An Ongoing/Ended/Cancelled status badge on the title detail hero,
   sourced from TMDB.
-- Calendar and Dashboard's "Up Next" now actually populate with upcoming
-  episodes, season premieres, and movie release dates — a nightly job
-  syncs this from TMDB for anything you're watching, have watchlisted,
-  or have any watch history for.
+- Calendar and Dashboard's "Up Next" now actually populate with
+  upcoming episodes, season premieres, and movie release dates.
 - App version, shown in the sidebar footer and on the Settings page.
 
 ### Fixed
 
-- Calendar/Up Next were scoped to `WatchProgress.status == WATCHING`,
-  a status nothing in the app ever actually sets outside Django admin —
-  broadened to also cover plain watch history, so shows synced via
-  Trakt/Simkl/CSV import that you're mid-way through are correctly
-  included.
+- Calendar/Up Next were scoped to a status nothing in the app ever
+  actually set; broadened to also cover plain watch history.
