@@ -33,3 +33,98 @@ jobs:
             ghcr.io/aljaz-h/spool-tracker:latest
             ghcr.io/aljaz-h/spool-tracker:${{ github.sha }}
             ghcr.io/aljaz-h/spool-tracker:${{ steps.version.outputs.value }}
+
+      # Runs only once the build/push step above has actually succeeded -
+      # steps.version and the image itself are proven good by this point,
+      # so there's nothing left here that could post incorrect info for a
+      # broken build. `if: success()` is the same behavior a step with no
+      # `if:` already gets by default, kept explicit so it's obvious at a
+      # glance that a failed build can never reach this step, not just
+      # something a reader has to already know about step semantics.
+      - name: Notify Discord
+        if: success()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
+          VERSION: ${{ steps.version.outputs.value }}
+          REPO_URL: https://github.com/${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "::error::DISCORD_WEBHOOK repository secret is not set - cannot send the Discord notification."
+            exit 1
+          fi
+
+          # Extract just this version's own section from CHANGELOG.md -
+          # everything from its "## [VERSION]" heading up to (but not
+          # including) the next "## [" heading, whatever that turns out
+          # to be (the next version, or nothing if this is the oldest
+          # entry). index(...) == 1 is a plain, unescaped prefix check
+          # (not a regex match), so a version string's own literal dots
+          # can't be misread as "match any character" and accidentally
+          # match a similar-looking version number.
+          HEADING="## [$VERSION]"
+          if ! awk -v heading="$HEADING" '
+            index($0, heading) == 1 { printing = 1; found = 1; next }
+            /^## \[/ && printing { exit }
+            printing { print }
+            END { exit (found ? 0 : 1) }
+          ' CHANGELOG.md > /tmp/changelog_excerpt.md; then
+            echo "::error::No CHANGELOG.md entry found for version $VERSION - expected a heading like '## [$VERSION] - YYYY-MM-DD'. Fix CHANGELOG.md (or VERSION) and push again; the Docker image was already published successfully."
+            exit 1
+          fi
+
+          # Trim leading/trailing blank lines (CHANGELOG.md always has a
+          # blank line right after the heading, and another before the
+          # next one).
+          CHANGELOG_BODY="$(sed -e '/./,$!d' /tmp/changelog_excerpt.md | tac | sed -e '/./,$!d' | tac)"
+
+          if [ -z "$CHANGELOG_BODY" ]; then
+            echo "::error::CHANGELOG.md's [$VERSION] entry is empty - nothing to post."
+            exit 1
+          fi
+
+          # Discord embed descriptions cap out at 4096 characters total,
+          # and the changelog body shares that budget with the intro
+          # line above it - stay comfortably under with room for the
+          # truncation notice itself. iconv -c afterward drops any
+          # trailing partial UTF-8 byte sequence the character-count cut
+          # below could otherwise leave behind (this changelog uses
+          # multi-byte punctuation like · and —).
+          MAX_LEN=3500
+          if [ "${#CHANGELOG_BODY}" -gt "$MAX_LEN" ]; then
+            CHANGELOG_BODY="$(printf '%s' "${CHANGELOG_BODY:0:$MAX_LEN}" | iconv -f utf-8 -t utf-8 -c)"
+            CHANGELOG_BODY="$(printf '%s\n\n*(truncated — see the full changelog on GitHub)*' "$CHANGELOG_BODY")"
+          fi
+
+          IMAGE="ghcr.io/aljaz-h/spool-tracker:${VERSION}"
+          DESCRIPTION="$(printf 'A new Docker image has been built and published.\n\n%s' "$CHANGELOG_BODY")"
+
+          PAYLOAD="$(jq -n \
+            --arg title "🚀 Spool ${VERSION}" \
+            --arg description "$DESCRIPTION" \
+            --arg url "$REPO_URL" \
+            --arg image "$IMAGE" \
+            --arg footer "Spool • Docker Update" \
+            --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{
+              embeds: [
+                {
+                  title: $title,
+                  description: $description,
+                  url: $url,
+                  color: 3447003,
+                  fields: [
+                    {name: "Docker Image", value: ("```\n" + $image + "\n```"), inline: false}
+                  ],
+                  footer: {text: $footer},
+                  timestamp: $timestamp
+                }
+              ]
+            }'
+          )"
+
+          curl --silent --show-error --fail \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "$DISCORD_WEBHOOK_URL"
