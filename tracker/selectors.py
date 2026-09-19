@@ -3,6 +3,7 @@ spool-django-handoff.md §5 ("compute in a model method or manager, not in
 the template")."""
 
 import operator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from functools import reduce
 
@@ -10,6 +11,7 @@ from django.db.models import Count, Q, Sum
 from django.db.models.functions import Coalesce, ExtractDay, ExtractHour, ExtractMonth
 from django.utils import timezone
 
+from . import instance_config
 from .integrations import tmdb
 from .models import (
     DataLog,
@@ -123,23 +125,51 @@ def continue_watching(profile, media_types=None, limit=8):
         qs = qs[:limit]
     progresses = list(qs)
 
-    # One grouped query for every non-movie row's season episode-count,
-    # instead of a Episode.objects.filter(...).count() per row - dashboard
-    # calls this with limit=None (the full Watching list), so a per-row
-    # query would scale with how many shows a profile has in progress.
+    # One query for every non-movie row's own show's full episode table
+    # (season, episode, runtime_minutes), instead of one per row -
+    # dashboard calls this with limit=None (the full Watching list), so a
+    # per-row query would scale with how many shows a profile has in
+    # progress. Grouped in Python into {(title_id, season): [(episode,
+    # runtime_minutes), ...]} rather than a .annotate(Count()) aggregate,
+    # since this needs more than the per-season episode count below
+    # (season_totals) - also the season finale check (last known episode
+    # number in the season) and the remaining-runtime sum for the caption,
+    # neither of which a plain COUNT() gives up.
     non_movie_title_ids = [p.title_id for p in progresses if p.title.media_type != MediaType.MOVIE]
-    season_totals = {}
+    episodes_by_season = {}
     if non_movie_title_ids:
-        rows = (
-            Episode.objects.filter(title_id__in=non_movie_title_ids)
-            .values("title_id", "season")
-            .annotate(total=Count("id"))
+        rows = Episode.objects.filter(title_id__in=non_movie_title_ids).values(
+            "title_id", "season", "episode", "runtime_minutes"
         )
-        season_totals = {(r["title_id"], r["season"]): r["total"] for r in rows}
+        for r in rows:
+            episodes_by_season.setdefault((r["title_id"], r["season"]), []).append(
+                (r["episode"], r["runtime_minutes"] or 0)
+            )
+    season_totals = {key: len(eps) for key, eps in episodes_by_season.items()}
+
+    # One batched query for every row's current_episode's own play count
+    # (episode_watched_button.html's ×N badge) instead of one WatchEvent
+    # query per row - episode_id is globally unique across titles, so a
+    # plain __in is safe without also filtering by title.
+    current_episode_ids = [p.current_episode_id for p in progresses if p.current_episode_id]
+    watch_counts_by_episode = {}
+    if current_episode_ids:
+        watch_counts_by_episode = dict(
+            WatchEvent.objects.filter(profile=profile, episode_id__in=current_episode_ids)
+            .values_list("episode_id")
+            .annotate(n=Count("id"))
+            .order_by()
+        )
+
+    # Shared across every row below (not per-row) - see
+    # _episode_still_and_name's own docstring for why.
+    season_cache = {}
 
     for progress in progresses:
         title = progress.title
-        season = episode_number = None
+        season = episode_number = episode_name = still_url = None
+        is_season_finale = False
+        watch_count = 0
         if title.media_type == MediaType.MOVIE:
             total_seconds = (title.runtime_minutes or 0) * 60
             percent = min(100, round(progress.position_seconds / total_seconds * 100)) if total_seconds else 0
@@ -153,10 +183,45 @@ def continue_watching(profile, media_types=None, limit=8):
             percent, caption = 0, "In progress"
             if ep:
                 season, episode_number = ep.season, ep.episode
-                total_eps = season_totals.get((title.id, ep.season), 0)
+                still_url, episode_name = _episode_still_and_name(title, ep, season_cache)
+                watch_count = watch_counts_by_episode.get(ep.id, 0)
+
+                # TMDB's own season data (already fetched by
+                # _episode_still_and_name above, cached 6h - no extra
+                # call) is the source of truth for total_eps/is_season_finale/
+                # remaining_minutes when available, same reasoning
+                # episode_totals_for_group's own docstring gives for
+                # preferring TMDB over local Episode rows: this show's
+                # local Episode table only has whatever's been synced
+                # (watched, or touched by a calendar sync) so far, not
+                # necessarily the season's full, real episode list - a
+                # profile only two episodes into a 21-episode season
+                # could otherwise see "Season Finale" on episode 2 just
+                # because no later episode has ever been synced locally
+                # yet. Falls back to the local table (episodes_by_season)
+                # only when there's no tmdb_id or TMDB has nothing for
+                # this season.
+                tmdb_id = title.external_ids.get("tmdb") if title.external_ids else None
+                season_data = season_cache.get((tmdb_id, ep.season)) if tmdb_id else None
+                if season_data and season_data.get("episodes"):
+                    tmdb_episodes = [
+                        (e["episode_number"], e.get("runtime") or 0) for e in season_data["episodes"]
+                    ]
+                    total_eps = len(tmdb_episodes)
+                    last_known_episode = max(n for n, _ in tmdb_episodes)
+                else:
+                    tmdb_episodes = episodes_by_season.get((title.id, ep.season), [])
+                    total_eps = season_totals.get((title.id, ep.season), 0)
+                    last_known_episode = max((n for n, _ in tmdb_episodes), default=0)
+
                 if total_eps:
                     percent = min(100, round(ep.episode / total_eps * 100))
-                    caption = f"S{ep.season}E{ep.episode} of {total_eps}"
+                    is_season_finale = ep.episode >= last_known_episode
+                    remaining_eps = max(total_eps - ep.episode, 0)
+                    remaining_minutes = sum(rt for n, rt in tmdb_episodes if n > ep.episode)
+                    caption = f"{remaining_eps}E left"
+                    if remaining_minutes:
+                        caption += f" · {format_duration(remaining_minutes)} remaining"
                 else:
                     caption = f"S{ep.season}E{ep.episode}"
         # season/episode_number (None for a movie, or a show with no
@@ -164,8 +229,26 @@ def continue_watching(profile, media_types=None, limit=8):
         # this episode (?season=N#episode-N-M) instead of just the
         # title's own page - see title_episodes.html's own episode-card
         # ids and app.css's :target styling for the other half of this.
+        # still_url/episode_name/is_season_finale/watch_count are the
+        # Watching row's own landscape-card fields (poster_card.html) -
+        # all None/False/0 for a movie, or a show with no current_episode
+        # resolved yet (current_episode is only ever populated by a
+        # Nuvio/scrobble-reported resume position, not by the in-app
+        # "mark episode watched" button - see WatchProgress's own field
+        # comment), in which case poster_card.html falls back to its
+        # plain portrait layout.
         items.append(
-            {"title": title, "percent": percent, "caption": caption, "season": season, "episode_number": episode_number}
+            {
+                "title": title,
+                "percent": percent,
+                "caption": caption,
+                "season": season,
+                "episode_number": episode_number,
+                "episode_name": episode_name,
+                "still_url": still_url,
+                "is_season_finale": is_season_finale,
+                "watch_count": watch_count,
+            }
         )
     return items
 
@@ -340,69 +423,97 @@ def recently_added_to_lists(profile, limit=3):
     return _visible_watchlist_items(profile).exclude(watchlist__is_watchlist=True)[:limit]
 
 
-def because_you_watched(profile, candidate_pool=3, limit=12):
-    """Dashboard's personalized discovery row - TMDB's own
-    "recommendations" for the most recently watched title that has a
-    TMDB id (most watch history does, via Trakt/Simkl/CSV import's own
-    TMDB matching, or a title added through a discover/preview/search
-    card). Tries up to candidate_pool recent titles, newest first,
-    stopping at the first one TMDB actually has recommendations for -
-    an obscure title can have none, and one retry or two is worth it,
-    but this deliberately doesn't keep trying indefinitely (each attempt
-    is a real TMDB call) just to fill a Dashboard row. None if nothing
-    qualifies (no TMDB-linked watch history yet, no TMDB_API_KEY
-    configured, or every candidate came back empty) - the Dashboard
-    just skips the row rather than showing an empty one."""
-    from tracker.integrations import tmdb as tmdb_integration
-
-    recent_titles = []
-    seen_title_ids = set()
-    for event in (
-        WatchEvent.objects.filter(profile=profile, title__external_ids__tmdb__isnull=False)
-        .select_related("title")
-        .order_by("-watched_at")
-    ):
-        if event.title_id not in seen_title_ids:
-            seen_title_ids.add(event.title_id)
-            recent_titles.append(event.title)
-        if len(recent_titles) >= candidate_pool:
-            break
-
-    for title in recent_titles:
-        tmdb_id = title.external_ids.get("tmdb")
-        if not tmdb_id:
-            continue
-        media_type = tmdb_integration.media_type_for(title)
-        results = tmdb_integration.get_similar(media_type, tmdb_id, limit=limit)
-        if results:
-            return {"anchor_title": title, "results": results}
-    return None
-
-
-def for_you(profile, limit=12):
-    """Dashboard's "For You" row - a discover() call scoped to this
-    profile's own genre/provider/region preferences (Settings →
-    Preferences), distinct from because_you_watched above (TMDB's
-    "similar to X" recommendations) and from every other row on this
-    page (all generic trending/popular). Movie-only for now, matching
-    preferred_genre_ids' own movie-catalog scope (see its model field
-    comment). None when the profile hasn't set a genre or provider
-    preference yet - an unscoped discover() call would just be "popular
-    movies again", which the Dashboard already shows elsewhere."""
+def for_you(profile, media_type, limit=12):
+    """recommended_for_you()'s own no-watch-history-yet fallback - a
+    discover() call scoped to this profile's genre/provider/region
+    preferences (Settings → Preferences) for whichever media_type asked
+    (Movie/TV/Anime), rather than the generic trending/popular every
+    other Dashboard row already shows. Anime forces TMDB's Animation
+    genre + Japan origin, the same way views.discover()'s own Anime page
+    does - genre_ids' own id space is shared enough across movie/tv (see
+    Profile.preferred_genre_ids' own field comment) that a
+    movie-flavored preference still reasonably scopes a TV/Anime call
+    too. None when the profile hasn't set a genre or provider preference
+    yet - an unscoped discover() call would just be "popular again"."""
     if not profile.preferred_genre_ids and not profile.preferred_provider_ids:
         return None
-    from tracker.integrations import tmdb as tmdb_integration
-
-    page = tmdb_integration.discover(
-        "movie",
+    genre_ids = list(profile.preferred_genre_ids)
+    origin_country = None
+    if media_type == MediaType.ANIME:
+        genre_ids = list({*genre_ids, tmdb.ANIMATION_GENRE_ID})
+        origin_country = "JP"
+    tmdb_media_type = "movie" if media_type == MediaType.MOVIE else "tv"
+    page = tmdb.discover(
+        tmdb_media_type,
         category="popular",
-        genre_ids=profile.preferred_genre_ids,
+        genre_ids=genre_ids,
+        origin_country=origin_country,
         watch_providers=profile.preferred_provider_ids,
         region=profile.preferred_region,
         page_size=1,
     )
     results = (page.get("results") or [])[:limit]
     return {"results": results} if results else None
+
+
+def recommended_for_you(profile, media_type, limit=12, sample_size=6):
+    """Dashboard's "Recommended for You" rows - one call per Movie/TV/
+    Anime. TMDB's own "similar to X" recommendations (get_similar),
+    aggregated across up to sample_size of this profile's own
+    most-recently-watched titles of that media_type - this profile's
+    whole recent taste, not just the single latest title the way this
+    row used to work (see because_you_watched, removed - anchored on one
+    title only). The sample_size calls are independent TMDB endpoints,
+    so they run concurrently (same ThreadPoolExecutor-per-request
+    pattern views.title_detail already uses for its own parallel
+    get_credits/get_similar/get_watch_providers calls - api_key resolved
+    once here rather than from each worker thread's own InstanceConfig
+    DB read, for the same reason), then merged newest-anchor-first and
+    deduplicated by (media_type, tmdb_id) - including against the
+    anchors themselves, in case TMDB ever recommends one of them back.
+
+    Falls back to for_you() above - this profile's genre/provider/region
+    preferences instead of actual history - when there's no qualifying
+    watch history yet for this media_type (a new profile, or one that's
+    only watched other media_types). None if neither a history-based nor
+    a preference-based result comes back."""
+    recent_titles = []
+    seen_title_ids = set()
+    for event in (
+        WatchEvent.objects.filter(
+            profile=profile, title__media_type=media_type, title__external_ids__tmdb__isnull=False
+        )
+        .select_related("title")
+        .order_by("-watched_at")
+    ):
+        if event.title_id not in seen_title_ids:
+            seen_title_ids.add(event.title_id)
+            recent_titles.append(event.title)
+        if len(recent_titles) >= sample_size:
+            break
+
+    if recent_titles:
+        api_key = instance_config.get_tmdb_api_key()
+        seen_keys = {f"{tmdb.media_type_for(t)}:{t.external_ids['tmdb']}" for t in recent_titles}
+        with ThreadPoolExecutor(max_workers=len(recent_titles)) as executor:
+            per_title_results = executor.map(
+                lambda title: tmdb.get_similar(
+                    tmdb.media_type_for(title), title.external_ids["tmdb"], limit=limit, api_key=api_key
+                ),
+                recent_titles,
+            )
+            results = []
+            for title_results in per_title_results:
+                for item in title_results:
+                    key = f"{item['media_type']}:{item['tmdb_id']}"
+                    if key in seen_keys:
+                        continue
+                    seen_keys.add(key)
+                    results.append(item)
+        if results:
+            return {"results": results[:limit]}
+
+    return for_you(profile, media_type, limit=limit)
 
 
 def start_watching(profile, media_types, limit=12):
@@ -462,17 +573,44 @@ def start_watching(profile, media_types, limit=12):
     return [watchlist_titles[title_id] for title_id in ordered_ids[:limit]]
 
 
-def _attach_watch_event_display(events):
-    """Attaches .still_url (this specific episode's TMDB still, falling
-    back to the title's own poster when there's no episode, no TMDB id,
-    or TMDB has nothing for it) and .caption ("S1E4 · Name", or None for
-    a movie) to each WatchEvent - shared by recently_watched()/
-    social_activity() so both Dashboard rows render identically. Batches
-    TMDB season lookups per distinct (tmdb_id, season) touched rather
-    than per event, since a binge revisits the same season repeatedly
-    and get_season_details is a real (if 6h-cached) TMDB call."""
-    from .integrations import tmdb as tmdb_integration
+def _episode_still_and_name(title, ep, season_cache):
+    """(still_url, name) for one specific Episode - this episode's own
+    TMDB still/name, falling back to (title.poster_url, ep.name) when
+    there's no TMDB id or TMDB has nothing for it. season_cache is the
+    caller's own {(tmdb_id, season): season_data or None} dict, populated
+    here on first touch and reused on every later call for the same
+    (tmdb_id, season) - shared by _attach_watch_event_display()
+    (Recently Watched/Social Activity) and continue_watching() (Watching
+    row) so a binge, or several in-progress shows in the same season,
+    only ever costs one real (if 6h-cached) get_season_details call per
+    distinct season, not one per episode/row.
 
+    ep.name is only ever populated by the Trakt/Simkl calendar sync
+    (spool-handoff-addendum.md §1) - watch history imported from
+    elsewhere (CSV, older syncs, or an episode created ad hoc by
+    episode_mark_watched) leaves it blank, so this falls back to the name
+    in the same TMDB season data already fetched for the still image,
+    rather than showing no episode name at all."""
+    tmdb_id = title.external_ids.get("tmdb") if title.external_ids else None
+    cache_key = (tmdb_id, ep.season)
+    if tmdb_id and cache_key not in season_cache:
+        season_cache[cache_key] = tmdb.get_season_details(tmdb_id, ep.season)
+    season_data = season_cache.get(cache_key) or {}
+    still_url = tmdb_name = None
+    for ep_data in season_data.get("episodes") or []:
+        if ep_data.get("episode_number") == ep.episode:
+            still_url = ep_data.get("still_url")
+            tmdb_name = ep_data.get("name")
+            break
+    return still_url or title.poster_url or None, ep.name or tmdb_name
+
+
+def _attach_watch_event_display(events):
+    """Attaches .still_url and .caption ("S1E4 · Name", or None for a
+    movie) to each WatchEvent - shared by recently_watched()/
+    social_activity() so both Dashboard rows render identically. See
+    _episode_still_and_name's own docstring for the still_url/name
+    lookup and its shared per-season cache."""
     season_cache = {}
     for event in events:
         ep = event.episode
@@ -480,25 +618,7 @@ def _attach_watch_event_display(events):
             event.still_url = event.title.poster_url or None
             event.caption = None
             continue
-        tmdb_id = event.title.external_ids.get("tmdb")
-        cache_key = (tmdb_id, ep.season)
-        if tmdb_id and cache_key not in season_cache:
-            season_cache[cache_key] = tmdb_integration.get_season_details(tmdb_id, ep.season)
-        season_data = season_cache.get(cache_key) or {}
-        still_url = None
-        tmdb_name = None
-        for ep_data in season_data.get("episodes") or []:
-            if ep_data.get("episode_number") == ep.episode:
-                still_url = ep_data.get("still_url")
-                tmdb_name = ep_data.get("name")
-                break
-        event.still_url = still_url or event.title.poster_url or None
-        # ep.name is only ever populated by the Trakt/Simkl calendar sync
-        # (spool-handoff-addendum.md §1) - watch history imported from
-        # elsewhere (CSV, older syncs) leaves it blank, so this falls back
-        # to the name in the TMDB season data already fetched above for
-        # the still image, rather than showing no episode name at all.
-        name = ep.name or tmdb_name
+        event.still_url, name = _episode_still_and_name(event.title, ep, season_cache)
         event.caption = f"S{ep.season}E{ep.episode}" + (f" · {name}" if name else "")
 
 

@@ -1,0 +1,87 @@
+{# context: genre_type ("movie"|"tv"|"anime"), genre_metric ("items"|"duration"), genre_breakdown (selectors.genre_breakdown()), most_genre/least_genre (genre_breakdown's own first/last entry, or None), genre_breakdown_base_url (this profile's own genre-breakdown endpoint - stats_genre_breakdown or member_stats_genre_breakdown) #}
+{% load tracker_extras %}
+{% comment %}
+Every toggle below is hx-get, not a plain ?genre_type=/?genre_metric=
+link - a full-page reload for either one scrolled all the way back to
+the top, same complaint (and same fix) as household_leaderboard.html's
+own This Week/This Year toggle - see views.stats_genre_breakdown's own
+docstring. hx-push-url keeps the URL bookmarkable/shareable without a
+real navigation.
+{% endcomment %}
+<div class="bg-base-200 border border-line rounded-2xl p-5 mt-5" id="genre-breakdown-card">
+  <div class="flex justify-between items-start flex-wrap gap-3 mb-5">
+    <div>
+      <h2 class="font-display text-xl tracking-wide">Your Top <span class="text-primary">Genres</span></h2>
+      <div class="text-ink-faint text-xs mt-1">Sized proportionally by titles watched or total aggregated watch time</div>
+    </div>
+    <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
+      <a
+        href="?genre_type={{ genre_type }}&amp;genre_metric=items"
+        hx-get="{{ genre_breakdown_base_url }}?genre_type={{ genre_type }}&amp;genre_metric=items"
+        hx-target="#genre-breakdown-card" hx-swap="outerHTML" hx-push-url="?genre_type={{ genre_type }}&amp;genre_metric=items"
+        class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_metric == "items" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}"
+      >By items</a>
+      <a
+        href="?genre_type={{ genre_type }}&amp;genre_metric=duration"
+        hx-get="{{ genre_breakdown_base_url }}?genre_type={{ genre_type }}&amp;genre_metric=duration"
+        hx-target="#genre-breakdown-card" hx-swap="outerHTML" hx-push-url="?genre_type={{ genre_type }}&amp;genre_metric=duration"
+        class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_metric == "duration" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}"
+      >By watch time</a>
+    </div>
+  </div>
+
+  <div class="bg-base-300/30 border border-line rounded-xl p-5">
+    <div class="flex justify-between items-center flex-wrap gap-3 mb-5">
+      <div class="inline-flex bg-base-200 border border-line rounded-lg p-1 gap-0.5">
+        <a
+          href="?genre_type=tv&amp;genre_metric={{ genre_metric }}"
+          hx-get="{{ genre_breakdown_base_url }}?genre_type=tv&amp;genre_metric={{ genre_metric }}"
+          hx-target="#genre-breakdown-card" hx-swap="outerHTML" hx-push-url="?genre_type=tv&amp;genre_metric={{ genre_metric }}"
+          class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_type == "tv" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}"
+        >TV Shows</a>
+        <a
+          href="?genre_type=anime&amp;genre_metric={{ genre_metric }}"
+          hx-get="{{ genre_breakdown_base_url }}?genre_type=anime&amp;genre_metric={{ genre_metric }}"
+          hx-target="#genre-breakdown-card" hx-swap="outerHTML" hx-push-url="?genre_type=anime&amp;genre_metric={{ genre_metric }}"
+          class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_type == "anime" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}"
+        >Anime</a>
+        <a
+          href="?genre_type=movie&amp;genre_metric={{ genre_metric }}"
+          hx-get="{{ genre_breakdown_base_url }}?genre_type=movie&amp;genre_metric={{ genre_metric }}"
+          hx-target="#genre-breakdown-card" hx-swap="outerHTML" hx-push-url="?genre_type=movie&amp;genre_metric={{ genre_metric }}"
+          class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if genre_type == "movie" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}"
+        >Movies</a>
+      </div>
+      {% if most_genre %}
+        <div class="flex items-center gap-4 text-[11.5px] text-ink-dim flex-wrap">
+          <span>MOST <b class="text-primary">{{ most_genre.name }}</b> <span class="font-mono bg-base-200 border border-line rounded px-1.5 py-0.5">{{ most_genre.display }}</span></span>
+          <span>LEAST <b class="text-primary">{{ least_genre.name }}</b> <span class="font-mono bg-base-200 border border-line rounded px-1.5 py-0.5">{{ least_genre.display }}</span></span>
+        </div>
+      {% endif %}
+    </div>
+
+    {% if genre_breakdown %}
+      <div class="flex w-full h-9 rounded-lg overflow-hidden gap-0.5">
+        {% for g in genre_breakdown %}
+          <div
+            tabindex="0" aria-label="{{ g.name }} · {{ g.display }}"
+            class="h-full flex items-center justify-center text-[11px] font-bold text-white min-w-0 spool-tooltip"
+            style="flex-grow:{{ g.pct }};flex-basis:0;background:{{ forloop.counter0|color_at_index }}"
+            data-tooltip="{{ g.name }} · {{ g.display }}"
+          >{% if g.pct >= 6 %}{{ g.pct }}%{% endif %}</div>
+        {% endfor %}
+      </div>
+      <div class="flex flex-wrap gap-x-5 gap-y-2 mt-4">
+        {% for g in genre_breakdown %}
+          <div class="flex items-center gap-1.5 text-[12px]">
+            <span class="w-2.5 h-2.5 rounded-full flex-none" style="background:{{ forloop.counter0|color_at_index }}"></span>
+            <span class="font-semibold">{{ g.name }}</span>
+            <span class="text-ink-faint">{{ g.display }} ({{ g.pct }}%)</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-ink-faint text-sm">No genre data yet for this type.</p>
+    {% endif %}
+  </div>
+</div>

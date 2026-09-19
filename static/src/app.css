@@ -94,21 +94,36 @@
   --color-primary-content: var(--color-secondary-content);
 }
 
-/* Real <button> elements and <a href> already get a pointer cursor for
-   free (Tailwind's own preflight sets the former, browsers the latter)
-   - everything else this app makes clickable via a bare Alpine @click
-   or an htmx hx-get/post/delete/patch/put (a plain <div>/<a> without
-   an href, e.g. calendar_main.html's empty day cells - real, confirmed
-   live, not hypothetical: those only carry @click, no href, so they
-   sat there with the ordinary arrow cursor despite being just as
-   clickable as any button) doesn't, since neither is a native browser
-   affordance for those attributes. :not(form) on the hx-* list is
-   deliberate - a <form hx-post=...> is submitted, not clicked; its own
-   submit button already has a pointer cursor regardless. Exact
-   @click(.prevent) attribute names only (not @click.outside/.self,
-   Alpine's dismiss-on-outside-click helpers, which don't mark the
-   element carrying them as itself a click target) - see the catalog
-   this was checked against via `grep -rohE '@click(\.[a-z]+)*=' tracker/templates`. */
+/* <a href> gets a pointer cursor for free from every browser's own UA
+   stylesheet - <button> does NOT (checked directly against the compiled
+   output: Tailwind's preflight resets button to cursor:auto and never
+   sets it back; daisyUI's own .btn class does set cursor:pointer, but
+   only for elements that actually carry that class - a plain, unstyled
+   <button> like recommend_card.html's send action has neither and sat
+   there with the ordinary arrow cursor despite being just as clickable,
+   confirmed live and reported as "most of the page"). Native <select>
+   is the same story - no browser or Tailwind/daisyUI rule gives it a
+   pointer cursor either (confirmed the same way), reported live on
+   Settings' preference dropdowns and History's own Filters panel.
+   Blanket button/select rules fix every instance of both at once rather
+   than patching each template that happens to need one.
+
+   Everything else this app makes clickable via a bare Alpine @click or
+   an htmx hx-get/post/delete/patch/put (a plain <div>/<a> without an
+   href, e.g. calendar_main.html's empty day cells - real, confirmed
+   live: those only carry @click, no href) doesn't get a cursor either,
+   since neither is a native browser affordance for those attributes.
+   :not(form) on the hx-* list is deliberate - a <form hx-post=...> is
+   submitted, not clicked; its own submit button already has a pointer
+   cursor regardless (see the button rule above). Exact @click(.prevent)
+   attribute names only (not @click.outside/.self, Alpine's dismiss-on-
+   outside-click helpers, which don't mark the element carrying them as
+   itself a click target) - see the catalog this was checked against via
+   `grep -rohE '@click(\.[a-z]+)*=' tracker/templates`. */
+button:not(:disabled),
+select:not(:disabled) {
+  cursor: pointer;
+}
 [\@click],
 [\@click\.prevent] {
   cursor: pointer;
@@ -222,6 +237,21 @@
 }
 .scroll-row::-webkit-scrollbar-thumb:hover {
   background-color: var(--color-base-300);
+}
+
+/* Same horizontally-scrollable row as .scroll-row, but for the rows that
+   pair it with an edge-fade + prev/next arrow overlay (Dashboard's Up
+   Next/header stat pills on mobile - see dashboard.html's own comment)
+   instead of a visible scrollbar as the "there's more" affordance -
+   reported live: a thin scrollbar read as a stray UI glitch on a phone
+   rather than an intentional hint, since mobile browsers don't always
+   render .scroll-row's styled thin scrollbar consistently in the first
+   place. */
+.scroll-row-fade {
+  scrollbar-width: none;
+}
+.scroll-row-fade::-webkit-scrollbar {
+  display: none;
 }
 
 /* JS-toggled (base.html's scrollToEpisodeAnchor, not :target - see its

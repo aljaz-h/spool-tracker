@@ -7481,6 +7481,33 @@ class TopbarAvatarDedupeTests(TestCase):
         self.assertEqual(content.count('title="Other"'), 1)
 
 
+class TopbarAvatarBorderTests(TestCase):
+    """The topbar's active-profile avatar circle - its border used to be
+    hardcoded to border-primary (the theme's orange), never reflecting
+    the profile's own chosen avatar_color at all - reported live: a
+    profile set a photo and a non-default avatar_color and Apply updated
+    the photo, but the circle's border stayed the theme orange
+    regardless. Now uses the profile's own avatar_color as border-color,
+    whether or not it also has a photo."""
+
+    def test_border_color_matches_the_profiles_avatar_color(self):
+        user = User.objects.create_user("bordercoloruser", password="pass12345")
+        Profile.objects.create(user=user, display_name="BorderColorUser", avatar_color="#3fa9a0")
+        self.client.login(username="bordercoloruser", password="pass12345")
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "border-color:#3fa9a0")
+
+    def test_border_color_still_applies_when_a_photo_is_set(self):
+        user = User.objects.create_user("borderphotouser", password="pass12345")
+        Profile.objects.create(
+            user=user, display_name="BorderPhotoUser", avatar_color="#8b85d6",
+            avatar_image=SimpleUploadedFile("avatar.jpg", b"fake-image-bytes", content_type="image/jpeg"),
+        )
+        self.client.login(username="borderphotouser", password="pass12345")
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "border-color:#8b85d6")
+
+
 class TopbarMobileLayoutTests(TestCase):
     """Regression coverage for the mobile topbar's icon cluster drifting
     off the right edge - see the col-start-N comment in topbar.html.
@@ -7852,6 +7879,20 @@ class MemberScopedViewsTests(TestCase):
         resp = self.client.get(reverse("stats_heatmap"))
         self.assertEqual(resp.context["heatmap_base_url"], reverse("stats_heatmap"))
 
+    def test_heatmap_uses_fixed_width_columns_not_a_fluid_grid(self):
+        # Reported live on mobile: repeat(N, 1fr) squeezed ~52 week-
+        # columns to fit any viewport width, and a long month name's own
+        # intrinsic min-content width could force its label column wider
+        # than its 1fr share - throwing the month-label grid out of
+        # alignment with the day-cell grid below it (mushed/overlapping
+        # letters). Fixed-width columns (GitHub-style, horizontally
+        # scrollable instead of ever compressed) sidestep that.
+        resp = self.client.get(reverse("stats_heatmap"))
+        content = resp.content.decode()
+        self.assertNotIn("1fr", content)
+        self.assertIn("11px", content)
+        self.assertIn("overflow-x-auto", content)
+
     def test_member_history_is_flagged_read_only_and_hides_bulk_delete(self):
         resp = self.client.get(reverse("member_history", args=[self.target.id]))
         self.assertEqual(resp.status_code, 200)
@@ -8001,6 +8042,55 @@ class GenreBreakdownTests(TestCase):
         resp = self.client.get(reverse("stats"))
         self.assertIsNone(resp.context["most_genre"])
         self.assertIsNone(resp.context["least_genre"])
+
+
+class StatsGenreBreakdownHtmxTests(TestCase):
+    """views.stats_genre_breakdown - the "Your Top Genres" card's own By
+    items/By watch time and TV Shows/Anime/Movies toggles, hx-get'd in
+    place instead of a full-page ?genre_type=/?genre_metric= reload (see
+    stats_genre_breakdown.html's own comment: a full reload scrolled back
+    to the top, same complaint as the Household Leaderboard's own This
+    Week/This Year toggle)."""
+
+    def setUp(self):
+        user = User.objects.create_user("genrehtmxwatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="GenreHtmxWatcher")
+        self.action = Genre.objects.create(name="Action")
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Action A", year=2020, runtime_minutes=100)
+        movie.genres.add(self.action)
+        from django.utils import timezone
+
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=timezone.now())
+        self.client.login(username="genrehtmxwatcher", password="pass12345")
+
+    def test_returns_just_the_genre_breakdown_partial(self):
+        resp = self.client.get(reverse("stats_genre_breakdown"), {"genre_type": "movie", "genre_metric": "items"})
+        self.assertContains(resp, "Your Top")
+        self.assertContains(resp, "Action")
+        # Not the full page shell - no page title/other Stats chrome.
+        self.assertNotContains(resp, "Lifetime watch analytics")
+
+    def test_defaults_to_movie_items_for_unrecognized_params(self):
+        resp = self.client.get(reverse("stats_genre_breakdown"), {"genre_type": "bogus", "genre_metric": "bogus"})
+        self.assertEqual(resp.context["genre_type"], "movie")
+        self.assertEqual(resp.context["genre_metric"], "items")
+
+    def test_stats_pages_toggle_links_are_hx_get_with_push_url(self):
+        resp = self.client.get(reverse("stats"))
+        self.assertContains(resp, f'hx-get="{reverse("stats_genre_breakdown")}?genre_type=movie&amp;genre_metric=items"')
+        self.assertContains(resp, 'hx-target="#genre-breakdown-card"')
+        self.assertContains(resp, 'hx-push-url="?genre_type=movie&amp;genre_metric=items"')
+
+    def test_404s_without_a_profile(self):
+        self.client.logout()
+        other = User.objects.create_user("noprofileuser", password="pass12345")
+        self.client.login(username="noprofileuser", password="pass12345")
+        resp = self.client.get(reverse("stats_genre_breakdown"))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_member_stats_genre_breakdown_url_works_for_another_profile(self):
+        resp = self.client.get(reverse("member_stats_genre_breakdown", args=[self.profile.pk]))
+        self.assertContains(resp, "Action")
 
 
 class TasteCompatibilityTests(TestCase):
@@ -12123,85 +12213,10 @@ class RecentlyAddedToListsSelectorTests(TestCase):
         self.assertEqual(list(selectors.recently_added_to_lists(self.profile)), [item])
 
 
-class BecauseYouWatchedTests(TestCase):
-    def setUp(self):
-        user = User.objects.create_user("byw", password="pass12345")
-        self.profile = Profile.objects.create(user=user, display_name="BYW")
-
-    def test_no_watch_history_returns_none(self):
-        self.assertIsNone(selectors.because_you_watched(self.profile))
-
-    def test_watch_history_without_tmdb_ids_returns_none(self):
-        title = Title.objects.create(media_type=MediaType.MOVIE, name="No TMDB Id", year=2020)
-        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
-        self.assertIsNone(selectors.because_you_watched(self.profile))
-
-    @patch("tracker.integrations.tmdb.get_similar")
-    def test_uses_most_recently_watched_title_with_a_tmdb_id(self, mock_get_similar):
-        older = Title.objects.create(
-            media_type=MediaType.MOVIE, name="Older Movie", year=2019, external_ids={"tmdb": "1"}
-        )
-        newer = Title.objects.create(
-            media_type=MediaType.MOVIE, name="Newer Movie", year=2020, external_ids={"tmdb": "2"}
-        )
-        WatchEvent.objects.create(profile=self.profile, title=older, watched_at="2024-01-01T00:00:00Z")
-        WatchEvent.objects.create(profile=self.profile, title=newer, watched_at="2024-02-01T00:00:00Z")
-        mock_get_similar.return_value = [{"tmdb_id": 99, "media_type": "movie", "name": "Similar"}]
-
-        result = selectors.because_you_watched(self.profile)
-
-        self.assertEqual(result["anchor_title"], newer)
-        mock_get_similar.assert_called_once_with("movie", "2", limit=12)
-
-    @patch("tracker.integrations.tmdb.get_similar")
-    def test_falls_through_to_an_older_candidate_when_the_newest_has_no_recommendations(self, mock_get_similar):
-        older = Title.objects.create(
-            media_type=MediaType.MOVIE, name="Older Movie", year=2019, external_ids={"tmdb": "1"}
-        )
-        newer = Title.objects.create(
-            media_type=MediaType.MOVIE, name="Newer Movie", year=2020, external_ids={"tmdb": "2"}
-        )
-        WatchEvent.objects.create(profile=self.profile, title=older, watched_at="2024-01-01T00:00:00Z")
-        WatchEvent.objects.create(profile=self.profile, title=newer, watched_at="2024-02-01T00:00:00Z")
-        mock_get_similar.side_effect = [[], [{"tmdb_id": 99, "media_type": "movie", "name": "Similar"}]]
-
-        result = selectors.because_you_watched(self.profile)
-
-        self.assertEqual(result["anchor_title"], older)
-        self.assertEqual(mock_get_similar.call_count, 2)
-
-    @patch("tracker.integrations.tmdb.get_similar")
-    def test_gives_up_after_the_candidate_pool_is_exhausted(self, mock_get_similar):
-        for i in range(5):
-            title = Title.objects.create(
-                media_type=MediaType.MOVIE, name=f"Movie {i}", year=2020, external_ids={"tmdb": str(i)}
-            )
-            WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
-        mock_get_similar.return_value = []
-
-        result = selectors.because_you_watched(self.profile, candidate_pool=3)
-
-        self.assertIsNone(result)
-        self.assertEqual(mock_get_similar.call_count, 3)
-
-    @patch("tracker.integrations.tmdb.get_similar")
-    def test_a_title_watched_multiple_times_only_counts_as_one_candidate(self, mock_get_similar):
-        title = Title.objects.create(
-            media_type=MediaType.MOVIE, name="Rewatched", year=2020, external_ids={"tmdb": "1"}
-        )
-        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
-        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-02-01T00:00:00Z")
-        mock_get_similar.return_value = [{"tmdb_id": 99, "media_type": "movie", "name": "Similar"}]
-
-        selectors.because_you_watched(self.profile)
-
-        mock_get_similar.assert_called_once()
-
-
 class ForYouSelectorTests(TestCase):
-    """selectors.for_you() - Dashboard's discover()-backed personalized
-    row, scoped to Profile.preferred_genre_ids/preferred_provider_ids/
-    preferred_region (Settings > Preferences)."""
+    """selectors.for_you() - recommended_for_you()'s own no-watch-history
+    fallback, a discover() call scoped to Profile.preferred_genre_ids/
+    preferred_provider_ids/preferred_region (Settings > Preferences)."""
 
     def setUp(self):
         user = User.objects.create_user("foryou", password="pass12345")
@@ -12209,7 +12224,7 @@ class ForYouSelectorTests(TestCase):
 
     def test_no_preferences_returns_none_without_calling_tmdb(self):
         with patch("tracker.integrations.tmdb.discover") as mock_discover:
-            result = selectors.for_you(self.profile)
+            result = selectors.for_you(self.profile, MediaType.MOVIE)
         self.assertIsNone(result)
         mock_discover.assert_not_called()
 
@@ -12218,10 +12233,16 @@ class ForYouSelectorTests(TestCase):
         self.profile.preferred_genre_ids = [28]
         self.profile.save(update_fields=["preferred_genre_ids"])
         mock_discover.return_value = {"results": [{"tmdb_id": 1, "name": "Action Movie"}]}
-        result = selectors.for_you(self.profile)
+        result = selectors.for_you(self.profile, MediaType.MOVIE)
         self.assertEqual(result["results"][0]["name"], "Action Movie")
         mock_discover.assert_called_once_with(
-            "movie", category="popular", genre_ids=[28], watch_providers=[], region="US", page_size=1
+            "movie",
+            category="popular",
+            genre_ids=[28],
+            origin_country=None,
+            watch_providers=[],
+            region="US",
+            page_size=1,
         )
 
     @patch("tracker.integrations.tmdb.discover")
@@ -12229,7 +12250,7 @@ class ForYouSelectorTests(TestCase):
         self.profile.preferred_provider_ids = [8]
         self.profile.save(update_fields=["preferred_provider_ids"])
         mock_discover.return_value = {"results": [{"tmdb_id": 1, "name": "Streamed Movie"}]}
-        result = selectors.for_you(self.profile)
+        result = selectors.for_you(self.profile, MediaType.MOVIE)
         self.assertIsNotNone(result)
         mock_discover.assert_called_once()
 
@@ -12239,7 +12260,7 @@ class ForYouSelectorTests(TestCase):
         self.profile.preferred_region = "GB"
         self.profile.save(update_fields=["preferred_genre_ids", "preferred_region"])
         mock_discover.return_value = {"results": []}
-        selectors.for_you(self.profile)
+        selectors.for_you(self.profile, MediaType.MOVIE)
         self.assertEqual(mock_discover.call_args.kwargs["region"], "GB")
 
     @patch("tracker.integrations.tmdb.discover")
@@ -12247,15 +12268,165 @@ class ForYouSelectorTests(TestCase):
         self.profile.preferred_genre_ids = [28]
         self.profile.save(update_fields=["preferred_genre_ids"])
         mock_discover.return_value = {"results": []}
-        self.assertIsNone(selectors.for_you(self.profile))
+        self.assertIsNone(selectors.for_you(self.profile, MediaType.MOVIE))
 
     @patch("tracker.integrations.tmdb.discover")
     def test_results_capped_to_limit(self, mock_discover):
         self.profile.preferred_genre_ids = [28]
         self.profile.save(update_fields=["preferred_genre_ids"])
         mock_discover.return_value = {"results": [{"tmdb_id": i} for i in range(20)]}
-        result = selectors.for_you(self.profile, limit=5)
+        result = selectors.for_you(self.profile, MediaType.MOVIE, limit=5)
         self.assertEqual(len(result["results"]), 5)
+
+    @patch("tracker.integrations.tmdb.discover")
+    def test_tv_uses_the_tv_catalog_with_no_origin_country(self, mock_discover):
+        self.profile.preferred_genre_ids = [18]
+        self.profile.save(update_fields=["preferred_genre_ids"])
+        mock_discover.return_value = {"results": [{"tmdb_id": 1, "name": "A Show"}]}
+        selectors.for_you(self.profile, MediaType.TV)
+        args, kwargs = mock_discover.call_args
+        self.assertEqual(args[0], "tv")
+        self.assertIsNone(kwargs["origin_country"])
+
+    @patch("tracker.integrations.tmdb.discover")
+    def test_anime_forces_the_animation_genre_and_japan_origin(self, mock_discover):
+        self.profile.preferred_genre_ids = [18]
+        self.profile.save(update_fields=["preferred_genre_ids"])
+        mock_discover.return_value = {"results": [{"tmdb_id": 1, "name": "An Anime"}]}
+        selectors.for_you(self.profile, MediaType.ANIME)
+        args, kwargs = mock_discover.call_args
+        self.assertEqual(args[0], "tv")
+        self.assertIn(tmdb.ANIMATION_GENRE_ID, kwargs["genre_ids"])
+        self.assertEqual(kwargs["origin_country"], "JP")
+
+
+class RecommendedForYouSelectorTests(TestCase):
+    """selectors.recommended_for_you() - the Dashboard's "Recommended for
+    You" rows, TMDB's own "similar to X" recommendations aggregated
+    across this profile's own recent watch history for one media_type,
+    falling back to for_you() (preferences) with no history yet."""
+
+    def setUp(self):
+        user = User.objects.create_user("recforyou", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="RecForYou")
+
+    def test_no_history_and_no_preferences_returns_none(self):
+        self.assertIsNone(selectors.recommended_for_you(self.profile, MediaType.MOVIE))
+
+    @patch("tracker.integrations.tmdb.discover")
+    def test_no_history_falls_back_to_preferences(self, mock_discover):
+        self.profile.preferred_genre_ids = [28]
+        self.profile.save(update_fields=["preferred_genre_ids"])
+        mock_discover.return_value = {"results": [{"tmdb_id": 1, "name": "Preferred Movie"}]}
+        result = selectors.recommended_for_you(self.profile, MediaType.MOVIE)
+        self.assertEqual(result["results"][0]["name"], "Preferred Movie")
+
+    def test_watch_history_without_tmdb_ids_falls_back_to_preferences(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="No TMDB Id", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        self.assertIsNone(selectors.recommended_for_you(self.profile, MediaType.MOVIE))
+
+    def test_watch_history_of_a_different_media_type_is_ignored(self):
+        show = Title.objects.create(
+            media_type=MediaType.TV, name="A Show", year=2020, external_ids={"tmdb": "1", "tmdb_kind": "tv"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=show, watched_at="2024-01-01T00:00:00Z")
+        self.assertIsNone(selectors.recommended_for_you(self.profile, MediaType.MOVIE))
+
+    @patch("tracker.integrations.tmdb.get_similar")
+    def test_aggregates_recommendations_across_several_recently_watched_titles(self, mock_get_similar):
+        older = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Older Movie", year=2019, external_ids={"tmdb": "1"}
+        )
+        newer = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Newer Movie", year=2020, external_ids={"tmdb": "2"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=older, watched_at="2024-01-01T00:00:00Z")
+        WatchEvent.objects.create(profile=self.profile, title=newer, watched_at="2024-02-01T00:00:00Z")
+
+        def fake_get_similar(media_type, tmdb_id, limit=12, api_key=None):
+            return [{"tmdb_id": f"sim-{tmdb_id}", "media_type": "movie", "name": f"Similar to {tmdb_id}"}]
+
+        mock_get_similar.side_effect = fake_get_similar
+
+        result = selectors.recommended_for_you(self.profile, MediaType.MOVIE)
+
+        names = {item["name"] for item in result["results"]}
+        self.assertEqual(names, {"Similar to 1", "Similar to 2"})
+        self.assertEqual(mock_get_similar.call_count, 2)
+
+    @patch("tracker.integrations.tmdb.get_similar")
+    def test_duplicate_recommendations_across_anchors_are_deduplicated(self, mock_get_similar):
+        first = Title.objects.create(
+            media_type=MediaType.MOVIE, name="First Movie", year=2019, external_ids={"tmdb": "1"}
+        )
+        second = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Second Movie", year=2020, external_ids={"tmdb": "2"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=first, watched_at="2024-01-01T00:00:00Z")
+        WatchEvent.objects.create(profile=self.profile, title=second, watched_at="2024-02-01T00:00:00Z")
+        mock_get_similar.return_value = [{"tmdb_id": 99, "media_type": "movie", "name": "Same Movie"}]
+
+        result = selectors.recommended_for_you(self.profile, MediaType.MOVIE)
+
+        self.assertEqual(len(result["results"]), 1)
+
+    @patch("tracker.integrations.tmdb.get_similar")
+    def test_a_recommendation_matching_one_of_the_anchors_itself_is_excluded(self, mock_get_similar):
+        watched = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Watched Movie", year=2019, external_ids={"tmdb": "1"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=watched, watched_at="2024-01-01T00:00:00Z")
+        mock_get_similar.return_value = [
+            {"tmdb_id": "1", "media_type": "movie", "name": "Watched Movie"},
+            {"tmdb_id": "2", "media_type": "movie", "name": "Something New"},
+        ]
+
+        result = selectors.recommended_for_you(self.profile, MediaType.MOVIE)
+
+        names = [item["name"] for item in result["results"]]
+        self.assertEqual(names, ["Something New"])
+
+    @patch("tracker.integrations.tmdb.get_similar")
+    def test_results_capped_to_limit(self, mock_get_similar):
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="A Movie", year=2020, external_ids={"tmdb": "1"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        mock_get_similar.return_value = [
+            {"tmdb_id": str(i), "media_type": "movie", "name": f"Movie {i}"} for i in range(20)
+        ]
+
+        result = selectors.recommended_for_you(self.profile, MediaType.MOVIE, limit=5)
+
+        self.assertEqual(len(result["results"]), 5)
+
+    @patch("tracker.integrations.tmdb.get_similar")
+    def test_only_samples_up_to_sample_size_most_recent_titles(self, mock_get_similar):
+        for i in range(10):
+            title = Title.objects.create(
+                media_type=MediaType.MOVIE, name=f"Movie {i}", year=2020, external_ids={"tmdb": str(i)}
+            )
+            WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        mock_get_similar.return_value = []
+
+        selectors.recommended_for_you(self.profile, MediaType.MOVIE, sample_size=4)
+
+        self.assertEqual(mock_get_similar.call_count, 4)
+
+    @patch("tracker.integrations.tmdb.get_similar")
+    def test_anime_uses_the_tv_catalog_via_tmdb_kind(self, mock_get_similar):
+        anime = Title.objects.create(
+            media_type=MediaType.ANIME, name="An Anime", year=2020, external_ids={"tmdb": "1", "tmdb_kind": "tv"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=anime, watched_at="2024-01-01T00:00:00Z")
+        mock_get_similar.return_value = []
+
+        selectors.recommended_for_you(self.profile, MediaType.ANIME)
+
+        args, kwargs = mock_get_similar.call_args
+        self.assertEqual(args, ("tv", "1"))
+        self.assertEqual(kwargs["limit"], 12)
 
 
 class QuickStatsFormatTests(TestCase):
@@ -12335,28 +12506,44 @@ class MonthlyStatsTests(TestCase):
         self.assertEqual(stats["split"], {"movie_pct": 0, "tv_pct": 0, "anime_pct": 0})
 
 
-class DashboardForYouTests(TestCase):
-    """Dashboard's "For You" row - see selectors.for_you()."""
+class DashboardRecommendedForYouTests(TestCase):
+    """Dashboard's "Recommended Movies"/"Recommended TV"/"Recommended
+    Anime" rows - see selectors.recommended_for_you()."""
 
     def setUp(self):
         user = User.objects.create_user("dashforyou", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="DashForYou")
         self.client.login(username="dashforyou", password="pass12345")
 
-    def test_no_row_without_any_preference_set(self):
+    def test_no_rows_without_preferences_or_history(self):
         resp = self.client.get(reverse("dashboard"))
-        self.assertNotContains(resp, "For You")
+        self.assertNotContains(resp, "Recommended Movies")
+        self.assertNotContains(resp, "Recommended TV")
+        self.assertNotContains(resp, "Recommended Anime")
 
     @patch("tracker.integrations.tmdb.discover")
-    def test_row_shown_once_a_genre_preference_is_set(self, mock_discover):
+    def test_preference_based_row_shown_once_a_genre_preference_is_set(self, mock_discover):
         self.profile.preferred_genre_ids = [28]
         self.profile.save(update_fields=["preferred_genre_ids"])
         mock_discover.return_value = {
             "results": [{"tmdb_id": 42, "media_type": "movie", "name": "Preferred Movie", "year": "2020", "poster_url": None, "vote_average": 7.0}]
         }
         resp = self.client.get(reverse("dashboard"))
-        self.assertContains(resp, "For You")
+        self.assertContains(resp, "Recommended Movies")
         self.assertContains(resp, "Preferred Movie")
+
+    @patch("tracker.integrations.tmdb.get_similar")
+    def test_history_based_row_shown_once_theres_qualifying_watch_history(self, mock_get_similar):
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Bleach", year=2004, external_ids={"tmdb": "1", "tmdb_kind": "tv"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        mock_get_similar.return_value = [
+            {"tmdb_id": 42, "media_type": "tv", "name": "Naruto", "year": "2002", "poster_url": None, "vote_average": 8.0}
+        ]
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "Recommended TV")
+        self.assertContains(resp, "Naruto")
 
 
 class DashboardWatchingWatchlistTests(TestCase):
@@ -12394,6 +12581,30 @@ class DashboardWatchingWatchlistTests(TestCase):
         expected = f'{reverse("title_detail", args=[show.pk])}?season=1#episode-1-130'
         self.assertContains(resp, expected)
 
+    def test_watching_a_show_gets_the_landscape_episode_badge_and_mark_watched_button(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Black Clover", year=2017)
+        ep = Episode.objects.create(title=show, season=1, episode=130)
+        WatchProgress.objects.create(
+            profile=self.profile, title=show, current_episode=ep, status=WatchProgress.Status.WATCHING
+        )
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "S1E130")
+        self.assertContains(resp, "aspect-video")
+        self.assertContains(resp, f"ep-watched-btn-{show.pk}-1-130")
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_watching_a_shows_season_finale_gets_the_finale_badge(self, mock_season):
+        mock_season.return_value = {"episodes": [{"episode_number": n} for n in range(1, 6)]}
+        show = Title.objects.create(
+            media_type=MediaType.TV, name="Finale Show", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "tv"}
+        )
+        ep = Episode.objects.create(title=show, season=1, episode=5)
+        WatchProgress.objects.create(
+            profile=self.profile, title=show, current_episode=ep, status=WatchProgress.Status.WATCHING
+        )
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "Season Finale")
+
     def test_watching_a_movie_links_to_the_plain_title_page(self):
         movie = Title.objects.create(media_type=MediaType.MOVIE, name="A Movie", year=2020, runtime_minutes=100)
         WatchProgress.objects.create(
@@ -12401,37 +12612,6 @@ class DashboardWatchingWatchlistTests(TestCase):
         )
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, f'href="{reverse("title_detail", args=[movie.pk])}"')
-
-    @patch("tracker.integrations.tmdb.get_similar")
-    def test_because_you_watched_row_is_disabled_for_now(self, mock_get_similar):
-        title = Title.objects.create(
-            media_type=MediaType.TV, name="Bleach", year=2004, external_ids={"tmdb": "1", "tmdb_kind": "tv"}
-        )
-        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
-        mock_get_similar.return_value = [
-            {"tmdb_id": 42, "media_type": "tv", "name": "Naruto", "year": "2002", "poster_url": None, "vote_average": 8.0}
-        ]
-        resp = self.client.get(reverse("dashboard"))
-        self.assertNotContains(resp, "Because you watched")
-        mock_get_similar.assert_not_called()
-
-    @patch("tracker.views.DASHBOARD_BECAUSE_YOU_WATCHED_ENABLED", True)
-    @patch("tracker.integrations.tmdb.get_similar")
-    def test_because_you_watched_row_rendered_when_re_enabled(self, mock_get_similar):
-        title = Title.objects.create(
-            media_type=MediaType.TV, name="Bleach", year=2004, external_ids={"tmdb": "1", "tmdb_kind": "tv"}
-        )
-        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
-        mock_get_similar.return_value = [
-            {"tmdb_id": 42, "media_type": "tv", "name": "Naruto", "year": "2002", "poster_url": None, "vote_average": 8.0}
-        ]
-        resp = self.client.get(reverse("dashboard"))
-        self.assertContains(resp, "Because you watched Bleach")
-        self.assertContains(resp, "Naruto")
-
-    def test_no_because_you_watched_row_without_qualifying_history(self):
-        resp = self.client.get(reverse("dashboard"))
-        self.assertNotContains(resp, "Because you watched")
 
     def test_start_watching_shows_a_watchlist_title_with_a_recent_release(self):
         from django.utils import timezone
@@ -12625,6 +12805,27 @@ class DashboardWatchingWatchlistTests(TestCase):
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, f'href="{reverse("calendar")}"')
 
+    def test_mobile_scroll_rows_get_a_fade_and_arrow_overlay_not_a_scrollbar(self):
+        # Reported live: the header stat pills and Up Next rows showed a
+        # native scrollbar on mobile instead of the edge-fade affordance
+        # every other Dashboard scroll row already uses - scroll-row-fade
+        # (hidden scrollbar) plus a prev/next arrow overlay replaces it.
+        # An Up Next item (ReleaseSchedule row) so that row renders too -
+        # the header stat pills render regardless of any watch data.
+        from django.utils import timezone
+
+        title = Title.objects.create(media_type=MediaType.TV, name="Up Next Show", year=2023)
+        WatchProgress.objects.create(profile=self.profile, title=title, status=WatchProgress.Status.WATCHING)
+        ReleaseSchedule.objects.create(
+            title=title, release_type=ReleaseSchedule.ReleaseType.EPISODE,
+            release_date=timezone.now() + timedelta(days=1),
+        )
+        resp = self.client.get(reverse("dashboard"))
+        content = resp.content.decode()
+        self.assertEqual(content.count("scroll-row-fade"), 2)
+        self.assertContains(resp, 'aria-label="Scroll left"')
+        self.assertContains(resp, 'aria-label="Scroll right"')
+
     def test_footer_stats_bar_links_to_full_stats(self):
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, f'href="{reverse("stats")}"')
@@ -12726,6 +12927,123 @@ class RecentlyWatchedStillImageTests(TestCase):
         WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
         events = selectors.recently_watched(self.profile, [MediaType.TV])
         self.assertEqual(events[0].caption, "S1E1")
+
+
+class ContinueWatchingEpisodeDisplayTests(TestCase):
+    """selectors.continue_watching()'s own still_url/episode_name/
+    is_season_finale/watch_count/caption fields - the Watching row's
+    landscape episode-still card (poster_card.html)."""
+
+    def setUp(self):
+        user = User.objects.create_user("watchingdisplay", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="WatchingDisplay")
+        self.title = Title.objects.create(
+            media_type=MediaType.TV, name="Lower Decks", year=2020, external_ids={"tmdb": "999", "tmdb_kind": "tv"}
+        )
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_still_url_and_episode_name_come_from_tmdb(self, mock_season):
+        mock_season.return_value = {
+            "episodes": [
+                {"episode_number": 4, "still_url": None, "runtime": 25},
+                {
+                    "episode_number": 5,
+                    "still_url": "https://example.com/still.jpg",
+                    "name": "Cupid's Errant Arrow",
+                    "runtime": 25,
+                },
+                {"episode_number": 6, "still_url": None, "runtime": 25},
+            ]
+        }
+        episode = Episode.objects.create(title=self.title, season=1, episode=5)
+        WatchProgress.objects.create(
+            profile=self.profile, title=self.title, current_episode=episode, status=WatchProgress.Status.WATCHING
+        )
+        item = selectors.continue_watching(self.profile)[0]
+        self.assertEqual(item["still_url"], "https://example.com/still.jpg")
+        self.assertEqual(item["episode_name"], "Cupid's Errant Arrow")
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_caption_shows_remaining_episodes_and_time(self, mock_season):
+        mock_season.return_value = {"episodes": [{"episode_number": n, "runtime": 25} for n in range(1, 11)]}
+        episode = Episode.objects.create(title=self.title, season=1, episode=5)
+        WatchProgress.objects.create(
+            profile=self.profile, title=self.title, current_episode=episode, status=WatchProgress.Status.WATCHING
+        )
+        item = selectors.continue_watching(self.profile)[0]
+        # Episodes 6-10 remain, 25min each = 2h 5m.
+        self.assertEqual(item["caption"], "5E left · 2h 5m remaining")
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_caption_format_with_exactly_one_episode_remaining(self, mock_season):
+        mock_season.return_value = {"episodes": [{"episode_number": n, "runtime": 25} for n in range(1, 6)]}
+        episode = Episode.objects.create(title=self.title, season=1, episode=4)
+        WatchProgress.objects.create(
+            profile=self.profile, title=self.title, current_episode=episode, status=WatchProgress.Status.WATCHING
+        )
+        item = selectors.continue_watching(self.profile)[0]
+        self.assertEqual(item["caption"], "1E left · 25m remaining")
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_season_finale_true_on_tmdbs_own_last_episode(self, mock_season):
+        mock_season.return_value = {"episodes": [{"episode_number": n} for n in range(1, 6)]}
+        episode = Episode.objects.create(title=self.title, season=1, episode=5)
+        WatchProgress.objects.create(
+            profile=self.profile, title=self.title, current_episode=episode, status=WatchProgress.Status.WATCHING
+        )
+        item = selectors.continue_watching(self.profile)[0]
+        self.assertTrue(item["is_season_finale"])
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_not_a_season_finale_mid_season(self, mock_season):
+        mock_season.return_value = {"episodes": [{"episode_number": n} for n in range(1, 6)]}
+        episode = Episode.objects.create(title=self.title, season=1, episode=3)
+        WatchProgress.objects.create(
+            profile=self.profile, title=self.title, current_episode=episode, status=WatchProgress.Status.WATCHING
+        )
+        item = selectors.continue_watching(self.profile)[0]
+        self.assertFalse(item["is_season_finale"])
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_is_season_finale_trusts_tmdb_over_an_incomplete_local_episode_table(self, mock_season):
+        # The local Episode table only knows about episode 2 (nothing
+        # later has ever synced locally) - TMDB's own season data (10
+        # episodes) is what should decide this, not the local table,
+        # otherwise an unsynced season's only local row would always look
+        # like a false "Season Finale".
+        mock_season.return_value = {"episodes": [{"episode_number": n} for n in range(1, 11)]}
+        episode = Episode.objects.create(title=self.title, season=1, episode=2)
+        WatchProgress.objects.create(
+            profile=self.profile, title=self.title, current_episode=episode, status=WatchProgress.Status.WATCHING
+        )
+        item = selectors.continue_watching(self.profile)[0]
+        self.assertFalse(item["is_season_finale"])
+        self.assertEqual(item["caption"], "8E left")
+
+    def test_watch_count_reflects_rewatches_of_the_current_episode(self):
+        episode = Episode.objects.create(title=self.title, season=1, episode=1)
+        WatchProgress.objects.create(
+            profile=self.profile, title=self.title, current_episode=episode, status=WatchProgress.Status.WATCHING
+        )
+        WatchEvent.objects.create(
+            profile=self.profile, title=self.title, episode=episode, watched_at="2024-01-01T00:00:00Z"
+        )
+        WatchEvent.objects.create(
+            profile=self.profile, title=self.title, episode=episode, watched_at="2024-01-02T00:00:00Z"
+        )
+        item = selectors.continue_watching(self.profile)[0]
+        self.assertEqual(item["watch_count"], 2)
+
+    def test_movie_gets_no_episode_display_fields(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="A Movie", year=2020, runtime_minutes=100)
+        WatchProgress.objects.create(
+            profile=self.profile, title=movie, position_seconds=100, status=WatchProgress.Status.WATCHING
+        )
+        item = selectors.continue_watching(self.profile)[0]
+        self.assertIsNone(item["still_url"])
+        self.assertIsNone(item["episode_name"])
+        self.assertFalse(item["is_season_finale"])
+        self.assertEqual(item["watch_count"], 0)
 
 
 class ActivityFeedGroupingTests(TestCase):
@@ -13210,15 +13528,29 @@ class ActivityViewTemplateTests(TestCase):
         self.assertNotContains(resp, "{%")
 
     def test_watched_group_gets_the_primary_accent(self):
-        # A 4th, not-yet-watched episode - this binge only covers 1-3, so
+        # A 5th, not-yet-watched episode - this binge only covers 1-4, so
         # it reads as a partial run (Binge Session), not a series finish.
-        Episode.objects.create(title=self.show, season=1, episode=4)
-        for i, minutes_ago in enumerate([30, 20]):
+        # 4 episodes - Binge Session's own threshold (see
+        # test_a_short_run_under_the_binge_threshold_gets_no_special_badge
+        # for why this isn't just "2 or more").
+        Episode.objects.create(title=self.show, season=1, episode=5)
+        for i, minutes_ago in enumerate([40, 30, 20, 10]):
             ep = Episode.objects.create(title=self.show, season=1, episode=1 + i)
             WatchEvent.objects.create(profile=self.profile, title=self.show, episode=ep, watched_at=self.now - timedelta(minutes=minutes_ago))
         resp = self.client.get(reverse("activity"))
         self.assertContains(resp, "Binge Session")
         self.assertContains(resp, "bg-primary/15 text-primary")
+
+    def test_a_short_run_under_the_binge_threshold_gets_no_special_badge(self):
+        # Reported live: 2 consecutive episodes already showed "Binge
+        # Session", which reads wrong for what's really just a couple of
+        # episodes - now requires 4 or more.
+        Episode.objects.create(title=self.show, season=1, episode=3)
+        for i, minutes_ago in enumerate([30, 20]):
+            ep = Episode.objects.create(title=self.show, season=1, episode=1 + i)
+            WatchEvent.objects.create(profile=self.profile, title=self.show, episode=ep, watched_at=self.now - timedelta(minutes=minutes_ago))
+        resp = self.client.get(reverse("activity"))
+        self.assertNotContains(resp, "Binge Session")
 
     def test_rated_watch_gets_the_warning_accent(self):
         ep = Episode.objects.create(title=self.show, season=1, episode=1)
@@ -13231,6 +13563,47 @@ class ActivityViewTemplateTests(TestCase):
         WatchListItem.objects.create(watchlist=watchlist, title=self.show)
         resp = self.client.get(reverse("activity"))
         self.assertContains(resp, "bg-secondary/15 text-secondary")
+
+
+class ActivityLeaderboardHtmxTests(TestCase):
+    """views.activity_leaderboard - the Household Leaderboard's own This
+    Week/This Year toggle, hx-get'd in place instead of a full-page
+    ?period= reload (see household_leaderboard.html's own comment: a
+    full reload scrolled back to the top, disruptive on mobile where
+    this card sits at the bottom of the stacked layout)."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("leaderboarduser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="LeaderboardUser")
+        other_user = User.objects.create_user("leaderboardother", password="pass12345")
+        Profile.objects.create(user=other_user, display_name="LeaderboardOther")
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="A Movie", year=2020, runtime_minutes=100)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=timezone.now())
+        self.client.login(username="leaderboarduser", password="pass12345")
+
+    def test_returns_just_the_leaderboard_partial(self):
+        resp = self.client.get(reverse("activity_leaderboard"), {"period": "year"})
+        self.assertContains(resp, "Household Leaderboard")
+        self.assertContains(resp, "This Year")
+        # Not the full page shell - no navbar/other Activity page chrome.
+        self.assertNotContains(resp, "Household Activity")
+
+    def test_defaults_to_week_for_an_unrecognized_period(self):
+        resp = self.client.get(reverse("activity_leaderboard"), {"period": "bogus"})
+        self.assertEqual(resp.context["leaderboard_period"], "week")
+
+    def test_activity_pages_toggle_links_are_hx_get_with_push_url(self):
+        resp = self.client.get(reverse("activity"))
+        self.assertContains(resp, f'hx-get="{reverse("activity_leaderboard")}?period=week"')
+        self.assertContains(resp, 'hx-target="#household-leaderboard"')
+        self.assertContains(resp, 'hx-push-url="?period=week"')
+
+    def test_404s_for_a_single_profile_household(self):
+        Profile.objects.exclude(user__username="leaderboarduser").delete()
+        resp = self.client.get(reverse("activity_leaderboard"))
+        self.assertEqual(resp.status_code, 404)
 
 
 class TitleDetailViewTests(TestCase):
@@ -13504,11 +13877,13 @@ class TitleDetailViewTests(TestCase):
 
     def test_header_reflects_episode_level_watch_count(self):
         # A show watched only via the episode browser (no separate
-        # whole-title action) now surfaces in the header's own "Watched"
+        # whole-title action) now surfaces in the header's own watched
         # button too, via the same per-episode-minimum figure the poster
         # card's own ×N badge already used (selectors.title_watch_count)
         # - see test_tv_titles_get_their_own_header_watched_button for
-        # the button/popover itself.
+        # the button/popover itself. Not COMPLETED (only 1 episode
+        # watched), so this is the in-progress "Watching" state, not
+        # "Watched" - see TitleTvWatchedButtonTests for that split.
         from django.utils import timezone
 
         show = Title.objects.create(
@@ -13521,7 +13896,7 @@ class TitleDetailViewTests(TestCase):
             resp = self.client.get(reverse("title_detail", args=[show.pk]))
         self.assertTrue(resp.context["is_watched"])
         self.assertEqual(resp.context["watch_count"], 1)
-        self.assertContains(resp, "&#10003; Watched")
+        self.assertContains(resp, "Watching")
 
     def test_tv_titles_get_their_own_header_watched_button(self):
         # TV/anime don't get the movie-only single-toggle title_mark_watched
@@ -16467,11 +16842,27 @@ class TitleTvWatchedButtonTests(TestCase):
         self.assertNotContains(resp, "&#10003; Watched")
 
     @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
-    def test_any_episode_watched_shows_the_success_button_with_its_count(self, mock_details):
+    def test_any_episode_watched_shows_the_in_progress_button_with_its_count(self, mock_details):
+        # Not COMPLETED - watched but not finished gets the blue "Watching"
+        # treatment, not the green "Watched" one (see test_completed_shows_
+        # the_success_button_once_the_show_is_actually_finished below).
         self._watch(1, 1)
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, "&#10003; Watched")
+        self.assertContains(resp, "bg-info/90")
+        self.assertContains(resp, "Watching")
+        self.assertNotContains(resp, "bg-success/90")
         self.assertNotContains(resp, "+ Mark as Watched")
+
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_completed_shows_the_success_button_once_the_show_is_actually_finished(self, mock_details, mock_tv_details):
+        self._watch(1, 1)
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.COMPLETED)
+        mock_details.return_value = self._details(1)
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(resp, "bg-success/90")
+        self.assertContains(resp, "&#10003; Watched")
+        self.assertNotContains(resp, "bg-info/90")
 
     @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
     @patch("tracker.integrations.tmdb.get_full_details")
@@ -16522,7 +16913,9 @@ class TitleTvWatchedButtonTests(TestCase):
         with patch("tracker.integrations.tmdb.get_season_details", return_value=None):
             resp = self.client.post(reverse("episode_mark_watched", args=[self.title.pk, 1, 1]), HTTP_HX_REQUEST="true")
         self.assertContains(resp, f'id="tv-watched-wrap-{self.title.pk}"')
-        self.assertContains(resp, "&#10003; Watched")
+        # One episode of an unknown-length show isn't COMPLETED yet - the
+        # in-progress "Watching" state, not "Watched".
+        self.assertContains(resp, "Watching")
 
 
 class PreviewEpisodeBrowserTests(TestCase):
@@ -18842,6 +19235,103 @@ class PersonDetailViewTests(TestCase):
         self.assertContains(resp, "directing credits")
         self.assertNotContains(resp, "acting credits")
 
+    def _rated_credit(self, tmdb_id, name, vote_average, vote_count=50, media_type="movie", year="2020"):
+        return {
+            "tmdb_id": tmdb_id, "media_type": media_type, "name": name, "year": year,
+            "release_date": f"{year}-01-01", "poster_url": None,
+            "vote_average": vote_average, "vote_count": vote_count,
+        }
+
+    @patch("tracker.integrations.tmdb.get_person_credits")
+    @patch("tracker.integrations.tmdb.get_person_details")
+    def test_best_works_shows_the_highest_rated_credits_first(self, mock_details, mock_credits):
+        mock_details.return_value = self._person()
+        mock_credits.return_value = {
+            "acting": [
+                self._rated_credit(1, "Low Rated", 5.0),
+                self._rated_credit(2, "Top Rated", 9.0),
+                self._rated_credit(3, "Mid Rated", 7.0),
+            ],
+            "directing": [], "writing": [],
+        }
+        resp = self.client.get(reverse("person_detail", args=[500]))
+        self.assertContains(resp, "Best Works")
+        content = resp.content.decode()
+        best_works_start = content.index("Best Works")
+        acting_start = content.index(">Acting<")
+        best_works_html = content[best_works_start:acting_start]
+        self.assertLess(best_works_html.index("Top Rated"), best_works_html.index("Mid Rated"))
+        self.assertLess(best_works_html.index("Mid Rated"), best_works_html.index("Low Rated"))
+
+    @patch("tracker.integrations.tmdb.get_person_credits")
+    @patch("tracker.integrations.tmdb.get_person_details")
+    def test_best_works_excludes_credits_below_the_vote_count_floor(self, mock_details, mock_credits):
+        mock_details.return_value = self._person()
+        mock_credits.return_value = {
+            "acting": [
+                self._rated_credit(1, "Well Known", 9.0, vote_count=200),
+                self._rated_credit(2, "Obscure Fluke", 10.0, vote_count=1),
+                self._rated_credit(3, "Also Known", 8.5, vote_count=100),
+                self._rated_credit(4, "Also Well Known", 8.0, vote_count=150),
+            ],
+            "directing": [], "writing": [],
+        }
+        resp = self.client.get(reverse("person_detail", args=[500]))
+        content = resp.content.decode()
+        best_works_start = content.index("Best Works")
+        acting_start = content.index(">Acting<")
+        self.assertNotIn("Obscure Fluke", content[best_works_start:acting_start])
+
+    @patch("tracker.integrations.tmdb.get_person_credits")
+    @patch("tracker.integrations.tmdb.get_person_details")
+    def test_best_works_omitted_with_too_few_qualifying_credits(self, mock_details, mock_credits):
+        mock_details.return_value = self._person()
+        mock_credits.return_value = {
+            "acting": [self._rated_credit(1, "Only One", 9.0), self._rated_credit(2, "Only Two", 8.0)],
+            "directing": [], "writing": [],
+        }
+        resp = self.client.get(reverse("person_detail", args=[500]))
+        self.assertNotContains(resp, "Best Works")
+
+    @patch("tracker.integrations.tmdb.get_person_credits")
+    @patch("tracker.integrations.tmdb.get_person_details")
+    def test_best_works_deduplicates_a_credit_shared_across_departments(self, mock_details, mock_credits):
+        # A hyphenate's own acting+directing credit on the same title
+        # shouldn't take two of Best Works' limited slots.
+        shared = self._rated_credit(1, "Hyphenate Film", 9.0)
+        mock_details.return_value = self._person()
+        mock_credits.return_value = {
+            "acting": [shared, self._rated_credit(2, "Second", 8.5), self._rated_credit(3, "Third", 8.0)],
+            "directing": [dict(shared)],
+            "writing": [],
+        }
+        resp = self.client.get(reverse("person_detail", args=[500]))
+        best_works = [s for s in resp.context["filmography_sections"] if s["key"] == "best_works"][0]
+        self.assertEqual(len([i for i in best_works["items"] if i["tmdb_id"] == 1]), 1)
+
+    @patch("tracker.integrations.tmdb.get_person_credits")
+    @patch("tracker.integrations.tmdb.get_person_details")
+    def test_best_works_capped_at_the_limit(self, mock_details, mock_credits):
+        mock_details.return_value = self._person()
+        mock_credits.return_value = {
+            "acting": [self._rated_credit(i, f"Film {i}", 9.0) for i in range(15)],
+            "directing": [], "writing": [],
+        }
+        resp = self.client.get(reverse("person_detail", args=[500]))
+        best_works = [s for s in resp.context["filmography_sections"] if s["key"] == "best_works"][0]
+        self.assertEqual(len(best_works["items"]), 10)
+
+    @patch("tracker.integrations.tmdb.get_person_credits")
+    @patch("tracker.integrations.tmdb.get_person_details")
+    def test_show_less_button_present_for_collapsing_an_expanded_section(self, mock_details, mock_credits):
+        # The "Show all N credits" expand button previously had no way
+        # back - reported live - a "Show less" counterpart should always
+        # render alongside it (Alpine x-show toggles which one's visible).
+        mock_details.return_value = self._person()
+        mock_credits.return_value = {"acting": [self._credit(42, "Fathom")], "directing": [], "writing": []}
+        resp = self.client.get(reverse("person_detail", args=[500]))
+        self.assertContains(resp, "Show less")
+
 
 class PosterCardListPopoverHtmxBranchTests(TestCase):
     """add_to_list/remove_from_list are reused by both the Lists detail
@@ -20445,6 +20935,23 @@ class HistoryBulkDeleteTests(TestCase):
         resp = self.client.get(reverse("history_bulk_delete"))
         self.assertEqual(resp.status_code, 405)
 
+    def test_clears_a_stale_completed_watchprogress_once_no_history_is_left(self):
+        # Reported live: bulk-marking a show watched (WatchProgress
+        # COMPLETED), then deleting its only History entries, left that
+        # WatchProgress row COMPLETED forever - Up Next/Calendar kept
+        # showing the show as still being watched with nothing in
+        # History to show for it.
+        show = Title.objects.create(
+            media_type=MediaType.TV, name="Lanterns", year=2025, external_ids={"tmdb": "99"}
+        )
+        ep = Episode.objects.create(title=show, season=1, episode=1)
+        event = WatchEvent.objects.create(profile=self.profile, title=show, episode=ep, watched_at=self.now)
+        WatchProgress.objects.create(profile=self.profile, title=show, status=WatchProgress.Status.COMPLETED)
+        details = {"number_of_episodes": 1, "episode_run_time": 45, "seasons": []}
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            self.client.post(reverse("history_bulk_delete"), {"event_ids": [str(event.pk)]}, HTTP_HX_REQUEST="true")
+        self.assertFalse(WatchProgress.objects.filter(profile=self.profile, title=show).exists())
+
 
 class CustomConfirmModalTests(TestCase):
     """base.html's styled <dialog> replacement for the browser's own
@@ -20563,6 +21070,21 @@ class HistoryDeleteEpisodeTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.content, b"")
 
+    def test_clears_a_stale_completed_watchprogress_once_no_history_is_left(self):
+        # A separate, tmdb-linked show (self.show has no external_ids,
+        # which would make sync_show_completion a harmless no-op and
+        # defeat the point of this test).
+        show = Title.objects.create(
+            media_type=MediaType.TV, name="Lanterns", year=2025, external_ids={"tmdb": "99"}
+        )
+        ep = Episode.objects.create(title=show, season=1, episode=1)
+        event = WatchEvent.objects.create(profile=self.profile, title=show, episode=ep, watched_at=self.now)
+        WatchProgress.objects.create(profile=self.profile, title=show, status=WatchProgress.Status.COMPLETED)
+        details = {"number_of_episodes": 1, "episode_run_time": 45, "seasons": []}
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            self.client.post(reverse("history_delete_episode", args=[event.pk]), {"remaining_ids": ""})
+        self.assertFalse(WatchProgress.objects.filter(profile=self.profile, title=show).exists())
+
 
 class HistoryDeleteGroupTests(TestCase):
     """The binge-group tile's top-right x button - deletes every episode
@@ -20618,6 +21140,21 @@ class HistoryDeleteGroupTests(TestCase):
         resp = self.client.post(reverse("history_delete_group"), {"event_ids": f"{e1.pk},notanumber,"})
         self.assertEqual(resp.status_code, 200)
         self.assertFalse(WatchEvent.objects.filter(pk=e1.pk).exists())
+
+    def test_clears_a_stale_completed_watchprogress_once_no_history_is_left(self):
+        # A separate, tmdb-linked show (self.show has no external_ids,
+        # which would make sync_show_completion a harmless no-op and
+        # defeat the point of this test).
+        show = Title.objects.create(
+            media_type=MediaType.TV, name="Lanterns", year=2025, external_ids={"tmdb": "99"}
+        )
+        ep = Episode.objects.create(title=show, season=1, episode=1)
+        event = WatchEvent.objects.create(profile=self.profile, title=show, episode=ep, watched_at=self.now)
+        WatchProgress.objects.create(profile=self.profile, title=show, status=WatchProgress.Status.COMPLETED)
+        details = {"number_of_episodes": 1, "episode_run_time": 45, "seasons": []}
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            self.client.post(reverse("history_delete_group"), {"event_ids": str(event.pk)})
+        self.assertFalse(WatchProgress.objects.filter(profile=self.profile, title=show).exists())
 
 
 class HistoryTileDeleteButtonsTests(TestCase):
@@ -20722,6 +21259,81 @@ class WatchProgressDeleteApiTests(TestCase):
         untracked = Title.objects.create(media_type=MediaType.MOVIE, name="Untracked", year=2022)
         resp = self.client.delete(f"/api/watch-progress/{untracked.pk}")
         self.assertEqual(resp.status_code, 404)
+
+
+class HistoryDeleteEventApiTests(TestCase):
+    """DELETE /api/history/{event_id} - the plain (non-grouped) History
+    tile's own delete button (api/routers/history.py, previously
+    untested). sync_show_completion afterward re-validates this title's
+    own WatchProgress - see delete_history_event's own docstring for the
+    real, reported bug: deleting a bulk-marked show's only remaining
+    History entry left its WatchProgress COMPLETED forever, so Up Next/
+    Calendar kept showing it as still being watched even though History
+    now showed nothing for it at all."""
+
+    def setUp(self):
+        user = User.objects.create_user("historydeleter", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="HistoryDeleter")
+        self.client.login(username="historydeleter", password="pass12345")
+
+    def test_deletes_the_event(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="A Movie", year=2020)
+        event = WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        resp = self.client.delete(f"/api/history/{event.pk}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(WatchEvent.objects.filter(pk=event.pk).exists())
+
+    def test_requires_login(self):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="A Movie", year=2020)
+        event = WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        self.client.logout()
+        resp = self.client.delete(f"/api/history/{event.pk}")
+        self.assertIn(resp.status_code, (401, 403))
+        self.assertTrue(WatchEvent.objects.filter(pk=event.pk).exists())
+
+    def test_404s_for_another_profiles_event(self):
+        other_user = User.objects.create_user("otherhistorydeleter", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="OtherHistoryDeleter")
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="A Movie", year=2020)
+        event = WatchEvent.objects.create(profile=other_profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        resp = self.client.delete(f"/api/history/{event.pk}")
+        self.assertEqual(resp.status_code, 404)
+        self.assertTrue(WatchEvent.objects.filter(pk=event.pk).exists())
+
+    def test_deleting_the_last_event_clears_a_stale_completed_watchprogress(self):
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Lanterns", year=2025, external_ids={"tmdb": "99"}
+        )
+        episode = Episode.objects.create(title=title, season=1, episode=1)
+        event = WatchEvent.objects.create(
+            profile=self.profile, title=title, episode=episode, watched_at="2024-01-01T00:00:00Z"
+        )
+        WatchProgress.objects.create(profile=self.profile, title=title, status=WatchProgress.Status.COMPLETED)
+        details = {"number_of_episodes": 1, "episode_run_time": 45, "seasons": []}
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            resp = self.client.delete(f"/api/history/{event.pk}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(WatchProgress.objects.filter(profile=self.profile, title=title).exists())
+
+    def test_deleting_one_of_several_events_downgrades_a_stale_completed_watchprogress(self):
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Lanterns", year=2025, external_ids={"tmdb": "99"}
+        )
+        ep1 = Episode.objects.create(title=title, season=1, episode=1)
+        ep2 = Episode.objects.create(title=title, season=1, episode=2)
+        event1 = WatchEvent.objects.create(
+            profile=self.profile, title=title, episode=ep1, watched_at="2024-01-01T00:00:00Z"
+        )
+        WatchEvent.objects.create(
+            profile=self.profile, title=title, episode=ep2, watched_at="2024-01-02T00:00:00Z"
+        )
+        WatchProgress.objects.create(profile=self.profile, title=title, status=WatchProgress.Status.COMPLETED)
+        details = {"number_of_episodes": 2, "episode_run_time": 45, "seasons": []}
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=details):
+            resp = self.client.delete(f"/api/history/{event1.pk}")
+        self.assertEqual(resp.status_code, 200)
+        progress = WatchProgress.objects.get(profile=self.profile, title=title)
+        self.assertEqual(progress.status, WatchProgress.Status.WATCHING)
 
 
 class ApiTokenModelTests(TestCase):

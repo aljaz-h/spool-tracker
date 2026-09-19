@@ -63,7 +63,7 @@
         <div class="flex items-center gap-1.5 flex-wrap text-[10px] font-mono font-bold uppercase tracking-wide">
           {% if item.completed_series %}
             <span class="bg-success/15 text-success px-1.5 py-0.5 rounded">Series Completed</span>
-          {% else %}
+          {% elif item.count >= 4 %}
             <span class="bg-primary/15 text-primary px-1.5 py-0.5 rounded">Binge Session</span>
           {% endif %}
           <span class="bg-base-300 text-ink-dim px-1.5 py-0.5 rounded">{{ item.title.media_type }}</span>

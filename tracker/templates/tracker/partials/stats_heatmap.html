@@ -13,27 +13,48 @@
     </select>
   </div>
 
-  <div class="flex flex-col gap-1">
-    <div class="grid gap-[3px]" style="grid-template-columns: repeat({{ heatmap_weeks|length }}, 1fr);">
-      {% for label in heatmap_months %}
-        <div class="text-[10px] font-mono text-ink-dim whitespace-nowrap overflow-hidden">{% if label %}{{ label }}{% endif %}</div>
-      {% endfor %}
-    </div>
-    <div class="grid gap-[3px]" style="grid-template-columns: repeat({{ heatmap_weeks|length }}, 1fr);">
-      {% for week in heatmap_weeks %}
-        <div class="grid gap-[3px]">
-          {% for cell in week %}
-            {% if cell %}
-              <div
-                class="w-full aspect-square rounded-sm {% if cell.level == 0 %}bg-base-300{% elif cell.level == 1 %}bg-primary/25{% elif cell.level == 2 %}bg-primary/50{% elif cell.level == 3 %}bg-primary/75{% else %}bg-primary{% endif %}"
-                title="{{ cell.date|date:'M j, Y' }} · {{ cell.count }} watched"
-              ></div>
-            {% else %}
-              <div class="w-full aspect-square"></div>
-            {% endif %}
-          {% endfor %}
-        </div>
-      {% endfor %}
+  {% comment %}
+  Fixed-size cells (not a fluid repeat(N, 1fr) grid) that scroll
+  horizontally when they don't fit, same as GitHub's own contribution
+  graph - a full year is ~52-53 week-columns, and squeezing all of them
+  to fit a phone-width viewport left each column only a few px wide.
+  CSS Grid's own repeat(N, 1fr) also gave 1fr tracks an implicit
+  minmax(auto, 1fr) - a long month name's (whitespace-nowrap) intrinsic
+  min-content width could force ITS label column wider than its 1fr
+  share, throwing that grid out of alignment with the day-cell grid
+  below it (same column count, but no comparable text forcing its own
+  tracks wider) - confirmed live as exactly the "mushed together/
+  overlapping" glitch reported, not just a narrow-column clipping issue.
+  Fixed pixel-width tracks on both grids sidesteps that entirely: every
+  column is the same width on both grids, always, regardless of content.
+  overflow-x-auto scroll-row lets the whole thing scroll on any viewport
+  narrower than a full year's width, not just mobile - sm: and up
+  usually has room to show it all without scrolling, this doesn't need
+  its own breakpoint for that.
+  {% endcomment %}
+  <div class="overflow-x-auto scroll-row pb-1">
+    <div class="flex flex-col gap-1 w-max">
+      <div class="grid gap-[3px]" style="grid-template-columns: repeat({{ heatmap_weeks|length }}, 11px);">
+        {% for label in heatmap_months %}
+          <div class="text-[10px] font-mono text-ink-dim whitespace-nowrap">{% if label %}{{ label }}{% endif %}</div>
+        {% endfor %}
+      </div>
+      <div class="grid gap-[3px]" style="grid-template-columns: repeat({{ heatmap_weeks|length }}, 11px);">
+        {% for week in heatmap_weeks %}
+          <div class="grid gap-[3px]">
+            {% for cell in week %}
+              {% if cell %}
+                <div
+                  class="w-[11px] h-[11px] rounded-sm {% if cell.level == 0 %}bg-base-300{% elif cell.level == 1 %}bg-primary/25{% elif cell.level == 2 %}bg-primary/50{% elif cell.level == 3 %}bg-primary/75{% else %}bg-primary{% endif %}"
+                  title="{{ cell.date|date:'M j, Y' }} · {{ cell.count }} watched"
+                ></div>
+              {% else %}
+                <div class="w-[11px] h-[11px]"></div>
+              {% endif %}
+            {% endfor %}
+          </div>
+        {% endfor %}
+      </div>
     </div>
   </div>
 

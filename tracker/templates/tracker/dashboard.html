@@ -20,35 +20,51 @@
 
     Below sm:, these four pills used to flex-wrap onto their own stack
     of near-full-width rows - a lot of vertical space for what's really
-    a small amount of information. flex-none + overflow-x-auto/scroll-row
-    (same scroll-row treatment the poster rows further down already use)
-    turns that into one horizontally-scrollable row instead; sm: and up
-    goes back to flex-wrap now that there's enough width for it to read
-    as a normal wrapped group rather than a scroll.
+    a small amount of information. flex-none + overflow-x-auto/scroll-row-
+    fade turns that into one horizontally-scrollable row instead, with an
+    edge-fade + prev/next arrow overlay (not a visible scrollbar - see
+    scroll-row-fade's own comment in app.css for why) as the "there's
+    more" affordance instead; sm: and up goes back to flex-wrap now that
+    there's enough width for it to read as a normal wrapped group rather
+    than a scroll, and the arrows/fade are sm:hidden right along with it.
   {% endcomment %}
   <div class="flex justify-between items-start flex-wrap gap-4 mb-6">
     <div>
       <div class="text-ink-faint text-xs font-mono uppercase tracking-wide">{% now "l, F j" %}</div>
       <h1 class="font-display text-4xl mt-1">Welcome back, <span class="text-primary">{{ profile.display_name }}</span></h1>
     </div>
-    <div class="flex items-center gap-2 overflow-x-auto scroll-row pb-1 -mb-1 sm:flex-wrap sm:overflow-visible sm:pb-0 sm:mb-0 max-w-full">
-      <div class="flex-none flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
-        {% icon "flame" "w-4 h-4 text-primary" %}
-        <span class="text-nowrap">{{ stats.streak }} day streak</span>
-        {% if stats.longest_streak %}<span class="text-ink-faint text-nowrap">&middot; longest {{ stats.longest_streak }}</span>{% endif %}
+    <div
+      class="relative min-w-0"
+      x-data="{
+        atStart: true, atEnd: false,
+        update() { this.atStart = this.$refs.track.scrollLeft <= 4; this.atEnd = this.$refs.track.scrollLeft >= this.$refs.track.scrollWidth - this.$refs.track.clientWidth - 4; },
+        scroll(dir) { this.$refs.track.scrollBy({ left: dir * this.$refs.track.clientWidth * 0.7, behavior: 'smooth' }); },
+      }"
+      x-init="$nextTick(() => update())"
+    >
+      <div x-ref="track" @scroll.passive="update()" class="flex items-center gap-2 overflow-x-auto scroll-row-fade pb-1 -mb-1 sm:flex-wrap sm:overflow-visible sm:pb-0 sm:mb-0 max-w-full">
+        <div class="flex-none flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
+          {% icon "flame" "w-4 h-4 text-primary" %}
+          <span class="text-nowrap">{{ stats.streak }} day streak</span>
+          {% if stats.longest_streak %}<span class="text-ink-faint text-nowrap">&middot; longest {{ stats.longest_streak }}</span>{% endif %}
+        </div>
+        <div class="flex-none flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
+          {% icon "clapperboard" "w-4 h-4 text-primary" %}
+          <span class="text-nowrap">{{ stats.movies_this_year }} movies</span>
+        </div>
+        <div class="flex-none flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
+          {% icon "tv" "w-4 h-4 text-primary" %}
+          <span class="text-nowrap">{{ stats.shows_completed }} shows</span>
+        </div>
+        <div class="flex-none flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
+          {% icon "clock" "w-4 h-4 text-primary" %}
+          <span class="text-nowrap">{{ stats.total_watch_time }} watched</span>
+        </div>
       </div>
-      <div class="flex-none flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
-        {% icon "clapperboard" "w-4 h-4 text-primary" %}
-        <span class="text-nowrap">{{ stats.movies_this_year }} movies</span>
-      </div>
-      <div class="flex-none flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
-        {% icon "tv" "w-4 h-4 text-primary" %}
-        <span class="text-nowrap">{{ stats.shows_completed }} shows</span>
-      </div>
-      <div class="flex-none flex items-center gap-2 bg-base-200 border border-line rounded-full px-4 py-2 text-sm font-mono">
-        {% icon "clock" "w-4 h-4 text-primary" %}
-        <span class="text-nowrap">{{ stats.total_watch_time }} watched</span>
-      </div>
+      <div class="sm:hidden pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-base-100 to-transparent transition-opacity duration-200" :class="atStart ? 'opacity-0' : 'opacity-100'"></div>
+      <div class="sm:hidden pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-base-100 to-transparent transition-opacity duration-200" :class="atEnd ? 'opacity-0' : 'opacity-100'"></div>
+      <button type="button" @click="scroll(-1)" x-show="!atStart" x-cloak aria-label="Scroll left" class="sm:hidden absolute left-0.5 top-1/2 -translate-y-1/2 z-10 w-6 h-6 rounded-full bg-base-100 border border-line shadow-md flex items-center justify-center text-ink-dim">{% icon "chevron-left" "w-3.5 h-3.5" %}</button>
+      <button type="button" @click="scroll(1)" x-show="!atEnd" x-cloak aria-label="Scroll right" class="sm:hidden absolute right-0.5 top-1/2 -translate-y-1/2 z-10 w-6 h-6 rounded-full bg-base-100 border border-line shadow-md flex items-center justify-center text-ink-dim">{% icon "chevron-right" "w-3.5 h-3.5" %}</button>
     </div>
   </div>
 
@@ -70,35 +86,51 @@
       <div class="bg-base-200 border border-line rounded-2xl p-4 shadow-md shadow-black/20">
         {% comment %}
           Below sm:, a vertical stack of these ate a lot of scroll depth
-          for just 3-4 cards - a horizontal scroll-row (same scroll-row
-          treatment Recently Watched/Watchlist Queue's own mobile rows
-          already use) reaches all of them in far less vertical space.
-          sm: and up switches back to the plain grid (still every card
+          for just 3-4 cards - a horizontal scroll row reaches all of
+          them in far less vertical space, with an edge-fade + prev/next
+          arrow overlay (not a visible scrollbar - see scroll-row-fade's
+          own comment in app.css) as the "there's more" affordance. sm:
+          and up switches back to the plain grid (still every card
           visible at once there, just as columns instead of a scroll) -
           grid replaces flex outright at that breakpoint, so the mobile-
-          only overflow-x-auto/scroll-row/pb-1 don't need their own
-          undo, they simply stop applying once display becomes grid.
+          only overflow-x-auto/scroll-row-fade/pb-1 (and the fade/arrow
+          overlay, sm:hidden) don't need their own undo, they simply stop
+          applying/showing once display becomes grid.
         {% endcomment %}
-        <div class="flex gap-3 overflow-x-auto scroll-row pb-1 sm:grid sm:grid-cols-2 sm:gap-4 sm:pb-0 lg:grid-cols-4">
-          {% for item in up_next %}
-            <a href="{% url 'title_detail' item.title.pk %}" class="w-[240px] flex-none sm:w-auto flex items-center gap-3 bg-base-300 border border-line rounded-xl p-3 hover:border-primary/40 transition-colors">
-              <div class="w-12 aspect-[2/3] rounded-md relative overflow-hidden flex-none {% if not item.title.poster_url %}{{ item.title.pk|gradient_class }}{% endif %}">
-                {% if item.title.poster_url %}
-                  <img src="{{ item.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
-                {% endif %}
-              </div>
-              <div class="min-w-0 flex-1">
-                <span class="inline-block font-mono text-[10px] font-bold px-1.5 py-0.5 rounded {% if item.when == "TODAY" or item.when == "TOMORROW" %}bg-primary/20 text-primary{% else %}bg-base-100 text-ink-dim{% endif %}">{{ item.when }}</span>
-                <div class="text-[13px] font-semibold truncate mt-1">{{ item.title.name }}</div>
-                <div class="flex items-center gap-1.5 text-xs text-ink-dim truncate">
-                  {% if item.count > 1 %}
-                    <span class="font-mono text-[9.5px] font-bold bg-primary/90 text-primary-content px-1.5 py-0.5 rounded flex-none">{{ item.count }}&times;</span>
+        <div
+          class="relative"
+          x-data="{
+            atStart: true, atEnd: false,
+            update() { this.atStart = this.$refs.track.scrollLeft <= 4; this.atEnd = this.$refs.track.scrollLeft >= this.$refs.track.scrollWidth - this.$refs.track.clientWidth - 4; },
+            scroll(dir) { this.$refs.track.scrollBy({ left: dir * this.$refs.track.clientWidth * 0.8, behavior: 'smooth' }); },
+          }"
+          x-init="$nextTick(() => update())"
+        >
+          <div x-ref="track" @scroll.passive="update()" class="flex gap-3 overflow-x-auto scroll-row-fade pb-1 sm:grid sm:grid-cols-2 sm:gap-4 sm:pb-0 lg:grid-cols-4">
+            {% for item in up_next %}
+              <a href="{% url 'title_detail' item.title.pk %}" class="w-[240px] flex-none sm:w-auto flex items-center gap-3 bg-base-300 border border-line rounded-xl p-3 hover:border-primary/40 transition-colors">
+                <div class="w-12 aspect-[2/3] rounded-md relative overflow-hidden flex-none {% if not item.title.poster_url %}{{ item.title.pk|gradient_class }}{% endif %}">
+                  {% if item.title.poster_url %}
+                    <img src="{{ item.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
                   {% endif %}
-                  <span class="truncate">{{ item.caption }}</span>
                 </div>
-              </div>
-            </a>
-          {% endfor %}
+                <div class="min-w-0 flex-1">
+                  <span class="inline-block font-mono text-[10px] font-bold px-1.5 py-0.5 rounded {% if item.when == "TODAY" or item.when == "TOMORROW" %}bg-primary/20 text-primary{% else %}bg-base-100 text-ink-dim{% endif %}">{{ item.when }}</span>
+                  <div class="text-[13px] font-semibold truncate mt-1">{{ item.title.name }}</div>
+                  <div class="flex items-center gap-1.5 text-xs text-ink-dim truncate">
+                    {% if item.count > 1 %}
+                      <span class="font-mono text-[9.5px] font-bold bg-primary/90 text-primary-content px-1.5 py-0.5 rounded flex-none">{{ item.count }}&times;</span>
+                    {% endif %}
+                    <span class="truncate">{{ item.caption }}</span>
+                  </div>
+                </div>
+              </a>
+            {% endfor %}
+          </div>
+          <div class="sm:hidden pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-base-200 to-transparent transition-opacity duration-200" :class="atStart ? 'opacity-0' : 'opacity-100'"></div>
+          <div class="sm:hidden pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-base-200 to-transparent transition-opacity duration-200" :class="atEnd ? 'opacity-0' : 'opacity-100'"></div>
+          <button type="button" @click="scroll(-1)" x-show="!atStart" x-cloak aria-label="Scroll left" class="sm:hidden absolute left-0.5 top-1/2 -translate-y-1/2 z-10 w-6 h-6 rounded-full bg-base-100 border border-line shadow-md flex items-center justify-center text-ink-dim">{% icon "chevron-left" "w-3.5 h-3.5" %}</button>
+          <button type="button" @click="scroll(1)" x-show="!atEnd" x-cloak aria-label="Scroll right" class="sm:hidden absolute right-0.5 top-1/2 -translate-y-1/2 z-10 w-6 h-6 rounded-full bg-base-100 border border-line shadow-md flex items-center justify-center text-ink-dim">{% icon "chevron-right" "w-3.5 h-3.5" %}</button>
         </div>
       </div>
     {% else %}
@@ -176,7 +208,7 @@
 
       {% include "tracker/partials/dashboard_featured_lists.html" %}
 
-      {# ---- Start watching: watchlist titles worth surfacing right now (recent release/episode, or trending on TMDB) - see selectors.start_watching(). Replaces "Because you watched" (currently turned off, DASHBOARD_BECAUSE_YOU_WATCHED_ENABLED in views.py). ---- #}
+      {# ---- Start watching: watchlist titles worth surfacing right now (recent release/episode, or trending on TMDB) - see selectors.start_watching(). ---- #}
       {% if start_watching %}
         <div class="mb-8">
           <div class="flex justify-between items-center mb-3.5">
@@ -229,32 +261,25 @@
     </div>
   </div>
 
-  {# ---- For You: a discover() call scoped to this profile's genre/provider/region preferences (Settings > Preferences) - see selectors.for_you(). ---- #}
-  {% if for_you %}
-    <div class="dashboard-rule my-9"></div>
-    <div class="flex justify-between items-center mb-3.5">
-      <h2 class="font-display text-xl">For You</h2>
-    </div>
-    <div class="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
-      {% for item in for_you.results %}
-        {% include "tracker/partials/discover_tile.html" with item=item %}
-      {% endfor %}
-    </div>
-  {% endif %}
-
-  {% if because_you_watched %}
-    <div class="dashboard-rule my-9"></div>
-
-    {# ---- Discover ---- #}
-    <div class="flex justify-between items-center mb-3.5">
-      <h2 class="font-display text-xl">Because you watched {{ because_you_watched.anchor_title.name }}</h2>
-    </div>
-    <div class="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
-      {% for item in because_you_watched.results %}
-        {% include "tracker/partials/discover_tile.html" with item=item %}
-      {% endfor %}
-    </div>
-  {% endif %}
+  {# ---- Recommended for You: one row per Movies/TV/Anime, each TMDB's own "similar to X" recommendations aggregated across this profile's own recent watch history for that media_type, falling back to a genre/provider preference discover() for a profile with no history yet - see selectors.recommended_for_you(). ---- #}
+  {% for row_title, row in recommended_rows %}
+    {% if row %}
+      <div class="dashboard-rule my-9"></div>
+      <div class="flex justify-between items-center mb-3.5">
+        <h2 class="font-display text-xl">{{ row_title }}</h2>
+      </div>
+      <div class="relative">
+        <div class="flex flex-nowrap gap-4 overflow-x-auto scroll-row pb-2">
+          {% for item in row.results %}
+            <div class="w-[130px] sm:w-[190px] flex-none">
+              {% include "tracker/partials/discover_tile.html" with item=item %}
+            </div>
+          {% endfor %}
+        </div>
+        <div class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-base-100 to-transparent"></div>
+      </div>
+    {% endif %}
+  {% endfor %}
 {% endif %}
 
 {% endblock %}

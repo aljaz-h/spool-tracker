@@ -1,12 +1,32 @@
 {% load icons %}
 {# context: leaderboard (selectors.household_leaderboard()), leaderboard_period ("week"|"year") #}
 {% if leaderboard %}
-  <div class="bg-base-200 border border-line rounded-2xl p-4 shadow-md shadow-black/20">
+  {% comment %}
+  The This Week/This Year toggle below is hx-get, not a plain ?period=
+  link like this page's other filters (member pills, pagination) - see
+  views.activity_leaderboard's own docstring: a full-page reload just
+  for this one toggle scrolled back to the top, disruptive on mobile
+  where this card sits at the bottom of the stacked layout. hx-push-url
+  keeps the URL bookmarkable/shareable without a real navigation.
+  {% endcomment %}
+  <div class="bg-base-200 border border-line rounded-2xl p-4 shadow-md shadow-black/20" id="household-leaderboard">
     <div class="flex items-center justify-between mb-3.5">
       <h2 class="font-display text-lg tracking-wide flex items-center gap-2">{% icon "crown" "w-4 h-4 text-ink-dim" %}Household Leaderboard</h2>
       <div class="inline-flex bg-base-300 border border-line rounded-lg p-0.5 flex-none">
-        <a href="?{% if selected_member_id %}member={{ selected_member_id }}&amp;{% endif %}period=week" class="px-2.5 py-1 rounded-md text-[10.5px] font-semibold {% if leaderboard_period == "week" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">This Week</a>
-        <a href="?{% if selected_member_id %}member={{ selected_member_id }}&amp;{% endif %}period=year" class="px-2.5 py-1 rounded-md text-[10.5px] font-semibold {% if leaderboard_period == "year" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">This Year</a>
+        <a
+          href="?{% if selected_member_id %}member={{ selected_member_id }}&amp;{% endif %}period=week"
+          hx-get="{% url 'activity_leaderboard' %}?{% if selected_member_id %}member={{ selected_member_id }}&amp;{% endif %}period=week"
+          hx-target="#household-leaderboard" hx-swap="outerHTML"
+          hx-push-url="?{% if selected_member_id %}member={{ selected_member_id }}&amp;{% endif %}period=week"
+          class="px-2.5 py-1 rounded-md text-[10.5px] font-semibold {% if leaderboard_period == "week" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}"
+        >This Week</a>
+        <a
+          href="?{% if selected_member_id %}member={{ selected_member_id }}&amp;{% endif %}period=year"
+          hx-get="{% url 'activity_leaderboard' %}?{% if selected_member_id %}member={{ selected_member_id }}&amp;{% endif %}period=year"
+          hx-target="#household-leaderboard" hx-swap="outerHTML"
+          hx-push-url="?{% if selected_member_id %}member={{ selected_member_id }}&amp;{% endif %}period=year"
+          class="px-2.5 py-1 rounded-md text-[10.5px] font-semibold {% if leaderboard_period == "year" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}"
+        >This Year</a>
       </div>
     </div>
     <div class="flex flex-col gap-3">

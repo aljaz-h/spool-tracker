@@ -118,11 +118,6 @@ COLLECTIONS_CATEGORY = "collections"
 # other piece (tmdb.collections()/get_collection_details(), the view
 # branches, the templates, the tests) is untouched and ready to go.
 COLLECTIONS_ENABLED = False
-# Turned off for now (replaced on Dashboard by "Start watching"/"Recently
-# watched"/"Social Activity") without ripping the feature out -
-# selectors.because_you_watched() and its TMDB call are simply skipped
-# while this is False. Flip back to True to restore the row.
-DASHBOARD_BECAUSE_YOU_WATCHED_ENABLED = False
 # ISO 639-1 codes TMDB's with_original_language accepts - not exhaustive,
 # just the languages common enough in a movie/TV catalog to be worth a
 # dedicated dropdown entry instead of making everyone type a code.
@@ -211,10 +206,9 @@ def dashboard(request):
         watchlist_qs = selectors.library_watchlist(profile, [MediaType.MOVIE, MediaType.TV, MediaType.ANIME])
         watchlist_count = watchlist_qs.count()
         watchlist_items = list(watchlist_qs[:12])
-        because_you_watched = (
-            selectors.because_you_watched(profile) if DASHBOARD_BECAUSE_YOU_WATCHED_ENABLED else None
-        )
-        for_you = selectors.for_you(profile)
+        recommended_movies = selectors.recommended_for_you(profile, MediaType.MOVIE)
+        recommended_tv = selectors.recommended_for_you(profile, MediaType.TV)
+        recommended_anime = selectors.recommended_for_you(profile, MediaType.ANIME)
         media_types = [MediaType.MOVIE, MediaType.TV, MediaType.ANIME]
         start_watching = selectors.start_watching(profile, media_types)
         # Recently Watched uses its own watch_event_card.html (episode
@@ -246,16 +240,20 @@ def dashboard(request):
                 "stats": stats,
                 "monthly_stats": selectors.monthly_stats(profile),
                 "milestone": selectors.milestone_message(stats["streak"], stats["movies_this_year"]),
-                "because_you_watched": because_you_watched,
-                "for_you": for_you,
+                "recommended_rows": [
+                    ("Recommended Movies", recommended_movies),
+                    ("Recommended TV", recommended_tv),
+                    ("Recommended Anime", recommended_anime),
+                ],
                 "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")),
                 "featured_lists": selectors.featured_lists(),
                 **_recommendations_context(profile),
                 **selectors.poster_action_context(profile, all_titles),
                 **selectors.discover_action_context(
                     profile,
-                    (because_you_watched["results"] if because_you_watched else [])
-                    + (for_you["results"] if for_you else []),
+                    (recommended_movies["results"] if recommended_movies else [])
+                    + (recommended_tv["results"] if recommended_tv else [])
+                    + (recommended_anime["results"] if recommended_anime else []),
                 ),
             }
         )
@@ -2331,6 +2329,13 @@ def _person_age(birthday_date, deathday_date):
     return end.year - birthday_date.year - ((end.month, end.day) < (birthday_date.month, birthday_date.day))
 
 
+# person_detail's own "Best Works" row - see its build-out below for why
+# each constant exists.
+BEST_WORKS_MIN_VOTES = 20
+BEST_WORKS_LIMIT = 10
+BEST_WORKS_MIN_ITEMS = 3
+
+
 @login_required
 def person_detail(request, person_id):
     """The click-through page for a cast/director credit on any movie,
@@ -2381,6 +2386,25 @@ def person_detail(request, person_id):
         for department in ("acting", "directing", "writing")
         if sections[department]
     ]
+
+    # "Best Works" - this person's own highest-rated credits, deduped
+    # across every department (so a hyphenate's acting/directing credit
+    # on the same title doesn't take two of the limited slots) rather
+    # than scoped to "Known for"'s own single department, and requiring
+    # a modest vote_count floor for the same reason discover()'s own
+    # "top_rated" category does (BEST_WORKS_MIN_VOTES) - otherwise a
+    # single 10/10 vote from one person on an obscure credit would
+    # outrank something genuinely well-known. Placed first, ahead of
+    # every department section, since it's the page's own highlight row.
+    best_works_pool = [
+        item for item in items if item.get("vote_average") and item["vote_count"] >= BEST_WORKS_MIN_VOTES
+    ]
+    best_works_pool.sort(key=lambda i: i["vote_average"], reverse=True)
+    best_works_items = best_works_pool[:BEST_WORKS_LIMIT]
+    for item in best_works_items:
+        item["watched"] = action_context["discover_watched"].get(f"{item['media_type']}:{item['tmdb_id']}", False)
+    if len(best_works_items) >= BEST_WORKS_MIN_ITEMS:
+        filmography_sections.insert(0, {"key": "best_works", "label": "Best Works", "items": best_works_items})
     # "Known for" (primary) is whichever section has the most credits, not
     # just TMDB's own single-guess known_for_department or display order -
     # a person could be primarily a director with only a couple of small
@@ -2893,6 +2917,23 @@ def history(request, profile_id=None):
     return render(request, template, context)
 
 
+def _resync_completion_after_history_delete(profile, title_ids):
+    """Re-validates WatchProgress for every title a History deletion just
+    touched - completion.sync_show_completion downgrades/deletes a stale
+    COMPLETED row once the profile's own watched-episode count no longer
+    supports it, same as resync_completed_profiles's own nightly pass,
+    just triggered immediately instead of waiting for that. Without this,
+    deleting a bulk-marked show's entire History left its WatchProgress
+    row COMPLETED forever - confirmed as a real reported case: the show
+    kept showing in Up Next/Calendar (both scoped to "any WatchProgress
+    row for this title", not just WATCHING - see selectors.up_next's own
+    docstring) as if still being watched, with History showing nothing at
+    all for it. A no-op for a movie or a title with no tmdb_id (sync_show_
+    completion's own early-return guards)."""
+    for title in Title.objects.filter(pk__in=title_ids):
+        completion.sync_show_completion(profile, title)
+
+
 @login_required
 @require_POST
 def history_bulk_delete(request):
@@ -2909,7 +2950,11 @@ def history_bulk_delete(request):
             for part in raw.split(",")
             if part.strip().isdigit()
         }
+        touched_title_ids = set(
+            WatchEvent.objects.filter(profile=profile, pk__in=event_ids).values_list("title_id", flat=True)
+        )
         WatchEvent.objects.filter(profile=profile, pk__in=event_ids).delete()
+        _resync_completion_after_history_delete(profile, touched_title_ids)
     context = _history_context(request, profile)
     return render(request, "tracker/partials/history_content.html", context)
 
@@ -2932,6 +2977,7 @@ def history_delete_episode(request, event_id):
     event = get_object_or_404(WatchEvent, pk=event_id, profile=profile)
     title = event.title
     event.delete()
+    completion.sync_show_completion(profile, title)
 
     remaining_ids = {int(part) for part in request.POST.get("remaining_ids", "").split(",") if part.strip().isdigit()}
     remaining = list(
@@ -2964,7 +3010,11 @@ def history_delete_group(request):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is not None:
         event_ids = {int(part) for part in request.POST.get("event_ids", "").split(",") if part.strip().isdigit()}
+        touched_title_ids = set(
+            WatchEvent.objects.filter(profile=profile, pk__in=event_ids).values_list("title_id", flat=True)
+        )
         WatchEvent.objects.filter(profile=profile, pk__in=event_ids).delete()
+        _resync_completion_after_history_delete(profile, touched_title_ids)
     return HttpResponse(status=200)
 
 
@@ -3618,6 +3668,7 @@ def stats(request, profile_id=None):
         "genre_metric": genre_metric,
         "heatmap_base_url": reverse("stats_heatmap") if is_own_stats or profile is None else reverse("member_stats_heatmap", args=[profile.pk]),
         "history_url": reverse("history") if is_own_stats or profile is None else reverse("member_history", args=[profile.pk]),
+        "genre_breakdown_base_url": reverse("stats_genre_breakdown") if is_own_stats or profile is None else reverse("member_stats_genre_breakdown", args=[profile.pk]),
     }
     if profile is not None:
         overview = selectors.stats_overview(profile)
@@ -3682,6 +3733,40 @@ def stats_heatmap(request, profile_id=None):
             1 for w in context["heatmap_weeks"] for c in w if c and c["count"] > 0
         )
     return render(request, "tracker/partials/stats_heatmap.html", context)
+
+
+@login_required
+def stats_genre_breakdown(request, profile_id=None):
+    """Stats' "Your Top Genres" card, HTMX-refreshed in place for its By
+    items/By watch time and TV Shows/Anime/Movies toggles - a full-page
+    ?genre_type=/?genre_metric= reload scrolled all the way back to the
+    top, same complaint (and same fix) as household_leaderboard.html's
+    own This Week/This Year toggle - see views.activity_leaderboard's own
+    docstring. hx-push-url on the template's own hx-get keeps the URL
+    bookmarkable/shareable without a real navigation."""
+    profile, is_own_stats = _resolve_stats_profile(request, profile_id)
+    if profile is None:
+        raise Http404
+    genre_type = request.GET.get("genre_type")
+    genre_type = genre_type if genre_type in GENRE_TYPES else "movie"
+    genre_metric = request.GET.get("genre_metric") if request.GET.get("genre_metric") == "duration" else "items"
+    genres = selectors.genre_breakdown(profile, GENRE_TYPES[genre_type], genre_metric)
+    return render(
+        request,
+        "tracker/partials/stats_genre_breakdown.html",
+        {
+            "genre_type": genre_type,
+            "genre_metric": genre_metric,
+            "genre_breakdown": genres,
+            "most_genre": genres[0] if genres else None,
+            "least_genre": genres[-1] if genres else None,
+            "genre_breakdown_base_url": (
+                reverse("stats_genre_breakdown")
+                if is_own_stats or profile is None
+                else reverse("member_stats_genre_breakdown", args=[profile.pk])
+            ),
+        },
+    )
 
 
 ACTIVITY_PAGE_SIZE = 12
@@ -3755,6 +3840,34 @@ def activity(request):
         "time_format_str": _time_format_str(profile),
     }
     return render(request, "tracker/activity.html", context)
+
+
+@login_required
+def activity_leaderboard(request):
+    """Household Activity's own Leaderboard card, HTMX-refreshed in place
+    for its This Week/This Year toggle (household_leaderboard.html). Every
+    other filter on this page (member pills, pagination) stays a plain
+    ?param= link on purpose - see activity()'s own comment on why - but a
+    full-page reload for just this one toggle scrolled all the way back
+    to the top, reported live as disruptive on mobile where the
+    leaderboard sits at the bottom of the single-column stacked layout.
+    hx-push-url on the template's own hx-get keeps the URL bookmarkable/
+    shareable without a real navigation, so the swap leaves scroll
+    position alone."""
+    if Profile.objects.count() <= 1:
+        raise Http404
+    member_id = request.GET.get("member")
+    selected_member_id = int(member_id) if member_id and member_id.isdigit() else None
+    leaderboard_period = request.GET.get("period") if request.GET.get("period") in ("week", "year") else "week"
+    return render(
+        request,
+        "tracker/partials/household_leaderboard.html",
+        {
+            "leaderboard_period": leaderboard_period,
+            "leaderboard": selectors.household_leaderboard(leaderboard_period),
+            "selected_member_id": selected_member_id,
+        },
+    )
 
 
 def _landing_page_url(page):

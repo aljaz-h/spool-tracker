@@ -97,20 +97,29 @@
           <button type="button" @click="filter = 'unwatched'; expanded = false; measure()" class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer" :class="filter === 'unwatched' ? 'bg-base-100 text-base-content' : 'text-ink-dim'">Unwatched</button>
         </div>
       </div>
-      <div
-        x-ref="grid"
-        class="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-3"
-        :class="!expanded && hasMore ? 'grid-clamp-2-rows' : ''"
-      >
-        {% for item in section.items %}
-          <div x-data="{ watched: {{ item.watched|yesno:'true,false' }} }" x-show="filter === 'all' || (filter === 'watched' && watched) || (filter === 'unwatched' && !watched)">
-            {% include "tracker/partials/discover_tile.html" with item=item %}
-          </div>
-        {% endfor %}
+      <div class="relative">
+        <div
+          x-ref="grid"
+          class="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-3"
+          :class="!expanded && hasMore ? 'grid-clamp-2-rows' : ''"
+        >
+          {% for item in section.items %}
+            <div x-data="{ watched: {{ item.watched|yesno:'true,false' }} }" x-show="filter === 'all' || (filter === 'watched' && watched) || (filter === 'unwatched' && !watched)">
+              {% include "tracker/partials/discover_tile.html" with item=item %}
+            </div>
+          {% endfor %}
+        </div>
+        <div
+          class="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-base-100 to-transparent"
+          x-show="hasMore && !expanded" x-cloak
+        ></div>
       </div>
-      <div class="flex justify-center mt-4" x-show="hasMore && !expanded" x-cloak>
-        <button type="button" @click="expanded = true" class="px-4 py-1.5 rounded-lg text-xs font-semibold border border-line bg-base-200 text-ink-dim hover:text-base-content hover:border-primary/50 transition-colors cursor-pointer">
+      <div class="flex justify-center mt-4" x-show="hasMore" x-cloak>
+        <button type="button" x-show="!expanded" @click="expanded = true" class="px-4 py-1.5 rounded-lg text-xs font-semibold border border-line bg-base-200 text-ink-dim hover:text-base-content hover:border-primary/50 transition-colors cursor-pointer">
           Show all <span x-text="visibleTotal"></span> credits
+        </button>
+        <button type="button" x-show="expanded" x-cloak @click="expanded = false" class="px-4 py-1.5 rounded-lg text-xs font-semibold border border-line bg-base-200 text-ink-dim hover:text-base-content hover:border-primary/50 transition-colors cursor-pointer">
+          Show less
         </button>
       </div>
     </div>

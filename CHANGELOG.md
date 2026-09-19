@@ -8,6 +8,84 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.130.0] - 2026-09-19
+
+### Added
+
+- Person (actor/director) page: a "Best Works" row showing that
+  person's own highest-rated credits, ahead of the Acting/Directing/
+  Writing sections.
+
+### Fixed
+
+- Person page's clamped filmography grid cut off with a sharp edge
+  instead of a fade, and once expanded via "Show all N credits" there
+  was no way back - a "Show less" button now sits alongside it.
+- Stats' "Your Top Genres" card (By items/By watch time, TV/Anime/
+  Movies) had the same full-page-reload-scrolls-to-top bug as the
+  Household Leaderboard - now HTMX-swapped in place too.
+
+## [0.129.0] - 2026-09-19
+
+### Added
+
+- Dashboard's mobile header stat pills and Up Next row now use an
+  edge-fade + prev/next arrow overlay instead of a visible scrollbar as
+  the "there's more" hint when horizontally scrollable.
+
+### Fixed
+
+- Topbar avatar circle's border was hardcoded to the theme orange,
+  never reflecting a profile's own chosen avatar color.
+- A TV/anime title's hero "Watched" button showed the same green
+  checkmark for a show still in progress as for one actually finished -
+  now splits the same way the poster-card watched button already does
+  (blue "Watching" while incomplete, green "Watched" only once
+  COMPLETED).
+- Peak Hours (Stats) no longer shows a redundant percentage next to
+  each bucket's play count.
+- Household Leaderboard's This Week/This Year toggle (Activity page)
+  reloaded the whole page and scrolled back to the top - now swaps in
+  place via HTMX.
+- Deleting a title's entire watch History (any of the four delete
+  paths: bulk delete, per-episode, group, or single-tile) left a stale
+  COMPLETED WatchProgress behind if it had ever been bulk-marked
+  watched, so Up Next/Calendar kept showing it as still being watched
+  with nothing in History to show for it. Now re-validates completion
+  against what's left of the watch history immediately.
+- Plain `<button>` and `<select>` elements never got a pointer cursor
+  (a real gap in Tailwind/daisyUI, not just this app's own templates) -
+  now fixed globally instead of patching each affected template
+  (recommendation send buttons, History's Filters panel, Settings'
+  preference dropdowns, and others).
+
+## [0.128.0] - 2026-09-18
+
+### Added
+
+- Dashboard's "Watching" row now shows a landscape still of the actual
+  in-progress episode (same treatment Recently Watched already used)
+  instead of the show's cover poster, for any title with a resolved
+  current episode - the episode badge ("S1 · E5") moved to the top-left
+  corner, a "Season Finale" badge appears when it's the season's last
+  episode (per TMDB, not just whatever's synced locally), and a
+  mark-watched checkmark now sits directly on the card. The caption also
+  switched from "S1E5 of 21" to "N eps left · Xh Ym remaining", using
+  TMDB's own remaining-episode runtimes.
+
+## [0.127.0] - 2026-09-18
+
+### Added
+
+- Dashboard's "For You"/"Because you watched" rows replaced with three
+  "Recommended for You" rows (Movies/TV/Anime), each based on this
+  profile's own recent watch history for that media_type (TMDB's
+  "similar to X" recommendations aggregated across several recently
+  watched titles, not just the single latest one) rather than a
+  preference-only or single-anchor row. A profile with no watch history
+  yet for a given media_type still gets a preference-scoped row (Settings
+  → Preferences), the same fallback "For You" used to be.
+
 ## [0.126.1] - 2026-09-17
 
 ### Fixed
