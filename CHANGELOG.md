@@ -8,14 +8,23 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.131.1] - 2026-09-19
+
+### Changed
+
+- Dashboard's Watching row: a movie's card no longer shows the
+  add-to-list button alongside its mark-watched one - this row is about
+  tracking progress, not list management, and the pair read as cramped
+  next to the show cards' own single button.
+
 ## [0.131.0] - 2026-09-19
 
 ### Changed
 
 - Dashboard's Watching row: movies now get the same landscape card
-  (backdrop image, caption, mark-watched/list buttons) TV/anime already
-  got, instead of the old portrait poster - the row previously mixed
-  both card shapes.
+  (backdrop image, caption, mark-watched button) TV/anime already got,
+  instead of the old portrait poster - the row previously mixed both
+  card shapes.
 
 ## [0.130.0] - 2026-09-19
 

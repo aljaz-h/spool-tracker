@@ -37,9 +37,11 @@ to avoid triggering navigation.
   progress.season: a resolved show uses the per-episode watched button
   (episode_watched_button.html, always "watched" - current_episode is
   itself the last watched episode), a movie or an unresolved show uses
-  the same whole-title watched/list-popover pair every portrait card
-  uses below, since "watched"/list membership are real per-title state
-  here, not implied by having a current episode.
+  the same whole-title watched button every portrait card uses below -
+  just that one, not its usual list-popover partner too, since this row
+  is about tracking watch progress, not list management, and a lone
+  square icon button read oddly next to the show cards' own single
+  button (also reported live).
   {% endcomment %}
   <div class="{{ width_class|default:"w-[270px] flex-none" }} group" id="watch-progress-card-{{ title.pk }}">
     <div class="aspect-video rounded-t-lg relative overflow-hidden {% if not progress.still_url %}{{ title.pk|gradient_class }}{% endif %}">
@@ -98,16 +100,15 @@ to avoid triggering navigation.
         {% include "tracker/partials/episode_watched_button.html" with title=title season=progress.season episode_number=progress.episode_number watched=True watch_count=progress.watch_count %}
       {% else %}
         {% comment %}
-        poster_card_watched_button.html/poster_card_list_popover.html
-        are both built for the portrait card's own dedicated 2-button bar
-        (each flex-1, splitting 100% of it evenly) - reused here inside a
-        row that also has to fit the title/subtitle link, so their own
-        flex-1/w-full are overridden back to a compact, fixed-ish width
-        via arbitrary child selectors rather than forking either partial.
+        poster_card_watched_button.html is built for the portrait card's
+        own dedicated action bar (flex-1, filling all the width it's
+        given) - reused here alone inside a row that also has to fit the
+        title/subtitle link, so its flex-1/w-full are overridden back to
+        a compact, fixed-ish width via arbitrary child selectors rather
+        than forking the partial.
         {% endcomment %}
-        <div class="flex items-center gap-1.5 flex-none [&>div]:flex-none [&>div>button]:w-10">
+        <div class="flex-none [&>div]:flex-none [&>div>button]:w-10">
           {% include "tracker/partials/poster_card_watched_button.html" with title=title watched=watched_by_title|get_item:title.pk watch_count=watch_count_by_title|get_item:title.pk in_progress=in_progress_by_title|get_item:title.pk %}
-          {% include "tracker/partials/poster_card_list_popover.html" with title=title my_lists=my_lists in_list_ids=list_membership|get_item:title.pk %}
         </div>
       {% endif %}
     </div>

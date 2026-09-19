@@ -12613,6 +12613,27 @@ class DashboardWatchingWatchlistTests(TestCase):
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, f'href="{reverse("title_detail", args=[movie.pk])}"')
 
+    def test_watching_a_movie_gets_a_landscape_card_with_no_list_button(self):
+        # Reported live: the Watching row's movie cards showed both a
+        # watched button and an add-to-list button, looking cramped/
+        # squared-off next to the show cards' own single button - this
+        # row is about tracking progress, not list management.
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="A Movie", year=2020, runtime_minutes=100)
+        WatchProgress.objects.create(
+            profile=self.profile, title=movie, position_seconds=100, status=WatchProgress.Status.WATCHING
+        )
+        resp = self.client.get(reverse("dashboard"))
+        content = resp.content.decode()
+        card_start = content.index(f'id="watch-progress-card-{movie.pk}"')
+        # Scoped to this card's own markup window (up to the next
+        # watch-progress card, or a generous fallback span) rather than a
+        # brittle exact-tag walk - "Add to list" only ever appears inside
+        # a list-popover panel, so its absence in this window is real.
+        next_card = content.find('id="watch-progress-card-', card_start + 1)
+        window = content[card_start : next_card if next_card != -1 else card_start + 4000]
+        self.assertIn("aspect-video", window)
+        self.assertNotIn("Add to list", window)
+
     def test_start_watching_shows_a_watchlist_title_with_a_recent_release(self):
         from django.utils import timezone
 
