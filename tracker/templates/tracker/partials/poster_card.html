@@ -24,16 +24,22 @@ normal-flow sibling - not overlaid on top of it, so the full poster
 art stays visible - and its buttons don't need any click-stop handling
 to avoid triggering navigation.
 {% endcomment %}
-{% if progress.season %}
+{% if progress %}
   {% comment %}
-  Watching row only (progress.season is only ever set for a non-movie
-  WatchProgress with a resolved current_episode - see continue_watching's
-  own docstring on why that's Nuvio/scrobble-only, not every profile) -
-  a landscape episode-still card instead of the portrait poster below,
-  so this row shows what the episode you're about to watch actually
-  looks like, the same treatment Recently Watched's own still-image
-  cards already use (watch_event_card.html), rather than just the
-  show's cover art repeated across every in-progress title.
+  Watching row only - a landscape still card (episode still for a show
+  with a resolved current_episode, that show's own poster as a fallback
+  when it isn't, a movie's TMDB backdrop) instead of the portrait poster
+  below, so every card in this row reads the same way, matching Recently
+  Watched's own still-image cards (watch_event_card.html) rather than
+  mixing landscape shows with portrait movies in the same row -
+  confirmed as a real reported inconsistency once shows got this
+  treatment and movies didn't. The bottom action bar still branches on
+  progress.season: a resolved show uses the per-episode watched button
+  (episode_watched_button.html, always "watched" - current_episode is
+  itself the last watched episode), a movie or an unresolved show uses
+  the same whole-title watched/list-popover pair every portrait card
+  uses below, since "watched"/list membership are real per-title state
+  here, not implied by having a current episode.
   {% endcomment %}
   <div class="{{ width_class|default:"w-[270px] flex-none" }} group" id="watch-progress-card-{{ title.pk }}">
     <div class="aspect-video rounded-t-lg relative overflow-hidden {% if not progress.still_url %}{{ title.pk|gradient_class }}{% endif %}">
@@ -84,13 +90,39 @@ to avoid triggering navigation.
     <div class="bg-base-300 rounded-b-lg p-2.5 flex items-center justify-between gap-2">
       <a href="{{ detail_url }}" class="min-w-0">
         <div class="text-[13px] font-semibold truncate">{{ title.name }}</div>
-        <div class="font-mono text-[11px] text-ink-dim truncate mt-0.5">S{{ progress.season }}E{{ progress.episode_number }}{% if progress.episode_name %} &middot; {{ progress.episode_name }}{% endif %}</div>
+        {% if progress.season %}
+          <div class="font-mono text-[11px] text-ink-dim truncate mt-0.5">S{{ progress.season }}E{{ progress.episode_number }}{% if progress.episode_name %} &middot; {{ progress.episode_name }}{% endif %}</div>
+        {% endif %}
       </a>
-      {% include "tracker/partials/episode_watched_button.html" with title=title season=progress.season episode_number=progress.episode_number watched=True watch_count=progress.watch_count %}
+      {% if progress.season %}
+        {% include "tracker/partials/episode_watched_button.html" with title=title season=progress.season episode_number=progress.episode_number watched=True watch_count=progress.watch_count %}
+      {% else %}
+        {% comment %}
+        poster_card_watched_button.html/poster_card_list_popover.html
+        are both built for the portrait card's own dedicated 2-button bar
+        (each flex-1, splitting 100% of it evenly) - reused here inside a
+        row that also has to fit the title/subtitle link, so their own
+        flex-1/w-full are overridden back to a compact, fixed-ish width
+        via arbitrary child selectors rather than forking either partial.
+        {% endcomment %}
+        <div class="flex items-center gap-1.5 flex-none [&>div]:flex-none [&>div>button]:w-10">
+          {% include "tracker/partials/poster_card_watched_button.html" with title=title watched=watched_by_title|get_item:title.pk watch_count=watch_count_by_title|get_item:title.pk in_progress=in_progress_by_title|get_item:title.pk %}
+          {% include "tracker/partials/poster_card_list_popover.html" with title=title my_lists=my_lists in_list_ids=list_membership|get_item:title.pk %}
+        </div>
+      {% endif %}
     </div>
   </div>
 {% else %}
-  <div class="{{ width_class|default:"w-[168px] flex-none" }}{% if progress %} group{% endif %}" {% if progress %}id="watch-progress-card-{{ title.pk }}"{% endif %}>
+  {% comment %}
+  Every caller that passes progress now lands in the landscape branch
+  above instead (continue_watching() always sets it, for a movie or an
+  unresolved episode too - see its own docstring) - this portrait
+  branch is only ever reached without one (Watchlist Queue, Start
+  Watching, general library grids, Social Activity's event_episode
+  cards), so it no longer needs its own progress-only bits (the Watching
+  tile's drop/remove hover buttons, its own id, or the sprocket bar).
+  {% endcomment %}
+  <div class="{{ width_class|default:"w-[168px] flex-none" }}">
     <div
       class="aspect-[2/3] rounded-t-lg relative overflow-hidden {% if not title.poster_url %}{{ title.pk|gradient_class }}{% endif %}"
     >
@@ -100,28 +132,6 @@ to avoid triggering navigation.
       <a href="{{ detail_url }}" class="absolute inset-0 z-0">
         <span class="absolute top-2 right-2 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ title.media_type|upper }}</span>
       </a>
-      {% if progress %}
-        <div class="absolute top-2 left-2 z-20 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            type="button"
-            hx-post="/api/watch-progress/{{ title.pk }}/drop"
-            hx-confirm="Mark &quot;{{ title.name }}&quot; as dropped? Your watch history stays intact - resume any time from its detail page."
-            hx-target="#watch-progress-card-{{ title.pk }}"
-            hx-swap="outerHTML swap:150ms"
-            title="Drop - keeps your watch history, just leaves Watching"
-            class="w-5 h-5 rounded-full bg-black/75 text-white leading-none flex items-center justify-center hover:bg-error"
-          >{% icon "circle" "w-2.5 h-2.5" %}</button>
-          <button
-            type="button"
-            hx-delete="/api/watch-progress/{{ title.pk }}"
-            hx-confirm="Remove &quot;{{ title.name }}&quot; from Watching? This only clears its progress - your watch history isn't touched."
-            hx-target="#watch-progress-card-{{ title.pk }}"
-            hx-swap="outerHTML swap:150ms"
-            title="Remove from Watching"
-            class="w-5 h-5 rounded-full bg-black/75 text-white text-xs leading-none flex items-center justify-center hover:bg-error"
-          >&times;</button>
-        </div>
-      {% endif %}
       {% if event_profile %}
         <div class="absolute top-2 left-2 z-10 flex items-center gap-1.5 bg-black/70 rounded-full pl-1 pr-2.5 py-1 max-w-[80%] pointer-events-none">
           {% if event_profile.avatar_image %}
@@ -141,11 +151,6 @@ to avoid triggering navigation.
       {% include "tracker/partials/poster_card_list_popover.html" with title=title my_lists=my_lists in_list_ids=list_membership|get_item:title.pk %}
     </div>
     <a href="{{ detail_url }}" class="block mt-2 min-w-0">
-      {% if progress %}
-        <div class="mb-2">
-          {% include "tracker/partials/sprocket_bar.html" with percent=progress.percent caption=progress.caption %}
-        </div>
-      {% endif %}
       <div class="text-[13px] font-semibold truncate">{{ title.name }}</div>
       {% if show_ratings %}
         <div class="mt-1">

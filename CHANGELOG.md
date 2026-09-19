@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.131.0] - 2026-09-19
+
+### Changed
+
+- Dashboard's Watching row: movies now get the same landscape card
+  (backdrop image, caption, mark-watched/list buttons) TV/anime already
+  got, instead of the old portrait poster - the row previously mixed
+  both card shapes.
+
 ## [0.130.0] - 2026-09-19
 
 ### Added

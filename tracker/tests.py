@@ -13034,16 +13034,53 @@ class ContinueWatchingEpisodeDisplayTests(TestCase):
         item = selectors.continue_watching(self.profile)[0]
         self.assertEqual(item["watch_count"], 2)
 
-    def test_movie_gets_no_episode_display_fields(self):
+    def test_movie_gets_no_episode_specific_display_fields(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="A Movie", year=2020, runtime_minutes=100)
+        WatchProgress.objects.create(
+            profile=self.profile, title=movie, position_seconds=100, status=WatchProgress.Status.WATCHING
+        )
+        item = selectors.continue_watching(self.profile)[0]
+        self.assertIsNone(item["episode_name"])
+        self.assertFalse(item["is_season_finale"])
+        self.assertEqual(item["watch_count"], 0)
+
+    def test_movie_still_url_is_none_without_a_tmdb_id_or_a_poster(self):
         movie = Title.objects.create(media_type=MediaType.MOVIE, name="A Movie", year=2020, runtime_minutes=100)
         WatchProgress.objects.create(
             profile=self.profile, title=movie, position_seconds=100, status=WatchProgress.Status.WATCHING
         )
         item = selectors.continue_watching(self.profile)[0]
         self.assertIsNone(item["still_url"])
-        self.assertIsNone(item["episode_name"])
-        self.assertFalse(item["is_season_finale"])
-        self.assertEqual(item["watch_count"], 0)
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_movie_uses_its_tmdb_backdrop_as_the_landscape_card_still(self, mock_details):
+        # A movie has no per-scene still the way a show's episode does -
+        # its own TMDB backdrop is the closest landscape equivalent, so
+        # the Watching row's card looks the same for a movie as for a show.
+        movie = Title.objects.create(
+            media_type=MediaType.MOVIE, name="A Movie", year=2020, runtime_minutes=100,
+            external_ids={"tmdb": "1"},
+        )
+        WatchProgress.objects.create(
+            profile=self.profile, title=movie, position_seconds=100, status=WatchProgress.Status.WATCHING
+        )
+        mock_details.return_value = {"backdrop_url": "https://example.com/backdrop.jpg"}
+        item = selectors.continue_watching(self.profile)[0]
+        self.assertEqual(item["still_url"], "https://example.com/backdrop.jpg")
+        mock_details.assert_called_once_with("movie", "1")
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_movie_falls_back_to_its_poster_when_tmdb_has_no_backdrop(self, mock_details):
+        movie = Title.objects.create(
+            media_type=MediaType.MOVIE, name="A Movie", year=2020, runtime_minutes=100,
+            external_ids={"tmdb": "1"}, poster_url="https://example.com/poster.jpg",
+        )
+        WatchProgress.objects.create(
+            profile=self.profile, title=movie, position_seconds=100, status=WatchProgress.Status.WATCHING
+        )
+        mock_details.return_value = {"backdrop_url": None}
+        item = selectors.continue_watching(self.profile)[0]
+        self.assertEqual(item["still_url"], "https://example.com/poster.jpg")
 
 
 class ActivityFeedGroupingTests(TestCase):

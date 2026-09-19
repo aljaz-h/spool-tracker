@@ -178,6 +178,15 @@ def continue_watching(profile, media_types=None, limit=8):
                 caption = f"{remaining} min left"
             else:
                 caption = "In progress"
+            # Landscape still for the Watching row's own card (same
+            # treatment a show's episode still gets) - a movie has no
+            # per-scene still, so its own TMDB backdrop is the closest
+            # equivalent; falls back to the poster (object-cover crops
+            # it rather than stretching, same as a show with no still)
+            # when there's no tmdb_id or TMDB has nothing for it.
+            tmdb_id = title.external_ids.get("tmdb") if title.external_ids else None
+            details = tmdb.get_full_details("movie", tmdb_id) if tmdb_id else None
+            still_url = (details.get("backdrop_url") if details else None) or title.poster_url or None
         else:
             ep = progress.current_episode
             percent, caption = 0, "In progress"
@@ -229,14 +238,17 @@ def continue_watching(profile, media_types=None, limit=8):
         # this episode (?season=N#episode-N-M) instead of just the
         # title's own page - see title_episodes.html's own episode-card
         # ids and app.css's :target styling for the other half of this.
-        # still_url/episode_name/is_season_finale/watch_count are the
-        # Watching row's own landscape-card fields (poster_card.html) -
-        # all None/False/0 for a movie, or a show with no current_episode
-        # resolved yet (current_episode is only ever populated by a
-        # Nuvio/scrobble-reported resume position, not by the in-app
-        # "mark episode watched" button - see WatchProgress's own field
-        # comment), in which case poster_card.html falls back to its
-        # plain portrait layout.
+        # still_url/is_season_finale/watch_count are the Watching row's
+        # own landscape-card fields (poster_card.html) - still_url is set
+        # for every item here (a movie's own backdrop, a resolved show's
+        # episode still, or a plain poster fallback for either), but
+        # episode_name/is_season_finale/watch_count stay their defaults
+        # for a movie or a show with no current_episode resolved yet
+        # (current_episode is only ever populated by a Nuvio/scrobble-
+        # reported resume position, not by the in-app "mark episode
+        # watched" button - see WatchProgress's own field comment) -
+        # poster_card.html's own bottom action bar branches on season
+        # specifically to tell those apart, not on still_url.
         items.append(
             {
                 "title": title,
