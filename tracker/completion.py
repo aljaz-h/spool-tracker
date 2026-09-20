@@ -9,6 +9,8 @@ showed 0/nothing regardless of how much was actually watched - those
 stats were never wrong, there was just never any data behind them.
 """
 
+from django.db.models import Q
+
 from .integrations import tmdb
 from .models import Episode, MediaType, Profile, WatchEvent, WatchListItem, WatchProgress
 
@@ -57,35 +59,86 @@ def _backfill_episode_runtimes(title, tmdb_id):
                 ).update(runtime_minutes=ep["runtime"])
 
 
-def _ensure_watching(profile, title):
+def _next_episode_after(title, episode, details=None):
+    """Return/create the next episode after ``episode``.
+
+    The local Episode table is sparse: marking S1E1 creates S1E1, but not
+    necessarily S1E2.  The Watching row, however, should point at the next
+    episode to watch.  Prefer an existing local row, then materialize the
+    next TMDB episode when possible.
+    """
+    local_next = (
+        Episode.objects.filter(title=title)
+        .filter(Q(season__gt=episode.season) | Q(season=episode.season, episode__gt=episode.episode))
+        .order_by("season", "episode")
+        .first()
+    )
+    if local_next:
+        return local_next
+
+    tmdb_id = _tmdb_id(title)
+    if not tmdb_id:
+        return None
+    details = details or tmdb.get_tv_details(tmdb_id)
+    for season_info in sorted((details or {}).get("seasons") or [], key=lambda s: s.get("season_number") or 0):
+        season_number = season_info.get("season_number")
+        if season_number is None or season_number < episode.season:
+            continue
+        season_data = tmdb.get_season_details(tmdb_id, season_number)
+        if not season_data:
+            continue
+        for ep_data in sorted(season_data.get("episodes") or [], key=lambda e: e.get("episode_number") or 0):
+            episode_number = ep_data.get("episode_number")
+            if episode_number is None or (season_number, episode_number) <= (episode.season, episode.episode):
+                continue
+            next_episode, _ = Episode.objects.get_or_create(
+                title=title,
+                season=season_number,
+                episode=episode_number,
+                defaults={
+                    "name": ep_data.get("name") or "",
+                    "runtime_minutes": ep_data.get("runtime"),
+                },
+            )
+            return next_episode
+    return None
+
+
+def _ensure_watching(profile, title, details=None):
     """Puts a partially-watched show on the Dashboard's Watching row (a
-    WATCHING WatchProgress row pointing at the latest episode watched),
+    WATCHING WatchProgress row pointing at the next episode to watch),
     so an episode marked in Spool alone shows up there without needing a
     player like Nuvio to have reported progress first. An existing row is
-    left alone unless the latest watched episode is later than its
+    left alone unless the next episode after the latest watched episode is later than its
     current_episode (Nuvio's own in-progress episode can be ahead of
     what's been marked watched, and shouldn't be pulled backward); a
     DROPPED row stays dropped."""
     latest = (
         WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=False)
         .select_related("episode")
-        .order_by("-watched_at")
+        .order_by("-episode__season", "-episode__episode")
         .first()
     )
+    if latest is None:
+        return
+    resume_episode = _next_episode_after(title, latest.episode, details) or latest.episode
     progress = WatchProgress.objects.filter(profile=profile, title=title).first()
     if progress is None:
         WatchProgress.objects.create(
             profile=profile,
             title=title,
             status=WatchProgress.Status.WATCHING,
-            current_episode=latest.episode if latest else None,
+            current_episode=resume_episode,
         )
         return
-    if progress.status != WatchProgress.Status.WATCHING or latest is None:
+    if progress.status != WatchProgress.Status.WATCHING:
         return
-    current = progress.current_episode
-    if current is None or (latest.episode.season, latest.episode.episode) > (current.season, current.episode):
-        progress.current_episode = latest.episode
+    if resume_episode is not None and (
+        progress.current_episode_id is None
+        or (resume_episode.season, resume_episode.episode)
+        > (progress.current_episode.season, progress.current_episode.episode)
+    ):
+        progress.current_episode = resume_episode
         progress.save(update_fields=["current_episode", "updated_at"])
 
 
@@ -104,9 +157,13 @@ def sync_show_completion(profile, title, ensure_watching=False):
     flood the row, or resurrect one that was dismissed from it."""
     tmdb_id = _tmdb_id(title)
     if not tmdb_id:
+        if ensure_watching:
+            _ensure_watching(profile, title)
         return
     details = tmdb.get_tv_details(tmdb_id)
     if not details:
+        if ensure_watching:
+            _ensure_watching(profile, title)
         return
 
     episode_run_time = details.get("episode_run_time")
@@ -116,6 +173,8 @@ def sync_show_completion(profile, title, ensure_watching=False):
 
     total_episodes = details.get("number_of_episodes")
     if not total_episodes:
+        if ensure_watching:
+            _ensure_watching(profile, title, details)
         return
     watched_episode_count = (
         WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=False)
@@ -141,7 +200,7 @@ def sync_show_completion(profile, title, ensure_watching=False):
             status=WatchProgress.Status.WATCHING
         )
         if ensure_watching:
-            _ensure_watching(profile, title)
+            _ensure_watching(profile, title, details)
 
 
 def resync_completed_profiles(title):

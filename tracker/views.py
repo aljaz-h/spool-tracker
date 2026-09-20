@@ -1573,6 +1573,18 @@ def _history_card_oob(request, profile, title):
     )
 
 
+def _watching_card_oob(request, profile, title):
+    """Refresh the Dashboard Watching card after an episode watch action."""
+    item = next((i for i in selectors.continue_watching(profile, limit=None) if i["title"].pk == title.pk), None)
+    if item is None:
+        return ""
+    return render_to_string(
+        "tracker/partials/poster_card.html",
+        {"title": title, "progress": item, "oob": True},
+        request=request,
+    )
+
+
 @login_required
 @require_POST
 def title_mark_watched(request, pk):
@@ -1778,6 +1790,7 @@ def episode_mark_watched(request, pk, season, episode_number):
     )
     response.write(_history_card_oob(request, profile, title))
     response.write(_hero_watched_button_oob(request, profile, title))
+    response.write(_watching_card_oob(request, profile, title))
     return response
 
 
@@ -1804,6 +1817,7 @@ def _episode_watched_button_response(request, profile, title, season, episode_nu
     )
     response.write(_history_card_oob(request, profile, title))
     response.write(_hero_watched_button_oob(request, profile, title))
+    response.write(_watching_card_oob(request, profile, title))
     return response
 
 
