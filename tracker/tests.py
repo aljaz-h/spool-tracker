@@ -1451,6 +1451,29 @@ class EnsureWatchingOnEpisodeMarkTests(TestCase):
         self.assertEqual(progress.status, WatchProgress.Status.WATCHING)
         self.assertEqual(progress.current_episode, ep2)
 
+    @patch("tracker.views.tmdb.get_season_details")
+    @patch("tracker.completion.tmdb.get_tv_details")
+    def test_marking_an_episode_advances_watching_row_to_the_next_episode(self, mock_details, mock_season):
+        mock_details.return_value = {
+            "number_of_episodes": 3,
+            "episode_run_time": 24,
+            "seasons": [{"season_number": 1, "episode_count": 3}],
+        }
+        mock_season.return_value = {
+            "episodes": [
+                {"episode_number": 1, "name": "Pilot", "runtime": 24},
+                {"episode_number": 2, "name": "Next", "runtime": 25},
+                {"episode_number": 3, "name": "Third", "runtime": 26},
+            ]
+        }
+        self.client.login(username="ensurewatcher", password="pass12345")
+        resp = self.client.post(reverse("episode_mark_watched", args=[self.title.pk, 1, 1]))
+        self.assertLess(resp.status_code, 400)
+        progress = WatchProgress.objects.get(profile=self.profile, title=self.title)
+        self.assertEqual(progress.status, WatchProgress.Status.WATCHING)
+        self.assertEqual((progress.current_episode.season, progress.current_episode.episode), (1, 2))
+        self.assertEqual(progress.current_episode.name, "Next")
+
 
 class ResyncCompletedProfilesTests(TestCase):
     """completion.resync_completed_profiles - re-validates a stale
@@ -13182,6 +13205,31 @@ class ContinueWatchingEpisodeDisplayTests(TestCase):
         )
         item = selectors.continue_watching(self.profile)[0]
         self.assertEqual(item["caption"], "1E left · 25m remaining")
+
+    @patch("tracker.completion.tmdb.get_tv_details")
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_watching_row_skips_an_already_watched_current_episode(self, mock_season, mock_details):
+        mock_details.return_value = {
+            "number_of_episodes": 2,
+            "episode_run_time": 25,
+            "seasons": [{"season_number": 1, "episode_count": 2}],
+        }
+        mock_season.return_value = {
+            "episodes": [
+                {"episode_number": 1, "name": "Pilot", "runtime": 25},
+                {"episode_number": 2, "name": "Next", "runtime": 25},
+            ]
+        }
+        episode = Episode.objects.create(title=self.title, season=1, episode=1)
+        WatchEvent.objects.create(
+            profile=self.profile, title=self.title, episode=episode, watched_at="2024-01-01T00:00:00Z"
+        )
+        WatchProgress.objects.create(
+            profile=self.profile, title=self.title, current_episode=episode, status=WatchProgress.Status.WATCHING
+        )
+        item = selectors.continue_watching(self.profile)[0]
+        self.assertEqual((item["season"], item["episode_number"]), (1, 2))
+        self.assertEqual(item["watch_count"], 0)
 
     @patch("tracker.integrations.tmdb.get_season_details")
     def test_season_finale_true_on_tmdbs_own_last_episode(self, mock_season):

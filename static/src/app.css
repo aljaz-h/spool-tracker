@@ -546,6 +546,10 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
   pointer-events: auto;
 }
+.discover-tile.watch-progress-card:is(.tile-hover, .tile-focus) .watch-progress-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
 .discover-tile:is(.tile-hover, .tile-focus) .discover-tile-zoom {
   /* the standalone CSS `scale` property, not `transform` - matches the
      zoom amount the old group-hover:scale-[1.06] utility used */

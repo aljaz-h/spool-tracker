@@ -199,6 +199,30 @@
 
   <div class="grid grid-cols-1 lg:grid-cols-[1fr_0.6fr_1fr] gap-5 mt-5">
     <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
+      <h3 class="font-display text-lg tracking-wide mb-1 flex items-center gap-2">{% icon "clock" "w-4 h-4 text-ink-dim" %}Peak Hours</h3>
+      <div class="text-ink-dim text-xs mb-4">Plays logged in each part of the day (lifetime)</div>
+      <div class="space-y-3.5">
+        {% for bucket in peak_hours %}
+          <div>
+            <div class="flex justify-between items-baseline mb-1.5">
+              <span class="text-[13px] text-ink-dim">{{ bucket.label }} <span class="text-[11px] text-ink-faint font-mono">({{ bucket.range }})</span></span>
+              <span class="font-mono text-xs {% if bucket.pct == 100 %}text-primary font-bold{% else %}text-ink-faint{% endif %}">{{ bucket.count }} play{{ bucket.count|pluralize }}</span>
+            </div>
+            <div tabindex="0" aria-label="{{ bucket.count }} play{{ bucket.count|pluralize }}" class="w-full h-2 rounded-full bg-base-300 overflow-hidden spool-tooltip" data-tooltip="{{ bucket.count }} play{{ bucket.count|pluralize }}">
+              <div class="h-full rounded-full {% if bucket.pct == 100 %}bg-primary{% else %}bg-primary/40{% endif %}" style="width:{{ bucket.pct }}%"></div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+      {% if peak_hours_prime %}
+        <div class="flex justify-between items-center mt-4 pt-3 border-t border-line text-[11px] text-ink-faint">
+          <span>Prime viewing window</span>
+          <span class="font-mono text-base-content font-semibold">{{ peak_hours_prime.range }}</span>
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
       <h3 class="font-display text-lg tracking-wide mb-1">Release Years</h3>
       <div class="text-ink-faint text-xs mb-4">Distribution across release decades</div>
       {% if release_years %}
@@ -215,10 +239,6 @@
               <div class="font-mono text-[10px] text-ink-faint mt-1.5">{{ d.label }}</div>
             </div>
           {% endfor %}
-        </div>
-        <div class="flex justify-between items-center mt-3 pt-3 border-t border-line text-[11px] text-ink-faint gap-2">
-          <span class="truncate">Oldest <b class="text-base-content">{{ release_years.oldest_name }}</b> ({{ release_years.oldest_year }})</span>
-          <span class="flex-none">Latest <b class="text-base-content">{{ release_years.latest_year }}</b></span>
         </div>
       {% else %}
         <div class="h-[130px] flex flex-col items-center justify-center gap-1 text-center">
@@ -338,32 +358,6 @@
       {% endif %}
     </div>
 
-    <div class="min-w-0 bg-base-200 border border-line rounded-2xl p-5">
-      <h3 class="font-display text-lg tracking-wide mb-1 flex items-center gap-2">{% icon "clock" "w-4 h-4 text-ink-dim" %}Peak Hours</h3>
-      <div class="text-ink-dim text-xs mb-4">Plays logged in each part of the day (lifetime)</div>
-      <div class="space-y-3.5">
-        {% for bucket in peak_hours %}
-          <div>
-            <div class="flex justify-between items-baseline mb-1.5">
-              <span class="text-[13px] text-ink-dim">{{ bucket.label }} <span class="text-[11px] text-ink-faint font-mono">({{ bucket.range }})</span></span>
-              <span class="font-mono text-xs {% if bucket.pct == 100 %}text-primary font-bold{% else %}text-ink-faint{% endif %}">{{ bucket.count }} play{{ bucket.count|pluralize }}</span>
-            </div>
-            <div
-              tabindex="0" aria-label="{{ bucket.count }} play{{ bucket.count|pluralize }}"
-              class="w-full h-2 rounded-full bg-base-300 overflow-hidden spool-tooltip" data-tooltip="{{ bucket.count }} play{{ bucket.count|pluralize }}"
-            >
-              <div class="h-full rounded-full {% if bucket.pct == 100 %}bg-primary{% else %}bg-primary/40{% endif %}" style="width:{{ bucket.pct }}%"></div>
-            </div>
-          </div>
-        {% endfor %}
-      </div>
-      {% if peak_hours_prime %}
-        <div class="flex justify-between items-center mt-4 pt-3 border-t border-line text-[11px] text-ink-faint">
-          <span>Prime viewing window</span>
-          <span class="font-mono text-base-content font-semibold">{{ peak_hours_prime.range }}</span>
-        </div>
-      {% endif %}
-    </div>
   </div>
 
   {% endif %}

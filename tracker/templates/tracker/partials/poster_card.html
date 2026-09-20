@@ -43,7 +43,7 @@ to avoid triggering navigation.
   square icon button read oddly next to the show cards' own single
   button (also reported live).
   {% endcomment %}
-  <div class="{{ width_class|default:"w-[270px] flex-none" }} group" id="watch-progress-card-{{ title.pk }}">
+  <div class="{{ width_class|default:"w-[270px] flex-none" }} discover-tile" id="watch-progress-card-{{ title.pk }}" {% if oob %}hx-swap-oob="true"{% endif %}>
     <div class="aspect-video rounded-t-lg relative overflow-hidden {% if not progress.still_url %}{{ title.pk|gradient_class }}{% endif %}">
       {% if progress.still_url %}
         <img src="{{ progress.still_url|poster_size:"w342" }}" alt="{{ title.name }}" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
@@ -57,7 +57,7 @@ to avoid triggering navigation.
       {% endif %}
 
       <div class="absolute top-2 right-2 z-20 flex items-center gap-1.5">
-        <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div class="watch-progress-actions discover-tile-reveal-actions flex gap-1 opacity-0 pointer-events-none transition-opacity duration-300 ease-out">
           <button
             type="button"
             hx-post="/api/watch-progress/{{ title.pk }}/drop"
@@ -90,14 +90,14 @@ to avoid triggering navigation.
       </div>
     </div>
     <div class="bg-base-300 rounded-b-lg p-2.5 flex items-center justify-between gap-2">
-      <a href="{{ detail_url }}" class="min-w-0">
+      <a href="{{ detail_url }}" class="min-w-0 watch-progress-link" @click="if (window.matchMedia('(hover: none)').matches && !mobileOptions) { $event.preventDefault(); mobileOptions = true; }">
         <div class="text-[13px] font-semibold truncate">{{ title.name }}</div>
         {% if progress.season %}
           <div class="font-mono text-[11px] text-ink-dim truncate mt-0.5">S{{ progress.season }}E{{ progress.episode_number }}{% if progress.episode_name %} &middot; {{ progress.episode_name }}{% endif %}</div>
         {% endif %}
       </a>
       {% if progress.season %}
-        {% include "tracker/partials/episode_watched_button.html" with title=title season=progress.season episode_number=progress.episode_number watched=True watch_count=progress.watch_count %}
+        {% include "tracker/partials/episode_watched_button.html" with title=title season=progress.season episode_number=progress.episode_number watched=progress.watch_count|default:0 watch_count=progress.watch_count|default:0 preview_tmdb_id="" preview_media_type="" preview_name="" %}
       {% else %}
         {% comment %}
         compact=True gives the shared watched button the same fixed-width

@@ -57,6 +57,26 @@
     // crossing the tile's own boundary, not moving between its children)
     // the same way delegating enter/leave always has to.
     const tileFromEvent = (ev) => ev.target.closest('.discover-tile');
+    document.addEventListener('click', (e) => {
+      const card = e.target.closest('.watch-progress-card');
+      if (!card || !window.matchMedia('(hover: none)').matches) return;
+      if (!e.target.closest('.watch-progress-link')) return;
+      if (!card.classList.contains('mobile-options-open')) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        card.classList.add('mobile-options-open');
+      }
+    }, true);
+    document.addEventListener('click', (e) => {
+      const card = e.target.closest('.watch-progress-card');
+      if (!card || !window.matchMedia('(hover: none)').matches) return;
+      if (e.target.closest('button') || e.target.closest('.episode-watched-wrap')) return;
+      if (!card.classList.contains('mobile-options-open')) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        card.classList.add('mobile-options-open');
+      }
+    }, true);
     const enteredTile = (ev) => {
       const tile = tileFromEvent(ev);
       return tile && !tile.contains(ev.relatedTarget) ? tile : null;

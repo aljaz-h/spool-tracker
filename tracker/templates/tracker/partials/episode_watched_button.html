@@ -1,6 +1,6 @@
 {% load icons %}
 {# context: title (Title or None - a not-yet-tracked preview episode, see preview_media_type/preview_tmdb_id/preview_name below), season, episode_number, watched (bool - always False when title is None, preview episodes have no watch history to look up yet), watch_count (int, 0 when unwatched - how many plays this exact episode has, drives the checkmark's own ×N badge same as poster_card_watched_button.html), id_suffix (str, optional - disambiguates the id when this partial renders more than once for the same episode, e.g. title_episodes.html's separate mobile/desktop layouts), preview_media_type/preview_tmdb_id (only set when title is None, routes the first-watch popover to title_preview_episode_mark_watched instead of episode_mark_watched), preview_name (str, only set when title is None - the show's name, for the popover header) #}
-{% if watched %}
+{% if watch_count %}
 <div
   class="relative flex-none"
   id="ep-watched-wrap-{{ title.pk }}-{{ season }}-{{ episode_number }}{{ id_suffix }}"

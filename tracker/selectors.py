@@ -11,7 +11,7 @@ from django.db.models import Count, Q, Sum
 from django.db.models.functions import Coalesce, ExtractDay, ExtractHour, ExtractMonth
 from django.utils import timezone
 
-from . import instance_config
+from . import completion, instance_config
 from .integrations import tmdb
 from .models import (
     DataLog,
@@ -125,6 +125,24 @@ def continue_watching(profile, media_types=None, limit=8):
         qs = qs[:limit]
     progresses = list(qs)
 
+    # Non-movie titles in this Watching list need all known episodes so the
+    # caption can cover the complete show rather than only the current season.
+    non_movie_progresses = [p for p in progresses if p.title.media_type != MediaType.MOVIE]
+    non_movie_title_ids = [p.title_id for p in non_movie_progresses]
+    show_details_cache = {}
+    for p in non_movie_progresses:
+        tmdb_id = p.title.external_ids.get("tmdb") if p.title.external_ids else None
+        if tmdb_id:
+            show_details_cache[p.title_id] = tmdb.get_tv_details(tmdb_id)
+    watched_episodes_by_title = {}
+    if non_movie_title_ids:
+        watched_episodes_by_title = dict(
+            WatchEvent.objects.filter(profile=profile, title_id__in=non_movie_title_ids, episode__isnull=False)
+            .values_list("title_id")
+            .annotate(n=Count("episode", distinct=True))
+            .order_by()
+        )
+
     # One query for every non-movie row's own show's full episode table
     # (season, episode, runtime_minutes), instead of one per row -
     # dashboard calls this with limit=None (the full Watching list), so a
@@ -135,7 +153,6 @@ def continue_watching(profile, media_types=None, limit=8):
     # (season_totals) - also the season finale check (last known episode
     # number in the season) and the remaining-runtime sum for the caption,
     # neither of which a plain COUNT() gives up.
-    non_movie_title_ids = [p.title_id for p in progresses if p.title.media_type != MediaType.MOVIE]
     episodes_by_season = {}
     if non_movie_title_ids:
         rows = Episode.objects.filter(title_id__in=non_movie_title_ids).values(
@@ -191,9 +208,18 @@ def continue_watching(profile, media_types=None, limit=8):
             ep = progress.current_episode
             percent, caption = 0, "In progress"
             if ep:
+                while True:
+                    watch_count = watch_counts_by_episode.get(ep.id)
+                    if watch_count is None:
+                        watch_count = WatchEvent.objects.filter(profile=profile, episode_id=ep.id).count()
+                    if not watch_count:
+                        break
+                    next_ep = completion._next_episode_after(title, ep)
+                    if next_ep is None or next_ep.id == ep.id:
+                        break
+                    ep = next_ep
                 season, episode_number = ep.season, ep.episode
                 still_url, episode_name = _episode_still_and_name(title, ep, season_cache)
-                watch_count = watch_counts_by_episode.get(ep.id, 0)
 
                 # TMDB's own season data (already fetched by
                 # _episode_still_and_name above, cached 6h - no extra
@@ -226,11 +252,28 @@ def continue_watching(profile, media_types=None, limit=8):
                 if total_eps:
                     percent = min(100, round(ep.episode / total_eps * 100))
                     is_season_finale = ep.episode >= last_known_episode
-                    remaining_eps = max(total_eps - ep.episode, 0)
-                    remaining_minutes = sum(rt for n, rt in tmdb_episodes if n > ep.episode)
-                    caption = f"{remaining_eps}E left"
-                    if remaining_minutes:
-                        caption += f" · {format_duration(remaining_minutes)} remaining"
+
+                    # Calculate total episodes/time left for the ENTIRE show,
+                    # not just the current season. Use TMDB's show-level
+                    # number_of_episodes and typical episode_run_time.
+                    show_details = show_details_cache.get(title.id)
+                    watched_total = watched_episodes_by_title.get(title.id, 0)
+                    if show_details and show_details.get("number_of_episodes"):
+                        total_show_eps = show_details["number_of_episodes"]
+                        remaining_show_eps = max(total_show_eps - watched_total, 0)
+                        percent = min(100, round(watched_total / total_show_eps * 100)) if total_show_eps else 0
+                        caption = f"{remaining_show_eps}E left"
+                        typical_runtime = show_details.get("episode_run_time")
+                        if typical_runtime and remaining_show_eps:
+                            remaining_minutes = remaining_show_eps * typical_runtime
+                            caption += f" · {format_duration(remaining_minutes)} remaining"
+                    else:
+                        # Fallback: season-only remaining (original behavior)
+                        remaining_eps = max(total_eps - ep.episode, 0)
+                        remaining_minutes = sum(rt for n, rt in tmdb_episodes if n > ep.episode)
+                        caption = f"{remaining_eps}E left"
+                        if remaining_minutes:
+                            caption += f" · {format_duration(remaining_minutes)} remaining"
                 else:
                     caption = f"S{ep.season}E{ep.episode}"
         # season/episode_number (None for a movie, or a show with no
