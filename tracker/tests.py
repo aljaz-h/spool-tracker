@@ -13228,6 +13228,31 @@ class ContinueWatchingEpisodeDisplayTests(TestCase):
         self.title = Title.objects.create(
             media_type=MediaType.TV, name="Lower Decks", year=2020, external_ids={"tmdb": "999", "tmdb_kind": "tv"}
         )
+        # No show-level TMDB details by default (and never a real network
+        # call) - the caption then falls back to the season-only count;
+        # the whole-show caption has its own test below.
+        patcher = patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @patch("tracker.integrations.tmdb.get_tv_details")
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_caption_counts_remaining_episodes_across_the_whole_show(self, mock_season, mock_details):
+        mock_details.return_value = {"number_of_episodes": 20, "episode_run_time": 25, "seasons": []}
+        mock_season.return_value = {"episodes": [{"episode_number": n, "runtime": 25} for n in range(1, 11)]}
+        for n in range(1, 5):
+            watched = Episode.objects.create(title=self.title, season=1, episode=n)
+            WatchEvent.objects.create(
+                profile=self.profile, title=self.title, episode=watched, watched_at=f"2024-01-0{n}T00:00:00Z"
+            )
+        current = Episode.objects.create(title=self.title, season=1, episode=5)
+        WatchProgress.objects.create(
+            profile=self.profile, title=self.title, current_episode=current, status=WatchProgress.Status.WATCHING
+        )
+        item = selectors.continue_watching(self.profile)[0]
+        # 20 episodes in the show, 4 watched: 16 left at 25 min each.
+        self.assertEqual(item["caption"], "16E left · 6h 40m remaining")
+        self.assertEqual(item["percent"], 20)
 
     @patch("tracker.integrations.tmdb.get_season_details")
     def test_still_url_and_episode_name_come_from_tmdb(self, mock_season):
