@@ -1,6 +1,11 @@
 {% load tracker_extras %}
-{# context: event (WatchEvent, .still_url/.caption attached by selectors._attach_watch_event_display) - Dashboard's Recently Watched row only; Social Activity uses poster_card.html instead (see dashboard.html) #}
-<a href="{% url 'title_detail' event.title.pk %}" class="w-[270px] flex-none">
+{# context: event (WatchEvent, .still_url/.caption attached by selectors._attach_watch_event_display) - Dashboard's Recently Watched row only, linking straight to the watched episode (see episode_detail_url) for a show; Social Activity uses poster_card.html instead (see dashboard.html) #}
+{% if event.episode %}
+  {% episode_detail_url event.title.pk event.episode.season event.episode.episode as detail_url %}
+{% else %}
+  {% url 'title_detail' event.title.pk as detail_url %}
+{% endif %}
+<a href="{{ detail_url }}" class="w-[270px] flex-none">
   <div class="aspect-video rounded-lg relative overflow-hidden {% if not event.still_url %}{{ event.title.pk|gradient_class }}{% endif %}">
     {% if event.still_url %}
       <img src="{{ event.still_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">

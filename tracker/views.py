@@ -1172,6 +1172,7 @@ def _episode_panel_context(request, profile, title, tmdb_id, details, force_seas
         ep["watched"] = ep["episode_number"] in watched
         ep["watch_count"] = play_counts.get(ep["episode_number"], 0)
         ep["release_in"] = _episode_release_label(ep.get("air_date"))
+        ep["aired_on"] = _parse_tmdb_date(ep.get("air_date"))
     if episodes:
         episodes[-1]["is_finale"] = True
     if title is not None and title.media_type == MediaType.ANIME and episodes:

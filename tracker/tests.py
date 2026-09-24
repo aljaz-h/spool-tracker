@@ -1438,6 +1438,55 @@ class EnsureWatchingOnEpisodeMarkTests(TestCase):
             WatchProgress.Status.COMPLETED,
         )
 
+    def test_removing_the_only_watched_episode_drops_the_row_it_created(self):
+        # Reported: mark an episode, delete it from History, and the show's
+        # upcoming episodes appeared in Up Next despite nothing watched -
+        # the leftover WATCHING row alone kept it in scope.
+        self._watch(1, "2024-01-01T00:00:00Z")
+        self._sync(ensure_watching=True)
+        self.assertTrue(WatchProgress.objects.filter(profile=self.profile, title=self.title).exists())
+        WatchEvent.objects.filter(profile=self.profile, title=self.title).delete()
+        self._sync()
+        self.assertFalse(WatchProgress.objects.filter(profile=self.profile, title=self.title).exists())
+
+    def test_cleanup_works_even_when_tmdb_has_nothing(self):
+        self._watch(1, "2024-01-01T00:00:00Z")
+        self._sync(ensure_watching=True)
+        WatchEvent.objects.filter(profile=self.profile, title=self.title).delete()
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=None):
+            completion.sync_show_completion(self.profile, self.title)
+        self.assertFalse(WatchProgress.objects.filter(profile=self.profile, title=self.title).exists())
+
+    def test_cleanup_keeps_a_row_with_real_player_progress_and_a_dropped_row(self):
+        ep = Episode.objects.create(title=self.title, season=1, episode=1)
+        WatchProgress.objects.create(
+            profile=self.profile, title=self.title, current_episode=ep, position_seconds=600,
+            status=WatchProgress.Status.WATCHING,
+        )
+        self._sync()
+        self.assertTrue(WatchProgress.objects.filter(profile=self.profile, title=self.title).exists())
+        WatchProgress.objects.filter(profile=self.profile, title=self.title).update(
+            position_seconds=0, status=WatchProgress.Status.DROPPED
+        )
+        self._sync()
+        self.assertTrue(WatchProgress.objects.filter(profile=self.profile, title=self.title).exists())
+
+    def test_deleting_history_after_an_in_app_mark_keeps_upcoming_episodes_out_of_up_next(self):
+        from django.utils import timezone
+
+        self.client.login(username="ensurewatcher", password="pass12345")
+        ep = self._watch(1, "2024-01-01T00:00:00Z")
+        event = WatchEvent.objects.get(profile=self.profile, title=self.title)
+        ReleaseSchedule.objects.create(
+            title=self.title, episode=Episode.objects.create(title=self.title, season=1, episode=2),
+            release_type=ReleaseSchedule.ReleaseType.EPISODE, release_date=timezone.now() + timedelta(days=3),
+        )
+        self._sync(ensure_watching=True)
+        self.assertEqual(len(selectors.up_next(self.profile)), 1)
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=self.details):
+            self.client.post(reverse("history_delete_episode", args=[event.pk]))
+        self.assertEqual(selectors.up_next(self.profile), [])
+
     @patch("tracker.views.tmdb.get_season_details", return_value=None)
     @patch("tracker.completion.tmdb.get_tv_details")
     def test_marking_an_episode_in_the_app_puts_the_show_on_the_watching_row(self, mock_details, mock_season):
@@ -12908,6 +12957,23 @@ class DashboardWatchingWatchlistTests(TestCase):
         resp = self.client.get(reverse("dashboard"))
         self.assertNotContains(resp, "S1:E")
 
+    def test_recently_watched_episode_card_links_straight_to_that_episode(self):
+        from django.utils import timezone
+
+        title = Title.objects.create(media_type=MediaType.TV, name="Linked Show", year=2022)
+        episode = Episode.objects.create(title=title, season=2, episode=5, name="Five")
+        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, f'href="{reverse("title_detail", args=[title.pk])}?season=2#episode-2-5"')
+
+    def test_recently_watched_movie_card_links_to_the_plain_title_page(self):
+        from django.utils import timezone
+
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Plain Link Movie", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at=timezone.now())
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, f'href="{reverse("title_detail", args=[title.pk])}" class="w-[270px] flex-none"')
+
     def test_recently_watched_shows_each_episode_separately_not_deduped_by_title(self):
         from django.utils import timezone
 
@@ -14580,6 +14646,24 @@ class TitleEpisodeBrowserTests(TestCase):
         self.assertContains(resp, "On release date")
         self.assertContains(resp, "Other date")
         self.assertNotContains(resp, "Watch again")
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_each_episode_shows_its_air_date(self, mock_details, mock_credits, mock_similar, mock_season):
+        mock_details.return_value = self._details()
+        mock_season.return_value = {
+            "episodes": [
+                {"episode_number": 1, "name": "Dated", "still_url": None, "air_date": "2020-03-04", "vote_average": None},
+                {"episode_number": 2, "name": "Undated", "still_url": None, "air_date": None, "vote_average": None},
+            ]
+        }
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertEqual(resp.context["episodes"][0]["aired_on"], _date(2020, 3, 4))
+        self.assertIsNone(resp.context["episodes"][1]["aired_on"])
+        # Rendered in both the mobile row and the desktop card layouts.
+        self.assertContains(resp, "Mar 4, 2020", count=2)
 
     @patch("tracker.integrations.tmdb.get_season_details")
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
@@ -23239,6 +23323,11 @@ class ToastRenderingTests(TestCase):
         user = User.objects.create_user("toastuser", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="ToastUser")
         self.client.login(username="toastuser", password="pass12345")
+
+    def test_toast_stack_sits_below_the_sticky_topbar_not_over_it(self):
+        resp = self.client.post(reverse("create_list"), {"name": ""}, follow=True)
+        self.assertContains(resp, "fixed top-[4.5rem]")
+        self.assertNotContains(resp, "fixed top-4 ")
 
     def test_no_toast_stack_when_there_are_no_messages(self):
         resp = self.client.get(reverse("dashboard"))

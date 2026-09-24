@@ -8,6 +8,27 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.133.0] - 2026-09-24
+
+### Added
+
+- TV and anime episode tiles now show each episode's air date, on both the
+  mobile and desktop layouts. It's omitted when TMDB has no date for the
+  episode.
+
+## [0.132.2] - 2026-09-24
+
+### Fixed
+
+- Removing a show's only watched episode from History no longer leaves its
+  upcoming episodes in Up Next and Calendar. Marking an episode watched
+  adds the show to the Watching row, and that entry now goes away with the
+  last watched episode. Entries with real player progress are kept.
+- Episodes in the Dashboard's Recently Watched row now open the show's page
+  on that episode and highlight it, like the History page does.
+- Toast notifications now appear below the top navbar instead of over it,
+  on both mobile and desktop.
+
 ## [0.132.1] - 2026-09-20
 
 ### Fixed

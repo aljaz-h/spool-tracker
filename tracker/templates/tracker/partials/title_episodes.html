@@ -1,5 +1,5 @@
 {% load tracker_extras icons %}
-{# context: title (Title or None - preview titles have no local row yet), seasons, season, episodes (each carrying watched (bool) and watch_count (int, 0 when unwatched - the checkmark's own ×N badge, see episode_watched_button.html), optionally filler/recap bools - anime only, from Jikan/MyAnimeList, see views._apply_anime_filler_flags - absent entirely rather than False when there's no match/data, which {% if %} already treats as falsy - and release_in, a "In N days/weeks/months" countdown string for a not-yet-aired episode, None once it's aired), season_avg_rating, season_total_runtime (str, format_duration of the selected season's episodes with a known runtime), season_ratings (dict {season_number: TMDB rating}), season_cards ([{"number", "poster_url", "total_episodes", "watched_count", "percent"}, ...] - the season picker's own poster-card row), season_watched_count/season_remaining_count/season_remaining_runtime (str|None - the selected season's own "N watched · N left · runtime left" summary strip), season_fully_watched/show_completed (bool - whether the "Mark episodes" popover's own rows below should show their unmark reverse instead), preview_media_type/preview_tmdb_id/preview_name (only set when title is None - each per-episode watched button materializes the title on click, see episode_watched_button.html) #}
+{# context: title (Title or None - preview titles have no local row yet), seasons, season, episodes (each carrying watched (bool) and watch_count (int, 0 when unwatched - the checkmark's own ×N badge, see episode_watched_button.html), optionally filler/recap bools - anime only, from Jikan/MyAnimeList, see views._apply_anime_filler_flags - absent entirely rather than False when there's no match/data, which {% if %} already treats as falsy - and release_in, a "In N days/weeks/months" countdown string for a not-yet-aired episode, None once it's aired, and aired_on, the episode's own air date as a date object or None when TMDB has none), season_avg_rating, season_total_runtime (str, format_duration of the selected season's episodes with a known runtime), season_ratings (dict {season_number: TMDB rating}), season_cards ([{"number", "poster_url", "total_episodes", "watched_count", "percent"}, ...] - the season picker's own poster-card row), season_watched_count/season_remaining_count/season_remaining_runtime (str|None - the selected season's own "N watched · N left · runtime left" summary strip), season_fully_watched/show_completed (bool - whether the "Mark episodes" popover's own rows below should show their unmark reverse instead), preview_media_type/preview_tmdb_id/preview_name (only set when title is None - each per-episode watched button materializes the title on click, see episode_watched_button.html) #}
 <div id="episodes-panel">
   {% if seasons %}
     <h2 class="font-display text-xl m-0 mb-3">
@@ -264,6 +264,7 @@
           <div class="min-w-0 flex-1">
             <div class="font-mono text-[10px] text-ink-dim flex items-center gap-1.5">
               <span class="text-base-content font-bold">S{{ season|stringformat:"02d" }}E{{ ep.episode_number|stringformat:"02d" }}</span>
+              {% if ep.aired_on %}<span>{{ ep.aired_on|date:"M j, Y" }}</span>{% endif %}
               {% if ep.runtime %}<span>{{ ep.runtime }}m</span>{% endif %}
               {% if ep.vote_average %}<span><span class="text-amber-400">&#9733;</span> {{ ep.vote_average|floatformat:1 }}</span>{% endif %}
               {% if ep.release_in %}<span class="text-primary font-bold uppercase">{{ ep.release_in }}</span>{% endif %}
@@ -307,6 +308,7 @@
           <div class="p-2.5 flex items-center justify-between gap-2">
             <div class="min-w-0">
               <div class="font-mono text-[10.5px] text-ink-dim"><span class="text-base-content font-bold">S{{ season|stringformat:"02d" }} E{{ ep.episode_number|stringformat:"02d" }}</span>{% if ep.runtime %} · {{ ep.runtime }}m{% endif %}</div>
+              {% if ep.aired_on %}<div class="font-mono text-[10.5px] text-ink-dim">{{ ep.aired_on|date:"M j, Y" }}</div>{% endif %}
               <div class="text-[12.5px] font-semibold truncate mt-0.5">{{ ep.name }}</div>
             </div>
             {% include "tracker/partials/episode_watched_button.html" with title=title season=season episode_number=ep.episode_number watched=ep.watched watch_count=ep.watch_count preview_media_type=preview_media_type preview_tmdb_id=preview_tmdb_id preview_name=preview_name %}

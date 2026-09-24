@@ -155,6 +155,29 @@ def sync_show_completion(profile, title, ensure_watching=False):
     row (see _ensure_watching). Imports/syncs leave it off so a
     mid-series title pulled in from Trakt/Simkl/CSV doesn't suddenly
     flood the row, or resurrect one that was dismissed from it."""
+    watched_episode_count = (
+        WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=False)
+        .values("episode_id")
+        .distinct()
+        .count()
+    )
+    if watched_episode_count == 0:
+        # Nothing left watched (every episode was unmarked/deleted): drop
+        # the COMPLETED row that no longer qualifies, and any WATCHING row
+        # with no playback position - that's the shape _ensure_watching
+        # creates for an episode marked in-app, whereas a player like
+        # Nuvio always reports a real position. Without this, the leftover
+        # row keeps the show in Up Next/Calendar (scoped to "any
+        # WatchProgress row") so its upcoming episodes appear for a show
+        # with no watch history at all. DROPPED rows are left alone.
+        # Runs before the TMDB lookups so it also works with no tmdb_id or
+        # no TMDB response.
+        WatchProgress.objects.filter(
+            profile=profile,
+            title=title,
+            status__in=[WatchProgress.Status.COMPLETED, WatchProgress.Status.WATCHING],
+            position_seconds=0,
+        ).delete()
     tmdb_id = _tmdb_id(title)
     if not tmdb_id:
         if ensure_watching:
@@ -176,26 +199,11 @@ def sync_show_completion(profile, title, ensure_watching=False):
         if ensure_watching:
             _ensure_watching(profile, title, details)
         return
-    watched_episode_count = (
-        WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=False)
-        .values("episode_id")
-        .distinct()
-        .count()
-    )
     if watched_episode_count >= total_episodes:
         WatchProgress.objects.update_or_create(
             profile=profile, title=title, defaults={"status": WatchProgress.Status.COMPLETED}
         )
-    elif watched_episode_count == 0:
-        # Only ever reachable via an in-app unmark (nothing used to remove
-        # episodes before) - a title that was never COMPLETED, or is
-        # currently WATCHING from Nuvio's own progress tracking, is left
-        # alone; this only cleans up a COMPLETED row that no longer
-        # qualifies at all.
-        WatchProgress.objects.filter(
-            profile=profile, title=title, status=WatchProgress.Status.COMPLETED
-        ).delete()
-    else:
+    elif watched_episode_count:
         WatchProgress.objects.filter(profile=profile, title=title, status=WatchProgress.Status.COMPLETED).update(
             status=WatchProgress.Status.WATCHING
         )
