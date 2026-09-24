@@ -1524,6 +1524,45 @@ class EnsureWatchingOnEpisodeMarkTests(TestCase):
         self.assertEqual(progress.current_episode.name, "Next")
 
 
+class RemoveStaleWatchProgressMigrationTests(TestCase):
+    def setUp(self):
+        import importlib
+
+        self.migration = importlib.import_module("tracker.migrations.0057_remove_stale_watch_progress")
+        user = User.objects.create_user("stalewatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="StaleWatcher")
+
+    def _run(self):
+        from django.apps import apps
+
+        self.migration.remove_stale_watch_progress(apps, None)
+
+    def _show(self, name):
+        return Title.objects.create(media_type=MediaType.TV, name=name, year=2020)
+
+    def test_removes_a_position_less_row_with_no_watched_episodes(self):
+        show = self._show("Stale")
+        WatchProgress.objects.create(profile=self.profile, title=show, status=WatchProgress.Status.WATCHING)
+        self._run()
+        self.assertFalse(WatchProgress.objects.filter(title=show).exists())
+
+    def test_keeps_rows_that_are_legitimate(self):
+        watched = self._show("Has history")
+        ep = Episode.objects.create(title=watched, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=watched, episode=ep, watched_at="2024-01-01T00:00:00Z")
+        WatchProgress.objects.create(profile=self.profile, title=watched, status=WatchProgress.Status.WATCHING)
+        playing = self._show("Playing")
+        WatchProgress.objects.create(
+            profile=self.profile, title=playing, position_seconds=300, status=WatchProgress.Status.WATCHING
+        )
+        dropped = self._show("Dropped")
+        WatchProgress.objects.create(profile=self.profile, title=dropped, status=WatchProgress.Status.DROPPED)
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Movie", year=2020)
+        WatchProgress.objects.create(profile=self.profile, title=movie, status=WatchProgress.Status.WATCHING)
+        self._run()
+        self.assertEqual(WatchProgress.objects.count(), 4)
+
+
 class ResyncCompletedProfilesTests(TestCase):
     """completion.resync_completed_profiles - re-validates a stale
     WatchProgress.COMPLETED against TMDB's *current* episode count (see

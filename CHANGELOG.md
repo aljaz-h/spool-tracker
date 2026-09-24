@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.133.1] - 2026-09-24
+
+### Fixed
+
+- Shows with no watch history no longer linger in Up Next and Calendar.
+  A migration removes leftover Watching entries, created when an episode
+  was marked and later removed from History, that have no watched episodes
+  and no player progress. It runs automatically on upgrade.
+
 ## [0.133.0] - 2026-09-24
 
 ### Added
