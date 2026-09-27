@@ -16653,7 +16653,12 @@ class MdblistRatingsContextTests(TestCase):
         mock_dispatch.assert_not_called()
         self.assertEqual(resp.context["mdblist_ratings"], [{"label": "IMDb", "icon": "imdb", "icon_class": "text-imdb", "display": "8.1", "unit": "/10"}])
         self.assertFalse(resp.context["mdblist_pending"])
-        self.assertNotContains(resp, "hx-trigger")
+        # The specific polling attribute, not a bare "hx-trigger" substring
+        # search - this is a full page render (unlike the partial-only
+        # cache_row_present_stops_polling test below), and base.html's own
+        # unrelated progress-bar script legitimately mentions "hx-trigger"
+        # in a JS string/comment on every page.
+        self.assertNotContains(resp, 'hx-trigger="every 3s"')
         self.assertContains(resp, "8.1")
 
     @patch("tracker.views._dispatch_sync_task_safely")
@@ -18202,6 +18207,16 @@ class EpisodeMarkWatchedTests(TestCase):
         self.title = Title.objects.create(
             media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99", "tmdb_kind": "tv"}
         )
+        # episode_mark_watched calls completion.sync_show_completion, which
+        # calls this - unmocked, it hits a real TMDB show (whatever "99"
+        # actually is) whenever a real TMDB_API_KEY is configured in the
+        # environment .manage.py test runs in, making these tests both
+        # network-dependent and non-deterministic (confirmed: this exact
+        # gap let a real show's own season data quietly change how many
+        # times a per-test get_season_details mock got called).
+        patcher = patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     @patch("tracker.integrations.tmdb.get_season_details")
     def test_creates_episode_and_watch_event_with_tmdb_name(self, mock_season):
@@ -18253,8 +18268,16 @@ class EpisodeMarkWatchedTests(TestCase):
         self.client.post(reverse("episode_mark_watched", args=[self.title.pk, 1, 1]), {"when": "release"})
         event = WatchEvent.objects.get(profile=self.profile, title=self.title)
         self.assertEqual(timezone.localtime(event.watched_at).date(), date(2023, 5, 1))
-        # Only the one call already needed for ep_name - no second lookup.
-        mock_season.assert_called_once()
+        # Two calls for the same season, not one: the view's own lookup
+        # (resolving ep_name/air_date) plus _watching_card_oob's, which
+        # refreshes the Dashboard's Watching-row fragment and needs this
+        # episode's still/name for display - a separate, later-added
+        # feature this test predates. Both are real 6h-cached TMDB lookups
+        # (tmdb._list_request), so the repeat costs nothing extra in
+        # production; call_count here just documents that it's exactly
+        # these two, not something unbounded.
+        self.assertEqual(mock_season.call_count, 2)
+        self.assertEqual({c.args for c in mock_season.call_args_list}, {("99", 1)})
 
     @patch("tracker.integrations.tmdb.get_season_details", return_value=None)
     def test_on_release_date_falls_back_to_now_when_air_date_unknown(self, mock_season):
@@ -18508,6 +18531,11 @@ class TitlePreviewViewTests(TestCase):
         self.client.login(username="previewviewer", password="pass12345")
         for name, default in (
             ("get_director", None), ("get_watch_providers", []), ("get_trailer", None), ("get_backdrops", []),
+            # completion.sync_show_completion (called by every episode/
+            # season mark-watched view below) calls this too - see
+            # EpisodeMarkWatchedTests.setUp's own comment for why leaving
+            # it unmocked is a real problem, not just belt-and-suspenders.
+            ("get_tv_details", None),
         ):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
             patcher.start()

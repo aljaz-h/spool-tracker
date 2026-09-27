@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.135.1] - 2026-09-27
+
+### Fixed
+
+- Marking an episode watched from a not-yet-tracked title's preview page
+  no longer errors. Its per-episode watched button could route into the
+  wrong internal state, which crashed while trying to build a URL that
+  only applied to titles that aren't tracked yet.
+
 ## [0.135.0] - 2026-09-27
 
 ### Changed
