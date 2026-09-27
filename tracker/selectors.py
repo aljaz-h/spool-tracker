@@ -480,6 +480,46 @@ def recently_added_to_lists(profile, limit=3):
     return _visible_watchlist_items(profile).exclude(watchlist__is_watchlist=True)[:limit]
 
 
+def _recent_titles_for_recommendations(profile, media_type, sample_size):
+    """Up to sample_size of this profile's own most-recently-watched
+    titles of media_type (deduped, newest first), each carrying a TMDB
+    id - the DB half of recommended_for_you()'s history-based path,
+    split out so recommended_for_you_batch() can run it standalone, up
+    front, before any TMDB call is issued."""
+    recent_titles = []
+    seen_title_ids = set()
+    for event in (
+        WatchEvent.objects.filter(
+            profile=profile, title__media_type=media_type, title__external_ids__tmdb__isnull=False
+        )
+        .select_related("title")
+        .order_by("-watched_at")
+    ):
+        if event.title_id not in seen_title_ids:
+            seen_title_ids.add(event.title_id)
+            recent_titles.append(event.title)
+        if len(recent_titles) >= sample_size:
+            break
+    return recent_titles
+
+
+def _merge_similar_results(recent_titles, per_title_results, limit):
+    """recommended_for_you()'s own merge/dedupe step, split out so
+    recommended_for_you_batch() can reuse it once its own (already
+    parallel-fetched) per_title_results are in hand. per_title_results
+    must be in the same order as recent_titles."""
+    seen_keys = {f"{tmdb.media_type_for(t)}:{t.external_ids['tmdb']}" for t in recent_titles}
+    results = []
+    for title_results in per_title_results:
+        for item in title_results:
+            key = f"{item['media_type']}:{item['tmdb_id']}"
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            results.append(item)
+    return {"results": results[:limit]} if results else None
+
+
 def for_you(profile, media_type, limit=12, api_key=None):
     """recommended_for_you()'s own no-watch-history-yet fallback - a
     discover() call scoped to this profile's genre/provider/region
@@ -578,6 +618,114 @@ def recommended_for_you(profile, media_type, limit=12, sample_size=6, api_key=No
             return {"results": results[:limit]}
 
     return for_you(profile, media_type, limit=limit, api_key=api_key)
+
+
+def recommended_for_you_batch(profile, media_types, limit=12, sample_size=6, api_key=None):
+    """views.dashboard's three Recommended rows (Movie/TV/Anime), same
+    per-type result shape and priority as calling recommended_for_you()
+    once per type (history-based results win when there are any,
+    otherwise the genre/provider preference-based fallback, otherwise
+    None) - but with every TMDB call across all three types issued from
+    one shared worker pool, instead of one pool per type run one after
+    another (each of which can itself already be several concurrent
+    calls - see recommended_for_you's own docstring). On a cold cache
+    that's the difference between "wait for the slowest of ~18 calls
+    once" and "wait for the slowest of ~6, three times in a row" -
+    confirmed as a real contributor to a multi-second-long Dashboard
+    first byte on a slow connection.
+
+    Each type's own DB read (which recent titles, if any - the only DB
+    access anywhere in here) happens first, sequentially, on the calling
+    thread; only the actual TMDB calls (pure network, no DB access) run
+    on worker threads - same rule every other parallel-TMDB-call site in
+    this app already follows. Both the history-based and preference-
+    based TMDB calls are queued for every type from the start (not just
+    whichever one ends up needed), so there's never a second, sequential
+    round to cover history existing but TMDB returning nothing usable
+    for any of it - the discover() call that turns out unneeded sits in
+    the same batch unused, which costs nothing extra it wouldn't already
+    cost standing alone (tmdb._list_request's own 6h cache), and is
+    cheaper than guaranteeing a second network round-trip would be.
+
+    Not a drop-in replacement for recommended_for_you() itself - kept
+    fully separate (some duplicated logic) rather than sharing internals
+    with it, since that function's exact call shape is pinned down by
+    its own existing tests and callers.
+
+    Returns {media_type: result_or_None}, one entry per media_types,
+    each shaped exactly like a single recommended_for_you() call's own
+    return value. api_key - see tmdb.discover's own docstring; resolved
+    once here rather than per call for the same reason."""
+    api_key = api_key if api_key is not None else instance_config.get_tmdb_api_key()
+
+    def discover_kwargs(media_type):
+        if not profile.preferred_genre_ids and not profile.preferred_provider_ids:
+            return None
+        genre_ids = list(profile.preferred_genre_ids)
+        origin_country = None
+        if media_type == MediaType.ANIME:
+            genre_ids = list({*genre_ids, tmdb.ANIMATION_GENRE_ID})
+            origin_country = "JP"
+        return {
+            "media_type": "movie" if media_type == MediaType.MOVIE else "tv",
+            "category": "popular",
+            "genre_ids": genre_ids,
+            "origin_country": origin_country,
+            "watch_providers": profile.preferred_provider_ids,
+            "region": profile.preferred_region,
+            "page_size": 1,
+        }
+
+    # Phase 1 (DB, sequential) - what each type might need to ask TMDB,
+    # not yet asking it.
+    recent_titles_by_type = {mt: _recent_titles_for_recommendations(profile, mt, sample_size) for mt in media_types}
+    discover_kwargs_by_type = {mt: discover_kwargs(mt) for mt in media_types}
+
+    jobs = []  # (media_type, "similar", title) | (media_type, "discover", kwargs)
+    for media_type in media_types:
+        jobs.extend((media_type, "similar", title) for title in recent_titles_by_type[media_type])
+        if discover_kwargs_by_type[media_type] is not None:
+            jobs.append((media_type, "discover", discover_kwargs_by_type[media_type]))
+
+    def run_job(kind, payload):
+        if kind == "similar":
+            return tmdb.get_similar(
+                tmdb.media_type_for(payload), payload.external_ids["tmdb"], limit=limit, api_key=api_key
+            )
+        return tmdb.discover(api_key=api_key, **payload)
+
+    # Phase 2 (network, one shared pool) - every call any type might
+    # need, submitted together rather than type-by-type.
+    job_results = [None] * len(jobs)
+    if jobs:
+        with ThreadPoolExecutor(max_workers=len(jobs)) as executor:
+            future_to_index = {executor.submit(run_job, kind, payload): i for i, (_, kind, payload) in enumerate(jobs)}
+            for future, index in future_to_index.items():
+                job_results[index] = future.result()
+
+    # Phase 3 (merge, sequential) - reassemble each type's own result,
+    # history-based winning over preference-based when both came back
+    # with something, same priority recommended_for_you() itself uses.
+    similar_results_by_type = {mt: [] for mt in media_types}
+    discover_page_by_type = {}
+    for (media_type, kind, _payload), result in zip(jobs, job_results):
+        if kind == "similar":
+            similar_results_by_type[media_type].append(result)
+        else:
+            discover_page_by_type[media_type] = result
+
+    output = {}
+    for media_type in media_types:
+        recent_titles = recent_titles_by_type[media_type]
+        if recent_titles:
+            merged = _merge_similar_results(recent_titles, similar_results_by_type[media_type], limit)
+            if merged is not None:
+                output[media_type] = merged
+                continue
+        page = discover_page_by_type.get(media_type)
+        page_results = (page.get("results") or [])[:limit] if page else []
+        output[media_type] = {"results": page_results} if page_results else None
+    return output
 
 
 def start_watching(profile, media_types, limit=12):

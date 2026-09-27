@@ -12722,6 +12722,98 @@ class RecommendedForYouSelectorTests(TestCase):
         self.assertEqual(kwargs["limit"], 12)
 
 
+class RecommendedForYouBatchSelectorTests(TestCase):
+    """selectors.recommended_for_you_batch() - the Dashboard's own entry
+    point, one shared worker pool across all three media types instead
+    of one pool per type. Its own per-type results must match what
+    calling recommended_for_you() once per type would return, just
+    computed with every TMDB call issued together."""
+
+    def setUp(self):
+        user = User.objects.create_user("batchrecs", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="BatchRecs")
+
+    def _watched(self, media_type, tmdb_id, name):
+        title = Title.objects.create(
+            media_type=media_type, name=name, year=2020, external_ids={"tmdb": tmdb_id, "tmdb_kind": "tv" if media_type != MediaType.MOVIE else "movie"}
+        )
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        return title
+
+    def test_no_history_or_preferences_gives_none_for_every_type_without_calling_tmdb(self):
+        with patch("tracker.integrations.tmdb.get_similar") as mock_similar, \
+             patch("tracker.integrations.tmdb.discover") as mock_discover:
+            result = selectors.recommended_for_you_batch(
+                self.profile, [MediaType.MOVIE, MediaType.TV, MediaType.ANIME]
+            )
+        self.assertEqual(result, {MediaType.MOVIE: None, MediaType.TV: None, MediaType.ANIME: None})
+        mock_similar.assert_not_called()
+        mock_discover.assert_not_called()
+
+    @patch("tracker.integrations.tmdb.get_similar")
+    def test_history_based_results_for_each_type_match_calling_recommended_for_you_separately(self, mock_get_similar):
+        self._watched(MediaType.MOVIE, "1", "Movie A")
+        self._watched(MediaType.TV, "2", "Show A")
+        self._watched(MediaType.ANIME, "3", "Anime A")
+
+        def fake_similar(tmdb_media_type, tmdb_id, limit=12, api_key=None):
+            return [{"tmdb_id": f"sim-{tmdb_id}", "media_type": tmdb_media_type, "name": f"Similar to {tmdb_id}"}]
+
+        mock_get_similar.side_effect = fake_similar
+        result = selectors.recommended_for_you_batch(self.profile, [MediaType.MOVIE, MediaType.TV, MediaType.ANIME])
+        self.assertEqual(result[MediaType.MOVIE]["results"][0]["name"], "Similar to 1")
+        self.assertEqual(result[MediaType.TV]["results"][0]["name"], "Similar to 2")
+        self.assertEqual(result[MediaType.ANIME]["results"][0]["name"], "Similar to 3")
+        self.assertEqual(mock_get_similar.call_count, 3)
+
+    @patch("tracker.integrations.tmdb.discover")
+    def test_falls_back_to_preferences_for_a_type_with_no_history(self, mock_discover):
+        self.profile.preferred_genre_ids = [28]
+        self.profile.save(update_fields=["preferred_genre_ids"])
+        mock_discover.return_value = {
+            "results": [{"tmdb_id": 9, "media_type": "movie", "name": "Preferred Movie", "year": "2020", "poster_url": None, "vote_average": 7.0}]
+        }
+        result = selectors.recommended_for_you_batch(self.profile, [MediaType.MOVIE])
+        self.assertEqual(result[MediaType.MOVIE]["results"][0]["name"], "Preferred Movie")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_falls_back_to_preferences_when_history_yields_nothing_usable(self, mock_discover, mock_get_similar):
+        # History exists (queues a "similar" job) but TMDB comes back
+        # empty for it - the genre-preference "discover" job, queued
+        # alongside it from the start rather than as a second sequential
+        # round, is what should win here.
+        self._watched(MediaType.MOVIE, "1", "Movie A")
+        self.profile.preferred_genre_ids = [28]
+        self.profile.save(update_fields=["preferred_genre_ids"])
+        mock_discover.return_value = {
+            "results": [{"tmdb_id": 9, "media_type": "movie", "name": "Preferred Movie", "year": "2020", "poster_url": None, "vote_average": 7.0}]
+        }
+        result = selectors.recommended_for_you_batch(self.profile, [MediaType.MOVIE])
+        self.assertEqual(result[MediaType.MOVIE]["results"][0]["name"], "Preferred Movie")
+        mock_get_similar.assert_called_once()
+        mock_discover.assert_called_once()
+
+    @patch("tracker.views.instance_config.get_tmdb_api_key", return_value="the-resolved-key")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    def test_dashboard_resolves_the_api_key_once_for_the_whole_batch(self, mock_get_similar, mock_get_key):
+        self._watched(MediaType.MOVIE, "1", "Movie A")
+        self._watched(MediaType.TV, "2", "Show A")
+        self.client.login(username="batchrecs", password="pass12345")
+        self.client.get(reverse("dashboard"))
+        mock_get_key.assert_called_once()
+        for call in mock_get_similar.call_args_list:
+            self.assertEqual(call.kwargs.get("api_key"), "the-resolved-key")
+
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[{"tmdb_id": 42, "media_type": "movie", "name": "Similar"}])
+    def test_dashboard_still_renders_the_recommended_rows_end_to_end(self, mock_get_similar):
+        self._watched(MediaType.MOVIE, "1", "Movie A")
+        self.client.login(username="batchrecs", password="pass12345")
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "Recommended Movies")
+        self.assertContains(resp, "Similar")
+
+
 class QuickStatsFormatTests(TestCase):
     def test_total_watch_time_uses_the_stats_pages_duration_format(self):
         user = User.objects.create_user("statsformat", password="pass12345")

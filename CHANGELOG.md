@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.135.0] - 2026-09-27
+
+### Changed
+
+- The Dashboard's three "Recommended for You" rows now share one TMDB
+  request pool instead of running one after another, shortening how long
+  a first, uncached page load takes - most noticeable right after opening
+  Spool from its home screen icon, where that time shows as a plain black
+  splash screen with no feedback.
+
 ## [0.134.0] - 2026-09-27
 
 ### Added
