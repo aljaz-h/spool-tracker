@@ -480,7 +480,7 @@ def recently_added_to_lists(profile, limit=3):
     return _visible_watchlist_items(profile).exclude(watchlist__is_watchlist=True)[:limit]
 
 
-def for_you(profile, media_type, limit=12):
+def for_you(profile, media_type, limit=12, api_key=None):
     """recommended_for_you()'s own no-watch-history-yet fallback - a
     discover() call scoped to this profile's genre/provider/region
     preferences (Settings → Preferences) for whichever media_type asked
@@ -491,7 +491,8 @@ def for_you(profile, media_type, limit=12):
     Profile.preferred_genre_ids' own field comment) that a
     movie-flavored preference still reasonably scopes a TV/Anime call
     too. None when the profile hasn't set a genre or provider preference
-    yet - an unscoped discover() call would just be "popular again"."""
+    yet - an unscoped discover() call would just be "popular again".
+    api_key - see tmdb.discover's own docstring."""
     if not profile.preferred_genre_ids and not profile.preferred_provider_ids:
         return None
     genre_ids = list(profile.preferred_genre_ids)
@@ -508,12 +509,13 @@ def for_you(profile, media_type, limit=12):
         watch_providers=profile.preferred_provider_ids,
         region=profile.preferred_region,
         page_size=1,
+        api_key=api_key,
     )
     results = (page.get("results") or [])[:limit]
     return {"results": results} if results else None
 
 
-def recommended_for_you(profile, media_type, limit=12, sample_size=6):
+def recommended_for_you(profile, media_type, limit=12, sample_size=6, api_key=None):
     """Dashboard's "Recommended for You" rows - one call per Movie/TV/
     Anime. TMDB's own "similar to X" recommendations (get_similar),
     aggregated across up to sample_size of this profile's own
@@ -533,7 +535,12 @@ def recommended_for_you(profile, media_type, limit=12, sample_size=6):
     preferences instead of actual history - when there's no qualifying
     watch history yet for this media_type (a new profile, or one that's
     only watched other media_types). None if neither a history-based nor
-    a preference-based result comes back."""
+    a preference-based result comes back.
+
+    api_key - see tmdb.discover's own docstring; views.dashboard resolves
+    it once and passes it into all three (movie/tv/anime) calls to this
+    function, which it now runs concurrently rather than one after
+    another."""
     recent_titles = []
     seen_title_ids = set()
     for event in (
@@ -550,7 +557,7 @@ def recommended_for_you(profile, media_type, limit=12, sample_size=6):
             break
 
     if recent_titles:
-        api_key = instance_config.get_tmdb_api_key()
+        api_key = api_key if api_key is not None else instance_config.get_tmdb_api_key()
         seen_keys = {f"{tmdb.media_type_for(t)}:{t.external_ids['tmdb']}" for t in recent_titles}
         with ThreadPoolExecutor(max_workers=len(recent_titles)) as executor:
             per_title_results = executor.map(
@@ -570,7 +577,7 @@ def recommended_for_you(profile, media_type, limit=12, sample_size=6):
         if results:
             return {"results": results[:limit]}
 
-    return for_you(profile, media_type, limit=limit)
+    return for_you(profile, media_type, limit=limit, api_key=api_key)
 
 
 def start_watching(profile, media_types, limit=12):

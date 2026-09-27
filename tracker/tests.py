@@ -4414,6 +4414,37 @@ class LoginPageTemplateTests(TestCase):
         self.assertContains(resp, f"v{APP_VERSION}")
 
 
+class GlobalProgressBarTests(TestCase):
+    """#spool-progress-bar (base.html) - the shared top-of-page loading
+    indicator for both full-page navigations and htmx requests. Purely
+    client-side JS otherwise (no server behavior to unit test beyond
+    "the element and its wiring actually render"), so this only checks
+    the markup/script text is present, the same way other JS-driven
+    features here confirm their hooks made it into the response."""
+
+    def setUp(self):
+        user = User.objects.create_user("progressbaruser", password="pass12345")
+        Profile.objects.create(user=user, display_name="ProgressBarUser")
+        self.client.login(username="progressbaruser", password="pass12345")
+
+    def test_bar_element_is_present(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, 'id="spool-progress-bar"')
+
+    def test_wires_up_htmx_before_and_after_request(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "htmx:beforeRequest")
+        self.assertContains(resp, "htmx:afterRequest")
+
+    def test_background_polling_is_excluded_from_the_bar(self):
+        # Settings > Logs and the pending-MDBList-rating poll both use
+        # hx-trigger="every ..." - a periodic background refresh nobody
+        # pressed, which shouldn't flash the bar every few seconds.
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "isPolling")
+        self.assertContains(resp, "every")
+
+
 class PwaSupportTests(TestCase):
     """manifest.webmanifest + sw.js - installable home-screen/standalone
     support. See views.service_worker's own docstring for why sw.js is
@@ -12502,6 +12533,7 @@ class ForYouSelectorTests(TestCase):
             genre_ids=[28],
             origin_country=None,
             watch_providers=[],
+            api_key=None,
             region="US",
             page_size=1,
         )
@@ -12806,6 +12838,28 @@ class DashboardRecommendedForYouTests(TestCase):
         self.assertContains(resp, "Recommended TV")
         self.assertContains(resp, "Naruto")
 
+
+    @patch("tracker.views.instance_config.get_tmdb_api_key", return_value="the-resolved-key")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    def test_the_three_recommended_rows_share_one_resolved_api_key(self, mock_get_similar, mock_get_key):
+        # One DB-backed key resolution shared by all three Movie/TV/Anime
+        # rows, instead of each one resolving its own - a small, always-
+        # safe win (they still run one after another: each one starts
+        # with its own WatchEvent DB query, which - unlike this single
+        # shared value - can't be hoisted out and threaded across workers
+        # without worker threads touching the DB independently, which
+        # broke outright under this project's own test transaction
+        # handling the one time it was tried).
+        for media_type, name in [(MediaType.MOVIE, "M"), (MediaType.TV, "T"), (MediaType.ANIME, "A")]:
+            title = Title.objects.create(
+                media_type=media_type, name=name, year=2020, external_ids={"tmdb": "1", "tmdb_kind": media_type}
+            )
+            WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
+        self.client.get(reverse("dashboard"))
+        mock_get_key.assert_called_once()
+        self.assertEqual(mock_get_similar.call_count, 3)
+        for call in mock_get_similar.call_args_list:
+            self.assertEqual(call.kwargs.get("api_key"), "the-resolved-key")
 
 class DashboardWatchingWatchlistTests(TestCase):
     def setUp(self):

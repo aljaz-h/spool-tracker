@@ -206,9 +206,18 @@ def dashboard(request):
         watchlist_qs = selectors.library_watchlist(profile, [MediaType.MOVIE, MediaType.TV, MediaType.ANIME])
         watchlist_count = watchlist_qs.count()
         watchlist_items = list(watchlist_qs[:12])
-        recommended_movies = selectors.recommended_for_you(profile, MediaType.MOVIE)
-        recommended_tv = selectors.recommended_for_you(profile, MediaType.TV)
-        recommended_anime = selectors.recommended_for_you(profile, MediaType.ANIME)
+        # api_key resolved once and passed to all three, instead of each
+        # one resolving its own - cheap, always-safe (unlike threading the
+        # three calls themselves would be: each one runs its own WatchEvent
+        # DB query first, and that can't be hoisted out the way a single
+        # shared value can - worker threads doing their own independent,
+        # uncoordinated DB reads is exactly what this codebase avoids
+        # elsewhere, and it broke outright under the test suite's
+        # transaction handling the one time this was tried).
+        api_key = instance_config.get_tmdb_api_key()
+        recommended_movies = selectors.recommended_for_you(profile, MediaType.MOVIE, api_key=api_key)
+        recommended_tv = selectors.recommended_for_you(profile, MediaType.TV, api_key=api_key)
+        recommended_anime = selectors.recommended_for_you(profile, MediaType.ANIME, api_key=api_key)
         media_types = [MediaType.MOVIE, MediaType.TV, MediaType.ANIME]
         start_watching = selectors.start_watching(profile, media_types)
         # Recently Watched uses its own watch_event_card.html (episode

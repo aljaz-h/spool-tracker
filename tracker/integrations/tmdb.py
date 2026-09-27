@@ -501,7 +501,8 @@ def genres(media_type):
 def discover(media_type, category="popular", page=1, genre_ids=None, year_from=None, year_to=None,
              runtime_from=None, runtime_to=None, rating_from=None, rating_to=None,
              original_language=None, origin_country=None, with_companies=None, certification=None,
-             status=None, availability=None, watch_providers=None, region=None, page_size=RESULTS_PAGE_SIZE):
+             status=None, availability=None, watch_providers=None, region=None, page_size=RESULTS_PAGE_SIZE,
+             api_key=None):
     """Returns {"results": [...normalized, up to page_size*20...], "page": int,
     "total_pages": int}. category picks a sort/date preset (see module docstring);
     every other param is an optional filter layered on top of that preset, all of
@@ -511,6 +512,11 @@ def discover(media_type, category="popular", page=1, genre_ids=None, year_from=N
     alongside it, same as availability below - region falls back to
     AVAILABILITY_WATCH_REGION when not given, so an old call site that
     never passes a profile's region still behaves exactly as before.
+
+    api_key - see get_credits' own docstring; lets a caller (e.g.
+    selectors.recommended_for_you, calling this from one of its own
+    worker threads) resolve it once and pass it through instead of this
+    call's own DB read.
 
     page_size overrides RESULTS_PAGE_SIZE per call - views.discover raises it
     when the Display filter is hiding watched/watchlisted titles, since a
@@ -594,11 +600,14 @@ def discover(media_type, category="popular", page=1, genre_ids=None, year_from=N
     # even worth requesting (TMDB returns an empty results list rather than
     # an error for an out-of-range page, but there's no reason to spend a
     # request finding that out when the first page already said so).
-    # Resolved once here rather than left to each _list_request call's own
-    # _api_key() - that reads InstanceConfig from the DB, and the parallel
-    # calls below run on worker threads that should never need to touch
-    # the DB independently/concurrently themselves.
-    api_key = _api_key()
+    # Resolved once here (unless a caller already resolved it - see
+    # api_key's own param, used by selectors.recommended_for_you when it
+    # calls this from a worker thread of its own) rather than left to
+    # each _list_request call's own _api_key() - that reads InstanceConfig
+    # from the DB, and the parallel calls below run on worker threads
+    # that should never need to touch the DB independently/concurrently
+    # themselves.
+    api_key = api_key if api_key is not None else _api_key()
     tmdb_start_page = (page - 1) * page_size + 1
     results = []
     first_data = _list_request(f"discover/{media_type}", {**params, "page": tmdb_start_page}, api_key=api_key)

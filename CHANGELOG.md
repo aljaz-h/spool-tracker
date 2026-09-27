@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.134.0] - 2026-09-27
+
+### Added
+
+- A thin progress bar now appears at the top of the screen the moment you
+  tap a link or button, before the response arrives - on a slow connection
+  there was previously no sign a tap had registered at all. Covers both
+  full page navigation and background htmx actions; excludes automatic
+  background polling (Settings → Logs, pending MDBList ratings).
+
 ## [0.133.1] - 2026-09-24
 
 ### Fixed

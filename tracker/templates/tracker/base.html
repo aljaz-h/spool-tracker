@@ -38,6 +38,91 @@
     document.addEventListener('htmx:configRequest', (e) => {
       e.detail.headers['X-CSRFToken'] = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
     });
+    // Global top-of-page progress bar (#spool-progress-bar below) - the
+    // only "something is happening" signal for a real full-page
+    // navigation (a plain <a>/<form>, which otherwise gives zero
+    // feedback until the next page's first byte arrives - confirmed as
+    // a real problem on a slow connection: tapping a poster card just
+    // did nothing, visibly, for several seconds) and a fallback one for
+    // any htmx request that doesn't already show its own inline
+    // spool-spinner. Trickles toward (never quite to) 90% while
+    // something's in flight, since real progress isn't knowable up
+    // front; a real navigation just gets this whole element wiped by
+    // the next page's own fresh copy instead of ever reaching finish().
+    // Background polling (hx-trigger="every ..." - Settings > Logs,
+    // pending MDBList ratings) is deliberately excluded below - that's
+    // not something anyone pressed, and flashing the bar every few
+    // seconds on those pages would be pure noise.
+    (() => {
+      const bar = document.getElementById('spool-progress-bar');
+      let activeRequests = 0;
+      let trickleTimer = null;
+      let hideTimer = null;
+
+      const trickle = () => {
+        const current = parseFloat(bar.style.width) || 0;
+        if (current >= 90) return;
+        bar.style.width = Math.min(90, current + (90 - current) * 0.2 + 4) + '%';
+        trickleTimer = setTimeout(trickle, 400);
+      };
+
+      const start = () => {
+        clearTimeout(hideTimer);
+        clearTimeout(trickleTimer);
+        bar.style.transition = 'none';
+        bar.style.width = '0%';
+        bar.offsetWidth; // eslint-disable-line no-unused-expressions -- force reflow so the width change below transitions instead of jumping
+        bar.style.transition = '';
+        bar.classList.remove('opacity-0');
+        bar.classList.add('opacity-100');
+        bar.style.width = '20%';
+        trickleTimer = setTimeout(trickle, 400);
+      };
+
+      const finish = () => {
+        clearTimeout(trickleTimer);
+        bar.style.width = '100%';
+        hideTimer = setTimeout(() => {
+          bar.classList.remove('opacity-100');
+          bar.classList.add('opacity-0');
+          hideTimer = setTimeout(() => { bar.style.width = '0%'; }, 150);
+        }, 150);
+      };
+
+      const isPolling = (e) => /every/.test(e.detail.elt?.getAttribute('hx-trigger') || '');
+
+      document.addEventListener('htmx:beforeRequest', (e) => {
+        if (isPolling(e)) return;
+        activeRequests += 1;
+        if (activeRequests === 1) start();
+      });
+      document.addEventListener('htmx:afterRequest', (e) => {
+        if (isPolling(e)) return;
+        activeRequests = Math.max(0, activeRequests - 1);
+        if (activeRequests === 0) finish();
+      });
+
+      const isModifiedClick = (e) => e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey;
+      const isHtmxDriven = (el) => el.closest('[hx-get],[hx-post],[hx-put],[hx-patch],[hx-delete]');
+
+      document.addEventListener('click', (e) => {
+        if (e.defaultPrevented || isModifiedClick(e)) return;
+        const a = e.target.closest('a[href]');
+        if (!a || isHtmxDriven(a)) return;
+        if (a.target && a.target !== '_self') return;
+        if (a.hasAttribute('download') || a.dataset.noProgress !== undefined) return;
+        if (a.origin !== window.location.origin) return;
+        if (a.pathname === location.pathname && a.search === location.search && a.hash) return;
+        start();
+      });
+
+      document.addEventListener('submit', (e) => {
+        const form = e.target;
+        if (e.defaultPrevented || form.method?.toLowerCase() === 'dialog' || isHtmxDriven(form)) return;
+        if (form.target && form.target !== '_self') return;
+        start();
+      });
+    })();
     // Discover tiles' hover/focus reveal (discover_tile.html) is driven
     // by plain .tile-hover/.tile-focus classes toggled here, not CSS
     // :hover/:focus-within directly - see discover_tile.html's own
@@ -291,6 +376,7 @@
   </script>
 </head>
 <body class="bg-base-100 text-base-content min-h-screen" data-animations="{% if active_profile.animations_enabled %}on{% else %}off{% endif %}">
+  <div id="spool-progress-bar" class="fixed top-0 left-0 h-[2.5px] w-0 bg-primary z-[200] opacity-0 pointer-events-none transition-[width,opacity] duration-200 ease-out" aria-hidden="true"></div>
   {% comment %}
     x-effect below locks background scroll for as long as the bottom
     sheet is open, toggling Tailwind's own overflow-hidden on <body>
