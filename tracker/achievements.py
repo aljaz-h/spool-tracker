@@ -140,25 +140,36 @@ def achievement_progress(profile):
     immediately. current/target/pct power each card's own progress bar -
     current is clamped to target so an achievement earned well past its
     threshold (e.g. a 45-day streak against Streak Master's 30) still
-    reads as a filled bar, not an overflowing one."""
-    check_and_award(profile)
-    earned_at_by_key = dict(
-        ProfileAchievement.objects.filter(profile=profile).values_list("key", "earned_at")
-    )
-    results = []
-    for a in ACHIEVEMENTS:
-        current, target = a.progress(profile)
-        current = min(current, target)
-        results.append(
-            {
-                "key": a.key,
-                "name": a.name,
-                "description": a.description,
-                "earned": a.key in earned_at_by_key,
-                "earned_at": earned_at_by_key.get(a.key),
-                "current": current,
-                "target": target,
-                "pct": round(current / target * 100) if target else 100,
-            }
-        )
-    return results
+    reads as a filled bar, not an overflowing one.
+
+    Cached like everything else in selectors.py's stats layer (see
+    selectors._cache_get_or_set) - check_and_award's own persist step
+    still runs on every cache miss, and the WatchEvent signal
+    (tracker/apps.py) invalidates this same key whenever this profile's
+    watch history changes, so a badge earned by a fresh watch still
+    shows as earned on the very next (necessarily cache-missing) page
+    load - the "immediately" this docstring already promised, not a
+    regression from adding the cache."""
+
+    def _compute():
+        check_and_award(profile)
+        earned_at_by_key = dict(ProfileAchievement.objects.filter(profile=profile).values_list("key", "earned_at"))
+        results = []
+        for a in ACHIEVEMENTS:
+            current, target = a.progress(profile)
+            current = min(current, target)
+            results.append(
+                {
+                    "key": a.key,
+                    "name": a.name,
+                    "description": a.description,
+                    "earned": a.key in earned_at_by_key,
+                    "earned_at": earned_at_by_key.get(a.key),
+                    "current": current,
+                    "target": target,
+                    "pct": round(current / target * 100) if target else 100,
+                }
+            )
+        return results
+
+    return selectors._cache_get_or_set(f"stats:achievements:{profile.id}", selectors.STATS_PAGE_TTL, _compute)

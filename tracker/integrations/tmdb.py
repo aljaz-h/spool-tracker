@@ -21,6 +21,7 @@ import itertools
 import json
 import logging
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
@@ -297,12 +298,17 @@ def _list_request(path, params=None, api_key=None):
     if cached is not None:
         return cached
 
+    # DEBUG only (invisible under normal production logging) - a live-call
+    # timing trail for diagnosing future regressions without needing to
+    # reach for django-silk first.
+    start = time.monotonic()
     try:
         resp = _http_session.get(f"{API_BASE}/{path}", params={"api_key": api_key, **params}, timeout=10)
         resp.raise_for_status()
     except requests.RequestException:
         logger.warning("TMDB list request failed for %s", path, exc_info=True)
         return {"results": [], "total_pages": 0}
+    logger.debug("TMDB GET %s took %.0fms", path, (time.monotonic() - start) * 1000)
     data = resp.json()
 
     try:
@@ -491,10 +497,11 @@ def search(query, page=1):
     return {"results": results, "total_pages": data.get("total_pages") or 0}
 
 
-def genres(media_type):
+def genres(media_type, api_key=None):
     """[{"id": 16, "name": "Animation"}, ...] - populates the filter
-    panel's genre picker (TMDB's with_genres param takes ids, not names)."""
-    data = _list_request(f"genre/{media_type}/list")
+    panel's genre picker (TMDB's with_genres param takes ids, not names).
+    api_key - see get_credits' own docstring."""
+    data = _list_request(f"genre/{media_type}/list", api_key=api_key)
     return data.get("genres") or []
 
 
@@ -705,15 +712,24 @@ def discover_by_decades(media_type, category="popular", page=1, decades=None, pa
             page_size=page_size, **filters,
         )
 
-    per_decade_results = []
-    total_pages_estimate = 0
-    for decade in decades:
-        decade_page = discover(
-            media_type, category=category, page=page, year_from=decade, year_to=decade + 9,
-            page_size=page_size, **filters,
+    # Resolved once here and threaded through, not left to each decade's
+    # own discover() call to resolve independently - those run on worker
+    # threads below, which must never touch the DB (InstanceConfig)
+    # concurrently/independently themselves. Same pattern discover()'s
+    # own parallel page fetches already use.
+    api_key = _api_key()
+    with ThreadPoolExecutor(max_workers=len(decades)) as executor:
+        decade_pages = list(
+            executor.map(
+                lambda decade: discover(
+                    media_type, category=category, page=page, year_from=decade, year_to=decade + 9,
+                    page_size=page_size, api_key=api_key, **filters,
+                ),
+                decades,
+            )
         )
-        total_pages_estimate = max(total_pages_estimate, decade_page["total_pages"])
-        per_decade_results.append(decade_page["results"])
+    total_pages_estimate = max((p["total_pages"] for p in decade_pages), default=0)
+    per_decade_results = [p["results"] for p in decade_pages]
 
     seen = set()
     results = []
@@ -1323,7 +1339,7 @@ def get_backdrops(media_type, tmdb_id, limit=12):
 _PROVIDER_BUNDLE_NAME_MARKERS = ("channel", "with ads")  # see watch_provider_catalog's own docstring
 
 
-def watch_provider_catalog(media_type, region="US"):
+def watch_provider_catalog(media_type, region="US", api_key=None):
     """[{"id", "name", "logo_url"}, ...] TMDB's streaming-provider catalog
     for a region, sorted by TMDB's own display_priority (most prominent/
     popular first) - Settings' provider-preference chip picker and
@@ -1341,8 +1357,10 @@ def watch_provider_catalog(media_type, region="US"):
     so these are dropped by a name-pattern heuristic instead - the
     accepted trade-off is a real provider whose only name happens to
     contain "Channel" would be dropped too, in exchange for the list
-    fitting on screen instead of running to 100+ entries."""
-    data = _list_request(f"watch/providers/{media_type}", {"watch_region": region})
+    fitting on screen instead of running to 100+ entries.
+
+    api_key - see get_credits' own docstring."""
+    data = _list_request(f"watch/providers/{media_type}", {"watch_region": region}, api_key=api_key)
     results = sorted(data.get("results") or [], key=lambda p: p.get("display_priority", 999))
     providers = []
     for p in results:

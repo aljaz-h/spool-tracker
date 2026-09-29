@@ -8,6 +8,20 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.136.0] - 2026-09-29
+
+### Changed
+
+- Dashboard and Stats now cache their computed watch-history numbers
+  (streaks, watch time, genre breakdowns, achievements, and similar) for a
+  few minutes instead of recalculating them from scratch on every visit,
+  and update immediately the next time you mark something watched or
+  remove it from History. Measured locally: about 73% fewer database
+  queries on Stats, 15% fewer on Dashboard.
+- Discover's Year filter (2+ decades selected) and Discover's own page
+  load now fetch from TMDB concurrently instead of one request after
+  another.
+
 ## [0.135.1] - 2026-09-27
 
 ### Fixed

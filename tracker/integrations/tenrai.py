@@ -122,6 +122,10 @@ def _get(url, params=None):
     new exception type to handle, same contract requests.get already
     has."""
     _throttle()
+    # DEBUG only (invisible under normal production logging) - a live-call
+    # timing trail for diagnosing future regressions without needing to
+    # reach for django-silk first.
+    start = time.monotonic()
     resp = requests.get(url, params=params, timeout=10)
     if resp.status_code == 429:
         try:
@@ -132,6 +136,7 @@ def _get(url, params=None):
         time.sleep(min(delay, 5.0))
         _throttle()
         resp = requests.get(url, params=params, timeout=10)
+    logger.debug("Tenrai GET %s took %.0fms", url, (time.monotonic() - start) * 1000)
     return resp
 
 

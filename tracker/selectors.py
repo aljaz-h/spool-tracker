@@ -2,6 +2,7 @@
 spool-django-handoff.md §5 ("compute in a model method or manager, not in
 the template")."""
 
+import logging
 import operator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -25,6 +26,101 @@ from .models import (
     WatchListItem,
     WatchProgress,
 )
+
+logger = logging.getLogger(__name__)
+
+# Dashboard/Stats computed-data cache - tracker/selectors.py had no caching
+# at all before this (confirmed: every one of quick_stats/monthly_stats/
+# stats_overview/watch_time_breakdown/genre_breakdown/release_year_breakdown/
+# daily_breakdown/daily_average/peak_hours/achievements.achievement_progress/
+# up_next recomputed from the DB on every single request). None of these are
+# expensive N+1 patterns individually (each is a handful of indexed
+# aggregate queries), but a Stats page load alone costs ~15-20 round trips
+# that a short TTL turns into ~0 on repeat visits within the window.
+#
+# DASHBOARD_STATS_TTL (5 min) for Dashboard-only data; STATS_PAGE_TTL
+# (15 min) for the heavier Stats-page-only panels - both land inside the
+# spec's own suggested "computed dashboard data: 2-10 min" / "profile
+# statistics: 5-30 min" ranges. taste_compatibility uses STATS_PAGE_TTL
+# too but is deliberately left out of invalidate_profile_stats_cache below
+# (see its own docstring) - TTL alone is the correctness story there.
+DASHBOARD_STATS_TTL = 300
+STATS_PAGE_TTL = 900
+
+
+def _cache_get_or_set(key, ttl, compute):
+    """Cache-aside with the same resilience shape tmdb.py/tenrai.py already
+    use for their own external-API caches (try/except around cache I/O, so
+    an unreachable Redis degrades to "no caching" rather than a broken
+    page) - applied here to computed (DB-only, not external-API) data.
+    Not stale-while-revalidate: unlike an external API call, recomputing
+    on a cache miss costs single-digit milliseconds, so a plain short TTL
+    gets the same practical effect (near-zero DB load on repeat visits)
+    without the extra machinery of tracking in-flight refreshes."""
+    from django.core.cache import cache
+
+    try:
+        cached = cache.get(key)
+    except Exception:
+        logger.warning("Stats cache read failed for %s, continuing without cache", key, exc_info=True)
+        cached = None
+    if cached is not None:
+        return cached
+    value = compute()
+    try:
+        cache.set(key, value, ttl)
+    except Exception:
+        logger.warning("Stats cache write failed for %s, continuing without cache", key, exc_info=True)
+    return value
+
+
+def invalidate_profile_stats_cache(profile_id):
+    """Called from the WatchEvent post_save/post_delete signal
+    (tracker/apps.py TrackerConfig.ready) - the single source of truth for
+    "this profile's watch history changed." Every production WatchEvent
+    write (mark/unmark watched, bulk season/show catch-up, History
+    deletes, CSV import, Trakt/Simkl/Nuvio/webhook sync) goes through
+    WatchEvent.objects.create() or a queryset .delete() - both fire this
+    signal once a receiver is connected (Django disables the fast-delete
+    SQL-only path automatically whenever a pre_delete/post_delete receiver
+    exists for the model), so nothing needs to be touched at each of those
+    call sites individually.
+
+    Keys are enumerated explicitly rather than wildcarded - Django's
+    built-in RedisCache backend (unlike the third-party django-redis
+    package) has no delete_pattern, and the set of distinct parametrized
+    variants actually called in production is small and fixed (confirmed
+    against every real call site: genre_breakdown's 3 media types × 2
+    metrics, up_next's limit=4, daily_breakdown/daily_average's days=7).
+    monthly_stats/on_this_day's keys include today's date (see their own
+    wrappers) since their tests call them directly with an explicit
+    `today=`, not just through the Dashboard view - today's own date is
+    recomputed here rather than passed in, since production never calls
+    them with anything else."""
+    from django.core.cache import cache
+
+    today = timezone.localdate().isoformat()
+    keys = [
+        f"stats:quick:{profile_id}",
+        f"stats:monthly:{profile_id}:{today}",
+        f"stats:on_this_day:{profile_id}:{today}:8",
+        f"stats:overview:{profile_id}",
+        f"stats:watch_time:{profile_id}",
+        f"stats:release_years:{profile_id}",
+        f"stats:daily_breakdown:{profile_id}:7",
+        f"stats:daily_average:{profile_id}:7",
+        f"stats:peak_hours:{profile_id}",
+        f"stats:achievements:{profile_id}",
+        f"stats:up_next:{profile_id}:4",
+    ] + [
+        f"stats:genre:{profile_id}:{mt}:{metric}"
+        for mt in (MediaType.MOVIE, MediaType.TV, MediaType.ANIME)
+        for metric in ("items", "duration")
+    ]
+    try:
+        cache.delete_many(keys)
+    except Exception:
+        logger.warning("Stats cache invalidation failed for profile %s", profile_id, exc_info=True)
 
 # Settings' Logs tab Action Type filter - each bucket is (key, label,
 # matching DataLog.Action values). "sync" is special: None means "match
@@ -354,85 +450,92 @@ def up_next(profile, limit=3):
     episode eating the whole limit - fetches limit * _FETCH_MULTIPLIER
     raw rows before grouping so a same-day batch doesn't starve later
     titles out of the final limit slots."""
-    _FETCH_MULTIPLIER = 20
-    qs = (
-        ReleaseSchedule.objects.filter(
-            Q(title__watch_progress__profile=profile) | Q(title__watch_events__profile=profile),
-            release_date__gte=timezone.now(),
+
+    def _compute():
+        _FETCH_MULTIPLIER = 20
+        qs = (
+            ReleaseSchedule.objects.filter(
+                Q(title__watch_progress__profile=profile) | Q(title__watch_events__profile=profile),
+                release_date__gte=timezone.now(),
+            )
+            .select_related("title", "episode")
+            .order_by("release_date")
+            .distinct()[: limit * _FETCH_MULTIPLIER]
         )
-        .select_related("title", "episode")
-        .order_by("release_date")
-        .distinct()[: limit * _FETCH_MULTIPLIER]
-    )
-    groups = []
-    group_index = {}
-    for rs in qs:
-        key = (rs.title_id, timezone.localtime(rs.release_date).date())
-        if key in group_index:
-            groups[group_index[key]]["episodes"].append(rs.episode)
-        else:
-            group_index[key] = len(groups)
-            groups.append(
+        groups = []
+        group_index = {}
+        for rs in qs:
+            key = (rs.title_id, timezone.localtime(rs.release_date).date())
+            if key in group_index:
+                groups[group_index[key]]["episodes"].append(rs.episode)
+            else:
+                group_index[key] = len(groups)
+                groups.append(
+                    {
+                        "title": rs.title,
+                        "release_date": rs.release_date,
+                        "release_type_display": rs.get_release_type_display(),
+                        "episodes": [rs.episode] if rs.episode else [],
+                    }
+                )
+
+        items = []
+        for group in groups[:limit]:
+            episodes = group["episodes"]
+            if len(episodes) > 1:
+                caption = episode_range_caption(episodes)
+            elif episodes:
+                caption = f"Season {episodes[0].season}, Episode {episodes[0].episode}"
+            else:
+                caption = group["release_type_display"]
+            items.append(
                 {
-                    "title": rs.title,
-                    "release_date": rs.release_date,
-                    "release_type_display": rs.get_release_type_display(),
-                    "episodes": [rs.episode] if rs.episode else [],
+                    "title": group["title"],
+                    "caption": caption,
+                    "when": _when_label(group["release_date"]),
+                    "count": len(episodes) or 1,
                 }
             )
+        return items
 
-    items = []
-    for group in groups[:limit]:
-        episodes = group["episodes"]
-        if len(episodes) > 1:
-            caption = episode_range_caption(episodes)
-        elif episodes:
-            caption = f"Season {episodes[0].season}, Episode {episodes[0].episode}"
-        else:
-            caption = group["release_type_display"]
-        items.append(
-            {
-                "title": group["title"],
-                "caption": caption,
-                "when": _when_label(group["release_date"]),
-                "count": len(episodes) or 1,
-            }
-        )
-    return items
+    return _cache_get_or_set(f"stats:up_next:{profile.id}:{limit}", DASHBOARD_STATS_TTL, _compute)
 
 
 def quick_stats(profile):
-    year = timezone.localdate().year
-    movies_this_year = WatchEvent.objects.filter(
-        profile=profile, title__media_type=MediaType.MOVIE, watched_at__year=year
-    ).count()
-    shows_completed = WatchProgress.objects.filter(
-        profile=profile,
-        status=WatchProgress.Status.COMPLETED,
-        title__media_type__in=[MediaType.TV, MediaType.ANIME],
-    ).count()
-    total_minutes = (
-        WatchEvent.objects.filter(profile=profile).aggregate(
-            total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0))
-        )["total"]
-        or 0
-    )
-    # Dashboard's streak pill shows both side by side ("N day streak ·
-    # longest N") - streaks() computes both off one shared query instead
-    # of current_streak()/longest_streak() each re-fetching the same
-    # distinct-dates data.
-    streak, longest = streaks(profile)
-    return {
-        "streak": streak,
-        "longest_streak": longest,
-        "movies_this_year": movies_this_year,
-        "shows_completed": shows_completed,
-        # "217d 4h 3m" style, matching the Stats page's own watch-time
-        # breakdown format (format_duration) instead of a flat "7342h" -
-        # the two pages showing the same kind of stat differently read as
-        # inconsistent.
-        "total_watch_time": format_duration(total_minutes),
-    }
+    def _compute():
+        year = timezone.localdate().year
+        movies_this_year = WatchEvent.objects.filter(
+            profile=profile, title__media_type=MediaType.MOVIE, watched_at__year=year
+        ).count()
+        shows_completed = WatchProgress.objects.filter(
+            profile=profile,
+            status=WatchProgress.Status.COMPLETED,
+            title__media_type__in=[MediaType.TV, MediaType.ANIME],
+        ).count()
+        total_minutes = (
+            WatchEvent.objects.filter(profile=profile).aggregate(
+                total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0))
+            )["total"]
+            or 0
+        )
+        # Dashboard's streak pill shows both side by side ("N day streak ·
+        # longest N") - streaks() computes both off one shared query
+        # instead of current_streak()/longest_streak() each re-fetching
+        # the same distinct-dates data.
+        streak, longest = streaks(profile)
+        return {
+            "streak": streak,
+            "longest_streak": longest,
+            "movies_this_year": movies_this_year,
+            "shows_completed": shows_completed,
+            # "217d 4h 3m" style, matching the Stats page's own watch-time
+            # breakdown format (format_duration) instead of a flat "7342h" -
+            # the two pages showing the same kind of stat differently read
+            # as inconsistent.
+            "total_watch_time": format_duration(total_minutes),
+        }
+
+    return _cache_get_or_set(f"stats:quick:{profile.id}", DASHBOARD_STATS_TTL, _compute)
 
 
 # Checked for equality, not >=, so a milestone banner fires the one day
@@ -878,30 +981,34 @@ def on_this_day(profile, today=None, limit=8):
     Deduped to one card per (title, year) - a same-day rewatch binge
     would otherwise repeat the same nostalgia moment multiple times."""
     today = today or timezone.localdate()
-    events = (
-        WatchEvent.objects.filter(profile=profile)
-        .annotate(
-            month=ExtractMonth("watched_at", tzinfo=timezone.get_current_timezone()),
-            day=ExtractDay("watched_at", tzinfo=timezone.get_current_timezone()),
+
+    def _compute():
+        events = (
+            WatchEvent.objects.filter(profile=profile)
+            .annotate(
+                month=ExtractMonth("watched_at", tzinfo=timezone.get_current_timezone()),
+                day=ExtractDay("watched_at", tzinfo=timezone.get_current_timezone()),
+            )
+            .filter(month=today.month, day=today.day)
+            .exclude(watched_at__year=today.year)
+            .select_related("title")
+            .prefetch_related("title__ratings")
+            .order_by("-watched_at")
         )
-        .filter(month=today.month, day=today.day)
-        .exclude(watched_at__year=today.year)
-        .select_related("title")
-        .prefetch_related("title__ratings")
-        .order_by("-watched_at")
-    )
-    seen_years = set()
-    entries = []
-    for event in events:
-        year = timezone.localtime(event.watched_at).year
-        key = (event.title_id, year)
-        if key in seen_years:
-            continue
-        seen_years.add(key)
-        entries.append({"title": event.title, "years_ago": today.year - year, "rating": event.user_rating})
-        if len(entries) >= limit:
-            break
-    return entries
+        seen_years = set()
+        entries = []
+        for event in events:
+            year = timezone.localtime(event.watched_at).year
+            key = (event.title_id, year)
+            if key in seen_years:
+                continue
+            seen_years.add(key)
+            entries.append({"title": event.title, "years_ago": today.year - year, "rating": event.user_rating})
+            if len(entries) >= limit:
+                break
+        return entries
+
+    return _cache_get_or_set(f"stats:on_this_day:{profile.id}:{today.isoformat()}:{limit}", DASHBOARD_STATS_TTL, _compute)
 
 
 def library_watchlist(profile, media_types):
@@ -1222,60 +1329,73 @@ def _days_and_hours_display(total_minutes):
 def stats_overview(profile):
     """Lifetime totals for the Stats page hero + donut — deliberately not
     year-scoped, unlike Dashboard's quick_stats()."""
-    events = WatchEvent.objects.filter(profile=profile)
-    total_minutes = (
-        events.aggregate(total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))["total"] or 0
-    )
-    total_hours = round(total_minutes / 60)
-    total_watch_days_rounded, total_watch_hours_display = _days_and_hours_display(total_minutes)
 
-    cur, longest = streaks(profile)
+    def _compute():
+        events = WatchEvent.objects.filter(profile=profile)
+        total_minutes = (
+            events.aggregate(total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))["total"]
+            or 0
+        )
+        total_hours = round(total_minutes / 60)
+        total_watch_days_rounded, total_watch_hours_display = _days_and_hours_display(total_minutes)
 
-    type_counts = dict(events.values_list("title__media_type").annotate(c=Count("id")).order_by())
-    total_events = sum(type_counts.values())
+        cur, longest = streaks(profile)
 
-    def pct(media_type):
-        return round(type_counts.get(media_type, 0) / total_events * 100) if total_events else 0
+        type_counts = dict(events.values_list("title__media_type").annotate(c=Count("id")).order_by())
+        total_events = sum(type_counts.values())
 
-    # "Completion efficiency" - of every show whose progress has actually
-    # been resolved one way or another (finished or dropped), how many
-    # got finished. Deliberately excludes WATCHING/PLANNED - those
-    # haven't been resolved yet, so counting them as "not completed"
-    # would penalize a show still in progress the same as one abandoned.
-    completed_shows = WatchProgress.objects.filter(
-        profile=profile, status=WatchProgress.Status.COMPLETED, title__media_type__in=[MediaType.TV, MediaType.ANIME]
-    ).count()
-    dropped_shows = WatchProgress.objects.filter(
-        profile=profile, status=WatchProgress.Status.DROPPED, title__media_type__in=[MediaType.TV, MediaType.ANIME]
-    ).count()
-    resolved_shows = completed_shows + dropped_shows
+        def pct(media_type):
+            return round(type_counts.get(media_type, 0) / total_events * 100) if total_events else 0
 
-    return {
-        "current_streak": cur,
-        "longest_streak": longest,
-        "dial_pct": min(100, round(cur / longest * 100)) if longest else 0,
-        "total_watch_hours": total_hours,
-        "total_watch_days": round(total_hours / 24, 1),
-        "total_watch_days_rounded": total_watch_days_rounded,
-        "total_watch_hours_display": total_watch_hours_display,
-        # "watched" (unique titles) vs "plays" (every watch, rewatches
-        # included) - the same distinction Trakt/Simkl draw ("2,034 movies
-        # (2,773 plays)"). movies_watched previously *was* the plays count
-        # mislabeled as a movie count, which reads as "2,773 different
-        # movies" when it's actually far fewer unique titles rewatched a
-        # lot - confirmed against a real account where the two numbers
-        # differed by 700+.
-        "movies_watched": events.filter(title__media_type=MediaType.MOVIE).values("title_id").distinct().count(),
-        "movies_plays": events.filter(title__media_type=MediaType.MOVIE).count(),
-        "shows_completed": completed_shows,
-        "completion_efficiency_pct": round(completed_shows / resolved_shows * 100, 1) if resolved_shows else None,
-        "episodes_logged": events.filter(episode__isnull=False).count(),
-        "split": {
-            "movie_pct": pct(MediaType.MOVIE),
-            "tv_pct": pct(MediaType.TV),
-            "anime_pct": pct(MediaType.ANIME),
-        },
-    }
+        # "Completion efficiency" - of every show whose progress has
+        # actually been resolved one way or another (finished or
+        # dropped), how many got finished. Deliberately excludes
+        # WATCHING/PLANNED - those haven't been resolved yet, so counting
+        # them as "not completed" would penalize a show still in progress
+        # the same as one abandoned.
+        completed_shows = WatchProgress.objects.filter(
+            profile=profile,
+            status=WatchProgress.Status.COMPLETED,
+            title__media_type__in=[MediaType.TV, MediaType.ANIME],
+        ).count()
+        dropped_shows = WatchProgress.objects.filter(
+            profile=profile,
+            status=WatchProgress.Status.DROPPED,
+            title__media_type__in=[MediaType.TV, MediaType.ANIME],
+        ).count()
+        resolved_shows = completed_shows + dropped_shows
+
+        return {
+            "current_streak": cur,
+            "longest_streak": longest,
+            "dial_pct": min(100, round(cur / longest * 100)) if longest else 0,
+            "total_watch_hours": total_hours,
+            "total_watch_days": round(total_hours / 24, 1),
+            "total_watch_days_rounded": total_watch_days_rounded,
+            "total_watch_hours_display": total_watch_hours_display,
+            # "watched" (unique titles) vs "plays" (every watch, rewatches
+            # included) - the same distinction Trakt/Simkl draw ("2,034
+            # movies (2,773 plays)"). movies_watched previously *was* the
+            # plays count mislabeled as a movie count, which reads as
+            # "2,773 different movies" when it's actually far fewer
+            # unique titles rewatched a lot - confirmed against a real
+            # account where the two numbers differed by 700+.
+            "movies_watched": events.filter(title__media_type=MediaType.MOVIE)
+            .values("title_id")
+            .distinct()
+            .count(),
+            "movies_plays": events.filter(title__media_type=MediaType.MOVIE).count(),
+            "shows_completed": completed_shows,
+            "completion_efficiency_pct": round(completed_shows / resolved_shows * 100, 1) if resolved_shows else None,
+            "episodes_logged": events.filter(episode__isnull=False).count(),
+            "split": {
+                "movie_pct": pct(MediaType.MOVIE),
+                "tv_pct": pct(MediaType.TV),
+                "anime_pct": pct(MediaType.ANIME),
+            },
+        }
+
+    return _cache_get_or_set(f"stats:overview:{profile.id}", STATS_PAGE_TTL, _compute)
 
 
 def monthly_stats(profile, today=None):
@@ -1289,38 +1409,45 @@ def monthly_stats(profile, today=None):
     the split stats_overview() already has a precedent for instead of
     adding new genre storage just for one dashboard panel."""
     today = today or timezone.localdate()
-    month_start = today.replace(day=1)
-    last_month_end = month_start - timedelta(days=1)
-    last_month_start = last_month_end.replace(day=1)
 
-    events = WatchEvent.objects.filter(profile=profile, watched_at__date__gte=month_start)
-    total_minutes = (
-        events.aggregate(total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))["total"] or 0
-    )
-    last_month_minutes = (
-        WatchEvent.objects.filter(
-            profile=profile, watched_at__date__gte=last_month_start, watched_at__date__lte=last_month_end
-        ).aggregate(total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))["total"]
-        or 0
-    )
-    pct_change = round((total_minutes - last_month_minutes) / last_month_minutes * 100) if last_month_minutes else None
+    def _compute():
+        month_start = today.replace(day=1)
+        last_month_end = month_start - timedelta(days=1)
+        last_month_start = last_month_end.replace(day=1)
 
-    type_counts = dict(events.values_list("title__media_type").annotate(c=Count("id")).order_by())
-    total_events = sum(type_counts.values())
+        events = WatchEvent.objects.filter(profile=profile, watched_at__date__gte=month_start)
+        total_minutes = (
+            events.aggregate(total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))["total"]
+            or 0
+        )
+        last_month_minutes = (
+            WatchEvent.objects.filter(
+                profile=profile, watched_at__date__gte=last_month_start, watched_at__date__lte=last_month_end
+            ).aggregate(total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))["total"]
+            or 0
+        )
+        pct_change = (
+            round((total_minutes - last_month_minutes) / last_month_minutes * 100) if last_month_minutes else None
+        )
 
-    def pct(media_type):
-        return round(type_counts.get(media_type, 0) / total_events * 100) if total_events else 0
+        type_counts = dict(events.values_list("title__media_type").annotate(c=Count("id")).order_by())
+        total_events = sum(type_counts.values())
 
-    return {
-        "hours": round(total_minutes / 60, 1),
-        "episodes_logged": events.filter(episode__isnull=False).count(),
-        "pct_change_vs_last_month": pct_change,
-        "split": {
-            "movie_pct": pct(MediaType.MOVIE),
-            "tv_pct": pct(MediaType.TV),
-            "anime_pct": pct(MediaType.ANIME),
-        },
-    }
+        def pct(media_type):
+            return round(type_counts.get(media_type, 0) / total_events * 100) if total_events else 0
+
+        return {
+            "hours": round(total_minutes / 60, 1),
+            "episodes_logged": events.filter(episode__isnull=False).count(),
+            "pct_change_vs_last_month": pct_change,
+            "split": {
+                "movie_pct": pct(MediaType.MOVIE),
+                "tv_pct": pct(MediaType.TV),
+                "anime_pct": pct(MediaType.ANIME),
+            },
+        }
+
+    return _cache_get_or_set(f"stats:monthly:{profile.id}:{today.isoformat()}", DASHBOARD_STATS_TTL, _compute)
 
 
 def format_duration(total_minutes):
@@ -1350,61 +1477,71 @@ def watch_time_breakdown(profile):
     from stats_overview() directly rather than this one, to avoid two
     call sites computing what should be the identical lifetime figure."""
 
-    media_types = [MediaType.MOVIE, MediaType.TV, MediaType.ANIME]
+    def _compute():
+        media_types = [MediaType.MOVIE, MediaType.TV, MediaType.ANIME]
 
-    def bucket(events):
-        # One aggregate() call with a conditional Sum/Count per media
-        # type, instead of the 3x2 separate queries a per-type loop would
-        # issue - each call site (last_30_days/all_time) previously cost
-        # 6 round trips for what's really one GROUP-BY-shaped question.
-        agg_kwargs = {}
-        for media_type in media_types:
-            agg_kwargs[f"{media_type}_minutes"] = Sum(
-                Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0),
-                filter=Q(title__media_type=media_type),
-            )
-            agg_kwargs[f"{media_type}_count"] = Count("id", filter=Q(title__media_type=media_type))
-        totals = events.aggregate(**agg_kwargs)
+        def bucket(events):
+            # One aggregate() call with a conditional Sum/Count per media
+            # type, instead of the 3x2 separate queries a per-type loop
+            # would issue - each call site (last_30_days/all_time)
+            # previously cost 6 round trips for what's really one
+            # GROUP-BY-shaped question.
+            agg_kwargs = {}
+            for media_type in media_types:
+                agg_kwargs[f"{media_type}_minutes"] = Sum(
+                    Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0),
+                    filter=Q(title__media_type=media_type),
+                )
+                agg_kwargs[f"{media_type}_count"] = Count("id", filter=Q(title__media_type=media_type))
+            totals = events.aggregate(**agg_kwargs)
 
-        result = {}
-        combined_minutes = 0
-        for media_type in media_types:
-            minutes = totals[f"{media_type}_minutes"] or 0
-            result[media_type] = {"duration": format_duration(minutes), "count": totals[f"{media_type}_count"] or 0}
-            combined_minutes += minutes
-        combined_hours = round(combined_minutes / 60)
-        days_rounded, hours_display = _days_and_hours_display(combined_minutes)
-        result["combined"] = {
-            "minutes": combined_minutes,
-            "hours": combined_hours,
-            "days": round(combined_hours / 24, 1),
-            "days_rounded": days_rounded,
-            "hours_display": hours_display,
+            result = {}
+            combined_minutes = 0
+            for media_type in media_types:
+                minutes = totals[f"{media_type}_minutes"] or 0
+                result[media_type] = {
+                    "duration": format_duration(minutes),
+                    "count": totals[f"{media_type}_count"] or 0,
+                }
+                combined_minutes += minutes
+            combined_hours = round(combined_minutes / 60)
+            days_rounded, hours_display = _days_and_hours_display(combined_minutes)
+            result["combined"] = {
+                "minutes": combined_minutes,
+                "hours": combined_hours,
+                "days": round(combined_hours / 24, 1),
+                "days_rounded": days_rounded,
+                "hours_display": hours_display,
+            }
+            return result
+
+        events = WatchEvent.objects.filter(profile=profile)
+        now = timezone.now()
+        last_30_days = bucket(events.filter(watched_at__gte=now - timedelta(days=30)))
+
+        # Volume delta vs. the 30 days immediately before that - same
+        # pct-change shape as monthly_stats()'s calendar-month comparison,
+        # just over a fixed rolling window instead of calendar months so
+        # it means the same thing regardless of where in the month
+        # "today" is.
+        prior_30_days_minutes = (
+            events.filter(watched_at__gte=now - timedelta(days=60), watched_at__lt=now - timedelta(days=30))
+            .aggregate(total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))["total"]
+            or 0
+        )
+        last_30_days_minutes = last_30_days["combined"]["minutes"]
+        last_30_days["pct_change_vs_prior_30_days"] = (
+            round((last_30_days_minutes - prior_30_days_minutes) / prior_30_days_minutes * 100)
+            if prior_30_days_minutes
+            else None
+        )
+
+        return {
+            "last_30_days": last_30_days,
+            "all_time": bucket(events),
         }
-        return result
 
-    events = WatchEvent.objects.filter(profile=profile)
-    now = timezone.now()
-    last_30_days = bucket(events.filter(watched_at__gte=now - timedelta(days=30)))
-
-    # Volume delta vs. the 30 days immediately before that - same
-    # pct-change shape as monthly_stats()'s calendar-month comparison,
-    # just over a fixed rolling window instead of calendar months so it
-    # means the same thing regardless of where in the month "today" is.
-    prior_30_days_minutes = (
-        events.filter(watched_at__gte=now - timedelta(days=60), watched_at__lt=now - timedelta(days=30))
-        .aggregate(total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))["total"]
-        or 0
-    )
-    last_30_days_minutes = last_30_days["combined"]["minutes"]
-    last_30_days["pct_change_vs_prior_30_days"] = (
-        round((last_30_days_minutes - prior_30_days_minutes) / prior_30_days_minutes * 100) if prior_30_days_minutes else None
-    )
-
-    return {
-        "last_30_days": last_30_days,
-        "all_time": bucket(events),
-    }
+    return _cache_get_or_set(f"stats:watch_time:{profile.id}", STATS_PAGE_TTL, _compute)
 
 
 def format_duration_compact(total_minutes):
@@ -1428,23 +1565,27 @@ def genre_breakdown(profile, media_type, metric="items"):
     share of the type's total as a rounded percentage - shares can be a
     point or two off summing to exactly 100, same rounding trade-off
     every other percentage breakdown in this app already makes."""
-    qs = WatchEvent.objects.filter(profile=profile, title__media_type=media_type, title__genres__isnull=False)
-    if metric == "duration":
-        qs = (
-            qs.values("title__genres__name")
-            .annotate(value=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))
-            .order_by("-value")
-        )
-    else:
-        qs = qs.values("title__genres__name").annotate(value=Count("id")).order_by("-value")
 
-    unit = "movies" if media_type == MediaType.MOVIE else "episodes"
-    rows = [{"name": row["title__genres__name"], "value": row["value"]} for row in qs if row["value"]]
-    total = sum(r["value"] for r in rows)
-    for r in rows:
-        r["pct"] = round(r["value"] / total * 100) if total else 0
-        r["display"] = format_duration_compact(r["value"]) if metric == "duration" else f"{r['value']} {unit}"
-    return rows
+    def _compute():
+        qs = WatchEvent.objects.filter(profile=profile, title__media_type=media_type, title__genres__isnull=False)
+        if metric == "duration":
+            qs = (
+                qs.values("title__genres__name")
+                .annotate(value=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))
+                .order_by("-value")
+            )
+        else:
+            qs = qs.values("title__genres__name").annotate(value=Count("id")).order_by("-value")
+
+        unit = "movies" if media_type == MediaType.MOVIE else "episodes"
+        rows = [{"name": row["title__genres__name"], "value": row["value"]} for row in qs if row["value"]]
+        total = sum(r["value"] for r in rows)
+        for r in rows:
+            r["pct"] = round(r["value"] / total * 100) if total else 0
+            r["display"] = format_duration_compact(r["value"]) if metric == "duration" else f"{r['value']} {unit}"
+        return rows
+
+    return _cache_get_or_set(f"stats:genre:{profile.id}:{media_type}:{metric}", STATS_PAGE_TTL, _compute)
 
 
 def top_genres(profile, limit=3):
@@ -1471,30 +1612,48 @@ def taste_compatibility(profile_a, profile_b):
     "less compatible" just by virtue of a larger denominator. Returns
     None when either profile has no genre history at all - "0%
     overlap" would misleadingly read as "opposite tastes" when it
-    really just means "nothing to compare yet"."""
-    counts_a = dict(
-        WatchEvent.objects.filter(profile=profile_a, title__genres__isnull=False)
-        .values("title__genres__name")
-        .annotate(value=Count("id"))
-        .values_list("title__genres__name", "value")
-    )
-    counts_b = dict(
-        WatchEvent.objects.filter(profile=profile_b, title__genres__isnull=False)
-        .values("title__genres__name")
-        .annotate(value=Count("id"))
-        .values_list("title__genres__name", "value")
-    )
-    genres_a, genres_b = set(counts_a), set(counts_b)
-    if not genres_a or not genres_b:
+    really just means "nothing to compare yet".
+
+    Cached (TTL-only, not signal-invalidated - see
+    invalidate_profile_stats_cache's own docstring: this is a
+    directional "compatibility score" between two profiles, not state,
+    and there's no cheap way to enumerate "every pair involving profile
+    X" to invalidate precisely without a registry). Only the symmetric
+    overlap math (Jaccard similarity is order-independent) is cached
+    under the sorted (a, b) pair key - the "profile" field below is
+    directional (A viewing B's page needs profile_b=B, B viewing A's own
+    page needs profile_b=A) and is always attached fresh outside the
+    cache, so the two directions never collide on one cache entry."""
+
+    def _compute():
+        counts_a = dict(
+            WatchEvent.objects.filter(profile=profile_a, title__genres__isnull=False)
+            .values("title__genres__name")
+            .annotate(value=Count("id"))
+            .values_list("title__genres__name", "value")
+        )
+        counts_b = dict(
+            WatchEvent.objects.filter(profile=profile_b, title__genres__isnull=False)
+            .values("title__genres__name")
+            .annotate(value=Count("id"))
+            .values_list("title__genres__name", "value")
+        )
+        genres_a, genres_b = set(counts_a), set(counts_b)
+        if not genres_a or not genres_b:
+            return None
+        shared = genres_a & genres_b
+        union = genres_a | genres_b
+        top_shared_genre = max(shared, key=lambda g: counts_a[g] + counts_b[g]) if shared else None
+        return {
+            "overlap_pct": round(len(shared) / len(union) * 100),
+            "top_shared_genre": top_shared_genre,
+        }
+
+    key_pair = tuple(sorted((profile_a.id, profile_b.id)))
+    symmetric = _cache_get_or_set(f"stats:taste:{key_pair[0]}:{key_pair[1]}", STATS_PAGE_TTL, _compute)
+    if symmetric is None:
         return None
-    shared = genres_a & genres_b
-    union = genres_a | genres_b
-    top_shared_genre = max(shared, key=lambda g: counts_a[g] + counts_b[g]) if shared else None
-    return {
-        "profile": profile_b,
-        "overlap_pct": round(len(shared) / len(union) * 100),
-        "top_shared_genre": top_shared_genre,
-    }
+    return {"profile": profile_b, **symmetric}
 
 
 def year_breakdown(profile, media_type):
@@ -1517,23 +1676,31 @@ def release_year_breakdown(profile):
     the decade it's already counted once for. None when nothing's been
     watched yet, so the panel can show its own empty state instead of a
     zero-count chart."""
-    years = list(Title.objects.filter(watch_events__profile=profile).distinct().values_list("name", "year"))
-    if not years:
-        return None
-    decade_counts = {}
-    for _, year in years:
-        decade_counts[(year // 10) * 10] = decade_counts.get((year // 10) * 10, 0) + 1
-    max_count = max(decade_counts.values())
-    oldest_name, oldest_year = min(years, key=lambda t: t[1])
-    return {
-        "decades": [
-            {"label": f"{decade % 100:02d}s", "count": decade_counts[decade], "pct": round(decade_counts[decade] / max_count * 100)}
-            for decade in sorted(decade_counts)
-        ],
-        "oldest_name": oldest_name,
-        "oldest_year": oldest_year,
-        "latest_year": max(year for _, year in years),
-    }
+
+    def _compute():
+        years = list(Title.objects.filter(watch_events__profile=profile).distinct().values_list("name", "year"))
+        if not years:
+            return None
+        decade_counts = {}
+        for _, year in years:
+            decade_counts[(year // 10) * 10] = decade_counts.get((year // 10) * 10, 0) + 1
+        max_count = max(decade_counts.values())
+        oldest_name, oldest_year = min(years, key=lambda t: t[1])
+        return {
+            "decades": [
+                {
+                    "label": f"{decade % 100:02d}s",
+                    "count": decade_counts[decade],
+                    "pct": round(decade_counts[decade] / max_count * 100),
+                }
+                for decade in sorted(decade_counts)
+            ],
+            "oldest_name": oldest_name,
+            "oldest_year": oldest_year,
+            "latest_year": max(year for _, year in years),
+        }
+
+    return _cache_get_or_set(f"stats:release_years:{profile.id}", STATS_PAGE_TTL, _compute)
 
 
 def heatmap_available_years(profile):
@@ -1560,63 +1727,71 @@ def daily_breakdown(profile, days=7):
     "Today" rather than its weekday name, and each day's height_pct is
     relative to the window's own peak day (not a fixed scale), matching
     the mockup's "12h 24m" label floating above the tallest bar."""
-    today = timezone.localdate()
-    start = today - timedelta(days=days - 1)
-    minutes_by_date = {
-        row["watched_at__date"]: row["minutes"] or 0
-        for row in (
-            WatchEvent.objects.filter(profile=profile, watched_at__date__gte=start, watched_at__date__lte=today)
-            .values("watched_at__date")
-            .annotate(minutes=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))
-        )
-    }
 
-    day_rows = []
-    for i in range(days):
-        d = start + timedelta(days=i)
-        minutes = minutes_by_date.get(d, 0)
-        day_rows.append(
-            {
-                "label": "Today" if d == today else _WEEKDAY_LABELS[d.weekday()],
-                "date": d,
-                "minutes": minutes,
-                "duration": format_duration(minutes),
-            }
-        )
+    def _compute():
+        today = timezone.localdate()
+        start = today - timedelta(days=days - 1)
+        minutes_by_date = {
+            row["watched_at__date"]: row["minutes"] or 0
+            for row in (
+                WatchEvent.objects.filter(profile=profile, watched_at__date__gte=start, watched_at__date__lte=today)
+                .values("watched_at__date")
+                .annotate(minutes=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))
+            )
+        }
 
-    peak_minutes = max((d["minutes"] for d in day_rows), default=0)
-    for d in day_rows:
-        d["height_pct"] = round(d["minutes"] / peak_minutes * 100) if peak_minutes else 0
+        day_rows = []
+        for i in range(days):
+            d = start + timedelta(days=i)
+            minutes = minutes_by_date.get(d, 0)
+            day_rows.append(
+                {
+                    "label": "Today" if d == today else _WEEKDAY_LABELS[d.weekday()],
+                    "date": d,
+                    "minutes": minutes,
+                    "duration": format_duration(minutes),
+                }
+            )
 
-    return {"days": day_rows, "peak_minutes": peak_minutes, "peak_duration": format_duration(peak_minutes)}
+        peak_minutes = max((d["minutes"] for d in day_rows), default=0)
+        for d in day_rows:
+            d["height_pct"] = round(d["minutes"] / peak_minutes * 100) if peak_minutes else 0
+
+        return {"days": day_rows, "peak_minutes": peak_minutes, "peak_duration": format_duration(peak_minutes)}
+
+    return _cache_get_or_set(f"stats:daily_breakdown:{profile.id}:{days}", STATS_PAGE_TTL, _compute)
 
 
 def daily_average(profile, days=7):
     """Average per-day watch time over the last `days` days, with a delta
     vs. the preceding period of the same length (e.g. "+9m" - this
     window's daily average is 9 minutes higher than last window's)."""
-    today = timezone.localdate()
 
-    def total_minutes(start, end):
-        return (
-            WatchEvent.objects.filter(profile=profile, watched_at__date__gte=start, watched_at__date__lte=end)
-            .aggregate(total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))["total"]
-            or 0
-        )
+    def _compute():
+        today = timezone.localdate()
 
-    current_start = today - timedelta(days=days - 1)
-    previous_end = current_start - timedelta(days=1)
-    previous_start = previous_end - timedelta(days=days - 1)
+        def total_minutes(start, end):
+            return (
+                WatchEvent.objects.filter(profile=profile, watched_at__date__gte=start, watched_at__date__lte=end)
+                .aggregate(total=Sum(Coalesce("episode__runtime_minutes", "title__runtime_minutes", 0)))["total"]
+                or 0
+            )
 
-    current_avg = total_minutes(current_start, today) / days
-    previous_avg = total_minutes(previous_start, previous_end) / days
-    delta = round(current_avg) - round(previous_avg)
+        current_start = today - timedelta(days=days - 1)
+        previous_end = current_start - timedelta(days=1)
+        previous_start = previous_end - timedelta(days=days - 1)
 
-    return {
-        "average_duration": format_duration(current_avg),
-        "delta_positive": delta >= 0,
-        "delta_label": f"{'+' if delta > 0 else '-'}{format_duration(abs(delta))}" if delta else None,
-    }
+        current_avg = total_minutes(current_start, today) / days
+        previous_avg = total_minutes(previous_start, previous_end) / days
+        delta = round(current_avg) - round(previous_avg)
+
+        return {
+            "average_duration": format_duration(current_avg),
+            "delta_positive": delta >= 0,
+            "delta_label": f"{'+' if delta > 0 else '-'}{format_duration(abs(delta))}" if delta else None,
+        }
+
+    return _cache_get_or_set(f"stats:daily_average:{profile.id}:{days}", STATS_PAGE_TTL, _compute)
 
 
 # (label, start_hour_inclusive, end_hour_exclusive) in the profile's local
@@ -1635,32 +1810,36 @@ def peak_hours(profile):
     Peak Hours bars. Bucketed on watched_at's LOCAL hour (via ExtractHour's
     tzinfo param), not the UTC hour it's stored as - a single grouped
     query (at most 24 rows back) rather than fetching every WatchEvent."""
-    counts_by_hour = dict(
-        WatchEvent.objects.filter(profile=profile)
-        .annotate(hour=ExtractHour("watched_at", tzinfo=timezone.get_current_timezone()))
-        .values("hour")
-        .annotate(count=Count("id"))
-        .values_list("hour", "count")
-    )
 
-    counts = {label: 0 for label, _, _ in _TIME_OF_DAY_BUCKETS}
-    for hour, count in counts_by_hour.items():
-        for label, start, end in _TIME_OF_DAY_BUCKETS:
-            in_range = start <= hour < end if start < end else (hour >= start or hour < end)
-            if in_range:
-                counts[label] += count
-                break
+    def _compute():
+        counts_by_hour = dict(
+            WatchEvent.objects.filter(profile=profile)
+            .annotate(hour=ExtractHour("watched_at", tzinfo=timezone.get_current_timezone()))
+            .values("hour")
+            .annotate(count=Count("id"))
+            .values_list("hour", "count")
+        )
 
-    max_count = max(counts.values(), default=0)
-    return [
-        {
-            "label": label,
-            "range": f"{start:02d}:00 - {end:02d}:00",
-            "count": counts[label],
-            "pct": round(counts[label] / max_count * 100) if max_count else 0,
-        }
-        for label, start, end in _TIME_OF_DAY_BUCKETS
-    ]
+        counts = {label: 0 for label, _, _ in _TIME_OF_DAY_BUCKETS}
+        for hour, count in counts_by_hour.items():
+            for label, start, end in _TIME_OF_DAY_BUCKETS:
+                in_range = start <= hour < end if start < end else (hour >= start or hour < end)
+                if in_range:
+                    counts[label] += count
+                    break
+
+        max_count = max(counts.values(), default=0)
+        return [
+            {
+                "label": label,
+                "range": f"{start:02d}:00 - {end:02d}:00",
+                "count": counts[label],
+                "pct": round(counts[label] / max_count * 100) if max_count else 0,
+            }
+            for label, start, end in _TIME_OF_DAY_BUCKETS
+        ]
+
+    return _cache_get_or_set(f"stats:peak_hours:{profile.id}", STATS_PAGE_TTL, _compute)
 
 
 def activity_feed(limit=30):

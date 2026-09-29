@@ -452,16 +452,30 @@ def discover(request, media_type, category):
 
     # TMDB refuses page requests beyond 500 regardless of total_pages.
     page_num = min(_discover_int_param(request, "page") or 1, 500)
-    page = tmdb.discover_by_decades(
-        tmdb_media_type, category=category, page=page_num, decades=decades, page_size=page_size, **filters
-    )
+    # The three TMDB calls below are independent of each other (discover's
+    # own results, the genre catalog used to annotate them, the provider
+    # catalog used only later in context) - run together instead of one
+    # after another. api_key resolved once here, not by each of the three
+    # worker threads independently - same reasoning as every other
+    # parallel-TMDB-call site in this app.
+    api_key = instance_config.get_tmdb_api_key()
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        page_future = executor.submit(
+            tmdb.discover_by_decades,
+            tmdb_media_type, category=category, page=page_num, decades=decades, page_size=page_size,
+            api_key=api_key, **filters,
+        )
+        genre_catalog_future = executor.submit(tmdb.genres, tmdb_media_type, api_key=api_key)
+        providers_future = executor.submit(tmdb.watch_provider_catalog, tmdb_media_type, region=region, api_key=api_key)
+        page = page_future.result()
+        genre_catalog = genre_catalog_future.result()
+        providers = providers_future.result()
 
     # Every result carries genre_ids, not names (see tmdb._normalize_result's
     # own comment) - resolved here against the same genre catalog the
     # filter panel already needs, capped at 2 per tile so the hover
     # overlay's "year • genres" line stays one line for a title with a
     # long genre list.
-    genre_catalog = tmdb.genres(tmdb_media_type)
     genre_names_by_id = {g["id"]: g["name"] for g in genre_catalog}
     for item in page["results"]:
         item["genre_names"] = [
@@ -488,7 +502,7 @@ def discover(request, media_type, category):
         "total_pages": min(page["total_pages"], 500),
         "genres": genre_catalog,
         "selected_genres": set(genre_ids),
-        "providers": tmdb.watch_provider_catalog(tmdb_media_type, region=region),
+        "providers": providers,
         "selected_providers": set(provider_ids),
         "decade_options": tmdb.decades_through_now(),
         "selected_decades": set(decades),

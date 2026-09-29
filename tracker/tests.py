@@ -12814,6 +12814,100 @@ class RecommendedForYouBatchSelectorTests(TestCase):
         self.assertContains(resp, "Similar")
 
 
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class StatsCacheTests(TestCase):
+    """selectors._cache_get_or_set/invalidate_profile_stats_cache - the
+    Dashboard/Stats computed-data cache. LocMemCache swap (class-level, so
+    it's active in setUp() too) + cache.clear() matches
+    TmdbDiscoverCachingTests' own idiom - the default under `manage.py
+    test` is DummyCache (a real no-op), which these tests need to not be
+    in order to actually exercise the cache."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        from django.utils import timezone
+
+        cache.clear()
+        user = User.objects.create_user("statscacheuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="StatsCacheUser")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Cached Movie", year=2020, runtime_minutes=100)
+        # quick_stats' movies_this_year filters on the real current year,
+        # not a fixed one - timezone.now() rather than a hardcoded date.
+        self.now = timezone.now()
+
+    def test_repeated_call_hits_cache_not_the_database(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.now)
+        first = selectors.quick_stats(self.profile)
+        with self.assertNumQueries(0):
+            second = selectors.quick_stats(self.profile)
+        self.assertEqual(first, second)
+
+    def test_cached_value_never_leaks_to_a_different_profile(self):
+        other_user = User.objects.create_user("statscacheother", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="StatsCacheOther")
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.now)
+        mine = selectors.quick_stats(self.profile)
+        theirs = selectors.quick_stats(other_profile)
+        self.assertEqual(mine["movies_this_year"], 1)
+        self.assertEqual(theirs["movies_this_year"], 0)
+
+    def test_marking_watched_invalidates_the_cached_value(self):
+        # Primes the cache with "nothing watched yet", then a real watch
+        # action should make the very next read reflect it - proves the
+        # WatchEvent signal (tracker/apps.py) actually fired, not just
+        # that the TTL happened to expire.
+        selectors.quick_stats(self.profile)
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.now)
+        self.assertEqual(selectors.quick_stats(self.profile)["movies_this_year"], 1)
+
+    def test_deleting_watch_history_invalidates_the_cached_value(self):
+        event = WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.now)
+        selectors.quick_stats(self.profile)
+        event.delete()
+        self.assertEqual(selectors.quick_stats(self.profile)["movies_this_year"], 0)
+
+    def test_genre_breakdown_keys_dont_collide_across_media_type_or_metric(self):
+        genre = Genre.objects.create(name="Action")
+        self.title.genres.add(genre)
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.now)
+        items_result = selectors.genre_breakdown(self.profile, MediaType.MOVIE, metric="items")
+        duration_result = selectors.genre_breakdown(self.profile, MediaType.MOVIE, metric="duration")
+        tv_result = selectors.genre_breakdown(self.profile, MediaType.TV, metric="items")
+        self.assertEqual(items_result[0]["display"], "1 movies")
+        self.assertEqual(duration_result[0]["display"], "1h")
+        self.assertEqual(tv_result, [])
+
+    def test_taste_compatibility_shows_the_right_profile_regardless_of_call_order(self):
+        # Reported live (caught during implementation, not by a user): an
+        # earlier version cached the whole result under the sorted (a, b)
+        # pair key, which is correct for the symmetric overlap math but
+        # would have handed profile A's own page the wrong "profile" back
+        # once profile B's page had already warmed the same cache entry.
+        genre = Genre.objects.create(name="Action")
+        self.title.genres.add(genre)
+        other_user = User.objects.create_user("tasteother", password="pass12345")
+        other_profile = Profile.objects.create(user=other_user, display_name="TasteOther")
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.now)
+        WatchEvent.objects.create(profile=other_profile, title=self.title, watched_at=self.now)
+        # Warm the shared symmetric-math cache entry from the *other*
+        # direction first.
+        selectors.taste_compatibility(other_profile, self.profile)
+        result = selectors.taste_compatibility(self.profile, other_profile)
+        self.assertEqual(result["profile"], other_profile)
+
+    def test_unreachable_cache_degrades_instead_of_crashing(self):
+        # Deliberately not overriding CACHES to LocMemCache for this one
+        # test - matches TmdbDiscoverCacheResilienceTests' own idiom,
+        # relying on the real (unreachable in this test environment)
+        # default backend to prove the try/except fallback actually works.
+        with override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.redis.RedisCache",
+                                                     "LOCATION": "redis://localhost:6390/0",
+                                                     "OPTIONS": {"socket_connect_timeout": 0.1, "socket_timeout": 0.1}}}):
+            WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.now)
+            stats = selectors.quick_stats(self.profile)
+        self.assertEqual(stats["movies_this_year"], 1)
+
+
 class QuickStatsFormatTests(TestCase):
     def test_total_watch_time_uses_the_stats_pages_duration_format(self):
         user = User.objects.create_user("statsformat", password="pass12345")
