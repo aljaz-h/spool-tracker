@@ -9,6 +9,22 @@
   reference implementation, not official docs, and unverified against a
   live account from this environment. Could change or break without
   notice; failures show up in Settings & Import → Logs.
+- **Import Review only covers watch history, not ratings/lists/progress
+  yet.** A first Trakt/Simkl/Nuvio connection scans and stages watch
+  history for review before writing anything - but Trakt's own list/
+  watchlist import (the `import_lists` sync-schedule checkbox) and
+  Nuvio's continue-watching progress aren't reviewable yet; both still
+  only ever arrive via the normal daily sync (automatic, not gated
+  behind review), so they start showing up the day after a first
+  reviewed import, not as part of it.
+- **Nuvio's Import Review page can show a slightly different season/
+  episode than what actually gets imported**, in one narrow case: a
+  title already reclassified as anime, with a TMDB season-count/MAL
+  relation-chain remap (see `episode_matching.resolve_episode_season`).
+  The review page shows the as-reported season/episode; commit still
+  applies the same reconciliation routine Nuvio sync always has, so
+  what's actually written is unaffected - only the preview label could
+  briefly disagree with it.
 - **CSV import** has no TMDB/IMDB-based matching (unlike Trakt/Simkl/
   Nuvio, which now all dedupe against each other by TMDB id — see
   [Duplicate titles from multiple sync sources](IMPORTING.md#duplicate-titles-from-multiple-sync-sources))

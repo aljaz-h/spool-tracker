@@ -340,6 +340,33 @@ def commit_import_session(session_id):
 
 
 @shared_task
+def expire_import_sessions():
+    """Nightly beat job (see bootstrap_periodic_tasks.py) - marks any
+    SCANNING/READY ImportSession past its own expires_at as EXPIRED and
+    discards its staging data (ImportCandidate rows + a file import's own
+    temp file - see import_pipeline.discard_session), so a review nobody
+    ever came back to doesn't accumulate forever. Never touches an
+    IMPORTING/COMPLETED/CANCELLED/FAILED session (already finished, one
+    way or another) or any canonical Title/Episode/WatchEvent data -
+    only this session's own staging rows. Same idempotent-per-row
+    pattern as prune_old_logs: safe to run on a session more than once,
+    safe to re-run after a crash mid-way."""
+    stale = ImportSession.objects.filter(
+        status__in=(ImportSession.Status.SCANNING, ImportSession.Status.READY),
+        expires_at__lt=timezone.now(),
+    )
+    count = 0
+    for session in stale:
+        session.status = ImportSession.Status.EXPIRED
+        session.completed_at = timezone.now()
+        session.save(update_fields=["status", "completed_at"])
+        import_pipeline.discard_session(session)
+        count += 1
+    logger.info("expire_import_sessions: expired %d stale session(s)", count)
+    return count
+
+
+@shared_task
 def sync_title_release(title_id):
     """Per-title release sync, fanned out by sync_release_schedules
     (below) instead of being called in a loop there - each call does one

@@ -24366,6 +24366,107 @@ class BootstrapAlsoRegistersReclassifyAnimeTaskTests(TestCase):
         self.assertTrue(PeriodicTask.objects.filter(name=scheduling.RECLASSIFY_ANIME_TASK_NAME).exists())
 
 
+class EnsureImportCleanupTaskTests(TestCase):
+    def test_creates_the_single_task_with_defaults(self):
+        scheduling.ensure_import_cleanup_task()
+        pt = PeriodicTask.objects.get(name=scheduling.IMPORT_CLEANUP_TASK_NAME)
+        self.assertEqual(pt.task, "tracker.tasks.expire_import_sessions")
+        self.assertEqual(pt.crontab.hour, "4")
+        self.assertEqual(pt.crontab.minute, "45")
+        self.assertTrue(pt.enabled)
+
+    def test_re_running_updates_rather_than_duplicates(self):
+        scheduling.ensure_import_cleanup_task()
+        scheduling.ensure_import_cleanup_task(hour=6)
+        self.assertEqual(PeriodicTask.objects.filter(name=scheduling.IMPORT_CLEANUP_TASK_NAME).count(), 1)
+        pt = PeriodicTask.objects.get(name=scheduling.IMPORT_CLEANUP_TASK_NAME)
+        self.assertEqual(pt.crontab.hour, "6")
+
+
+class BootstrapAlsoRegistersImportCleanupTaskTests(TestCase):
+    def test_registers_the_import_cleanup_task(self):
+        from django.core.management import call_command
+
+        call_command("bootstrap_periodic_tasks")
+        self.assertTrue(PeriodicTask.objects.filter(name=scheduling.IMPORT_CLEANUP_TASK_NAME).exists())
+
+
+class ExpireImportSessionsTaskTests(TestCase):
+    """tasks.expire_import_sessions - the nightly sweep for Import Review
+    sessions nobody ever came back to review/confirm."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.timezone = timezone
+        user = User.objects.create_user("expireuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ExpireUser")
+
+    def _write(self, content="title,type,watched_at\nFathom,movie,2024-01-05\n"):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            f.write(content)
+            return f.name
+
+    def test_expires_a_stale_ready_session_and_discards_its_candidates(self):
+        path = self._write()
+        session = ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.CSV,
+            status=ImportSession.Status.READY,
+            source_metadata={"path": path},
+            expires_at=self.timezone.now() - timedelta(days=1),
+        )
+        ImportCandidate.objects.create(import_session=session, category=ImportCandidate.Category.HISTORY, media_type=MediaType.MOVIE)
+
+        expired_count = tasks.expire_import_sessions()
+
+        self.assertEqual(expired_count, 1)
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.EXPIRED)
+        self.assertFalse(session.candidates.exists())
+        self.assertFalse(os.path.exists(path))
+
+    def test_expires_a_stale_scanning_session_too(self):
+        session = ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.TRAKT,
+            status=ImportSession.Status.SCANNING,
+            expires_at=self.timezone.now() - timedelta(days=1),
+        )
+        tasks.expire_import_sessions()
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.EXPIRED)
+
+    def test_does_not_touch_a_session_not_yet_expired(self):
+        session = ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.CSV,
+            status=ImportSession.Status.READY,
+            expires_at=self.timezone.now() + timedelta(days=1),
+        )
+        tasks.expire_import_sessions()
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.READY)
+
+    def test_does_not_touch_a_completed_session_past_its_own_expiry(self):
+        session = ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.CSV,
+            status=ImportSession.Status.COMPLETED,
+            expires_at=self.timezone.now() - timedelta(days=1),
+        )
+        tasks.expire_import_sessions()
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.COMPLETED)
+
+    def test_never_touches_canonical_watch_events(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.timezone.now())
+        session = ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.CSV,
+            status=ImportSession.Status.READY,
+            expires_at=self.timezone.now() - timedelta(days=1),
+        )
+        tasks.expire_import_sessions()
+        self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title=movie).exists())
+
+
 class ReclassifyAnimeTitlesTaskTests(TestCase):
     """tracker/tasks.py's reclassify_anime_titles() shared_task - thin
     wrapper around the management command of the same name (see

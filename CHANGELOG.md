@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.141.0] - 2026-09-29
+
+### Added
+
+- A nightly cleanup job now expires abandoned Import Review sessions
+  (started but never reviewed/confirmed) and discards their staged data,
+  so a review nobody came back to doesn't sit around indefinitely.
+
 ## [0.140.0] - 2026-09-29
 
 ### Changed

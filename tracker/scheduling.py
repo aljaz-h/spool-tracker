@@ -53,6 +53,7 @@ LOG_RETENTION_TASK_NAME = "prune-old-logs"
 MDBLIST_REFRESH_TASK_NAME = "queue-due-mdblist-refreshes"
 WATCHLIST_STALE_TASK_NAME = "generate-watchlist-stale-notifications"
 RECLASSIFY_ANIME_TASK_NAME = "reclassify-anime-titles"
+IMPORT_CLEANUP_TASK_NAME = "expire-import-sessions"
 
 
 def ensure_release_sync_task(hour=3, minute=0):
@@ -186,6 +187,27 @@ def ensure_mdblist_refresh_task():
         defaults={
             "crontab": schedule,
             "task": "tracker.tasks.queue_due_mdblist_refreshes",
+            "args": "[]",
+            "enabled": True,
+        },
+    )
+
+
+def ensure_import_cleanup_task(hour=4, minute=45):
+    """(Re)creates the nightly PeriodicTask that expires stale Import
+    Review sessions (see tasks.expire_import_sessions) - instance-wide,
+    same shape as the other nightly instance-wide tasks above. 15 minutes
+    after ensure_reclassify_anime_task's own default, no particular
+    ordering dependency - just spread out so a night with several of
+    these nightly jobs doesn't fire them all in the same minute."""
+    schedule, _ = CrontabSchedule.objects.get_or_create(
+        minute=str(minute), hour=str(hour), day_of_week="*", day_of_month="*", month_of_year="*"
+    )
+    PeriodicTask.objects.update_or_create(
+        name=IMPORT_CLEANUP_TASK_NAME,
+        defaults={
+            "crontab": schedule,
+            "task": "tracker.tasks.expire_import_sessions",
             "args": "[]",
             "enabled": True,
         },

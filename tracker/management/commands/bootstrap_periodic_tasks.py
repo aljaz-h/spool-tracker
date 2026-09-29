@@ -49,3 +49,6 @@ class Command(BaseCommand):
 
         scheduling.ensure_reclassify_anime_task()
         self.stdout.write(self.style.SUCCESS("Confirmed the nightly anime-reclassification task."))
+
+        scheduling.ensure_import_cleanup_task()
+        self.stdout.write(self.style.SUCCESS("Confirmed the nightly Import Review cleanup task."))

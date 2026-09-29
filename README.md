@@ -49,7 +49,7 @@ account.
 - Recommend a title to a housemate — including an anonymous "mystery" recommendation
 - Anime enrichment via MyAnimeList (score, studio, source, filler/recap episode badges) and automatic season-numbering reconciliation against TMDB — no separate account or API key needed
 - Activity feed across profiles (only shown once a second profile exists)
-- CSV import with column-mapping and a preview-before-commit step
+- Import Review: CSV/JSON/ZIP file import (with column-mapping) and a first Trakt/Simkl/Nuvio connection both scan and stage what they'd bring in - filterable, selectable, nothing written until you confirm
 - Trakt / Simkl OAuth connect, Nuvio email/password connect, + a daily background sync job
 - A generic [Scrobble API](docs/SCROBBLE_API.md) for any player/script, and a read-only [Reports API](docs/REPORTS_API.md) for external services like spool-wrapped
 
