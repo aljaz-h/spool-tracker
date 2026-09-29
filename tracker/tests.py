@@ -19,7 +19,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
-from . import achievements, completion, crypto, csv_import, episode_matching, instance_config, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, title_matching, totp, update_check, views
+from . import achievements, completion, crypto, csv_import, episode_matching, import_pipeline, instance_config, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, title_matching, totp, update_check, views
 from .integrations import anifiller, mdblist, nuvio, scrobble, tenrai, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
@@ -477,9 +477,9 @@ class ParseZipFileTests(TestCase):
 
 class ParseFileTests(TestCase):
     """csv_import.parse_file() - the single dispatch point shared by the
-    request-time preview/small-file commit path and the background
-    run_data_import task, so any kind-specific bug here would affect
-    both."""
+    request-time preview and import_pipeline.scan_file_import (the
+    Import Review scan step), so any kind-specific bug here would
+    affect both."""
 
     def _write(self, suffix, content):
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
@@ -4899,9 +4899,12 @@ class ExportCsvViewTests(TestCase):
 
 
 class ImportCsvCommitViewTests(TestCase):
-    """import_csv_commit - the actual data-writing step of the CSV import
-    flow (upload/preview/remap only stage state in the session) - checks
-    it logs a DataLog row on both the happy path and a failure."""
+    """import_csv_commit no longer writes anything itself - it stages an
+    ImportSession (status=SCANNING) and dispatches the scan task, then
+    redirects into Import Review. _dispatch_sync_task_safely is mocked
+    out here (it really does try to reach a Celery broker, which isn't
+    running in tests) - ScanAndCommitImportSessionTaskTests covers what
+    the dispatched task itself does."""
 
     def setUp(self):
         user = User.objects.create_user("csvimporter", password="pass12345")
@@ -4912,34 +4915,36 @@ class ImportCsvCommitViewTests(TestCase):
         upload = SimpleUploadedFile("history.csv", body.encode(), content_type="text/csv")
         return self.client.post(reverse("import_csv"), {"csv_file": upload})
 
-    def test_logs_success_with_imported_and_skipped_counts(self):
-        body = "title,media_type,watched_at\nFathom,movie,2024-01-01\nBad Row,movie,not-a-date\n"
-        self._upload(body)
-        self.client.post(reverse("import_csv_commit"))
-        log = DataLog.objects.get(profile=self.profile)
-        self.assertEqual(log.action, DataLog.Action.IMPORT)
-        self.assertEqual(log.status, DataLog.Status.SUCCESS)
-        self.assertEqual(log.item_count, 1)
-        self.assertEqual(log.detail, "1 skipped")
-        self.assertEqual(log.imported_titles, ["Fathom"])
-
-    @patch("tracker.csv_import.commit_rows")
-    def test_logs_failure_with_error_message_on_exception(self, mock_commit):
-        mock_commit.side_effect = RuntimeError("db exploded")
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_creates_scanning_session_and_redirects_to_review(self, mock_dispatch):
         body = "title,media_type,watched_at\nFathom,movie,2024-01-01\n"
         self._upload(body)
-        with self.assertRaises(RuntimeError):
-            self.client.post(reverse("import_csv_commit"))
-        log = DataLog.objects.get(profile=self.profile)
-        self.assertEqual(log.action, DataLog.Action.IMPORT)
-        self.assertEqual(log.status, DataLog.Status.FAILED)
-        self.assertIn("db exploded", log.error_message)
+        resp = self.client.post(reverse("import_csv_commit"))
+
+        session = ImportSession.objects.get(profile=self.profile)
+        self.assertEqual(session.status, ImportSession.Status.SCANNING)
+        self.assertEqual(session.source, ImportSession.Source.CSV)
+        self.assertEqual(session.source_filename, "history.csv")
+        self.assertRedirects(resp, reverse("import_review", args=[session.id]))
+        mock_dispatch.assert_called_once_with(tasks.scan_import_session, [session.id])
+        self.assertFalse(WatchEvent.objects.exists())
+        self.assertNotIn("csv_import", self.client.session)
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_missing_required_mapping_stays_on_preview(self, mock_dispatch):
+        upload = SimpleUploadedFile("history.csv", b"name,when\nFathom,2024-01-01\n", content_type="text/csv")
+        self.client.post(reverse("import_csv"), {"csv_file": upload})
+        resp = self.client.post(reverse("import_csv_commit"), follow=True)
+        self.assertRedirects(resp, reverse("import_csv_preview"))
+        mock_dispatch.assert_not_called()
+        self.assertFalse(ImportSession.objects.exists())
 
 
 class ImportUploadKindTests(TestCase):
     """import_csv_upload accepting .csv/.json/.zip, and the full upload →
-    preview → commit path for the two new kinds - CsvImport*Tests above
-    already cover .csv end to end."""
+    preview → commit → scan → review → commit path for the two new
+    kinds - ImportCsvCommitViewTests above already covers .csv's own
+    commit step in isolation."""
 
     def setUp(self):
         user = User.objects.create_user("multiformat", password="pass12345")
@@ -4964,7 +4969,15 @@ class ImportUploadKindTests(TestCase):
         self.assertRedirects(resp, reverse("settings"))
         self.assertContains(resp, "doesn&#x27;t look like a valid zip file")
 
-    def test_json_upload_previews_and_commits(self):
+    def _commit_and_run_worker(self):
+        with patch("tracker.views._dispatch_sync_task_safely"):
+            self.client.post(reverse("import_csv_commit"))
+        session = ImportSession.objects.get(profile=self.profile)
+        tasks.scan_import_session(session.id)
+        tasks.commit_import_session(session.id)
+        return session
+
+    def test_json_upload_previews_and_imports_after_review(self):
         data = json.dumps(
             [
                 {
@@ -4979,12 +4992,13 @@ class ImportUploadKindTests(TestCase):
         self.assertContains(resp, "The Long Corridor")
         self.assertNotContains(resp, "Column mapping")
 
-        self.client.post(reverse("import_csv_commit"))
+        session = self._commit_and_run_worker()
+        self.assertEqual(session.source, ImportSession.Source.JSON)
         self.assertTrue(WatchEvent.objects.filter(profile=self.profile).exists())
         log = DataLog.objects.get(profile=self.profile)
         self.assertEqual(log.item_count, 1)
 
-    def test_zip_upload_previews_and_commits(self):
+    def test_zip_upload_previews_and_imports_after_review(self):
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
             zf.writestr("history.csv", "title,type,watched_at\nFathom,movie,2024-01-05\n")
@@ -4992,61 +5006,157 @@ class ImportUploadKindTests(TestCase):
         resp = self.client.post(reverse("import_csv"), {"csv_file": upload}, follow=True)
         self.assertContains(resp, "Fathom")
 
-        self.client.post(reverse("import_csv_commit"))
+        session = self._commit_and_run_worker()
+        self.assertEqual(session.source, ImportSession.Source.ZIP)
         self.assertTrue(WatchEvent.objects.filter(profile=self.profile).exists())
 
 
-class ImportCsvCommitLargeFileDispatchTests(TestCase):
-    """import_csv_commit's threshold split (views.LARGE_IMPORT_ROW_THRESHOLD) -
-    a file over the threshold must not run commit_rows() synchronously in
-    the request (confirmed against a real Trakt export zip to take ~85s
-    for ~10.5k rows with zero TMDB calls involved - guaranteed to blow
-    past a request timeout); instead it hands off to Celery and leaves a
-    RUNNING DataLog row for the Logs tab to show as in-progress."""
+class ImportReviewViewTests(TestCase):
+    """The Universal Import Review page itself - ownership, filtering,
+    selection (bulk + per-page), commit, and cancel. Uses CSV sessions
+    (the only source wired into the pipeline so far) but exercises the
+    page/view logic that's shared by every future source too."""
 
     def setUp(self):
-        user = User.objects.create_user("bulkimporter", password="pass12345")
-        self.profile = Profile.objects.create(user=user, display_name="BulkImporter")
-        self.client.login(username="bulkimporter", password="pass12345")
+        user = User.objects.create_user("reviewer", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Reviewer")
+        self.client.login(username="reviewer", password="pass12345")
 
-    def _upload_json_with_n_rows(self, n):
-        data = json.dumps(
-            [
-                {
-                    "type": "movie",
-                    "watched_at": f"2024-01-01T00:00:{i % 60:02d}.000Z",
-                    "movie": {"title": f"Movie {i}", "ids": {"trakt": i}},
-                }
-                for i in range(n)
-            ]
+    def _write(self, content):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            f.write(content)
+            return f.name
+
+    IMPORT_MAPPING = {"title": "title", "media_type": "media_type", "watched_at": "watched_at", "season": "season", "episode": "episode"}
+
+    def _ready_session(self, content="title,media_type,season,episode,watched_at\nFathom,movie,,,2024-01-05\nSilo,tv,1,2,2024-01-06\n"):
+        path = self._write(content)
+        session = ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.CSV,
+            source_metadata={"path": path},
+            import_options={"mapping": self.IMPORT_MAPPING},
         )
-        upload = SimpleUploadedFile("watched-history-1.json", data.encode(), content_type="application/json")
-        self.client.post(reverse("import_csv"), {"csv_file": upload})
+        tasks.scan_import_session(session.id)
+        session.refresh_from_db()
+        return session
 
-    @patch("tracker.views._dispatch_import_task_safely")
-    @patch("tracker.views.LARGE_IMPORT_ROW_THRESHOLD", 2)
-    def test_over_threshold_dispatches_instead_of_committing_synchronously(self, mock_dispatch):
-        self._upload_json_with_n_rows(3)
-        resp = self.client.post(reverse("import_csv_commit"), follow=True)
+    def test_review_page_requires_ownership(self):
+        other_user = User.objects.create_user("other", password="pass12345")
+        Profile.objects.create(user=other_user, display_name="Other")
+        session = self._ready_session()
+        self.client.logout()
+        self.client.login(username="other", password="pass12345")
+        resp = self.client.get(reverse("import_review", args=[session.id]))
+        self.assertEqual(resp.status_code, 404)
 
-        mock_dispatch.assert_called_once()
-        self.assertFalse(WatchEvent.objects.filter(profile=self.profile).exists())
-        log = DataLog.objects.get(profile=self.profile)
-        self.assertEqual(log.status, DataLog.Status.RUNNING)
-        self.assertContains(resp, "Import started in the background")
-        # session state cleared even though the task hasn't run yet in this test
-        self.assertNotIn("csv_import", self.client.session)
+    def test_ready_session_shows_summary_and_candidates(self):
+        session = self._ready_session()
+        resp = self.client.get(reverse("import_review", args=[session.id]))
+        self.assertContains(resp, "Fathom")
+        self.assertContains(resp, "Silo")
+        self.assertEqual(session.summary["total"], 2)
+        self.assertEqual(session.summary["new"], 2)
 
-    @patch("tracker.views._dispatch_import_task_safely")
-    @patch("tracker.views.LARGE_IMPORT_ROW_THRESHOLD", 2)
-    def test_at_threshold_commits_synchronously(self, mock_dispatch):
-        self._upload_json_with_n_rows(2)
-        self.client.post(reverse("import_csv_commit"))
+    def test_status_filter_scopes_the_candidate_list(self):
+        session = self._ready_session()
+        resp = self.client.get(reverse("import_review", args=[session.id]), {"content_type": "tv"})
+        self.assertContains(resp, "Silo")
+        self.assertNotContains(resp, "Fathom")
 
-        mock_dispatch.assert_not_called()
-        self.assertEqual(WatchEvent.objects.filter(profile=self.profile).count(), 2)
-        log = DataLog.objects.get(profile=self.profile)
-        self.assertEqual(log.status, DataLog.Status.SUCCESS)
+    def test_select_bulk_scoped_to_content_type(self):
+        session = self._ready_session()
+        movie = session.candidates.get(media_type=MediaType.MOVIE)
+        tv = session.candidates.get(media_type=MediaType.TV)
+        self.client.post(
+            reverse("import_review_select_bulk", args=[session.id]), {"scope": "tv", "selected": "0"}
+        )
+        movie.refresh_from_db()
+        tv.refresh_from_db()
+        self.assertTrue(movie.selected)
+        self.assertFalse(tv.selected)
+
+    def test_select_bulk_never_selects_failed_candidates(self):
+        session = self._ready_session("title,media_type,season,episode,watched_at\nFathom,movie,,,2024-01-05\nBad,tv,,,2024-01-06\n")
+        failed = session.candidates.get(status=ImportCandidate.Status.FAILED)
+        self.client.post(
+            reverse("import_review_select_bulk", args=[session.id]), {"scope": "all", "selected": "1"}
+        )
+        failed.refresh_from_db()
+        self.assertFalse(failed.selected)
+
+    def test_select_page_applies_individual_checkbox_state(self):
+        session = self._ready_session()
+        movie = session.candidates.get(media_type=MediaType.MOVIE)
+        tv = session.candidates.get(media_type=MediaType.TV)
+        self.client.post(
+            reverse("import_review_select_page", args=[session.id]),
+            {"candidate_id": [movie.id, tv.id], "selected_id": [movie.id]},
+        )
+        movie.refresh_from_db()
+        tv.refresh_from_db()
+        self.assertTrue(movie.selected)
+        self.assertFalse(tv.selected)
+
+    def test_select_page_ignores_candidates_from_another_session(self):
+        session = self._ready_session()
+        other = self._ready_session()
+        other_candidate = other.candidates.first()
+        self.client.post(
+            reverse("import_review_select_page", args=[session.id]),
+            {"candidate_id": [other_candidate.id], "selected_id": []},
+        )
+        other_candidate.refresh_from_db()
+        self.assertTrue(other_candidate.selected)  # untouched - belongs to a different session
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_commit_flips_status_and_dispatches(self, mock_dispatch):
+        session = self._ready_session()
+        self.client.post(reverse("import_review_commit", args=[session.id]))
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.IMPORTING)
+        mock_dispatch.assert_called_once_with(tasks.commit_import_session, [session.id])
+
+    def test_commit_with_nothing_selected_is_rejected(self):
+        session = self._ready_session()
+        session.candidates.update(selected=False)
+        self.client.post(reverse("import_review_commit", args=[session.id]))
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.READY)
+
+    def test_cancel_discards_candidates_and_temp_file_without_importing(self):
+        session = self._ready_session()
+        path = session.source_metadata["path"]
+        self.client.post(reverse("import_review_cancel", args=[session.id]))
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.CANCELLED)
+        self.assertFalse(session.candidates.exists())
+        self.assertFalse(os.path.exists(path))
+        self.assertFalse(WatchEvent.objects.exists())
+
+    def test_review_page_renders_for_every_session_status(self):
+        """Template smoke test - every status branch in import_review.html
+        (scanning/ready/importing/completed/cancelled/expired/failed) must
+        render without a template error, not just the READY happy path
+        the other tests above exercise."""
+        session = self._ready_session()
+        for status in ImportSession.Status.values:
+            session.status = status
+            session.save(update_fields=["status"])
+            resp = self.client.get(reverse("import_review", args=[session.id]))
+            self.assertEqual(resp.status_code, 200, f"status={status}")
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_full_review_flow_end_to_end(self, mock_dispatch):
+        session = self._ready_session()
+        tv = session.candidates.get(media_type=MediaType.TV)
+        self.client.post(
+            reverse("import_review_select_bulk", args=[session.id]), {"scope": "tv", "selected": "0"}
+        )
+        self.client.post(reverse("import_review_commit", args=[session.id]))
+        tasks.commit_import_session(session.id)
+
+        self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title__name="Fathom").exists())
+        self.assertFalse(WatchEvent.objects.filter(profile=self.profile, title__name="Silo").exists())
 
 
 class ExportTraktJsonViewTests(TestCase):
@@ -5662,11 +5772,12 @@ class RunSyncCapsImportedTitlesTests(TestCase):
         self.assertEqual(log.imported_titles, ["A", "B"])
 
 
-class RunDataImportTaskTests(TestCase):
-    """tasks.run_data_import - the background path for a large Import
-    Data upload (see LARGE_IMPORT_ROW_THRESHOLD in views.py), used once
-    a real Trakt export zip proved too big to commit synchronously
-    inside one request."""
+class ScanAndCommitImportSessionTaskTests(TestCase):
+    """tasks.scan_import_session/commit_import_session - the two Celery
+    tasks behind Import Review's file-import path (views.
+    import_csv_commit creates the session and dispatches the scan;
+    import_review_commit dispatches the commit once the user has
+    reviewed and confirmed selection)."""
 
     def setUp(self):
         user = User.objects.create_user("importer", password="pass12345")
@@ -5677,32 +5788,107 @@ class RunDataImportTaskTests(TestCase):
             f.write(content)
             return f.name
 
-    def test_success_updates_log_and_removes_temp_file(self):
-        path = self._write("title,type,watched_at\nFathom,movie,2024-01-05\n")
-        log = DataLog.objects.create(profile=self.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.RUNNING)
+    def _make_session(self, content, mapping=None):
+        path = self._write(content)
+        return ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.CSV,
+            source_metadata={"path": path},
+            import_options={"mapping": mapping or {"title": "title", "media_type": "type", "watched_at": "watched_at"}},
+        )
 
-        tasks.run_data_import(log.id, self.profile.id, path, "csv", {"title": "title", "media_type": "type", "watched_at": "watched_at"})
+    def test_scan_creates_candidates_and_removes_temp_file_without_writing_anything(self):
+        session = self._make_session("title,type,watched_at\nFathom,movie,2024-01-05\n")
+        path = session.source_metadata["path"]
 
-        log.refresh_from_db()
-        self.assertEqual(log.status, DataLog.Status.SUCCESS)
-        self.assertEqual(log.item_count, 1)
-        self.assertEqual(log.imported_titles, ["Fathom"])
-        self.assertTrue(WatchEvent.objects.filter(profile=self.profile).exists())
+        tasks.scan_import_session(session.id)
+
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.READY)
+        self.assertEqual(session.total_items, 1)
+        candidate = session.candidates.get()
+        self.assertEqual(candidate.title_name, "Fathom")
+        self.assertTrue(candidate.selected)
+        self.assertFalse(WatchEvent.objects.exists())
+        self.assertFalse(Title.objects.exists())
         self.assertFalse(os.path.exists(path))
 
-    @patch("tracker.csv_import.commit_rows")
-    def test_failure_marks_log_failed_and_still_removes_temp_file(self, mock_commit):
-        mock_commit.side_effect = RuntimeError("db exploded")
-        path = self._write("title,type,watched_at\nFathom,movie,2024-01-05\n")
-        log = DataLog.objects.create(profile=self.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.RUNNING)
+    @patch("tracker.csv_import.parse_file")
+    def test_scan_failure_marks_session_failed_and_removes_temp_file(self, mock_parse):
+        mock_parse.side_effect = RuntimeError("bad file")
+        session = self._make_session("title,type,watched_at\nFathom,movie,2024-01-05\n")
+        path = session.source_metadata["path"]
 
         with self.assertRaises(RuntimeError):
-            tasks.run_data_import(log.id, self.profile.id, path, "csv", {"title": "title", "media_type": "type", "watched_at": "watched_at"})
+            tasks.scan_import_session(session.id)
 
-        log.refresh_from_db()
-        self.assertEqual(log.status, DataLog.Status.FAILED)
-        self.assertIn("db exploded", log.error_message)
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.FAILED)
+        self.assertIn("bad file", session.error_message)
         self.assertFalse(os.path.exists(path))
+
+    def test_commit_writes_selected_candidates_and_logs_success(self):
+        session = self._make_session("title,type,watched_at\nFathom,movie,2024-01-05\nBad Row,movie,not-a-date\n")
+        tasks.scan_import_session(session.id)
+        session.refresh_from_db()
+        self.assertEqual(session.summary["error"], 1)
+
+        tasks.commit_import_session(session.id)
+
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.COMPLETED)
+        self.assertEqual(session.imported_items, 1)
+        self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title__name="Fathom").exists())
+        log = DataLog.objects.get(profile=self.profile)
+        self.assertEqual(log.action, DataLog.Action.IMPORT)
+        self.assertEqual(log.status, DataLog.Status.SUCCESS)
+        self.assertEqual(log.item_count, 1)
+
+    @patch("tracker.import_pipeline.commit_session")
+    def test_commit_failure_marks_session_failed_and_logs_failure(self, mock_commit):
+        mock_commit.side_effect = RuntimeError("db exploded")
+        session = self._make_session("title,type,watched_at\nFathom,movie,2024-01-05\n")
+        tasks.scan_import_session(session.id)
+
+        with self.assertRaises(RuntimeError):
+            tasks.commit_import_session(session.id)
+
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.FAILED)
+        self.assertIn("db exploded", session.error_message)
+        log = DataLog.objects.get(profile=self.profile)
+        self.assertEqual(log.status, DataLog.Status.FAILED)
+
+    def test_commit_is_idempotent_on_retry(self):
+        """A retried/resumed commit only re-queries status=PENDING - an
+        already-IMPORTED candidate is never processed twice, so a retry
+        after a partial run can't create a duplicate WatchEvent."""
+        session = self._make_session("title,type,watched_at\nFathom,movie,2024-01-05\n")
+        tasks.scan_import_session(session.id)
+
+        tasks.commit_import_session(session.id)
+        tasks.commit_import_session(session.id)
+
+        self.assertEqual(WatchEvent.objects.filter(profile=self.profile).count(), 1)
+        self.assertEqual(DataLog.objects.filter(profile=self.profile).count(), 2)
+        # Regression: session.imported_items must reflect the cumulative
+        # total across both runs, not get clobbered back to 0 by the
+        # second run's own (empty, since everything's already IMPORTED)
+        # in-memory result.
+        session.refresh_from_db()
+        self.assertEqual(session.imported_items, 1)
+        log = DataLog.objects.filter(profile=self.profile).latest("id")
+        self.assertEqual(log.item_count, 1)
+
+    def test_unselected_candidates_are_not_committed(self):
+        session = self._make_session("title,type,watched_at\nFathom,movie,2024-01-05\n")
+        tasks.scan_import_session(session.id)
+        session.candidates.update(selected=False)
+
+        tasks.commit_import_session(session.id)
+
+        self.assertFalse(WatchEvent.objects.exists())
+        session.refresh_from_db()
+        self.assertEqual(session.imported_items, 0)
 
 
 def _http_401():
@@ -5902,6 +6088,27 @@ class TitleMatchingResolveTests(TestCase):
         self.assertEqual(match.existing_title.pk, existing.pk)
         self.assertTrue(match.needs_provider_id_backfill)
 
+    def test_falsy_provider_id_never_matches_the_literal_string_none(self):
+        # Regression: a CSV/generic-JSON row has no native provider id at
+        # all (import_pipeline.py calls this with provider_id=None) -
+        # step 1 must be skipped entirely rather than querying
+        # external_ids__trakt="None" and (in principle) matching a Title
+        # that happens to have that literal string stored.
+        Title.objects.create(media_type=MediaType.MOVIE, name="Decoy", year=2020, external_ids={"trakt": "None"})
+        with patch("tracker.integrations.tmdb.find_match", return_value=None):
+            match = title_matching.resolve_title_match(MediaType.MOVIE, "trakt", None, name="Fresh Title", year=2021)
+        self.assertIsNone(match.existing_title)
+
+    def test_falsy_provider_id_with_cross_provider_tmdb_reuse_never_backfills_none(self):
+        existing = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Already Tracked", year=2020,
+            external_ids={"tmdb": "100", "tmdb_kind": "movie"},
+        )
+        with patch("tracker.integrations.tmdb.get_full_details", return_value=None):
+            match = title_matching.resolve_title_match(MediaType.MOVIE, "trakt", None, tmdb_id=100)
+        self.assertEqual(match.existing_title.pk, existing.pk)
+        self.assertFalse(match.needs_provider_id_backfill)
+
 
 class ApplyTitleMatchTests(TestCase):
     """title_matching.apply_title_match() - the write-performing wrapper
@@ -5920,6 +6127,13 @@ class ApplyTitleMatchTests(TestCase):
         self.assertEqual(title.pk, existing.pk)
         title.refresh_from_db()
         self.assertEqual(title.external_ids["tmdb"], "42")
+
+    def test_falsy_provider_id_creates_a_title_with_no_bogus_provider_key(self):
+        # Regression: a CSV/generic-JSON row (provider_id=None) must not
+        # end up with external_ids={"csv": "None"} or similar.
+        with patch("tracker.integrations.tmdb.find_match", return_value=None):
+            title = title_matching.apply_title_match(MediaType.MOVIE, "csv", None, name="No Id Row", year=2020)
+        self.assertEqual(title.external_ids, {})
 
     def test_created_title_year_is_a_real_int_not_a_string(self):
         # Regression: tmdb.get_full_details' own "year" field is a

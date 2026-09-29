@@ -43,6 +43,7 @@ from . import (
     completion,
     crypto,
     csv_import,
+    import_pipeline,
     instance_config,
     ratelimit,
     recommendations,
@@ -62,6 +63,8 @@ from .models import (
     ExternalAccount,
     ExternalRating,
     IMPORTED_TITLES_LOG_CAP,
+    ImportCandidate,
+    ImportSession,
     InstanceConfig,
     MediaType,
     Notification,
@@ -5909,42 +5912,43 @@ def import_csv_cancel(request):
 
 
 
-# A real Trakt "Export now" zip can carry 10k+ watch events. Timed
-# against that actual export: committing ~10,500 rows synchronously took
-# ~85s with zero TMDB lookups involved (no API key configured in that
-# test) - already well past any reasonable reverse-proxy/gunicorn
-# request timeout, and worse with real TMDB lookups for new titles. 500
-# rows is comfortably inside "finishes in a couple seconds" territory
-# even accounting for TMDB calls, while still covering the vast majority
-# of ordinary personal CSV/JSON exports synchronously (instant result
-# page, no polling needed).
-LARGE_IMPORT_ROW_THRESHOLD = 500
-
-
-def _dispatch_import_task_safely(log, profile_id, path, kind, mapping, timeout=2.0):
-    """Same pattern as _dispatch_sync_task_safely - dispatch on a
-    background thread with a short timeout so a slow/unreachable Celery
-    broker can't hang this request, just log and move on. Unlike sync,
-    there's no daily beat job that'll pick this back up later if the
-    dispatch itself fails - the DataLog row is left at RUNNING and the
-    temp file stays on disk. Acceptable here: dispatch failure means the
-    broker is down, which is a bigger problem than one stuck import."""
-    def _dispatch():
-        try:
-            tasks.run_data_import.apply_async(args=[log.id, profile_id, path, kind, mapping], retry=False)
-        except Exception:
-            logging.getLogger(__name__).exception("Background dispatch of run_data_import failed")
-
-    thread = threading.Thread(target=_dispatch, daemon=True)
-    thread.start()
-    thread.join(timeout=timeout)
-    if thread.is_alive():
-        logging.getLogger(__name__).warning("Dispatch of run_data_import did not complete within %ss", timeout)
+# A real Trakt "Export now" zip can carry 10k+ watch events - scanning
+# it, or a user reviewing it over several sittings, must never be cut
+# off mid-way, so this is deliberately generous. Stale scanning/ready
+# sessions past this point are fair game for the nightly cleanup sweep
+# (tasks.expire_import_sessions); an explicit cancel (import_review_cancel)
+# doesn't wait for it.
+IMPORT_SESSION_EXPIRY = timedelta(days=7)
+# Server-side pagination for the review page's own candidate table -
+# "don't render thousands of candidates into DOM" (import_pipeline.py's
+# own module docstring covers the read-only/write split this page sits
+# in front of).
+IMPORT_REVIEW_PAGE_SIZE = 50
+# The review page's own bulk-selection toolbar - (scope, label) pairs,
+# each posted to import_review_select_bulk as-is. "all" (Select all
+# importable) is always offered; the rest mirror the status/content-type
+# filter options so a category visible in the filter dropdown can also
+# be bulk-selected in one click.
+IMPORT_REVIEW_BULK_SELECT_SCOPES = [
+    ("all", "all importable"),
+    ("movie", "Movies"),
+    ("tv", "TV"),
+    ("anime", "Anime"),
+    ("new", "New"),
+    ("existing", "Existing"),
+]
 
 
 @login_required
 @require_POST
 def import_csv_commit(request):
+    """Stages the already-parsed file as an ImportSession + a scan task
+    instead of writing anything to Spool directly - the core Import
+    Review rule (see import_pipeline.py's own docstring): nothing an
+    initial import would write lands until the user has reviewed and
+    confirmed it. The upload/preview/remap steps above are unchanged;
+    this used to be the one step that wrote directly (csv_import.
+    commit_rows) and now only ever creates staging rows."""
     profile = Profile.objects.filter(user=request.user).first()
     pending = request.session.get("csv_import")
     if profile is None or not pending:
@@ -5956,49 +5960,200 @@ def import_csv_commit(request):
             messages.error(request, f"Map the required column(s) first: {', '.join(missing_required)}.")
             return redirect("import_csv_preview")
 
-    rows, parse_errors = _parse_pending_import(pending)
-
-    if len(rows) > LARGE_IMPORT_ROW_THRESHOLD:
-        request.session.pop("csv_import", None)  # ownership of the temp file passes to the task below
-        log = DataLog.objects.create(profile=profile, action=DataLog.Action.IMPORT, status=DataLog.Status.RUNNING)
-        _dispatch_import_task_safely(log, profile.id, pending["path"], pending["kind"], pending.get("mapping"))
-        messages.success(
-            request,
-            f"Import started in the background ({len(rows)} rows) — large files can take a few minutes. "
-            "Check Settings → Logs for progress.",
-        )
-        return redirect(f"{reverse('settings')}?tab=logs")
-
-    labels = []
-    try:
-        imported, skipped = csv_import.commit_rows(profile, rows, labels_out=labels)
-    except Exception as e:
-        DataLog.objects.create(
-            profile=profile, action=DataLog.Action.IMPORT, status=DataLog.Status.FAILED,
-            error_message=str(e)[:500],
-        )
-        _discard_pending_csv_import(request)
-        raise
-    _discard_pending_csv_import(request)
-
-    all_skipped = parse_errors + skipped
-    DataLog.objects.create(
-        profile=profile, action=DataLog.Action.IMPORT, status=DataLog.Status.SUCCESS,
-        item_count=imported, detail=f"{len(all_skipped)} skipped" if all_skipped else "",
-        imported_titles=labels[:IMPORTED_TITLES_LOG_CAP],
+    request.session.pop("csv_import", None)  # ownership of the temp file passes to the scan task below
+    session = ImportSession.objects.create(
+        profile=profile, source=pending["kind"], status=ImportSession.Status.SCANNING,
+        source_filename=pending["filename"],
+        source_metadata={"path": pending["path"]},
+        import_options={"mapping": pending.get("mapping")} if pending["kind"] == "csv" else {},
+        expires_at=timezone.now() + IMPORT_SESSION_EXPIRY,
     )
-    request.session["csv_import_result"] = {
-        "imported": imported,
-        "skipped_count": len(all_skipped),
-        "skipped": all_skipped[:50],
-        "skipped_truncated": len(all_skipped) > 50,
-    }
-    return redirect("import_csv_result")
+    # _dispatch_sync_task_safely is a generic bounded-wait dispatch
+    # helper (not "sync" as in provider sync - see its own docstring),
+    # reused as-is rather than duplicating the same thread/timeout logic
+    # for scan/commit dispatch too.
+    _dispatch_sync_task_safely(tasks.scan_import_session, [session.id])
+    return redirect("import_review", session_id=session.id)
+
+
+def _get_import_session_or_404(request, session_id):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    session = get_object_or_404(ImportSession, pk=session_id, profile=profile)
+    return profile, session
+
+
+def _import_review_filter_candidates(qs, request):
+    content_type = request.GET.get("content_type", "")
+    if content_type in (MediaType.MOVIE, MediaType.TV, MediaType.ANIME):
+        qs = qs.filter(media_type=content_type)
+
+    status = request.GET.get("status", "")
+    if status == "new":
+        qs = qs.filter(matched_title__isnull=True, conflict_type="").exclude(
+            action=ImportCandidate.Action.NOOP_DUPLICATE
+        )
+    elif status == "existing":
+        qs = qs.filter(matched_title__isnull=False, conflict_type="").exclude(
+            action=ImportCandidate.Action.NOOP_DUPLICATE
+        )
+    elif status == "duplicate":
+        qs = qs.filter(action=ImportCandidate.Action.NOOP_DUPLICATE)
+    elif status == "conflict":
+        qs = qs.exclude(conflict_type="")
+    elif status == "error":
+        qs = qs.filter(status=ImportCandidate.Status.FAILED)
+
+    q = request.GET.get("q", "").strip()
+    if q:
+        qs = qs.filter(title_name__icontains=q)
+    return qs
 
 
 @login_required
-def import_csv_result(request):
-    result = request.session.pop("csv_import_result", None)
-    if not result:
-        return redirect("settings")
-    return render(request, "tracker/import_csv_result.html", result)
+def import_review(request, session_id):
+    """The one review page every source (currently CSV/JSON/ZIP; Trakt/
+    Simkl/Nuvio in a later stage) lands on after a scan - summary,
+    server-side filtered+paginated candidate list, selection controls,
+    and the commit trigger, all gated on session.status. See
+    partials/import_review_status.html for the scanning/importing
+    polling fragment this page embeds."""
+    profile, session = _get_import_session_or_404(request, session_id)
+
+    context = {"session": session}
+    if session.status != ImportSession.Status.SCANNING:
+        candidates = _import_review_filter_candidates(
+            session.candidates.select_related("matched_title").order_by("id"), request
+        )
+        paginator = Paginator(candidates, IMPORT_REVIEW_PAGE_SIZE)
+        page_obj = paginator.get_page(request.GET.get("page"))
+        query_without_page = request.GET.copy()
+        query_without_page.pop("page", None)
+        context.update(
+            {
+                "page_obj": page_obj,
+                "content_type": request.GET.get("content_type", ""),
+                "status_filter": request.GET.get("status", ""),
+                "q": request.GET.get("q", ""),
+                "base_query": query_without_page.urlencode(),
+                "full_query": request.GET.urlencode(),
+                "bulk_select_scopes": IMPORT_REVIEW_BULK_SELECT_SCOPES,
+            }
+        )
+    return render(request, "tracker/import_review.html", context)
+
+
+@login_required
+def import_review_status(request, session_id):
+    """The review page's own self-polling fragment (same server-decides-
+    when-to-stop hx-trigger pattern as settings_logs_table.html/
+    logs_table_partial) - once scanning/importing is no longer in
+    progress it sends HX-Refresh so htmx does a full reload, landing the
+    user on the now-interactive (or completed) page instead of a stale
+    fragment that never grows the candidate list/results it's missing."""
+    profile, session = _get_import_session_or_404(request, session_id)
+    response = render(request, "tracker/partials/import_review_status.html", {"session": session})
+    if session.status not in (ImportSession.Status.SCANNING, ImportSession.Status.IMPORTING):
+        response["HX-Refresh"] = "true"
+    return response
+
+
+def _import_review_redirect(session_id, next_qs):
+    url = reverse("import_review", args=[session_id])
+    return f"{url}?{next_qs}" if next_qs else url
+
+
+@login_required
+@require_POST
+def import_review_select_bulk(request, session_id):
+    """Category/status-level selection - a scoped queryset .update(),
+    never a form carrying individual ids (see import_pipeline.py's own
+    docstring on why preview/selection must scale to 10,000+ items).
+    FAILED (unresolvable) candidates are always excluded - invalid/
+    unresolved candidates must never be silently selected."""
+    profile, session = _get_import_session_or_404(request, session_id)
+    if session.status != ImportSession.Status.READY:
+        return redirect("import_review", session_id=session.id)
+
+    scope = request.POST.get("scope", "all")
+    selected = request.POST.get("selected") == "1"
+    qs = session.candidates.exclude(status=ImportCandidate.Status.FAILED)
+    if scope in (MediaType.MOVIE, MediaType.TV, MediaType.ANIME):
+        qs = qs.filter(media_type=scope)
+    elif scope == "new":
+        qs = qs.filter(matched_title__isnull=True, conflict_type="").exclude(
+            action=ImportCandidate.Action.NOOP_DUPLICATE
+        )
+    elif scope == "existing":
+        qs = qs.filter(matched_title__isnull=False, conflict_type="").exclude(
+            action=ImportCandidate.Action.NOOP_DUPLICATE
+        )
+    elif scope == "duplicate":
+        qs = qs.filter(action=ImportCandidate.Action.NOOP_DUPLICATE)
+    elif scope == "conflict":
+        qs = qs.exclude(conflict_type="")
+    # scope == "all": every non-failed candidate.
+
+    updated = qs.update(selected=selected)
+    session.selected_items = session.candidates.filter(selected=True).count()
+    session.save(update_fields=["selected_items"])
+    messages.success(request, f"{updated} row{'s' if updated != 1 else ''} {'selected' if selected else 'deselected'}.")
+    return redirect(_import_review_redirect(session.id, request.POST.get("next_qs", "")))
+
+
+@login_required
+@require_POST
+def import_review_select_page(request, session_id):
+    """Applies the current page's own checkbox states in one request -
+    bounded by IMPORT_REVIEW_PAGE_SIZE candidate ids regardless of how
+    large the overall import is, never thousands of ids in one form.
+    candidate_id carries every row rendered on the page (checked or
+    not); selected_id carries only the ones actually checked - standard
+    checkbox POST semantics, so unchecking a row is expressed too."""
+    profile, session = _get_import_session_or_404(request, session_id)
+    if session.status != ImportSession.Status.READY:
+        return redirect("import_review", session_id=session.id)
+
+    candidate_ids = [int(v) for v in request.POST.getlist("candidate_id") if v.isdigit()]
+    selected_ids = {int(v) for v in request.POST.getlist("selected_id") if v.isdigit()}
+    if candidate_ids:
+        # Ownership already scoped by import_session=session (verified
+        # against this profile above) - a candidate_id for another
+        # profile's session can never be toggled here.
+        eligible = session.candidates.filter(id__in=candidate_ids, status=ImportCandidate.Status.PENDING)
+        eligible.exclude(id__in=selected_ids).update(selected=False)
+        eligible.filter(id__in=selected_ids).update(selected=True)
+        session.selected_items = session.candidates.filter(selected=True).count()
+        session.save(update_fields=["selected_items"])
+    return redirect(_import_review_redirect(session.id, request.POST.get("next_qs", "")))
+
+
+@login_required
+@require_POST
+def import_review_commit(request, session_id):
+    profile, session = _get_import_session_or_404(request, session_id)
+    if session.status != ImportSession.Status.READY:
+        return redirect("import_review", session_id=session.id)
+    if not session.candidates.filter(selected=True, status=ImportCandidate.Status.PENDING).exists():
+        messages.error(request, "Select at least one item to import.")
+        return redirect("import_review", session_id=session.id)
+
+    session.status = ImportSession.Status.IMPORTING
+    session.save(update_fields=["status"])
+    _dispatch_sync_task_safely(tasks.commit_import_session, [session.id])
+    return redirect("import_review", session_id=session.id)
+
+
+@login_required
+@require_POST
+def import_review_cancel(request, session_id):
+    profile, session = _get_import_session_or_404(request, session_id)
+    if session.status not in (ImportSession.Status.SCANNING, ImportSession.Status.READY):
+        return redirect("import_review", session_id=session.id)
+    session.status = ImportSession.Status.CANCELLED
+    session.completed_at = timezone.now()
+    session.save(update_fields=["status", "completed_at"])
+    import_pipeline.discard_session(session)
+    messages.info(request, "Import cancelled — nothing was imported.")
+    return redirect("settings")

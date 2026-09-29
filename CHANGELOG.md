@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.137.0] - 2026-09-29
+
+### Changed
+
+- Importing a CSV/JSON/ZIP file (Settings & Import) no longer writes to
+  Spool as soon as you confirm the preview. It now stages an **Import
+  Review** session instead: a filterable, paginated breakdown of every
+  row as New/Existing/Duplicate/Error, with selection controls (by
+  content type or bucket, or row by row) — nothing is imported until you
+  review it and click Import. Cancelling discards the staged review data
+  and imports nothing. This is the first piece of a broader
+  review-before-import system landing across Trakt/Simkl/Nuvio too.
+
 ## [0.136.0] - 2026-09-29
 
 ### Changed

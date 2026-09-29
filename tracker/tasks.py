@@ -9,12 +9,23 @@ from django.conf import settings as django_settings
 from django.core.management import call_command
 from django.utils import timezone
 
-from . import completion, csv_import, instance_config, notifications, release_sync, selectors, update_check, version
+from . import (
+    completion,
+    csv_import,
+    import_pipeline,
+    instance_config,
+    notifications,
+    release_sync,
+    selectors,
+    update_check,
+    version,
+)
 from .integrations import mdblist, nuvio, simkl, tmdb, trakt
 from .models import (
     DataLog,
     ExternalAccount,
     IMPORTED_TITLES_LOG_CAP,
+    ImportSession,
     InstanceConfig,
     Notification,
     NuvioConnection,
@@ -190,41 +201,69 @@ def sync_nuvio_history(profile_id):
 
 
 @shared_task
-def run_data_import(log_id, profile_id, path, kind, mapping=None):
-    """Settings → Import Data's background path for a file too large to
-    commit inside one request - see LARGE_IMPORT_ROW_THRESHOLD in
-    views.py. `log_id` is a DataLog row already created (status=RUNNING)
-    synchronously by the view before dispatch, same as _run_sync creates
-    its SyncLog row up front - so the Logs tab shows the import as
-    in-progress immediately rather than only once this task actually
-    starts running on a worker. Always removes the temp file at `path`
-    (success or failure), since ownership of it passes from the view to
-    this task at dispatch time - see import_csv_commit."""
-    log = DataLog.objects.get(id=log_id)
-    profile = Profile.objects.get(id=profile_id)
-    labels = []
+def scan_import_session(session_id):
+    """Import Review's scan step - see import_pipeline.py's own
+    docstring for why this never writes to canonical Spool state.
+    Dispatched by views.import_csv_commit right after the session row
+    is created (status=SCANNING); the review page polls until this
+    flips it to READY (or FAILED). Always removes the backing temp file
+    once it's been fully read (kept if scanning raises before parsing
+    even starts, so a manual retry could still find it), same ownership
+    hand-off convention the old run_data_import task used."""
+    session = ImportSession.objects.select_related("profile").get(id=session_id)
     try:
-        rows, parse_errors = csv_import.parse_file(path, kind, mapping)
-        imported, skipped = csv_import.commit_rows(profile, rows, labels_out=labels)
+        import_pipeline.scan_session(session)
     except Exception as e:
-        log.status = DataLog.Status.FAILED
-        log.error_message = str(e)[:500]
-        log.save(update_fields=["status", "error_message"])
+        logger.exception("scan_import_session: session %s failed", session_id)
+        session.status = ImportSession.Status.FAILED
+        session.error_message = str(e)[:500]
+        session.save(update_fields=["status", "error_message"])
         raise
     finally:
-        try:
-            os.remove(path)
-        except OSError:
-            pass
+        path = session.source_metadata.get("path")
+        if path:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+    logger.info("scan_import_session: session %s ready, %d candidates", session_id, session.total_items)
 
-    all_skipped = parse_errors + skipped
-    log.status = DataLog.Status.SUCCESS
-    log.item_count = imported
-    log.detail = f"{len(all_skipped)} skipped" if all_skipped else ""
-    log.imported_titles = labels[:IMPORTED_TITLES_LOG_CAP]
-    log.save(update_fields=["status", "item_count", "detail", "imported_titles"])
-    logger.info("run_data_import: profile %s, %d imported, %d skipped", profile_id, imported, len(all_skipped))
-    return imported
+
+@shared_task
+def commit_import_session(session_id):
+    """Import Review's commit step - writes only status=PENDING,
+    selected=True candidates into canonical Spool state (see
+    import_pipeline.commit_session's own docstring for the idempotency
+    guarantee that makes a retry of this task safe). Logs a DataLog row
+    on completion so the import shows up in Settings → Logs the same
+    way a direct CSV commit always has."""
+    session = ImportSession.objects.select_related("profile").get(id=session_id)
+    try:
+        import_pipeline.commit_session(session)
+    except Exception as e:
+        logger.exception("commit_import_session: session %s failed", session_id)
+        session.status = ImportSession.Status.FAILED
+        session.error_message = str(e)[:500]
+        session.save(update_fields=["status", "error_message"])
+        DataLog.objects.create(
+            profile=session.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.FAILED,
+            error_message=str(e)[:500],
+        )
+        raise
+    # session.imported_items/skipped_items/failed_items are cumulative
+    # totals over every run of this session's commit (see
+    # import_pipeline._commit_candidates' own docstring) - using those
+    # rather than this call's own in-memory result keeps the DataLog
+    # entry correct even after a resumed/retried commit.
+    all_skipped = session.skipped_items + session.failed_items
+    DataLog.objects.create(
+        profile=session.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.SUCCESS,
+        item_count=session.imported_items, detail=f"{all_skipped} skipped" if all_skipped else "",
+    )
+    logger.info(
+        "commit_import_session: session %s, %d imported, %d skipped, %d failed",
+        session_id, session.imported_items, session.skipped_items, session.failed_items,
+    )
 
 
 @shared_task

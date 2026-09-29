@@ -4,11 +4,12 @@ extracted from what were three separately-duplicated (byte-for-byte
 identical between Trakt and Simkl) _get_or_create_title functions, so
 review (preview) and commit are guaranteed to agree on what a candidate
 will match against - the "preview and commit must use the same matching
-rules" requirement. CSV/JSON/ZIP import (tracker/csv_import.py) keeps
-its own separate matching for now - it has a different priority order
-(TMDB id before provider id) already pinned down by its own tests, and
-is unified into this module once the file-import path itself moves onto
-the review pipeline.
+rules" requirement. tracker/import_pipeline.py's file-import (CSV/JSON/
+ZIP) scan/commit also call this - provider_id is None for a plain CSV/
+generic-JSON row (no native id at all) and "trakt" + a real id for a
+Trakt-shaped JSON/zip row (see csv_import.py's own module docstring);
+step 1 below is skipped entirely when provider_id is falsy rather than
+matching on the literal string "None".
 
 Split into two layers on purpose:
 
@@ -86,8 +87,13 @@ def resolve_title_match(
 
     tmdb_kind = "movie" if media_type == MediaType.MOVIE else "tv"
 
-    # Step 1 - this exact provider id, already tracked.
-    existing = Title.objects.filter(**{f"external_ids__{provider}": str(provider_id)}).first()
+    # Step 1 - this exact provider id, already tracked. Skipped entirely
+    # when provider_id is falsy (a CSV/generic-JSON row with no native
+    # id at all) - otherwise this would look up the literal string
+    # "None" and could spuriously match a Title that genuinely has that
+    # value stored (has never happened, but a real edge case, not a
+    # hypothetical one worth defending against for free).
+    existing = Title.objects.filter(**{f"external_ids__{provider}": str(provider_id)}).first() if provider_id else None
     if existing:
         return TitleMatch(
             existing_title=existing,
@@ -164,7 +170,7 @@ def resolve_title_match(
         if existing:
             return TitleMatch(
                 existing_title=existing,
-                needs_provider_id_backfill=existing.external_ids.get(provider) != str(provider_id),
+                needs_provider_id_backfill=bool(provider_id) and existing.external_ids.get(provider) != str(provider_id),
                 needs_tmdb_backfill=False,
                 tmdb_id=matched_tmdb_id,
                 tmdb_kind=matched_tmdb_kind,
@@ -222,7 +228,7 @@ def apply_title_match(
             title.save(update_fields=["external_ids"])
         return title
 
-    external_ids = {provider: str(provider_id)}
+    external_ids = {provider: str(provider_id)} if provider_id else {}
     if match.tmdb_id:
         external_ids["tmdb"] = match.tmdb_id
         external_ids["tmdb_kind"] = match.tmdb_kind

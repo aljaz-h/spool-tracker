@@ -62,18 +62,34 @@ docs, and unverified against a live account from this environment. It
 could change or break without notice; a failed sync shows up in
 Settings & Import → Logs with whatever error the API actually returned.
 
-## Importing a CSV
+## Importing a CSV, JSON, or ZIP file
 
-Settings & Import → CSV file. Works with Trakt's or Simkl's own CSV export,
-or a generic one — headers are matched case-insensitively with common
-aliases (`title`/`name`, `type`/`media_type`, `date`/`watched_date`, etc.).
-Upload takes you to a preview: you can correct any column the auto-detection
-guessed wrong before committing. Rows that fail to parse (bad date, unknown
-media type, missing title) are skipped individually and listed in the
-result summary — one bad row doesn't abort the whole file. Titles are
-matched by (name, year, type), so re-importing the same file, or importing
-a title already pulled in via Trakt/Simkl sync, won't create duplicates as
-long as the name/year match exactly.
+Settings & Import → CSV file. Works with a `.csv`, `.json`, or `.zip` file
+(up to 50MB) — Trakt's or Simkl's own CSV export, Trakt's "Export now" zip,
+or a generic CSV/JSON. CSV headers are matched case-insensitively with
+common aliases (`title`/`name`, `type`/`media_type`, `date`/`watched_date`,
+etc.); upload takes you to a preview where you can correct any column the
+auto-detection guessed wrong.
+
+Nothing is written to Spool yet at this point — confirming the preview
+stages the parsed file as an **Import Review** session instead of
+importing directly. The review page shows every row the file contained,
+broken down by New/Existing/Duplicate/Error, with filters and search
+(server-side, so a 10,000-row export never renders as one giant page) and
+selection controls (by content type or by bucket, plus per-row checkboxes)
+before anything is committed. Rows that fail to parse or fail validation
+(bad date, unknown media type, missing title, a TV/anime row missing its
+season/episode) show up under **Error** and are never selected automatically.
+A row that would just duplicate a watch you've already logged shows up
+under **Duplicate**, also unselected by default — importing it would have
+no effect. Only what you leave selected when you click **Import** actually
+gets written; **Cancel** discards the staged review data and imports
+nothing.
+
+Titles are matched the same way Trakt/Simkl/Nuvio's own sync matches them
+(provider id → TMDB id → fuzzy name/year → reuse across providers), so
+importing a title already pulled in via Trakt/Simkl sync — or reviewing
+the same file twice — won't create duplicates.
 
 ## Posters
 

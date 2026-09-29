@@ -387,12 +387,11 @@ def parse_zip_file(path, limit=None):
 
 def parse_file(path, kind, mapping=None, limit=None):
     """Dispatches to the right parser for kind ("csv"/"json"/"zip") -
-    the one place that knows how to turn an uploaded file into
-    commit_rows()-ready rows, shared between the request-time preview/
-    small-file commit path (views.py's _parse_pending_import) and the
-    background run_data_import task (tasks.py) used once a file is too
-    large to safely commit inside one request - see
-    LARGE_IMPORT_ROW_THRESHOLD in views.py."""
+    the one place that knows how to turn an uploaded file into rows,
+    shared between the request-time preview (views.py's own
+    _parse_pending_import) and import_pipeline.scan_file_import (the
+    Import Review scan step that normalizes these rows into
+    ImportCandidate rows instead of committing them directly)."""
     if kind == "csv":
         with open(path, "rb") as f:
             reader = open_csv_reader(f)
@@ -484,10 +483,17 @@ def commit_rows(profile, rows, labels_out=None):
     [(row_number, reason), ...] for rows that passed parsing but were
     rejected at the database step.
 
+    No longer called by the CSV/JSON/ZIP import flow itself - views.
+    import_csv_commit now stages an ImportSession/ImportCandidate rows
+    for Import Review instead (import_pipeline.py's own commit step
+    writes directly via title_matching.apply_title_match). Kept as a
+    tested, working direct-commit path (own matching logic and all) for
+    now - flagged for the final repository audit (see the Universal
+    Import Review plan's own Stage 7) rather than deleted in the same
+    change that stopped calling it.
+
     labels_out: same optional label-collecting list as trakt.py's own
-    upsert_history_items - views.import_csv_commit/tasks.run_data_import
-    save these (capped) onto the DataLog row so the Logs tab can show
-    what was actually imported, not just a count."""
+    upsert_history_items."""
     from . import completion, recommendations, rewatches
 
     imported = 0
