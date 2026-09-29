@@ -1188,3 +1188,176 @@ class ProfileAchievement(models.Model):
 
     def __str__(self):
         return f"{self.profile}: {self.key}"
+
+
+class ImportSession(models.Model):
+    """Universal Import Review - the staging area for a full/initial
+    import from any source (Trakt/Simkl/Nuvio/CSV/JSON/ZIP), created by
+    a scan (tracker.tasks.scan_import_session) and reviewed/selected by
+    the user before tracker.tasks.commit_import_session writes anything
+    into canonical Spool state (Title/Episode/WatchEvent/WatchProgress/
+    WatchListItem). The core rule this exists to enforce: nothing an
+    initial import would write ever lands until the user has reviewed
+    and confirmed it - see tracker/import_pipeline.py's own docstring.
+
+    Deliberately no FK to ExternalAccount/NuvioConnection - those are
+    two different models for Trakt/Simkl vs Nuvio, and neither is
+    needed once scanning is done (commit only ever touches
+    ImportCandidate rows + canonical models), so scan_import_session
+    just looks the account up transiently by (profile, source) instead
+    of carrying a reference across the model's whole lifetime."""
+
+    class Source(models.TextChoices):
+        TRAKT = "trakt", "Trakt"
+        SIMKL = "simkl", "Simkl"
+        NUVIO = "nuvio", "Nuvio"
+        CSV = "csv", "CSV"
+        JSON = "json", "JSON"
+        ZIP = "zip", "ZIP"
+
+    class Status(models.TextChoices):
+        SCANNING = "scanning", "Scanning"
+        READY = "ready", "Ready for review"
+        IMPORTING = "importing", "Importing"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
+        EXPIRED = "expired", "Expired"
+
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="import_sessions")
+    source = models.CharField(max_length=10, choices=Source.choices)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.SCANNING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    # A scanning/ready session past this point is fair game for the
+    # nightly cleanup job (tasks.expire_import_sessions) - set well out
+    # (see the task's own default) so a large scan or a user reviewing
+    # a big import over several sittings isn't cut off mid-way.
+    expires_at = models.DateTimeField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    # File imports only - the original uploaded filename, for the
+    # review page's own header ("Review your-export.zip").
+    source_filename = models.CharField(max_length=255, blank=True, default="")
+    # Anything source-specific worth keeping around for display/debugging
+    # that doesn't need its own column - e.g. the file's on-disk temp
+    # path (file imports) or a raw remote item count before normalization.
+    source_metadata = models.JSONField(default=dict, blank=True)
+    # e.g. CSV's column mapping, Trakt's import_lists flag - whatever the
+    # scan/commit steps need that was decided before scanning started.
+    import_options = models.JSONField(default=dict, blank=True)
+    # The review page's own summary header (new/existing/progress/
+    # ratings/watchlist/conflict counts) - computed once at the end of
+    # scanning, not recomputed on every page view.
+    summary = models.JSONField(default=dict, blank=True)
+    total_items = models.PositiveIntegerField(default=0)
+    selected_items = models.PositiveIntegerField(default=0)
+    processed_items = models.PositiveIntegerField(default=0)
+    imported_items = models.PositiveIntegerField(default=0)
+    skipped_items = models.PositiveIntegerField(default=0)
+    failed_items = models.PositiveIntegerField(default=0)
+    conflict_items = models.PositiveIntegerField(default=0)
+    error_message = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["profile", "status"]),
+            # The cleanup job's own query - stale sessions past expiry,
+            # regardless of which profile.
+            models.Index(fields=["status", "expires_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.profile} · {self.get_source_display()} import · {self.get_status_display()}"
+
+    @property
+    def is_active(self):
+        """Still scanning or awaiting review/commit - used to gate the
+        review page's own polling fragment (same hx-trigger="every Ns"
+        idiom settings_logs_table.html already uses) and to decide
+        whether a fresh "Review full import" click should reuse an
+        in-progress session instead of starting a second one."""
+        return self.status in (self.Status.SCANNING, self.Status.READY, self.Status.IMPORTING)
+
+
+class ImportCandidate(models.Model):
+    """One row = one thing the Import Review scan found that could be
+    written to Spool - a watch, a progress update, a rating, or a
+    watchlist change. selected is what the user's own review controls
+    toggle; status is the commit step's own idempotency tracker (see
+    tasks.commit_import_session's own docstring) - a retried/resumed
+    commit only ever re-queries status="pending", so an already-
+    processed row never runs twice."""
+
+    class Category(models.TextChoices):
+        HISTORY = "history", "Watch history"
+        PROGRESS = "progress", "Playback progress"
+        RATING = "rating", "Rating"
+        WATCHLIST = "watchlist", "Watchlist/list state"
+
+    class Action(models.TextChoices):
+        CREATE_TITLE = "create_title", "Create new title"
+        LINK_PROVIDER_ID = "link_provider_id", "Link to existing title"
+        CREATE_EVENT = "create_event", "Log watch"
+        UPDATE_PROGRESS = "update_progress", "Update progress"
+        UPDATE_RATING = "update_rating", "Update rating"
+        LIST_CHANGE = "list_change", "Change list membership"
+        NOOP_DUPLICATE = "noop_duplicate", "Already in Spool"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        IMPORTED = "imported", "Imported"
+        SKIPPED = "skipped", "Skipped"
+        FAILED = "failed", "Failed"
+
+    class Resolution(models.TextChoices):
+        KEEP_SPOOL = "keep_spool", "Keep Spool's value"
+        USE_IMPORTED = "use_imported", "Use imported value"
+        SKIP = "skip", "Skip this item"
+
+    import_session = models.ForeignKey(ImportSession, on_delete=models.CASCADE, related_name="candidates")
+    # Invalid/unresolved candidates default unselected - "candidates that
+    # are invalid or unresolved should not be silently selected."
+    selected = models.BooleanField(default=True)
+    category = models.CharField(max_length=10, choices=Category.choices)
+    media_type = models.CharField(max_length=10, choices=MediaType.choices)
+    title_name = models.CharField(max_length=255, blank=True, default="")
+    year = models.PositiveSmallIntegerField(null=True, blank=True)
+    season = models.PositiveSmallIntegerField(null=True, blank=True)
+    episode = models.PositiveSmallIntegerField(null=True, blank=True)
+    watched_at = models.DateTimeField(null=True, blank=True)
+    progress_seconds = models.PositiveIntegerField(null=True, blank=True)
+    rating = models.PositiveSmallIntegerField(null=True, blank=True)
+    list_name = models.CharField(max_length=100, blank=True, default="")
+    list_action = models.CharField(max_length=10, blank=True, default="")  # "add" / "remove"
+    # Raw ids as given by the source (provider id, tmdb id, imdb id, ...).
+    source_external_ids = models.JSONField(default=dict, blank=True)
+    # What title_matching.resolve_title_match resolved during scan - kept
+    # separate from source_external_ids so the review UI/commit step can
+    # tell "what the source said" from "what we figured out" apart.
+    resolved_external_ids = models.JSONField(default=dict, blank=True)
+    matched_title = models.ForeignKey(
+        Title, null=True, blank=True, on_delete=models.SET_NULL, related_name="import_candidates"
+    )
+    action = models.CharField(max_length=20, choices=Action.choices, blank=True, default="")
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    conflict_type = models.CharField(max_length=30, blank=True, default="")
+    conflict_data = models.JSONField(default=dict, blank=True)
+    resolution = models.CharField(max_length=15, choices=Resolution.choices, blank=True, default="")
+    warning = models.CharField(max_length=255, blank=True, default="")
+    error = models.CharField(max_length=255, blank=True, default="")
+    # The full normalized item, so commit never needs to re-parse a file
+    # or re-fetch from the source - everything it needs to act is already
+    # here.
+    normalized_payload = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["id"]
+        indexes = [
+            models.Index(fields=["import_session", "status"]),
+            models.Index(fields=["import_session", "category", "status"]),
+        ]
+
+    def __str__(self):
+        return f"{self.get_category_display()} · {self.title_name} ({self.get_status_display()})"

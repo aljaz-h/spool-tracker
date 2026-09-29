@@ -187,78 +187,23 @@ def _get_or_create_title(media_type, content_id, name_hint="", year_hint=None):
     carry a name) > a bare Title with no TMDB match at all. Whatever gets
     created/matched has external_ids["nuvio"] set to this content_id, so
     disconnect_and_wipe_provider's title__external_ids__nuvio filter
-    works the same way it already does for trakt/simkl."""
-    from tracker.integrations import tmdb
-    from tracker.models import MediaType, Title, attach_genres, attach_reports_metadata
+    works the same way it already does for trakt/simkl.
 
-    # Not filtered by media_type: a title this same content_id already
-    # created may since have been reclassified from TV to ANIME (see the
-    # reclassify_anime_titles management command/task) - it's still the
-    # right row to reuse, not a mismatch to fork a duplicate over
-    # (media_type is Spool's own local overlay, not part of what
-    # identifies the title to Nuvio).
-    title = Title.objects.filter(external_ids__nuvio=content_id).first()
-    if title:
-        return title
+    Thin wrapper over tracker.title_matching.apply_title_match - see
+    trakt.py's own _get_or_create_title docstring for why this logic
+    lives there now, shared across Trakt/Simkl/Nuvio and the Import
+    Review pipeline's commit step. content_id doubles as Nuvio's own
+    provider id; its embedded tmdb/imdb id (if any) is parsed here first
+    since that parsing is Nuvio-specific, not part of the shared match."""
+    from tracker.title_matching import apply_title_match
 
     parsed = _parse_content_id(content_id)
-    kind = "movie" if media_type == MediaType.MOVIE else "tv"
-
-    external_ids = {"nuvio": content_id}
-    name = name_hint or "Untitled"
-    year = year_hint
-    poster_url = ""
-    genre_names = []
-    details = None
-
-    if parsed["tmdb_id"]:
-        details = tmdb.get_full_details(kind, parsed["tmdb_id"])
-        if details:
-            external_ids["tmdb"] = str(parsed["tmdb_id"])
-            external_ids["tmdb_kind"] = kind
-    elif parsed["imdb_id"]:
-        match = tmdb.find_by_imdb_id(parsed["imdb_id"], media_type)
-        if match:
-            external_ids["tmdb"] = str(match["id"])
-            external_ids["tmdb_kind"] = match["kind"]
-            details = tmdb.get_full_details(match["kind"], match["id"])
-
-    if details:
-        name = details["name"]
-        year = details["year"]
-        poster_url = details["poster_url"] or ""
-        genre_names = details["genres"]
-    elif name_hint:
-        match = tmdb.find_match(media_type, name_hint, year_hint)
-        if match:
-            external_ids["tmdb"] = str(match["id"])
-            external_ids["tmdb_kind"] = match["kind"]
-            poster_url = match["poster_url"] or ""
-            details = tmdb.get_full_details(match["kind"], match["id"])
-            if details:
-                genre_names = details["genres"]
-
-    if "tmdb" in external_ids:
-        # tmdb_kind (not media_type) disambiguates - see the resync-dedup
-        # lookup's own comment above for why a title already reclassified
-        # to ANIME must still match here rather than forking a duplicate.
-        existing = Title.objects.filter(
-            external_ids__tmdb=external_ids["tmdb"], external_ids__tmdb_kind=external_ids["tmdb_kind"]
-        ).first()
-        if existing:
-            if existing.external_ids.get("nuvio") != content_id:
-                existing.external_ids = {**existing.external_ids, "nuvio": content_id}
-                existing.save(update_fields=["external_ids"])
-            return existing
-
-    title = Title.objects.create(
-        media_type=media_type, name=name, year=int(year) if year else 0,
-        external_ids=external_ids, poster_url=poster_url,
+    return apply_title_match(
+        media_type, "nuvio", content_id,
+        name=name_hint or None, year=year_hint,
+        tmdb_id=parsed["tmdb_id"], imdb_id=parsed["imdb_id"],
+        prefer_resolved_name=True, require_details_for_tmdb_id=True,
     )
-    attach_genres(title, genre_names)
-    if details and "tmdb" in external_ids:
-        attach_reports_metadata(title, tmdb.get_reports_metadata(external_ids["tmdb_kind"], int(external_ids["tmdb"]), details))
-    return title
 
 
 def _season_episode(item, parsed):

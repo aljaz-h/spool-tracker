@@ -96,59 +96,15 @@ def _get_or_create_title(media_type, name, year, simkl_id, tmdb_id=None):
     """tmdb_id: Simkl's own ids.tmdb for this item, when the caller has it
     - see trakt.py's own _get_or_create_title docstring for why this is
     preferred over the fuzzy name/year find_match() search below whenever
-    it's present."""
-    from tracker.integrations import tmdb
-    from tracker.models import MediaType, Title, attach_genres, attach_reports_metadata
+    it's present.
 
-    # Not filtered by media_type: a title this same simkl_id already
-    # created may since have been reclassified from TV to ANIME (see the
-    # reclassify_anime_titles management command/task) - it's still the
-    # right row to reuse, not a mismatch to fork a duplicate over.
-    title = Title.objects.filter(external_ids__simkl=str(simkl_id)).first()
-    if title:
-        if tmdb_id and not title.external_ids.get("tmdb"):
-            kind = "movie" if media_type == MediaType.MOVIE else "tv"
-            title.external_ids = {**title.external_ids, "tmdb": str(tmdb_id), "tmdb_kind": kind}
-            title.save(update_fields=["external_ids"])
-        return title
-    external_ids = {"simkl": str(simkl_id)}
-    poster_url = ""
-    genre_names = []
-    details = None
-    if tmdb_id:
-        kind = "movie" if media_type == MediaType.MOVIE else "tv"
-        match = {"id": tmdb_id, "kind": kind, "poster_url": None}
-    else:
-        match = tmdb.find_match(media_type, name, year)
-    if match:
-        external_ids["tmdb"] = str(match["id"])
-        external_ids["tmdb_kind"] = match["kind"]
-        details = tmdb.get_full_details(match["kind"], match["id"])
-        if details:
-            poster_url = match["poster_url"] or details.get("poster_url") or ""
-            genre_names = details["genres"]
-        else:
-            poster_url = match["poster_url"] or ""
-        # Same duplicate-Title bug nuvio.py's _get_or_create_title
-        # docstring describes - reuse a title already tracked via another
-        # provider instead of forking a second one for this same TMDB id.
-        # tmdb_kind (not media_type) disambiguates - a title already
-        # reclassified to ANIME must still match here.
-        existing = Title.objects.filter(
-            external_ids__tmdb=external_ids["tmdb"], external_ids__tmdb_kind=external_ids["tmdb_kind"]
-        ).first()
-        if existing:
-            if existing.external_ids.get("simkl") != str(simkl_id):
-                existing.external_ids = {**existing.external_ids, "simkl": str(simkl_id)}
-                existing.save(update_fields=["external_ids"])
-            return existing
-    title = Title.objects.create(
-        media_type=media_type, name=name, year=year or 0, external_ids=external_ids, poster_url=poster_url
-    )
-    attach_genres(title, genre_names)
-    if details:
-        attach_reports_metadata(title, tmdb.get_reports_metadata(match["kind"], match["id"], details))
-    return title
+    Thin wrapper over tracker.title_matching.apply_title_match - see
+    trakt.py's own _get_or_create_title docstring for why this logic
+    lives there now, shared across Trakt/Simkl/Nuvio and the Import
+    Review pipeline's commit step."""
+    from tracker.title_matching import apply_title_match
+
+    return apply_title_match(media_type, "simkl", simkl_id, name=name, year=year, tmdb_id=tmdb_id)
 
 
 def upsert_history_items(profile, items, labels_out=None):

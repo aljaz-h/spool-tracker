@@ -19,7 +19,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
-from . import achievements, completion, crypto, csv_import, episode_matching, instance_config, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, totp, update_check, views
+from . import achievements, completion, crypto, csv_import, episode_matching, instance_config, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, title_matching, totp, update_check, views
 from .integrations import anifiller, mdblist, nuvio, scrobble, tenrai, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
@@ -30,6 +30,8 @@ from .models import (
     ExternalAccount,
     ExternalRating,
     Genre,
+    ImportCandidate,
+    ImportSession,
     InstanceConfig,
     MediaType,
     Notification,
@@ -5843,6 +5845,121 @@ class NuvioParseContentIdTests(TestCase):
             nuvio._parse_content_id(""),
             {"tmdb_id": None, "imdb_id": None, "season": None, "episode": None},
         )
+
+
+class TitleMatchingResolveTests(TestCase):
+    """title_matching.resolve_title_match() - the read-only half shared
+    by Trakt/Simkl/Nuvio's own routine sync (via apply_title_match, see
+    their own _get_or_create_title wrappers) and the Import Review
+    pipeline's scan step. Provider-specific edge cases (Nuvio's
+    require_details_for_tmdb_id/prefer_resolved_name flags) are already
+    covered end-to-end via NuvioGetOrCreateTitleTests/
+    CrossProviderTitleDedupTests below - these tests exercise the shared
+    function directly and confirm it never writes anything."""
+
+    def test_no_existing_title_and_no_tmdb_match_reports_nothing_found(self):
+        with patch("tracker.integrations.tmdb.find_match", return_value=None):
+            match = title_matching.resolve_title_match(
+                MediaType.MOVIE, "trakt", "1", name="Some Movie", year=2020
+            )
+        self.assertIsNone(match.existing_title)
+        self.assertEqual(match.resolved_name, "Some Movie")
+        self.assertEqual(match.resolved_year, 2020)
+        self.assertEqual(Title.objects.count(), 0)
+
+    def test_never_writes_to_the_database(self):
+        # The whole point of splitting resolve_title_match out from
+        # apply_title_match - preview/scan must be able to call this
+        # freely without risking a write, even when it finds and would
+        # need to backfill a missing tmdb id onto an existing Title.
+        existing = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Backfill Me", year=2020, external_ids={"trakt": "5"}
+        )
+        with patch("tracker.integrations.tmdb.find_match") as mock_find:
+            match = title_matching.resolve_title_match(
+                MediaType.MOVIE, "trakt", "5", name="Backfill Me", year=2020, tmdb_id=42
+            )
+        mock_find.assert_not_called()  # provider id already matched, no fuzzy search needed
+        self.assertEqual(match.existing_title.pk, existing.pk)
+        self.assertTrue(match.needs_tmdb_backfill)
+        existing.refresh_from_db()
+        self.assertEqual(existing.external_ids, {"trakt": "5"})  # untouched
+
+    def test_existing_provider_id_match_short_circuits_before_any_tmdb_call(self):
+        Title.objects.create(media_type=MediaType.MOVIE, name="Already Tracked", year=2020, external_ids={"trakt": "9"})
+        with patch("tracker.integrations.tmdb.find_match") as mock_find:
+            match = title_matching.resolve_title_match(MediaType.MOVIE, "trakt", "9", name="Already Tracked", year=2020)
+        mock_find.assert_not_called()
+        self.assertIsNotNone(match.existing_title)
+
+    def test_cross_provider_reuse_reports_provider_id_backfill_needed(self):
+        existing = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Cross Provider", year=2020,
+            external_ids={"simkl": "3", "tmdb": "100", "tmdb_kind": "movie"},
+        )
+        with patch("tracker.integrations.tmdb.get_full_details", return_value=None):
+            match = title_matching.resolve_title_match(MediaType.MOVIE, "trakt", "9", tmdb_id=100)
+        self.assertEqual(match.existing_title.pk, existing.pk)
+        self.assertTrue(match.needs_provider_id_backfill)
+
+
+class ApplyTitleMatchTests(TestCase):
+    """title_matching.apply_title_match() - the write-performing wrapper
+    routine sync and Import Review's commit step both use."""
+
+    def test_creates_a_new_title_when_nothing_matches(self):
+        with patch("tracker.integrations.tmdb.find_match", return_value=None):
+            title = title_matching.apply_title_match(MediaType.MOVIE, "trakt", "1", name="New Movie", year=2020)
+        self.assertEqual(title.name, "New Movie")
+        self.assertEqual(title.external_ids, {"trakt": "1"})
+
+    def test_backfills_a_missing_tmdb_id_onto_an_existing_title(self):
+        existing = Title.objects.create(media_type=MediaType.MOVIE, name="Backfill Me", year=2020, external_ids={"trakt": "5"})
+        with patch("tracker.integrations.tmdb.get_full_details", return_value=None):
+            title = title_matching.apply_title_match(MediaType.MOVIE, "trakt", "5", name="Backfill Me", year=2020, tmdb_id=42)
+        self.assertEqual(title.pk, existing.pk)
+        title.refresh_from_db()
+        self.assertEqual(title.external_ids["tmdb"], "42")
+
+    def test_created_title_year_is_a_real_int_not_a_string(self):
+        # Regression: tmdb.get_full_details' own "year" field is a
+        # string (date[:4]) - resolved_year flowing straight into
+        # Title.year without an int() cast left it a string in memory.
+        with patch("tracker.integrations.tmdb.get_full_details") as mock_details:
+            mock_details.return_value = {"name": "Dolly", "year": "2026", "poster_url": None, "genres": []}
+            title = title_matching.apply_title_match(
+                MediaType.MOVIE, "nuvio", "tmdb:550", tmdb_id=550,
+                prefer_resolved_name=True, require_details_for_tmdb_id=True,
+            )
+        self.assertEqual(title.year, 2026)
+        self.assertIsInstance(title.year, int)
+
+
+class ImportSessionModelTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("importsessionuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ImportSessionUser")
+
+    def test_is_active_true_while_scanning_ready_or_importing(self):
+        for status in (ImportSession.Status.SCANNING, ImportSession.Status.READY, ImportSession.Status.IMPORTING):
+            session = ImportSession.objects.create(profile=self.profile, source=ImportSession.Source.CSV, status=status)
+            self.assertTrue(session.is_active)
+
+    def test_is_active_false_once_finished(self):
+        for status in (
+            ImportSession.Status.COMPLETED, ImportSession.Status.FAILED,
+            ImportSession.Status.CANCELLED, ImportSession.Status.EXPIRED,
+        ):
+            session = ImportSession.objects.create(profile=self.profile, source=ImportSession.Source.CSV, status=status)
+            self.assertFalse(session.is_active)
+
+    def test_candidate_defaults_to_selected(self):
+        session = ImportSession.objects.create(profile=self.profile, source=ImportSession.Source.CSV)
+        candidate = ImportCandidate.objects.create(
+            import_session=session, category=ImportCandidate.Category.HISTORY, media_type=MediaType.MOVIE
+        )
+        self.assertTrue(candidate.selected)
+        self.assertEqual(candidate.status, ImportCandidate.Status.PENDING)
 
 
 class NuvioGetOrCreateTitleTests(TestCase):
