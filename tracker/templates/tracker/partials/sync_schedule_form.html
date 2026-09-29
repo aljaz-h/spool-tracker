@@ -4,10 +4,18 @@
     <div class="text-[11px] text-ink-faint">
       Last synced: {% if account.last_synced_at %}{{ account.last_synced_at|timesince }} ago{% else %}never{% endif %}
     </div>
-    <form method="post" action="{% url 'trigger_manual_sync' provider %}">
-      {% csrf_token %}
-      <button type="submit" class="btn btn-xs btn-soft">Sync now</button>
-    </form>
+    <div class="flex gap-1.5">
+      {% if provider == "trakt" %}
+        <form method="post" action="{% url 'trigger_import_review' provider %}">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-xs btn-soft" title="Scan and review a full import before anything's written, same as a first connection does">Review full import</button>
+        </form>
+      {% endif %}
+      <form method="post" action="{% url 'trigger_manual_sync' provider %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-xs btn-soft">Sync now</button>
+      </form>
+    </div>
   </div>
   <form method="post" action="{% url 'save_sync_schedule' provider %}" class="flex items-center gap-1.5 flex-wrap">
     {% csrf_token %}

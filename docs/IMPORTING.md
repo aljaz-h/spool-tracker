@@ -30,8 +30,16 @@
 3. Put the client ID/secret in `.env` and restart the web service:
    `docker compose up -d --force-recreate web`
 4. Settings & Import → Connect. A daily background sync (04:00 server time)
-   keeps a connected account's history up to date afterward; connecting also
-   triggers an immediate sync.
+   keeps a connected account's history up to date afterward.
+   - **Trakt**: the first connection doesn't import anything by itself —
+     it scans your history and takes you to **Import Review** (the same
+     page CSV/JSON/ZIP imports use) to select what to bring in before
+     anything's written. Reconnecting an already-connected account skips
+     review and syncs immediately, same as it always has; **Review full
+     import** (next to **Sync now** once connected) runs another reviewed
+     import on demand without touching the scheduled sync.
+   - **Simkl**: connecting still triggers an immediate sync (not yet
+     routed through Import Review).
 
 **Caveat:** the OAuth flow itself (authorization redirect, token exchange)
 follows each provider's documented API shape, but the history-sync response

@@ -204,6 +204,7 @@ urlpatterns = [
     path("import/nuvio/select-profile/", views.nuvio_select_profile, name="nuvio_select_profile"),
     path("settings/sync-schedule/<str:provider>/", views.save_sync_schedule, name="save_sync_schedule"),
     path("settings/sync-now/<str:provider>/", views.trigger_manual_sync, name="trigger_manual_sync"),
+    path("settings/review-import/<str:provider>/", views.trigger_import_review, name="trigger_import_review"),
     path("settings/disconnect/<str:provider>/", views.disconnect_provider, name="disconnect_provider"),
     path(
         "settings/disconnect-and-wipe/<str:provider>/",

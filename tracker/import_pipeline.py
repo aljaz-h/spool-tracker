@@ -10,8 +10,11 @@ stays automatic.
 
 Two phases, kept strictly separate:
 
-- **scan** (`scan_session`) - read-only. Fetches/parses the source's raw
-  data, normalizes it, resolves title matches via
+- **scan** - read-only. Fetches/parses the source's raw data (file
+  parsing lives here via scan_file_import; a provider's own network
+  fetch - with credentials/token-refresh - stays owned by tasks.py,
+  which then calls the source-agnostic scan_normalized_items with its
+  own normalize_<source>_item()-shaped list), resolves title matches via
   tracker.title_matching.resolve_title_match (never apply_title_match -
   scan must not write), detects duplicates against existing WatchEvents,
   and bulk-creates ImportCandidate rows describing what commit *would*
@@ -25,13 +28,15 @@ Two phases, kept strictly separate:
   Title, never silently merge into one that scan didn't know about).
   Flips each candidate's own status as it's processed - the idempotency
   mechanism a retried/resumed commit relies on (see commit_session's own
-  docstring).
+  docstring). One implementation, shared by every source, since every
+  source's candidates end up as the same ImportCandidate shape.
 
-Currently wired for CSV/JSON/ZIP file imports only (source in
-ImportSession.Source.CSV/JSON/ZIP, via tracker.csv_import's existing
-parsers) - Trakt/Simkl/Nuvio scan/commit adapters land in a later stage,
-reusing scan_session/commit_session's dispatch rather than a parallel
-implementation.
+Wired for CSV/JSON/ZIP file imports (via tracker.csv_import's existing
+parsers) and Trakt (via tracker.integrations.trakt.fetch_history +
+normalize_history_item) - Simkl/Nuvio scan adapters land in a later
+stage, reusing scan_normalized_items/commit_session rather than a
+parallel implementation. tasks.scan_import_session is the single place
+that dispatches a scan by session.source.
 """
 
 import os
@@ -50,18 +55,21 @@ PROGRESS_UPDATE_INTERVAL = 200
 COMMIT_CHUNK_SIZE = 200
 
 FILE_SOURCES = (ImportSession.Source.CSV, ImportSession.Source.JSON, ImportSession.Source.ZIP)
+KNOWN_PROVIDERS = (ImportSession.Source.TRAKT, ImportSession.Source.SIMKL, ImportSession.Source.NUVIO)
 
 
-def scan_session(session):
-    """Dispatches to the right scan implementation for session.source.
-    Raises NotImplementedError for sources not wired in yet (Trakt/
-    Simkl/Nuvio, added in a later stage) - the caller (tasks.
-    scan_import_session) is responsible for turning that into a FAILED
-    session, same as any other scan failure."""
-    if session.source in FILE_SOURCES:
-        scan_file_import(session)
-    else:
-        raise NotImplementedError(f"Import scan not yet implemented for source={session.source!r}")
+def _external_id_provider(source_external_ids):
+    """A candidate's source_external_ids can carry a native provider id
+    even for a file import (a Trakt-shaped JSON/zip row - see
+    normalize_file_rows) - whichever known provider key is actually
+    present wins, so scan and commit both match/create against that
+    provider's own external_ids key rather than a generic "csv" one
+    whenever a real id is available. Falls back to ("csv", None) - no
+    native id at all, matching commit's own long-standing fallback."""
+    for provider in KNOWN_PROVIDERS:
+        if source_external_ids.get(provider):
+            return provider, source_external_ids[provider]
+    return "csv", None
 
 
 def commit_session(session):
@@ -124,18 +132,25 @@ def normalize_file_rows(rows, parse_errors):
 
 def scan_file_import(session):
     """Parses the uploaded file (path/mapping stashed on the session at
-    creation - see views.import_csv_commit), normalizes every row, and
-    resolves title/duplicate matches in batches (one title-match lookup
-    per unique (media_type, name, year, trakt_id, tmdb_id) key, one
-    Episode/WatchEvent prefetch per distinct matched Title - not one
-    query per row) before bulk-creating ImportCandidate rows. Never
-    calls apply_title_match, get_or_create, or WatchEvent.objects.
-    create - purely read-only against canonical data."""
+    creation - see views.import_csv_commit) and normalizes every row,
+    then hands off to scan_normalized_items for the (source-agnostic)
+    matching/candidate-building work shared with provider sources."""
     path = session.source_metadata.get("path")
     mapping = session.import_options.get("mapping")
     rows, parse_errors = csv_import.parse_file(path, session.source, mapping)
+    scan_normalized_items(session, normalize_file_rows(rows, parse_errors))
 
-    normalized = normalize_file_rows(rows, parse_errors)
+
+def scan_normalized_items(session, normalized):
+    """The source-agnostic half of scanning, shared by every source once
+    it has its own normalize_<source>_item()-shaped list ready (see this
+    module's own docstring for the common shape). Resolves title/
+    duplicate matches in batches - one title-match lookup per unique
+    (media_type, name, year, trakt_id, tmdb_id) key, one Episode/
+    WatchEvent prefetch per distinct matched Title, not one query per
+    item - before bulk-creating ImportCandidate rows. Never calls
+    apply_title_match, get_or_create, or WatchEvent.objects.create -
+    purely read-only against canonical data."""
     session.total_items = len(normalized)
     session.save(update_fields=["total_items"])
 
@@ -149,12 +164,12 @@ def scan_file_import(session):
             prepared.append((item, None, error))
             continue
 
-        trakt_id = item["source_external_ids"].get("trakt")
+        provider, provider_id = _external_id_provider(item["source_external_ids"])
         tmdb_id = item["source_external_ids"].get("tmdb")
-        key = (item["media_type"], item["title_name"].strip().lower(), item["year"], trakt_id, tmdb_id)
+        key = (item["media_type"], item["title_name"].strip().lower(), item["year"], provider, provider_id, tmdb_id)
         if key not in match_cache:
             match_cache[key] = title_matching.resolve_title_match(
-                item["media_type"], "trakt", trakt_id, name=item["title_name"], year=item["year"], tmdb_id=tmdb_id,
+                item["media_type"], provider, provider_id, name=item["title_name"], year=item["year"], tmdb_id=tmdb_id,
             )
         prepared.append((item, match_cache[key], None))
 
@@ -173,7 +188,7 @@ def scan_file_import(session):
 
     candidates = []
     for i, (item, match, error) in enumerate(prepared, start=1):
-        candidates.append(_build_file_candidate(item, match, error, episode_lookup, existing_events))
+        candidates.append(_build_candidate(item, match, error, episode_lookup, existing_events))
         if i % PROGRESS_UPDATE_INTERVAL == 0:
             session.processed_items = i
             session.save(update_fields=["processed_items"])
@@ -184,7 +199,7 @@ def scan_file_import(session):
     _finalize_scan(session)
 
 
-def _build_file_candidate(item, match, error, episode_lookup, existing_events):
+def _build_candidate(item, match, error, episode_lookup, existing_events):
     base = dict(
         category=ImportCandidate.Category.HISTORY,
         media_type=item["media_type"] or MediaType.MOVIE,
@@ -315,7 +330,7 @@ def _commit_candidates(session):
         if not chunk:
             break
         for candidate in chunk:
-            _commit_one(session.profile, candidate, result)
+            _commit_one(session, candidate, result)
             processed += 1
         # One save per chunk (COMMIT_CHUNK_SIZE rows) is enough to keep
         # the review page's polling status bar moving on a large import
@@ -350,24 +365,38 @@ def _commit_candidates(session):
     return result
 
 
-def _commit_one(profile, candidate, result):
+# WatchEvent's own Source badge (History's "came from an external app"
+# marker - see WatchEvent.Source's own docstring) for a candidate
+# created by a provider-sourced ImportSession. File imports (csv/json/
+# zip) leave it blank, same as a direct CSV commit always has - even a
+# Trakt-shaped JSON/zip row's own commit provider is resolved from
+# source_external_ids (see _external_id_provider), independent of this.
+WATCH_EVENT_SOURCE_BY_PROVIDER = {
+    ImportSession.Source.TRAKT: WatchEvent.Source.TRAKT,
+    ImportSession.Source.SIMKL: WatchEvent.Source.SIMKL,
+    ImportSession.Source.NUVIO: WatchEvent.Source.NUVIO,
+}
+
+
+def _commit_one(session, candidate, result):
+    profile = session.profile
     if candidate.category != ImportCandidate.Category.HISTORY:
-        # Not reachable yet (file imports are the only wired-in source
-        # and only ever produce HISTORY candidates) - kept as an
-        # explicit, safe no-op rather than an assertion so a future
-        # source that reuses this same commit loop for a category it
-        # hasn't finished wiring can't silently mis-write canonical data.
+        # Not reachable yet (every wired-in source so far only produces
+        # HISTORY candidates) - kept as an explicit, safe no-op rather
+        # than an assertion so a future source/category that reuses
+        # this same commit loop before it's finished wiring can't
+        # silently mis-write canonical data.
         candidate.status = ImportCandidate.Status.SKIPPED
         candidate.save(update_fields=["status"])
         result.skipped += 1
         return
 
     try:
-        provider = "trakt" if candidate.source_external_ids.get("trakt") else "csv"
+        provider, provider_id = _external_id_provider(candidate.source_external_ids)
         title = title_matching.apply_title_match(
             candidate.media_type,
             provider,
-            candidate.source_external_ids.get("trakt"),
+            provider_id,
             name=candidate.title_name,
             year=candidate.year,
             tmdb_id=candidate.source_external_ids.get("tmdb"),
@@ -396,7 +425,8 @@ def _commit_one(profile, candidate, result):
         return
 
     WatchEvent.objects.create(
-        profile=profile, title=title, episode=episode, watched_at=candidate.watched_at, user_rating=candidate.rating
+        profile=profile, title=title, episode=episode, watched_at=candidate.watched_at, user_rating=candidate.rating,
+        source=WATCH_EVENT_SOURCE_BY_PROVIDER.get(session.source, ""),
     )
     candidate.status = ImportCandidate.Status.IMPORTED
     candidate.matched_title = title

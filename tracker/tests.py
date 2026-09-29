@@ -631,6 +631,61 @@ class TraktUpsertCompletionWiringTests(TestCase):
         self.assertEqual(mock_watchlist_removal.call_count, 2)
 
 
+class TraktNormalizeHistoryItemTests(TestCase):
+    """trakt.normalize_history_item - the Import Review scan adapter for
+    Trakt history, which must validate the exact same things
+    upsert_history_items does (missing ids, missing episode season/
+    number) so scan and routine sync always agree on what's valid."""
+
+    def test_movie_item(self):
+        item = {
+            "id": 555, "type": "movie", "watched_at": "2024-01-05T20:30:00.000Z",
+            "movie": {"title": "Fathom", "year": 2020, "ids": {"trakt": 42, "tmdb": 99}},
+        }
+        normalized = trakt.normalize_history_item(item, 1)
+        self.assertIsNone(normalized["error"])
+        self.assertEqual(normalized["media_type"], MediaType.MOVIE)
+        self.assertEqual(normalized["title_name"], "Fathom")
+        self.assertEqual(normalized["source_external_ids"], {"trakt": "42", "tmdb": "99"})
+        self.assertEqual(normalized["source_row"], 555)  # Trakt's own play id, not the loop index
+
+    def test_episode_item(self):
+        item = {
+            "type": "episode", "watched_at": "2024-01-05T20:30:00.000Z",
+            "show": {"title": "Silo", "year": 2023, "ids": {"trakt": 7}},
+            "episode": {"season": 1, "number": 2},
+        }
+        normalized = trakt.normalize_history_item(item, 3)
+        self.assertIsNone(normalized["error"])
+        self.assertEqual(normalized["media_type"], MediaType.TV)
+        self.assertEqual(normalized["season"], 1)
+        self.assertEqual(normalized["episode"], 2)
+        self.assertEqual(normalized["source_row"], 3)  # falls back to the loop index - item has no "id"
+
+    def test_movie_missing_trakt_id_is_an_error(self):
+        item = {"type": "movie", "watched_at": "2024-01-05T20:30:00.000Z", "movie": {"title": "No Id", "ids": {}}}
+        normalized = trakt.normalize_history_item(item, 1)
+        self.assertIsNotNone(normalized["error"])
+
+    def test_episode_missing_season_or_number_is_an_error(self):
+        item = {
+            "type": "episode", "watched_at": "2024-01-05T20:30:00.000Z",
+            "show": {"title": "Silo", "ids": {"trakt": 7}}, "episode": {"season": 1},
+        }
+        normalized = trakt.normalize_history_item(item, 1)
+        self.assertIsNotNone(normalized["error"])
+
+    def test_unparseable_watched_at_is_an_error(self):
+        item = {"type": "movie", "watched_at": "not a date", "movie": {"title": "X", "ids": {"trakt": 1}}}
+        normalized = trakt.normalize_history_item(item, 1)
+        self.assertIsNotNone(normalized["error"])
+
+    def test_unrecognized_type_is_an_error(self):
+        item = {"type": "collection", "watched_at": "2024-01-05T20:30:00.000Z"}
+        normalized = trakt.normalize_history_item(item, 1)
+        self.assertIsNotNone(normalized["error"])
+
+
 class UpsertHistoryItemsLabelsOutTests(TestCase):
     """labels_out - the optional list trakt.py/simkl.py/nuvio.py's own
     upsert_history_items (and csv_import.commit_rows) append a human-
@@ -6692,6 +6747,186 @@ class OAuthCallbackDataLogTests(TestCase):
         log = DataLog.objects.get(profile=self.profile)
         self.assertEqual(log.status, DataLog.Status.FAILED)
         self.assertIn("network blip", log.error_message)
+
+
+class OAuthConnectImportReviewTests(TestCase):
+    """oauth_callback's own connect-flow change (Import Review Stage 4):
+    a brand NEW Trakt connection goes through scan+review instead of an
+    immediate sync; an existing account (reconnect) keeps the exact old
+    behavior unchanged - and Simkl (no scan adapter wired yet) always
+    keeps the old behavior too, regardless of created, so half-wiring
+    IMPORT_REVIEW_PROVIDERS can never strand a connection in a review
+    session with nothing behind it."""
+
+    def setUp(self):
+        user = User.objects.create_user("newconnect", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="NewConnect")
+        InstanceConfig.objects.update_or_create(
+            pk=1,
+            defaults={
+                "trakt_client_id": "cid", "encrypted_trakt_client_secret": crypto.encrypt("csecret"),
+                "simkl_client_id": "scid", "encrypted_simkl_client_secret": crypto.encrypt("scsecret"),
+            },
+        )
+        self.client.login(username="newconnect", password="pass12345")
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.trakt.exchange_code")
+    def test_new_trakt_connection_creates_review_session_instead_of_syncing(self, mock_exchange, mock_dispatch):
+        mock_exchange.return_value = {"access_token": "tok", "refresh_token": "rtok", "expires_in": 7776000}
+        session = self.client.session
+        session["trakt_oauth_state"] = "abc123"
+        session.save()
+
+        resp = self.client.get(reverse("trakt_callback"), {"code": "authcode", "state": "abc123"})
+
+        import_session = ImportSession.objects.get(profile=self.profile, source=ImportSession.Source.TRAKT)
+        self.assertEqual(import_session.status, ImportSession.Status.SCANNING)
+        self.assertRedirects(resp, reverse("import_review", args=[import_session.id]))
+        mock_dispatch.assert_called_once_with(tasks.scan_import_session, [import_session.id])
+        self.assertTrue(ExternalAccount.objects.filter(profile=self.profile, provider="trakt").exists())
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.trakt.exchange_code")
+    def test_reconnecting_an_existing_trakt_account_syncs_immediately_as_before(self, mock_exchange, mock_dispatch):
+        ExternalAccount.objects.create(profile=self.profile, provider=ExternalAccount.Provider.TRAKT)
+        mock_exchange.return_value = {"access_token": "tok", "refresh_token": "rtok", "expires_in": 7776000}
+        session = self.client.session
+        session["trakt_oauth_state"] = "abc123"
+        session.save()
+
+        resp = self.client.get(reverse("trakt_callback"), {"code": "authcode", "state": "abc123"})
+
+        self.assertFalse(ImportSession.objects.filter(profile=self.profile).exists())
+        self.assertRedirects(resp, reverse("settings"))
+        mock_dispatch.assert_called_once_with(tasks.sync_trakt_history, [self.profile.id])
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.simkl.exchange_code")
+    def test_new_simkl_connection_still_syncs_immediately_no_scan_adapter_yet(self, mock_exchange, mock_dispatch):
+        mock_exchange.return_value = {"access_token": "tok", "refresh_token": "rtok", "expires_in": 7776000}
+        session = self.client.session
+        session["simkl_oauth_state"] = "abc123"
+        session.save()
+
+        resp = self.client.get(reverse("simkl_callback"), {"code": "authcode", "state": "abc123"})
+
+        self.assertFalse(ImportSession.objects.filter(profile=self.profile).exists())
+        self.assertRedirects(resp, reverse("settings"))
+        mock_dispatch.assert_called_once_with(tasks.sync_simkl_history, [self.profile.id])
+
+
+class TriggerImportReviewViewTests(TestCase):
+    """The "Review full import" button (trigger_import_review) - lets an
+    already-connected account run another reviewed import on demand,
+    without touching its routine scheduled sync."""
+
+    def setUp(self):
+        user = User.objects.create_user("reviewbutton", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ReviewButton")
+        self.client.login(username="reviewbutton", password="pass12345")
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_creates_a_new_session_for_a_connected_trakt_account(self, mock_dispatch):
+        ExternalAccount.objects.create(profile=self.profile, provider=ExternalAccount.Provider.TRAKT)
+        resp = self.client.post(reverse("trigger_import_review", args=["trakt"]))
+        session = ImportSession.objects.get(profile=self.profile, source=ImportSession.Source.TRAKT)
+        self.assertRedirects(resp, reverse("import_review", args=[session.id]))
+        mock_dispatch.assert_called_once_with(tasks.scan_import_session, [session.id])
+
+    def test_404s_for_a_provider_with_no_review_adapter_yet(self):
+        ExternalAccount.objects.create(profile=self.profile, provider=ExternalAccount.Provider.SIMKL)
+        resp = self.client.post(reverse("trigger_import_review", args=["simkl"]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_404s_when_not_connected(self):
+        resp = self.client.post(reverse("trigger_import_review", args=["trakt"]))
+        self.assertEqual(resp.status_code, 404)
+
+
+class ScanTraktSessionTests(TestCase):
+    """tasks._scan_trakt_session (dispatched by scan_import_session for
+    source=trakt) - fetches via trakt.fetch_history (with the same
+    401-refreshes pattern routine sync uses) and normalizes into
+    candidates through the exact same source-agnostic
+    import_pipeline.scan_normalized_items CSV/JSON/ZIP scanning uses."""
+
+    def setUp(self):
+        user = User.objects.create_user("traktscanner", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="TraktScanner")
+        self.account = ExternalAccount.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.TRAKT, encrypted_access_token=crypto.encrypt("tok")
+        )
+
+    def _session(self):
+        return ImportSession.objects.create(profile=self.profile, source=ImportSession.Source.TRAKT)
+
+    @patch("tracker.integrations.trakt.fetch_history")
+    def test_scan_creates_candidates_from_fetched_history_without_writing_anything(self, mock_fetch):
+        mock_fetch.return_value = [
+            {
+                "id": 1, "type": "movie", "watched_at": "2024-01-05T20:30:00.000Z",
+                "movie": {"title": "Fathom", "year": 2020, "ids": {"trakt": 42, "tmdb": 99}},
+            }
+        ]
+        session = self._session()
+
+        tasks.scan_import_session(session.id)
+
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.READY)
+        candidate = session.candidates.get()
+        self.assertEqual(candidate.title_name, "Fathom")
+        self.assertEqual(candidate.source_external_ids, {"trakt": "42", "tmdb": "99"})
+        self.assertFalse(WatchEvent.objects.exists())
+        self.assertFalse(Title.objects.exists())
+
+    @patch("tracker.integrations.trakt.fetch_history")
+    def test_item_missing_trakt_id_becomes_an_error_candidate(self, mock_fetch):
+        mock_fetch.return_value = [
+            {"id": 2, "type": "movie", "watched_at": "2024-01-05T20:30:00.000Z", "movie": {"title": "No Id", "ids": {}}}
+        ]
+        session = self._session()
+
+        tasks.scan_import_session(session.id)
+
+        candidate = session.candidates.get()
+        self.assertEqual(candidate.status, ImportCandidate.Status.FAILED)
+        self.assertFalse(candidate.selected)
+
+    @patch("tracker.integrations.trakt.fetch_history")
+    def test_401_triggers_a_token_refresh_and_retries_once(self, mock_fetch):
+        mock_fetch.side_effect = [_http_401(), []]
+        self.account.set_refresh_token("rtok")
+        self.account.redirect_uri = "https://spool.example.com/import/trakt/callback/"
+        self.account.save(update_fields=["encrypted_refresh_token", "redirect_uri"])
+        session = self._session()
+
+        with patch("tracker.integrations.trakt.refresh_access_token") as mock_refresh:
+            mock_refresh.return_value = {"access_token": "new-tok", "refresh_token": "new-rtok", "expires_in": 7776000}
+            tasks.scan_import_session(session.id)
+
+        mock_refresh.assert_called_once()
+        self.assertEqual(mock_fetch.call_count, 2)
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.READY)
+
+    def test_commit_sets_watch_event_source_to_trakt(self):
+        with patch("tracker.integrations.trakt.fetch_history") as mock_fetch:
+            mock_fetch.return_value = [
+                {
+                    "id": 3, "type": "movie", "watched_at": "2024-01-05T20:30:00.000Z",
+                    "movie": {"title": "Fathom", "year": 2020, "ids": {"trakt": 42}},
+                }
+            ]
+            session = self._session()
+            tasks.scan_import_session(session.id)
+
+        tasks.commit_import_session(session.id)
+
+        event = WatchEvent.objects.get(profile=self.profile)
+        self.assertEqual(event.source, WatchEvent.Source.TRAKT)
+        self.assertEqual(event.title.external_ids.get("trakt"), "42")
 
 
 class IncrementalSyncTests(TestCase):

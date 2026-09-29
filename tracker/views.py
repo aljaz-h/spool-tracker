@@ -5392,6 +5392,13 @@ def export_trakt_json(request):
 
 PROVIDER_MODULES = {"trakt": trakt, "simkl": simkl}
 SYNC_TASKS = {"trakt": tasks.sync_trakt_history, "simkl": tasks.sync_simkl_history, "nuvio": tasks.sync_nuvio_history}
+# Providers whose FIRST connection goes through Import Review instead of
+# an immediate sync (see oauth_callback) - grows as Simkl/Nuvio's own
+# scan adapters (tasks.SCAN_HANDLERS) land in later stages. A provider
+# missing here keeps today's connect-triggers-immediate-sync behavior
+# unchanged, so half-wiring this set never leaves a provider connecting
+# into a review session with no scan implementation behind it.
+IMPORT_REVIEW_PROVIDERS = {"trakt"}
 
 
 @login_required
@@ -5459,14 +5466,33 @@ def oauth_callback(request, provider):
     # access_token/refresh_token are encrypted at rest (see
     # ExternalAccount's own set_access_token/set_refresh_token) - update_
     # or_create's defaults= can't call those, so this fetches-or-creates
-    # first and sets them explicitly instead.
-    account, _ = ExternalAccount.objects.get_or_create(profile=profile, provider=provider)
+    # first and sets them explicitly instead. `created`: a brand new
+    # connection goes through Import Review below instead of an
+    # immediate sync - an existing account (reconnecting after a token
+    # issue, or one connected before this feature existed) keeps today's
+    # exact behavior, so nothing changes for it.
+    account, created = ExternalAccount.objects.get_or_create(profile=profile, provider=provider)
     account.set_access_token(token_data.get("access_token", ""))
     account.set_refresh_token(token_data.get("refresh_token", ""))
     account.token_expires_at = timezone.now() + timedelta(seconds=expires_in) if expires_in else None
     account.redirect_uri = redirect_uri
     account.save(update_fields=["encrypted_access_token", "encrypted_refresh_token", "token_expires_at", "redirect_uri"])
+    # Routine sync's own recurring registration happens either way -
+    # review-gating a first import never delays when daily sync starts.
     scheduling.ensure_periodic_task(account)
+    DataLog.objects.create(
+        profile=profile, action=connect_action, provider=provider, status=DataLog.Status.SUCCESS, detail="connected"
+    )
+
+    if created and provider in IMPORT_REVIEW_PROVIDERS:
+        session = ImportSession.objects.create(
+            profile=profile, source=provider, status=ImportSession.Status.SCANNING,
+            expires_at=timezone.now() + IMPORT_SESSION_EXPIRY,
+        )
+        _dispatch_sync_task_safely(tasks.scan_import_session, [session.id])
+        messages.success(request, f"Connected to {provider.title()} — review what to import.")
+        return redirect("import_review", session_id=session.id)
+
     # The connection itself (the ExternalAccount row above) must succeed
     # independently of the broker being reachable right now. Confirmed by
     # reproducing it locally: a down broker makes .apply_async() block for
@@ -5476,9 +5502,6 @@ def oauth_callback(request, provider):
     # does. Worst case, a broker hiccup costs nothing worse than "today's
     # sync happens on the next daily beat run instead of immediately."
     _dispatch_sync_task_safely(SYNC_TASKS[provider], [profile.id])
-    DataLog.objects.create(
-        profile=profile, action=connect_action, provider=provider, status=DataLog.Status.SUCCESS, detail="connected"
-    )
     messages.success(request, f"Connected to {provider.title()} — syncing your history now.")
     return redirect("settings")
 
@@ -5762,6 +5785,32 @@ def trigger_manual_sync(request, provider):
     _dispatch_sync_task_safely(SYNC_TASKS[provider], [profile.id])
     messages.success(request, f"{provider.title()} sync started - check back in a moment.")
     return redirect("settings")
+
+
+@login_required
+@require_POST
+def trigger_import_review(request, provider):
+    """Settings & Import's "Review full import" button - lets an already-
+    connected account (past its own first-connect review) run another
+    full reviewed import on demand, same as spec section 6's "cancel
+    keeps the provider connected... allows Review full import later."
+    Unlike Sync now, this never writes anything until the resulting
+    session is reviewed and confirmed - same scan/review/commit path a
+    first connection goes through, just triggered explicitly instead of
+    automatically on connect. Doesn't touch the account's own scheduled
+    routine sync at all."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    if provider not in IMPORT_REVIEW_PROVIDERS:
+        raise Http404
+    _get_provider_account(profile, provider)
+    session = ImportSession.objects.create(
+        profile=profile, source=provider, status=ImportSession.Status.SCANNING,
+        expires_at=timezone.now() + IMPORT_SESSION_EXPIRY,
+    )
+    _dispatch_sync_task_safely(tasks.scan_import_session, [session.id])
+    return redirect("import_review", session_id=session.id)
 
 
 CSV_IMPORT_DIR = os.path.join(django_settings.MEDIA_ROOT, "csv_imports")

@@ -200,19 +200,56 @@ def sync_nuvio_history(profile_id):
     return created
 
 
+def _scan_trakt_session(session):
+    """Fetches this profile's full Trakt history (same trakt.fetch_history
+    call routine sync uses, including its own 401-triggers-a-refresh
+    handling via _call_with_refresh) and hands the normalized items to
+    import_pipeline's source-agnostic scan_normalized_items. Only the
+    fetch/credentials/token-refresh part is Trakt-specific - matching,
+    duplicate detection, and ImportCandidate creation are the exact same
+    code path CSV/JSON/ZIP scanning already uses."""
+    account = ExternalAccount.objects.select_related("profile").get(
+        profile=session.profile, provider=ExternalAccount.Provider.TRAKT
+    )
+    client_id, client_secret = instance_config.get_trakt_credentials()
+    items = _call_with_refresh(
+        account, trakt, client_id, client_secret,
+        lambda: trakt.fetch_history(account.get_access_token(), client_id),
+    )
+    normalized = [trakt.normalize_history_item(item, i) for i, item in enumerate(items, start=1)]
+    import_pipeline.scan_normalized_items(session, normalized)
+
+
+# session.source values with a scan implementation wired in - dispatched
+# by scan_import_session below. A source missing here (Simkl/Nuvio, for
+# now) raises NotImplementedError, which scan_import_session turns into
+# a FAILED session same as any other scan failure - see its own
+# docstring.
+SCAN_HANDLERS = {ImportSession.Source.TRAKT: _scan_trakt_session}
+
+
 @shared_task
 def scan_import_session(session_id):
     """Import Review's scan step - see import_pipeline.py's own
-    docstring for why this never writes to canonical Spool state.
-    Dispatched by views.import_csv_commit right after the session row
-    is created (status=SCANNING); the review page polls until this
-    flips it to READY (or FAILED). Always removes the backing temp file
-    once it's been fully read (kept if scanning raises before parsing
-    even starts, so a manual retry could still find it), same ownership
-    hand-off convention the old run_data_import task used."""
+    docstring for why this never writes to canonical Spool state, and
+    for why file sources (scan_file_import) and provider sources (this
+    task fetching, then import_pipeline.scan_normalized_items) split the
+    fetch/parse step but share everything after it. Dispatched right
+    after the session row is created (status=SCANNING) - by views.
+    import_csv_commit for a file, or oauth_callback for a first Trakt
+    connection; the review page polls until this flips the session to
+    READY (or FAILED). Always removes a file import's own backing temp
+    file once it's been fully read (kept if scanning raises before
+    parsing even starts, so a manual retry could still find it) - a
+    no-op for a provider source, which has no temp file at all."""
     session = ImportSession.objects.select_related("profile").get(id=session_id)
     try:
-        import_pipeline.scan_session(session)
+        if session.source in import_pipeline.FILE_SOURCES:
+            import_pipeline.scan_file_import(session)
+        elif session.source in SCAN_HANDLERS:
+            SCAN_HANDLERS[session.source](session)
+        else:
+            raise NotImplementedError(f"Import scan not yet implemented for source={session.source!r}")
     except Exception as e:
         logger.exception("scan_import_session: session %s failed", session_id)
         session.status = ImportSession.Status.FAILED

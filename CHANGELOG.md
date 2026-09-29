@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.138.0] - 2026-09-29
+
+### Changed
+
+- Connecting Trakt for the first time no longer imports your history
+  automatically. It now scans your account and takes you to **Import
+  Review** to select what to bring in before anything's written -
+  reconnecting an already-connected account still syncs immediately, and
+  a new **Review full import** button lets a connected account run
+  another reviewed import on demand. Simkl/Nuvio still sync immediately
+  on connect for now; they're next.
+
 ## [0.137.0] - 2026-09-29
 
 ### Changed
