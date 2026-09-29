@@ -5,12 +5,10 @@
       Last synced: {% if account.last_synced_at %}{{ account.last_synced_at|timesince }} ago{% else %}never{% endif %}
     </div>
     <div class="flex gap-1.5">
-      {% if provider == "trakt" or provider == "simkl" %}
-        <form method="post" action="{% url 'trigger_import_review' provider %}">
-          {% csrf_token %}
-          <button type="submit" class="btn btn-xs btn-soft" title="Scan and review a full import before anything's written, same as a first connection does">Review full import</button>
-        </form>
-      {% endif %}
+      <form method="post" action="{% url 'trigger_import_review' provider %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-xs btn-soft" title="Scan and review a full import before anything's written, same as a first connection does">Review full import</button>
+      </form>
       <form method="post" action="{% url 'trigger_manual_sync' provider %}">
         {% csrf_token %}
         <button type="submit" class="btn btn-xs btn-soft">Sync now</button>

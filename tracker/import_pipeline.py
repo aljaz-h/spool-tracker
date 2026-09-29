@@ -72,6 +72,22 @@ def _external_id_provider(source_external_ids):
     return "csv", None
 
 
+# Per-provider extra kwargs for title_matching.resolve_title_match/
+# apply_title_match, mirroring what each provider's own _get_or_create_title
+# wrapper (trakt.py/simkl.py/nuvio.py) already hardcodes for every call -
+# a fixed per-provider choice, never a per-item one. Nuvio prefers TMDB's
+# own resolved name/year over its own (often just a content_id-derived)
+# hint, and discards a tmdb_id match entirely if TMDB has no details for
+# it, rather than linking to an id it could never enrich - see
+# title_matching.py's own module docstring. Trakt/Simkl/CSV use the
+# defaults (both False).
+PROVIDER_MATCH_OPTIONS = {ImportSession.Source.NUVIO: {"prefer_resolved_name": True, "require_details_for_tmdb_id": True}}
+
+
+def _match_options(provider):
+    return PROVIDER_MATCH_OPTIONS.get(provider, {})
+
+
 def commit_session(session):
     """Dispatches to the commit implementation. Every source's
     candidates end up as plain ImportCandidate rows with the same
@@ -166,10 +182,12 @@ def scan_normalized_items(session, normalized):
 
         provider, provider_id = _external_id_provider(item["source_external_ids"])
         tmdb_id = item["source_external_ids"].get("tmdb")
-        key = (item["media_type"], item["title_name"].strip().lower(), item["year"], provider, provider_id, tmdb_id)
+        imdb_id = item["source_external_ids"].get("imdb")
+        key = (item["media_type"], item["title_name"].strip().lower(), item["year"], provider, provider_id, tmdb_id, imdb_id)
         if key not in match_cache:
             match_cache[key] = title_matching.resolve_title_match(
-                item["media_type"], provider, provider_id, name=item["title_name"], year=item["year"], tmdb_id=tmdb_id,
+                item["media_type"], provider, provider_id, name=item["title_name"], year=item["year"],
+                tmdb_id=tmdb_id, imdb_id=imdb_id, **_match_options(provider),
             )
         prepared.append((item, match_cache[key], None))
 
@@ -400,6 +418,8 @@ def _commit_one(session, candidate, result):
             name=candidate.title_name,
             year=candidate.year,
             tmdb_id=candidate.source_external_ids.get("tmdb"),
+            imdb_id=candidate.source_external_ids.get("imdb"),
+            **_match_options(provider),
         )
         episode = None
         is_show = candidate.media_type != MediaType.MOVIE

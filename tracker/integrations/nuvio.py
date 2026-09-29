@@ -212,6 +212,78 @@ def _season_episode(item, parsed):
     return season, episode
 
 
+def normalize_history_item(item, index):
+    """Converts one fetch_watched_items() item into the common Import
+    Review candidate shape (see tracker/import_pipeline.py's own module
+    docstring) - mirrors upsert_history_items' own field extraction/
+    validation (content_id present, watched_at a numeric ms-epoch,
+    content_type movie/series, a TV item needs a resolvable season/
+    episode), so scan and routine sync agree on which raw items are
+    valid.
+
+    Deliberately does NOT apply upsert_history_items' own anime season/
+    episode reconciliation (episode_matching.resolve_episode_season) -
+    that step needs the matched Title (to check media_type/tmdb_id),
+    which import_pipeline.scan_normalized_items only resolves in a later
+    batched pass, not per item. In the narrow case that step exists for
+    (a title already reclassified ANIME, with a TMDB season-count/MAL
+    relation-chain remap), the review page can show an as-reported
+    season/episode rather than the reconciled one - commit still applies
+    the exact same reconciliation upsert_history_items always has via
+    its own call, so what actually gets written is unaffected; only the
+    review page's own preview label could differ from it in that one
+    case. A known, narrow limitation - not a duplicate/data-loss risk,
+    since a mismatch here only ever means "commit resolves to a
+    different, still-correct episode than what review displayed"."""
+    import datetime
+
+    from tracker.models import MediaType
+
+    content_id = item.get("content_id")
+    source_row = content_id or index
+    watched_at_ms = item.get("watched_at")
+    if not content_id:
+        return _history_item_error(source_row, "missing content_id")
+    if not isinstance(watched_at_ms, (int, float)):
+        return _history_item_error(source_row, "missing/invalid watched_at")
+    watched_at = datetime.datetime.fromtimestamp(watched_at_ms / 1000, tz=datetime.timezone.utc)
+
+    content_type = item.get("content_type")
+    if content_type == "movie":
+        media_type = MediaType.MOVIE
+    elif content_type == "series":
+        media_type = MediaType.TV
+    else:
+        return _history_item_error(source_row, f"unrecognized content_type {content_type!r}")
+
+    parsed = _parse_content_id(content_id)
+    season = episode = None
+    if media_type == MediaType.TV:
+        season, episode = _season_episode(item, parsed)
+        if season is None or episode is None:
+            return _history_item_error(source_row, "missing season/episode")
+
+    source_external_ids = {"nuvio": content_id}
+    if parsed["tmdb_id"]:
+        source_external_ids["tmdb"] = str(parsed["tmdb_id"])
+    if parsed["imdb_id"]:
+        source_external_ids["imdb"] = parsed["imdb_id"]
+
+    return {
+        "media_type": media_type, "title_name": item.get("name") or item.get("title") or "Untitled",
+        "year": item.get("year"), "season": season, "episode": episode, "watched_at": watched_at, "rating": None,
+        "source_external_ids": source_external_ids, "source_row": source_row, "error": None,
+    }
+
+
+def _history_item_error(source_row, reason):
+    return {
+        "media_type": None, "title_name": f"Nuvio item {source_row}", "year": None, "season": None,
+        "episode": None, "watched_at": None, "rating": None, "source_external_ids": {},
+        "source_row": source_row, "error": reason,
+    }
+
+
 def upsert_history_items(profile, items, labels_out=None):
     """items: raw dicts from fetch_watched_items(). Returns the count of
     newly created WatchEvent rows - existing ones (same profile, title,

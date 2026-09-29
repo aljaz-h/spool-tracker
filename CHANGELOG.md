@@ -8,7 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
-## [0.139.0] - 2026-09-29
+## [0.140.0] - 2026-09-29
+
+### Changed
+
+- Connecting Nuvio for the first time now goes through **Import Review**
+  too - watch history is scanned and staged for review before anything's
+  written. Continue-watching progress isn't reviewable yet and still
+  arrives via the normal daily sync, one day after a first reviewed
+  import. Reconnecting an existing profile is unchanged. Every source
+  Import Review currently supports (CSV/JSON/ZIP, Trakt, Simkl, Nuvio)
+  is now wired in.
 
 ### Changed
 

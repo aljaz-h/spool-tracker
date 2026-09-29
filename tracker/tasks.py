@@ -234,13 +234,33 @@ def _scan_simkl_session(session):
     import_pipeline.scan_normalized_items(session, normalized)
 
 
+def _scan_nuvio_session(session):
+    """Nuvio has no access-token persistence at all (see NuvioConnection's
+    own docstring) - every scan/sync starts with a fresh refresh_token
+    exchange, and Supabase rotates the refresh token on every use, so the
+    new one is saved immediately, before any fetch that could still fail.
+    Only watch history goes through Import Review so far - continue-
+    watching progress (fetch_watch_progress/upsert_progress_items) stays
+    routine-sync-only for now, same as Trakt's own list/watchlist import
+    (account.import_lists) hasn't been wired into review yet either; it
+    starts showing up via the normal daily sync the day after a first
+    reviewed history import, not gated behind this scan at all."""
+    connection = NuvioConnection.objects.select_related("profile").get(profile=session.profile)
+    auth = nuvio.refresh_access_token(connection.get_refresh_token())
+    connection.set_refresh_token(auth["refresh_token"])
+    connection.save(update_fields=["encrypted_refresh_token"])
+
+    items = nuvio.fetch_watched_items(auth["access_token"], connection.nuvio_profile_id)
+    normalized = [nuvio.normalize_history_item(item, i) for i, item in enumerate(items, start=1)]
+    import_pipeline.scan_normalized_items(session, normalized)
+
+
 # session.source values with a scan implementation wired in - dispatched
-# by scan_import_session below. A source missing here (Nuvio, for now)
-# raises NotImplementedError, which scan_import_session turns into a
-# FAILED session same as any other scan failure - see its own docstring.
+# by scan_import_session below.
 SCAN_HANDLERS = {
     ImportSession.Source.TRAKT: _scan_trakt_session,
     ImportSession.Source.SIMKL: _scan_simkl_session,
+    ImportSession.Source.NUVIO: _scan_nuvio_session,
 }
 
 

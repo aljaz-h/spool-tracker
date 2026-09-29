@@ -5398,7 +5398,7 @@ SYNC_TASKS = {"trakt": tasks.sync_trakt_history, "simkl": tasks.sync_simkl_histo
 # missing here keeps today's connect-triggers-immediate-sync behavior
 # unchanged, so half-wiring this set never leaves a provider connecting
 # into a review session with no scan implementation behind it.
-IMPORT_REVIEW_PROVIDERS = {"trakt", "simkl"}
+IMPORT_REVIEW_PROVIDERS = {"trakt", "simkl", "nuvio"}
 
 
 @login_required
@@ -5506,16 +5506,21 @@ def oauth_callback(request, provider):
     return redirect("settings")
 
 
-def _finish_nuvio_connect(profile, email, refresh_token, nuvio_profile):
+def _finish_nuvio_connect(request, profile, email, refresh_token, nuvio_profile):
     """Creates/updates this profile's NuvioConnection, encrypts+saves the
-    refresh token, (re)schedules the daily sync, and triggers an
-    immediate first sync - the Nuvio-flow equivalent of oauth_callback's
-    ExternalAccount.objects.update_or_create + scheduling.ensure_periodic_task
-    + _dispatch_sync_task_safely block above. Shared by nuvio_connect_submit's
-    single-profile happy path and nuvio_select_profile's multi-profile
-    finish, so both end up in exactly the same state."""
+    refresh token, and (re)schedules the daily sync - the Nuvio-flow
+    equivalent of oauth_callback's ExternalAccount.objects.get_or_create
+    + scheduling.ensure_periodic_task block above. Shared by
+    nuvio_connect_submit's single-profile happy path and
+    nuvio_select_profile's multi-profile finish, so both end up in
+    exactly the same state. Returns the redirect response the caller
+    should return directly - same created-gated branch as oauth_callback
+    (a brand new connection goes through Import Review; reconnecting an
+    already-connected profile - NuvioConnection is a OneToOneField, so
+    "created" here means exactly that - keeps the old immediate-sync
+    behavior)."""
     nuvio_profile_id = int(nuvio_profile.get("profile_index") or 0)
-    connection, _ = NuvioConnection.objects.update_or_create(
+    connection, created = NuvioConnection.objects.update_or_create(
         profile=profile,
         defaults={
             "email": email,
@@ -5526,7 +5531,6 @@ def _finish_nuvio_connect(profile, email, refresh_token, nuvio_profile):
     connection.set_refresh_token(refresh_token)
     connection.save(update_fields=["encrypted_refresh_token"])
     scheduling.ensure_periodic_task(connection)
-    _dispatch_sync_task_safely(SYNC_TASKS["nuvio"], [profile.id])
     DataLog.objects.create(
         profile=profile,
         action=DataLog.Action.NUVIO_CONNECT,
@@ -5534,6 +5538,19 @@ def _finish_nuvio_connect(profile, email, refresh_token, nuvio_profile):
         status=DataLog.Status.SUCCESS,
         detail="connected",
     )
+
+    if created and "nuvio" in IMPORT_REVIEW_PROVIDERS:
+        session = ImportSession.objects.create(
+            profile=profile, source="nuvio", status=ImportSession.Status.SCANNING,
+            expires_at=timezone.now() + IMPORT_SESSION_EXPIRY,
+        )
+        _dispatch_sync_task_safely(tasks.scan_import_session, [session.id])
+        messages.success(request, "Connected to Nuvio — review what to import.")
+        return redirect("import_review", session_id=session.id)
+
+    _dispatch_sync_task_safely(SYNC_TASKS["nuvio"], [profile.id])
+    messages.success(request, "Connected to Nuvio — syncing your history now.")
+    return redirect("settings")
 
 
 @login_required
@@ -5575,9 +5592,7 @@ def nuvio_connect_submit(request):
         return redirect("settings")
 
     if len(profiles) == 1:
-        _finish_nuvio_connect(profile, email, session["refresh_token"], profiles[0])
-        messages.success(request, "Connected to Nuvio — syncing your history now.")
-        return redirect("settings")
+        return _finish_nuvio_connect(request, profile, email, session["refresh_token"], profiles[0])
 
     # Stashed encrypted, same as NuvioConnection.encrypted_refresh_token -
     # this is Django's server-side DB-backed session by default, but
@@ -5612,9 +5627,7 @@ def nuvio_select_profile(request):
             messages.error(request, "Pick a Nuvio profile to continue.")
             return redirect("nuvio_select_profile")
         del request.session["nuvio_connect_pending"]
-        _finish_nuvio_connect(profile, pending["email"], crypto.decrypt(pending["refresh_token"]), chosen)
-        messages.success(request, "Connected to Nuvio — syncing your history now.")
-        return redirect("settings")
+        return _finish_nuvio_connect(request, profile, pending["email"], crypto.decrypt(pending["refresh_token"]), chosen)
 
     context = {
         "email": pending["email"],

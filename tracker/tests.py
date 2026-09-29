@@ -6850,10 +6850,17 @@ class TriggerImportReviewViewTests(TestCase):
         self.assertRedirects(resp, reverse("import_review", args=[session.id]))
         mock_dispatch.assert_called_once_with(tasks.scan_import_session, [session.id])
 
-    def test_404s_for_a_provider_with_no_review_adapter_yet(self):
+    def test_404s_for_an_unrecognized_provider(self):
+        resp = self.client.post(reverse("trigger_import_review", args=["notaprovider"]))
+        self.assertEqual(resp.status_code, 404)
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_creates_a_new_session_for_a_connected_nuvio_account(self, mock_dispatch):
         NuvioConnection.objects.create(profile=self.profile, email="a@b.com", nuvio_profile_id=0)
         resp = self.client.post(reverse("trigger_import_review", args=["nuvio"]))
-        self.assertEqual(resp.status_code, 404)
+        session = ImportSession.objects.get(profile=self.profile, source=ImportSession.Source.NUVIO)
+        self.assertRedirects(resp, reverse("import_review", args=[session.id]))
+        mock_dispatch.assert_called_once_with(tasks.scan_import_session, [session.id])
 
     def test_404s_when_not_connected(self):
         resp = self.client.post(reverse("trigger_import_review", args=["trakt"]))
@@ -7052,6 +7059,127 @@ class ScanSimklSessionTests(TestCase):
         event = WatchEvent.objects.get(profile=self.profile)
         self.assertEqual(event.source, WatchEvent.Source.SIMKL)
         self.assertEqual(event.title.external_ids.get("simkl"), "42")
+
+
+class NuvioNormalizeHistoryItemTests(TestCase):
+    """nuvio.normalize_history_item - mirrors Trakt/Simkl's own
+    normalize_history_item tests, but for Nuvio's own item shape
+    (content_id instead of a provider ids dict, epoch-ms watched_at,
+    content_type "movie"/"series")."""
+
+    def test_movie_item(self):
+        item = {"content_id": "tmdb:550", "watched_at": 1704486600000, "content_type": "movie", "name": "Fathom"}
+        normalized = nuvio.normalize_history_item(item, 1)
+        self.assertIsNone(normalized["error"])
+        self.assertEqual(normalized["media_type"], MediaType.MOVIE)
+        self.assertEqual(normalized["source_external_ids"], {"nuvio": "tmdb:550", "tmdb": "550"})
+
+    def test_episode_item_with_season_episode_in_the_content_id(self):
+        item = {"content_id": "tt0903747:1:1", "watched_at": 1704486600000, "content_type": "series", "name": "Silo"}
+        normalized = nuvio.normalize_history_item(item, 1)
+        self.assertIsNone(normalized["error"])
+        self.assertEqual(normalized["media_type"], MediaType.TV)
+        self.assertEqual(normalized["season"], 1)
+        self.assertEqual(normalized["episode"], 1)
+        self.assertEqual(normalized["source_external_ids"], {"nuvio": "tt0903747:1:1", "imdb": "tt0903747"})
+
+    def test_episode_item_with_explicit_season_episode_fields(self):
+        item = {
+            "content_id": "tt0903747", "watched_at": 1704486600000, "content_type": "series",
+            "season": 2, "episode": 5,
+        }
+        normalized = nuvio.normalize_history_item(item, 1)
+        self.assertIsNone(normalized["error"])
+        self.assertEqual(normalized["season"], 2)
+        self.assertEqual(normalized["episode"], 5)
+
+    def test_missing_content_id_is_an_error(self):
+        item = {"watched_at": 1704486600000, "content_type": "movie"}
+        normalized = nuvio.normalize_history_item(item, 1)
+        self.assertIsNotNone(normalized["error"])
+
+    def test_missing_watched_at_is_an_error(self):
+        item = {"content_id": "tmdb:550", "content_type": "movie"}
+        normalized = nuvio.normalize_history_item(item, 1)
+        self.assertIsNotNone(normalized["error"])
+
+    def test_series_with_no_resolvable_season_episode_is_an_error(self):
+        item = {"content_id": "tmdb:550", "watched_at": 1704486600000, "content_type": "series"}
+        normalized = nuvio.normalize_history_item(item, 1)
+        self.assertIsNotNone(normalized["error"])
+
+    def test_unrecognized_content_type_is_an_error(self):
+        item = {"content_id": "tmdb:550", "watched_at": 1704486600000, "content_type": "documentary"}
+        normalized = nuvio.normalize_history_item(item, 1)
+        self.assertIsNotNone(normalized["error"])
+
+
+class ScanNuvioSessionTests(TestCase):
+    """tasks._scan_nuvio_session - mirrors ScanTraktSessionTests/
+    ScanSimklSessionTests, but Nuvio always refreshes its access token up
+    front (no persisted access token at all - see NuvioConnection's own
+    docstring) instead of retrying lazily on a 401."""
+
+    def setUp(self):
+        user = User.objects.create_user("nuvioscanner", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="NuvioScanner")
+        self.connection = NuvioConnection.objects.create(
+            profile=self.profile, email="me@nuvio.tv", nuvio_profile_id=0,
+            encrypted_refresh_token=crypto.encrypt("rt"),
+        )
+
+    def _session(self):
+        return ImportSession.objects.create(profile=self.profile, source=ImportSession.Source.NUVIO)
+
+    @patch("tracker.integrations.nuvio.fetch_watched_items")
+    @patch("tracker.integrations.nuvio.refresh_access_token")
+    def test_scan_refreshes_the_token_and_creates_candidates_without_writing_anything(self, mock_refresh, mock_fetch):
+        mock_refresh.return_value = {"access_token": "new-at", "refresh_token": "new-rt"}
+        mock_fetch.return_value = [
+            {"content_id": "tmdb:550", "watched_at": 1704486600000, "content_type": "movie", "name": "Fathom"}
+        ]
+        session = self._session()
+
+        tasks.scan_import_session(session.id)
+
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.READY)
+        candidate = session.candidates.get()
+        self.assertEqual(candidate.title_name, "Fathom")
+        self.assertEqual(candidate.source_external_ids, {"nuvio": "tmdb:550", "tmdb": "550"})
+        self.assertFalse(WatchEvent.objects.exists())
+        self.assertFalse(Title.objects.exists())
+        self.connection.refresh_from_db()
+        self.assertEqual(self.connection.get_refresh_token(), "new-rt")
+
+    @patch("tracker.integrations.nuvio.fetch_watched_items")
+    @patch("tracker.integrations.nuvio.refresh_access_token")
+    def test_item_missing_content_id_becomes_an_error_candidate(self, mock_refresh, mock_fetch):
+        mock_refresh.return_value = {"access_token": "new-at", "refresh_token": "new-rt"}
+        mock_fetch.return_value = [{"watched_at": 1704486600000, "content_type": "movie"}]
+        session = self._session()
+
+        tasks.scan_import_session(session.id)
+
+        candidate = session.candidates.get()
+        self.assertEqual(candidate.status, ImportCandidate.Status.FAILED)
+        self.assertFalse(candidate.selected)
+
+    def test_commit_sets_watch_event_source_to_nuvio(self):
+        with patch("tracker.integrations.nuvio.refresh_access_token") as mock_refresh, \
+             patch("tracker.integrations.nuvio.fetch_watched_items") as mock_fetch:
+            mock_refresh.return_value = {"access_token": "new-at", "refresh_token": "new-rt"}
+            mock_fetch.return_value = [
+                {"content_id": "tmdb:550", "watched_at": 1704486600000, "content_type": "movie", "name": "Fathom"}
+            ]
+            session = self._session()
+            tasks.scan_import_session(session.id)
+
+        tasks.commit_import_session(session.id)
+
+        event = WatchEvent.objects.get(profile=self.profile)
+        self.assertEqual(event.source, WatchEvent.Source.NUVIO)
+        self.assertEqual(event.title.external_ids.get("nuvio"), "tmdb:550")
 
 
 class IncrementalSyncTests(TestCase):
@@ -7945,7 +8073,29 @@ class NuvioConnectViewTests(TestCase):
 
     @patch("tracker.views._dispatch_sync_task_safely")
     @patch("tracker.integrations.nuvio.authenticate")
-    def test_single_profile_connects_immediately(self, mock_auth, mock_dispatch):
+    def test_single_profile_first_connection_goes_through_review(self, mock_auth, mock_dispatch):
+        mock_auth.return_value = (
+            {"access_token": "at", "refresh_token": "rt"},
+            [{"profile_index": 0, "name": "Main"}],
+        )
+        resp = self.client.post(
+            reverse("nuvio_connect_submit"), {"email": "me@nuvio.tv", "password": "hunter2"}, follow=True
+        )
+        connection = NuvioConnection.objects.get(profile=self.profile)
+        self.assertEqual(connection.email, "me@nuvio.tv")
+        self.assertEqual(connection.nuvio_profile_id, 0)
+        self.assertEqual(connection.get_refresh_token(), "rt")
+        import_session = ImportSession.objects.get(profile=self.profile, source=ImportSession.Source.NUVIO)
+        self.assertRedirects(resp, reverse("import_review", args=[import_session.id]))
+        mock_dispatch.assert_called_once_with(views.tasks.scan_import_session, [import_session.id])
+        log = DataLog.objects.get(profile=self.profile)
+        self.assertEqual(log.action, DataLog.Action.NUVIO_CONNECT)
+        self.assertEqual(log.status, DataLog.Status.SUCCESS)
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.nuvio.authenticate")
+    def test_reconnecting_an_existing_profile_syncs_immediately_as_before(self, mock_auth, mock_dispatch):
+        NuvioConnection.objects.create(profile=self.profile, email="old@nuvio.tv", nuvio_profile_id=0)
         mock_auth.return_value = (
             {"access_token": "at", "refresh_token": "rt"},
             [{"profile_index": 0, "name": "Main"}],
@@ -7954,14 +8104,8 @@ class NuvioConnectViewTests(TestCase):
             reverse("nuvio_connect_submit"), {"email": "me@nuvio.tv", "password": "hunter2"}, follow=True
         )
         self.assertRedirects(resp, reverse("settings"))
-        connection = NuvioConnection.objects.get(profile=self.profile)
-        self.assertEqual(connection.email, "me@nuvio.tv")
-        self.assertEqual(connection.nuvio_profile_id, 0)
-        self.assertEqual(connection.get_refresh_token(), "rt")
+        self.assertFalse(ImportSession.objects.filter(profile=self.profile).exists())
         mock_dispatch.assert_called_once_with(views.tasks.sync_nuvio_history, [self.profile.id])
-        log = DataLog.objects.get(profile=self.profile)
-        self.assertEqual(log.action, DataLog.Action.NUVIO_CONNECT)
-        self.assertEqual(log.status, DataLog.Status.SUCCESS)
 
     @patch("tracker.integrations.nuvio.authenticate")
     def test_multiple_profiles_redirects_to_picker_without_creating_a_connection(self, mock_auth):
@@ -8005,12 +8149,13 @@ class NuvioConnectViewTests(TestCase):
         }
         session.save()
         resp = self.client.post(reverse("nuvio_select_profile"), {"profile_index": "1"}, follow=True)
-        self.assertRedirects(resp, reverse("settings"))
         connection = NuvioConnection.objects.get(profile=self.profile)
         self.assertEqual(connection.nuvio_profile_id, 1)
         self.assertEqual(connection.nuvio_profile_name, "Kids")
         self.assertEqual(connection.get_refresh_token(), "rt")
         self.assertNotIn("nuvio_connect_pending", self.client.session)
+        import_session = ImportSession.objects.get(profile=self.profile, source=ImportSession.Source.NUVIO)
+        self.assertRedirects(resp, reverse("import_review", args=[import_session.id]))
 
     def test_select_profile_without_pending_state_redirects_to_settings(self):
         resp = self.client.get(reverse("nuvio_select_profile"), follow=True)

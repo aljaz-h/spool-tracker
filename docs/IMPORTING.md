@@ -55,10 +55,16 @@ profile connects with its own Nuvio email/password directly from Settings
 be asked to pick one right after signing in.
 
 Nuvio's password is only ever used for that one sign-in request and is
-never stored; only the resulting access token is, encrypted at rest
-(derived from `DJANGO_SECRET_KEY`, no separate key to manage). Same as
-Trakt/Simkl, a daily background sync keeps history/continue-watching
-progress up to date, and connecting triggers an immediate first sync.
+never stored; only the resulting refresh token is, encrypted at rest
+(derived from `DJANGO_SECRET_KEY`, no separate key to manage - no access
+token is ever persisted at all, since Nuvio's own backend rotates the
+refresh token on every use and a fresh access token is requested at the
+start of every sync/scan). Same as Trakt/Simkl above, a daily background
+sync keeps history/continue-watching progress up to date, and the first
+connection goes through **Import Review** before anything's written -
+only watch history is reviewable so far; continue-watching progress
+stays routine-sync-only for now, so it starts appearing the day after a
+first reviewed import via the normal daily sync, not gated behind it.
 
 **Caveat:** Nuvio's sync API (`api.nuvio.tv`) is undocumented and
 reverse-engineered — this integration (`tracker/integrations/nuvio.py`) is
