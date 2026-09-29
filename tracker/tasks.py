@@ -220,12 +220,28 @@ def _scan_trakt_session(session):
     import_pipeline.scan_normalized_items(session, normalized)
 
 
+def _scan_simkl_session(session):
+    """Same shape as _scan_trakt_session above, for Simkl."""
+    account = ExternalAccount.objects.select_related("profile").get(
+        profile=session.profile, provider=ExternalAccount.Provider.SIMKL
+    )
+    client_id, client_secret = instance_config.get_simkl_credentials()
+    items = _call_with_refresh(
+        account, simkl, client_id, client_secret,
+        lambda: simkl.fetch_history(account.get_access_token(), client_id),
+    )
+    normalized = [simkl.normalize_history_item(item, i) for i, item in enumerate(items, start=1)]
+    import_pipeline.scan_normalized_items(session, normalized)
+
+
 # session.source values with a scan implementation wired in - dispatched
-# by scan_import_session below. A source missing here (Simkl/Nuvio, for
-# now) raises NotImplementedError, which scan_import_session turns into
-# a FAILED session same as any other scan failure - see its own
-# docstring.
-SCAN_HANDLERS = {ImportSession.Source.TRAKT: _scan_trakt_session}
+# by scan_import_session below. A source missing here (Nuvio, for now)
+# raises NotImplementedError, which scan_import_session turns into a
+# FAILED session same as any other scan failure - see its own docstring.
+SCAN_HANDLERS = {
+    ImportSession.Source.TRAKT: _scan_trakt_session,
+    ImportSession.Source.SIMKL: _scan_simkl_session,
+}
 
 
 @shared_task

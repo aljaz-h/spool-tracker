@@ -20,7 +20,7 @@ from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
 from . import achievements, completion, crypto, csv_import, episode_matching, import_pipeline, instance_config, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, title_matching, totp, update_check, views
-from .integrations import anifiller, mdblist, nuvio, scrobble, tenrai, tmdb, trakt
+from .integrations import anifiller, mdblist, nuvio, scrobble, simkl, tenrai, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
@@ -6803,7 +6803,23 @@ class OAuthConnectImportReviewTests(TestCase):
 
     @patch("tracker.views._dispatch_sync_task_safely")
     @patch("tracker.integrations.simkl.exchange_code")
-    def test_new_simkl_connection_still_syncs_immediately_no_scan_adapter_yet(self, mock_exchange, mock_dispatch):
+    def test_new_simkl_connection_creates_review_session_instead_of_syncing(self, mock_exchange, mock_dispatch):
+        mock_exchange.return_value = {"access_token": "tok", "refresh_token": "rtok", "expires_in": 7776000}
+        session = self.client.session
+        session["simkl_oauth_state"] = "abc123"
+        session.save()
+
+        resp = self.client.get(reverse("simkl_callback"), {"code": "authcode", "state": "abc123"})
+
+        import_session = ImportSession.objects.get(profile=self.profile, source=ImportSession.Source.SIMKL)
+        self.assertEqual(import_session.status, ImportSession.Status.SCANNING)
+        self.assertRedirects(resp, reverse("import_review", args=[import_session.id]))
+        mock_dispatch.assert_called_once_with(tasks.scan_import_session, [import_session.id])
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.simkl.exchange_code")
+    def test_reconnecting_an_existing_simkl_account_syncs_immediately_as_before(self, mock_exchange, mock_dispatch):
+        ExternalAccount.objects.create(profile=self.profile, provider=ExternalAccount.Provider.SIMKL)
         mock_exchange.return_value = {"access_token": "tok", "refresh_token": "rtok", "expires_in": 7776000}
         session = self.client.session
         session["simkl_oauth_state"] = "abc123"
@@ -6835,8 +6851,8 @@ class TriggerImportReviewViewTests(TestCase):
         mock_dispatch.assert_called_once_with(tasks.scan_import_session, [session.id])
 
     def test_404s_for_a_provider_with_no_review_adapter_yet(self):
-        ExternalAccount.objects.create(profile=self.profile, provider=ExternalAccount.Provider.SIMKL)
-        resp = self.client.post(reverse("trigger_import_review", args=["simkl"]))
+        NuvioConnection.objects.create(profile=self.profile, email="a@b.com", nuvio_profile_id=0)
+        resp = self.client.post(reverse("trigger_import_review", args=["nuvio"]))
         self.assertEqual(resp.status_code, 404)
 
     def test_404s_when_not_connected(self):
@@ -6927,6 +6943,115 @@ class ScanTraktSessionTests(TestCase):
         event = WatchEvent.objects.get(profile=self.profile)
         self.assertEqual(event.source, WatchEvent.Source.TRAKT)
         self.assertEqual(event.title.external_ids.get("trakt"), "42")
+
+
+class SimklNormalizeHistoryItemTests(TestCase):
+    """simkl.normalize_history_item - mirrors
+    TraktNormalizeHistoryItemTests, except episodes always classify as
+    MediaType.ANIME (see upsert_history_items' own docstring for why)."""
+
+    def test_movie_item(self):
+        item = {
+            "id": 555, "type": "movie", "watched_at": "2024-01-05T20:30:00.000Z",
+            "movie": {"title": "Fathom", "year": 2020, "ids": {"simkl": 42, "tmdb": 99}},
+        }
+        normalized = simkl.normalize_history_item(item, 1)
+        self.assertIsNone(normalized["error"])
+        self.assertEqual(normalized["media_type"], MediaType.MOVIE)
+        self.assertEqual(normalized["source_external_ids"], {"simkl": "42", "tmdb": "99"})
+
+    def test_episode_item_is_always_anime(self):
+        item = {
+            "type": "episode", "watched_at": "2024-01-05T20:30:00.000Z",
+            "show": {"title": "Silo", "year": 2023, "ids": {"simkl": 7}},
+            "episode": {"season": 1, "number": 2},
+        }
+        normalized = simkl.normalize_history_item(item, 3)
+        self.assertIsNone(normalized["error"])
+        self.assertEqual(normalized["media_type"], MediaType.ANIME)
+        self.assertEqual(normalized["season"], 1)
+        self.assertEqual(normalized["episode"], 2)
+
+    def test_movie_missing_simkl_id_is_an_error(self):
+        item = {"type": "movie", "watched_at": "2024-01-05T20:30:00.000Z", "movie": {"title": "No Id", "ids": {}}}
+        normalized = simkl.normalize_history_item(item, 1)
+        self.assertIsNotNone(normalized["error"])
+
+    def test_episode_missing_season_or_number_is_an_error(self):
+        item = {
+            "type": "episode", "watched_at": "2024-01-05T20:30:00.000Z",
+            "show": {"title": "Silo", "ids": {"simkl": 7}}, "episode": {"season": 1},
+        }
+        normalized = simkl.normalize_history_item(item, 1)
+        self.assertIsNotNone(normalized["error"])
+
+
+class ScanSimklSessionTests(TestCase):
+    """tasks._scan_simkl_session - mirrors ScanTraktSessionTests."""
+
+    def setUp(self):
+        user = User.objects.create_user("simklscanner", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="SimklScanner")
+        self.account = ExternalAccount.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.SIMKL, encrypted_access_token=crypto.encrypt("tok")
+        )
+
+    def _session(self):
+        return ImportSession.objects.create(profile=self.profile, source=ImportSession.Source.SIMKL)
+
+    @patch("tracker.integrations.simkl.fetch_history")
+    def test_scan_creates_candidates_from_fetched_history_without_writing_anything(self, mock_fetch):
+        mock_fetch.return_value = [
+            {
+                "id": 1, "type": "movie", "watched_at": "2024-01-05T20:30:00.000Z",
+                "movie": {"title": "Fathom", "year": 2020, "ids": {"simkl": 42, "tmdb": 99}},
+            }
+        ]
+        session = self._session()
+
+        tasks.scan_import_session(session.id)
+
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.READY)
+        candidate = session.candidates.get()
+        self.assertEqual(candidate.title_name, "Fathom")
+        self.assertEqual(candidate.source_external_ids, {"simkl": "42", "tmdb": "99"})
+        self.assertFalse(WatchEvent.objects.exists())
+        self.assertFalse(Title.objects.exists())
+
+    @patch("tracker.integrations.simkl.fetch_history")
+    def test_401_triggers_a_token_refresh_and_retries_once(self, mock_fetch):
+        mock_fetch.side_effect = [_http_401(), []]
+        self.account.set_refresh_token("rtok")
+        self.account.redirect_uri = "https://spool.example.com/import/simkl/callback/"
+        self.account.save(update_fields=["encrypted_refresh_token", "redirect_uri"])
+        session = self._session()
+
+        with patch("tracker.integrations.simkl.refresh_access_token") as mock_refresh:
+            mock_refresh.return_value = {"access_token": "new-tok", "refresh_token": "new-rtok", "expires_in": 7776000}
+            tasks.scan_import_session(session.id)
+
+        mock_refresh.assert_called_once()
+        self.assertEqual(mock_fetch.call_count, 2)
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.READY)
+
+    def test_commit_sets_watch_event_source_to_simkl(self):
+        with patch("tracker.integrations.simkl.fetch_history") as mock_fetch:
+            mock_fetch.return_value = [
+                {
+                    "id": 3, "type": "movie", "watched_at": "2024-01-05T20:30:00.000Z",
+                    "movie": {"title": "Fathom", "year": 2020, "ids": {"simkl": 42}},
+                }
+            ]
+            session = self._session()
+            tasks.scan_import_session(session.id)
+
+        tasks.commit_import_session(session.id)
+
+        event = WatchEvent.objects.get(profile=self.profile)
+        self.assertEqual(event.source, WatchEvent.Source.SIMKL)
+        self.assertEqual(event.title.external_ids.get("simkl"), "42")
 
 
 class IncrementalSyncTests(TestCase):

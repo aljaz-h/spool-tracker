@@ -107,6 +107,66 @@ def _get_or_create_title(media_type, name, year, simkl_id, tmdb_id=None):
     return apply_title_match(media_type, "simkl", simkl_id, name=name, year=year, tmdb_id=tmdb_id)
 
 
+def normalize_history_item(item, index):
+    """Converts one /sync/activities-shaped item (see fetch_history) into
+    the common Import Review candidate shape (see
+    tracker/import_pipeline.py's own module docstring) - mirrors
+    upsert_history_items' own field extraction/validation exactly (same
+    required ids, same "episode missing season/number" check, same
+    always-ANIME classification for episodes - see that function's own
+    docstring for why), so scan (this) and routine sync always agree on
+    which raw items are valid."""
+    from django.utils.dateparse import parse_datetime
+
+    from tracker.models import MediaType
+
+    source_row = item.get("id") or index
+    watched_at = parse_datetime(item.get("watched_at") or "")
+    if watched_at is None:
+        return _history_item_error(source_row, "unparseable watched_at")
+
+    if item.get("type") == "movie":
+        m = item.get("movie") or {}
+        ids = m.get("ids") or {}
+        if "simkl" not in ids:
+            return _history_item_error(source_row, "missing Simkl id")
+        return _history_item(
+            source_row, MediaType.MOVIE, m.get("title") or "Untitled", m.get("year"), None, None, watched_at, ids
+        )
+
+    if item.get("type") == "episode":
+        s = item.get("show") or {}
+        e = item.get("episode") or {}
+        ids = s.get("ids") or {}
+        if "simkl" not in ids or "season" not in e or "number" not in e:
+            return _history_item_error(source_row, "missing show id or episode season/number")
+        return _history_item(
+            source_row, MediaType.ANIME, s.get("title") or "Untitled", s.get("year"),
+            e.get("season"), e.get("number"), watched_at, ids,
+        )
+
+    return _history_item_error(source_row, f"unrecognized item type {item.get('type')!r}")
+
+
+def _history_item(source_row, media_type, title_name, year, season, episode, watched_at, ids):
+    source_external_ids = {"simkl": str(ids["simkl"])}
+    if ids.get("tmdb"):
+        source_external_ids["tmdb"] = str(ids["tmdb"])
+    return {
+        "media_type": media_type, "title_name": title_name, "year": year, "season": season, "episode": episode,
+        "watched_at": watched_at, "rating": None, "source_external_ids": source_external_ids,
+        "source_row": source_row, "error": None,
+    }
+
+
+def _history_item_error(source_row, reason):
+    return {
+        "media_type": None, "title_name": f"Simkl item {source_row}", "year": None, "season": None,
+        "episode": None, "watched_at": None, "rating": None, "source_external_ids": {},
+        "source_row": source_row, "error": reason,
+    }
+
+
 def upsert_history_items(profile, items, labels_out=None):
     """Structurally mirrors trakt.upsert_history_items() — same dedup
     strategy, same shape assumption, same optional labels_out (see that

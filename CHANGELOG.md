@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.139.0] - 2026-09-29
+
+### Changed
+
+- Connecting Simkl for the first time now goes through **Import Review**
+  too, same as Trakt - nothing imports until you select and confirm it.
+  Reconnecting an existing account and the scheduled sync are unchanged.
+
 ## [0.138.0] - 2026-09-29
 
 ### Changed

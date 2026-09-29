@@ -5398,7 +5398,7 @@ SYNC_TASKS = {"trakt": tasks.sync_trakt_history, "simkl": tasks.sync_simkl_histo
 # missing here keeps today's connect-triggers-immediate-sync behavior
 # unchanged, so half-wiring this set never leaves a provider connecting
 # into a review session with no scan implementation behind it.
-IMPORT_REVIEW_PROVIDERS = {"trakt"}
+IMPORT_REVIEW_PROVIDERS = {"trakt", "simkl"}
 
 
 @login_required
