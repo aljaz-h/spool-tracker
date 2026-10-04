@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.141.1] - 2026-10-04
+
+### Fixed
+
+- Enabling `SILK_ENABLED` at runtime 500'd on `/silk/` with "Missing
+  staticfiles manifest entry" — the Dockerfile's `collectstatic` step
+  runs once at build time, before any runtime `.env` is read, so Silk's
+  own CSS/JS/fonts never made it into the static manifest no matter what
+  you set afterward. Silk's static files are now always collected at
+  build time regardless of whether it's actually turned on, so toggling
+  `SILK_ENABLED` at runtime works without a rebuild, as documented.
+
 ## [0.141.0] - 2026-09-29
 
 ### Added

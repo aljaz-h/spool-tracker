@@ -33,7 +33,18 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 COPY --from=css-builder /app/static/dist/app.css ./static/dist/app.css
-RUN DJANGO_SECRET_KEY=build-time-only python manage.py collectstatic --noinput
+# SILK_ENABLED=True here only for this collectstatic run - unrelated to
+# whether the runtime .env actually turns Silk on. Silk is meant to be
+# toggled on/off at runtime via .env without a rebuild (see its own
+# comment in settings.py), but collectstatic only ever runs here, at
+# build time - if Silk weren't in INSTALLED_APPS for this one step, its
+# own CSS/JS/fonts would never make it into the static manifest, and
+# enabling SILK_ENABLED later would 500 on /silk/ with "Missing
+# staticfiles manifest entry" no matter what, until the next rebuild.
+# Collecting its files into every image unconditionally is harmless when
+# SILK_ENABLED is actually False at runtime - they just sit unused,
+# since silk's own URLs are only ever registered when it's on.
+RUN DJANGO_SECRET_KEY=build-time-only SILK_ENABLED=True python manage.py collectstatic --noinput
 
 EXPOSE 8000
 # Shell form (not exec-form CMD) so GUNICORN_WORKERS/GUNICORN_THREADS can
