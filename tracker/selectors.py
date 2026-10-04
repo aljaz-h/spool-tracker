@@ -211,11 +211,21 @@ def streaks(profile):
     return _streak_from_dates(dates), _longest_streak_from_dates(dates)
 
 
-def continue_watching(profile, media_types=None, limit=8):
+def continue_watching(profile, media_types=None, limit=8, title_id=None):
+    """title_id scopes this to just one title's own Watching-card state
+    (views._watching_card_oob's own use, refreshing one poster card after
+    a watch/unwatch action) instead of recomputing every in-progress
+    show's full card (TMDB show-details batch included) just to pick one
+    out of the result - confirmed via django-silk as a real contributor
+    to episode_mark_watched's own query count on a profile with several
+    shows in progress. Every batched query/TMDB call below the initial
+    queryset naturally narrows to match, with no other change needed."""
     items = []
     qs = WatchProgress.objects.filter(profile=profile, status=WatchProgress.Status.WATCHING)
     if media_types:
         qs = qs.filter(title__media_type__in=media_types)
+    if title_id is not None:
+        qs = qs.filter(title_id=title_id)
     qs = qs.select_related("title", "current_episode").order_by("-updated_at")
     if limit:
         qs = qs[:limit]

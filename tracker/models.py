@@ -1,3 +1,4 @@
+import logging
 import random
 import secrets
 
@@ -5,6 +6,8 @@ from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
+
+logger = logging.getLogger(__name__)
 
 
 class MediaType(models.TextChoices):
@@ -962,10 +965,48 @@ class InstanceConfig(models.Model):
     spool_wrapped_url = models.URLField(blank=True, default="")
     encrypted_sso_shared_secret = models.TextField(blank=True, default="")
 
+    # Every caller needing a Trakt/Simkl/TMDB credential goes through
+    # this (instance_config.py's own get_*_credentials/get_tmdb_api_key)
+    # with zero caching until this - confirmed via a real query-count
+    # probe against a Dashboard request that this alone was 40 of 131
+    # total queries (one per TMDB call anywhere on the page, each
+    # independently re-loading this same singleton row). Admin
+    # credentials change rarely, so a short cache window - invalidated
+    # immediately on save() below for the common single-process case,
+    # same cache-aside shape selectors._cache_get_or_set already uses
+    # for its own DB-backed data - trades a few minutes of staleness in
+    # a multi-process deployment (a worker that hasn't seen the
+    # invalidation yet) for cutting what was a literal DB round-trip
+    # out of nearly every page in the app.
+    _CACHE_KEY = "instance_config:singleton"
+    _CACHE_TTL = 300
+
     @classmethod
     def load(cls):
+        from django.core.cache import cache
+
+        try:
+            cached = cache.get(cls._CACHE_KEY)
+        except Exception:
+            logger.warning("InstanceConfig cache read failed, continuing without cache", exc_info=True)
+            cached = None
+        if cached is not None:
+            return cached
         obj, _ = cls.objects.get_or_create(pk=1)
+        try:
+            cache.set(cls._CACHE_KEY, obj, cls._CACHE_TTL)
+        except Exception:
+            logger.warning("InstanceConfig cache write failed, continuing without cache", exc_info=True)
         return obj
+
+    def save(self, *args, **kwargs):
+        from django.core.cache import cache
+
+        super().save(*args, **kwargs)
+        try:
+            cache.delete(self._CACHE_KEY)
+        except Exception:
+            logger.warning("InstanceConfig cache invalidation failed after save", exc_info=True)
 
     def get_trakt_client_secret(self):
         if not self.encrypted_trakt_client_secret:

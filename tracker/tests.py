@@ -3605,6 +3605,47 @@ class InstanceConfigTests(TestCase):
         self.assertEqual(InstanceConfig.objects.count(), 1)
 
 
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class InstanceConfigCachingTests(TestCase):
+    """InstanceConfig.load()'s own cache-aside layer - confirmed via a
+    real query-count probe against a Dashboard request that this
+    singleton's own uncached DB round-trip (InstanceConfig.objects.
+    get_or_create(pk=1), one per credential lookup anywhere in the app)
+    was 40 of 131 total queries on one page. Class-level LocMemCache
+    override so it's active during setUp() too (same reason
+    RateLimitTests uses this pattern) - manage.py test's own default
+    DummyCache would make a "does caching actually work" test here
+    meaningless (every get() returns None unconditionally)."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    def test_repeated_load_hits_the_database_only_once(self):
+        InstanceConfig.load()
+        with self.assertNumQueries(0):
+            InstanceConfig.load()
+            InstanceConfig.load()
+
+    def test_save_invalidates_so_the_next_load_sees_the_new_value(self):
+        cfg = InstanceConfig.load()
+        cfg.trakt_client_id = "new-id"
+        cfg.save(update_fields=["trakt_client_id"])
+        self.assertEqual(InstanceConfig.load().trakt_client_id, "new-id")
+
+    @patch("django.core.cache.cache.get", side_effect=Exception("cache down"))
+    def test_load_fails_open_when_the_cache_backend_is_unreachable(self, mock_get):
+        # Never raises - falls straight through to the real DB read.
+        self.assertEqual(InstanceConfig.load().pk, 1)
+
+    @patch("django.core.cache.cache.delete", side_effect=Exception("cache down"))
+    def test_save_fails_open_when_the_cache_backend_is_unreachable(self, mock_delete):
+        cfg = InstanceConfig.load()
+        cfg.trakt_client_id = "new-id"
+        cfg.save(update_fields=["trakt_client_id"])  # never raises, even though invalidation failed
+
+
 class SaveInstanceConfigViewTests(TestCase):
     def setUp(self):
         owner_user = User.objects.create_user("owner", password="pass12345", is_superuser=True)
@@ -19208,6 +19249,31 @@ class EpisodeMarkWatchedTests(TestCase):
         # these two, not something unbounded.
         self.assertEqual(mock_season.call_count, 2)
         self.assertEqual({c.args for c in mock_season.call_args_list}, {("99", 1)})
+
+    @patch("tracker.integrations.tmdb.get_season_details", return_value=None)
+    def test_watching_card_refresh_does_not_touch_other_in_progress_shows(self, mock_season):
+        """_watching_card_oob (refreshes the Dashboard's Watching card
+        after this action) must only ever look at the acted-on title's
+        own Continue Watching row - not recompute the whole list (TMDB
+        show-details calls and all) for every other show this profile
+        happens to have in progress too. Regression test for
+        selectors.continue_watching's own title_id= scope - confirmed via
+        django-silk that the unscoped version was a real contributor to
+        this view's own query count."""
+        for i in range(3):
+            other = Title.objects.create(
+                media_type=MediaType.TV, name=f"Other Show {i}", year=2023,
+                external_ids={"tmdb": str(1000 + i), "tmdb_kind": "tv"},
+            )
+            WatchProgress.objects.create(profile=self.profile, title=other, status=WatchProgress.Status.WATCHING)
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.WATCHING)
+
+        with patch("tracker.integrations.tmdb.get_tv_details") as mock_tv_details:
+            mock_tv_details.return_value = None
+            self.client.post(reverse("episode_mark_watched", args=[self.title.pk, 1, 1]))
+
+        called_tmdb_ids = {c.args[0] for c in mock_tv_details.call_args_list}
+        self.assertEqual(called_tmdb_ids, {"99"})
 
     @patch("tracker.integrations.tmdb.get_season_details", return_value=None)
     def test_on_release_date_falls_back_to_now_when_air_date_unknown(self, mock_season):

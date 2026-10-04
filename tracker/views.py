@@ -1649,8 +1649,12 @@ def _history_card_oob(request, profile, title):
 
 
 def _watching_card_oob(request, profile, title):
-    """Refresh the Dashboard Watching card after an episode watch action."""
-    item = next((i for i in selectors.continue_watching(profile, limit=None) if i["title"].pk == title.pk), None)
+    """Refresh the Dashboard Watching card after an episode watch action.
+    Scoped to just this title (title_id=) rather than recomputing the
+    whole Continue Watching list and picking one item back out of it -
+    confirmed via django-silk that the unscoped version was a real
+    contributor to episode_mark_watched's own query count."""
+    item = next(iter(selectors.continue_watching(profile, limit=None, title_id=title.pk)), None)
     if item is None:
         return ""
     return render_to_string(

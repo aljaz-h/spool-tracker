@@ -8,6 +8,23 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.144.0] - 2026-10-04
+
+### Changed
+
+- `InstanceConfig` (the admin-configurable Trakt/Simkl/TMDB credentials
+  row) is now cached instead of hitting the database on every single
+  lookup - confirmed via a real query-count probe that this alone was
+  40 of 131 total queries on one Dashboard request (every TMDB call
+  anywhere on the page was independently re-loading the same singleton
+  row). Invalidated immediately on save, so an admin's credential
+  change still takes effect right away.
+- Marking an episode watched no longer recomputes your entire Continue
+  Watching list (every in-progress show, TMDB calls included) just to
+  refresh the one Dashboard card for the show you were watching.
+
+Measured together on one real Dashboard request: 131 → 92 queries.
+
 ## [0.143.0] - 2026-10-04
 
 ### Changed
