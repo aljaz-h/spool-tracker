@@ -456,17 +456,55 @@ def search(query, page=1):
     misparse as a year qualifier and strip. When a year was given,
     exact-year matches are stably sorted to the front afterward - "the
     one with that exact release year" - without discarding the rest if
-    the year turns out to be wrong."""
+    the year turns out to be wrong.
+
+    Every call this can fire - the baseline /search/multi, a year-
+    qualified /search/movie + /search/tv pair per variant, a spelling-
+    corrected /search/multi retry - is independent of every other (none
+    needs another's result), so all of them are issued from one shared
+    worker pool instead of one after another, same ThreadPoolExecutor-
+    per-call pattern discover()'s own parallel page fetches use. On a
+    cold cache, up to 4 of these could stack up serially before this
+    fix (a query with both a year and an autocorrection) - confirmed
+    via Silk profiling, ~2.5s outside the DB for one real /search/
+    request. api_key resolved once up front for the same reason
+    discover() does - each call independently hitting InstanceConfig's
+    own DB read from its own worker thread risks concurrent-SQLite-
+    access errors. Fetches happen in parallel; the merge below still
+    runs in the exact same fixed order the old sequential code used, so
+    results come out identical regardless of which call finishes first."""
     text, year = _split_query_year(query)
     corrected_text = _autocorrected_query(text)
     text_variants = [text, *([corrected_text] if corrected_text else [])]
+    api_key = _api_key()
 
     # include_adult=false is already TMDB's own default for every one of
     # these endpoints - passed explicitly anyway so that's never silently
     # dependent on TMDB not changing it. Unlike discover(), there's no
     # without_keywords equivalent available on /search/* at all, so this
     # is weaker protection than the browse pages get (see _UNSAFE_KEYWORD_IDS).
-    data = _list_request("search/multi", {"query": query, "page": page, "include_adult": "false"})
+    jobs = [("baseline", "search/multi", {"query": query, "page": page, "include_adult": "false"})]
+    for variant in text_variants:
+        if year:
+            jobs.append(("movie", "search/movie", {"query": variant, "year": year, "page": page, "include_adult": "false"}))
+            jobs.append(
+                ("tv", "search/tv", {"query": variant, "first_air_date_year": year, "page": page, "include_adult": "false"})
+            )
+        elif variant != query:
+            # No year: the un-corrected variant equals query, already
+            # covered by the baseline /search/multi job above - only the
+            # corrected variant (if any) needs its own extra lookup.
+            jobs.append(("multi", "search/multi", {"query": variant, "page": page, "include_adult": "false"}))
+
+    job_results = [None] * len(jobs)
+    with ThreadPoolExecutor(max_workers=len(jobs)) as executor:
+        future_to_index = {
+            executor.submit(_list_request, path, params, api_key): i for i, (_kind, path, params) in enumerate(jobs)
+        }
+        for future, index in future_to_index.items():
+            job_results[index] = future.result()
+
+    data = job_results[0]
     results = [
         _normalize_result(item, item["media_type"])
         for item in (data.get("results") or [])
@@ -474,26 +512,16 @@ def search(query, page=1):
     ]
     seen = {(r["tmdb_id"], r["media_type"]) for r in results}
 
-    for variant in text_variants:
-        if year:
-            movie_data = _list_request(
-                "search/movie", {"query": variant, "year": year, "page": page, "include_adult": "false"}
-            )
-            _merge_normalized(results, seen, movie_data.get("results") or [], "movie")
-            tv_data = _list_request(
-                "search/tv",
-                {"query": variant, "first_air_date_year": year, "page": page, "include_adult": "false"},
-            )
-            _merge_normalized(results, seen, tv_data.get("results") or [], "tv")
-        elif variant != query:
-            # No year: the un-corrected variant equals query, already
-            # covered by the baseline /search/multi call above - only the
-            # corrected variant (if any) needs its own extra lookup.
-            variant_data = _list_request("search/multi", {"query": variant, "page": page, "include_adult": "false"})
+    for (kind, _path, _params), result in zip(jobs[1:], job_results[1:]):
+        if kind == "movie":
+            _merge_normalized(results, seen, result.get("results") or [], "movie")
+        elif kind == "tv":
+            _merge_normalized(results, seen, result.get("results") or [], "tv")
+        else:  # "multi" - spelling-corrected variant, no year
             _merge_normalized(
                 results,
                 seen,
-                (item for item in (variant_data.get("results") or []) if item.get("media_type") in ("movie", "tv")),
+                (item for item in (result.get("results") or []) if item.get("media_type") in ("movie", "tv")),
                 None,
             )
 
@@ -1292,7 +1320,7 @@ def get_watch_providers(media_type, tmdb_id, region="US", api_key=None):
     return providers[:6]
 
 
-def get_trailer(media_type, tmdb_id):
+def get_trailer(media_type, tmdb_id, api_key=None):
     """{"key": youtube_video_id, "name": str} for the best trailer TMDB
     has on file, or None if there isn't one - the detail hero's "Watch
     trailer" button and the Media gallery's own first tile are both
@@ -1307,8 +1335,10 @@ def get_trailer(media_type, tmdb_id):
     tiebreak get_similar's own caller-side sorting uses elsewhere.
     "Trailer" specifically, not Teaser/Clip/Featurette/Behind the Scenes -
     those are real TMDB video types on the same endpoint but aren't a
-    stand-in for the real thing this button promises."""
-    data = _list_request(f"{media_type}/{tmdb_id}/videos")
+    stand-in for the real thing this button promises.
+
+    api_key - see get_credits' own docstring."""
+    data = _list_request(f"{media_type}/{tmdb_id}/videos", api_key=api_key)
     results = (data or {}).get("results") or []
     trailers = [v for v in results if v.get("site") == "YouTube" and v.get("type") == "Trailer" and v.get("key")]
     if not trailers:
@@ -1322,7 +1352,7 @@ def get_trailer(media_type, tmdb_id):
 _BACKDROP_THUMB_BASE = "https://image.tmdb.org/t/p/w300"
 
 
-def get_backdrops(media_type, tmdb_id, limit=12):
+def get_backdrops(media_type, tmdb_id, limit=12, api_key=None):
     """[{"url" (full w1280, for the lightbox), "thumbnail_url" (w300, for
     the gallery strip's own small tiles)}, ...] widescreen backdrop
     stills for the Media gallery, TMDB's own best-first ordering (its
@@ -1331,8 +1361,10 @@ def get_backdrops(media_type, tmdb_id, limit=12):
     isn't documented as a guarantee. Two separate sizes rather than one
     URL downsized via the |poster_size template filter elsewhere in this
     app: that filter only ever rewrites IMAGE_BASE's own "w500" segment,
-    a no-op against BACKDROP_BASE's "w1280". [] if nothing came back."""
-    data = _list_request(f"{media_type}/{tmdb_id}/images")
+    a no-op against BACKDROP_BASE's "w1280". [] if nothing came back.
+
+    api_key - see get_credits' own docstring."""
+    data = _list_request(f"{media_type}/{tmdb_id}/images", api_key=api_key)
     backdrops = (data or {}).get("backdrops") or []
     backdrops.sort(key=lambda b: b.get("vote_average") or 0, reverse=True)
     return [
@@ -1387,12 +1419,15 @@ def watch_provider_catalog(media_type, region="US", api_key=None):
 CREDIT_CAP = 40  # public - views.person_detail surfaces this in the stats card's cap tooltip
 
 
-def get_person_details(person_id):
+def get_person_details(person_id, api_key=None):
     """{"id", "name", "biography", "birthday", "deathday",
     "place_of_birth", "profile_url", "known_for_department"} or None if
     nothing came back (no api key, bad id, network error) - same failure
-    convention as get_collection_details/get_season_details above."""
-    data = _list_request(f"person/{person_id}")
+    convention as get_collection_details/get_season_details above.
+
+    api_key - see get_credits' own docstring; views.person_detail fires
+    this and get_person_credits from one shared worker pool."""
+    data = _list_request(f"person/{person_id}", api_key=api_key)
     if not data or data.get("id") is None:
         return None
     profile_path = data.get("profile_path")
@@ -1433,7 +1468,7 @@ def _normalize_credit(item):
     }
 
 
-def get_person_credits(person_id):
+def get_person_credits(person_id, api_key=None):
     """{"acting": [...], "directing": [...], "writing": [...]} - each a
     list of normalized credit dicts (see _normalize_credit), deduped by
     tmdb_id within its own section (a person can hold two crew jobs on
@@ -1448,8 +1483,10 @@ def get_person_credits(person_id):
     combined_credits crew list spans many more (Production, Sound,
     Editing...) that this page doesn't surface. Every section is []
     rather than missing when there's nothing, so callers don't need an
-    extra "credits is None" branch on top of "list is empty"."""
-    data = _list_request(f"person/{person_id}/combined_credits")
+    extra "credits is None" branch on top of "list is empty".
+
+    api_key - see get_credits' own docstring."""
+    data = _list_request(f"person/{person_id}/combined_credits", api_key=api_key)
     cast = (data or {}).get("cast") or []
     crew = (data or {}).get("crew") or []
 

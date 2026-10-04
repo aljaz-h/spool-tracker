@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.143.0] - 2026-10-04
+
+### Changed
+
+- Search, the person detail page, and the title detail page's trailer/
+  gallery section now fire their independent TMDB calls in parallel
+  instead of one after another - confirmed via django-silk profiling
+  that search (up to 4 sequential calls for a query with both a year
+  and a spelling correction) and person detail (2 sequential calls)
+  were spending most of their load time on exactly this.
+
 ## [0.142.0] - 2026-10-04
 
 ### Changed
