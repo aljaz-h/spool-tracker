@@ -8,6 +8,21 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.142.0] - 2026-10-04
+
+### Changed
+
+- `/sw.js` no longer runs through Django's template engine (and the
+  profile/notification/version-check DB queries that come with it) -
+  confirmed via django-silk profiling it was costing ~10 queries on
+  every single call, and the browser re-registers the service worker on
+  every full-page load, making it the single most-hit endpoint in the
+  app. It's now served straight from an in-memory cache of the file.
+- Dashboard's Continue Watching now fetches every in-progress show's
+  TMDB details in parallel instead of one after another - on a cold
+  cache, this was a real contributor to multi-second Dashboard loads
+  (confirmed live: 9.6s for one request with several in-progress shows).
+
 ## [0.141.1] - 2026-10-04
 
 ### Fixed

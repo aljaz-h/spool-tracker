@@ -11,8 +11,10 @@ import zipfile
 import zoneinfo
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
+from functools import lru_cache
 from io import StringIO
 from itertools import groupby
+from pathlib import Path
 from urllib.parse import urlencode
 
 import django
@@ -178,6 +180,14 @@ PROFILE_TIMEZONES = sorted(
 )
 
 
+_SERVICE_WORKER_PATH = Path(__file__).resolve().parent / "templates" / "sw.js"
+
+
+@lru_cache(maxsize=1)
+def _service_worker_source():
+    return _SERVICE_WORKER_PATH.read_bytes()
+
+
 def service_worker(request):
     """Served at the true site root (/sw.js, see urls.py) rather than
     under /static/ - a service worker's default scope is its own URL's
@@ -185,8 +195,23 @@ def service_worker(request):
     it control requests under /static/, not the actual page navigations a
     PWA install needs. Not behind @login_required - the browser registers
     this before any login-gated page has necessarily loaded, and it has
-    no user-specific content of its own (see templates/sw.js)."""
-    return render(request, "sw.js", content_type="application/javascript")
+    no user-specific content of its own (see templates/sw.js).
+
+    Deliberately NOT render(request, "sw.js", ...) - that runs the full
+    RequestContext context processor chain (active_profile alone costs a
+    Profile lookup, an unread-notification count, a Profile.objects.count(),
+    and an owner's version check) for a response with zero template tags
+    in it. Confirmed live via django-silk: ~10 DB queries and 70-120ms on
+    every single call - and the browser re-registers the worker on every
+    full-page load, so this was comfortably the single most-hit endpoint
+    in the whole app. _service_worker_source() reads the file once per
+    worker process (lru_cache) and every request after that is pure
+    in-memory - no template engine, no context processors, no queries.
+    Trade-off: a local dev server needs restarting to pick up an edited
+    sw.js, since this bypasses Django's auto-reloading template loader too
+    - acceptable for a file that changes about as often as a reverse-proxy
+    config does."""
+    return HttpResponse(_service_worker_source(), content_type="application/javascript")
 
 
 @login_required

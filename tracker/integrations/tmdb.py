@@ -147,7 +147,7 @@ def get_movie_details(tmdb_id):
     return {"runtime": data.get("runtime")}
 
 
-def get_tv_details(tmdb_id):
+def get_tv_details(tmdb_id, api_key=None):
     """Returns {"number_of_episodes": int|None, "episode_run_time": int|None,
     "seasons": [{"season_number": int, "episode_count": int, "vote_average": float|None,
     "poster_url": str|None}, ...]} or None on failure. episode_run_time is
@@ -164,8 +164,14 @@ def get_tv_details(tmdb_id):
     own per-season endpoint call. Routed through _list_request (same 6h
     cache as every other TMDB lookup here) - this is called on every page
     view of a show's detail/episode-browser page (see views._episode_panel_
-    context), previously an uncached request per view."""
-    data = _list_request(f"tv/{tmdb_id}")
+    context), previously an uncached request per view.
+
+    api_key: see _list_request's own docstring - a caller firing several
+    of these from worker threads at once (selectors.continue_watching)
+    must resolve it once and pass it through, same reason discover()'s
+    own parallel page fetches do, so worker threads never hit
+    InstanceConfig.load() concurrently/independently."""
+    data = _list_request(f"tv/{tmdb_id}", api_key=api_key)
     if not data or data.get("id") is None:
         return None
     episode_run_times = data.get("episode_run_time") or []
