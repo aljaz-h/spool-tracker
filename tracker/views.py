@@ -15,7 +15,7 @@ from functools import lru_cache
 from io import StringIO
 from itertools import groupby
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode
 
 import django
 import requests
@@ -6195,7 +6195,10 @@ def import_review_status(request, session_id):
 
 def _import_review_redirect(session_id, next_qs):
     url = reverse("import_review", args=[session_id])
-    return f"{url}?{next_qs}" if next_qs else url
+    # Re-encode the user-supplied query string so it can only ever add
+    # parameters to the fixed review path, never change the redirect target.
+    qs = urlencode(parse_qsl(next_qs or "", keep_blank_values=True)[:50])
+    return f"{url}?{qs}" if qs else url
 
 
 @login_required
