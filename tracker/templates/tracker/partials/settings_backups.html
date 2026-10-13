@@ -71,6 +71,7 @@
               <div>
                 <label class="block text-xs text-ink-dim mb-1" for="backup-webdav-url">Folder address</label>
                 <input id="backup-webdav-url" type="url" name="url" required value="{{ d.url|default:'' }}" placeholder="https://nas.local/remote.php/dav/files/me/Spool" class="input input-sm w-full font-mono">
+                {% if not profile.is_owner %}<div class="text-[12px] text-ink-faint mt-1">Must be reachable from the internet - only the server owner can back up to addresses on the local network.</div>{% endif %}
               </div>
               <div class="grid sm:grid-cols-2 gap-2.5">
                 <div>

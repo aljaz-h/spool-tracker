@@ -19,9 +19,11 @@ pruning only ever touches files with this profile's prefix, so several
 profiles (or a hand-made file) can share one folder safely.
 """
 
+import ipaddress
 import json
 import os
 import re
+import socket
 from urllib.parse import quote, unquote, urlencode, urlsplit
 from xml.etree import ElementTree
 
@@ -47,9 +49,11 @@ def backup_filename(profile, when=None):
     return f"{backup_prefix(profile)}{when:%Y-%m-%d-%H%M}.json"
 
 
-def _raise_for(resp, what):
+def _raise_for(resp, what, include_body=True):
+    """include_body=False for a server the user chose (WebDAV), so an
+    error can't be used to read back what some other address answered."""
     if resp.status_code >= 400:
-        detail = (resp.text or "").strip().replace("\n", " ")[:200]
+        detail = (resp.text or "").strip().replace("\n", " ")[:200] if include_body else ""
         raise BackupError(f"{what} failed (HTTP {resp.status_code}){': ' + detail if detail else ''}")
 
 
@@ -229,16 +233,62 @@ class Dropbox:
             _raise_for(resp, "Deleting an old Dropbox backup")
 
 
+def check_webdav_url(url, allow_local_network=False):
+    """Refuses a WebDAV address Spool shouldn't be talking to - the URL is
+    typed in by a user and fetched by the server, so without this any
+    profile could point it at the server's own internals (the database
+    or Redis containers, other services on the host, a cloud metadata
+    endpoint). Checked against every address the host resolves to,
+    right before each request (so a DNS answer changed after saving
+    doesn't get around it):
+
+    - loopback, link-local (incl. 169.254.169.254 metadata), multicast,
+      reserved and unspecified addresses: never allowed;
+    - private/local-network addresses (a NAS on the LAN, 10.x, 192.168.x,
+      Docker networks...): only for the server owner's own profile
+      (allow_local_network) - the owner already controls the machine.
+    """
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise BackupError("Enter the WebDAV folder's full address, starting with https:// (or http://).")
+    try:
+        infos = socket.getaddrinfo(
+            parts.hostname, parts.port or (443 if parts.scheme == "https" else 80), proto=socket.IPPROTO_TCP
+        )
+    except (socket.gaierror, UnicodeError, ValueError) as exc:
+        raise BackupError(f"Couldn't find the server {parts.hostname}.") from exc
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0].split("%", 1)[0])
+        if getattr(ip, "ipv4_mapped", None):
+            ip = ip.ipv4_mapped
+        if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+            raise BackupError(f"{parts.hostname} points at an address Spool won't connect to.")
+        if not ip.is_global and not allow_local_network:
+            raise BackupError(
+                f"{parts.hostname} is on a local network - only the server owner can back up to local addresses. "
+                "Use an address reachable from the internet."
+            )
+
+
 class WebDAV:
     def __init__(self, destination):
         self.base = destination.url.rstrip("/") + "/"
         self.auth = (destination.username, destination.get_secret()) if destination.username else None
+        self.allow_local_network = destination.profile.is_owner
 
     def _request(self, method, url, **kwargs):
+        check_webdav_url(url, self.allow_local_network)
         try:
-            return requests.request(method, url, auth=self.auth, timeout=kwargs.pop("timeout", TIMEOUT), **kwargs)
+            # No redirects: a redirect could lead to an address the check
+            # above would have refused.
+            resp = requests.request(
+                method, url, auth=self.auth, timeout=kwargs.pop("timeout", TIMEOUT), allow_redirects=False, **kwargs
+            )
         except requests.RequestException as exc:
             raise BackupError(f"Couldn't reach {urlsplit(self.base).netloc}: {exc.__class__.__name__}") from exc
+        if 300 <= resp.status_code < 400:
+            raise BackupError("The WebDAV server redirected the request - enter the folder's final address instead.")
+        return resp
 
     def check(self):
         """Creates the folder if it's missing and confirms it's reachable
@@ -246,11 +296,11 @@ class WebDAV:
         resp = self._request("PROPFIND", self.base, headers={"Depth": "0"})
         if resp.status_code == 404:
             resp = self._request("MKCOL", self.base)
-            _raise_for(resp, "Creating the WebDAV folder")
+            _raise_for(resp, "Creating the WebDAV folder", include_body=False)
             return
         if resp.status_code in (401, 403):
             raise BackupError("The WebDAV server rejected that username/password.")
-        _raise_for(resp, "Opening the WebDAV folder")
+        _raise_for(resp, "Opening the WebDAV folder", include_body=False)
 
     def upload(self, name, data):
         self.check()
@@ -258,11 +308,11 @@ class WebDAV:
             "PUT", self.base + quote(name), data=data, timeout=TIMEOUT * 5,
             headers={"Content-Type": "application/json"},
         )
-        _raise_for(resp, "Uploading over WebDAV")
+        _raise_for(resp, "Uploading over WebDAV", include_body=False)
 
     def list_backups(self):
         resp = self._request("PROPFIND", self.base, headers={"Depth": "1"})
-        _raise_for(resp, "Listing WebDAV backups")
+        _raise_for(resp, "Listing WebDAV backups", include_body=False)
         try:
             root = ElementTree.fromstring(resp.content)
         except ElementTree.ParseError as exc:
@@ -277,7 +327,7 @@ class WebDAV:
     def delete(self, ref):
         resp = self._request("DELETE", ref)
         if resp.status_code != 404:
-            _raise_for(resp, "Deleting an old WebDAV backup")
+            _raise_for(resp, "Deleting an old WebDAV backup", include_body=False)
 
 
 def safe_subfolder(value):
