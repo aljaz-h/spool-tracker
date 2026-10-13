@@ -659,6 +659,8 @@ class Notification(models.Model):
         RECOMMENDATION_WATCHED = "recommendation_watched", "Recommendation watched"
         RECOMMENDATION_REPLIED = "recommendation_replied", "Recommendation replied"
         WATCHLIST_STALE = "watchlist_stale", "Watchlist time capsule"
+        IMPORT_STATUS = "import_status", "Import"
+        BACKUP_STATUS = "backup_status", "Backup"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="notifications")
     kind = models.CharField(max_length=25, choices=Kind.choices)
@@ -671,6 +673,16 @@ class Notification(models.Model):
     message = models.CharField(max_length=255)
     read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Where the row links to when it has no title - the Import Review page
+    # or Settings' backups card (import_status/backup_status kinds).
+    link = models.CharField(max_length=255, blank=True, default="")
+    # import_status rows: the one notification per import, rewritten in
+    # place as it moves scanning -> ready -> importing -> done (see
+    # tracker/transfer_tracking.py), so the bell always shows where an
+    # import is even after the user has left the page.
+    import_session = models.ForeignKey(
+        "ImportSession", null=True, blank=True, on_delete=models.SET_NULL, related_name="notifications"
+    )
 
     class Meta:
         ordering = ["-created_at"]
@@ -1115,7 +1127,7 @@ class DataLog(models.Model):
     (selectors.combined_logs)."""
 
     class Action(models.TextChoices):
-        IMPORT = "import", "CSV Import"
+        IMPORT = "import", "Import"
         EXPORT = "export", "Export"
         TRAKT_CONNECT = "trakt_connect", "Trakt Connect"
         SIMKL_CONNECT = "simkl_connect", "Simkl Connect"
@@ -1137,8 +1149,13 @@ class DataLog(models.Model):
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"
+        # An Import Review session that's scanned and is waiting on the
+        # user to review/confirm it - not "running" (nothing is working
+        # on it), and not polled by the Logs tab.
+        WAITING = "waiting", "Awaiting review"
         SUCCESS = "success", "Success"
         FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="data_logs")
     action = models.CharField(max_length=25, choices=Action.choices)
@@ -1157,6 +1174,15 @@ class DataLog(models.Model):
     imported_titles = models.JSONField(default=list, blank=True)
     error_message = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Set once a RUNNING/WAITING row reaches its final status - Logs shows
+    # the difference as the row's duration. Blank for rows written
+    # already finished (most actions).
+    finished_at = models.DateTimeField(null=True, blank=True)
+    # IMPORT rows written by Import Review: the session this row tracks
+    # from scan to finish (tracker/transfer_tracking.py).
+    import_session = models.ForeignKey(
+        "ImportSession", null=True, blank=True, on_delete=models.SET_NULL, related_name="data_logs"
+    )
 
     class Meta:
         ordering = ["-created_at"]
@@ -1434,6 +1460,9 @@ class BackupDestination(models.Model):
     folder = models.CharField(max_length=255, blank=True)
     # Who the remote account is (email / display name) - shown in Settings.
     account_label = models.CharField(max_length=255, blank=True)
+    # True while a backup to this destination is running - Settings'
+    # import/export activity panel keeps polling until it clears.
+    in_progress = models.BooleanField(default=False)
     last_attempt_at = models.DateTimeField(null=True, blank=True)
     last_success_at = models.DateTimeField(null=True, blank=True)
     last_error = models.CharField(max_length=500, blank=True)

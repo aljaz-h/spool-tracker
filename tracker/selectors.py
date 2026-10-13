@@ -133,8 +133,9 @@ LOG_ACTION_TYPES = [
     ("sync", "Sync", None),
     ("connect", "Connect", [DataLog.Action.TRAKT_CONNECT, DataLog.Action.SIMKL_CONNECT, DataLog.Action.NUVIO_CONNECT]),
     ("disconnect", "Disconnect", [DataLog.Action.DISCONNECT]),
-    ("import", "CSV Import", [DataLog.Action.IMPORT]),
-    ("export", "CSV Export", [DataLog.Action.EXPORT]),
+    ("import", "Import", [DataLog.Action.IMPORT]),
+    ("export", "Export", [DataLog.Action.EXPORT]),
+    ("backup", "Automatic Backup", [DataLog.Action.BACKUP]),
     ("merge_duplicates", "Merge Duplicates", [DataLog.Action.MERGE_DUPLICATES]),
     ("backfill_posters", "Backfill Posters", [DataLog.Action.BACKFILL_POSTERS]),
     ("backfill_genres", "Backfill Genres", [DataLog.Action.BACKFILL_GENRES]),
@@ -1224,7 +1225,7 @@ def combined_logs(
             "imported_titles_more": max(0, (log.item_count or 0) - len(log.imported_titles)),
             "error_message": log.error_message,
             "timestamp": log.created_at,
-            "duration_seconds": None,
+            "duration_seconds": (log.finished_at - log.created_at).total_seconds() if log.finished_at else None,
         }
         for log in data_logs[:cap]
     ]

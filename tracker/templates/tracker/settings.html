@@ -515,6 +515,7 @@
 
       {# ==================== IMPORT & EXPORT ==================== #}
       <div x-show="tab === 'data'" x-cloak class="flex flex-col gap-5 max-w-2xl">
+        {% include "tracker/partials/transfer_activity.html" %}
         <div class="settings-panel">
           <h3 class="text-lg mb-1">Import Data</h3>
           <div class="text-ink-dim text-xs mb-3.5">Upload an export from any tracker as a CSV, JSON, or zip file — including Trakt's own "Export now" zip.</div>
@@ -1091,7 +1092,7 @@
         {# ==================== ADMIN: LOGS ==================== #}
         <div x-show="tab === 'logs'" x-cloak class="settings-panel">
           <h3 class="text-lg mb-1">Logs</h3>
-          <div class="text-ink-dim text-xs mb-3.5">Trakt/Simkl syncs and connects, CSV imports and exports — every profile, most recent first, admin-only.</div>
+          <div class="text-ink-dim text-xs mb-3.5">Syncs, connects, imports (including ones still running or awaiting review), exports and backups — every profile, most recent first, admin-only.</div>
 
           <div class="flex items-center justify-between gap-2.5 flex-wrap mb-3.5">
             {% comment %}

@@ -5926,7 +5926,9 @@ class ScanAndCommitImportSessionTaskTests(TestCase):
         tasks.commit_import_session(session.id)
 
         self.assertEqual(WatchEvent.objects.filter(profile=self.profile).count(), 1)
-        self.assertEqual(DataLog.objects.filter(profile=self.profile).count(), 2)
+        # One Logs row per import session (transfer_tracking.py), however
+        # many times its commit runs.
+        self.assertEqual(DataLog.objects.filter(profile=self.profile).count(), 1)
         # Regression: session.imported_items must reflect the cumulative
         # total across both runs, not get clobbered back to 0 by the
         # second run's own (empty, since everything's already IMPORTED)
@@ -6716,13 +6718,13 @@ class OAuthCallbackDataLogTests(TestCase):
 
         self.client.get(reverse("trakt_callback"), {"code": "authcode", "state": "abc123"})
 
-        log = DataLog.objects.get(profile=self.profile)
+        log = DataLog.objects.exclude(action=DataLog.Action.IMPORT).get(profile=self.profile)
         self.assertEqual(log.action, DataLog.Action.TRAKT_CONNECT)
         self.assertEqual(log.status, DataLog.Status.SUCCESS)
 
     def test_expired_state_is_logged_as_failure(self):
         self.client.get(reverse("trakt_callback"), {"code": "authcode", "state": "wrong"})
-        log = DataLog.objects.get(profile=self.profile)
+        log = DataLog.objects.exclude(action=DataLog.Action.IMPORT).get(profile=self.profile)
         self.assertEqual(log.action, DataLog.Action.TRAKT_CONNECT)
         self.assertEqual(log.status, DataLog.Status.FAILED)
 
@@ -7382,7 +7384,7 @@ class CombinedLogsTests(TestCase):
 
         page = selectors.combined_logs(None)
         self.assertEqual(len(page.object_list), 2)
-        self.assertEqual(page.object_list[0]["action"], "CSV Import")
+        self.assertEqual(page.object_list[0]["action"], "Import")
         self.assertEqual(page.object_list[1]["action"], "Sync · Trakt")
 
     def test_paginates(self):
@@ -7406,7 +7408,7 @@ class CombinedLogsTests(TestCase):
 
         page = selectors.combined_logs(None, oldest_first=True)
         self.assertEqual(page.object_list[0]["action"], "Sync · Trakt")
-        self.assertEqual(page.object_list[1]["action"], "CSV Import")
+        self.assertEqual(page.object_list[1]["action"], "Import")
 
     def test_profile_id_filters_to_one_profile(self):
         other_user = User.objects.create_user("logsmerger2", password="pass12345")
@@ -7440,7 +7442,7 @@ class CombinedLogsTests(TestCase):
         sync_entry = next(e for e in page.object_list if e["action"] == "Sync · Trakt")
         self.assertEqual(sync_entry["imported_titles"], ["Fathom", "Silo"])
         self.assertEqual(sync_entry["imported_titles_more"], 3)
-        import_entry = next(e for e in page.object_list if e["action"] == "CSV Import")
+        import_entry = next(e for e in page.object_list if e["action"] == "Import")
         self.assertEqual(import_entry["imported_titles"], ["Fathom"])
         self.assertEqual(import_entry["imported_titles_more"], 0)
 
@@ -7452,7 +7454,7 @@ class CombinedLogsTests(TestCase):
         page = selectors.combined_logs(None, action_type="import")
 
         self.assertEqual(len(page.object_list), 1)
-        self.assertEqual(page.object_list[0]["action"], "CSV Import")
+        self.assertEqual(page.object_list[0]["action"], "Import")
 
     def test_action_type_connect_groups_all_three_providers(self):
         DataLog.objects.create(profile=self.profile, action=DataLog.Action.TRAKT_CONNECT, provider="trakt", status=DataLog.Status.SUCCESS)
@@ -7495,7 +7497,7 @@ class CombinedLogsTests(TestCase):
         page = selectors.combined_logs(None, date_from=today, date_to=today)
 
         self.assertEqual(len(page.object_list), 1)
-        self.assertEqual(page.object_list[0]["action"], "CSV Import")
+        self.assertEqual(page.object_list[0]["action"], "Import")
 
 
 class SyncLogViewTests(TestCase):
@@ -7577,7 +7579,7 @@ class SyncLogViewTests(TestCase):
         self.client.login(username="logowner", password="pass12345")
         resp = self.client.get(reverse("settings"), {"tab": "logs", "log_status": "failed"})
         actions_shown = {entry["action"] for entry in resp.context["logs_page"].object_list}
-        self.assertEqual(actions_shown, {"CSV Import"})
+        self.assertEqual(actions_shown, {"Import"})
 
     def test_invalid_log_date_is_ignored_rather_than_erroring(self):
         self.client.login(username="logowner", password="pass12345")
@@ -8090,7 +8092,7 @@ class NuvioConnectViewTests(TestCase):
         import_session = ImportSession.objects.get(profile=self.profile, source=ImportSession.Source.NUVIO)
         self.assertRedirects(resp, reverse("import_review", args=[import_session.id]))
         mock_dispatch.assert_called_once_with(views.tasks.scan_import_session, [import_session.id])
-        log = DataLog.objects.get(profile=self.profile)
+        log = DataLog.objects.exclude(action=DataLog.Action.IMPORT).get(profile=self.profile)
         self.assertEqual(log.action, DataLog.Action.NUVIO_CONNECT)
         self.assertEqual(log.status, DataLog.Status.SUCCESS)
 
@@ -25345,7 +25347,7 @@ class ScheduledBackupTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         dest = self.Dest.objects.get(profile=self.profile, kind="folder")
         self.assertEqual((dest.folder, dest.frequency, dest.keep_last, dest.enabled), ("Me", "daily", 5, True))
-        dispatch.assert_called_once_with(tasks.run_scheduled_backup, [dest.id])
+        dispatch.assert_called_once_with(tasks.run_scheduled_backup, [dest.id, True])
 
     def test_pause_and_remove(self):
         dest = self._folder_dest()
@@ -25428,3 +25430,157 @@ class BackupServerIntegrationTests(TestCase):
         self.client.post(reverse("clear_instance_config_field", args=["gdrive"]))
         cfg.refresh_from_db()
         self.assertEqual((cfg.google_client_id, cfg.get_google_client_secret()), ("", ""))
+
+
+class TransferTrackingTests(TestCase):
+    """Imports and backups stay visible after leaving the page - Logs for
+    the admin, the notification bell and Import & Export's Activity card
+    for the user (tracker/transfer_tracking.py)."""
+
+    def setUp(self):
+        user = User.objects.create_user("tracker1", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Tracker")
+        self.client.login(username="tracker1", password="pass12345")
+
+    def _make_session(self, content="title,type,watched_at\nFathom,movie,2024-01-05\n"):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            f.write(content)
+        return ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.CSV, source_filename="history.csv",
+            source_metadata={"path": f.name},
+            import_options={"mapping": {"title": "title", "media_type": "type", "watched_at": "watched_at"}},
+        )
+
+    def _log(self, session):
+        return DataLog.objects.get(import_session=session)
+
+    def _note(self, session):
+        return Notification.objects.get(import_session=session)
+
+    def test_an_import_is_tracked_from_scan_to_finish(self):
+        session = self._make_session()
+        self.assertEqual(self._log(session).status, DataLog.Status.RUNNING)
+        note = self._note(session)
+        self.assertTrue(note.read)  # the user is looking at it right now
+        self.assertIn("Scanning history.csv", note.message)
+        self.assertEqual(note.link, reverse("import_review", args=[session.id]))
+
+        tasks.scan_import_session(session.id)
+        self.assertEqual(self._log(session).status, DataLog.Status.WAITING)
+        note = self._note(session)
+        self.assertFalse(note.read)
+        self.assertIn("ready to review", note.message)
+
+        tasks.commit_import_session(session.id)
+        log = self._log(session)
+        self.assertEqual(log.status, DataLog.Status.SUCCESS)
+        self.assertEqual(log.item_count, 1)
+        self.assertIsNotNone(log.finished_at)
+        note = self._note(session)
+        self.assertFalse(note.read)
+        self.assertTrue(note.message.startswith("Imported history.csv: 1 added"))
+        self.assertEqual(Notification.objects.filter(profile=self.profile).count(), 1)
+
+    def test_progress_ticks_do_not_re_notify(self):
+        session = self._make_session()
+        tasks.scan_import_session(session.id)
+        Notification.objects.filter(import_session=session).update(read=True)
+        session.processed_items = 1
+        session.save(update_fields=["processed_items"])
+        self.assertTrue(self._note(session).read)
+
+    def test_a_failed_scan_is_logged_and_notified(self):
+        session = self._make_session()
+        with patch.object(import_pipeline, "scan_file_import", side_effect=ValueError("bad file")):
+            with self.assertRaises(ValueError):
+                tasks.scan_import_session(session.id)
+        log = self._log(session)
+        self.assertEqual((log.status, log.error_message), (DataLog.Status.FAILED, "bad file"))
+        note = self._note(session)
+        self.assertFalse(note.read)
+        self.assertIn("failed: bad file", note.message)
+
+    def test_cancelling_marks_the_log_cancelled_without_an_unread_notification(self):
+        session = self._make_session()
+        tasks.scan_import_session(session.id)
+        self.client.post(reverse("import_review_cancel", args=[session.id]))
+        self.assertEqual(self._log(session).status, DataLog.Status.CANCELLED)
+        self.assertTrue(self._note(session).read)
+
+    def test_activity_card_shows_a_scanning_import_and_polls(self):
+        session = self._make_session()
+        resp = self.client.get(reverse("settings") + "?tab=data")
+        self.assertContains(resp, "history.csv")
+        self.assertContains(resp, 'hx-trigger="every 3s"')
+        self.assertContains(resp, reverse("import_review", args=[session.id]))
+
+    def test_activity_card_stops_polling_once_waiting_for_review(self):
+        session = self._make_session()
+        tasks.scan_import_session(session.id)
+        resp = self.client.get(reverse("transfer_activity"))
+        self.assertContains(resp, "Ready to review")
+        self.assertNotContains(resp, 'hx-trigger="every 3s"')
+
+    def test_activity_card_is_empty_with_nothing_going_on(self):
+        resp = self.client.get(reverse("transfer_activity"))
+        self.assertNotContains(resp, "settings-panel")
+
+    def test_notification_links_to_the_review_page(self):
+        session = self._make_session()
+        tasks.scan_import_session(session.id)
+        resp = self.client.get(reverse("notifications_list"))
+        self.assertContains(resp, f'href="{reverse("import_review", args=[session.id])}"')
+
+    def test_a_manual_backup_notifies_with_its_result(self):
+        from tracker.models import BackupDestination
+
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        dest = BackupDestination.objects.create(profile=self.profile, kind="folder", folder="x")
+        with override_settings(BACKUP_ROOT=root):
+            self.assertTrue(tasks.run_scheduled_backup(dest.id, True))
+        dest.refresh_from_db()
+        self.assertFalse(dest.in_progress)
+        note = Notification.objects.get(profile=self.profile, kind=Notification.Kind.BACKUP_STATUS)
+        self.assertEqual(note.message, "Backed up to Server folder.")
+        self.assertFalse(note.read)
+        log = DataLog.objects.get(profile=self.profile, action=DataLog.Action.BACKUP)
+        self.assertEqual(log.status, DataLog.Status.SUCCESS)
+        self.assertIsNotNone(log.finished_at)
+
+    def test_scheduled_backups_notify_once_when_they_start_failing(self):
+        from tracker import backup_destinations
+        from tracker.models import BackupDestination
+
+        dest = BackupDestination.objects.create(profile=self.profile, kind="folder")
+        with patch.object(backup_destinations.ServerFolder, "upload", side_effect=backup_destinations.BackupError("no space")):
+            tasks.run_scheduled_backup(dest.id)
+            tasks.run_scheduled_backup(dest.id)
+        notes = Notification.objects.filter(profile=self.profile, kind=Notification.Kind.BACKUP_STATUS)
+        self.assertEqual(notes.count(), 1)
+        self.assertIn("no space", notes.get().message)
+        self.assertEqual(
+            DataLog.objects.filter(profile=self.profile, action=DataLog.Action.BACKUP, status=DataLog.Status.FAILED).count(), 2
+        )
+
+    def test_scheduled_success_does_not_notify(self):
+        from tracker.models import BackupDestination
+
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        dest = BackupDestination.objects.create(profile=self.profile, kind="folder")
+        with override_settings(BACKUP_ROOT=root):
+            tasks.run_scheduled_backup(dest.id)
+        self.assertFalse(Notification.objects.filter(profile=self.profile).exists())
+
+
+class TransferTrackingLogsTests(TestCase):
+    def test_owner_sees_an_import_awaiting_review_in_logs(self):
+        owner = User.objects.create_superuser("logowner", password="pass12345")
+        Profile.objects.create(user=owner, display_name="Owner")
+        member = Profile.objects.create(user=User.objects.create_user("logmember", password="pass12345"), display_name="Member")
+        ImportSession.objects.create(profile=member, source="csv", source_filename="mine.csv", status=ImportSession.Status.READY)
+        self.client.login(username="logowner", password="pass12345")
+        resp = self.client.get(reverse("settings") + "?tab=logs")
+        self.assertContains(resp, "awaiting review")
+        self.assertContains(resp, "mine.csv")

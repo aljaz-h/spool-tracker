@@ -315,28 +315,14 @@ def commit_import_session(session_id):
         import_pipeline.commit_session(session)
     except Exception as e:
         logger.exception("commit_import_session: session %s failed", session_id)
+        # The FAILED save is logged (Logs + the user's notification) by
+        # transfer_tracking.sync_import_session via ImportSession's post_save.
         session.status = ImportSession.Status.FAILED
         session.error_message = str(e)[:500]
         session.save(update_fields=["status", "error_message"])
-        DataLog.objects.create(
-            profile=session.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.FAILED,
-            error_message=str(e)[:500],
-        )
         raise
-    # session.imported_items/skipped_items/failed_items are cumulative
-    # totals over every run of this session's commit (see
-    # import_pipeline._commit_candidates' own docstring) - using those
-    # rather than this call's own in-memory result keeps the DataLog
-    # entry correct even after a resumed/retried commit.
-    all_skipped = session.skipped_items + session.failed_items
-    detail_parts = [f"{all_skipped} skipped"] if all_skipped else []
-    restored = session.source_metadata.get("backup_lists_restored")
-    if restored:
-        detail_parts.append(f"{restored['lists']} lists restored ({restored['items']} titles added)")
-    DataLog.objects.create(
-        profile=session.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.SUCCESS,
-        item_count=session.imported_items, detail=", ".join(detail_parts),
-    )
+    # The DataLog row and the user's notification for this import were
+    # updated by the COMPLETED save itself (transfer_tracking.py).
     logger.info(
         "commit_import_session: session %s, %d imported, %d skipped, %d failed",
         session_id, session.imported_items, session.skipped_items, session.failed_items,
@@ -565,22 +551,27 @@ def run_due_backups():
 
 
 @shared_task
-def run_scheduled_backup(destination_id):
-    """One backup to one destination - from run_due_backups or Settings'
-    "Back up now". Logged to the profile's DataLog either way."""
-    from . import backup_destinations
+def run_scheduled_backup(destination_id, notify=False):
+    """One backup to one destination - from run_due_backups, or (notify=
+    True) Settings' "Back up now"/first backup, which also gets a
+    notification that turns into the result. Shows as running in Logs
+    and on the import/export page while it works (transfer_tracking.py)."""
+    from . import backup_destinations, transfer_tracking
     from .models import BackupDestination
 
     destination = BackupDestination.objects.select_related("profile").filter(id=destination_id).first()
     if destination is None:
         return False
-    ok, message = backup_destinations.run_backup(destination)
-    DataLog.objects.create(
-        profile=destination.profile, action=DataLog.Action.BACKUP, provider=destination.kind,
-        status=DataLog.Status.SUCCESS if ok else DataLog.Status.FAILED,
-        detail=f"{destination.get_kind_display()}: {message}"[:255] if ok else destination.get_kind_display(),
-        error_message="" if ok else message,
-    )
+    previous_error = destination.last_error
+    log, note = transfer_tracking.start_backup(destination, notify=notify)
+    try:
+        ok, message = backup_destinations.run_backup(destination)
+    except Exception as exc:
+        ok, message = False, f"Unexpected error: {exc.__class__.__name__}"
+        destination.last_error = message
+        destination.save(update_fields=["last_error"])
+        logger.exception("run_scheduled_backup: destination %s crashed", destination_id)
+    transfer_tracking.finish_backup(destination, log, ok, message, note=note, previous_error=previous_error)
     logger.info("run_scheduled_backup: destination %s (%s) -> %s", destination_id, destination.kind, "ok" if ok else message)
     return ok
 

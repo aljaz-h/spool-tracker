@@ -19,6 +19,8 @@
           <div class="text-xs text-ink-dim mt-0.5">
             {% if not d %}
               {% if row.available %}Not set up{% else %}Not available on this server yet{% endif %}
+            {% elif d.in_progress %}
+              <span class="text-primary">Backing up now&hellip;</span>
             {% elif not d.enabled %}
               Paused
             {% else %}

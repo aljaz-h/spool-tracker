@@ -27,7 +27,7 @@ from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Q
 from django.db.models.functions import TruncDate
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -4120,6 +4120,7 @@ def _settings_page_context(request, profile):
         "max_api_tokens": ApiToken.MAX_TOKENS_PER_PROFILE,
         **_security_card_context(profile),
         **_backup_card_context(request, profile),
+        **_transfer_activity_context(profile),
     }
     if profile.is_owner:
         db_engine = django_settings.DATABASES["default"]["ENGINE"].rsplit(".", 1)[-1]
@@ -6401,7 +6402,7 @@ def backup_callback(request, kind):
     if created:
         _apply_backup_schedule(destination, schedule)
     destination.save()
-    _dispatch_sync_task_safely(tasks.run_scheduled_backup, [destination.id])
+    _dispatch_sync_task_safely(tasks.run_scheduled_backup, [destination.id, True])
     messages.success(request, f"{label} connected - your first backup is on its way.")
     return _redirect_to_backups()
 
@@ -6447,7 +6448,7 @@ def backup_destination_save(request, kind):
     is_new = destination.pk is None
     destination.save()
     if is_new:
-        _dispatch_sync_task_safely(tasks.run_scheduled_backup, [destination.id])
+        _dispatch_sync_task_safely(tasks.run_scheduled_backup, [destination.id, True])
         messages.success(request, f"{label} backups turned on - your first backup is on its way.")
     else:
         messages.success(request, f"{label} backup settings saved.")
@@ -6461,7 +6462,7 @@ def backup_run_now(request, kind):
     destination = BackupDestination.objects.filter(profile=profile, kind=kind).first() if profile else None
     if destination is None:
         raise Http404
-    _dispatch_sync_task_safely(tasks.run_scheduled_backup, [destination.id])
+    _dispatch_sync_task_safely(tasks.run_scheduled_backup, [destination.id, True])
     messages.success(request, f"Backing up to {destination.get_kind_display()} now - refresh in a moment to see the result.")
     return _redirect_to_backups()
 
@@ -6478,3 +6479,64 @@ def backup_destination_delete(request, kind):
     destination.delete()
     messages.success(request, f"Removed {destination.get_kind_display()} backups. Files already there were kept.")
     return _redirect_to_backups()
+
+
+
+# --------------------------------------------------------------------
+# Import & Export activity - what's running or recently finished, so a
+# user who left the page mid-import can see where it got to. Polls
+# itself (every 3s) only while something is actually working.
+# --------------------------------------------------------------------
+
+TRANSFER_ACTIVITY_RECENT_DAYS = 3
+
+
+def _session_progress(session):
+    """(percent or None, short status text) for one Import Review session."""
+    Status = ImportSession.Status
+    if session.status == Status.SCANNING:
+        if session.total_items:
+            return int(100 * session.processed_items / session.total_items), f"Scanning - {session.processed_items:,} of {session.total_items:,} checked"
+        return None, "Scanning - reading the file"
+    if session.status == Status.IMPORTING:
+        finishing = session.source_metadata.get("finishing")
+        if finishing and finishing.get("total"):
+            return int(100 * finishing.get("done", 0) / finishing["total"]), "Finishing up"
+        if session.selected_items:
+            return int(100 * session.processed_items / session.selected_items), f"Importing - {session.processed_items:,} of {session.selected_items:,}"
+        return None, "Importing"
+    if session.status == Status.READY:
+        return None, f"Ready to review - {session.total_items:,} items"
+    if session.status == Status.COMPLETED:
+        return None, f"Imported {session.imported_items:,}" + (f", {session.skipped_items + session.failed_items:,} skipped" if session.skipped_items + session.failed_items else "")
+    if session.status == Status.FAILED:
+        return None, f"Failed - {session.error_message[:120] or 'unknown error'}"
+    return None, session.get_status_display()
+
+
+def _transfer_activity_context(profile):
+    since = timezone.now() - timedelta(days=TRANSFER_ACTIVITY_RECENT_DAYS)
+    sessions = list(
+        ImportSession.objects.filter(profile=profile)
+        .filter(
+            Q(status__in=(ImportSession.Status.SCANNING, ImportSession.Status.READY, ImportSession.Status.IMPORTING))
+            | Q(updated_at__gte=since)
+        )
+        .order_by("-created_at")[:5]
+    )
+    for session in sessions:
+        session.progress_pct, session.progress_text = _session_progress(session)
+        session.label = session.source_filename or f"{session.get_source_display()} import"
+    running_backups = list(BackupDestination.objects.filter(profile=profile, in_progress=True))
+    working = running_backups or any(
+        s.status in (ImportSession.Status.SCANNING, ImportSession.Status.IMPORTING) for s in sessions
+    )
+    return {"transfer_sessions": sessions, "running_backups": running_backups, "transfer_polling": bool(working)}
+
+
+@login_required
+def transfer_activity_partial(request):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    return render(request, "tracker/partials/transfer_activity.html", _transfer_activity_context(profile))

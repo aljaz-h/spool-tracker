@@ -64,3 +64,14 @@ class TrackerConfig(AppConfig):
             sender=Profile,
             dispatch_uid="profile_ensure_watchlist",
         )
+
+        # Every ImportSession status/progress change is mirrored into the
+        # admin Logs and the user's notification bell (transfer_tracking.py).
+        from .models import ImportSession
+        from .transfer_tracking import on_import_session_saved
+
+        post_save.connect(
+            on_import_session_saved,
+            sender=ImportSession,
+            dispatch_uid="import_session_transfer_tracking",
+        )

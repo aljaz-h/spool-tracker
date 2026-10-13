@@ -31,6 +31,8 @@
   <div class="min-w-0 flex-1">
     {% if n.title %}
       <a href="{% url 'title_detail' n.title.pk %}" class="text-[13.5px] {% if not n.read %}font-medium text-base-content{% else %}text-ink-dim{% endif %} block line-clamp-2 hover:text-white">{{ n.display_message }}</a>
+    {% elif n.link %}
+      <a href="{{ n.link }}" class="text-[13.5px] {% if not n.read %}font-medium text-base-content{% else %}text-ink-dim{% endif %} block line-clamp-2 hover:text-white">{{ n.display_message }}</a>
     {% elif n.kind == "system_update" %}
       <a href="{{ changelog_url }}" target="_blank" rel="noopener" class="text-[13.5px] {% if not n.read %}font-medium text-base-content{% else %}text-ink-dim{% endif %} block line-clamp-2 hover:text-white">{{ n.display_message }}</a>
     {% else %}

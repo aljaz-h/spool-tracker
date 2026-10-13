@@ -201,6 +201,8 @@ _NOTIFICATION_ICON_META = {
     Notification.Kind.SYNC_FAILED: ("triangle-alert", "text-error"),
     Notification.Kind.SYSTEM_UPDATE: ("settings", "text-ink-dim"),
     Notification.Kind.WATCHLIST_STALE: ("clock", "text-accent"),
+    Notification.Kind.IMPORT_STATUS: ("upload", "text-primary"),
+    Notification.Kind.BACKUP_STATUS: ("server", "text-info"),
 }
 _DEFAULT_NOTIFICATION_ICON_META = ("bell", "text-ink-dim")
 

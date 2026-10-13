@@ -189,6 +189,7 @@ urlpatterns = [
     path("export/csv/", views.export_csv, name="export_csv"),
     path("export/trakt-json/", views.export_trakt_json, name="export_trakt_json"),
     path("export/backup/", views.export_spool_backup, name="export_spool_backup"),
+    path("settings/transfer-activity/", views.transfer_activity_partial, name="transfer_activity"),
     path("settings/backups/<str:kind>/connect/", views.backup_connect, name="backup_connect"),
     path("settings/backups/<str:kind>/callback/", views.backup_callback, name="backup_callback"),
     path("settings/backups/<str:kind>/save/", views.backup_destination_save, name="backup_destination_save"),
