@@ -78,7 +78,7 @@
       regardless of viewport width or where the trigger lands.
     {% endcomment %}
     {% if active_profile %}
-      <div class="relative" @click.outside="open = false" @keydown.escape.window="open = false" x-data="{
+      <div class="relative max-lg:hidden" @click.outside="open = false" @keydown.escape.window="open = false" x-data="{
         open: false,
         togglePanel(button) {
           this.open = !this.open;
@@ -175,7 +175,7 @@
       </div>
     {% endif %}
     {% if active_profile %}
-      <div class="relative" @click.outside="open = false" @keydown.escape.window="open = false" x-data="{
+      <div class="relative max-lg:hidden" @click.outside="open = false" @keydown.escape.window="open = false" x-data="{
         open: false,
         togglePanel(button) {
           this.open = !this.open;

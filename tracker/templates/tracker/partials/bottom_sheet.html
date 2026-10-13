@@ -57,23 +57,35 @@
     <div class="w-9 h-1 rounded-full bg-line-strong"></div>
   </div>
 
-  <div class="flex items-center justify-between px-5 pb-3">
-    <h2 class="text-base font-semibold">More</h2>
+  {% comment %}
+    "You" sheet, opened from the bottom nav's avatar tab: who you are
+    (avatar, name, a link to your profile), then the library pages the
+    four other tabs don't cover, friends, and Settings / Log out last.
+  {% endcomment %}
+  <div class="flex items-center justify-between gap-3 px-5 pb-3">
+    {% url 'my_profile' as profile_url %}
+    <a href="{{ profile_url }}" @click="bottomSheetOpen = false" class="flex items-center gap-3 min-w-0 group">
+      {% if active_profile %}
+        <span class="w-11 h-11 rounded-full flex-none flex items-center justify-center text-base font-bold border-2 {% if active_profile.avatar_image %}bg-cover bg-center{% endif %}" style="border-color:{{ active_profile.avatar_color }};{% if active_profile.avatar_image %}background-image:url('{{ active_profile.avatar_image.url }}'){% else %}background:{{ active_profile.avatar_color }};color:#fff;{% endif %}">{% if not active_profile.avatar_image %}{{ active_profile.display_name|first|upper }}{% endif %}</span>
+      {% endif %}
+      <span class="min-w-0">
+        <h2 class="text-base font-semibold truncate">{% if active_profile %}{{ active_profile.display_name }}{% else %}You{% endif %}</h2>
+        <span class="block text-[13px] text-ink-dim group-hover:text-primary">View profile &rarr;</span>
+      </span>
+    </a>
     <button
       type="button"
       @click="bottomSheetOpen = false"
       aria-label="Close"
-      class="w-8 h-8 flex items-center justify-center rounded-lg text-ink-dim hover:text-base-content"
+      class="w-9 h-9 flex-none flex items-center justify-center rounded-lg text-ink-dim hover:text-base-content"
     >
       {% icon "x" "w-4 h-4" %}
     </button>
   </div>
 
-  {% comment %}
-    Everything the four bottom-nav tabs don't cover, as plain rows -
-    History, Lists, Stats, Activity, Profile, Settings.
-  {% endcomment %}
-  <nav class="px-3 pb-4 flex flex-col" aria-label="More">
+  <nav class="px-3 pb-2 flex flex-col" aria-label="Library">
+    {% url 'calendar' as calendar_url %}
+    <a href="{{ calendar_url }}" @click="bottomSheetOpen = false" class="sheet-row">{% icon "calendar-days" "w-5 h-5 text-ink-dim" %}Calendar</a>
     {% url 'history' as history_url %}
     <a href="{{ history_url }}" @click="bottomSheetOpen = false" class="sheet-row">{% icon "history" "w-5 h-5 text-ink-dim" %}History</a>
     {% url 'lists' as lists_url %}
@@ -84,11 +96,6 @@
       {% url 'activity' as activity_url %}
       <a href="{{ activity_url }}" @click="bottomSheetOpen = false" class="sheet-row">{% icon "users" "w-5 h-5 text-ink-dim" %}Activity</a>
     {% endif %}
-    <div class="my-1.5 mx-3 h-px bg-line"></div>
-    {% url 'my_profile' as profile_url %}
-    <a href="{{ profile_url }}" @click="bottomSheetOpen = false" class="sheet-row">{% icon "user" "w-5 h-5 text-ink-dim" %}Profile</a>
-    {% url 'settings' as settings_url %}
-    <a href="{{ settings_url }}" @click="bottomSheetOpen = false" class="sheet-row">{% icon "settings" "w-5 h-5 text-ink-dim" %}Settings</a>
   </nav>
   {% if other_profiles %}
     {% comment %}
@@ -163,4 +170,13 @@
       </div>
     </div>
   {% endif %}
+  <div class="mx-6 h-px bg-line"></div>
+  <nav class="px-3 pt-2 pb-4 flex flex-col" aria-label="Account">
+    {% url 'settings' as settings_url %}
+    <a href="{{ settings_url }}" @click="bottomSheetOpen = false" class="sheet-row">{% icon "settings" "w-5 h-5 text-ink-dim" %}Settings</a>
+    <form method="post" action="{% url 'logout' %}">
+      {% csrf_token %}
+      <button type="submit" class="sheet-row w-full text-left">{% icon "log-out" "w-5 h-5 text-ink-dim" %}Log out</button>
+    </form>
+  </nav>
 </div>
