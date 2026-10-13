@@ -1,6 +1,5 @@
 {% load icons %}
-{# context: leaderboard (selectors.household_leaderboard()), leaderboard_period ("week"|"year") #}
-{% if leaderboard %}
+{# context: leaderboard (selectors.household_leaderboard()), leaderboard_period ("week"|"year") - always rendered (with its toggle), so the household can find it even in a quiet week; views.activity opens on This Year when the week is empty but the year isn't. #}
   {% comment %}
   The This Week/This Year toggle below is hx-get, not a plain ?period=
   link like this page's other filters (member pills, pagination) - see
@@ -51,7 +50,8 @@
             {{ row.episode_count }} episode{{ row.episode_count|pluralize }}{% if row.movie_count %} &middot; {{ row.movie_count }} movie{{ row.movie_count|pluralize }}{% endif %}
           </div>
         </div>
+      {% empty %}
+        <p class="text-[13.5px] text-ink-dim">{% if leaderboard_period == "year" %}No plays logged by the household this year yet.{% else %}No plays logged by the household in the last 7 days - switch to This Year to see the yearly ranking.{% endif %}</p>
       {% endfor %}
     </div>
   </section>
-{% endif %}

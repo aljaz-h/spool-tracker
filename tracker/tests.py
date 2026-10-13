@@ -15097,6 +15097,34 @@ class ActivityLeaderboardHtmxTests(TestCase):
         resp = self.client.get(reverse("activity_leaderboard"))
         self.assertEqual(resp.status_code, 404)
 
+    def test_quiet_week_opens_on_this_year(self):
+        # Only play is 3 weeks old: nothing this week, something this year.
+        from django.utils import timezone
+
+        WatchEvent.objects.update(watched_at=timezone.now() - timedelta(days=21))
+        resp = self.client.get(reverse("activity"))
+        self.assertEqual(resp.context["leaderboard_period"], "year")
+        self.assertContains(resp, "LeaderboardUser")
+
+    def test_explicit_week_stays_on_week_and_shows_the_empty_state(self):
+        from django.utils import timezone
+
+        WatchEvent.objects.update(watched_at=timezone.now() - timedelta(days=21))
+        resp = self.client.get(reverse("activity"), {"period": "week"})
+        self.assertEqual(resp.context["leaderboard_period"], "week")
+        self.assertContains(resp, "No plays logged by the household in the last 7 days")
+        self.assertContains(resp, "This Year")
+
+    def test_both_cards_render_even_with_no_plays_at_all(self):
+        # The cards (and the week/year toggle) are always there, so the
+        # household can find them - each says it's empty instead of vanishing.
+        WatchEvent.objects.all().delete()
+        resp = self.client.get(reverse("activity"))
+        self.assertContains(resp, 'id="household-leaderboard"')
+        self.assertContains(resp, "No plays logged by the household in the last 7 days")
+        self.assertContains(resp, "Household Top 5")
+        self.assertContains(resp, "Nothing played by the household in the last 7 days yet.")
+
 
 class TitleDetailViewTests(TestCase):
     def setUp(self):

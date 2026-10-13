@@ -1,10 +1,9 @@
 {% load icons tracker_extras %}
-{# context: top_titles (selectors.household_top_titles()) #}
-{% if top_titles %}
-  <section>
+{# context: top_titles (selectors.household_top_titles()) - the household's most-played titles over the last 7 days; always rendered, with an empty line in a quiet week, so the card is discoverable. #}
+<section>
     <div class="flex items-baseline justify-between mb-2">
       <h2 class="section-title !text-base">Household Top 5</h2>
-      <span class="text-xs text-ink-faint flex-none">This week</span>
+      <span class="text-xs text-ink-faint flex-none">Last 7 days</span>
     </div>
     <div class="rows">
       {% for row in top_titles %}
@@ -28,7 +27,8 @@
             </div>
           </div>
         </a>
+      {% empty %}
+        <p class="text-[13.5px] text-ink-dim py-1">Nothing played by the household in the last 7 days yet.</p>
       {% endfor %}
     </div>
   </section>
-{% endif %}

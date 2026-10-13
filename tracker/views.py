@@ -3879,7 +3879,16 @@ def activity(request):
         feed = [item for item in feed if item["profile"].pk == selected_member_id]
 
     page_obj = Paginator(feed, ACTIVITY_PAGE_SIZE).get_page(request.GET.get("page"))
-    leaderboard_period = request.GET.get("period") if request.GET.get("period") in ("week", "year") else "week"
+    requested_period = request.GET.get("period")
+    leaderboard_period = requested_period if requested_period in ("week", "year") else "week"
+    leaderboard = selectors.household_leaderboard(leaderboard_period)
+    # No explicit ?period= and a quiet week: open on This Year instead of
+    # an empty card, as long as the year actually has plays. The card (and
+    # its toggle) always renders now - see household_leaderboard.html.
+    if requested_period not in ("week", "year") and not leaderboard:
+        year_leaderboard = selectors.household_leaderboard("year")
+        if year_leaderboard:
+            leaderboard_period, leaderboard = "year", year_leaderboard
 
     query_without_page = request.GET.copy()
     query_without_page.pop("page", None)
@@ -3892,7 +3901,7 @@ def activity(request):
         "selected_member_id": selected_member_id,
         "recently_watching_count": selectors.recently_watching_count(),
         "leaderboard_period": leaderboard_period,
-        "leaderboard": selectors.household_leaderboard(leaderboard_period),
+        "leaderboard": leaderboard,
         "top_titles": selectors.household_top_titles(),
         "time_format_str": _time_format_str(profile),
     }
