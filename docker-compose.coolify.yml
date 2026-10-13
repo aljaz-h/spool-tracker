@@ -179,6 +179,9 @@ services:
 
     volumes:
       - media_data:/app/media
+      # Settings → Import & Export → Automatic Backups → "Server folder".
+      # To keep them on a NAS, replace with a bind mount, e.g. /mnt/nas/spool:/app/backups
+      - backup_data:/app/backups
 
     command: >
       sh -c "exec celery -A spool worker -l info --concurrency=$${CELERY_WORKER_CONCURRENCY:-4}"
@@ -210,6 +213,7 @@ volumes:
   db_data:
   redis_data:
   media_data:
+  backup_data:
 
 # ---------------------------------------------------------
 # Docker Networks

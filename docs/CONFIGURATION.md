@@ -23,6 +23,8 @@ variables with inline comments — this page is the fuller reference.
 | `CACHE_URL` | **Yes** | A separate Redis database index (default `2`, i.e. `redis://redis:6379/2`) from the Celery ones above — caches TMDB discovery results (Movies & TV / Anime pages) across gunicorn's worker processes. |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `ADMIN_DISPLAY_NAME` | No | First-run bootstrap account — created automatically if no profile exists yet. Leave `ADMIN_PASSWORD` blank to skip and create an account yourself instead (see [Quick start → First login](QUICKSTART.md#first-login)). |
 | `TRAKT_CLIENT_ID` / `TRAKT_CLIENT_SECRET` | No | Enables Trakt import — see [Importing your data](IMPORTING.md#connecting-trakt--simkl--nuvio). |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, `DROPBOX_APP_KEY` / `DROPBOX_APP_SECRET` | No | Lets profiles schedule automatic backups to Google Drive / Dropbox (also settable under Server Integrations) — see [Backups](BACKUPS.md). |
+| `BACKUP_ROOT` | No | Where "Server folder" backups are written (default `/app/backups`; mount a NAS share there) — see [Backups](BACKUPS.md). |
 | `SIMKL_CLIENT_ID` / `SIMKL_CLIENT_SECRET` | No | Enables Simkl import — see [Importing your data](IMPORTING.md#connecting-trakt--simkl--nuvio). |
 | `TMDB_API_KEY` | No | A free v3 API key from themoviedb.org — enables poster lookup and the Movies & TV / Anime / Calendar pages' live TMDB data. Safe to leave blank; those features just have less to show. |
 | `TIME_ZONE` | No (default `Europe/Ljubljana` in `.env.example`) | Used for scheduling (nightly sync jobs, calendar day boundaries) and display. Set to your own household's time zone, e.g. `America/New_York`. |

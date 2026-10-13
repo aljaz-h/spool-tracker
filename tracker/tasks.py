@@ -548,6 +548,44 @@ def run_backfill_completion(data_log_id):
 
 
 @shared_task
+def run_due_backups():
+    """Hourly beat job (see bootstrap_periodic_tasks.py) - queues a
+    run_scheduled_backup for every enabled BackupDestination whose next
+    daily/weekly/monthly backup is due (backup_destinations.is_due)."""
+    from .backup_destinations import is_due
+    from .models import BackupDestination
+
+    queued = 0
+    now = timezone.now()
+    for destination in BackupDestination.objects.filter(enabled=True):
+        if is_due(destination, now):
+            run_scheduled_backup.delay(destination.id)
+            queued += 1
+    return queued
+
+
+@shared_task
+def run_scheduled_backup(destination_id):
+    """One backup to one destination - from run_due_backups or Settings'
+    "Back up now". Logged to the profile's DataLog either way."""
+    from . import backup_destinations
+    from .models import BackupDestination
+
+    destination = BackupDestination.objects.select_related("profile").filter(id=destination_id).first()
+    if destination is None:
+        return False
+    ok, message = backup_destinations.run_backup(destination)
+    DataLog.objects.create(
+        profile=destination.profile, action=DataLog.Action.BACKUP, provider=destination.kind,
+        status=DataLog.Status.SUCCESS if ok else DataLog.Status.FAILED,
+        detail=f"{destination.get_kind_display()}: {message}"[:255] if ok else destination.get_kind_display(),
+        error_message="" if ok else message,
+    )
+    logger.info("run_scheduled_backup: destination %s (%s) -> %s", destination_id, destination.kind, "ok" if ok else message)
+    return ok
+
+
+@shared_task
 def prune_old_logs():
     """Nightly beat job (see bootstrap_periodic_tasks.py) - deletes
     SyncLog/DataLog rows older than InstanceConfig.log_retention_days.

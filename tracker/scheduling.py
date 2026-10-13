@@ -54,6 +54,7 @@ MDBLIST_REFRESH_TASK_NAME = "queue-due-mdblist-refreshes"
 WATCHLIST_STALE_TASK_NAME = "generate-watchlist-stale-notifications"
 RECLASSIFY_ANIME_TASK_NAME = "reclassify-anime-titles"
 IMPORT_CLEANUP_TASK_NAME = "expire-import-sessions"
+BACKUP_TASK_NAME = "run-due-backups"
 
 
 def ensure_release_sync_task(hour=3, minute=0):
@@ -208,6 +209,25 @@ def ensure_import_cleanup_task(hour=4, minute=45):
         defaults={
             "crontab": schedule,
             "task": "tracker.tasks.expire_import_sessions",
+            "args": "[]",
+            "enabled": True,
+        },
+    )
+
+
+def ensure_backup_task(minute=20):
+    """(Re)creates the hourly PeriodicTask that runs whichever profiles'
+    scheduled backups are due (tasks.run_due_backups) - hourly rather
+    than one PeriodicTask per destination, so changing a destination's
+    frequency in Settings never needs a beat schedule rewrite."""
+    schedule, _ = CrontabSchedule.objects.get_or_create(
+        minute=str(minute), hour="*", day_of_week="*", day_of_month="*", month_of_year="*"
+    )
+    PeriodicTask.objects.update_or_create(
+        name=BACKUP_TASK_NAME,
+        defaults={
+            "crontab": schedule,
+            "task": "tracker.tasks.run_due_backups",
             "args": "[]",
             "enabled": True,
         },

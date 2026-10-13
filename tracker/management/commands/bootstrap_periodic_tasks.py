@@ -52,3 +52,6 @@ class Command(BaseCommand):
 
         scheduling.ensure_import_cleanup_task()
         self.stdout.write(self.style.SUCCESS("Confirmed the nightly Import Review cleanup task."))
+
+        scheduling.ensure_backup_task()
+        self.stdout.write(self.style.SUCCESS("Confirmed the hourly scheduled-backups task."))

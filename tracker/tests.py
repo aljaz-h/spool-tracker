@@ -20,6 +20,7 @@ from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
 from . import achievements, completion, crypto, csv_import, episode_matching, import_pipeline, instance_config, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, title_matching, totp, update_check, views
+from django.utils import timezone as _tz
 from .watchlists import ensure_watchlist
 from .integrations import anifiller, mdblist, nuvio, scrobble, simkl, tenrai, tmdb, trakt
 from .models import (
@@ -14059,7 +14060,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         other_profile = Profile.objects.create(user=other_user, display_name="EpisodeWatcher")
         show = Title.objects.create(media_type=MediaType.TV, name="Shared Show", year=2020)
         episode = Episode.objects.create(title=show, season=1, episode=5)
-        WatchEvent.objects.create(profile=other_profile, title=show, episode=episode, watched_at=_now)
+        WatchEvent.objects.create(profile=other_profile, title=show, episode=episode, watched_at=timezone.now())
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, "S1:E5")
 
@@ -14078,7 +14079,7 @@ class DashboardWatchingWatchlistTests(TestCase):
 
         title = Title.objects.create(media_type=MediaType.TV, name="Linked Show", year=2022)
         episode = Episode.objects.create(title=title, season=2, episode=5, name="Five")
-        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=_now)
+        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, f'href="{reverse("title_detail", args=[title.pk])}?season=2#episode-2-5"')
 
@@ -14096,7 +14097,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         title = Title.objects.create(media_type=MediaType.TV, name="Binge Show", year=2022)
         for n in (1, 2, 3):
             episode = Episode.objects.create(title=title, season=1, episode=n, name=f"Episode {n}")
-            WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=_now)
+            WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
         resp = self.client.get(reverse("dashboard"))
         self.assertEqual(len(resp.context["recently_watched"]), 3)
 
@@ -14267,7 +14268,7 @@ class RecentlyWatchedStillImageTests(TestCase):
             external_ids={"tmdb": "555", "tmdb_kind": "tv"},
         )
         episode = Episode.objects.create(title=title, season=1, episode=1)
-        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=_now)
+        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
         events = selectors.recently_watched(self.profile, [MediaType.TV])
         self.assertEqual(events[0].still_url, "https://example.com/poster.jpg")
 
@@ -14281,7 +14282,7 @@ class RecentlyWatchedStillImageTests(TestCase):
             external_ids={"tmdb": "556", "tmdb_kind": "tv"},
         )
         episode = Episode.objects.create(title=title, season=1, episode=1, name="Pilot")
-        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=_now)
+        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
         events = selectors.recently_watched(self.profile, [MediaType.TV])
         self.assertEqual(events[0].still_url, "https://example.com/still.jpg")
         self.assertEqual(events[0].caption, "S1E1 · Pilot")
@@ -14308,7 +14309,7 @@ class RecentlyWatchedStillImageTests(TestCase):
             media_type=MediaType.TV, name="The Mentalist", year=2008, external_ids={"tmdb": "557", "tmdb_kind": "tv"}
         )
         episode = Episode.objects.create(title=title, season=1, episode=9)
-        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=_now)
+        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
         events = selectors.recently_watched(self.profile, [MediaType.TV])
         self.assertEqual(events[0].caption, "S1E9 · Red John's Rules")
 
@@ -14321,7 +14322,7 @@ class RecentlyWatchedStillImageTests(TestCase):
             media_type=MediaType.TV, name="Has Local Name", year=2020, external_ids={"tmdb": "558", "tmdb_kind": "tv"}
         )
         episode = Episode.objects.create(title=title, season=1, episode=1, name="Local Name")
-        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=_now)
+        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
         events = selectors.recently_watched(self.profile, [MediaType.TV])
         self.assertEqual(events[0].caption, "S1E1 · Local Name")
 
@@ -14330,7 +14331,7 @@ class RecentlyWatchedStillImageTests(TestCase):
 
         title = Title.objects.create(media_type=MediaType.TV, name="No Name Anywhere", year=2020)
         episode = Episode.objects.create(title=title, season=1, episode=1)
-        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=_now)
+        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
         events = selectors.recently_watched(self.profile, [MediaType.TV])
         self.assertEqual(events[0].caption, "S1E1")
 
@@ -15434,7 +15435,7 @@ class TitleDetailViewTests(TestCase):
             external_ids={"tmdb": "77", "tmdb_kind": "tv"},
         )
         episode = Episode.objects.create(title=show, season=1, episode=1)
-        WatchEvent.objects.create(profile=self.profile, title=show, episode=episode, watched_at=_now)
+        WatchEvent.objects.create(profile=self.profile, title=show, episode=episode, watched_at=timezone.now())
         with patch("tracker.integrations.tmdb.get_full_details", return_value=None):
             resp = self.client.get(reverse("title_detail", args=[show.pk]))
         self.assertTrue(resp.context["is_watched"])
@@ -15462,7 +15463,7 @@ class TitleDetailViewTests(TestCase):
         from django.utils import timezone
 
         mock_details.return_value = self._details()
-        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=_now, user_rating=8)
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=timezone.now(), user_rating=8)
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         self.assertEqual(resp.context["latest_rating"], 8)
         self.assertEqual(len(resp.context["recent_events"]), 1)
@@ -19696,7 +19697,7 @@ class TitlePreviewViewTests(TestCase):
             media_type=MediaType.MOVIE, name="Fathom", year=2020,
             external_ids={"tmdb": "42", "tmdb_kind": "movie"},
         )
-        existing_watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist")
+        existing_watchlist = ensure_watchlist(self.profile)  # every profile already has one
         self.client.post(reverse("title_preview_add_to_watchlist", args=["movie", 42]))
         mock_details.assert_not_called()  # title already existed - no need to refetch
         self.assertEqual(Title.objects.filter(external_ids__tmdb="42").count(), 1)
@@ -20085,7 +20086,8 @@ class ListsPageTagFilterTests(TestCase):
     def test_no_filter_shows_every_list(self):
         resp = self.client.get(reverse("lists"))
         names = [wl.name for wl in resp.context["watchlists"]]
-        self.assertEqual(set(names), {"Comfort", "Progress", "Untagged"})
+        # The Watchlist every profile gets (tracker/watchlists.py) is untagged too.
+        self.assertEqual(set(names), {"Watchlist", "Comfort", "Progress", "Untagged"})
 
     def test_filtering_by_tag_narrows_to_matching_lists_only(self):
         resp = self.client.get(reverse("lists"), {"tag": "comfort watches"})
@@ -25212,3 +25214,217 @@ class SpoolBackupTests(TestCase):
         self.assertEqual(session.source_metadata["backup_lists_restored"], {"lists": 2, "items": 2})
         self.assertTrue(WatchList.objects.filter(profile=other, name="Comfort").exists())
         self.assertEqual(WatchEvent.objects.filter(profile=other).count(), 2)
+
+
+class ScheduledBackupTests(TestCase):
+    """Automatic backups (tracker/backup_destinations.py) - each profile
+    sets up its own destinations under Settings -> Import & Export."""
+
+    def setUp(self):
+        from tracker import backup_destinations
+        from tracker.models import BackupDestination
+
+        self.bd = backup_destinations
+        self.Dest = BackupDestination
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        override = override_settings(BACKUP_ROOT=self.root)
+        override.enable()
+        self.addCleanup(override.disable)
+        self.user = User.objects.create_user("backupsched", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="Back Upper")
+        self.client.login(username="backupsched", password="pass12345")
+
+    def _folder_dest(self, **kwargs):
+        return self.Dest.objects.create(profile=self.profile, kind="folder", folder="mine", **kwargs)
+
+    def test_safe_subfolder_never_leaves_the_backup_root(self):
+        self.assertEqual(self.bd.safe_subfolder("../../etc"), "etc")
+        self.assertEqual(self.bd.safe_subfolder("/a/./b/"), "a/b")
+        self.assertEqual(self.bd.safe_subfolder(""), "")
+
+    def test_a_new_destination_is_due_and_a_fresh_backup_is_not(self):
+        from datetime import timedelta
+
+        dest = self._folder_dest(frequency="weekly")
+        now = _tz.now()
+        self.assertTrue(self.bd.is_due(dest, now))
+        dest.last_success_at = now - timedelta(days=2)
+        self.assertFalse(self.bd.is_due(dest, now))
+        dest.last_success_at = now - timedelta(days=7)
+        self.assertTrue(self.bd.is_due(dest, now))
+        dest.enabled = False
+        self.assertFalse(self.bd.is_due(dest, now))
+
+    def test_a_failed_run_waits_before_retrying(self):
+        from datetime import timedelta
+
+        now = _tz.now()
+        dest = self._folder_dest(last_attempt_at=now - timedelta(hours=1), last_error="boom")
+        self.assertFalse(self.bd.is_due(dest, now))
+        dest.last_attempt_at = now - timedelta(hours=7)
+        self.assertTrue(self.bd.is_due(dest, now))
+
+    def test_server_folder_backup_writes_a_restorable_file_and_prunes(self):
+        from tracker import backup
+
+        dest = self._folder_dest(keep_last=2)
+        folder = os.path.join(self.root, "mine")
+        os.makedirs(folder)
+        prefix = self.bd.backup_prefix(self.profile)
+        for stamp in ("2020-01-01-0000", "2020-01-02-0000"):
+            open(os.path.join(folder, f"{prefix}{stamp}.json"), "w").close()
+        open(os.path.join(folder, "spool-backup-someone-else-99-2019-01-01-0000.json"), "w").close()
+        ok, message = self.bd.run_backup(dest)
+        self.assertTrue(ok, message)
+        names = sorted(os.listdir(folder))
+        self.assertEqual(len([n for n in names if n.startswith(prefix)]), 2)
+        self.assertNotIn(f"{prefix}2020-01-01-0000.json", names)
+        self.assertIn("spool-backup-someone-else-99-2019-01-01-0000.json", names)
+        dest.refresh_from_db()
+        self.assertEqual(dest.last_error, "")
+        with open(os.path.join(folder, dest.last_filename)) as f:
+            self.assertTrue(backup.is_spool_backup(json.load(f)))
+
+    def test_a_failure_is_recorded_and_logged(self):
+        dest = self._folder_dest()
+        with patch.object(self.bd.ServerFolder, "upload", side_effect=self.bd.BackupError("disk full")):
+            self.assertFalse(tasks.run_scheduled_backup(dest.id))
+        dest.refresh_from_db()
+        self.assertEqual(dest.last_error, "disk full")
+        log = DataLog.objects.get(profile=self.profile, action=DataLog.Action.BACKUP)
+        self.assertEqual(log.status, DataLog.Status.FAILED)
+
+    def test_run_due_backups_queues_only_due_destinations(self):
+        due = self._folder_dest()
+        other = Profile.objects.create(
+            user=User.objects.create_user("backupsched2", password="pass12345"), display_name="Other"
+        )
+        self.Dest.objects.create(profile=other, kind="folder", last_success_at=_tz.now())
+        with patch.object(tasks.run_scheduled_backup, "delay") as delay:
+            self.assertEqual(tasks.run_due_backups(), 1)
+        delay.assert_called_once_with(due.id)
+
+    def test_webdav_upload_and_prune_requests(self):
+        dest = self.Dest(profile=self.profile, kind="webdav", url="https://dav.example/Spool", username="me")
+        dest.set_secret("pw")
+        dest.save()
+        prefix = self.bd.backup_prefix(self.profile)
+        listing = (
+            '<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">'
+            '<d:response><d:href>/Spool/</d:href></d:response>'
+            + "".join(f"<d:response><d:href>/Spool/{prefix}2020-01-0{i}-0000.json</d:href></d:response>" for i in range(1, 4))
+            + "</d:multistatus>"
+        )
+        calls = []
+
+        def fake_request(method, url, **kwargs):
+            calls.append((method, url))
+            resp = Mock(status_code=207 if method == "PROPFIND" else 201, text="", content=listing.encode())
+            return resp
+
+        dest.keep_last = 2
+        with patch("tracker.backup_destinations.requests.request", side_effect=fake_request):
+            ok, message = self.bd.run_backup(dest)
+        self.assertTrue(ok, message)
+        self.assertTrue(any(m == "PUT" and u.startswith("https://dav.example/Spool/" + prefix) for m, u in calls))
+        self.assertIn(("DELETE", f"https://dav.example/Spool/{prefix}2020-01-01-0000.json"), calls)
+
+    def test_settings_shows_the_backups_card(self):
+        resp = self.client.get(reverse("settings") + "?tab=data")
+        self.assertContains(resp, "Automatic Backups")
+        self.assertContains(resp, "Server folder")
+        self.assertContains(resp, "Not available on this server yet")  # Drive/Dropbox not configured
+
+    def test_turning_on_a_server_folder_creates_it_and_starts_a_backup(self):
+        with patch.object(views, "_dispatch_sync_task_safely") as dispatch:
+            resp = self.client.post(
+                reverse("backup_destination_save", args=["folder"]),
+                {"folder": "../Me", "frequency": "daily", "keep_last": "5"},
+            )
+        self.assertEqual(resp.status_code, 302)
+        dest = self.Dest.objects.get(profile=self.profile, kind="folder")
+        self.assertEqual((dest.folder, dest.frequency, dest.keep_last, dest.enabled), ("Me", "daily", 5, True))
+        dispatch.assert_called_once_with(tasks.run_scheduled_backup, [dest.id])
+
+    def test_pause_and_remove(self):
+        dest = self._folder_dest()
+        self.client.post(reverse("backup_destination_save", args=["folder"]), {"enabled": "0"})
+        dest.refresh_from_db()
+        self.assertFalse(dest.enabled)
+        self.client.post(reverse("backup_destination_delete", args=["folder"]))
+        self.assertFalse(self.Dest.objects.filter(id=dest.id).exists())
+
+    def test_webdav_save_checks_the_folder_first(self):
+        with patch("tracker.backup_destinations.requests.request", return_value=Mock(status_code=401, text="")):
+            self.client.post(reverse("backup_destination_save", args=["webdav"]), {
+                "url": "https://dav.example/Spool", "username": "me", "password": "bad",
+            })
+        self.assertFalse(self.Dest.objects.filter(profile=self.profile, kind="webdav").exists())
+
+    def test_connect_without_server_credentials_explains(self):
+        resp = self.client.get(reverse("backup_connect", args=["gdrive"]), follow=True)
+        self.assertContains(resp, "aren&#x27;t set up on this server yet")
+
+    @override_settings(DROPBOX_APP_KEY="dbkey", DROPBOX_APP_SECRET="dbsecret")
+    def test_dropbox_oauth_round_trip(self):
+        resp = self.client.get(reverse("backup_connect", args=["dropbox"]), {"frequency": "monthly", "keep_last": "30"})
+        self.assertTrue(resp["Location"].startswith("https://www.dropbox.com/oauth2/authorize?"))
+        state = self.client.session["backup_dropbox_oauth_state"]
+        with patch("tracker.backup_destinations.exchange_code", return_value=("refresh-1", "me@example.com")), \
+                patch.object(views, "_dispatch_sync_task_safely"):
+            self.client.get(reverse("backup_callback", args=["dropbox"]), {"code": "abc", "state": state})
+        dest = self.Dest.objects.get(profile=self.profile, kind="dropbox")
+        self.assertEqual(dest.get_secret(), "refresh-1")
+        self.assertEqual((dest.frequency, dest.keep_last, dest.account_label), ("monthly", 30, "me@example.com"))
+
+    def test_callback_rejects_a_bad_state(self):
+        with override_settings(GOOGLE_CLIENT_ID="g", GOOGLE_CLIENT_SECRET="s"):
+            self.client.get(reverse("backup_callback", args=["gdrive"]), {"code": "abc", "state": "nope"})
+        self.assertFalse(self.Dest.objects.filter(profile=self.profile).exists())
+
+    def test_other_profiles_destinations_are_not_reachable(self):
+        other = Profile.objects.create(
+            user=User.objects.create_user("backupsched3", password="pass12345"), display_name="Other3"
+        )
+        self.Dest.objects.create(profile=other, kind="folder")
+        resp = self.client.post(reverse("backup_destination_delete", args=["folder"]))
+        self.assertEqual(resp.status_code, 404)
+        self.assertTrue(self.Dest.objects.filter(profile=other).exists())
+
+    def test_google_drive_upload_creates_the_folder_once(self):
+        dest = self.Dest(profile=self.profile, kind="gdrive", keep_last=0)
+        dest.set_secret("refresh")
+        dest.save()
+        posts = []
+
+        def fake_post(url, **kwargs):
+            posts.append(url)
+            if "oauth2" in url:
+                return Mock(status_code=200, json=lambda: {"access_token": "tok"})
+            return Mock(status_code=200, json=lambda: {"id": "folder-1"})
+
+        with override_settings(GOOGLE_CLIENT_ID="g", GOOGLE_CLIENT_SECRET="s"), \
+                patch("tracker.backup_destinations.requests.post", side_effect=fake_post):
+            ok, message = self.bd.run_backup(dest)
+        self.assertTrue(ok, message)
+        dest.refresh_from_db()
+        self.assertEqual(dest.folder, "folder-1")
+        self.assertTrue(any("upload/drive/v3/files" in url for url in posts))
+
+
+class BackupServerIntegrationTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_superuser("backupowner", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Owner")
+        self.client.login(username="backupowner", password="pass12345")
+
+    def test_owner_saves_and_clears_google_drive_credentials(self):
+        self.client.post(reverse("save_instance_config"), {"google_client_id": "gid", "google_client_secret": "gsecret"})
+        cfg = InstanceConfig.load()
+        self.assertEqual((cfg.google_client_id, cfg.get_google_client_secret()), ("gid", "gsecret"))
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, "/settings/backups/gdrive/callback/")
+        self.client.post(reverse("clear_instance_config_field", args=["gdrive"]))
+        cfg.refresh_from_db()
+        self.assertEqual((cfg.google_client_id, cfg.get_google_client_secret()), ("", ""))

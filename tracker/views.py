@@ -59,6 +59,7 @@ from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
     ApiToken,
+    BackupDestination,
     DataLog,
     Episode,
     ExternalAccount,
@@ -4118,11 +4119,18 @@ def _settings_page_context(request, profile):
         "api_tokens": profile.api_tokens.all(),
         "max_api_tokens": ApiToken.MAX_TOKENS_PER_PROFILE,
         **_security_card_context(profile),
+        **_backup_card_context(request, profile),
     }
     if profile.is_owner:
         db_engine = django_settings.DATABASES["default"]["ENGINE"].rsplit(".", 1)[-1]
         context.update(
             {
+                "backup_redirect_uris": {
+                    kind: request.build_absolute_uri(reverse("backup_callback", args=[kind]))
+                    for kind in ("gdrive", "dropbox")
+                },
+                "gdrive_backup_configured": all(instance_config.get_backup_credentials("gdrive")),
+                "dropbox_backup_configured": all(instance_config.get_backup_credentials("dropbox")),
                 "profiles": Profile.objects.select_related("user").all(),
                 "cfg": InstanceConfig.load(),
                 "tmdb_configured": bool(instance_config.get_tmdb_api_key()),
@@ -4254,8 +4262,11 @@ _INSTANCE_CONFIG_FIELDS = [
     "simkl_client_id", "simkl_client_secret",
     "tmdb_api_key", "mdblist_api_key",
     "spool_wrapped_url", "sso_shared_secret",
+    "google_client_id", "google_client_secret",
+    "dropbox_app_key", "dropbox_app_secret",
 ]
 _INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES = {"trakt": "Trakt", "simkl": "Simkl", "tmdb": "TMDB", "mdblist": "MDBList"}
+_INSTANCE_CONFIG_CLEARABLE = {**_INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES, "gdrive": "Google Drive", "dropbox": "Dropbox"}
 
 
 def _render_server_integrations(request, profile):
@@ -4288,7 +4299,7 @@ def save_instance_config(request):
     # clear_instance_config_field for the explicit way to actually clear
     # a field) - a blank field only ever means the admin didn't type a
     # replacement.
-    for field in ["trakt_client_id", "simkl_client_id", "spool_wrapped_url"]:
+    for field in ["trakt_client_id", "simkl_client_id", "spool_wrapped_url", "google_client_id", "dropbox_app_key"]:
         value = request.POST.get(field, "").strip()
         if value:
             setattr(cfg, field, value)
@@ -4301,6 +4312,8 @@ def save_instance_config(request):
         ("tmdb_api_key", cfg.set_tmdb_api_key),
         ("mdblist_api_key", cfg.set_mdblist_api_key),
         ("sso_shared_secret", cfg.set_sso_shared_secret),
+        ("google_client_secret", cfg.set_google_client_secret),
+        ("dropbox_app_secret", cfg.set_dropbox_app_secret),
     ]:
         value = request.POST.get(field, "").strip()
         if value:
@@ -4322,11 +4335,17 @@ def clear_instance_config_field(request, provider):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None or not profile.is_owner:
         raise Http404
-    if provider not in _INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES:
+    if provider not in _INSTANCE_CONFIG_CLEARABLE:
         raise Http404
 
     cfg = InstanceConfig.load()
-    if provider == "trakt":
+    if provider == "gdrive":
+        cfg.google_client_id = ""
+        cfg.set_google_client_secret("")
+    elif provider == "dropbox":
+        cfg.dropbox_app_key = ""
+        cfg.set_dropbox_app_secret("")
+    elif provider == "trakt":
         cfg.trakt_client_id = ""
         cfg.set_trakt_client_secret("")
     elif provider == "simkl":
@@ -4337,7 +4356,7 @@ def clear_instance_config_field(request, provider):
     else:
         cfg.set_mdblist_api_key("")
     cfg.save()
-    messages.success(request, f"Cleared {_INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES[provider]} credentials.")
+    messages.success(request, f"Cleared {_INSTANCE_CONFIG_CLEARABLE[provider]} credentials.")
     return _render_server_integrations(request, profile)
 
 
@@ -6282,3 +6301,180 @@ def import_review_cancel(request, session_id):
     import_pipeline.discard_session(session)
     messages.info(request, "Import cancelled — nothing was imported.")
     return redirect("settings")
+
+
+
+# --------------------------------------------------------------------
+# Scheduled backups (Settings -> Import & Export) - see
+# tracker/backup_destinations.py. Each profile sets up its own.
+# --------------------------------------------------------------------
+
+BACKUP_OAUTH_KINDS = ("gdrive", "dropbox")
+
+
+def _backup_card_context(request, profile):
+    from . import backup_destinations
+
+    destinations = {d.kind: d for d in BackupDestination.objects.filter(profile=profile)}
+    rows = []
+    for kind, label in BackupDestination.Kind.choices:
+        destination = destinations.get(kind)
+        rows.append({
+            "kind": kind,
+            "label": label,
+            "destination": destination,
+            "next_run_at": backup_destinations.next_run_at(destination) if destination else None,
+            "available": kind not in BACKUP_OAUTH_KINDS or bool(all(instance_config.get_backup_credentials(kind))),
+        })
+    return {
+        "backup_rows": rows,
+        "backup_frequencies": BackupDestination.Frequency.choices,
+        "any_backup_enabled": any(d.enabled for d in destinations.values()),
+    }
+
+
+def _redirect_to_backups():
+    return redirect(f"{reverse('settings')}?tab=data#backups")
+
+
+def _apply_backup_schedule(destination, post):
+    frequency = post.get("frequency")
+    if frequency in BackupDestination.Frequency.values:
+        destination.frequency = frequency
+    try:
+        destination.keep_last = max(0, min(int(post.get("keep_last", destination.keep_last)), 365))
+    except (TypeError, ValueError):
+        pass
+
+
+@login_required
+def backup_connect(request, kind):
+    """Starts Google Drive/Dropbox OAuth for this profile's backups."""
+    from . import backup_destinations
+
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or kind not in BACKUP_OAUTH_KINDS:
+        raise Http404
+    client_id, client_secret = instance_config.get_backup_credentials(kind)
+    label = BackupDestination.Kind(kind).label
+    if not client_id or not client_secret:
+        messages.error(request, f"{label} backups aren't set up on this server yet - ask the server owner to add its app credentials under Server Integrations.")
+        return _redirect_to_backups()
+    state = secrets.token_urlsafe(24)
+    request.session[f"backup_{kind}_oauth_state"] = state
+    request.session[f"backup_{kind}_schedule"] = {
+        "frequency": request.GET.get("frequency", ""), "keep_last": request.GET.get("keep_last", ""),
+    }
+    redirect_uri = request.build_absolute_uri(reverse("backup_callback", args=[kind]))
+    return redirect(backup_destinations.authorize_url(kind, client_id, redirect_uri, state))
+
+
+@login_required
+def backup_callback(request, kind):
+    from . import backup_destinations
+
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or kind not in BACKUP_OAUTH_KINDS:
+        raise Http404
+    label = BackupDestination.Kind(kind).label
+    expected_state = request.session.pop(f"backup_{kind}_oauth_state", None)
+    schedule = request.session.pop(f"backup_{kind}_schedule", None) or {}
+    if not expected_state or request.GET.get("state") != expected_state:
+        messages.error(request, f"That {label} connection request expired - please try again.")
+        return _redirect_to_backups()
+    code = request.GET.get("code")
+    if not code:
+        messages.error(request, f"{label} didn't grant access{': ' + request.GET['error'] if request.GET.get('error') else ''}.")
+        return _redirect_to_backups()
+    client_id, client_secret = instance_config.get_backup_credentials(kind)
+    redirect_uri = request.build_absolute_uri(reverse("backup_callback", args=[kind]))
+    try:
+        refresh_token, account_label = backup_destinations.exchange_code(kind, client_id, client_secret, code, redirect_uri)
+    except (backup_destinations.BackupError, requests.RequestException, ValueError, KeyError) as exc:
+        messages.error(request, f"Couldn't connect {label}: {exc}")
+        return _redirect_to_backups()
+    destination, created = BackupDestination.objects.get_or_create(profile=profile, kind=kind)
+    destination.set_secret(refresh_token)
+    destination.account_label = account_label
+    destination.enabled = True
+    destination.last_error = ""
+    if created:
+        _apply_backup_schedule(destination, schedule)
+    destination.save()
+    _dispatch_sync_task_safely(tasks.run_scheduled_backup, [destination.id])
+    messages.success(request, f"{label} connected - your first backup is on its way.")
+    return _redirect_to_backups()
+
+
+@login_required
+@require_POST
+def backup_destination_save(request, kind):
+    """Creates/updates a WebDAV or server-folder destination, or just the
+    schedule (frequency/keep/enabled) of any existing one."""
+    from . import backup_destinations
+
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or kind not in BackupDestination.Kind.values:
+        raise Http404
+    label = BackupDestination.Kind(kind).label
+    destination = BackupDestination.objects.filter(profile=profile, kind=kind).first()
+    if destination is None:
+        if kind in BACKUP_OAUTH_KINDS:
+            raise Http404
+        destination = BackupDestination(profile=profile, kind=kind)
+
+    if kind == "webdav" and "url" in request.POST:
+        url = request.POST.get("url", "").strip()
+        if not url.lower().startswith(("http://", "https://")):
+            messages.error(request, "Enter the WebDAV folder's full address, starting with https:// (or http://).")
+            return _redirect_to_backups()
+        destination.url = url[:500]
+        destination.username = request.POST.get("username", "").strip()[:255]
+        password = request.POST.get("password", "")
+        if password:
+            destination.set_secret(password)
+        try:
+            backup_destinations.WebDAV(destination).check()
+        except backup_destinations.BackupError as exc:
+            messages.error(request, f"Couldn't use that WebDAV folder: {exc}")
+            return _redirect_to_backups()
+    elif kind == "folder" and "folder" in request.POST:
+        destination.folder = backup_destinations.safe_subfolder(request.POST.get("folder", ""))[:255]
+
+    _apply_backup_schedule(destination, request.POST)
+    if "enabled" in request.POST or destination.pk is None:
+        destination.enabled = request.POST.get("enabled", "1") == "1"
+    is_new = destination.pk is None
+    destination.save()
+    if is_new:
+        _dispatch_sync_task_safely(tasks.run_scheduled_backup, [destination.id])
+        messages.success(request, f"{label} backups turned on - your first backup is on its way.")
+    else:
+        messages.success(request, f"{label} backup settings saved.")
+    return _redirect_to_backups()
+
+
+@login_required
+@require_POST
+def backup_run_now(request, kind):
+    profile = Profile.objects.filter(user=request.user).first()
+    destination = BackupDestination.objects.filter(profile=profile, kind=kind).first() if profile else None
+    if destination is None:
+        raise Http404
+    _dispatch_sync_task_safely(tasks.run_scheduled_backup, [destination.id])
+    messages.success(request, f"Backing up to {destination.get_kind_display()} now - refresh in a moment to see the result.")
+    return _redirect_to_backups()
+
+
+@login_required
+@require_POST
+def backup_destination_delete(request, kind):
+    """Stops backups to this destination and forgets its credentials.
+    Backups already uploaded there are left alone."""
+    profile = Profile.objects.filter(user=request.user).first()
+    destination = BackupDestination.objects.filter(profile=profile, kind=kind).first() if profile else None
+    if destination is None:
+        raise Http404
+    destination.delete()
+    messages.success(request, f"Removed {destination.get_kind_display()} backups. Files already there were kept.")
+    return _redirect_to_backups()

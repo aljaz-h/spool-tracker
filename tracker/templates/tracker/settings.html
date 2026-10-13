@@ -539,6 +539,8 @@
           </div>
           <div class="text-ink-dim text-xs mt-2.5">The full backup includes your history, ratings and every list (Watchlist included) and can be imported back here. CSV and Trakt JSON carry watch history only.</div>
         </div>
+
+        {% include "tracker/partials/settings_backups.html" %}
       </div>
 
       {# ==================== DANGER ZONE ==================== #}
@@ -707,7 +709,7 @@
         {# ==================== ADMIN: SERVER INTEGRATIONS ==================== #}
         <div
           x-show="tab === 'server_integrations'" x-cloak
-          x-data="{ showTraktSecret: false, showSimklSecret: false, showTmdb: false, showMdblist: false, showSsoSecret: false }"
+          x-data="{ showTraktSecret: false, showSimklSecret: false, showTmdb: false, showMdblist: false, showSsoSecret: false, showGoogleSecret: false, showDropboxSecret: false }"
           class="settings-panel max-w-2xl"
         >
           <h3 class="text-lg mb-1">Server Integrations</h3>
@@ -810,6 +812,56 @@
                 >Test</button>
               </div>
               <div class="text-ink-dim text-[12px] mt-1">Optional - adds IMDb/Rotten Tomatoes/Metacritic/Trakt pills to a title's page. Get a free key at mdblist.com/api.</div>
+            </div>
+            <div class="pt-1 border-t border-line">
+              <div class="flex items-center justify-between mt-3 mb-1">
+                <div class="text-xs font-semibold">Google Drive backups {% if gdrive_backup_configured %}<span class="text-success font-normal">&#10003; configured</span>{% else %}<span class="text-ink-faint font-normal">&#9675; not configured</span>{% endif %}</div>
+                {% if gdrive_backup_configured %}
+                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'gdrive' %}" onclick="return confirm('Clear the stored Google Drive app credentials? Profiles backing up to Google Drive will start failing until they are set again.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
+                {% endif %}
+              </div>
+              <div class="text-ink-dim text-[12px] mb-2">Lets every profile back up to its own Google Drive (Settings → Import &amp; Export). Register this redirect URI with the app: <span class="font-mono break-all text-ink">{{ backup_redirect_uris.gdrive }}</span> &mdash; see docs/BACKUPS.md.</div>
+              <div class="grid sm:grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-xs text-ink-dim mb-1">Client ID</label>
+                  <input type="text" name="google_client_id" value="{{ integration_field_values.google_client_id|default:'' }}" @keydown.enter.prevent placeholder="{% if gdrive_backup_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono">
+                </div>
+                <div>
+                  <label class="block text-xs text-ink-dim mb-1">Client Secret</label>
+                  <div class="relative">
+                    <input :type="showGoogleSecret ? 'text' : 'password'" name="google_client_secret" value="{{ integration_field_values.google_client_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if gdrive_backup_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
+                    <button type="button" @click="showGoogleSecret = !showGoogleSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                      <span x-show="!showGoogleSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                      <span x-show="showGoogleSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="pt-1 border-t border-line">
+              <div class="flex items-center justify-between mt-3 mb-1">
+                <div class="text-xs font-semibold">Dropbox backups {% if dropbox_backup_configured %}<span class="text-success font-normal">&#10003; configured</span>{% else %}<span class="text-ink-faint font-normal">&#9675; not configured</span>{% endif %}</div>
+                {% if dropbox_backup_configured %}
+                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'dropbox' %}" onclick="return confirm('Clear the stored Dropbox app credentials? Profiles backing up to Dropbox will start failing until they are set again.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
+                {% endif %}
+              </div>
+              <div class="text-ink-dim text-[12px] mb-2">Lets every profile back up to its own Dropbox (Settings → Import &amp; Export). Register this redirect URI with the app: <span class="font-mono break-all text-ink">{{ backup_redirect_uris.dropbox }}</span> &mdash; see docs/BACKUPS.md.</div>
+              <div class="grid sm:grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-xs text-ink-dim mb-1">App key</label>
+                  <input type="text" name="dropbox_app_key" value="{{ integration_field_values.dropbox_app_key|default:'' }}" @keydown.enter.prevent placeholder="{% if dropbox_backup_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono">
+                </div>
+                <div>
+                  <label class="block text-xs text-ink-dim mb-1">App secret</label>
+                  <div class="relative">
+                    <input :type="showDropboxSecret ? 'text' : 'password'" name="dropbox_app_secret" value="{{ integration_field_values.dropbox_app_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if dropbox_backup_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
+                    <button type="button" @click="showDropboxSecret = !showDropboxSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                      <span x-show="!showDropboxSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                      <span x-show="showDropboxSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
             <div class="pt-1 border-t border-line">
               <div class="text-xs font-semibold mt-3 mb-1">spool-wrapped</div>
