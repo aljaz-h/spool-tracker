@@ -188,6 +188,7 @@ urlpatterns = [
     path("settings/maintenance/<str:task_key>/", views.run_maintenance_task, name="run_maintenance_task"),
     path("export/csv/", views.export_csv, name="export_csv"),
     path("export/trakt-json/", views.export_trakt_json, name="export_trakt_json"),
+    path("export/backup/", views.export_spool_backup, name="export_spool_backup"),
     path("notifications/", views.notifications_panel, name="notifications_panel"),
     path("notifications/all/", views.notifications_list, name="notifications_list"),
     path("notifications/<int:pk>/read/", views.mark_notification_read, name="mark_notification_read"),

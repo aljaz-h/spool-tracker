@@ -20,6 +20,7 @@ from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
 from . import achievements, completion, crypto, csv_import, episode_matching, import_pipeline, instance_config, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, title_matching, totp, update_check, views
+from .watchlists import ensure_watchlist
 from .integrations import anifiller, mdblist, nuvio, scrobble, simkl, tenrai, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
@@ -1696,7 +1697,7 @@ class CompletionWatchlistRemovalTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("watchlistwatcher", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="WatchlistWatcher")
-        self.watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        self.watchlist = ensure_watchlist(self.profile)
         self.custom_list = WatchList.objects.create(profile=self.profile, name="Favorites")
 
     def test_removes_a_watched_movie_from_the_watchlist(self):
@@ -2295,7 +2296,7 @@ class GenerateWatchlistStaleNotificationsTests(TestCase):
 
         user = User.objects.create_user("stalewatcher", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="StaleWatcher")
-        self.watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        self.watchlist = ensure_watchlist(self.profile)
         self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Old Pick", year=2019)
         self.now = timezone.now()
 
@@ -2977,7 +2978,7 @@ class DashboardRecommendationsTests(TestCase):
 
     def test_shows_list_membership_when_title_already_on_a_list(self):
         Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
-        watchlist = WatchList.objects.create(profile=self.recipient, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(self.recipient)
         WatchListItem.objects.create(watchlist=watchlist, title=self.title)
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, "On 1 list")
@@ -8812,7 +8813,7 @@ class ClearWatchHistoryViewTests(TestCase):
         self.assertFalse(WatchProgress.objects.filter(profile=self.profile).exists())
 
     def test_does_not_touch_lists_or_watchlist(self):
-        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(self.profile)
         WatchListItem.objects.create(watchlist=watchlist, title=self.title)
         custom_list = WatchList.objects.create(profile=self.profile, name="Favorites")
         WatchListItem.objects.create(watchlist=custom_list, title=self.title)
@@ -12956,7 +12957,7 @@ class DiscoverViewTests(TestCase):
         title = Title.objects.create(
             media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
         )
-        watchlist = WatchList.objects.create(profile=profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(profile)
         WatchListItem.objects.create(watchlist=watchlist, title=title)
         mock_discover.return_value = {
             "results": [{"tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020",
@@ -13330,7 +13331,7 @@ class RecentlyAddedToListsSelectorTests(TestCase):
 
     def test_excludes_watchlist_items(self):
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Watchlisted Movie", year=2020)
-        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(self.profile)
         WatchListItem.objects.create(watchlist=watchlist, title=title)
         self.assertEqual(list(selectors.recently_added_to_lists(self.profile)), [])
 
@@ -13900,7 +13901,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         WatchProgress.objects.create(
             profile=self.profile, title=watching_title, position_seconds=100, status=WatchProgress.Status.WATCHING
         )
-        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(self.profile)
         watchlist_title = Title.objects.create(media_type=MediaType.MOVIE, name="Not Started Movie", year=2021)
         WatchListItem.objects.create(watchlist=watchlist, title=watchlist_title)
 
@@ -13992,7 +13993,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         from django.utils import timezone
 
         title = Title.objects.create(media_type=MediaType.TV, name="Recently Released Show", year=2023)
-        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(self.profile)
         WatchListItem.objects.create(watchlist=watchlist, title=title)
         ReleaseSchedule.objects.create(
             title=title, release_type=ReleaseSchedule.ReleaseType.EPISODE,
@@ -14007,7 +14008,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         from django.utils import timezone
 
         title = Title.objects.create(media_type=MediaType.TV, name="Already Watching Show", year=2023)
-        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(self.profile)
         WatchListItem.objects.create(watchlist=watchlist, title=title)
         ReleaseSchedule.objects.create(
             title=title, release_type=ReleaseSchedule.ReleaseType.EPISODE,
@@ -14058,7 +14059,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         other_profile = Profile.objects.create(user=other_user, display_name="EpisodeWatcher")
         show = Title.objects.create(media_type=MediaType.TV, name="Shared Show", year=2020)
         episode = Episode.objects.create(title=show, season=1, episode=5)
-        WatchEvent.objects.create(profile=other_profile, title=show, episode=episode, watched_at=timezone.now())
+        WatchEvent.objects.create(profile=other_profile, title=show, episode=episode, watched_at=_now)
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, "S1:E5")
 
@@ -14077,7 +14078,7 @@ class DashboardWatchingWatchlistTests(TestCase):
 
         title = Title.objects.create(media_type=MediaType.TV, name="Linked Show", year=2022)
         episode = Episode.objects.create(title=title, season=2, episode=5, name="Five")
-        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
+        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=_now)
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, f'href="{reverse("title_detail", args=[title.pk])}?season=2#episode-2-5"')
 
@@ -14095,7 +14096,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         title = Title.objects.create(media_type=MediaType.TV, name="Binge Show", year=2022)
         for n in (1, 2, 3):
             episode = Episode.objects.create(title=title, season=1, episode=n, name=f"Episode {n}")
-            WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
+            WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=_now)
         resp = self.client.get(reverse("dashboard"))
         self.assertEqual(len(resp.context["recently_watched"]), 3)
 
@@ -14150,7 +14151,7 @@ class DashboardWatchingWatchlistTests(TestCase):
 
     def test_shows_watchlist_items(self):
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Listed Movie", year=2020)
-        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(self.profile)
         WatchListItem.objects.create(watchlist=watchlist, title=title)
         resp = self.client.get(reverse("dashboard"))
         self.assertEqual(len(resp.context["watchlist_items"]), 1)
@@ -14176,7 +14177,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         # falls back to sizing itself from its own (unconstrained,
         # variable-length) title text instead of a fixed width.
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Listed Movie", year=2020)
-        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(self.profile)
         WatchListItem.objects.create(watchlist=watchlist, title=title)
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, 'class="min-w-0 discover-tile media-card"')
@@ -14236,7 +14237,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         self.assertContains(resp, f'href="{reverse("stats")}"')
 
     def test_watchlist_caps_to_one_row_but_the_header_count_shows_the_total(self):
-        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(self.profile)
         for i in range(15):
             title = Title.objects.create(media_type=MediaType.MOVIE, name=f"Watchlist Movie {i}", year=2020)
             WatchListItem.objects.create(watchlist=watchlist, title=title)
@@ -14266,7 +14267,7 @@ class RecentlyWatchedStillImageTests(TestCase):
             external_ids={"tmdb": "555", "tmdb_kind": "tv"},
         )
         episode = Episode.objects.create(title=title, season=1, episode=1)
-        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
+        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=_now)
         events = selectors.recently_watched(self.profile, [MediaType.TV])
         self.assertEqual(events[0].still_url, "https://example.com/poster.jpg")
 
@@ -14280,7 +14281,7 @@ class RecentlyWatchedStillImageTests(TestCase):
             external_ids={"tmdb": "556", "tmdb_kind": "tv"},
         )
         episode = Episode.objects.create(title=title, season=1, episode=1, name="Pilot")
-        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
+        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=_now)
         events = selectors.recently_watched(self.profile, [MediaType.TV])
         self.assertEqual(events[0].still_url, "https://example.com/still.jpg")
         self.assertEqual(events[0].caption, "S1E1 · Pilot")
@@ -14307,7 +14308,7 @@ class RecentlyWatchedStillImageTests(TestCase):
             media_type=MediaType.TV, name="The Mentalist", year=2008, external_ids={"tmdb": "557", "tmdb_kind": "tv"}
         )
         episode = Episode.objects.create(title=title, season=1, episode=9)
-        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
+        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=_now)
         events = selectors.recently_watched(self.profile, [MediaType.TV])
         self.assertEqual(events[0].caption, "S1E9 · Red John's Rules")
 
@@ -14320,7 +14321,7 @@ class RecentlyWatchedStillImageTests(TestCase):
             media_type=MediaType.TV, name="Has Local Name", year=2020, external_ids={"tmdb": "558", "tmdb_kind": "tv"}
         )
         episode = Episode.objects.create(title=title, season=1, episode=1, name="Local Name")
-        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
+        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=_now)
         events = selectors.recently_watched(self.profile, [MediaType.TV])
         self.assertEqual(events[0].caption, "S1E1 · Local Name")
 
@@ -14329,7 +14330,7 @@ class RecentlyWatchedStillImageTests(TestCase):
 
         title = Title.objects.create(media_type=MediaType.TV, name="No Name Anywhere", year=2020)
         episode = Episode.objects.create(title=title, season=1, episode=1)
-        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
+        WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=_now)
         events = selectors.recently_watched(self.profile, [MediaType.TV])
         self.assertEqual(events[0].caption, "S1E1")
 
@@ -15433,7 +15434,7 @@ class TitleDetailViewTests(TestCase):
             external_ids={"tmdb": "77", "tmdb_kind": "tv"},
         )
         episode = Episode.objects.create(title=show, season=1, episode=1)
-        WatchEvent.objects.create(profile=self.profile, title=show, episode=episode, watched_at=timezone.now())
+        WatchEvent.objects.create(profile=self.profile, title=show, episode=episode, watched_at=_now)
         with patch("tracker.integrations.tmdb.get_full_details", return_value=None):
             resp = self.client.get(reverse("title_detail", args=[show.pk]))
         self.assertTrue(resp.context["is_watched"])
@@ -15461,7 +15462,7 @@ class TitleDetailViewTests(TestCase):
         from django.utils import timezone
 
         mock_details.return_value = self._details()
-        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=timezone.now(), user_rating=8)
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=_now, user_rating=8)
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         self.assertEqual(resp.context["latest_rating"], 8)
         self.assertEqual(len(resp.context["recent_events"]), 1)
@@ -19000,7 +19001,7 @@ class PosterCardWatchedButtonPopoverTests(TestCase):
         self.profile = Profile.objects.create(user=user, display_name="WatchedPopoverUser")
         self.client.login(username="watchedpopoveruser", password="pass12345")
         self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
-        self.watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        self.watchlist = ensure_watchlist(self.profile)
         WatchListItem.objects.create(watchlist=self.watchlist, title=self.title)
 
     def test_unwatched_title_shows_the_first_watch_popover_not_the_watched_menu(self):
@@ -19427,7 +19428,7 @@ class WatchlistAutoRemovalIntegrationTests(TestCase):
         user = User.objects.create_user("watchlistclicker", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="WatchlistClicker")
         self.client.login(username="watchlistclicker", password="pass12345")
-        self.watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        self.watchlist = ensure_watchlist(self.profile)
         self.custom_list = WatchList.objects.create(profile=self.profile, name="Favorites")
 
     def test_marking_a_movie_watched_removes_it_from_the_watchlist_not_custom_lists(self):
@@ -19581,7 +19582,7 @@ class TitlePreviewViewTests(TestCase):
         # picker a tracked title's own page uses (see title_detail.html) -
         # every chip, including one named "Watchlist", posts to
         # title_preview_add_to_list here since there's no local Title yet.
-        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(self.profile)
         mock_details.return_value = self._details()
         resp = self.client.get(reverse("title_preview", args=["movie", 42]))
         self.assertContains(resp, "+ Mark as Watched")
@@ -19991,10 +19992,13 @@ class CreateListNeverFlagsAsWatchlistTests(TestCase):
         watchlist = WatchList.objects.get(profile=self.profile, name="Favorites")
         self.assertFalse(watchlist.is_watchlist)
 
-    def test_a_custom_list_named_watchlist_is_still_not_flagged(self):
-        self.client.post(reverse("create_list"), {"name": "Watchlist"})
-        watchlist = WatchList.objects.get(profile=self.profile, name="Watchlist")
-        self.assertFalse(watchlist.is_watchlist)
+    def test_a_custom_list_named_watchlist_is_refused(self):
+        # The profile already has its Watchlist (created with the
+        # profile) - a second list of that name is refused, not made.
+        self.client.post(reverse("create_list"), {"name": "watchlist"})
+        lists = WatchList.objects.filter(profile=self.profile, name__iexact="Watchlist")
+        self.assertEqual(lists.count(), 1)
+        self.assertTrue(lists.get().is_watchlist)
 
 
 class ParseTagsTests(TestCase):
@@ -20130,7 +20134,7 @@ class SurpriseMeViewTests(TestCase):
         user = User.objects.create_user("surpriser", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="Surpriser")
         self.client.login(username="surpriser", password="pass12345")
-        self.watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        self.watchlist = ensure_watchlist(self.profile)
 
     def test_redirects_straight_to_the_only_title_in_the_watchlist(self):
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
@@ -20151,9 +20155,9 @@ class SurpriseMeViewTests(TestCase):
         other_profile = Profile.objects.create(
             user=User.objects.create_user("surpriser2", password="pass12345"), display_name="Surpriser2"
         )
-        other_watchlist = WatchList.objects.create(
-            profile=other_profile, name="Watchlist", is_watchlist=True, is_shared=True
-        )
+        other_watchlist = ensure_watchlist(other_profile)
+        other_watchlist.is_shared = True
+        other_watchlist.save(update_fields=["is_shared"])
         title = Title.objects.create(media_type=MediaType.TV, name="On someone else's shared watchlist", year=2021)
         WatchListItem.objects.create(watchlist=other_watchlist, title=title)
         resp = self.client.get(reverse("surprise_me"))
@@ -21103,7 +21107,7 @@ class RecommendationListPopoverViewTests(TestCase):
         self.recipient = Profile.objects.create(user=recipient_user, display_name="RecPopRecipient")
         self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
         self.rec = Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
-        self.watchlist = WatchList.objects.create(profile=self.recipient, name="Watchlist", is_watchlist=True)
+        self.watchlist = ensure_watchlist(self.recipient)
         self.client.login(username="recpoprecipient", password="pass12345")
 
     def test_adds_the_title_to_the_chosen_list(self):
@@ -24592,7 +24596,7 @@ class GenerateWatchlistStaleNotificationsTaskTests(TestCase):
 
         user = User.objects.create_user("staletaskwatcher", password="pass12345")
         profile = Profile.objects.create(user=user, display_name="StaleTaskWatcher")
-        watchlist = WatchList.objects.create(profile=profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(profile)
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Old Pick", year=2019)
         item = WatchListItem.objects.create(watchlist=watchlist, title=title)
         WatchListItem.objects.filter(pk=item.pk).update(
@@ -24607,7 +24611,7 @@ class GenerateWatchlistStaleNotificationsTaskTests(TestCase):
 
         owner = User.objects.create_superuser("staletaskowner", password="pass12345")
         owner_profile = Profile.objects.create(user=owner, display_name="StaleTaskOwner")
-        watchlist = WatchList.objects.create(profile=owner_profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(owner_profile)
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Old Pick", year=2019)
         item = WatchListItem.objects.create(watchlist=watchlist, title=title)
         WatchListItem.objects.filter(pk=item.pk).update(
@@ -25086,3 +25090,125 @@ class SilkOptInTests(TestCase):
     def test_silk_url_is_unreachable_when_disabled(self):
         resp = self.client.get("/silk/")
         self.assertEqual(resp.status_code, 404)
+
+
+class WatchlistGuaranteeTests(TestCase):
+    """Every profile always has exactly one Watchlist (tracker/watchlists.py)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("wlguard", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="WLGuard")
+        self.client.login(username="wlguard", password="pass12345")
+
+    def test_a_new_profile_gets_a_watchlist(self):
+        lists = WatchList.objects.filter(profile=self.profile, is_watchlist=True)
+        self.assertEqual(lists.count(), 1)
+        self.assertEqual(lists.get().name, "Watchlist")
+
+    def test_ensure_watchlist_is_idempotent(self):
+        first = ensure_watchlist(self.profile)
+        self.assertEqual(ensure_watchlist(self.profile), first)
+        self.assertEqual(WatchList.objects.filter(profile=self.profile).count(), 1)
+
+    def test_ensure_watchlist_adopts_an_unflagged_list_named_watchlist(self):
+        WatchList.objects.filter(profile=self.profile).delete()
+        legacy = WatchList.objects.create(profile=self.profile, name="watchlist", is_watchlist=False)
+        self.assertEqual(ensure_watchlist(self.profile), legacy)
+        legacy.refresh_from_db()
+        self.assertTrue(legacy.is_watchlist)
+
+    def test_the_watchlist_cannot_be_deleted(self):
+        watchlist = ensure_watchlist(self.profile)
+        self.client.post(reverse("delete_list", args=[watchlist.id]))
+        self.assertTrue(WatchList.objects.filter(id=watchlist.id).exists())
+
+    def test_list_detail_hides_delete_for_the_watchlist(self):
+        watchlist = ensure_watchlist(self.profile)
+        resp = self.client.get(reverse("list_detail", args=[watchlist.id]))
+        self.assertNotContains(resp, reverse("delete_list", args=[watchlist.id]))
+
+
+class SpoolBackupTests(TestCase):
+    def setUp(self):
+        from django.utils import timezone
+
+        from tracker import backup
+
+        self.backup = backup
+        self.user = User.objects.create_user("backuper", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="Backuper")
+        self.client.login(username="backuper", password="pass12345")
+        self.movie = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "11", "tmdb_kind": "movie"}
+        )
+        self.show = Title.objects.create(
+            media_type=MediaType.TV, name="Cinder Street", year=2022, external_ids={"tmdb": "22", "tmdb_kind": "tv"}
+        )
+        episode = Episode.objects.create(title=self.show, season=1, episode=2, name="Two")
+        _now = timezone.now()
+        WatchEvent.objects.create(profile=self.profile, title=self.movie, watched_at=_now, user_rating=8)
+        WatchEvent.objects.create(profile=self.profile, title=self.show, episode=episode, watched_at=_now)
+        WatchListItem.objects.create(watchlist=ensure_watchlist(self.profile), title=self.show)
+        custom = WatchList.objects.create(profile=self.profile, name="Comfort", is_shared=True, tags=["cozy"])
+        WatchListItem.objects.create(watchlist=custom, title=self.movie, position=3)
+
+    def test_backup_contains_history_ratings_and_every_list(self):
+        data = self.backup.build_backup(self.profile)
+        self.assertEqual(data["format"], "spool-backup")
+        self.assertEqual(len(data["history"]), 2)
+        self.assertEqual(data["history"][0]["rating"], 8)
+        by_name = {entry["name"]: entry for entry in data["lists"]}
+        self.assertTrue(by_name["Watchlist"]["is_watchlist"])
+        self.assertEqual(by_name["Watchlist"]["items"][0]["ids"]["tmdb"], 22)
+        self.assertEqual(by_name["Comfort"]["tags"], ["cozy"])
+        self.assertTrue(by_name["Comfort"]["is_shared"])
+
+    def test_export_view_downloads_the_backup(self):
+        resp = self.client.get(reverse("export_spool_backup"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("spool-backup-", resp["Content-Disposition"])
+        self.assertEqual(len(json.loads(resp.content)["lists"]), 2)
+        self.assertTrue(DataLog.objects.filter(profile=self.profile, action=DataLog.Action.EXPORT).exists())
+
+    def test_settings_links_the_full_backup(self):
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, reverse("export_spool_backup"))
+
+    def test_parse_json_rows_reads_only_the_history_with_ratings(self):
+        rows, errors = csv_import.parse_json_rows(self.backup.build_backup(self.profile))
+        self.assertEqual(errors, [])
+        self.assertEqual(len(rows), 2)
+        self.assertIn(8, [row.get("rating") for row in rows])
+
+    def test_restore_lists_on_another_profile_maps_the_watchlist_and_is_idempotent(self):
+        data = self.backup.build_backup(self.profile)
+        other = Profile.objects.create(
+            user=User.objects.create_user("restorer", password="pass12345"), display_name="Restorer"
+        )
+        self.assertEqual(self.backup.restore_lists(other, data), (2, 2))
+        self.assertEqual(WatchList.objects.filter(profile=other, is_watchlist=True).count(), 1)
+        watchlist = WatchList.objects.get(profile=other, is_watchlist=True)
+        self.assertEqual(list(watchlist.items.values_list("title_id", flat=True)), [self.show.id])
+        comfort = WatchList.objects.get(profile=other, name="Comfort")
+        self.assertEqual(comfort.tags, ["cozy"])
+        self.assertEqual(comfort.items.get().title, self.movie)
+        self.assertEqual(self.backup.restore_lists(other, data), (2, 0))
+
+    def test_importing_a_backup_restores_lists_through_import_review(self):
+        data = self.backup.build_backup(self.profile)
+        other_user = User.objects.create_user("restorer2", password="pass12345")
+        other = Profile.objects.create(user=other_user, display_name="Restorer2")
+        path = os.path.join(tempfile.mkdtemp(), "backup.json")
+        with open(path, "w") as f:
+            json.dump(data, f)
+        session = ImportSession.objects.create(
+            profile=other, source="json", status=ImportSession.Status.SCANNING, source_metadata={"path": path}
+        )
+        import_pipeline.scan_file_import(session)
+        session.refresh_from_db()
+        self.assertEqual(session.source_metadata["backup_lists"], {"lists": 2, "items": 2})
+        import_pipeline.commit_session(session)
+        session.refresh_from_db()
+        self.assertEqual(session.source_metadata["backup_lists_restored"], {"lists": 2, "items": 2})
+        self.assertTrue(WatchList.objects.filter(profile=other, name="Comfort").exists())
+        self.assertEqual(WatchEvent.objects.filter(profile=other).count(), 2)

@@ -74,10 +74,13 @@
         {% endif %}
         {% if can_edit %}
           <button @click="showSearch = !showSearch" class="btn btn-primary btn-sm">+ Add title</button>
-          <form method="post" action="{% url 'delete_list' watchlist.id %}" onsubmit="return confirm('Delete \'{{ watchlist.name|escapejs }}\'? This can\'t be undone.');">
-            {% csrf_token %}
-            <button type="submit" class="btn btn-sm btn-ghost text-ink-dim hover:text-error">Delete list</button>
-          </form>
+          {% if not watchlist.is_watchlist %}
+            {# The auto-managed Watchlist can't be deleted - see views.delete_list. #}
+            <form method="post" action="{% url 'delete_list' watchlist.id %}" onsubmit="return confirm('Delete \'{{ watchlist.name|escapejs }}\'? This can\'t be undone.');">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-ghost text-ink-dim hover:text-error">Delete list</button>
+            </form>
+          {% endif %}
         {% endif %}
       </div>
     </div>

@@ -54,6 +54,7 @@ from . import (
     totp,
 )
 from .integrations import anifiller, mdblist, nuvio, simkl, tenrai, tmdb, trakt
+from .watchlists import WATCHLIST_NAME, ensure_watchlist
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
@@ -2580,9 +2581,9 @@ def title_preview_add_to_watchlist(request, media_type, tmdb_id):
     if title is None:
         raise Http404
 
-    watchlist, _ = WatchList.objects.get_or_create(
-        profile=profile, name="Watchlist", defaults={"is_watchlist": True}
-    )
+
+
+    watchlist = ensure_watchlist(profile)
     WatchListItem.objects.get_or_create(watchlist=watchlist, title=title)
     return redirect("title_detail", pk=title.pk)
 
@@ -3398,6 +3399,11 @@ def create_list(request):
     if not name:
         messages.error(request, "List name is required.")
         return redirect("lists")
+    if name.casefold() == WATCHLIST_NAME.casefold():
+        # Every profile already has exactly one (tracker/watchlists.py) -
+        # a second list of the same name would just be confusing.
+        messages.error(request, "You already have a Watchlist - pick another name.")
+        return redirect("lists")
     watchlist = WatchList.objects.create(
         profile=profile, name=name, is_shared=bool(request.POST.get("is_shared")),
         tags=_parse_tags(request.POST.get("tags", "")),
@@ -3427,6 +3433,12 @@ def delete_list(request, list_id):
     watchlist = get_object_or_404(WatchList, pk=list_id)
     if profile is None or not watchlist.can_edit(profile):
         messages.error(request, "Only the creator of a list can delete it.")
+        return redirect("list_detail", list_id=list_id)
+    if watchlist.is_watchlist:
+        # The auto-managed Watchlist always exists (tracker/watchlists.py) -
+        # finished titles come off it automatically; it can be emptied, not
+        # removed.
+        messages.error(request, "Your Watchlist can't be deleted - remove titles from it instead.")
         return redirect("list_detail", list_id=list_id)
     watchlist.delete()
     return redirect("lists")
@@ -5414,6 +5426,29 @@ def export_trakt_json(request):
     return response
 
 
+
+@login_required
+def export_spool_backup(request):
+    """Spool's full backup (tracker/backup.py): history with ratings plus
+    every list, the Watchlist included. Importing this file through the
+    normal JSON import restores both."""
+    from tracker import backup
+
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    data = backup.build_backup(profile)
+    response = JsonResponse(data, json_dumps_params={"indent": 2})
+    filename = f"spool-backup-{timezone.localdate().isoformat()}.json"
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    list_items = sum(len(entry["items"]) for entry in data["lists"])
+    DataLog.objects.create(
+        profile=profile, action=DataLog.Action.EXPORT, status=DataLog.Status.SUCCESS,
+        item_count=len(data["history"]) + list_items,
+        detail=f"Spool backup ({len(data['lists'])} lists)",
+    )
+    return response
+
 PROVIDER_MODULES = {"trakt": trakt, "simkl": simkl}
 SYNC_TASKS = {"trakt": tasks.sync_trakt_history, "simkl": tasks.sync_simkl_history, "nuvio": tasks.sync_nuvio_history}
 # Providers whose FIRST connection goes through Import Review instead of
@@ -5923,8 +5958,11 @@ def import_csv_upload(request):
             os.remove(path)
             messages.error(request, f'"{upload.name}" doesn\'t look like a valid JSON file.')
             return redirect("settings")
+        from tracker import backup
+
         rows, errors = csv_import.parse_json_rows(data, limit=1)
-        if not rows and not errors:
+        has_lists = backup.is_spool_backup(data) and backup.list_summary(data)["lists"]
+        if not rows and not errors and not has_lists:
             os.remove(path)
             messages.error(request, f'"{upload.name}" doesn\'t contain any recognizable watch history.')
             return redirect("settings")
@@ -6221,7 +6259,8 @@ def import_review_commit(request, session_id):
     profile, session = _get_import_session_or_404(request, session_id)
     if session.status != ImportSession.Status.READY:
         return redirect("import_review", session_id=session.id)
-    if not session.candidates.filter(selected=True, status=ImportCandidate.Status.PENDING).exists():
+    has_backup_lists = bool(session.source_metadata.get("backup_lists"))
+    if not has_backup_lists and not session.candidates.filter(selected=True, status=ImportCandidate.Status.PENDING).exists():
         messages.error(request, "Select at least one item to import.")
         return redirect("import_review", session_id=session.id)
 

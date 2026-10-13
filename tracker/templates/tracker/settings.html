@@ -532,10 +532,12 @@
         <div class="settings-panel">
           <h3 class="text-lg mb-1">Export Data</h3>
           <div class="text-ink-dim text-xs mb-3">Download everything you've watched, rated, or added to a list.</div>
-          <div class="flex gap-2">
+          <div class="flex flex-wrap gap-2">
+            <a href="{% url 'export_spool_backup' %}" class="btn btn-sm btn-primary">Export full backup (JSON)</a>
             <a href="{% url 'export_csv' %}" class="btn btn-sm btn-soft">Export as CSV</a>
             <a href="{% url 'export_trakt_json' %}" class="btn btn-sm btn-soft">Export as Trakt JSON</a>
           </div>
+          <div class="text-ink-dim text-xs mt-2.5">The full backup includes your history, ratings and every list (Watchlist included) and can be imported back here. CSV and Trakt JSON carry watch history only.</div>
         </div>
       </div>
 

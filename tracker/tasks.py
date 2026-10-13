@@ -329,9 +329,13 @@ def commit_import_session(session_id):
     # rather than this call's own in-memory result keeps the DataLog
     # entry correct even after a resumed/retried commit.
     all_skipped = session.skipped_items + session.failed_items
+    detail_parts = [f"{all_skipped} skipped"] if all_skipped else []
+    restored = session.source_metadata.get("backup_lists_restored")
+    if restored:
+        detail_parts.append(f"{restored['lists']} lists restored ({restored['items']} titles added)")
     DataLog.objects.create(
         profile=session.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.SUCCESS,
-        item_count=session.imported_items, detail=f"{all_skipped} skipped" if all_skipped else "",
+        item_count=session.imported_items, detail=", ".join(detail_parts),
     )
     logger.info(
         "commit_import_session: session %s, %d imported, %d skipped, %d failed",

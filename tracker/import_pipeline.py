@@ -158,6 +158,15 @@ def scan_file_import(session):
     path = session.source_metadata.get("path")
     mapping = session.import_options.get("mapping")
     rows, parse_errors = csv_import.parse_file(path, session.source, mapping)
+    if session.source == "json":
+        # Spool's own full backup also carries lists - counted here so the
+        # review page can say so; restored at commit (restore_lists).
+        from tracker import backup
+
+        data = backup.read_backup(path)
+        if data is not None and data.get("lists"):
+            session.source_metadata = {**session.source_metadata, "backup_lists": backup.list_summary(data)}
+            session.save(update_fields=["source_metadata"])
     scan_normalized_items(session, normalize_file_rows(rows, parse_errors))
 
 
@@ -370,6 +379,21 @@ def _commit_candidates(session):
         # without a save-per-row cost.
         session.processed_items = processed
         session.save(update_fields=["processed_items"])
+
+    # A Spool backup's lists (see tracker/backup.py) - restored once the
+    # history rows are in, before the downstream pass below. Idempotent
+    # (items already on a list are skipped), so a retried commit is safe.
+    if session.source_metadata.get("backup_lists"):
+        from tracker import backup
+
+        data = backup.read_backup(session.source_metadata.get("path"))
+        if data is not None:
+            lists_touched, items_added = backup.restore_lists(session.profile, data)
+            session.source_metadata = {
+                **session.source_metadata,
+                "backup_lists_restored": {"lists": lists_touched, "items": items_added},
+            }
+            session.save(update_fields=["source_metadata"])
 
     # Every row is written at this point, but the review page would
     # otherwise sit at "N of N processed" while the TMDB-bound downstream

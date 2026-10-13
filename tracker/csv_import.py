@@ -143,7 +143,7 @@ def _parse_rating(rating_raw):
         return None
     try:
         candidate = int(float(rating_raw))
-    except ValueError:
+    except (TypeError, ValueError):
         return None
     return candidate if 1 <= candidate <= 10 else None
 
@@ -232,7 +232,7 @@ def _row_from_trakt_item(item, i):
             "season": None,
             "episode": None,
             "watched_at": watched_at,
-            "rating": None,
+            "rating": _parse_rating(item.get("rating")),
             "trakt_id": ids.get("trakt"),
             "tmdb_id": ids.get("tmdb"),
         }, None
@@ -250,7 +250,7 @@ def _row_from_trakt_item(item, i):
         "season": _safe_int(e.get("season")),
         "episode": _safe_int(e.get("number")),
         "watched_at": watched_at,
-        "rating": None,
+        "rating": _parse_rating(item.get("rating")),
         "trakt_id": ids.get("trakt"),
         "tmdb_id": ids.get("tmdb"),
     }, None
@@ -302,11 +302,18 @@ def parse_json_rows(data, limit=None):
     are flattened by concatenating every list-valued top-level entry
     (some export tools group items under keys like "movies"/"shows"
     rather than a single flat list). Each item is matched against
-    Trakt's history shape first, falling back to a generic flat object -
+    Trakt's history shape first (with an optional "rating", which Spool's
+    own backup adds), falling back to a generic flat object -
     see _looks_like_trakt_history_item/_row_from_trakt_item/
     _generic_row_from_dict above. Returns (rows, errors) in the same
     shape as parse_rows()."""
-    if isinstance(data, dict):
+    from tracker import backup
+
+    if backup.is_spool_backup(data):
+        # Spool's own full backup (tracker/backup.py): only "history" holds
+        # watch rows - its "lists" are restored separately at commit.
+        items = data.get("history") or []
+    elif isinstance(data, dict):
         items = [item for value in data.values() if isinstance(value, list) for item in value]
     elif isinstance(data, list):
         items = data
