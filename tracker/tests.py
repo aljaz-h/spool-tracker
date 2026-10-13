@@ -15471,7 +15471,7 @@ class TitleDetailViewTests(TestCase):
     def test_shows_the_release_date_for_an_already_released_movie(self, mock_details, mock_credits, mock_similar):
         mock_details.return_value = self._details(release_date="2020-05-01")
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, "Released May 01, 2020")
+        self.assertContains(resp, '>Released</span> May 01, 2020')
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -15482,7 +15482,7 @@ class TitleDetailViewTests(TestCase):
         future = (timezone.localdate() + timedelta(days=30)).isoformat()
         mock_details.return_value = self._details(release_date=future)
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, "Releases ")
+        self.assertContains(resp, ">Releases</span>")
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -16114,7 +16114,7 @@ class TitleEpisodeBrowserTests(TestCase):
         }
         mock_details.return_value = details
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, "Premieres Sep 01, 2026")
+        self.assertContains(resp, '>Premieres</span> Sep 01, 2026')
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -19541,7 +19541,7 @@ class TitlePreviewViewTests(TestCase):
     def test_shows_the_release_date_same_as_the_tracked_detail_page(self, mock_details, mock_credits, mock_similar):
         mock_details.return_value = self._details(release_date="2020-05-01")
         resp = self.client.get(reverse("title_preview", args=["movie", 42]))
-        self.assertContains(resp, "Released May 01, 2020")
+        self.assertContains(resp, '>Released</span> May 01, 2020')
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])

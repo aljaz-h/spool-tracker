@@ -123,18 +123,22 @@ controls and avatars. Shadows only on floating things — menus/popovers
 - **Landscape cards:** Continue Watching (`poster_card.html` with
   `progress`) and Recently Watched (`watch_event_card.html`) — 16:9 art,
   bottom scrim with title/episode, 3px amber progress line.
-- **Title page:** composed hero (backdrop region ~420px desktop, poster
-  set into it; on phones the poster sits beside the title and everything
-  else runs full width), then a sticky detail nav — Overview / Episodes
-  / Cast & Crew / Details / Your activity — over the main column and a
-  sticky rail (rating, where to watch, recommend). Tabs are Alpine state
+- **Title page:** poster-led hero spanning the window (`.bleed`): the
+  backdrop shows on the right and fades into the page on the left; a
+  large poster on the left; then the type label, title, labelled facts
+  (`.hero-facts` - small caps label, bright value: Directed by /
+  Released / Runtime / Seasons / Rated / Status), ratings, overview,
+  actions, show progress and the main cast as portrait cards
+  (`title_person.html`). Below: a main panel with tabs (Episodes /
+  Overview = media, details, collection / Cast & Crew / Your activity)
+  beside a rail of panels (`.title-rail > section`: your rating, where
+  to watch, recommend, More Like This, genres). Tabs are Alpine state
   mirrored to the URL hash; every panel stays in the DOM so HTMX targets
   keep working. Shows open on Episodes, movies on Overview. Long seasons
   show 12 episodes plus "Show all"; when "up next" (or a linked episode)
-  is further in, only a window around it is shown, with "Show earlier
-  episodes". Titles over 40 characters get a one-step-smaller heading.
-- **Secondary rails** (Home's household column) use
-  `.section-title-sm` and quiet buttons, so the main column leads.
+  is further in, only a window around it is shown. On phones the poster
+  sits beside the title, the main panel loses its card background and
+  the rail only shows under Overview.
 - **History:** each day is a heading (with its totals, pinned while you
   scroll it) over a `.media-grid` of plays — `history_tile.html` (poster
   with the episode code, title, episode name or year · time) and

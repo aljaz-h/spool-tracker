@@ -4,18 +4,17 @@
 {% block content %}
 
   {% comment %}
-    Title page = a composed hero, then a sticky detail nav (Overview /
-    Episodes / Cast & Crew / Details / Your activity) over a main column
-    and a narrow sticky rail (rating, where to watch, recommend).
-
-    Hero: the TMDB backdrop fills a ~420px region on desktop and spans the
-    whole window (.bleed in app.css), under a restrained two-way scrim;
-    the content inside is a .page, so it stays on the same grid as the
-    tabs and columns below; the poster sits inside that region, not
-    floating below it. One grid serves every width: on phones the poster
-    sits beside the title block and the rest (ratings, overview, actions,
-    progress) runs full width underneath - a compact hero instead of the
-    desktop one stacked vertically.
+    Title page, poster-led: a full-width hero (.bleed) with the TMDB
+    backdrop showing on the right and fading into the page on the left,
+    a large poster on the left, then the type label, title, a row of
+    labelled facts (Directed by / Released / Runtime / Status ...),
+    ratings, overview, the main actions, show progress and the main cast
+    as portrait cards. Below it: a main column (tabs: Episodes / Overview
+    (media, details, collection) / Cast & Crew / Your activity) beside a rail of panels
+    (your rating + where to watch, recommend, similar titles, genres).
+    On phones the poster sits beside the title and everything else runs
+    full width; the rail only shows under Overview so it never trails an
+    episode list.
 
     Tabs are plain Alpine state, mirrored to the URL hash so a reload or
     shared link keeps its tab; every panel stays in the DOM (x-show), so
@@ -34,7 +33,7 @@
   <div
     x-data="{
       tab: '{% if seasons %}episodes{% else %}overview{% endif %}',
-      tabs: ['overview'{% if seasons %}, 'episodes'{% endif %}{% if director or cast %}, 'cast'{% endif %}, 'details'{% if not is_preview %}, 'activity'{% endif %}],
+      tabs: ['overview'{% if seasons %}, 'episodes'{% endif %}{% if director or cast %}, 'cast'{% endif %}{% if not is_preview %}, 'activity'{% endif %}],
       init() {
         const h = location.hash.slice(1);
         if (/^episode-\d+-\d+$/.test(h)) this.tab = 'episodes';
@@ -48,54 +47,54 @@
     }"
   >
   <section class="title-hero bleed relative -mt-6 sm:-mt-8 lg:-mt-10" aria-label="{{ display_name }}">
-    <div class="absolute inset-x-0 top-0 h-[250px] sm:h-[340px] lg:h-full overflow-hidden {% if not details.backdrop_url %}{{ poster_seed|gradient_class }} opacity-40{% endif %}" aria-hidden="true">
+    <div class="absolute inset-x-0 top-0 h-[260px] sm:h-[360px] lg:h-full overflow-hidden {% if not details.backdrop_url %}{{ poster_seed|gradient_class }} opacity-40{% endif %}" aria-hidden="true">
       {% if details.backdrop_url %}
-        <img src="{{ details.backdrop_url }}" alt="" class="absolute inset-0 w-full h-full object-cover object-[center_22%] opacity-65">
+        <img src="{{ details.backdrop_url }}" alt="" class="absolute inset-y-0 right-0 h-full w-full lg:w-[78%] object-cover object-[center_20%] opacity-75">
       {% endif %}
-      <div class="absolute inset-0 bg-[linear-gradient(90deg,rgba(14,16,20,0.94)_0%,rgba(14,16,20,0.7)_38%,rgba(14,16,20,0.15)_100%)] max-sm:bg-none"></div>
-      <div class="absolute inset-0 bg-[linear-gradient(0deg,#0e1014_0%,rgba(14,16,20,0.82)_24%,rgba(14,16,20,0.1)_70%,rgba(14,16,20,0.35)_100%)]"></div>
+      <div class="absolute inset-0 bg-[linear-gradient(90deg,#0e1014_0%,#0e1014_22%,rgba(14,16,20,0.86)_38%,rgba(14,16,20,0.35)_62%,rgba(14,16,20,0.1)_100%)] max-lg:bg-none"></div>
+      <div class="absolute inset-0 bg-[linear-gradient(0deg,#0e1014_0%,rgba(14,16,20,0.7)_20%,rgba(14,16,20,0)_55%,rgba(14,16,20,0.45)_100%)]"></div>
     </div>
 
-    <div class="page relative pt-[150px] sm:pt-[200px] lg:pt-[104px] pb-7 lg:pb-11 lg:min-h-[420px]">
-      <div class="grid grid-cols-[100px_minmax(0,1fr)] sm:grid-cols-[150px_minmax(0,1fr)] lg:grid-cols-[200px_minmax(0,1fr)] gap-x-4 sm:gap-x-7 lg:gap-x-10 gap-y-5 items-end">
-        <div class="lg:row-span-2 lg:self-start">
-          <div class="poster rounded-lg shadow-[0_18px_48px_rgba(0,0,0,0.6)] {% if not display_poster_url %}{{ poster_seed|gradient_class }}{% endif %}">
+    <div class="page relative pt-[150px] sm:pt-[220px] lg:pt-10 pb-8 lg:pb-12">
+      <div class="grid grid-cols-[100px_minmax(0,1fr)] sm:grid-cols-[160px_minmax(0,1fr)] lg:grid-cols-[250px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)] gap-x-4 sm:gap-x-8 lg:gap-x-11 gap-y-5 items-end lg:items-start">
+        <div class="lg:row-span-2">
+          <div class="poster rounded-xl shadow-[0_24px_60px_rgba(0,0,0,0.6)] {% if not display_poster_url %}{{ poster_seed|gradient_class }}{% endif %}">
             {% if display_poster_url %}
-              <img src="{{ display_poster_url|poster_size:"w342" }}" alt="{{ display_name }} poster" class="absolute inset-0">
+              <img src="{{ display_poster_url|poster_size:"w500" }}" alt="{{ display_name }} poster" class="absolute inset-0">
             {% endif %}
           </div>
         </div>
 
-        <div class="min-w-0 self-end">
-          <div class="flex items-center gap-2 text-[13px] font-medium text-[#c9ccd5]">
+        <div class="min-w-0 lg:pt-2 lg:max-w-[920px]">
+          <div class="flex items-center gap-2 text-[12.5px] font-semibold tracking-[0.06em] uppercase text-primary">
             <span class="type-dot {{ page_media_type|media_dot_class }}"></span>
-            {% if page_media_type == "movie" %}Movie{% elif page_media_type == "anime" %}Anime{% else %}TV Series{% endif %}
+            {% if page_media_type == "movie" %}Movie{% elif page_media_type == "anime" %}Anime{% else %}TV Series{% endif %}{% if display_year %}<span class="text-ink-dim font-medium normal-case tracking-normal">· {{ display_year }}</span>{% endif %}
           </div>
-          <h1 class="mt-1.5 {% if display_name|length > 40 %}text-[1.25rem] sm:text-[1.75rem] lg:text-[2.125rem]{% else %}text-[1.5rem] sm:text-[2.25rem] lg:text-[2.75rem]{% endif %} font-bold leading-[1.08] tracking-[-0.025em] text-white text-balance">
+          <h1 class="mt-2 {% if display_name|length > 40 %}text-[1.25rem] sm:text-[1.875rem] lg:text-[2.375rem]{% else %}text-[1.5rem] sm:text-[2.375rem] lg:text-[3rem]{% endif %} font-bold leading-[1.05] tracking-[-0.025em] text-white text-balance">
             {{ display_name }}
           </h1>
           {% if mal_title_japanese %}
             {# MyAnimeList's native title (views._anime_jikan_context) - anime only. #}
             <div class="text-ink-dim text-[13px] sm:text-sm mt-1.5">{{ mal_title_japanese }}</div>
           {% endif %}
-          <div class="meta mt-2.5 sm:mt-3 text-[13px] sm:text-[14.5px] text-[#d0d3dc]">
-            {% if display_year %}<span>{{ display_year }}</span>{% endif %}
-            {% if details.certification %}<span><span class="px-1.5 py-px rounded border border-white/30 text-[12px] font-semibold">{{ details.certification }}</span></span>{% endif %}
-            {% if details.runtime %}<span>{{ details.runtime|runtime_hm }}</span>{% endif %}
-            {% if details.number_of_seasons %}<span>{{ details.number_of_seasons }} season{{ details.number_of_seasons|pluralize }} ({{ details.number_of_episodes }} EP)</span>{% endif %}
-            {% if details.genres %}<span class="max-sm:hidden">{{ details.genres|join:", " }}</span>{% endif %}
-            {% if status_badge %}<span><span class="chip {{ status_badge.color|chip_color_class }}">{{ status_badge.label }}</span></span>{% endif %}
-          </div>
         </div>
 
-        <div class="col-span-2 lg:col-span-1 lg:col-start-2 min-w-0">
-          <div class="meta text-[13px]">
-            {% if details.genres %}<span class="sm:hidden">{{ details.genres|join:", " }}</span>{% endif %}
-            {% if release_info %}<span>{% if release_info.prefix %}{{ release_info.prefix }} {% endif %}{{ release_info.date }}</span>{% endif %}
-            {% if director %}<span>Directed by <span class="text-base-content font-medium">{{ director.name }}</span></span>{% endif %}
-            {% if mal_studios %}<span>{{ mal_studios|join:", " }}</span>{% endif %}
-            {% if mal_source %}<span>Source: {{ mal_source }}</span>{% endif %}
-            {% if details.original_language and not details.original_language_display %}<span class="uppercase">{{ details.original_language }}</span>{% endif %}
+        <div class="col-span-2 lg:col-span-1 lg:col-start-2 min-w-0 lg:max-w-[920px]">
+          {% comment %}
+            Labelled facts - small caps label, then the value. Each label
+            is its own span (tests and screen readers read it as
+            "Released May 01, 2020").
+          {% endcomment %}
+          <div class="hero-facts">
+            {% if director %}<span class="hero-fact"><span class="hero-label">Directed by</span> {% if director.tmdb_person_id %}<a href="{% url 'person_detail' director.tmdb_person_id %}" class="hover:text-primary">{{ director.name }}</a>{% else %}{{ director.name }}{% endif %}</span>{% endif %}
+            {% if release_info %}<span class="hero-fact"><span class="hero-label">{% if release_info.prefix %}{{ release_info.prefix }}{% else %}Aired{% endif %}</span> {{ release_info.date }}</span>{% endif %}
+            {% if details.runtime %}<span class="hero-fact"><span class="hero-label">Runtime</span> {{ details.runtime|runtime_hm }}</span>{% endif %}
+            {% if details.number_of_seasons %}<span class="hero-fact"><span class="hero-label">Seasons</span> {{ details.number_of_seasons }} &middot; {{ details.number_of_episodes }} episodes</span>{% endif %}
+            {% if details.certification %}<span class="hero-fact"><span class="hero-label">Rated</span> <span class="px-1.5 py-px rounded border border-white/30 text-[12.5px]">{{ details.certification }}</span></span>{% endif %}
+            {% if mal_studios %}<span class="hero-fact"><span class="hero-label">Studio</span> {{ mal_studios|join:", " }}</span>{% endif %}
+            {% if mal_source %}<span class="hero-fact"><span class="hero-label">Source</span> {{ mal_source }}</span>{% endif %}
+            {% if details.original_language and not details.original_language_display %}<span class="hero-fact"><span class="hero-label">Language</span> <span class="uppercase">{{ details.original_language }}</span></span>{% endif %}
+            {% if status_badge %}<span class="hero-fact"><span class="hero-label">Status</span> <span class="chip {{ status_badge.color|chip_color_class }}">{{ status_badge.label }}</span></span>{% endif %}
           </div>
 
           {% if not is_preview %}
@@ -105,11 +104,11 @@
           {% endif %}
 
           {% if details.tagline or details.overview %}
-            <div class="max-w-[68ch] mt-4" x-data="{ more: false }">
+            <div class="max-w-[72ch] mt-4" x-data="{ more: false }">
               {% if details.tagline %}<p class="text-[14px] italic text-ink-dim mb-1.5">{{ details.tagline }}</p>{% endif %}
               {% if details.overview %}
-                <p class="text-[14.5px] sm:text-[15px] leading-relaxed text-[#d3d6de]" :class="more ? '' : 'line-clamp-3'">{{ details.overview }}</p>
-                {% if details.overview|length > 260 %}
+                <p class="text-[14.5px] sm:text-[15px] leading-relaxed text-[#d3d6de]" :class="more ? '' : 'line-clamp-4'">{{ details.overview }}</p>
+                {% if details.overview|length > 320 %}
                   <button type="button" @click="more = !more" class="mt-1 text-[13px] font-medium text-ink-dim hover:text-primary" x-text="more ? 'Show less' : 'Read more'">Read more</button>
                 {% endif %}
               {% endif %}
@@ -125,179 +124,179 @@
             trailer.
           {% endcomment %}
           <div class="title-actions flex flex-wrap items-center gap-2 mt-5 sm:mt-6">
-                {% if is_preview and preview_media_type == "movie" %}
-                  {% comment %}
-                    Not-yet-tracked, so this is a plain (non-HTMX) form - a
-                    real page load, unlike every other first-watch popover in
-                    the app - each menu item is its own name="when" submit
-                    button rather than an hx-post, so no client-side JS is
-                    needed to route the click to the right option. Still
-                    materializes + redirects to the real title_detail
-                    afterward exactly like the old single-button version did
-                    (see views.title_preview_mark_watched) - the rest of this
-                    preview page (Lists, similar items' own list-popovers, ...)
-                    stays untracked-shaped until then, so swapping just this
-                    header in place via HTMX would leave the page inconsistent.
-                  {% endcomment %}
-                  <div class="relative" x-data="{ open: false, showCustom: false }" @keydown.escape.window="open = false">
-                    <button type="button" @click="open = !open" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-primary btn-sm">+ Mark as Watched</button>
-                    <div
-                      x-show="open" x-cloak x-transition @click.outside="open = false"
-                      class="absolute z-50 top-full mt-1.5 left-0 w-72 menu-surface p-2"
-                    >
-                      <form method="post" action="{% url 'title_preview_mark_watched' preview_media_type preview_tmdb_id %}">
-                        {% csrf_token %}
-                        <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1">
-                          <div class="font-semibold text-sm">Mark as watched</div>
-                          <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5">&times;</button>
-                        </div>
-                        <div x-show="!showCustom">
-                          <button type="submit" name="when" value="now" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
-                            <span class="min-w-0">
-                              <span class="block text-[13px] font-semibold">Watched now</span>
-                              <span class="block text-[12px] text-ink-faint">Log it at the current date and time</span>
-                            </span>
-                          </button>
-                          <button type="submit" name="when" value="release" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
-                            <span class="min-w-0">
-                              <span class="block text-[13px] font-semibold">On release date</span>
-                              <span class="block text-[12px] text-ink-faint">Log it on the day it came out</span>
-                            </span>
-                          </button>
-                          <button type="button" @click="showCustom = true" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
-                            <span class="min-w-0">
-                              <span class="block text-[13px] font-semibold">Other date</span>
-                              <span class="block text-[12px] text-ink-faint">Pick a custom date and time</span>
-                            </span>
-                          </button>
-                        </div>
-                        <div x-show="showCustom" class="px-2 pb-1 pt-1">
-                          <label class="block text-[12px] text-ink-faint mb-1">Watched at</label>
-                          <input type="datetime-local" name="custom_datetime" value="{% now 'Y-m-d\TH:i' %}" @keydown.enter.prevent class="input input-sm w-full mb-2">
-                          <div class="flex gap-1.5">
-                            <button type="button" @click="showCustom = false" class="btn btn-xs btn-soft flex-1">Back</button>
-                            <button type="submit" name="when" value="custom" class="btn btn-xs btn-primary flex-1">Confirm</button>
-                          </div>
-                        </div>
-                      </form>
+            {% if is_preview and preview_media_type == "movie" %}
+              {% comment %}
+                Not-yet-tracked, so this is a plain (non-HTMX) form - a
+                real page load, unlike every other first-watch popover in
+                the app - each menu item is its own name="when" submit
+                button rather than an hx-post, so no client-side JS is
+                needed to route the click to the right option. Still
+                materializes + redirects to the real title_detail
+                afterward exactly like the old single-button version did
+                (see views.title_preview_mark_watched) - the rest of this
+                preview page (Lists, similar items' own list-popovers, ...)
+                stays untracked-shaped until then, so swapping just this
+                header in place via HTMX would leave the page inconsistent.
+              {% endcomment %}
+              <div class="relative" x-data="{ open: false, showCustom: false }" @keydown.escape.window="open = false">
+                <button type="button" @click="open = !open" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-primary btn-sm">+ Mark as Watched</button>
+                <div
+                  x-show="open" x-cloak x-transition @click.outside="open = false"
+                  class="absolute z-50 top-full mt-1.5 left-0 w-72 menu-surface p-2"
+                >
+                  <form method="post" action="{% url 'title_preview_mark_watched' preview_media_type preview_tmdb_id %}">
+                    {% csrf_token %}
+                    <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1">
+                      <div class="font-semibold text-sm">Mark as watched</div>
+                      <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5">&times;</button>
                     </div>
-                  </div>
-                {% elif is_preview %}
-                  {% comment %}
-                    TV/anime counterpart of the movie preview form above -
-                    there's no single "watched" fact for a show (see the
-                    tracked title_tv_watched_button.html comment below), so
-                    this offers the same "mark all seasons"/"mark this
-                    season" bulk actions as that button's own popover, just
-                    pointed at the preview endpoints (title_preview_mark_
-                    all_seasons_watched/title_preview_mark_season_watched -
-                    same materialize-then-delegate views the Episodes
-                    section's own identical buttons already use). Unlike the
-                    movie form above this is real HTMX (hx-target=
-                    "#episodes-panel", same target the Episodes section's own
-                    copies of these exact buttons use) rather than a full
-                    page load - accepting the same known rough edge
-                    title_preview_mark_season_watched's docstring already
-                    documents for those (the rest of the header, this button
-                    included, stays preview-shaped until the next full load
-                    even though #episodes-panel itself correctly upgrades) -
-                    introducing a second, redirect-based path here would mean
-                    two different behaviors for what's otherwise the exact
-                    same action. Closes itself on success (rather than
-                    trying to relabel itself as watched, which it isn't set
-                    up to do) so at least this popover itself doesn't sit
-                    open on stale content after a real click.
-
-                    fixed + window.positionPopover, not the movie form's own
-                    plain `absolute top-full` (confirmed live: this panel got
-                    silently clipped for a title with a shorter hero - the
-                    hero backdrop above is `overflow-hidden`, and an
-                    `absolute` child never contributes to its ancestor's own
-                    auto height in the first place, so anything taller than
-                    the hero's own flow content - a real risk here once "By
-                    season" adds rows, unlike the movie form's fixed 3-item
-                    menu - got cut off with no visible box at all past that
-                    edge). Same fixed/viewport-relative pattern every other
-                    popover on this page already uses for exactly this
-                    reason (title_tv_watched_button.html and friends) -
-                    see discover_tile.html's own comment for the fuller
-                    history of this exact clip-path/overflow-hidden class of
-                    bug.
-                  {% endcomment %}
-                  <div
-                    class="relative"
-                    x-data="{
-                      open: false,
-                      togglePanel(button) {
-                        this.open = !this.open;
-                        if (!this.open) return;
-                        this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 288, false));
-                      },
-                    }"
-                    @keydown.escape.window="open = false"
-                    @scroll.window="open = false"
-                    @htmx:after-request.camel="if ($event.detail.successful) open = false"
-                  >
-                    <button type="button" @click="togglePanel($el)" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-primary btn-sm">+ Mark as Watched</button>
-                    <div
-                      x-ref="panel"
-                      x-show="open" x-cloak x-transition @click.outside="open = false"
-                      class="fixed z-50 w-72 menu-surface p-2"
-                    >
-                      <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1">
-                        <div class="font-semibold text-sm">Mark as watched</div>
-                        <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5">&times;</button>
-                      </div>
-                      <button type="button"
-                        hx-post="{% url 'title_preview_mark_all_seasons_watched' preview_media_type preview_tmdb_id %}"
-                        hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-                        hx-confirm="Mark every episode of every season of “{{ details.name }}” as watched? This can take a moment for shows with many seasons."
-                        class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
-                      >
-                        <span class="w-7 h-7 rounded-md bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "check" "w-4 h-4" %}</span>
+                    <div x-show="!showCustom">
+                      <button type="submit" name="when" value="now" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
                         <span class="min-w-0">
-                          <span class="block text-[13px] font-semibold">Mark all seasons watched</span>
-                          <span class="block text-[12px] text-ink-faint">Every episode, every season</span>
+                          <span class="block text-[13px] font-semibold">Watched now</span>
+                          <span class="block text-[12px] text-ink-faint">Log it at the current date and time</span>
                         </span>
                       </button>
-                      {% if season_cards|length > 1 %}
-                        <div class="border-t border-line mt-1 pt-1.5">
-                          <div class="px-2 pb-1 text-[12px] font-semibold text-ink-faint uppercase tracking-wide">By season</div>
-                          <div class="max-h-52 overflow-y-auto flex flex-col gap-0.5 pr-0.5">
-                            {% for card in season_cards %}
-                              <button type="button"
-                                hx-post="{% url 'title_preview_mark_season_watched' preview_media_type preview_tmdb_id card.number %}"
-                                hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-                                hx-confirm="Mark every episode of Season {{ card.number }} as watched?"
-                                class="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg hover:bg-base-300 text-left w-full"
-                              >
-                                <span class="text-[12.5px]">Season {{ card.number }}</span>
-                                {% if card.total_episodes %}<span class="text-ink-faint font-mono text-[12px]">{{ card.total_episodes }} eps</span>{% endif %}
-                              </button>
-                            {% endfor %}
-                          </div>
-                        </div>
-                      {% endif %}
+                      <button type="submit" name="when" value="release" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
+                        <span class="min-w-0">
+                          <span class="block text-[13px] font-semibold">On release date</span>
+                          <span class="block text-[12px] text-ink-faint">Log it on the day it came out</span>
+                        </span>
+                      </button>
+                      <button type="button" @click="showCustom = true" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
+                        <span class="min-w-0">
+                          <span class="block text-[13px] font-semibold">Other date</span>
+                          <span class="block text-[12px] text-ink-faint">Pick a custom date and time</span>
+                        </span>
+                      </button>
                     </div>
+                    <div x-show="showCustom" class="px-2 pb-1 pt-1">
+                      <label class="block text-[12px] text-ink-faint mb-1">Watched at</label>
+                      <input type="datetime-local" name="custom_datetime" value="{% now 'Y-m-d\TH:i' %}" @keydown.enter.prevent class="input input-sm w-full mb-2">
+                      <div class="flex gap-1.5">
+                        <button type="button" @click="showCustom = false" class="btn btn-xs btn-soft flex-1">Back</button>
+                        <button type="submit" name="when" value="custom" class="btn btn-xs btn-primary flex-1">Confirm</button>
+                      </div>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            {% elif is_preview %}
+              {% comment %}
+                TV/anime counterpart of the movie preview form above -
+                there's no single "watched" fact for a show (see the
+                tracked title_tv_watched_button.html comment below), so
+                this offers the same "mark all seasons"/"mark this
+                season" bulk actions as that button's own popover, just
+                pointed at the preview endpoints (title_preview_mark_
+                all_seasons_watched/title_preview_mark_season_watched -
+                same materialize-then-delegate views the Episodes
+                section's own identical buttons already use). Unlike the
+                movie form above this is real HTMX (hx-target=
+                "#episodes-panel", same target the Episodes section's own
+                copies of these exact buttons use) rather than a full
+                page load - accepting the same known rough edge
+                title_preview_mark_season_watched's docstring already
+                documents for those (the rest of the header, this button
+                included, stays preview-shaped until the next full load
+                even though #episodes-panel itself correctly upgrades) -
+                introducing a second, redirect-based path here would mean
+                two different behaviors for what's otherwise the exact
+                same action. Closes itself on success (rather than
+                trying to relabel itself as watched, which it isn't set
+                up to do) so at least this popover itself doesn't sit
+                open on stale content after a real click.
+
+                fixed + window.positionPopover, not the movie form's own
+                plain `absolute top-full` (confirmed live: this panel got
+                silently clipped for a title with a shorter hero - the
+                hero backdrop above is `overflow-hidden`, and an
+                `absolute` child never contributes to its ancestor's own
+                auto height in the first place, so anything taller than
+                the hero's own flow content - a real risk here once "By
+                season" adds rows, unlike the movie form's fixed 3-item
+                menu - got cut off with no visible box at all past that
+                edge). Same fixed/viewport-relative pattern every other
+                popover on this page already uses for exactly this
+                reason (title_tv_watched_button.html and friends) -
+                see discover_tile.html's own comment for the fuller
+                history of this exact clip-path/overflow-hidden class of
+                bug.
+              {% endcomment %}
+              <div
+                class="relative"
+                x-data="{
+                  open: false,
+                  togglePanel(button) {
+                    this.open = !this.open;
+                    if (!this.open) return;
+                    this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 288, false));
+                  },
+                }"
+                @keydown.escape.window="open = false"
+                @scroll.window="open = false"
+                @htmx:after-request.camel="if ($event.detail.successful) open = false"
+              >
+                <button type="button" @click="togglePanel($el)" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-primary btn-sm">+ Mark as Watched</button>
+                <div
+                  x-ref="panel"
+                  x-show="open" x-cloak x-transition @click.outside="open = false"
+                  class="fixed z-50 w-72 menu-surface p-2"
+                >
+                  <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1">
+                    <div class="font-semibold text-sm">Mark as watched</div>
+                    <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5">&times;</button>
                   </div>
-                {% elif title.media_type == "movie" %}
-                  {% include "tracker/partials/title_detail_watched_button.html" with title=title watch_count=watch_count %}
-                {% else %}
-                  {% include "tracker/partials/title_tv_watched_button.html" with title=title watch_count=watch_count show_completed=show_completed season_cards=season_cards %}
-                {% endif %}
-                {% if not is_preview %}
-                  {% include "tracker/partials/title_detail_list_popover.html" with title=title my_lists=my_lists in_list_ids=in_list_ids %}
-                  <a href="#your-rating" @click="tab = 'overview'" class="btn btn-sm btn-soft gap-1.5">{% if latest_rating %}<span class="text-primary">&#9733;</span> {{ latest_rating }}/10{% else %}<span class="text-ink-dim">&#9733;</span> Rate{% endif %}</a>
-                {% endif %}
-                {% if trailer %}
-                  <button
-                    type="button"
-                    onclick="openTrailerModal('trailer-modal-{{ poster_seed }}')"
-                    class="btn btn-sm btn-ghost gap-1.5"
+                  <button type="button"
+                    hx-post="{% url 'title_preview_mark_all_seasons_watched' preview_media_type preview_tmdb_id %}"
+                    hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+                    hx-confirm="Mark every episode of every season of “{{ details.name }}” as watched? This can take a moment for shows with many seasons."
+                    class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
                   >
-                    {% icon "play" "w-3.5 h-3.5" %} Watch trailer
+                    <span class="w-7 h-7 rounded-md bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "check" "w-4 h-4" %}</span>
+                    <span class="min-w-0">
+                      <span class="block text-[13px] font-semibold">Mark all seasons watched</span>
+                      <span class="block text-[12px] text-ink-faint">Every episode, every season</span>
+                    </span>
                   </button>
-                {% endif %}
+                  {% if season_cards|length > 1 %}
+                    <div class="border-t border-line mt-1 pt-1.5">
+                      <div class="px-2 pb-1 text-[12px] font-semibold text-ink-faint uppercase tracking-wide">By season</div>
+                      <div class="max-h-52 overflow-y-auto flex flex-col gap-0.5 pr-0.5">
+                        {% for card in season_cards %}
+                          <button type="button"
+                            hx-post="{% url 'title_preview_mark_season_watched' preview_media_type preview_tmdb_id card.number %}"
+                            hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+                            hx-confirm="Mark every episode of Season {{ card.number }} as watched?"
+                            class="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg hover:bg-base-300 text-left w-full"
+                          >
+                            <span class="text-[12.5px]">Season {{ card.number }}</span>
+                            {% if card.total_episodes %}<span class="text-ink-faint font-mono text-[12px]">{{ card.total_episodes }} eps</span>{% endif %}
+                          </button>
+                        {% endfor %}
+                      </div>
+                    </div>
+                  {% endif %}
+                </div>
+              </div>
+            {% elif title.media_type == "movie" %}
+              {% include "tracker/partials/title_detail_watched_button.html" with title=title watch_count=watch_count %}
+            {% else %}
+              {% include "tracker/partials/title_tv_watched_button.html" with title=title watch_count=watch_count show_completed=show_completed season_cards=season_cards %}
+            {% endif %}
+            {% if not is_preview %}
+              {% include "tracker/partials/title_detail_list_popover.html" with title=title my_lists=my_lists in_list_ids=in_list_ids %}
+              <a href="#your-rating" @click="tab = 'overview'" class="btn btn-sm btn-soft gap-1.5">{% if latest_rating %}<span class="text-primary">&#9733;</span> {{ latest_rating }}/10{% else %}<span class="text-ink-dim">&#9733;</span> Rate{% endif %}</a>
+            {% endif %}
+            {% if trailer %}
+              <button
+                type="button"
+                onclick="openTrailerModal('trailer-modal-{{ poster_seed }}')"
+                class="btn btn-sm btn-ghost gap-1.5"
+              >
+                {% icon "play" "w-3.5 h-3.5" %} Watch trailer
+              </button>
+            {% endif %}
           </div>
 
           {% if not is_preview and totals and totals.watched %}
@@ -309,32 +308,22 @@
               <div class="progress-track mt-2"><div class="progress-fill {% if totals.percent >= 100 %}!bg-success{% endif %}" style="width: {{ totals.percent }}%"></div></div>
             </div>
           {% endif %}
+
+          {% if cast %}
+            {# Main cast - portrait cards; the full list (with the director) is under the Cast & Crew tab. #}
+            <div class="mt-7">
+              <div class="hero-label mb-2.5">Main cast</div>
+              <div class="flex gap-3 overflow-x-auto scroll-row pb-2">
+                {% for actor in cast|slice:":10" %}
+                  {% include "tracker/partials/title_person.html" with person=actor role=actor.character %}
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
         </div>
       </div>
     </div>
   </section>
-
-  {% comment %}
-    Detail nav - sticks under the top bar (60px desktop / 56px phone).
-    The negative margins + matching padding let its background and
-    hairline run the full content width.
-  {% endcomment %}
-  <nav class="title-tabs bleed sticky top-14 lg:top-15 z-20 bg-base-100 mb-8 lg:mb-10" aria-label="Title sections">
-    <div class="page"><div class="tabs-line" role="tablist">
-      <button type="button" role="tab" class="tab-line" :class="tab === 'overview' && 'is-active'" :aria-selected="(tab === 'overview').toString()" @click="go('overview')">Overview</button>
-      {% if seasons %}
-        <button type="button" role="tab" class="tab-line" :class="tab === 'episodes' && 'is-active'" :aria-selected="(tab === 'episodes').toString()" @click="go('episodes')">Episodes{% if totals %}<span class="ml-1.5 text-ink-faint tabular-nums">{{ totals.total }}</span>{% endif %}</button>
-      {% endif %}
-      {% if director or cast %}
-        <button type="button" role="tab" class="tab-line" :class="tab === 'cast' && 'is-active'" :aria-selected="(tab === 'cast').toString()" @click="go('cast')">Cast &amp; Crew</button>
-      {% endif %}
-      <button type="button" role="tab" class="tab-line" :class="tab === 'details' && 'is-active'" :aria-selected="(tab === 'details').toString()" @click="go('details')">Details</button>
-      {% if not is_preview %}
-        <button type="button" role="tab" class="tab-line" :class="tab === 'activity' && 'is-active'" :aria-selected="(tab === 'activity').toString()" @click="go('activity')">Your activity</button>
-      {% endif %}
-    </div>
-    </div>
-  </nav>
 
   {% if trailer %}
     {% comment %}
@@ -366,240 +355,240 @@
     </dialog>
   {% endif %}
 
-  <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_288px] xl:grid-cols-[minmax(0,1fr)_320px] gap-x-12 xl:gap-x-16 gap-y-12 mb-8">
-    <div class="min-w-0">
-      <div x-show="tab === 'overview'" {% if seasons %}x-cloak{% endif %} role="tabpanel">
-        {% if not gallery_items and not director and not cast and not collection_parts and not similar %}
-          <p class="text-sm text-ink-dim py-2">TMDB doesn't have media, cast or related titles for this one yet.</p>
-        {% endif %}
-        {% if gallery_items %}
-          {% comment %}
-            json_script (not a template-side |escapejs chain) for the
-            lightbox's own image list - only ever one of these per page
-            render (this section doesn't repeat), so a fixed element id is
-            fine. The trailer tile (if any) is always gallery_items[0] but
-            isn't in this list at all - its own onclick opens the trailer
-            <dialog> above directly, never the lightbox.
-          {% endcomment %}
-          {{ gallery_image_urls|json_script:"gallery-image-urls" }}
-          <section class="section">
-          <div class="section-head"><h2 class="section-title">Media</h2></div>
-          <div
-            class="relative"
-            x-data="{
-              showAll: false,
-              images: JSON.parse(document.getElementById('gallery-image-urls').textContent),
-              currentIndex: 0,
-              openLightbox(i) {
-                this.currentIndex = i;
-                this.$refs.lightboxImg.src = this.images[i];
-                this.$refs.lightbox.showModal();
-              },
-              step(dir) {
-                this.currentIndex = (this.currentIndex + dir + this.images.length) % this.images.length;
-                this.$refs.lightboxImg.src = this.images[this.currentIndex];
-              },
-            }"
-          >
-            <div class="flex gap-3 overflow-x-auto scroll-row pb-2">
-              {% for item in gallery_items %}
-                <button
-                  type="button"
-                  {% if forloop.counter0 >= 5 %}x-show="showAll" x-cloak{% endif %}
-                  {% if item.kind == "trailer" %}
-                    onclick="openTrailerModal('trailer-modal-{{ poster_seed }}')"
-                  {% else %}
-                    @click="openLightbox({{ item.index }})"
-                  {% endif %}
-                  class="relative w-44 sm:w-60 aspect-video flex-none rounded-lg overflow-hidden bg-base-300 group"
-                >
-                  <img src="{{ item.thumbnail_url }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover group-hover:brightness-110">
-                  {% if item.kind == "trailer" %}
-                    <span class="absolute inset-0 bg-black/30 flex items-center justify-center group-hover:bg-black/50 transition-colors">
-                      <span class="w-11 h-11 rounded-full bg-black/70 ring-1 ring-white/30 flex items-center justify-center text-white">
-                        {% icon "play" "w-4 h-4 ml-0.5" %}
-                      </span>
-                    </span>
-                  {% endif %}
-                </button>
-              {% endfor %}
-              {% if gallery_items|length > 5 %}
-                <button
-                  type="button"
-                  x-show="!showAll"
-                  @click="showAll = true"
-                  class="w-44 sm:w-60 aspect-video flex-none rounded-lg bg-base-200 flex items-center justify-center text-sm font-medium text-ink-dim hover:text-base-content hover:bg-base-300"
-                >+{{ gallery_items|length|add:"-5" }}</button>
-              {% endif %}
-            </div>
+  <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_380px] gap-x-8 xl:gap-x-10 gap-y-8 mt-2 lg:mt-4 mb-8 items-start">
+    <div class="title-main min-w-0 lg:bg-base-200 lg:rounded-2xl">
+      {% comment %}
+        Detail nav - sticks under the top bar (60px desktop / 56px phone)
+        while you scroll the panel.
+      {% endcomment %}
+      <nav class="title-tabs sticky top-14 lg:top-15 z-20 bg-base-100 lg:bg-base-200 lg:rounded-t-2xl lg:px-7 lg:pt-2" aria-label="Title sections">
+        <div class="tabs-line" role="tablist">
+          {% if seasons %}
+            <button type="button" role="tab" class="tab-line" :class="tab === 'episodes' && 'is-active'" :aria-selected="(tab === 'episodes').toString()" @click="go('episodes')">Episodes{% if totals %}<span class="ml-1.5 text-ink-faint tabular-nums">{{ totals.total }}</span>{% endif %}</button>
+          {% endif %}
+          <button type="button" role="tab" class="tab-line" :class="tab === 'overview' && 'is-active'" :aria-selected="(tab === 'overview').toString()" @click="go('overview')">Overview</button>
+          {% if director or cast %}
+            <button type="button" role="tab" class="tab-line" :class="tab === 'cast' && 'is-active'" :aria-selected="(tab === 'cast').toString()" @click="go('cast')">Cast &amp; Crew</button>
+          {% endif %}
+          {% if not is_preview %}
+            <button type="button" role="tab" class="tab-line" :class="tab === 'activity' && 'is-active'" :aria-selected="(tab === 'activity').toString()" @click="go('activity')">Your activity</button>
+          {% endif %}
+        </div>
+      </nav>
 
+      <div class="pt-6 lg:p-7">
+        {% if seasons %}
+          <div x-show="tab === 'episodes'" role="tabpanel">
+            {% include "tracker/partials/title_episodes.html" %}
+          </div>
+        {% endif %}
+
+        <div x-show="tab === 'overview'" {% if seasons %}x-cloak{% endif %} role="tabpanel">
+          {% if not gallery_items and not collection_parts and not status_badge and not details.original_language_display and not details.digital_release_date and not details.budget and not details.revenue and not details.production_companies and not details.countries_display %}
+            <p class="text-sm text-ink-dim">TMDB doesn't have trailers, stills or details for this one yet.</p>
+          {% endif %}
+          {% if gallery_items %}
             {% comment %}
-              The lightbox - one per page (like the trailer dialog above),
-              reused across every still tile. @close clears the <img> src
-              so a large image isn't left decoded in memory/re-shown stale
-              for a half-second the next time this same dialog opens.
+              json_script (not a template-side |escapejs chain) for the
+              lightbox's own image list - only ever one of these per page
+              render (this section doesn't repeat), so a fixed element id is
+              fine. The trailer tile (if any) is always gallery_items[0] but
+              isn't in this list at all - its own onclick opens the trailer
+              <dialog> above directly, never the lightbox.
             {% endcomment %}
-            <dialog x-ref="lightbox" class="modal" @close="$refs.lightboxImg.src = ''">
-              <div class="modal-box max-w-5xl bg-base-200 p-2">
-                <form method="dialog"><button class="btn btn-xs btn-circle btn-ghost absolute right-1.5 top-1.5 z-10 bg-base-300/90">✕</button></form>
-                <img x-ref="lightboxImg" src="" alt="" class="w-full h-auto rounded-lg">
-                {% if gallery_image_urls|length > 1 %}
-                  <button type="button" @click="step(-1)" aria-label="Previous image" class="btn btn-sm btn-circle absolute left-2 top-1/2 -translate-y-1/2 bg-base-300/90">{% icon "chevron-left" "w-4 h-4" %}</button>
-                  <button type="button" @click="step(1)" aria-label="Next image" class="btn btn-sm btn-circle absolute right-2 top-1/2 -translate-y-1/2 bg-base-300/90">{% icon "chevron-right" "w-4 h-4" %}</button>
+            {{ gallery_image_urls|json_script:"gallery-image-urls" }}
+            <section class="section">
+            <div class="section-head"><h2 class="section-title">Media</h2></div>
+            <div
+              class="relative"
+              x-data="{
+                showAll: false,
+                images: JSON.parse(document.getElementById('gallery-image-urls').textContent),
+                currentIndex: 0,
+                openLightbox(i) {
+                  this.currentIndex = i;
+                  this.$refs.lightboxImg.src = this.images[i];
+                  this.$refs.lightbox.showModal();
+                },
+                step(dir) {
+                  this.currentIndex = (this.currentIndex + dir + this.images.length) % this.images.length;
+                  this.$refs.lightboxImg.src = this.images[this.currentIndex];
+                },
+              }"
+            >
+              <div class="flex gap-3 overflow-x-auto scroll-row pb-2">
+                {% for item in gallery_items %}
+                  <button
+                    type="button"
+                    {% if forloop.counter0 >= 5 %}x-show="showAll" x-cloak{% endif %}
+                    {% if item.kind == "trailer" %}
+                      onclick="openTrailerModal('trailer-modal-{{ poster_seed }}')"
+                    {% else %}
+                      @click="openLightbox({{ item.index }})"
+                    {% endif %}
+                    class="relative w-44 sm:w-60 aspect-video flex-none rounded-lg overflow-hidden bg-base-300 group"
+                  >
+                    <img src="{{ item.thumbnail_url }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover group-hover:brightness-110">
+                    {% if item.kind == "trailer" %}
+                      <span class="absolute inset-0 bg-black/30 flex items-center justify-center group-hover:bg-black/50 transition-colors">
+                        <span class="w-11 h-11 rounded-full bg-black/70 ring-1 ring-white/30 flex items-center justify-center text-white">
+                          {% icon "play" "w-4 h-4 ml-0.5" %}
+                        </span>
+                      </span>
+                    {% endif %}
+                  </button>
+                {% endfor %}
+                {% if gallery_items|length > 5 %}
+                  <button
+                    type="button"
+                    x-show="!showAll"
+                    @click="showAll = true"
+                    class="w-44 sm:w-60 aspect-video flex-none rounded-lg bg-base-200 flex items-center justify-center text-sm font-medium text-ink-dim hover:text-base-content hover:bg-base-300"
+                  >+{{ gallery_items|length|add:"-5" }}</button>
                 {% endif %}
               </div>
-              <form method="dialog" class="modal-backdrop bg-black/80"><button>close</button></form>
-            </dialog>
-          </div>
-          </section>
-        {% endif %}
-        {% if director or cast %}
-          <section class="section">
-            <div class="section-head">
-              <h2 class="section-title">Top Cast</h2>
-              <button type="button" class="section-link" @click="go('cast'); window.scrollTo({ top: 0 })">All cast &amp; crew &rarr;</button>
+
+              {% comment %}
+                The lightbox - one per page (like the trailer dialog above),
+                reused across every still tile. @close clears the <img> src
+                so a large image isn't left decoded in memory/re-shown stale
+                for a half-second the next time this same dialog opens.
+              {% endcomment %}
+              <dialog x-ref="lightbox" class="modal" @close="$refs.lightboxImg.src = ''">
+                <div class="modal-box max-w-5xl bg-base-200 p-2">
+                  <form method="dialog"><button class="btn btn-xs btn-circle btn-ghost absolute right-1.5 top-1.5 z-10 bg-base-300/90">✕</button></form>
+                  <img x-ref="lightboxImg" src="" alt="" class="w-full h-auto rounded-lg">
+                  {% if gallery_image_urls|length > 1 %}
+                    <button type="button" @click="step(-1)" aria-label="Previous image" class="btn btn-sm btn-circle absolute left-2 top-1/2 -translate-y-1/2 bg-base-300/90">{% icon "chevron-left" "w-4 h-4" %}</button>
+                    <button type="button" @click="step(1)" aria-label="Next image" class="btn btn-sm btn-circle absolute right-2 top-1/2 -translate-y-1/2 bg-base-300/90">{% icon "chevron-right" "w-4 h-4" %}</button>
+                  {% endif %}
+                </div>
+                <form method="dialog" class="modal-backdrop bg-black/80"><button>close</button></form>
+              </dialog>
             </div>
-            <div class="flex gap-5 overflow-x-auto scroll-row pb-2">
-              {% for actor in cast|slice:":10" %}
-                {% include "tracker/partials/title_person.html" with person=actor role=actor.character %}
+            </section>
+          {% endif %}
+          {% comment %}
+            Sits after Cast (rather than after Episodes) so
+            it reads right after Cast for movies too - title_episodes.html
+            renders nothing for a movie (no seasons), so this is the same
+            physical position either way, just written once instead of
+            branching on media_type.
+          {% endcomment %}
+          {% if status_badge or details.original_language_display or details.digital_release_date or details.budget or details.revenue or details.production_companies or details.countries_display %}
+            <section class="section">
+            <div class="section-head"><h2 class="section-title">Details</h2></div>
+            <div>
+              {% comment %}
+                Language/country each link back to Discover, pre-filtered to
+                everything else in that same language/from that same country
+                (views.discover already reads ?language=/?origin_country=,
+                the latter newly wired for exactly this - see its own
+                comment for why that's a plain query param rather than a
+                persisted setting: it naturally doesn't survive leaving this
+                page and coming back to a plain, unfiltered Discover URL).
+                Bold is the only "this is clickable" signal, deliberately -
+                everything else in this panel is already plain text at the
+                same size/weight, so a link needs to look different without
+                needing its own icon or underline to read as interactive.
+                Status reuses the exact same badge (label + color) the hero
+                above already computes (tmdb.status_badge) rather than the
+                raw TMDB status string ("Returning Series" instead of
+                "Ongoing", no color) this row used to just print as plain
+                text - one badge, shown in the two places this page cares
+                about it, via the shared chip_color_class filter.
+              {% endcomment %}
+              {% firstof preview_media_type title.media_type as details_media_type %}
+              <dl class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-x-8 gap-y-4">
+                {% if status_badge %}
+                  <div>
+                    <div class="text-xs text-ink-faint mb-1">Status</div>
+                    <span class="chip {{ status_badge.color|chip_color_class }}">{{ status_badge.label }}</span>
+                  </div>
+                {% endif %}
+                {% if details.original_language_display %}
+                  <div>
+                    <div class="text-xs text-ink-faint mb-0.5">Original language</div>
+                    <a href="{% url details_media_type|discover_url_name 'popular' %}?language={{ details.original_language_display.code }}" class="text-[13.5px] font-medium text-base-content hover:text-primary">
+                      {% if details.original_language_display.flag %}{{ details.original_language_display.flag }} {% endif %}{{ details.original_language_display.name }}
+                    </a>
+                  </div>
+                {% endif %}
+                {% if details.digital_release_date %}
+                  <div>
+                    <div class="text-xs text-ink-faint mb-0.5">Digital release</div>
+                    <div class="text-[13.5px]">{{ details.digital_release_date|date:"M j, Y" }}{% if details.digital_release_upcoming %} <span class="text-ink-faint">(upcoming)</span>{% endif %}</div>
+                  </div>
+                {% endif %}
+                {% if details.budget %}
+                  <div>
+                    <div class="text-xs text-ink-faint mb-0.5">Budget</div>
+                    <div class="text-[13.5px]">{{ details.budget|format_money }}</div>
+                  </div>
+                {% endif %}
+                {% if details.revenue %}
+                  <div>
+                    <div class="text-xs text-ink-faint mb-0.5">Revenue</div>
+                    <div class="text-[13.5px]">{{ details.revenue|format_money }}</div>
+                  </div>
+                {% endif %}
+                {% if details.production_companies %}
+                  <div>
+                    <div class="text-xs text-ink-faint mb-0.5">Production companies</div>
+                    <div class="text-[13.5px]">{{ details.production_companies|join:", " }}</div>
+                  </div>
+                {% endif %}
+                {% if details.countries_display %}
+                  <div>
+                    <div class="text-xs text-ink-faint mb-0.5">Country</div>
+                    <div class="text-[13.5px] flex flex-wrap gap-x-1.5">
+                      {% for country in details.countries_display %}
+                        <a href="{% url details_media_type|discover_url_name 'popular' %}?origin_country={{ country.code }}" class="font-medium hover:text-primary">{% if country.flag %}{{ country.flag }} {% endif %}{{ country.name }}</a>{% if not forloop.last %}<span class="text-ink-faint">,</span>{% endif %}
+                      {% endfor %}
+                    </div>
+                  </div>
+                {% endif %}
+              </dl>
+            </div>
+            </section>
+          {% endif %}
+                    {% if collection_parts %}
+            <section class="section">
+            <div class="section-head"><h2 class="section-title">Collection</h2></div>
+            <div class="media-row media-row-sm">
+              {% for item in collection_parts %}
+                {% include "tracker/partials/discover_tile.html" with item=item %}
               {% endfor %}
             </div>
-          </section>
-        {% endif %}
-        {% if collection_parts %}
-          <section class="section">
-          <div class="section-head"><h2 class="section-title">Collection</h2></div>
-          <div class="media-row media-row-sm">
-            {% for item in collection_parts %}
-              {% include "tracker/partials/discover_tile.html" with item=item %}
-            {% endfor %}
+            </section>
+          {% endif %}
+        </div>
+
+        {% if director or cast %}
+          <div x-show="tab === 'cast'" x-cloak role="tabpanel">
+            <h2 class="sr-only">Cast &amp; Crew</h2>
+            <div class="grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-x-4 gap-y-6">
+              {% if director %}
+                {% include "tracker/partials/title_person.html" with person=director role="Director" grid=True %}
+              {% endif %}
+              {% for actor in cast %}
+                {% include "tracker/partials/title_person.html" with person=actor role=actor.character grid=True %}
+              {% endfor %}
+            </div>
           </div>
-          </section>
         {% endif %}
-        {% if similar %}
-          <section class="section">
-          <div class="section-head"><h2 class="section-title">More Like This</h2></div>
-          <div class="media-row media-row-sm">
-            {% for item in similar %}
-              {% include "tracker/partials/discover_tile.html" with item=item %}
-            {% endfor %}
+
+
+        {% if not is_preview %}
+          <div x-show="tab === 'activity'" x-cloak role="tabpanel" class="max-w-2xl">
+            {% include "tracker/partials/title_history_card.html" with progress=progress recent_events=recent_events %}
           </div>
-          </section>
         {% endif %}
       </div>
-      {% if seasons %}
-        <div x-show="tab === 'episodes'" role="tabpanel">
-          {% include "tracker/partials/title_episodes.html" %}
-        </div>
-      {% endif %}
-      {% if director or cast %}
-        <div x-show="tab === 'cast'" x-cloak role="tabpanel">
-          <h2 class="sr-only">Cast &amp; Crew</h2>
-          <div class="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-x-5 gap-y-7">
-            {% if director %}
-              {% include "tracker/partials/title_person.html" with person=director role="Director" grid=True %}
-            {% endif %}
-            {% for actor in cast %}
-              {% include "tracker/partials/title_person.html" with person=actor role=actor.character grid=True %}
-            {% endfor %}
-          </div>
-        </div>
-      {% endif %}
-      <div x-show="tab === 'details'" x-cloak role="tabpanel">
-        {% comment %}
-          Sits after Cast (rather than after Episodes) so
-          it reads right after Cast for movies too - title_episodes.html
-          renders nothing for a movie (no seasons), so this is the same
-          physical position either way, just written once instead of
-          branching on media_type.
-        {% endcomment %}
-        {% if status_badge or details.original_language_display or details.digital_release_date or details.budget or details.revenue or details.production_companies or details.countries_display %}
-          <section>
-          <div class="section-head"><h2 class="section-title">Details</h2></div>
-          <div>
-            {% comment %}
-              Language/country each link back to Discover, pre-filtered to
-              everything else in that same language/from that same country
-              (views.discover already reads ?language=/?origin_country=,
-              the latter newly wired for exactly this - see its own
-              comment for why that's a plain query param rather than a
-              persisted setting: it naturally doesn't survive leaving this
-              page and coming back to a plain, unfiltered Discover URL).
-              Bold is the only "this is clickable" signal, deliberately -
-              everything else in this panel is already plain text at the
-              same size/weight, so a link needs to look different without
-              needing its own icon or underline to read as interactive.
-              Status reuses the exact same badge (label + color) the hero
-              above already computes (tmdb.status_badge) rather than the
-              raw TMDB status string ("Returning Series" instead of
-              "Ongoing", no color) this row used to just print as plain
-              text - one badge, shown in the two places this page cares
-              about it, via the shared chip_color_class filter.
-            {% endcomment %}
-            {% firstof preview_media_type title.media_type as details_media_type %}
-            <dl class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-x-8 gap-y-4">
-              {% if status_badge %}
-                <div>
-                  <div class="text-xs text-ink-faint mb-1">Status</div>
-                  <span class="chip {{ status_badge.color|chip_color_class }}">{{ status_badge.label }}</span>
-                </div>
-              {% endif %}
-              {% if details.original_language_display %}
-                <div>
-                  <div class="text-xs text-ink-faint mb-0.5">Original language</div>
-                  <a href="{% url details_media_type|discover_url_name 'popular' %}?language={{ details.original_language_display.code }}" class="text-[13.5px] font-medium text-base-content hover:text-primary">
-                    {% if details.original_language_display.flag %}{{ details.original_language_display.flag }} {% endif %}{{ details.original_language_display.name }}
-                  </a>
-                </div>
-              {% endif %}
-              {% if details.digital_release_date %}
-                <div>
-                  <div class="text-xs text-ink-faint mb-0.5">Digital release</div>
-                  <div class="text-[13.5px]">{{ details.digital_release_date|date:"M j, Y" }}{% if details.digital_release_upcoming %} <span class="text-ink-faint">(upcoming)</span>{% endif %}</div>
-                </div>
-              {% endif %}
-              {% if details.budget %}
-                <div>
-                  <div class="text-xs text-ink-faint mb-0.5">Budget</div>
-                  <div class="text-[13.5px]">{{ details.budget|format_money }}</div>
-                </div>
-              {% endif %}
-              {% if details.revenue %}
-                <div>
-                  <div class="text-xs text-ink-faint mb-0.5">Revenue</div>
-                  <div class="text-[13.5px]">{{ details.revenue|format_money }}</div>
-                </div>
-              {% endif %}
-              {% if details.production_companies %}
-                <div>
-                  <div class="text-xs text-ink-faint mb-0.5">Production companies</div>
-                  <div class="text-[13.5px]">{{ details.production_companies|join:", " }}</div>
-                </div>
-              {% endif %}
-              {% if details.countries_display %}
-                <div>
-                  <div class="text-xs text-ink-faint mb-0.5">Country</div>
-                  <div class="text-[13.5px] flex flex-wrap gap-x-1.5">
-                    {% for country in details.countries_display %}
-                      <a href="{% url details_media_type|discover_url_name 'popular' %}?origin_country={{ country.code }}" class="font-medium hover:text-primary">{% if country.flag %}{{ country.flag }} {% endif %}{{ country.name }}</a>{% if not forloop.last %}<span class="text-ink-faint">,</span>{% endif %}
-                    {% endfor %}
-                  </div>
-                </div>
-              {% endif %}
-            </dl>
-          </div>
-          </section>
-        {% endif %}
-      </div>
-      {% if not is_preview %}
-        <div x-show="tab === 'activity'" x-cloak role="tabpanel" class="max-w-2xl">
-          {% include "tracker/partials/title_history_card.html" with progress=progress recent_events=recent_events %}
-        </div>
-      {% endif %}
     </div>
 
-    {# Secondary rail - sticky beside every tab on desktop; on phones it only shows under Overview so it never trails an episode list. #}
-    <aside class="title-rail min-w-0 lg:sticky lg:top-[7.5rem] lg:self-start flex flex-col gap-9" :class="tab === 'overview' ? '' : 'max-lg:hidden'">
+    {# Rail of panels - beside every tab on desktop; on phones only under Overview so it never trails an episode list. #}
+    <aside class="title-rail min-w-0 flex flex-col gap-5" :class="tab === 'overview' ? '' : 'max-lg:hidden'">
       {% if not is_preview %}
         <section id="your-rating" class="scroll-mt-20">
           <h2 class="subhead mb-2">Your rating</h2>
@@ -660,6 +649,26 @@
       {% endif %}
 
       {% include "tracker/partials/recommend_card.html" %}
+
+      {% if similar %}
+        <section>
+          <h2 class="subhead">More Like This</h2>
+          <div class="grid grid-cols-2 gap-x-3 gap-y-5">
+            {% for item in similar|slice:":4" %}
+              {% include "tracker/partials/discover_tile.html" with item=item width_class="min-w-0" %}
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
+
+      {% if details.genres %}
+        <section>
+          <h2 class="subhead">Genres</h2>
+          <div class="flex flex-wrap gap-1.5">
+            {% for genre in details.genres %}<span class="inline-flex items-center h-7 px-3 rounded-full bg-base-300 text-[13px] text-ink-dim">{{ genre }}</span>{% endfor %}
+          </div>
+        </section>
+      {% endif %}
     </aside>
   </div>
   </div>
