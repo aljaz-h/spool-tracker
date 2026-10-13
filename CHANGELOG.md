@@ -69,6 +69,14 @@ as usual.
 - Trakt JSON imports keep ratings; Trakt's own Watchlist maps onto the
   profile's Watchlist.
 
+### Security
+
+- WebDAV backup addresses are checked before every request: loopback,
+  link-local/cloud-metadata and other special addresses are refused,
+  local-network addresses are allowed only for the server owner,
+  redirects aren't followed, and errors don't echo the remote response
+  (CodeQL "full server-side request forgery").
+
 ## [0.144.0] - 2026-10-04
 
 ### Changed
