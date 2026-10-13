@@ -28,7 +28,15 @@
       const t = e.target;
       if (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
       const input = document.getElementById('global-search-input');
-      if (!input || !input.offsetParent) return;
+      // Below 2xl the top bar shows a search icon instead of the field -
+      // "/" then opens the Search page (desktop only; phones have no "/").
+      if (!input || !input.offsetParent) {
+        if (window.innerWidth >= 1024 && !location.pathname.startsWith('/search')) {
+          e.preventDefault();
+          location.href = '{% url "search" %}';
+        }
+        return;
+      }
       e.preventDefault();
       input.focus();
       input.select();

@@ -20,34 +20,34 @@
     </a>
     <nav aria-label="Primary" class="hidden lg:flex items-center h-full">
       {% url 'dashboard' as home_url %}
-      {% include "tracker/partials/nav_top_item.html" with href=home_url label="Home" is_active=url_name|eq:"dashboard" %}
+      {% include "tracker/partials/nav_top_item.html" with href=home_url label="Home" icon_name="home" is_active=url_name|eq:"dashboard" %}
       <span class="w-px h-4 bg-line mx-1.5 xl:mx-2" aria-hidden="true"></span>
       {% url 'movies' category="trending" as movies_url %}
-      {% include "tracker/partials/nav_top_item.html" with href=movies_url label="Movies" is_active=url_name|eq:"movies" %}
+      {% include "tracker/partials/nav_top_item.html" with href=movies_url label="Movies" icon_name="clapperboard" is_active=url_name|eq:"movies" %}
       {% url 'tv' category="trending" as tv_url %}
-      {% include "tracker/partials/nav_top_item.html" with href=tv_url label="TV Shows" is_active=url_name|eq:"tv" %}
+      {% include "tracker/partials/nav_top_item.html" with href=tv_url label="TV Shows" icon_name="tv" is_active=url_name|eq:"tv" %}
       {% url 'anime' category="trending" as anime_url %}
-      {% include "tracker/partials/nav_top_item.html" with href=anime_url label="Anime" is_active=url_name|eq:"anime" %}
+      {% include "tracker/partials/nav_top_item.html" with href=anime_url label="Anime" icon_name="sparkles" is_active=url_name|eq:"anime" %}
       <span class="w-px h-4 bg-line mx-1.5 xl:mx-2" aria-hidden="true"></span>
       {% url 'calendar' as calendar_url %}
-      {% include "tracker/partials/nav_top_item.html" with href=calendar_url label="Calendar" is_active=url_name|eq:"calendar" %}
+      {% include "tracker/partials/nav_top_item.html" with href=calendar_url label="Calendar" icon_name="calendar-days" is_active=url_name|eq:"calendar" %}
       {% url 'history' as history_url %}
-      {% include "tracker/partials/nav_top_item.html" with href=history_url label="History" is_active=url_name|in_list:"history,member_history" %}
+      {% include "tracker/partials/nav_top_item.html" with href=history_url label="History" icon_name="history" is_active=url_name|in_list:"history,member_history" %}
       {% url 'lists' as lists_url %}
-      {% include "tracker/partials/nav_top_item.html" with href=lists_url label="Lists" is_active=url_name|in_list:"lists,list_detail" %}
+      {% include "tracker/partials/nav_top_item.html" with href=lists_url label="Lists" icon_name="list-checks" is_active=url_name|in_list:"lists,list_detail" %}
       {% url 'stats' as stats_url %}
-      {% include "tracker/partials/nav_top_item.html" with href=stats_url label="Stats" is_active=url_name|in_list:"stats,member_stats" %}
+      {% include "tracker/partials/nav_top_item.html" with href=stats_url label="Stats" icon_name="bar-chart-3" is_active=url_name|in_list:"stats,member_stats" %}
       {% if show_activity_nav %}
         {% url 'activity' as activity_url %}
-        {% include "tracker/partials/nav_top_item.html" with href=activity_url label="Activity" is_active=url_name|eq:"activity" %}
+        {% include "tracker/partials/nav_top_item.html" with href=activity_url label="Activity" icon_name="users" is_active=url_name|eq:"activity" %}
       {% endif %}
     </nav>
   </div>
 
-  {# Search: a field from xl:, an icon link to the Search page between lg: and xl: so the links above keep their room. #}
+  {# Search: a field from 2xl:, an icon link to the Search page between lg: and 2xl: so the links above (with icons from xl:) keep their room. #}
   <div class="hidden lg:flex min-w-0 col-start-2 justify-self-end w-full justify-end">
-    <a href="{% url 'search' %}" class="xl:hidden w-9 h-9 flex-none rounded-lg flex items-center justify-center text-ink-dim hover:text-base-content hover:bg-base-300" aria-label="Search" title="Search">{% icon "search" "w-[18px] h-[18px]" %}</a>
-    <form method="get" action="{% url 'search' %}" role="search" class="hidden xl:flex field w-full max-w-[360px] h-10 rounded-lg">
+    <a href="{% url 'search' %}" class="2xl:hidden w-9 h-9 flex-none rounded-lg flex items-center justify-center text-ink-dim hover:text-base-content hover:bg-base-300" aria-label="Search" title="Search">{% icon "search" "w-[18px] h-[18px]" %}</a>
+    <form method="get" action="{% url 'search' %}" role="search" class="hidden 2xl:flex field w-full max-w-[360px] h-10 rounded-lg">
       {% icon "search" "w-4 h-4 text-ink-faint flex-none" %}
       <input
         type="text" name="q" value="{{ request.GET.q }}"
@@ -200,7 +200,7 @@
             class="w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-semibold border-2 flex-none {% if active_profile.avatar_image %}bg-cover bg-center{% endif %}"
             style="border-color:{{ active_profile.avatar_color }};{% if active_profile.avatar_image %}background-image:url('{{ active_profile.avatar_image.url }}'){% else %}background:{{ active_profile.avatar_color }};color:#fff;{% endif %}"
           >{% if not active_profile.avatar_image %}{{ active_profile.display_name|first|upper }}{% endif %}</div>
-          <span class="hidden xl:inline text-[13px] font-medium text-base-content truncate max-w-[110px]">{{ active_profile.display_name }}</span>
+          <span class="hidden 2xl:inline text-[13px] font-medium text-base-content truncate max-w-[110px]">{{ active_profile.display_name }}</span>
           <span class="hidden sm:flex flex-none transition-transform" :class="open ? 'rotate-180' : ''">
             {% icon "chevron-down" "w-3.5 h-3.5 text-ink-dim" %}
           </span>

@@ -1,9 +1,9 @@
 {% load icons tracker_extras %}
-{# context: none explicit - reads request.resolver_match directly, same as sidebar.html/topbar.html. Mobile/tablet-only (lg:hidden) tab bar docked to the bottom edge - at lg: and up the desktop sidebar (sidebar.html) takes over. #}
+{# context: none explicit - reads request.resolver_match directly, same as topbar.html. Mobile/tablet-only (lg:hidden) tab bar: a floating frosted-glass capsule above the bottom edge (.glass-bar in app.css), the current tab on its own lighter pill. At lg: and up the top bar's links take over. #}
 {% with url_name=request.resolver_match.url_name %}
 <nav
   aria-label="Primary"
-  class="lg:hidden fixed inset-x-0 bottom-0 z-40 flex items-stretch px-1 pb-[env(safe-area-inset-bottom)] bg-[#0b0d10]/95 backdrop-blur border-t border-line"
+  class="glass-bar lg:hidden fixed inset-x-3 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-[440px] bottom-[calc(0.625rem+env(safe-area-inset-bottom))] z-40 flex items-stretch p-1.5 rounded-[28px]"
 >
   {% url 'dashboard' as home_url %}
   {% include "tracker/partials/nav_item_bottom.html" with href=home_url icon_name="home" label="Home" is_active=url_name|eq:"dashboard" %}
@@ -40,8 +40,8 @@
     :aria-expanded="mobileSearchOpen.toString()"
     aria-haspopup="true"
     aria-label="Search"
-    class="flex flex-col items-center justify-center gap-1 flex-1 h-14 text-[12px] font-medium"
-    :class="mobileSearchOpen ? 'text-primary' : 'text-ink-faint'"
+    class="glass-tab"
+    :class="mobileSearchOpen && 'is-active'"
   >
     {% icon "search" "w-[22px] h-[22px]" %}
     <span>Search</span>
@@ -52,8 +52,8 @@
     @click="bottomSheetOpen = true"
     :aria-expanded="bottomSheetOpen.toString()"
     aria-haspopup="dialog"
-    class="flex flex-col items-center justify-center gap-1 flex-1 h-14 text-[12px] font-medium"
-    :class="bottomSheetOpen ? 'text-primary' : 'text-ink-faint'"
+    class="glass-tab"
+    :class="bottomSheetOpen && 'is-active'"
   >
     {% icon "ellipsis" "w-[22px] h-[22px]" %}
     <span>More</span>
