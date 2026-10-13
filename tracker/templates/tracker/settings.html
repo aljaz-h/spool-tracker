@@ -114,7 +114,7 @@
       {% endif %}
     </nav>
 
-    <div class="flex-1 min-w-0">
+    <div class="flex-1 min-w-0 w-full">
 
       {# ==================== ACCOUNT ==================== #}
       <div x-show="tab === 'account'" x-cloak
@@ -711,74 +711,29 @@
         <div
           x-show="tab === 'server_integrations'" x-cloak
           x-data="{ showTraktSecret: false, showSimklSecret: false, showTmdb: false, showMdblist: false, showSsoSecret: false, showGoogleSecret: false, showDropboxSecret: false }"
-          class="settings-panel max-w-2xl"
+          class="flex flex-col gap-8 max-w-3xl min-w-0"
         >
-          <h3 class="text-lg mb-1">Server Integrations</h3>
-          <div class="text-ink-dim text-xs mb-3.5">Overrides the server's .env values for Trakt/Simkl/TMDB — leave a field blank to keep what's already set.</div>
-          <form method="post" action="{% url 'save_instance_config' %}" class="space-y-3">
+          <div>
+            <h3 class="text-lg font-semibold mb-1">Server Integrations</h3>
+            <div class="text-ink-dim text-xs">Credentials for the services Spool talks to. Values here override the server's .env - leave a field blank to keep what's already set.</div>
+          </div>
+          <form method="post" action="{% url 'save_instance_config' %}" class="flex flex-col gap-8 min-w-0">
             {% csrf_token %}
-            <div>
-              <div class="flex items-center justify-between mb-1">
-                <label class="block text-xs text-ink-dim">Trakt Client ID {% if trakt_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
-                {% if trakt_configured %}
-                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'trakt' %}" onclick="return confirm('Clear the stored Trakt client ID and secret? Spool will fall back to the server .env values, if any.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
-                {% endif %}
-              </div>
-              <input type="text" name="trakt_client_id" value="{{ integration_field_values.trakt_client_id|default:'' }}" @keydown.enter.prevent placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono">
+        <div class="settings-panel">
+          <h3 class="text-lg mb-1">Movie &amp; TV data</h3>
+          <div class="text-ink-dim text-xs mb-4">TMDB supplies posters, details and release dates; MDBList adds extra ratings.</div>
+          <div class="divide-y divide-line min-w-0 [&>div]:pb-5 [&>div:last-child]:pb-0">
+          <div class="pt-5 first:pt-0">
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <div class="text-sm font-semibold">TMDB API key {% if tmdb_configured %}<span class="text-success font-normal">&#10003; configured</span>{% else %}<span class="text-ink-faint font-normal">&#9675; not configured</span>{% endif %}</div>
+              {% if tmdb_configured %}
+                <button type="submit" formaction="{% url 'clear_instance_config_field' 'tmdb' %}" onclick="return confirm('Clear the stored TMDB API key? Spool will fall back to the server .env value, if any.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
+              {% endif %}
             </div>
-            <div>
-              <label class="block text-xs text-ink-dim mb-1">Trakt Client Secret</label>
-              <div class="flex gap-1.5">
-                <div class="relative flex-1">
-                  <input :type="showTraktSecret ? 'text' : 'password'" name="trakt_client_secret" value="{{ integration_field_values.trakt_client_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
-                  <button type="button" @click="showTraktSecret = !showTraktSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
-                    <span x-show="!showTraktSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
-                    <span x-show="showTraktSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
-                  </button>
-                </div>
-                <button
-                  type="submit" formaction="{% url 'test_provider_credentials' 'trakt' %}"
-                  data-tooltip="Makes a live request to Trakt using the values above (without saving them) - only confirms the client ID is live, since Trakt doesn't check the secret outside the OAuth flow"
-                  class="btn btn-sm btn-soft shrink-0 spool-tooltip"
-                >Test</button>
-              </div>
-            </div>
-            <div>
-              <div class="flex items-center justify-between mb-1">
-                <label class="block text-xs text-ink-dim">Simkl Client ID {% if simkl_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
-                {% if simkl_configured %}
-                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'simkl' %}" onclick="return confirm('Clear the stored Simkl client ID and secret? Spool will fall back to the server .env values, if any.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
-                {% endif %}
-              </div>
-              <input type="text" name="simkl_client_id" value="{{ integration_field_values.simkl_client_id|default:'' }}" @keydown.enter.prevent placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono">
-            </div>
-            <div>
-              <label class="block text-xs text-ink-dim mb-1">Simkl Client Secret</label>
-              <div class="flex gap-1.5">
-                <div class="relative flex-1">
-                  <input :type="showSimklSecret ? 'text' : 'password'" name="simkl_client_secret" value="{{ integration_field_values.simkl_client_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
-                  <button type="button" @click="showSimklSecret = !showSimklSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
-                    <span x-show="!showSimklSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
-                    <span x-show="showSimklSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
-                  </button>
-                </div>
-                <button
-                  type="submit" formaction="{% url 'test_provider_credentials' 'simkl' %}"
-                  data-tooltip="Makes a live request to Simkl using the values above (without saving them) - best effort, Simkl's API beyond OAuth isn't fully documented"
-                  class="btn btn-sm btn-soft shrink-0 spool-tooltip"
-                >Test</button>
-              </div>
-            </div>
-            <div>
-              <div class="flex items-center justify-between mb-1">
-                <label class="block text-xs text-ink-dim">TMDB API Key {% if tmdb_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
-                {% if tmdb_configured %}
-                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'tmdb' %}" onclick="return confirm('Clear the stored TMDB API key? Spool will fall back to the server .env value, if any.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
-                {% endif %}
-              </div>
-              <div class="flex gap-1.5">
-                <div class="relative flex-1">
-                  <input :type="showTmdb ? 'text' : 'password'" name="tmdb_api_key" value="{{ integration_field_values.tmdb_api_key|default:'' }}" @keydown.enter.prevent placeholder="{% if tmdb_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
+            <label class="sr-only" for="si-tmdb_api_key">TMDB API key</label>
+            <div class="flex gap-1.5">
+                <div class="relative flex-1 min-w-0">
+                  <input :type="showTmdb ? 'text' : 'password'" id="si-tmdb_api_key" name="tmdb_api_key" value="{{ integration_field_values.tmdb_api_key|default:'' }}" @keydown.enter.prevent placeholder="{% if tmdb_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
                   <button type="button" @click="showTmdb = !showTmdb" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
                     <span x-show="!showTmdb">{% icon "eye" "w-3.5 h-3.5" %}</span>
                     <span x-show="showTmdb" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
@@ -789,18 +744,19 @@
                   data-tooltip="Makes a live request to TMDB using the value above (without saving it) - fully validates the key"
                   class="btn btn-sm btn-soft shrink-0 spool-tooltip"
                 >Test</button>
-              </div>
             </div>
-            <div>
-              <div class="flex items-center justify-between mb-1">
-                <label class="block text-xs text-ink-dim">MDBList API Key {% if mdblist_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
-                {% if mdblist_configured %}
-                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'mdblist' %}" onclick="return confirm('Clear the stored MDBList API key? This turns off supplementary ratings on title pages until a new key is set.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
-                {% endif %}
-              </div>
-              <div class="flex gap-1.5">
-                <div class="relative flex-1">
-                  <input :type="showMdblist ? 'text' : 'password'" name="mdblist_api_key" value="{{ integration_field_values.mdblist_api_key|default:'' }}" @keydown.enter.prevent placeholder="{% if mdblist_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
+          </div>
+          <div class="pt-5 first:pt-0">
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <div class="text-sm font-semibold">MDBList API key {% if mdblist_configured %}<span class="text-success font-normal">&#10003; configured</span>{% else %}<span class="text-ink-faint font-normal">&#9675; not configured</span>{% endif %}</div>
+              {% if mdblist_configured %}
+                <button type="submit" formaction="{% url 'clear_instance_config_field' 'mdblist' %}" onclick="return confirm('Clear the stored MDBList API key? This turns off supplementary ratings on title pages until a new key is set.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
+              {% endif %}
+            </div>
+            <label class="sr-only" for="si-mdblist_api_key">MDBList API key</label>
+            <div class="flex gap-1.5">
+                <div class="relative flex-1 min-w-0">
+                  <input :type="showMdblist ? 'text' : 'password'" id="si-mdblist_api_key" name="mdblist_api_key" value="{{ integration_field_values.mdblist_api_key|default:'' }}" @keydown.enter.prevent placeholder="{% if mdblist_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
                   <button type="button" @click="showMdblist = !showMdblist" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
                     <span x-show="!showMdblist">{% icon "eye" "w-3.5 h-3.5" %}</span>
                     <span x-show="showMdblist" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
@@ -811,76 +767,173 @@
                   data-tooltip="Makes a live request to MDBList using the value above (without saving it) - fully validates the key"
                   class="btn btn-sm btn-soft shrink-0 spool-tooltip"
                 >Test</button>
-              </div>
-              <div class="text-ink-dim text-[12px] mt-1">Optional - adds IMDb/Rotten Tomatoes/Metacritic/Trakt pills to a title's page. Get a free key at mdblist.com/api.</div>
             </div>
-            <div class="pt-1 border-t border-line">
-              <div class="flex items-center justify-between mt-3 mb-1">
-                <div class="text-xs font-semibold">Google Drive backups {% if gdrive_backup_configured %}<span class="text-success font-normal">&#10003; configured</span>{% else %}<span class="text-ink-faint font-normal">&#9675; not configured</span>{% endif %}</div>
-                {% if gdrive_backup_configured %}
-                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'gdrive' %}" onclick="return confirm('Clear the stored Google Drive app credentials? Profiles backing up to Google Drive will start failing until they are set again.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
-                {% endif %}
-              </div>
-              <div class="text-ink-dim text-[12px] mb-2">Lets every profile back up to its own Google Drive (Settings → Import &amp; Export). Register this redirect URI with the app: <span class="font-mono break-all text-ink">{{ backup_redirect_uris.gdrive }}</span> &mdash; see docs/BACKUPS.md.</div>
-              <div class="grid sm:grid-cols-2 gap-2">
-                <div>
-                  <label class="block text-xs text-ink-dim mb-1">Client ID</label>
-                  <input type="text" name="google_client_id" value="{{ integration_field_values.google_client_id|default:'' }}" @keydown.enter.prevent placeholder="{% if gdrive_backup_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono">
-                </div>
-                <div>
-                  <label class="block text-xs text-ink-dim mb-1">Client Secret</label>
-                  <div class="relative">
-                    <input :type="showGoogleSecret ? 'text' : 'password'" name="google_client_secret" value="{{ integration_field_values.google_client_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if gdrive_backup_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
-                    <button type="button" @click="showGoogleSecret = !showGoogleSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
-                      <span x-show="!showGoogleSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
-                      <span x-show="showGoogleSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
+            <div class="text-ink-dim text-[12px] mt-1.5">Optional - adds IMDb/Rotten Tomatoes/Metacritic/Trakt pills to a title's page. Get a free key at mdblist.com/api.</div>
+          </div>
+          </div>
+        </div>
+        <div class="settings-panel">
+          <h3 class="text-lg mb-1">Trakt &amp; Simkl</h3>
+          <div class="text-ink-dim text-xs mb-4">Lets profiles connect their Trakt or Simkl account to import and sync their history.</div>
+          <div class="divide-y divide-line min-w-0 [&>div]:pb-5 [&>div:last-child]:pb-0">
+          <div class="pt-5 first:pt-0">
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <div class="text-sm font-semibold">Trakt {% if trakt_configured %}<span class="text-success font-normal">&#10003; configured</span>{% else %}<span class="text-ink-faint font-normal">&#9675; not configured</span>{% endif %}</div>
+              {% if trakt_configured %}
+                <button type="submit" formaction="{% url 'clear_instance_config_field' 'trakt' %}" onclick="return confirm('Clear the stored Trakt client ID and secret? Spool will fall back to the server .env values, if any.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
+              {% endif %}
             </div>
-            <div class="pt-1 border-t border-line">
-              <div class="flex items-center justify-between mt-3 mb-1">
-                <div class="text-xs font-semibold">Dropbox backups {% if dropbox_backup_configured %}<span class="text-success font-normal">&#10003; configured</span>{% else %}<span class="text-ink-faint font-normal">&#9675; not configured</span>{% endif %}</div>
-                {% if dropbox_backup_configured %}
-                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'dropbox' %}" onclick="return confirm('Clear the stored Dropbox app credentials? Profiles backing up to Dropbox will start failing until they are set again.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
-                {% endif %}
+            <div class="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs text-ink-dim mb-1" for="si-trakt_client_id">Client ID</label>
+                <input type="text" id="si-trakt_client_id" name="trakt_client_id" value="{{ integration_field_values.trakt_client_id|default:'' }}" @keydown.enter.prevent placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono">
               </div>
-              <div class="text-ink-dim text-[12px] mb-2">Lets every profile back up to its own Dropbox (Settings → Import &amp; Export). Register this redirect URI with the app: <span class="font-mono break-all text-ink">{{ backup_redirect_uris.dropbox }}</span> &mdash; see docs/BACKUPS.md.</div>
-              <div class="grid sm:grid-cols-2 gap-2">
-                <div>
-                  <label class="block text-xs text-ink-dim mb-1">App key</label>
-                  <input type="text" name="dropbox_app_key" value="{{ integration_field_values.dropbox_app_key|default:'' }}" @keydown.enter.prevent placeholder="{% if dropbox_backup_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono">
+              <div>
+                <label class="block text-xs text-ink-dim mb-1" for="si-trakt_client_secret">Client secret</label>
+                <div class="flex gap-1.5">
+                <div class="relative flex-1 min-w-0">
+                  <input :type="showTraktSecret ? 'text' : 'password'" id="si-trakt_client_secret" name="trakt_client_secret" value="{{ integration_field_values.trakt_client_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
+                  <button type="button" @click="showTraktSecret = !showTraktSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                    <span x-show="!showTraktSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                    <span x-show="showTraktSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                  </button>
                 </div>
-                <div>
-                  <label class="block text-xs text-ink-dim mb-1">App secret</label>
-                  <div class="relative">
-                    <input :type="showDropboxSecret ? 'text' : 'password'" name="dropbox_app_secret" value="{{ integration_field_values.dropbox_app_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if dropbox_backup_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
-                    <button type="button" @click="showDropboxSecret = !showDropboxSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
-                      <span x-show="!showDropboxSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
-                      <span x-show="showDropboxSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
-                    </button>
-                  </div>
+                <button
+                  type="submit" formaction="{% url 'test_provider_credentials' 'trakt' %}"
+                  data-tooltip="Makes a live request to Trakt using the values above (without saving them) - only confirms the client ID is live, since Trakt doesn't check the secret outside the OAuth flow"
+                  class="btn btn-sm btn-soft shrink-0 spool-tooltip"
+                >Test</button>
                 </div>
               </div>
             </div>
-            <div class="pt-1 border-t border-line">
-              <div class="text-xs font-semibold mt-3 mb-1">spool-wrapped</div>
-              <div class="text-ink-dim text-[12px] mb-2">Base URL and shared secret for the "Manage Wrapped" SSO handshake below - set identically to spool-wrapped's own SSO_SHARED_SECRET.</div>
-              <label class="block text-xs text-ink-dim mb-1">spool-wrapped URL</label>
-              <input type="url" name="spool_wrapped_url" value="{{ integration_field_values.spool_wrapped_url|default:cfg.spool_wrapped_url }}" @keydown.enter.prevent placeholder="https://wrapped.example.com" class="input input-sm w-full font-mono mb-2">
-              <div class="flex items-center justify-between mb-1">
-                <label class="block text-xs text-ink-dim">Shared Secret {% if sso_shared_secret_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
+          </div>
+          <div class="pt-5 first:pt-0">
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <div class="text-sm font-semibold">Simkl {% if simkl_configured %}<span class="text-success font-normal">&#10003; configured</span>{% else %}<span class="text-ink-faint font-normal">&#9675; not configured</span>{% endif %}</div>
+              {% if simkl_configured %}
+                <button type="submit" formaction="{% url 'clear_instance_config_field' 'simkl' %}" onclick="return confirm('Clear the stored Simkl client ID and secret? Spool will fall back to the server .env values, if any.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
+              {% endif %}
+            </div>
+            <div class="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs text-ink-dim mb-1" for="si-simkl_client_id">Client ID</label>
+                <input type="text" id="si-simkl_client_id" name="simkl_client_id" value="{{ integration_field_values.simkl_client_id|default:'' }}" @keydown.enter.prevent placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono">
               </div>
-              <div class="relative">
-                <input :type="showSsoSecret ? 'text' : 'password'" name="sso_shared_secret" value="{{ integration_field_values.sso_shared_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if sso_shared_secret_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
-                <button type="button" @click="showSsoSecret = !showSsoSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
-                  <span x-show="!showSsoSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
-                  <span x-show="showSsoSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
-                </button>
+              <div>
+                <label class="block text-xs text-ink-dim mb-1" for="si-simkl_client_secret">Client secret</label>
+                <div class="flex gap-1.5">
+                <div class="relative flex-1 min-w-0">
+                  <input :type="showSimklSecret ? 'text' : 'password'" id="si-simkl_client_secret" name="simkl_client_secret" value="{{ integration_field_values.simkl_client_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
+                  <button type="button" @click="showSimklSecret = !showSimklSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                    <span x-show="!showSimklSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                    <span x-show="showSimklSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                  </button>
+                </div>
+                <button
+                  type="submit" formaction="{% url 'test_provider_credentials' 'simkl' %}"
+                  data-tooltip="Makes a live request to Simkl using the values above (without saving them) - best effort, Simkl's API beyond OAuth isn't fully documented"
+                  class="btn btn-sm btn-soft shrink-0 spool-tooltip"
+                >Test</button>
+                </div>
               </div>
             </div>
-            <button type="submit" class="btn btn-sm btn-soft w-full">Save</button>
+          </div>
+          </div>
+        </div>
+        <div class="settings-panel">
+          <h3 class="text-lg mb-1">Cloud backups</h3>
+          <div class="text-ink-dim text-xs mb-4">Lets every profile back up to its own Google Drive or Dropbox (Settings → Import &amp; Export). Register the redirect URI with each app - see docs/BACKUPS.md.</div>
+          <div class="divide-y divide-line min-w-0 [&>div]:pb-5 [&>div:last-child]:pb-0">
+          <div class="pt-5 first:pt-0">
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <div class="text-sm font-semibold">Google Drive {% if gdrive_backup_configured %}<span class="text-success font-normal">&#10003; configured</span>{% else %}<span class="text-ink-faint font-normal">&#9675; not configured</span>{% endif %}</div>
+              {% if gdrive_backup_configured %}
+                <button type="submit" formaction="{% url 'clear_instance_config_field' 'gdrive' %}" onclick="return confirm('Clear the stored Google Drive app credentials? Profiles backing up to Google Drive will start failing until they are set again.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
+              {% endif %}
+            </div>
+            <div class="flex items-center gap-2 rounded-lg bg-base-200 px-3 py-2 mb-3 min-w-0" x-data="{ copied: false }">
+              <span class="text-[12px] text-ink-faint flex-none">Redirect URI</span>
+              <code class="flex-1 min-w-0 truncate font-mono text-[12px] text-ink" title="{{ backup_redirect_uris.gdrive }}">{{ backup_redirect_uris.gdrive }}</code>
+              <button type="button" @click="navigator.clipboard?.writeText('{{ backup_redirect_uris.gdrive|escapejs }}'); copied = true; setTimeout(() => copied = false, 1500)" class="text-[12px] text-ink-dim hover:text-base-content flex-none" x-text="copied ? 'Copied' : 'Copy'">Copy</button>
+            </div>
+            <div class="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs text-ink-dim mb-1" for="si-google_client_id">Client ID</label>
+                <input type="text" id="si-google_client_id" name="google_client_id" value="{{ integration_field_values.google_client_id|default:'' }}" @keydown.enter.prevent placeholder="{% if gdrive_backup_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono">
+              </div>
+              <div>
+                <label class="block text-xs text-ink-dim mb-1" for="si-google_client_secret">Client secret</label>
+                <div class="flex gap-1.5">
+                <div class="relative flex-1 min-w-0">
+                  <input :type="showGoogleSecret ? 'text' : 'password'" id="si-google_client_secret" name="google_client_secret" value="{{ integration_field_values.google_client_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if gdrive_backup_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
+                  <button type="button" @click="showGoogleSecret = !showGoogleSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                    <span x-show="!showGoogleSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                    <span x-show="showGoogleSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                  </button>
+                </div>
+                
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="pt-5 first:pt-0">
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <div class="text-sm font-semibold">Dropbox {% if dropbox_backup_configured %}<span class="text-success font-normal">&#10003; configured</span>{% else %}<span class="text-ink-faint font-normal">&#9675; not configured</span>{% endif %}</div>
+              {% if dropbox_backup_configured %}
+                <button type="submit" formaction="{% url 'clear_instance_config_field' 'dropbox' %}" onclick="return confirm('Clear the stored Dropbox app credentials? Profiles backing up to Dropbox will start failing until they are set again.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
+              {% endif %}
+            </div>
+            <div class="flex items-center gap-2 rounded-lg bg-base-200 px-3 py-2 mb-3 min-w-0" x-data="{ copied: false }">
+              <span class="text-[12px] text-ink-faint flex-none">Redirect URI</span>
+              <code class="flex-1 min-w-0 truncate font-mono text-[12px] text-ink" title="{{ backup_redirect_uris.dropbox }}">{{ backup_redirect_uris.dropbox }}</code>
+              <button type="button" @click="navigator.clipboard?.writeText('{{ backup_redirect_uris.dropbox|escapejs }}'); copied = true; setTimeout(() => copied = false, 1500)" class="text-[12px] text-ink-dim hover:text-base-content flex-none" x-text="copied ? 'Copied' : 'Copy'">Copy</button>
+            </div>
+            <div class="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs text-ink-dim mb-1" for="si-dropbox_app_key">App key</label>
+                <input type="text" id="si-dropbox_app_key" name="dropbox_app_key" value="{{ integration_field_values.dropbox_app_key|default:'' }}" @keydown.enter.prevent placeholder="{% if dropbox_backup_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono">
+              </div>
+              <div>
+                <label class="block text-xs text-ink-dim mb-1" for="si-dropbox_app_secret">App secret</label>
+                <div class="flex gap-1.5">
+                <div class="relative flex-1 min-w-0">
+                  <input :type="showDropboxSecret ? 'text' : 'password'" id="si-dropbox_app_secret" name="dropbox_app_secret" value="{{ integration_field_values.dropbox_app_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if dropbox_backup_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
+                  <button type="button" @click="showDropboxSecret = !showDropboxSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                    <span x-show="!showDropboxSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                    <span x-show="showDropboxSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                  </button>
+                </div>
+                
+                </div>
+              </div>
+            </div>
+          </div>
+          </div>
+        </div>
+        <div class="settings-panel">
+          <h3 class="text-lg mb-1">spool-wrapped</h3>
+          <div class="text-ink-dim text-xs mb-4">Base URL and shared secret for the "Manage Wrapped" SSO handshake - set identically to spool-wrapped's own SSO_SHARED_SECRET.</div>
+          <div class="grid sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs text-ink-dim mb-1" for="si-spool_wrapped_url">spool-wrapped URL</label>
+              <input type="url" id="si-spool_wrapped_url" name="spool_wrapped_url" value="{{ integration_field_values.spool_wrapped_url|default:cfg.spool_wrapped_url }}" @keydown.enter.prevent placeholder="https://wrapped.example.com" class="input input-sm w-full font-mono">
+            </div>
+            <div>
+              <label class="block text-xs text-ink-dim mb-1" for="si-sso_shared_secret">Shared secret {% if sso_shared_secret_configured %}<span class="text-success font-normal">&#10003; configured</span>{% else %}<span class="text-ink-faint font-normal">&#9675; not configured</span>{% endif %}</label>
+              <div class="relative flex-1 min-w-0">
+                  <input :type="showSsoSecret ? 'text' : 'password'" id="si-sso_shared_secret" name="sso_shared_secret" value="{{ integration_field_values.sso_shared_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if sso_shared_secret_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
+                  <button type="button" @click="showSsoSecret = !showSsoSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                    <span x-show="!showSsoSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                    <span x-show="showSsoSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                  </button>
+                </div>
+            </div>
+          </div>
+        </div>
+            <div class="flex flex-wrap items-center justify-end gap-3">
+              <span class="text-xs text-ink-faint">Blank fields keep their saved value.</span>
+              <button type="submit" class="btn btn-sm btn-primary px-6">Save</button>
+            </div>
           </form>
 
           {% comment %}
@@ -890,8 +943,8 @@
             so it's owner-only here rather than self-service there. Same
             show/hide-per-row + delete-with-confirm UX as that card.
           {% endcomment %}
-          <div class="mt-5 pt-3.5 border-t border-line">
-            <h4 class="text-sm font-semibold mb-1">Reports API keys</h4>
+          <div class="settings-panel">
+            <h3 class="text-lg mb-1">Reports API keys</h3>
             <div class="text-ink-dim text-[12px] mb-2">Read-only keys for external services (like spool-wrapped) to pull watch history for every profile that's opted in to Wrapped (Settings → Integrations).</div>
             {% for key in service_api_keys %}
               <div class="flex items-center gap-1.5 py-2 border-t border-line" x-data="{ show: false }">
@@ -922,10 +975,10 @@
               <input type="text" name="name" maxlength="60" required placeholder="e.g. spool-wrapped" aria-label="New key name" class="input input-sm flex-1 min-w-0">
               <button type="submit" class="btn btn-sm btn-soft flex-none">+ Add key</button>
             </form>
+            <a href="{% url 'manage_wrapped' %}" class="btn btn-sm btn-soft mt-3.5">Manage Wrapped →</a>
           </div>
 
-          <a href="{% url 'manage_wrapped' %}" class="btn btn-sm btn-soft w-full mt-3.5">Manage Wrapped →</a>
-          <a href="#" @click.prevent="setTab('logs')" class="block text-center text-xs text-ink-dim hover:text-base-content mt-3.5 pt-3.5 border-t border-line">View Logs →</a>
+          <a href="#" @click.prevent="setTab('logs')" class="text-xs text-ink-dim hover:text-base-content">View Logs →</a>
         </div>
 
         {# ==================== ADMIN: MAINTENANCE ==================== #}
