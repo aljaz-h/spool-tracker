@@ -1,13 +1,8 @@
 name: Build and publish Docker image
 
-# Disabled for pushes in this experimental repo: it publishes to
-# ghcr.io/aljaz-h/spool-tracker, the main Spool repo's image, which this
-# repo has no permission to write (every run failed with
-# "permission_denied: write_package"), and the Coolify deployment builds
-# from the Dockerfile itself rather than pulling this image. Still
-# runnable by hand from the Actions tab.
 on:
-  workflow_dispatch:
+  push:
+    branches: [master]
 
 jobs:
   build-and-push:
