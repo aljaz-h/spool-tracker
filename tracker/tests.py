@@ -16978,7 +16978,7 @@ class AnimeMalDetailContextTests(TestCase):
         mock_mal_details.return_value = self._mal_details()
         resp = self.client.get(reverse("title_detail", args=[self.anime.pk]))
         self.assertContains(resp, "Studio Pierrot")
-        self.assertContains(resp, "Source: Manga")
+        self.assertContains(resp, ">Source</span> Manga")
         self.assertContains(resp, "BLEACH - ブリーチ -")
 
     @patch("tracker.integrations.tenrai.get_episode_filler_map", return_value={})
