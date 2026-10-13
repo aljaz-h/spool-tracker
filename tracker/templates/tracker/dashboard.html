@@ -53,8 +53,8 @@
     Featured Lists) beside a 340px rail that leads with Up Next - so the
     two "what's next" signals sit side by side at the top - followed by
     the household material (friends' recommendations, This Month, On This
-    Day, Social Activity). Recommended closes the page as one tabbed
-    section instead of three stacked rows.
+    Day, Social Activity). The Recommended rows sit in the main column
+    under the watchlist, so the two columns stay similar in length.
   {% endcomment %}
   <div class="section grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_340px] gap-x-12 xl:gap-x-16 gap-y-12 items-start">
     <div class="min-w-0">
@@ -107,6 +107,30 @@
           </div>
         </section>
       {% endif %}
+
+      {% comment %}
+        Recommended for You: one row each for Movies, TV and Anime - TMDB's
+        "similar to X" recommendations aggregated across this profile's
+        recent history, falling back to a genre/provider preference
+        discover() for a profile with no history yet (see selectors.
+        recommended_for_you()). In the main column, under the watchlist,
+        so they fill the space beside the household rail rather than
+        trailing below it. An empty row is left out.
+      {% endcomment %}
+      {% for row_title, row in recommended_rows %}
+        {% if row %}
+          <section class="section">
+            <div class="section-head">
+              <h2 class="section-title">{{ row_title }}</h2>
+            </div>
+            <div class="media-row media-row-sm">
+              {% for item in row.results %}
+                {% include "tracker/partials/discover_tile.html" with item=item %}
+              {% endfor %}
+            </div>
+          </section>
+        {% endif %}
+      {% endfor %}
 
       {% include "tracker/partials/dashboard_featured_lists.html" %}
     </div>
@@ -176,42 +200,6 @@
     </aside>
   </div>
 
-  {% comment %}
-    Recommended for You: TMDB's "similar to X" recommendations aggregated
-    across this profile's recent history, falling back to a genre/provider
-    preference discover() for a profile with no history yet - see
-    selectors.recommended_for_you(). One section, one row at a time:
-    Movies/TV/Anime are tabs over panels that are all already rendered
-    (no extra request), and the first non-empty row is shown first.
-  {% endcomment %}
-  {% with r0=recommended_rows.0.1 r1=recommended_rows.1.1 r2=recommended_rows.2.1 %}
-  {% if r0 or r1 or r2 %}
-    <section class="section" x-data="{ rec: {% if r0 %}0{% elif r1 %}1{% else %}2{% endif %} }">
-      <div class="section-head items-center">
-        <h2 class="section-title">Recommended for You</h2>
-        <div class="seg" role="tablist" aria-label="Recommendation type">
-          {% for row_title, row in recommended_rows %}
-            {% if row %}
-              <button type="button" role="tab" class="seg-item" :class="rec === {{ forloop.counter0 }} && 'is-active'" :aria-selected="(rec === {{ forloop.counter0 }}).toString()" @click="rec = {{ forloop.counter0 }}">{{ row_title|cut:"Recommended " }}</button>
-            {% endif %}
-          {% endfor %}
-        </div>
-      </div>
-      {% for row_title, row in recommended_rows %}
-        {% if row %}
-          <div x-show="rec === {{ forloop.counter0 }}" {% if not forloop.first %}x-cloak{% endif %} role="tabpanel" aria-label="{{ row_title }}">
-            <h3 class="sr-only">{{ row_title }}</h3>
-            <div class="media-row">
-              {% for item in row.results %}
-                {% include "tracker/partials/discover_tile.html" with item=item %}
-              {% endfor %}
-            </div>
-          </div>
-        {% endif %}
-      {% endfor %}
-    </section>
-  {% endif %}
-  {% endwith %}
 {% endif %}
 
 {% endblock %}
