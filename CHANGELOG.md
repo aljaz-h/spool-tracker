@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.145.1] - 2026-10-13
+
+### Fixed
+
+- Dashboard's Continue Watching row now scrolls horizontally in one row
+  on desktop instead of wrapping into several full-height rows - a
+  profile with many in-progress titles no longer pushes the rest of the
+  Dashboard far down the page.
+
 ## [0.145.0] - 2026-10-13
 
 Merges the spool-tracker-experimental redesign and features. Runs three

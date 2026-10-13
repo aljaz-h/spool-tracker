@@ -39,7 +39,7 @@
       <div class="section-head">
         <h2 class="section-title">Continue Watching<span class="section-count">{{ continue_watching|length }}</span></h2>
       </div>
-      <div class="landscape-row landscape-row-wrap">
+      <div class="landscape-row landscape-row-scroll">
         {% for item in continue_watching %}
           {% include "tracker/partials/poster_card.html" with title=item.title progress=item width_class="min-w-0" %}
         {% endfor %}

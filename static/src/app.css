@@ -881,9 +881,30 @@
       margin-inline: 0;
       padding-inline: 0;
     }
-    .landscape-row.landscape-row-wrap {
-      grid-auto-rows: auto;
-      row-gap: 1.25rem;
+    /* Continue Watching: there's no "see all" link to fall back on for
+       whatever doesn't fit (unlike Recently Watched's plain .landscape-row,
+       clipped to one row with History -> next to it), so instead of either
+       clipping items away or wrapping into several full-height rows, this
+       keeps the same horizontal-scroll column flow the base class already
+       uses below 640px, just with a wider fixed card column instead of
+       mobile's 82%-of-viewport one. */
+    .landscape-row.landscape-row-scroll {
+      grid-auto-flow: column;
+      grid-auto-columns: 280px;
+      /* !important: the base rule's own grid-auto-rows: 0 (its
+         clip-to-one-row trick, see above) was still winning here even
+         though this selector has higher specificity and comes later in
+         the stylesheet - confirmed in-browser that only this property
+         was affected (grid-auto-flow/overflow-x from this same rule
+         applied fine) and that forcing it is what actually restores a
+         real row height instead of collapsing every card to 0px. */
+      grid-auto-rows: auto !important;
+      grid-template-columns: none;
+      grid-template-rows: none;
+      row-gap: 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scroll-snap-type: x mandatory;
     }
   }
 }
