@@ -127,12 +127,12 @@ controls and avatars. Shadows only on floating things — menus/popovers
   backdrop shows on the right and fades into the page on the left; a
   large poster on the left; then the type label, title, labelled facts
   (`.hero-facts` - small caps label, bright value: Directed by /
-  Released / Runtime / Seasons / Rated / Status), ratings, overview,
+  Released / Runtime / Seasons / Rated / Status), genre chips, ratings, overview,
   actions, show progress and the main cast as portrait cards
   (`title_person.html`). Below: a main panel with tabs (Episodes /
   Overview = media, details, collection / Cast & Crew / Your activity)
   beside a rail of panels (`.title-rail > section`: your rating, where
-  to watch, recommend, More Like This, genres). Tabs are Alpine state
+  to watch, recommend, More Like This). Tabs are Alpine state
   mirrored to the URL hash; every panel stays in the DOM so HTMX targets
   keep working. Shows open on Episodes, movies on Overview. Long seasons
   show 12 episodes plus "Show all"; when "up next" (or a linked episode)

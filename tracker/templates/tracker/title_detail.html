@@ -11,7 +11,7 @@
     ratings, overview, the main actions, show progress and the main cast
     as portrait cards. Below it: a main column (tabs: Episodes / Overview
     (media, details, collection) / Cast & Crew / Your activity) beside a rail of panels
-    (your rating + where to watch, recommend, similar titles, genres).
+    (your rating + where to watch, recommend, similar titles).
     On phones the poster sits beside the title and everything else runs
     full width; the rail only shows under Overview so it never trails an
     episode list.
@@ -96,6 +96,12 @@
             {% if details.original_language and not details.original_language_display %}<span class="hero-fact"><span class="hero-label">Language</span> <span class="uppercase">{{ details.original_language }}</span></span>{% endif %}
             {% if status_badge %}<span class="hero-fact"><span class="hero-label">Status</span> <span class="chip {{ status_badge.color|chip_color_class }}">{{ status_badge.label }}</span></span>{% endif %}
           </div>
+
+          {% if details.genres %}
+            <div class="flex flex-wrap gap-1.5 mt-3" aria-label="Genres">
+              {% for genre in details.genres %}<span class="inline-flex items-center h-7 px-3 rounded-full bg-white/[0.07] text-[13px] text-[#d0d3dc]">{{ genre }}</span>{% endfor %}
+            </div>
+          {% endif %}
 
           {% if not is_preview %}
             <div class="mt-4">{% include "tracker/partials/title_rating_pills.html" %}</div>
@@ -661,14 +667,6 @@
         </section>
       {% endif %}
 
-      {% if details.genres %}
-        <section>
-          <h2 class="subhead">Genres</h2>
-          <div class="flex flex-wrap gap-1.5">
-            {% for genre in details.genres %}<span class="inline-flex items-center h-7 px-3 rounded-full bg-base-300 text-[13px] text-ink-dim">{{ genre }}</span>{% endfor %}
-          </div>
-        </section>
-      {% endif %}
     </aside>
   </div>
   </div>
