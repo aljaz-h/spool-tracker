@@ -25208,10 +25208,11 @@ class SpoolBackupTests(TestCase):
         session = ImportSession.objects.create(
             profile=other, source="json", status=ImportSession.Status.SCANNING, source_metadata={"path": path}
         )
-        import_pipeline.scan_file_import(session)
+        tasks.scan_import_session(session.id)  # deletes the upload, like in production
         session.refresh_from_db()
+        self.assertFalse(os.path.exists(path))
         self.assertEqual(session.source_metadata["backup_lists"], {"lists": 2, "items": 2})
-        import_pipeline.commit_session(session)
+        tasks.commit_import_session(session.id)
         session.refresh_from_db()
         self.assertEqual(session.source_metadata["backup_lists_restored"], {"lists": 2, "items": 2})
         self.assertTrue(WatchList.objects.filter(profile=other, name="Comfort").exists())
@@ -25584,3 +25585,112 @@ class TransferTrackingLogsTests(TestCase):
         resp = self.client.get(reverse("settings") + "?tab=logs")
         self.assertContains(resp, "awaiting review")
         self.assertContains(resp, "mine.csv")
+
+
+@patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+@patch("tracker.integrations.tmdb.find_match", return_value=None)
+class AnimeRoundTripTests(TestCase):
+    """Anime survives export -> import on a fresh server, both as a series
+    (TMDB tv, by episode) and as a film (TMDB movie, one watch) - see
+    tracker/media_kinds.py."""
+
+    def setUp(self):
+        user = User.objects.create_user("animefan", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Anime Fan")
+        self.client.login(username="animefan", password="pass12345")
+        self.series = Title.objects.create(
+            media_type=MediaType.ANIME, name="Frieren", year=2023, external_ids={"tmdb": "209867", "tmdb_kind": "tv"}
+        )
+        self.film = Title.objects.create(
+            media_type=MediaType.ANIME, name="Your Name", year=2016, external_ids={"tmdb": "372058", "tmdb_kind": "movie"}
+        )
+        episode = Episode.objects.create(title=self.series, season=1, episode=1, name="Journey's End")
+        WatchEvent.objects.create(profile=self.profile, title=self.series, episode=episode, watched_at=_tz.now())
+        WatchEvent.objects.create(profile=self.profile, title=self.film, watched_at=_tz.now(), user_rating=9)
+        WatchListItem.objects.create(watchlist=ensure_watchlist(self.profile), title=self.film)
+
+    def _fresh_server(self):
+        """Another profile on a server that has never seen these titles."""
+        WatchEvent.objects.all().delete()
+        Title.objects.all().delete()
+        other = Profile.objects.create(
+            user=User.objects.create_user("restorer9", password="pass12345"), display_name="Restorer"
+        )
+        return other
+
+    def _import(self, profile, filename, content, source):
+        path = os.path.join(tempfile.mkdtemp(), filename)
+        with open(path, "w") as f:
+            f.write(content)
+        session = ImportSession.objects.create(
+            profile=profile, source=source, source_metadata={"path": path},
+            import_options={"mapping": csv_import.detect_mapping(content.splitlines()[0].split(","))} if source == "csv" else {},
+        )
+        tasks.scan_import_session(session.id)
+        session.refresh_from_db()
+        self.assertEqual(session.summary.get("error", 0), 0, list(session.candidates.values_list("error", flat=True)))
+        tasks.commit_import_session(session.id)
+        return session
+
+    def _assert_restored(self, profile, with_ids=True):
+        series = Title.objects.get(name="Frieren")
+        film = Title.objects.get(name="Your Name")
+        self.assertEqual(series.media_type, MediaType.ANIME)
+        if with_ids:  # a CSV carries no TMDB ids (and TMDB search is mocked out here)
+            self.assertEqual(series.external_ids.get("tmdb_kind"), "tv")
+            self.assertEqual(film.external_ids.get("tmdb_kind"), "movie")
+        self.assertEqual(film.media_type, MediaType.ANIME)
+        self.assertTrue(WatchEvent.objects.filter(profile=profile, title=series, episode__season=1, episode__episode=1).exists())
+        self.assertTrue(WatchEvent.objects.filter(profile=profile, title=film, episode__isnull=True).exists())
+        self.assertFalse(Episode.objects.filter(title=film).exists())
+        return series, film
+
+    def test_full_backup_round_trip(self, *_mocks):
+        from tracker import backup
+
+        data = backup.build_backup(self.profile)
+        anime_items = [h for h in data["history"] if h.get("media_type") == "anime"]
+        self.assertEqual(len(anime_items), 2)
+        other = self._fresh_server()
+        session = self._import(other, "backup.json", json.dumps(data), "json")
+        session.refresh_from_db()
+        self.assertEqual(session.source_metadata["backup_lists_restored"], {"lists": 1, "items": 1})
+        series, film = self._assert_restored(other)
+        self.assertEqual(film.external_ids.get("tmdb_kind"), "movie")
+        self.assertEqual(WatchEvent.objects.get(profile=other, title=film).user_rating, 9)
+        watchlist = WatchList.objects.get(profile=other, is_watchlist=True)
+        self.assertEqual(list(watchlist.items.values_list("title_id", flat=True)), [film.id])
+
+    def test_trakt_json_round_trip(self, *_mocks):
+        resp = self.client.get(reverse("export_trakt_json"))
+        items = json.loads(resp.content)
+        movie_item = next(i for i in items if i["type"] == "movie")
+        self.assertEqual(movie_item["media_type"], "anime")
+        self.assertEqual(movie_item["movie"]["ids"]["tmdb_kind"], "movie")
+        other = self._fresh_server()
+        self._import(other, "trakt.json", resp.content.decode(), "json")
+        self._assert_restored(other)
+
+    def test_csv_round_trip_keeps_an_anime_film(self, *_mocks):
+        resp = self.client.get(reverse("export_csv"))
+        content = resp.content.decode()
+        self.assertIn("Your Name,anime,2016,,,", content)
+        other = self._fresh_server()
+        self._import(other, "export.csv", content, "csv")
+        self._assert_restored(other, with_ids=False)
+
+    def test_a_tv_row_without_an_episode_is_still_an_error(self, *_mocks):
+        from tracker import media_kinds
+
+        self.assertEqual(media_kinds.row_error(MediaType.TV, None, None), media_kinds.SHOW_ROW_ERROR)
+        self.assertEqual(media_kinds.row_error(MediaType.ANIME, 1, None), media_kinds.SHOW_ROW_ERROR)
+        self.assertIsNone(media_kinds.row_error(MediaType.ANIME, None, None))
+        self.assertEqual(media_kinds.row_error(MediaType.ANIME, None, None, "tv"), media_kinds.SHOW_ROW_ERROR)
+
+    def test_plain_trakt_items_are_still_movie_or_tv(self, *_mocks):
+        rows, errors = csv_import.parse_json_rows([
+            {"type": "movie", "watched_at": "2024-01-01T00:00:00Z", "movie": {"title": "A", "ids": {}}},
+            {"type": "episode", "watched_at": "2024-01-01T00:00:00Z", "show": {"title": "B", "ids": {}},
+             "episode": {"season": 1, "number": 2}},
+        ])
+        self.assertEqual([r["media_type"] for r in rows], [MediaType.MOVIE, MediaType.TV])

@@ -5415,6 +5415,8 @@ def export_trakt_json(request):
         tmdb_id = event.title.external_ids.get("tmdb")
         if tmdb_id:
             ids["tmdb"] = int(tmdb_id) if str(tmdb_id).isdigit() else tmdb_id
+            if event.title.external_ids.get("tmdb_kind"):
+                ids["tmdb_kind"] = event.title.external_ids["tmdb_kind"]
         if event.episode:
             items.append(
                 {
@@ -5436,6 +5438,9 @@ def export_trakt_json(request):
                     "movie": {"title": event.title.name, "year": event.title.year, "ids": ids},
                 }
             )
+        if event.title.media_type == MediaType.ANIME:
+            # Extra, non-Trakt field so Spool re-imports it as anime.
+            items[-1]["media_type"] = MediaType.ANIME
     response = JsonResponse(items, safe=False, json_dumps_params={"indent": 2})
     filename = f"spool-trakt-export-{timezone.localdate().isoformat()}.json"
     response["Content-Disposition"] = f'attachment; filename="{filename}"'

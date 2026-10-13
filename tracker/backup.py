@@ -17,7 +17,9 @@ CSV and Trakt-JSON exports leave out.
 history reuses the Trakt shape on purpose: csv_import already parses it
 (see parse_json_rows), so a backup's watches go through the normal Import
 Review like any other file. lists are restored when that review is
-committed (import_pipeline._commit_candidates -> restore_lists), matching
+committed (import_pipeline._commit_candidates -> restore_lists, from the
+copy the scan keeps on the session - the upload itself is deleted once
+scanned), matching
 each item to a local title by its ids the same way history rows are.
 """
 
@@ -66,6 +68,10 @@ def build_backup(profile):
                 "watched_at": event.watched_at.isoformat(),
                 "movie": {"title": event.title.name, "year": event.title.year, "ids": ids},
             }
+        if event.title.media_type == MediaType.ANIME:
+            # Not a Trakt field - lets an anime series/film come back as
+            # anime (csv_import._row_from_trakt_item reads it).
+            item["media_type"] = MediaType.ANIME
         if event.user_rating:
             item["rating"] = event.user_rating
         history.append(item)
@@ -77,7 +83,7 @@ def build_backup(profile):
             t = li.title
             items.append(
                 {
-                    "type": "movie" if t.media_type == MediaType.MOVIE else "show",
+                    "type": "movie" if (t.external_ids.get("tmdb_kind") or ("movie" if t.media_type == MediaType.MOVIE else "tv")) == "movie" else "show",
                     "media_type": t.media_type,
                     "title": t.name,
                     "year": t.year or None,
@@ -148,9 +154,10 @@ def restore_lists(profile, data, labels_out=None):
             if media_type not in (MediaType.MOVIE, MediaType.TV, MediaType.ANIME):
                 media_type = MediaType.MOVIE if item.get("type") == "movie" else MediaType.TV
             ids = item.get("ids") or {}
+            tmdb_kind = ids.get("tmdb_kind") or ("movie" if item.get("type") == "movie" else "tv")
             title = _get_or_create_title(
                 media_type, str(item["title"])[:TITLE_MAX_LENGTH], _safe_int(item.get("year")),
-                ids.get("trakt"), ids.get("tmdb"),
+                ids.get("trakt"), ids.get("tmdb"), tmdb_kind,
             )
             _, created = WatchListItem.objects.get_or_create(
                 watchlist=watchlist, title=title,

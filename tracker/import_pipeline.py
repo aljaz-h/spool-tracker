@@ -44,7 +44,7 @@ import time
 
 from django.utils import timezone
 
-from . import csv_import, title_matching
+from . import csv_import, media_kinds, title_matching
 from .models import Episode, ImportCandidate, ImportSession, MediaType, Title, WatchEvent
 
 # Large real-world exports (a Trakt "Export now" zip) can carry 10k+
@@ -118,6 +118,10 @@ def normalize_file_rows(rows, parse_errors):
             source_external_ids["trakt"] = str(row["trakt_id"])
         if row.get("tmdb_id"):
             source_external_ids["tmdb"] = str(row["tmdb_id"])
+        if row.get("tmdb_kind"):
+            # Kept with the ids so commit knows an anime film from an
+            # anime series (tracker/media_kinds.py).
+            source_external_ids["tmdb_kind"] = row["tmdb_kind"]
         normalized.append(
             {
                 "media_type": row["media_type"],
@@ -165,7 +169,14 @@ def scan_file_import(session):
 
         data = backup.read_backup(path)
         if data is not None and data.get("lists"):
-            session.source_metadata = {**session.source_metadata, "backup_lists": backup.list_summary(data)}
+            # The lists themselves are kept on the session too - the
+            # uploaded file is deleted as soon as the scan finishes
+            # (tasks.scan_import_session), long before commit runs.
+            session.source_metadata = {
+                **session.source_metadata,
+                "backup_lists": backup.list_summary(data),
+                "backup_lists_data": data["lists"],
+            }
             session.save(update_fields=["source_metadata"])
     scan_normalized_items(session, normalize_file_rows(rows, parse_errors))
 
@@ -199,8 +210,9 @@ def scan_normalized_items(session, normalized):
             session.save(update_fields=["processed_items"])
             last_progress_save = now
         error = item["error"]
-        if not error and item["media_type"] != MediaType.MOVIE and (item["season"] is None or item["episode"] is None):
-            error = "TV/anime rows need a season and episode number"
+        explicit_kind = item["source_external_ids"].get("tmdb_kind")
+        if not error and item["media_type"]:
+            error = media_kinds.row_error(item["media_type"], item["season"], item["episode"], explicit_kind)
         if error:
             prepared.append((item, None, error))
             continue
@@ -208,11 +220,12 @@ def scan_normalized_items(session, normalized):
         provider, provider_id = _external_id_provider(item["source_external_ids"])
         tmdb_id = item["source_external_ids"].get("tmdb")
         imdb_id = item["source_external_ids"].get("imdb")
-        key = (item["media_type"], item["title_name"].strip().lower(), item["year"], provider, provider_id, tmdb_id, imdb_id)
+        kind = media_kinds.tmdb_kind_for(item["media_type"], item["season"], item["episode"], explicit_kind)
+        key = (item["media_type"], kind, item["title_name"].strip().lower(), item["year"], provider, provider_id, tmdb_id, imdb_id)
         if key not in match_cache:
             match_cache[key] = title_matching.resolve_title_match(
                 item["media_type"], provider, provider_id, name=item["title_name"], year=item["year"],
-                tmdb_id=tmdb_id, imdb_id=imdb_id, **_match_options(provider),
+                tmdb_id=tmdb_id, imdb_id=imdb_id, tmdb_kind=kind, **_match_options(provider),
             )
         prepared.append((item, match_cache[key], None))
 
@@ -264,7 +277,9 @@ def _build_candidate(item, match, error, episode_lookup, existing_events):
     warning = ""
     selected = True
     if existing_title:
-        if item["media_type"] == MediaType.MOVIE:
+        if not media_kinds.is_episodic(
+            item["media_type"], item["season"], item["episode"], item["source_external_ids"].get("tmdb_kind")
+        ):
             already = (existing_title.id, None, item["watched_at"]) in existing_events
         else:
             episode_id = episode_lookup.get((existing_title.id, item["season"], item["episode"]))
@@ -380,21 +395,6 @@ def _commit_candidates(session):
         session.processed_items = processed
         session.save(update_fields=["processed_items"])
 
-    # A Spool backup's lists (see tracker/backup.py) - restored once the
-    # history rows are in, before the downstream pass below. Idempotent
-    # (items already on a list are skipped), so a retried commit is safe.
-    if session.source_metadata.get("backup_lists"):
-        from tracker import backup
-
-        data = backup.read_backup(session.source_metadata.get("path"))
-        if data is not None:
-            lists_touched, items_added = backup.restore_lists(session.profile, data)
-            session.source_metadata = {
-                **session.source_metadata,
-                "backup_lists_restored": {"lists": lists_touched, "items": items_added},
-            }
-            session.save(update_fields=["source_metadata"])
-
     # Every row is written at this point, but the review page would
     # otherwise sit at "N of N processed" while the TMDB-bound downstream
     # pass runs - report it as its own "finishing" phase instead.
@@ -411,6 +411,23 @@ def _commit_candidates(session):
         session.save(update_fields=["source_metadata"])
 
     _sync_downstream(session.profile, result, on_progress=report_finishing)
+
+    # A Spool backup's lists (see tracker/backup.py) - restored after the
+    # downstream pass above, so its watched-titles-leave-the-Watchlist
+    # step can't strip a title the backup deliberately has on the
+    # Watchlist (re-added after watching). Idempotent (items already on
+    # a list are skipped), so a retried commit is safe.
+    if session.source_metadata.get("backup_lists"):
+        from tracker import backup
+
+        lists_data = session.source_metadata.get("backup_lists_data")
+        if lists_data is not None:
+            lists_touched, items_added = backup.restore_lists(session.profile, {"lists": lists_data})
+            session.source_metadata = {
+                **{k: v for k, v in session.source_metadata.items() if k != "backup_lists_data"},
+                "backup_lists_restored": {"lists": lists_touched, "items": items_added},
+            }
+            session.save(update_fields=["source_metadata"])
 
     # Cumulative totals across every run of this session's commit, not
     # just this call's own result - a resumed commit (worker crash mid-
@@ -465,6 +482,9 @@ def _commit_one(session, candidate, result):
 
     try:
         provider, provider_id = _external_id_provider(candidate.source_external_ids)
+        kind = media_kinds.tmdb_kind_for(
+            candidate.media_type, candidate.season, candidate.episode, candidate.source_external_ids.get("tmdb_kind")
+        )
         title = title_matching.apply_title_match(
             candidate.media_type,
             provider,
@@ -473,10 +493,11 @@ def _commit_one(session, candidate, result):
             year=candidate.year,
             tmdb_id=candidate.source_external_ids.get("tmdb"),
             imdb_id=candidate.source_external_ids.get("imdb"),
+            tmdb_kind=kind,
             **_match_options(provider),
         )
         episode = None
-        is_show = candidate.media_type != MediaType.MOVIE
+        is_show = kind == "tv"
         if is_show:
             episode, _ = Episode.objects.get_or_create(title=title, season=candidate.season, episode=candidate.episode)
     except Exception as e:
