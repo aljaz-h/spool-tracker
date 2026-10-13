@@ -8,6 +8,61 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.144.0] - 2026-10-04
+
+### Changed
+
+- `InstanceConfig` (the admin-configurable Trakt/Simkl/TMDB credentials
+  row) is now cached instead of hitting the database on every single
+  lookup - confirmed via a real query-count probe that this alone was
+  40 of 131 total queries on one Dashboard request (every TMDB call
+  anywhere on the page was independently re-loading the same singleton
+  row). Invalidated immediately on save, so an admin's credential
+  change still takes effect right away.
+- Marking an episode watched no longer recomputes your entire Continue
+  Watching list (every in-progress show, TMDB calls included) just to
+  refresh the one Dashboard card for the show you were watching.
+
+Measured together on one real Dashboard request: 131 → 92 queries.
+
+## [0.143.0] - 2026-10-04
+
+### Changed
+
+- Search, the person detail page, and the title detail page's trailer/
+  gallery section now fire their independent TMDB calls in parallel
+  instead of one after another - confirmed via django-silk profiling
+  that search (up to 4 sequential calls for a query with both a year
+  and a spelling correction) and person detail (2 sequential calls)
+  were spending most of their load time on exactly this.
+
+## [0.142.0] - 2026-10-04
+
+### Changed
+
+- `/sw.js` no longer runs through Django's template engine (and the
+  profile/notification/version-check DB queries that come with it) -
+  confirmed via django-silk profiling it was costing ~10 queries on
+  every single call, and the browser re-registers the service worker on
+  every full-page load, making it the single most-hit endpoint in the
+  app. It's now served straight from an in-memory cache of the file.
+- Dashboard's Continue Watching now fetches every in-progress show's
+  TMDB details in parallel instead of one after another - on a cold
+  cache, this was a real contributor to multi-second Dashboard loads
+  (confirmed live: 9.6s for one request with several in-progress shows).
+
+## [0.141.1] - 2026-10-04
+
+### Fixed
+
+- Enabling `SILK_ENABLED` at runtime 500'd on `/silk/` with "Missing
+  staticfiles manifest entry" — the Dockerfile's `collectstatic` step
+  runs once at build time, before any runtime `.env` is read, so Silk's
+  own CSS/JS/fonts never made it into the static manifest no matter what
+  you set afterward. Silk's static files are now always collected at
+  build time regardless of whether it's actually turned on, so toggling
+  `SILK_ENABLED` at runtime works without a rebuild, as documented.
+
 ## [0.141.0] - 2026-09-29
 
 ### Added

@@ -11,9 +11,11 @@ import zipfile
 import zoneinfo
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
+from functools import lru_cache
 from io import StringIO
 from itertools import groupby
-from urllib.parse import urlencode
+from pathlib import Path
+from urllib.parse import parse_qsl, urlencode
 
 import django
 import requests
@@ -180,6 +182,14 @@ PROFILE_TIMEZONES = sorted(
 )
 
 
+_SERVICE_WORKER_PATH = Path(__file__).resolve().parent / "templates" / "sw.js"
+
+
+@lru_cache(maxsize=1)
+def _service_worker_source():
+    return _SERVICE_WORKER_PATH.read_bytes()
+
+
 def service_worker(request):
     """Served at the true site root (/sw.js, see urls.py) rather than
     under /static/ - a service worker's default scope is its own URL's
@@ -187,8 +197,23 @@ def service_worker(request):
     it control requests under /static/, not the actual page navigations a
     PWA install needs. Not behind @login_required - the browser registers
     this before any login-gated page has necessarily loaded, and it has
-    no user-specific content of its own (see templates/sw.js)."""
-    return render(request, "sw.js", content_type="application/javascript")
+    no user-specific content of its own (see templates/sw.js).
+
+    Deliberately NOT render(request, "sw.js", ...) - that runs the full
+    RequestContext context processor chain (active_profile alone costs a
+    Profile lookup, an unread-notification count, a Profile.objects.count(),
+    and an owner's version check) for a response with zero template tags
+    in it. Confirmed live via django-silk: ~10 DB queries and 70-120ms on
+    every single call - and the browser re-registers the worker on every
+    full-page load, so this was comfortably the single most-hit endpoint
+    in the whole app. _service_worker_source() reads the file once per
+    worker process (lru_cache) and every request after that is pure
+    in-memory - no template engine, no context processors, no queries.
+    Trade-off: a local dev server needs restarting to pick up an edited
+    sw.js, since this bypasses Django's auto-reloading template loader too
+    - acceptable for a file that changes about as often as a reverse-proxy
+    config does."""
+    return HttpResponse(_service_worker_source(), content_type="application/javascript")
 
 
 @login_required
@@ -854,7 +879,7 @@ def _anime_mal_context(title):
     }
 
 
-def _media_gallery_context(title, tmdb_media_type, tmdb_id):
+def _media_gallery_context(title, tmdb_media_type, tmdb_id, api_key=None):
     """The detail hero's "Watch trailer" button plus the "Media" gallery
     section (trailer tile + backdrop stills) - shared by title_detail and
     title_preview, since a not-yet-tracked preview should offer exactly
@@ -874,19 +899,44 @@ def _media_gallery_context(title, tmdb_media_type, tmdb_id):
     as a {"kind": "image", "index"} tile - index is this item's own
     position within gallery_image_urls (trailer-less), which the
     lightbox's Alpine state indexes directly for Prev/Next rather than
-    re-deriving it from the DOM at click time."""
-    trailer = None
-    if title is not None and title.media_type == MediaType.ANIME:
-        mal_id = tenrai.resolve_mal_id(title)
-        if mal_id is not None:
-            mal_details = tenrai.get_anime_details(mal_id)
-            youtube_id = (mal_details or {}).get("trailer_youtube_id")
-            if youtube_id:
-                trailer = {"key": youtube_id}
-    if trailer is None and tmdb_id:
-        trailer = tmdb.get_trailer(tmdb_media_type, tmdb_id)
+    re-deriving it from the DOM at click time.
 
-    backdrops = tmdb.get_backdrops(tmdb_media_type, tmdb_id) if tmdb_id else []
+    get_backdrops has no dependency on the trailer resolution below it
+    (MAL lookup + TMDB fallback, which itself can't be parallelized
+    against its own steps - get_anime_details needs resolve_mal_id's own
+    result first) - fired on a background thread up front instead of
+    only after trailer resolution finishes, so the two overlap instead
+    of running one after another. api_key resolved once here for the
+    same InstanceConfig-concurrency reason title_detail's own comment
+    explains; the MAL calls stay on the main thread since the worker
+    pool here is deliberately network-only (resolve_mal_id can write a
+    newly-resolved id back to the Title row - see this function's own
+    docstring above - and that must never happen from a worker thread,
+    same constraint title_detail's own batch observes).
+
+    api_key: title_detail/title_preview already resolve one for their
+    own parallel batch and pass it straight through here rather than
+    this function resolving a second, redundant one - falls back to
+    resolving its own only when a caller doesn't have one in scope."""
+    if tmdb_id and api_key is None:
+        api_key = instance_config.get_tmdb_api_key()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        backdrops_future = (
+            executor.submit(tmdb.get_backdrops, tmdb_media_type, tmdb_id, api_key=api_key) if tmdb_id else None
+        )
+
+        trailer = None
+        if title is not None and title.media_type == MediaType.ANIME:
+            mal_id = tenrai.resolve_mal_id(title)
+            if mal_id is not None:
+                mal_details = tenrai.get_anime_details(mal_id)
+                youtube_id = (mal_details or {}).get("trailer_youtube_id")
+                if youtube_id:
+                    trailer = {"key": youtube_id}
+        if trailer is None and tmdb_id:
+            trailer = tmdb.get_trailer(tmdb_media_type, tmdb_id, api_key=api_key)
+
+        backdrops = backdrops_future.result() if backdrops_future is not None else []
     gallery_image_urls = [b["url"] for b in backdrops]
     gallery_items = []
     if trailer:
@@ -1279,7 +1329,7 @@ def title_detail(request, pk):
             watch_providers = watch_providers_future.result()
         director = tmdb.get_director(tmdb_media_type, tmdb_id)
         episode_context = _episode_panel_context(request, profile, title, tmdb_id, details)
-        media_gallery_context = _media_gallery_context(title, tmdb_media_type, tmdb_id)
+        media_gallery_context = _media_gallery_context(title, tmdb_media_type, tmdb_id, api_key=api_key)
 
     local_context = selectors.title_local_context(profile, title)
     collection_context = _collection_context(details) if tmdb_id else {"collection_name": None, "collection_parts": []}
@@ -1601,8 +1651,12 @@ def _history_card_oob(request, profile, title):
 
 
 def _watching_card_oob(request, profile, title):
-    """Refresh the Dashboard Watching card after an episode watch action."""
-    item = next((i for i in selectors.continue_watching(profile, limit=None) if i["title"].pk == title.pk), None)
+    """Refresh the Dashboard Watching card after an episode watch action.
+    Scoped to just this title (title_id=) rather than recomputing the
+    whole Continue Watching list and picking one item back out of it -
+    confirmed via django-silk that the unscoped version was a real
+    contributor to episode_mark_watched's own query count."""
+    item = next(iter(selectors.continue_watching(profile, limit=None, title_id=title.pk)), None)
     if item is None:
         return ""
     return render_to_string(
@@ -2299,7 +2353,7 @@ def title_preview(request, media_type, tmdb_id):
         watch_providers = watch_providers_future.result()
     director = tmdb.get_director(tmdb_kind, tmdb_id)
     episode_context = _episode_panel_context(request, profile, None, tmdb_id, details)
-    media_gallery_context = _media_gallery_context(None, tmdb_kind, tmdb_id)
+    media_gallery_context = _media_gallery_context(None, tmdb_kind, tmdb_id, api_key=api_key)
     context = {
         "profile": profile,
         "title": None,
@@ -2385,11 +2439,29 @@ def person_detail(request, person_id):
     preview pages too) - bio/photo/filmography straight from TMDB, plus
     household watch stats (selectors.person_personal_stats) TMDB has no
     concept of. Read-only against TMDB, same as title_preview - no local
-    row is ever created for a person."""
-    details = tmdb.get_person_details(person_id)
+    row is ever created for a person.
+
+    get_person_details/get_person_credits are two independent TMDB
+    endpoints - fired from one shared worker pool instead of one after
+    another (confirmed via Silk profiling: ~900ms outside the DB on a
+    cold cache, almost entirely these two sequential round trips), same
+    ThreadPoolExecutor-per-request pattern title_detail already uses for
+    its own independent TMDB calls. api_key resolved once here for the
+    same reason title_detail's own comment explains - each call
+    independently hitting InstanceConfig's own DB read from its own
+    worker thread risks concurrent-SQLite-access errors. Credits for a
+    person_id that turns out not to exist gets fetched anyway (wasted,
+    rather than short-circuited by the details-is-None check below) -
+    an acceptable trade against paying the two calls' full combined
+    latency serially on every real, existing person instead."""
+    api_key = instance_config.get_tmdb_api_key()
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        details_future = executor.submit(tmdb.get_person_details, person_id, api_key=api_key)
+        credits_future = executor.submit(tmdb.get_person_credits, person_id, api_key=api_key)
+        details = details_future.result()
+        credits = credits_future.result()
     if details is None:
         raise Http404
-    credits = tmdb.get_person_credits(person_id)
     profile = Profile.objects.filter(user=request.user).first()
 
     # Deduped once across all three departments - a hyphenate (e.g.
@@ -6210,7 +6282,10 @@ def import_review_status(request, session_id):
 
 def _import_review_redirect(session_id, next_qs):
     url = reverse("import_review", args=[session_id])
-    return f"{url}?{next_qs}" if next_qs else url
+    # Re-encode the user-supplied query string so it can only ever add
+    # parameters to the fixed review path, never change the redirect target.
+    qs = urlencode(parse_qsl(next_qs or "", keep_blank_values=True)[:50])
+    return f"{url}?{qs}" if qs else url
 
 
 @login_required

@@ -212,11 +212,21 @@ def streaks(profile):
     return _streak_from_dates(dates), _longest_streak_from_dates(dates)
 
 
-def continue_watching(profile, media_types=None, limit=8):
+def continue_watching(profile, media_types=None, limit=8, title_id=None):
+    """title_id scopes this to just one title's own Watching-card state
+    (views._watching_card_oob's own use, refreshing one poster card after
+    a watch/unwatch action) instead of recomputing every in-progress
+    show's full card (TMDB show-details batch included) just to pick one
+    out of the result - confirmed via django-silk as a real contributor
+    to episode_mark_watched's own query count on a profile with several
+    shows in progress. Every batched query/TMDB call below the initial
+    queryset naturally narrows to match, with no other change needed."""
     items = []
     qs = WatchProgress.objects.filter(profile=profile, status=WatchProgress.Status.WATCHING)
     if media_types:
         qs = qs.filter(title__media_type__in=media_types)
+    if title_id is not None:
+        qs = qs.filter(title_id=title_id)
     qs = qs.select_related("title", "current_episode").order_by("-updated_at")
     if limit:
         qs = qs[:limit]
@@ -226,11 +236,35 @@ def continue_watching(profile, media_types=None, limit=8):
     # caption can cover the complete show rather than only the current season.
     non_movie_progresses = [p for p in progresses if p.title.media_type != MediaType.MOVIE]
     non_movie_title_ids = [p.title_id for p in non_movie_progresses]
-    show_details_cache = {}
+
+    # One shared thread pool for every non-movie row's own TMDB show-details
+    # call, instead of one blocking call after another - same pattern
+    # recommended_for_you_batch already uses, for the same reason: on a
+    # cold cache, N serial TMDB round-trips before this page can render is
+    # the difference between "loads in under a second" and "loads in N
+    # seconds" - confirmed live via django-silk against a real Dashboard
+    # request (9.6s overall, most of it here) with several in-progress shows.
+    tmdb_id_by_title_id = {}
     for p in non_movie_progresses:
         tmdb_id = p.title.external_ids.get("tmdb") if p.title.external_ids else None
         if tmdb_id:
-            show_details_cache[p.title_id] = tmdb.get_tv_details(tmdb_id)
+            tmdb_id_by_title_id[p.title_id] = tmdb_id
+    show_details_cache = {}
+    if tmdb_id_by_title_id:
+        # Resolved once, sequentially, on this thread and passed into every
+        # worker below - see get_tv_details'/_list_request's own docstrings
+        # for why the worker threads must never each resolve this
+        # independently (InstanceConfig.load() isn't safe to hit
+        # concurrently - confirmed by a real "database table is locked"
+        # error under SQLite before this fix).
+        api_key = instance_config.get_tmdb_api_key()
+        with ThreadPoolExecutor(max_workers=len(tmdb_id_by_title_id)) as executor:
+            future_to_title_id = {
+                executor.submit(tmdb.get_tv_details, tmdb_id, api_key): title_id
+                for title_id, tmdb_id in tmdb_id_by_title_id.items()
+            }
+            for future, title_id in future_to_title_id.items():
+                show_details_cache[title_id] = future.result()
     watched_episodes_by_title = {}
     if non_movie_title_ids:
         watched_episodes_by_title = dict(
