@@ -25285,6 +25285,13 @@ class SpoolBackupTests(TestCase):
         self.assertEqual(WatchEvent.objects.filter(profile=other).count(), 2)
 
 
+_PUBLIC_ADDRINFO = [(2, 1, 6, "", ("93.184.216.34", 443))]
+
+
+def _addrinfo(ip):
+    return [(2, 1, 6, "", (ip, 443))]
+
+
 class ScheduledBackupTests(TestCase):
     """Automatic backups (tracker/backup_destinations.py) - each profile
     sets up its own destinations under Settings -> Import & Export."""
@@ -25393,7 +25400,8 @@ class ScheduledBackupTests(TestCase):
             return resp
 
         dest.keep_last = 2
-        with patch("tracker.backup_destinations.requests.request", side_effect=fake_request):
+        with patch("tracker.backup_destinations.requests.request", side_effect=fake_request), \
+                patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_PUBLIC_ADDRINFO):
             ok, message = self.bd.run_backup(dest)
         self.assertTrue(ok, message)
         self.assertTrue(any(m == "PUT" and u.startswith("https://dav.example/Spool/" + prefix) for m, u in calls))
@@ -25425,7 +25433,8 @@ class ScheduledBackupTests(TestCase):
         self.assertFalse(self.Dest.objects.filter(id=dest.id).exists())
 
     def test_webdav_save_checks_the_folder_first(self):
-        with patch("tracker.backup_destinations.requests.request", return_value=Mock(status_code=401, text="")):
+        with patch("tracker.backup_destinations.requests.request", return_value=Mock(status_code=401, text="")), \
+                patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_PUBLIC_ADDRINFO):
             self.client.post(reverse("backup_destination_save", args=["webdav"]), {
                 "url": "https://dav.example/Spool", "username": "me", "password": "bad",
             })
@@ -25760,3 +25769,80 @@ class AnimeRoundTripTests(TestCase):
              "episode": {"season": 1, "number": 2}},
         ])
         self.assertEqual([r["media_type"] for r in rows], [MediaType.MOVIE, MediaType.TV])
+
+
+
+class WebDAVAddressCheckTests(TestCase):
+    """The WebDAV URL is user-typed and fetched by the server - it must not
+    become a way to reach the server's own internals (SSRF)."""
+
+    def setUp(self):
+        from tracker import backup_destinations
+
+        self.bd = backup_destinations
+        self.member = Profile.objects.create(
+            user=User.objects.create_user("davmember", password="pass12345"), display_name="Member"
+        )
+        self.owner = Profile.objects.create(
+            user=User.objects.create_superuser("davowner", password="pass12345"), display_name="Owner"
+        )
+
+    def _check(self, ip, owner=False, url="https://dav.example/Spool"):
+        with patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_addrinfo(ip)):
+            self.bd.check_webdav_url(url, allow_local_network=owner)
+
+    def test_public_addresses_are_fine(self):
+        self._check("93.184.216.34")
+
+    def test_never_loopback_link_local_or_metadata(self):
+        for ip in ("127.0.0.1", "169.254.169.254", "::1", "0.0.0.0", "::ffff:127.0.0.1"):
+            for owner in (False, True):
+                with self.subTest(ip=ip, owner=owner), self.assertRaises(self.bd.BackupError):
+                    self._check(ip, owner=owner)
+
+    def test_local_network_only_for_the_owner(self):
+        for ip in ("192.168.1.10", "10.0.0.5", "172.18.0.3", "fd00::1"):
+            with self.subTest(ip=ip):
+                with self.assertRaises(self.bd.BackupError):
+                    self._check(ip, owner=False)
+                self._check(ip, owner=True)
+
+    def test_non_http_schemes_are_refused(self):
+        with self.assertRaises(self.bd.BackupError):
+            self.bd.check_webdav_url("file:///etc/passwd")
+
+    def test_every_request_is_checked_and_redirects_are_not_followed(self):
+        from tracker.models import BackupDestination
+
+        dest = BackupDestination(profile=self.member, kind="webdav", url="https://dav.example/Spool")
+        client = self.bd.WebDAV(dest)
+        with patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_addrinfo("10.0.0.5")), \
+                patch("tracker.backup_destinations.requests.request") as request:
+            with self.assertRaises(self.bd.BackupError):
+                client.check()
+        request.assert_not_called()
+        with patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_PUBLIC_ADDRINFO), \
+                patch("tracker.backup_destinations.requests.request", return_value=Mock(status_code=302, text="")) as request:
+            with self.assertRaises(self.bd.BackupError):
+                client.check()
+        self.assertFalse(request.call_args.kwargs["allow_redirects"])
+
+    def test_errors_do_not_echo_the_remote_response(self):
+        from tracker.models import BackupDestination
+
+        dest = BackupDestination(profile=self.member, kind="webdav", url="https://dav.example/Spool")
+        with patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_PUBLIC_ADDRINFO), \
+                patch("tracker.backup_destinations.requests.request", return_value=Mock(status_code=500, text="SECRET internal page")):
+            with self.assertRaises(self.bd.BackupError) as ctx:
+                self.bd.WebDAV(dest).check()
+        self.assertNotIn("SECRET", str(ctx.exception))
+
+    def test_a_member_cannot_save_a_local_address(self):
+        self.client.login(username="davmember", password="pass12345")
+        with patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_addrinfo("192.168.1.10")), \
+                patch("tracker.backup_destinations.requests.request") as request:
+            self.client.post(reverse("backup_destination_save", args=["webdav"]), {"url": "http://nas.lan/dav"})
+        request.assert_not_called()
+        from tracker.models import BackupDestination
+
+        self.assertFalse(BackupDestination.objects.filter(profile=self.member, kind="webdav").exists())
