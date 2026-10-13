@@ -120,6 +120,11 @@ services:
 
     # Accessible through Docker networking only.
     # No host port publication required.
+    # Keep each command's arguments on ONE line: YAML keeps line breaks
+    # here, and the shell treats a line break as the end of a command - a
+    # split "--bind 0.0.0.0:8000" is silently dropped, gunicorn falls back
+    # to 127.0.0.1 and NPM gets 502 Bad Gateway (the healthcheck still
+    # passes, since it runs inside the container).
     expose:
       - "8000"
 
@@ -143,10 +148,7 @@ services:
     command: >
       sh -c "python manage.py migrate &&
              python manage.py bootstrap_admin &&
-             exec gunicorn spool.wsgi:application
-             --bind 0.0.0.0:8000
-             --workers $${GUNICORN_WORKERS}
-             --threads $${GUNICORN_THREADS}"
+             exec gunicorn spool.wsgi:application --bind 0.0.0.0:8000 --workers $${GUNICORN_WORKERS} --threads $${GUNICORN_THREADS}"
 
     healthcheck:
       test:
@@ -179,8 +181,7 @@ services:
       - media_data:/app/media
 
     command: >
-      sh -c "exec celery -A spool worker -l info
-             --concurrency=$${CELERY_WORKER_CONCURRENCY:-4}"
+      sh -c "exec celery -A spool worker -l info --concurrency=$${CELERY_WORKER_CONCURRENCY:-4}"
 
   # -------------------------------------------------------
   # Celery Beat Scheduler
