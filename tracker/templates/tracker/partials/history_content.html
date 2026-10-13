@@ -21,7 +21,7 @@
   <div class="empty"><div class="empty-title">Nothing here yet</div>No history matches these filters — yet.</div>
 {% else %}
   {% for group in day_groups %}
-    <div class="day-head sticky top-14 lg:top-15 z-10 bg-base-100 flex justify-between items-baseline gap-4 {% if not forloop.first %}mt-8{% endif %} pt-3 pb-2">
+    <div class="day-head sticky top-14 lg:top-15 z-10 bg-base-100 flex justify-between items-baseline gap-4 {% if not forloop.first %}mt-10{% endif %} pt-3 pb-3">
       <h2 class="text-[17px] font-semibold">{{ group.date|day_header }}</h2>
       <div class="text-[13px] text-ink-dim">
         {% if group.movie_count %}{{ group.movie_count }} movie{{ group.movie_count|pluralize }}{% endif %}
@@ -30,7 +30,7 @@
         {% if group.total_duration %}· {{ group.total_duration }}{% endif %}
       </div>
     </div>
-    <div class="rows">
+    <div class="media-grid pt-2">
       {% for item in group.items %}
         {% if item.is_group %}
           {% include "tracker/partials/history_group_tile.html" with group=item %}

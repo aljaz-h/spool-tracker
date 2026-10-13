@@ -10,7 +10,7 @@
     </div>
   </div>
 
-  <div class="max-w-[1040px]" x-data="{ selecting: false, selectedCount: 0, recount() { this.selectedCount = [...document.querySelectorAll('[name=event_ids]:checked')].reduce((sum, cb) => sum + cb.value.split(',').length, 0) } }">
+  <div x-data="{ selecting: false, selectedCount: 0, recount() { this.selectedCount = [...document.querySelectorAll('[name=event_ids]:checked')].reduce((sum, cb) => sum + cb.value.split(',').length, 0) } }">
     <div id="history-page">
       {% include "tracker/partials/history_toolbar_and_content.html" %}
     </div>
@@ -18,7 +18,7 @@
     {% if is_own_history and not grouped_by_watch_count %}
       <div
         x-show="selecting && selectedCount > 0" x-cloak x-transition
-        class="fixed bottom-24 lg:bottom-6 left-1/2 lg:left-[calc(50%+7.5rem)] -translate-x-1/2 z-40 flex items-center gap-4 menu-surface rounded-xl pl-5 pr-2 py-2"
+        class="fixed bottom-24 lg:bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 menu-surface rounded-xl pl-5 pr-2 py-2"
       >
         <span class="text-sm text-ink-dim"><span x-text="selectedCount" class="text-base-content font-semibold"></span> selected</span>
         <button

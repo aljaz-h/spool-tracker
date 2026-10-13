@@ -21,7 +21,8 @@ history stay easy to scan at a glance.
 - **No cards inside cards**, no generic "four KPI boxes" rows, no
   glassmorphism, glow, neon, decorative gradients or blobs.
 - **Layout follows content:** media → poster grids, episodes → compact
-  rows, activity/history → timeline rows, continue watching → 16:9
+  rows, history → day-grouped poster wall (the classic Trakt history),
+  activity → timeline rows, continue watching → 16:9
   landscape cards, stats → grouped figures and charts, settings →
   restrained forms.
 - **Motion is opt-in** (Settings → Appearance, off by default) and
@@ -103,7 +104,7 @@ controls and avatars. Shadows only on floating things — menus/popovers
 - **Below lg:** docked bottom nav (Home, Browse, Calendar, Search, More)
   plus the More sheet; the top bar keeps the wordmark and account icons.
 - **Content width:** `.page` caps content at 1920px and owns the gutters;
-  reading-heavy pages (History, Activity, Notifications, Settings)
+  reading-heavy pages (Activity, Notifications, Settings)
   constrain themselves further. Pages never re-add their own side
   padding.
 
@@ -134,6 +135,12 @@ controls and avatars. Shadows only on floating things — menus/popovers
   episodes". Titles over 40 characters get a one-step-smaller heading.
 - **Secondary rails** (Home's household column) use
   `.section-title-sm` and quiet buttons, so the main column leads.
+- **History:** each day is a heading (with its totals, pinned while you
+  scroll it) over a `.media-grid` of plays — `history_tile.html` (poster
+  with the episode code, title, episode name or year · time) and
+  `history_group_tile.html` (one card per binge: episode range on the
+  poster, count badge with a per-episode remove menu, session strip).
+  Kept deliberately different from Activity's timeline rows.
 - **Lists:** `list_card.html` — 16:9 collage of the first four posters,
   name, then count · sharing · last updated · owner. Three columns on
   desktop; creating a list is the page's primary button, never a card.

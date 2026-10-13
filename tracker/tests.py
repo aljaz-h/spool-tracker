@@ -21731,7 +21731,7 @@ class HistoryTilePosterLazyLoadingTests(TestCase):
         WatchEvent.objects.create(profile=profile, title=title, watched_at=timezone.now())
 
         resp = self.client.get(reverse("history"))
-        self.assertContains(resp, '<img src="https://image.tmdb.org/t/p/w185/abc.jpg"')
+        self.assertContains(resp, '<img src="https://image.tmdb.org/t/p/w342/abc.jpg"')
         self.assertContains(resp, 'loading="lazy"')
         self.assertNotContains(resp, "background-image:url('https://image.tmdb.org/t/p/w500/abc.jpg')")
 
@@ -23802,12 +23802,12 @@ class HistoryGroupTileDropdownTests(TestCase):
         remaining = {int(part) for part in match.group(1).split(",") if part.strip().isdigit()}
         self.assertEqual(remaining, {e1.pk, e3.pk})
 
-    def test_renders_as_a_timeline_row_not_a_poster_grid(self):
-        # Redesign: History's default view is day-grouped timeline rows;
-        # the poster grid is only used by the "by watch count" view.
+    def test_renders_on_the_poster_grid(self):
+        # History is a day-grouped poster wall (the classic Trakt history
+        # layout) - a binge group is one poster card on the shared grid.
         resp = self.client.get(reverse("history"))
         self.assertContains(resp, "data-history-tile")
-        self.assertNotContains(resp, 'class="media-grid"')
+        self.assertContains(resp, 'class="media-grid pt-2"')
 
 
 class TestProviderCredentialsViewTests(TestCase):

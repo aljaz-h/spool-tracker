@@ -1,36 +1,35 @@
 {% load tracker_extras %}
-{# context: event (WatchEvent) - one row of History's day-grouped timeline: poster, title, episode/type line, time watched, and the remove / select controls. #}
+{# context: event (WatchEvent) - one play on History's day-grouped poster grid (the classic Trakt-style history wall): poster with the episode code on it, then title and a "episode name / year · time" line. Remove and select controls sit on the poster corner. #}
 {% if event.episode %}
   {% episode_detail_url event.title.pk event.episode.season event.episode.episode as detail_url %}
 {% else %}
   {% url 'title_detail' event.title.pk as detail_url %}
 {% endif %}
-<div class="group relative flex items-center gap-4 py-2 px-3 -mx-3 rounded-lg hover:bg-white/[0.03]" id="hist-item-{{ event.id }}">
-  <label x-show="selecting" x-cloak class="flex-none w-5 h-5 flex items-center justify-center cursor-pointer">
-    <input type="checkbox" name="event_ids" value="{{ event.id }}" @change="recount()" class="checkbox checkbox-xs checkbox-primary" aria-label="Select {{ event.title.name }}">
-  </label>
-  <span class="hist-time flex-none w-[4.25rem] text-[13px] text-ink-dim tabular-nums max-sm:hidden">{{ event.watched_at|time:time_format_str }}</span>
-  <a href="{{ detail_url }}" class="flex items-center gap-4 min-w-0 flex-1" @click="if (selecting) $event.preventDefault()">
-    <div class="w-10 aspect-[2/3] rounded-md relative overflow-hidden flex-none bg-base-300 {% if not event.title.poster_url %}{{ event.title.pk|gradient_class }}{% endif %}">
+<div class="media-card hist-card group relative" id="hist-item-{{ event.id }}">
+  <label
+    x-show="selecting" x-cloak
+    class="absolute top-2 right-2 z-20 w-6 h-6 rounded-md bg-black/75 flex items-center justify-center cursor-pointer"
+  ><input type="checkbox" name="event_ids" value="{{ event.id }}" @change="recount()" class="checkbox checkbox-xs checkbox-primary" aria-label="Select {{ event.title.name }}"></label>
+  <a href="{{ detail_url }}" class="block" @click="if (selecting) $event.preventDefault()">
+    <div class="poster {% if not event.title.poster_url %}{{ event.title.pk|gradient_class }}{% endif %}">
       {% if event.title.poster_url %}
-        <img src="{{ event.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+        <img src="{{ event.title.poster_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 group-hover:brightness-110">
       {% endif %}
+      {% if event.episode %}
+        <span class="absolute top-2 left-2 z-10 chip chip-scrim font-mono">S{{ event.episode.season }}:E{{ event.episode.episode }}</span>
+      {% endif %}
+      {% comment %} Synced/imported from a third-party app - rows logged directly in Spool leave source blank and get no marker. See WatchEvent.Source. {% endcomment %}
+      {% if event.source == "nuvio" %}<span class="absolute bottom-2 right-2 z-10 chip chip-scrim" title="Added by Nuvio sync">Nuvio</span>
+      {% elif event.source == "simkl" %}<span class="absolute bottom-2 right-2 z-10 chip chip-scrim" title="Added by Simkl sync">Simkl</span>
+      {% elif event.source == "trakt" %}<span class="absolute bottom-2 right-2 z-10 chip chip-scrim" title="Added by Trakt sync">Trakt</span>
+      {% elif event.source == "webhook" %}<span class="absolute bottom-2 right-2 z-10 chip chip-scrim" title="Added via the Scrobble API">Scrobble</span>{% endif %}
     </div>
-    <div class="min-w-0 flex-1">
-      <div class="text-[15px] font-medium truncate group-hover:text-white">{{ event.title.name }}</div>
-      <div class="meta mt-1">
-        {% if event.episode %}<span><span class="font-mono text-base-content/80">S{{ event.episode.season }}:E{{ event.episode.episode }}</span>{% if event.episode.name %} {{ event.episode.name }}{% endif %}</span>{% endif %}
-        <span class="inline-flex items-center gap-1.5"><span class="type-dot {{ event.title.media_type|media_dot_class }}"></span>{{ event.title.media_type|media_label }}</span>
-        {% if event.title.year %}<span>{{ event.title.year }}</span>{% endif %}
-        {% comment %} Synced/imported from a third-party app - rows logged directly in Spool leave source blank. See WatchEvent.Source. {% endcomment %}
-        {% if event.source == "nuvio" %}<span title="Added by Nuvio sync">via Nuvio</span>
-        {% elif event.source == "simkl" %}<span title="Added by Simkl sync">via Simkl</span>
-        {% elif event.source == "trakt" %}<span title="Added by Trakt sync">via Trakt</span>
-        {% elif event.source == "webhook" %}<span title="Added via the Scrobble API">via Scrobble API</span>{% endif %}
-      </div>
+    <span class="media-title group-hover:text-white">{{ event.title.name }}</span>
+    <div class="meta">
+      {% if event.episode and event.episode.name %}<span class="truncate max-sm:hidden">{{ event.episode.name }}</span>{% elif event.title.year %}<span>{{ event.title.year }}</span>{% else %}<span class="inline-flex items-center gap-1.5"><span class="type-dot {{ event.title.media_type|media_dot_class }}"></span>{{ event.title.media_type|media_label }}</span>{% endif %}
+      <span class="flex-none tabular-nums">{{ event.watched_at|time:time_format_str }}</span>
     </div>
   </a>
-  <span class="flex-none text-[13px] text-ink-dim tabular-nums sm:hidden">{{ event.watched_at|time:time_format_str }}</span>
   <button
     x-show="!selecting"
     hx-delete="/api/history/{{ event.id }}"
@@ -39,6 +38,6 @@
     hx-swap="outerHTML swap:150ms"
     title="Remove from history"
     aria-label="Remove from history"
-    class="flex-none w-7 h-7 rounded-md text-ink-faint flex items-center justify-center hover:text-error hover:bg-base-300"
+    class="absolute top-2 right-2 z-20 w-6 h-6 rounded-full bg-black/70 text-white/80 text-sm leading-none flex items-center justify-center hover:bg-error hover:text-white"
   >&times;</button>
 </div>
