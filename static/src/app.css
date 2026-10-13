@@ -86,8 +86,6 @@
   --text-xs--line-height: 1.45;
 
   /* Application grid - every page aligns to these. */
-  --spacing-sidebar: 13.5rem; /* 216px */
-  --spacing-sidebar-rail: 4.25rem;
   --spacing-topbar: 3.75rem; /* 60px */
 
   --radius-sm: 0.25rem;
@@ -133,10 +131,10 @@
 @layer components {
   /* Page shell */
   /* One content column for every page: 16px gutters on phones, 24 on
-     tablets, 40 on desktop, capped at 1480px of content. */
+     tablets, 40 on desktop, capped at 1920px of content. */
   .page {
     width: 100%;
-    max-width: calc(1480px + 5rem);
+    max-width: calc(1920px + 5rem);
     margin-inline: auto;
     padding-inline: 1rem;
   }
@@ -156,6 +154,13 @@
   /* Reading-width pages (Settings, History, Notifications) */
   .page-reading {
     max-width: 1120px;
+  }
+  /* Breaks out of .page to the full window width (title hero, its sticky
+     tab bar). 50% is half the page column, 50vw half the window - the
+     column is centred, so this lands exactly on the window edges. Put a
+     .page inside to keep the content itself on the grid. */
+  .bleed {
+    margin-inline: calc(50% - 50vw);
   }
   .page-head {
     display: flex;
@@ -620,8 +625,7 @@
   }
 }
 
-/* App shell: desktop sidebar rail + content offset. Collapsed state is a
-   data attribute on <html> (set before first paint by base.html). */
+/* App shell: the page column under the sticky top bar. */
 @layer components {
   .app-content {
     min-height: 100vh;
@@ -632,20 +636,6 @@
        without turning this into a scroll container that would break the
        sticky top bar. */
     overflow-x: clip;
-  }
-  @media (min-width: 1024px) {
-    .app-content {
-      padding-left: var(--spacing-sidebar);
-    }
-    html[data-nav="collapsed"] .app-content {
-      padding-left: var(--spacing-sidebar-rail);
-    }
-  }
-  .nav-group-label {
-    margin: 1.375rem 0.75rem 0.375rem;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--color-ink-faint);
   }
   .sheet-row {
     display: flex;
@@ -664,30 +654,48 @@
   }
 }
 
-/* Collapsed desktop sidebar - unlayered on purpose, so these beat the
-   utility classes (w-60, flex, px-3) on the same elements. */
-html[data-nav="collapsed"] .app-sidebar {
-  width: var(--spacing-sidebar-rail);
+/* Desktop top navigation (topbar.html, lg: and up): plain text links,
+   the current page marked by full-brightness text and a 2px amber line on
+   the bar's bottom edge - the same signal as the in-page underline tabs. */
+.topnav-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-ink-dim);
+  white-space: nowrap;
 }
-html[data-nav="collapsed"] .app-sidebar .nav-label,
-html[data-nav="collapsed"] .app-sidebar .nav-footer,
-html[data-nav="collapsed"] .app-sidebar .nav-wordmark {
-  display: none;
+.topnav-item:hover {
+  color: var(--color-base-content);
 }
-html[data-nav="collapsed"] .app-sidebar .nav-group-label {
-  font-size: 0;
-  height: 1px;
-  margin: 0.75rem 0.5rem;
-  padding: 0;
-  background: var(--color-line);
+.topnav-item[aria-current="page"] {
+  color: var(--color-base-content);
 }
-html[data-nav="collapsed"] .app-sidebar .nav-item {
-  justify-content: center;
-  padding: 0;
+.topnav-item[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-primary);
 }
-html[data-nav="collapsed"] .nav-collapse-btn {
-  margin-inline: auto;
-  transform: rotate(180deg);
+.topnav-item:focus-visible {
+  outline-offset: -4px;
+  border-radius: 8px;
+}
+@media (min-width: 1280px) {
+  .topnav-item {
+    padding: 0 0.875rem;
+  }
+  .topnav-item[aria-current="page"]::after {
+    left: 0.875rem;
+    right: 0.875rem;
+  }
 }
 
 /* --------------------------------------------------------------------------

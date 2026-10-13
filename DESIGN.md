@@ -79,11 +79,11 @@ controls and avatars. Shadows only on floating things — menus/popovers
 
 ## 5. Shell
 
-- **Application grid** (tokens in `app.css` `@theme`): sidebar
-  `--spacing-sidebar` 216px (68px collapsed), top bar
+- **Application grid** (tokens in `app.css` `@theme`): top bar
   `--spacing-topbar` 60px desktop / 56px phone, content gutters 16 / 24 /
   40px (phone / tablet / desktop, set once on `.page`), content capped at
-  1480px. Main + rail layouts use one shape everywhere: `minmax(0,1fr)`
+  1920px. `.bleed` breaks a band out to the full window (title hero and
+  its tab bar) with a `.page` inside to keep the content on the grid. Main + rail layouts use one shape everywhere: `minmax(0,1fr)`
   plus a 288–340px rail with a 48–64px gap (Home, title pages, Activity).
   Sections are 44px apart on phones, 56px on desktop. A page header sits
   32px above its first section, 24px when a tab/filter row follows it;
@@ -92,16 +92,17 @@ controls and avatars. Shadows only on floating things — menus/popovers
   day heading) + the phone bottom nav — under 20% of the viewport. On
   short viewports (landscape phones, under 520px tall) only the bottom
   nav stays fixed.
-- **Desktop (lg+):** slim left sidebar (`sidebar.html`) — wordmark, Home,
-  Browse (Movies/TV/Anime), Library (Calendar/History/Lists/Stats/
-  Activity), Settings at the bottom. Muted by default; active item gets a
-  faint amber wash, amber icon, bright label. Collapsible to an icon rail
-  (`html[data-nav="collapsed"]`, persisted in localStorage).
-- **Top bar:** global search field (press `/` to focus), notifications,
-  household friends, profile menu. No navigation links duplicated here.
+- **Desktop (lg+):** one top bar (`topbar.html`) — wordmark, then text
+  links Home · Movies / TV Shows / Anime · Calendar / History / Lists /
+  Stats / Activity (`nav_top_item.html`; the current page gets full-
+  brightness text and a 2px amber underline on the bar's bottom edge),
+  then search (a field from xl, an icon from lg; press `/` to focus),
+  notifications, household and the profile menu, which holds Settings.
+- **Footer:** version and the TMDB / Jikan / AniFiller credit on every
+  page (TMDB's terms require the credit).
 - **Below lg:** docked bottom nav (Home, Browse, Calendar, Search, More)
   plus the More sheet; the top bar keeps the wordmark and account icons.
-- **Content width:** `.page` caps content at 1480px and owns the gutters;
+- **Content width:** `.page` caps content at 1920px and owns the gutters;
   reading-heavy pages (History, Activity, Notifications, Settings)
   constrain themselves further. Pages never re-add their own side
   padding.

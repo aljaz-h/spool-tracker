@@ -1,0 +1,2 @@
+{# context: href, label, is_active - one link in the desktop top navigation (topbar.html, lg: and up). Muted by default; the current page gets full-brightness text and an amber underline along the bottom edge of the bar (.topnav-item in app.css). #}
+<a href="{{ href }}" {% if is_active %}aria-current="page"{% endif %} class="topnav-item">{{ label }}</a>

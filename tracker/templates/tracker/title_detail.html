@@ -8,9 +8,10 @@
     Episodes / Cast & Crew / Details / Your activity) over a main column
     and a narrow sticky rail (rating, where to watch, recommend).
 
-    Hero: the TMDB backdrop fills a ~420px region on desktop (the
-    negative margins cancel <main>'s own padding - .page in app.css) under
-    a restrained two-way scrim; the poster sits inside that region, not
+    Hero: the TMDB backdrop fills a ~420px region on desktop and spans the
+    whole window (.bleed in app.css), under a restrained two-way scrim;
+    the content inside is a .page, so it stays on the same grid as the
+    tabs and columns below; the poster sits inside that region, not
     floating below it. One grid serves every width: on phones the poster
     sits beside the title block and the rest (ratings, overview, actions,
     progress) runs full width underneath - a compact hero instead of the
@@ -46,7 +47,7 @@
       },
     }"
   >
-  <section class="title-hero relative -mx-4 sm:-mx-6 lg:-mx-10 -mt-6 sm:-mt-8 lg:-mt-10" aria-label="{{ display_name }}">
+  <section class="title-hero bleed relative -mt-6 sm:-mt-8 lg:-mt-10" aria-label="{{ display_name }}">
     <div class="absolute inset-x-0 top-0 h-[250px] sm:h-[340px] lg:h-full overflow-hidden {% if not details.backdrop_url %}{{ poster_seed|gradient_class }} opacity-40{% endif %}" aria-hidden="true">
       {% if details.backdrop_url %}
         <img src="{{ details.backdrop_url }}" alt="" class="absolute inset-0 w-full h-full object-cover object-[center_22%] opacity-65">
@@ -55,7 +56,7 @@
       <div class="absolute inset-0 bg-[linear-gradient(0deg,#0e1014_0%,rgba(14,16,20,0.82)_24%,rgba(14,16,20,0.1)_70%,rgba(14,16,20,0.35)_100%)]"></div>
     </div>
 
-    <div class="relative px-4 sm:px-6 lg:px-10 pt-[150px] sm:pt-[200px] lg:pt-[104px] pb-7 lg:pb-11 lg:min-h-[420px]">
+    <div class="page relative pt-[150px] sm:pt-[200px] lg:pt-[104px] pb-7 lg:pb-11 lg:min-h-[420px]">
       <div class="grid grid-cols-[100px_minmax(0,1fr)] sm:grid-cols-[150px_minmax(0,1fr)] lg:grid-cols-[200px_minmax(0,1fr)] gap-x-4 sm:gap-x-7 lg:gap-x-10 gap-y-5 items-end">
         <div class="lg:row-span-2 lg:self-start">
           <div class="poster rounded-lg shadow-[0_18px_48px_rgba(0,0,0,0.6)] {% if not display_poster_url %}{{ poster_seed|gradient_class }}{% endif %}">
@@ -318,8 +319,8 @@
     The negative margins + matching padding let its background and
     hairline run the full content width.
   {% endcomment %}
-  <nav class="title-tabs sticky top-14 lg:top-15 z-20 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-10 lg:px-10 bg-base-100 mb-8 lg:mb-10" aria-label="Title sections">
-    <div class="tabs-line" role="tablist">
+  <nav class="title-tabs bleed sticky top-14 lg:top-15 z-20 bg-base-100 mb-8 lg:mb-10" aria-label="Title sections">
+    <div class="page"><div class="tabs-line" role="tablist">
       <button type="button" role="tab" class="tab-line" :class="tab === 'overview' && 'is-active'" :aria-selected="(tab === 'overview').toString()" @click="go('overview')">Overview</button>
       {% if seasons %}
         <button type="button" role="tab" class="tab-line" :class="tab === 'episodes' && 'is-active'" :aria-selected="(tab === 'episodes').toString()" @click="go('episodes')">Episodes{% if totals %}<span class="ml-1.5 text-ink-faint tabular-nums">{{ totals.total }}</span>{% endif %}</button>
@@ -331,6 +332,7 @@
       {% if not is_preview %}
         <button type="button" role="tab" class="tab-line" :class="tab === 'activity' && 'is-active'" :aria-selected="(tab === 'activity').toString()" @click="go('activity')">Your activity</button>
       {% endif %}
+    </div>
     </div>
   </nav>
 

@@ -2,24 +2,52 @@
 {% with url_name=request.resolver_match.url_name %}
 <header class="app-topbar h-14 lg:h-15 flex-none sticky top-0 z-30 bg-base-100/95 border-b border-line">
   {% comment %}
-    Slim top bar: page-level utilities only (search, notifications,
-    friends, profile). Primary navigation lives in the sidebar (lg: and
-    up, sidebar.html) and the bottom nav below that (bottom_nav.html), so
-    nothing here duplicates those links. The inner row shares the page's
-    own max-width/padding so the search field lines up with page content.
-    Blocks carry explicit col-start-N placement inside a 3-track grid so
-    the right-hand icon cluster always stays pinned to the right edge,
-    whether or not the desktop search column renders.
+    The app's one navigation bar. lg: and up: wordmark, then the primary
+    links (Home · Movies/TV Shows/Anime · Calendar/History/Lists/Stats/
+    Activity - the current page gets an amber underline on the bar's
+    bottom edge), then search and the account icons on the right. Below
+    lg: just the wordmark and icons - the bottom nav (bottom_nav.html)
+    and its More sheet carry navigation there. Settings lives in the
+    profile menu. The inner row shares the page's own max-width/padding
+    so the bar lines up with page content. Blocks carry explicit
+    col-start-N placement inside a 3-track grid so the right-hand icon
+    cluster always stays pinned to the right edge.
   {% endcomment %}
-  <div class="page h-full grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
-  <div class="flex items-center min-w-0 justify-self-start col-start-1">
-    <a href="{% url 'dashboard' %}" class="lg:hidden flex items-center flex-none" title="Home">
+  <div class="page h-full grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 lg:gap-6">
+  <div class="flex items-center h-full min-w-0 justify-self-start col-start-1">
+    <a href="{% url 'dashboard' %}" class="flex items-center flex-none lg:mr-5" title="Home">
       <span class="font-brand text-[26px] text-marquee leading-none">SPOOL</span>
     </a>
+    <nav aria-label="Primary" class="hidden lg:flex items-center h-full">
+      {% url 'dashboard' as home_url %}
+      {% include "tracker/partials/nav_top_item.html" with href=home_url label="Home" is_active=url_name|eq:"dashboard" %}
+      <span class="w-px h-4 bg-line mx-1.5 xl:mx-2" aria-hidden="true"></span>
+      {% url 'movies' category="trending" as movies_url %}
+      {% include "tracker/partials/nav_top_item.html" with href=movies_url label="Movies" is_active=url_name|eq:"movies" %}
+      {% url 'tv' category="trending" as tv_url %}
+      {% include "tracker/partials/nav_top_item.html" with href=tv_url label="TV Shows" is_active=url_name|eq:"tv" %}
+      {% url 'anime' category="trending" as anime_url %}
+      {% include "tracker/partials/nav_top_item.html" with href=anime_url label="Anime" is_active=url_name|eq:"anime" %}
+      <span class="w-px h-4 bg-line mx-1.5 xl:mx-2" aria-hidden="true"></span>
+      {% url 'calendar' as calendar_url %}
+      {% include "tracker/partials/nav_top_item.html" with href=calendar_url label="Calendar" is_active=url_name|eq:"calendar" %}
+      {% url 'history' as history_url %}
+      {% include "tracker/partials/nav_top_item.html" with href=history_url label="History" is_active=url_name|in_list:"history,member_history" %}
+      {% url 'lists' as lists_url %}
+      {% include "tracker/partials/nav_top_item.html" with href=lists_url label="Lists" is_active=url_name|in_list:"lists,list_detail" %}
+      {% url 'stats' as stats_url %}
+      {% include "tracker/partials/nav_top_item.html" with href=stats_url label="Stats" is_active=url_name|in_list:"stats,member_stats" %}
+      {% if show_activity_nav %}
+        {% url 'activity' as activity_url %}
+        {% include "tracker/partials/nav_top_item.html" with href=activity_url label="Activity" is_active=url_name|eq:"activity" %}
+      {% endif %}
+    </nav>
   </div>
 
-  <div class="hidden lg:flex min-w-0 col-start-2">
-    <form method="get" action="{% url 'search' %}" role="search" class="field w-full max-w-[480px] h-10 rounded-lg">
+  {# Search: a field from xl:, an icon link to the Search page between lg: and xl: so the links above keep their room. #}
+  <div class="hidden lg:flex min-w-0 col-start-2 justify-self-end w-full justify-end">
+    <a href="{% url 'search' %}" class="xl:hidden w-9 h-9 flex-none rounded-lg flex items-center justify-center text-ink-dim hover:text-base-content hover:bg-base-300" aria-label="Search" title="Search">{% icon "search" "w-[18px] h-[18px]" %}</a>
+    <form method="get" action="{% url 'search' %}" role="search" class="hidden xl:flex field w-full max-w-[360px] h-10 rounded-lg">
       {% icon "search" "w-4 h-4 text-ink-faint flex-none" %}
       <input
         type="text" name="q" value="{{ request.GET.q }}"
@@ -28,7 +56,7 @@
         autocomplete="off"
         placeholder="Search movies, shows, anime, people…"
       >
-      <kbd class="hidden xl:inline-flex items-center h-5 px-1.5 rounded border border-line text-[11.5px] font-mono text-ink-faint">/</kbd>
+      <kbd class="hidden 2xl:inline-flex items-center h-5 px-1.5 rounded border border-line text-[11.5px] font-mono text-ink-faint">/</kbd>
     </form>
   </div>
 
@@ -202,7 +230,7 @@
     own popover/expand-in-place animation into the already-tight mobile
     header - simplest thing that reuses the exact same GET form/action
     as the desktop bar, just full-width. mobileSearchOpen lives on the
-    root x-data in base.html (sibling of sidebarOpen), not scoped here,
+    root x-data in base.html, not scoped here,
     so the trigger button up in the left block and this panel can share
     it without a wrapping x-data of their own.
 
