@@ -8,6 +8,75 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.145.0] - 2026-10-13
+
+Merges the spool-tracker-experimental redesign and features. Runs three
+new migrations (0059-0061), all additive - back up the database first
+as usual.
+
+### Changed
+
+- **Redesign.** Darker, cinematic theme on a strict application grid
+  with a consistent type scale (see `DESIGN.md`). A top navigation bar
+  with icons replaces the sidebar, pages are wider, and phones get a
+  floating frosted-glass bottom tab bar (Home, Browse, Search, Alerts,
+  You) with notifications and the profile menu in it.
+- **Title pages:** poster-led hero over a full-width backdrop with
+  labelled facts (Directed by, Released, Runtime, Rated, ...), genre
+  chips, main cast, and a tabbed panel (Episodes / Overview / Cast &
+  Crew / Your activity) beside a side rail. Long seasons show a window
+  of episodes instead of every row.
+- **Home:** Recommended Movies / TV / Anime as three rows under the
+  Watchlist queue.
+- **History** is a day-grouped poster wall again (classic Trakt style),
+  distinct from Activity.
+- **Lists** show 16:9 poster collages.
+- **Activity:** the household leaderboard and Top 5 are always shown;
+  a quiet week opens on This Year.
+- **Settings → Server Integrations** is grouped into sections.
+
+### Added
+
+- **Person pages:** a "You've Watched" row listing the titles you've
+  seen with that person.
+- **Every profile always has a Watchlist** - created with the profile,
+  backfilled for existing ones (an existing list named "Watchlist" is
+  adopted), and it can't be deleted.
+- **Full backup:** Settings → Import & Export → "Export full backup
+  (JSON)" with history, ratings and every list. Importing it through
+  Import Review restores the lists too.
+- **Automatic backups** each profile can turn on for itself: daily,
+  weekly or monthly to Google Drive, Dropbox, WebDAV (NAS, Nextcloud,
+  Synology, ...) or a server folder, keeping the last N. Google Drive /
+  Dropbox need an OAuth app configured once in Server Integrations (or
+  `GOOGLE_CLIENT_ID`/`DROPBOX_APP_KEY` env vars) - see `docs/BACKUPS.md`.
+  The worker gets a `backup_data` volume at `/app/backups`.
+- **Imports and backups stay visible after leaving the page:** a live
+  Activity card on Import & Export, one notification per import that
+  updates as it progresses (and links to its review), and running /
+  awaiting-review / finished rows in the admin Logs.
+- Import Review shows progress while matching titles and a "Finishing
+  up" phase after commit, instead of looking stuck.
+- `docker-compose.coolify.yml` and `docs/COOLIFY.md` for running under
+  Coolify behind your own Nginx Proxy Manager.
+
+### Fixed
+
+- Anime survives export -> import: anime series and anime films come
+  back as anime (CSV, Trakt JSON and full backup); a Spool CSV's anime
+  films no longer fail with "TV/anime rows need a season and episode
+  number".
+- Trakt JSON imports keep ratings; Trakt's own Watchlist maps onto the
+  profile's Watchlist.
+
+### Security
+
+- WebDAV backup addresses are checked before every request: loopback,
+  link-local/cloud-metadata and other special addresses are refused,
+  local-network addresses are allowed only for the server owner,
+  redirects aren't followed, and errors don't echo the remote response
+  (CodeQL "full server-side request forgery").
+
 ## [0.144.0] - 2026-10-04
 
 ### Changed

@@ -1,7 +1,8 @@
 {% load icons %}
-{# context: key (tab identifier), label (display text), icon (icon name) #}
+{# context: key (tab identifier), label (display text), icon (icon name) - one entry in Settings' section nav; same quiet treatment as the app sidebar (muted, amber icon + faint wash when active). #}
 <button
   type="button" @click="setTab('{{ key }}')"
-  class="flex items-center gap-2 text-left px-3 py-2.5 rounded-lg text-sm font-medium border-l-[3px] transition-colors whitespace-nowrap"
-  :class="tab === '{{ key }}' ? 'bg-base-300 text-base-content border-primary' : 'border-transparent text-ink-dim hover:bg-base-300 hover:text-base-content'"
+  class="flex items-center gap-2.5 text-left px-3 h-9 rounded-lg text-[13.5px] font-medium whitespace-nowrap"
+  :class="tab === '{{ key }}' ? 'bg-primary/10 text-base-content [&>svg]:text-primary' : 'text-ink-dim hover:bg-white/[0.04] hover:text-base-content'"
+  :aria-current="tab === '{{ key }}' ? 'page' : null"
 >{% icon icon "w-4 h-4 flex-none" %}{{ label }}</button>

@@ -3,19 +3,19 @@
 {% block title %}{{ person.name }} · Spool{% endblock %}
 {% block content %}
 
-  <div class="bg-base-200 border border-line rounded-2xl p-5 mb-8">
-    <div class="flex flex-col sm:flex-row gap-5">
-      <div class="w-[110px] h-[110px] sm:w-[130px] sm:h-[130px] rounded-full flex-none overflow-hidden bg-base-300 bg-cover bg-center border-2 border-primary mx-auto sm:mx-0"
+  <section class="mb-12 pb-8 border-b border-line">
+    <div class="flex flex-col sm:flex-row gap-6 sm:gap-8">
+      <div class="w-[120px] sm:w-[168px] aspect-[2/3] rounded-xl flex-none overflow-hidden bg-base-300 bg-cover bg-center shadow-[0_12px_32px_rgba(0,0,0,0.5)] mx-auto sm:mx-0"
            {% if person.profile_url %}style="background-image:url('{{ person.profile_url }}')"{% endif %}></div>
       <div class="min-w-0 flex-1 text-center sm:text-left">
-        <h1 class="font-display text-2xl sm:text-3xl">{{ person.name }}</h1>
+        <h1 class="page-title sm:!text-4xl">{{ person.name }}</h1>
         {% if known_for_primary %}
-          <div class="inline-block mt-2 px-3 py-1 rounded-full border border-primary/30 bg-primary/10 font-mono text-[11px] uppercase tracking-wide">
-            <span class="text-ink-dim">Known for</span> <span class="text-primary font-bold">{{ known_for_primary }}</span>{% if known_for_secondary %}<span class="text-ink-dim"> · Also {{ known_for_secondary|join:", " }}</span>{% endif %}
+          <div class="mt-2 text-sm text-ink-dim">
+            Known for <span class="text-base-content font-medium">{{ known_for_primary }}</span>{% if known_for_secondary %} · Also {{ known_for_secondary|join:", " }}{% endif %}
           </div>
         {% endif %}
         {% if birthday_date or person.place_of_birth %}
-          <div class="text-xs text-ink-dim mt-2.5">
+          <div class="text-[13px] text-ink-dim mt-1.5">
             {% if birthday_date %}
               Born <span class="font-semibold text-base-content">{{ birthday_date|date:"F j, Y" }}</span>{% if deathday_date %} – <span class="font-semibold text-base-content">{{ deathday_date|date:"F j, Y" }}</span>{% endif %}
               {% if age is not None %}<span class="text-ink-faint">(age {{ age }}{% if deathday_date %} at death{% endif %})</span>{% endif %}
@@ -25,10 +25,10 @@
         {% endif %}
         {% if person.biography %}
           <div class="mt-3 max-w-3xl" {% if person.biography|length > 400 %}x-data="{ expanded: false }"{% endif %}>
-            <p class="text-[14px] leading-relaxed text-ink-dim text-left {% if person.biography|length > 400 %}line-clamp-4{% endif %}"
+            <p class="text-[14.5px] leading-relaxed text-[#c4c7d2] text-left {% if person.biography|length > 400 %}line-clamp-4{% endif %}"
                {% if person.biography|length > 400 %}:class="expanded ? '' : 'line-clamp-4'"{% endif %}>{{ person.biography }}</p>
             {% if person.biography|length > 400 %}
-              <button type="button" @click="expanded = !expanded" class="mt-1.5 text-[11.5px] font-semibold text-ink-faint hover:text-primary transition-colors cursor-pointer">
+              <button type="button" @click="expanded = !expanded" class="mt-1.5 text-[12.5px] font-semibold text-ink-faint hover:text-primary transition-colors cursor-pointer">
                 <span x-show="!expanded">Read more</span>
                 <span x-show="expanded" x-cloak>Show less</span>
               </button>
@@ -39,24 +39,24 @@
     </div>
 
     {% if highlight_stats %}
-      <div class="border-t border-line mt-4 pt-4 flex flex-wrap items-center gap-x-8 gap-y-2.5">
+      <div class="mt-6 flex flex-wrap items-center gap-x-10 gap-y-3">
         {% for stat in highlight_stats %}
           <div class="flex items-baseline gap-1.5">
-            <span class="font-display text-lg">{{ stat.value }}</span>
-            <span class="text-ink-faint text-xs">{{ stat.label }}</span>
-            {% if stat.info %}<span tabindex="0" aria-label="{{ stat.info }}" data-tooltip="{{ stat.info }}" class="text-ink-faint text-[11px] cursor-help spool-tooltip">&#9432;</span>{% endif %}
+            <span class="text-xl font-bold tabular-nums">{{ stat.value }}</span>
+            <span class="text-ink-dim text-xs">{{ stat.label }}</span>
+            {% if stat.info %}<span tabindex="0" aria-label="{{ stat.info }}" data-tooltip="{{ stat.info }}" class="text-ink-faint text-[12px] cursor-help spool-tooltip">&#9432;</span>{% endif %}
           </div>
         {% endfor %}
       </div>
     {% endif %}
     {% if stats.co_watchers %}
-      <div class="mt-2.5 flex flex-col gap-1">
+      <div class="mt-3 flex flex-col gap-1">
         {% for co in stats.co_watchers %}
           <div class="text-[12.5px] text-ink-dim">You and <span class="font-semibold text-base-content">{{ co.profile.display_name }}</span> have both watched <span class="font-semibold text-base-content">{{ co.count }}</span> title{{ co.count|pluralize }} with them</div>
         {% endfor %}
       </div>
     {% endif %}
-  </div>
+  </section>
 
   {% comment %}
     Each section clips to exactly two grid rows (.grid-clamp-2-rows, see
@@ -87,20 +87,22 @@
         },
       }"
       x-init="measure()"
-      class="mb-8"
+      class="mb-12"
     >
-      <div class="flex justify-between items-center flex-wrap gap-3 mb-3">
-        <h2 class="font-display text-xl m-0">{{ section.label }}</h2>
-        <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
-          <button type="button" @click="filter = 'all'; expanded = false; measure()" class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer" :class="filter === 'all' ? 'bg-base-100 text-base-content' : 'text-ink-dim'">All</button>
-          <button type="button" @click="filter = 'watched'; expanded = false; measure()" class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer" :class="filter === 'watched' ? 'bg-base-100 text-base-content' : 'text-ink-dim'">Watched</button>
-          <button type="button" @click="filter = 'unwatched'; expanded = false; measure()" class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer" :class="filter === 'unwatched' ? 'bg-base-100 text-base-content' : 'text-ink-dim'">Unwatched</button>
-        </div>
+      <div class="flex justify-between items-center flex-wrap gap-3 mb-4">
+        <h2 class="section-title">{{ section.label }}{% if section.key == "watched" %}<span class="section-count">{{ section.items|length }}</span>{% endif %}</h2>
+        {% if section.key != "watched" %}
+          <div class="seg">
+            <button type="button" @click="filter = 'all'; expanded = false; measure()" class="seg-item" :class="filter === 'all' && 'is-active'">All</button>
+            <button type="button" @click="filter = 'watched'; expanded = false; measure()" class="seg-item" :class="filter === 'watched' && 'is-active'">Watched</button>
+            <button type="button" @click="filter = 'unwatched'; expanded = false; measure()" class="seg-item" :class="filter === 'unwatched' && 'is-active'">Unwatched</button>
+          </div>
+        {% endif %}
       </div>
       <div class="relative">
         <div
           x-ref="grid"
-          class="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-3"
+          class="media-grid"
           :class="!expanded && hasMore ? 'grid-clamp-2-rows' : ''"
         >
           {% for item in section.items %}
@@ -115,10 +117,10 @@
         ></div>
       </div>
       <div class="flex justify-center mt-4" x-show="hasMore" x-cloak>
-        <button type="button" x-show="!expanded" @click="expanded = true" class="px-4 py-1.5 rounded-lg text-xs font-semibold border border-line bg-base-200 text-ink-dim hover:text-base-content hover:border-primary/50 transition-colors cursor-pointer">
+        <button type="button" x-show="!expanded" @click="expanded = true" class="btn btn-sm btn-soft">
           Show all <span x-text="visibleTotal"></span> credits
         </button>
-        <button type="button" x-show="expanded" x-cloak @click="expanded = false" class="px-4 py-1.5 rounded-lg text-xs font-semibold border border-line bg-base-200 text-ink-dim hover:text-base-content hover:border-primary/50 transition-colors cursor-pointer">
+        <button type="button" x-show="expanded" x-cloak @click="expanded = false" class="btn btn-sm btn-soft">
           Show less
         </button>
       </div>

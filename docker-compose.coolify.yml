@@ -1,0 +1,234 @@
+
+# Spool - Coolify deployment behind external Nginx Proxy Manager.
+#
+# NPM must be connected to the external "proxy_shared" Docker network.
+# Set the web service's Domain field to EMPTY in Coolify.
+#
+# Production:
+#   WEB_CONTAINER_NAME=spool-web
+#
+# Development/test:
+#   WEB_CONTAINER_NAME=spool-web-dev
+#
+# NPM configuration for test:
+#   Domain: spool-test.gothm.site
+#   Scheme: http
+#   Forward Hostname: spool-web-dev
+#   Forward Port: 8000
+#
+# Configure all required variables in Coolify's Environment Variables tab.
+
+x-app-env: &app-env
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set a long random string}
+  DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?e.g. spool.example.com}
+  DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:?e.g. https://spool.example.com}
+  DEBUG: "False"
+
+  DATABASE_URL: postgres://spool:${DB_PASSWORD:?set a database password}@${WEB_CONTAINER_NAME:-spool-web}-db:5432/spool
+
+  REDIS_URL: redis://${WEB_CONTAINER_NAME:-spool-web}-redis:6379/0
+  CELERY_BROKER_URL: redis://${WEB_CONTAINER_NAME:-spool-web}-redis:6379/0
+  CELERY_RESULT_BACKEND: redis://${WEB_CONTAINER_NAME:-spool-web}-redis:6379/0
+  CACHE_URL: redis://${WEB_CONTAINER_NAME:-spool-web}-redis:6379/2
+
+  CELERY_WORKER_CONCURRENCY: ${CELERY_WORKER_CONCURRENCY:-4}
+  TIME_ZONE: ${TIME_ZONE:-UTC}
+
+  SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-True}
+  CSRF_COOKIE_SECURE: ${CSRF_COOKIE_SECURE:-True}
+
+  TRAKT_CLIENT_ID: ${TRAKT_CLIENT_ID:-}
+  TRAKT_CLIENT_SECRET: ${TRAKT_CLIENT_SECRET:-}
+
+  SIMKL_CLIENT_ID: ${SIMKL_CLIENT_ID:-}
+  SIMKL_CLIENT_SECRET: ${SIMKL_CLIENT_SECRET:-}
+
+  TMDB_API_KEY: ${TMDB_API_KEY:-}
+  MDBLIST_API_KEY: ${MDBLIST_API_KEY:-}
+
+services:
+
+  # -------------------------------------------------------
+  # PostgreSQL
+  # -------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: spool
+      POSTGRES_USER: spool
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set a database password}
+
+    networks:
+      internal:
+        aliases:
+          - ${WEB_CONTAINER_NAME:-spool-web}-db
+
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spool"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # -------------------------------------------------------
+  # Redis
+  # -------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+    networks:
+      internal:
+        aliases:
+          - ${WEB_CONTAINER_NAME:-spool-web}-redis
+
+    volumes:
+      - redis_data:/data
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # -------------------------------------------------------
+  # Django / Gunicorn
+  # -------------------------------------------------------
+  web:
+    build: .
+    restart: unless-stopped
+
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    environment:
+      <<: *app-env
+
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_DISPLAY_NAME: ${ADMIN_DISPLAY_NAME:-Admin}
+
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-2}
+
+    # Accessible through Docker networking only.
+    # No host port publication required.
+    # Keep each command's arguments on ONE line: YAML keeps line breaks
+    # here, and the shell treats a line break as the end of a command - a
+    # split "--bind 0.0.0.0:8000" is silently dropped, gunicorn falls back
+    # to 127.0.0.1 and NPM gets 502 Bad Gateway (the healthcheck still
+    # passes, since it runs inside the container).
+    expose:
+      - "8000"
+
+    networks:
+      # Private connection to PostgreSQL and Redis
+      internal: {}
+
+      # Keep existing Coolify network connectivity
+      coolify:
+        aliases:
+          - ${WEB_CONTAINER_NAME:-spool-web}
+
+      # External Nginx Proxy Manager network
+      proxy_shared:
+        aliases:
+          - ${WEB_CONTAINER_NAME:-spool-web}
+
+    volumes:
+      - media_data:/app/media
+
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py bootstrap_admin &&
+             exec gunicorn spool.wsgi:application --bind 0.0.0.0:8000 --workers $${GUNICORN_WORKERS} --threads $${GUNICORN_THREADS}"
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os, urllib.request; h = os.environ['DJANGO_ALLOWED_HOSTS'].split(',')[0].strip().lstrip('.'); urllib.request.urlopen(urllib.request.Request('http://localhost:8000/healthz', headers={'Host': h}))"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # -------------------------------------------------------
+  # Celery Worker
+  # -------------------------------------------------------
+  worker:
+    build: .
+    restart: unless-stopped
+
+    depends_on:
+      web:
+        condition: service_healthy
+
+    environment: *app-env
+
+    networks:
+      - internal
+
+    volumes:
+      - media_data:/app/media
+      # Settings → Import & Export → Automatic Backups → "Server folder".
+      # To keep them on a NAS, replace with a bind mount, e.g. /mnt/nas/spool:/app/backups
+      - backup_data:/app/backups
+
+    command: >
+      sh -c "exec celery -A spool worker -l info --concurrency=$${CELERY_WORKER_CONCURRENCY:-4}"
+
+  # -------------------------------------------------------
+  # Celery Beat Scheduler
+  # -------------------------------------------------------
+  scheduler:
+    build: .
+    restart: unless-stopped
+
+    depends_on:
+      web:
+        condition: service_healthy
+
+    environment: *app-env
+
+    networks:
+      - internal
+
+    command: >
+      sh -c "python manage.py bootstrap_periodic_tasks &&
+             exec celery -A spool beat -l info"
+
+# ---------------------------------------------------------
+# Persistent Volumes
+# ---------------------------------------------------------
+volumes:
+  db_data:
+  redis_data:
+  media_data:
+  backup_data:
+
+# ---------------------------------------------------------
+# Docker Networks
+# ---------------------------------------------------------
+networks:
+
+  # Isolated application network for DB, Redis and workers
+  internal: {}
+
+  # Existing Coolify network
+  coolify:
+    external: true
+    name: coolify
+
+  # Shared network used by Nginx Proxy Manager
+  proxy_shared:
+    external: true
+    name: proxy_shared

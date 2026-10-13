@@ -40,10 +40,11 @@ that dispatches a scan by session.source.
 """
 
 import os
+import time
 
 from django.utils import timezone
 
-from . import csv_import, title_matching
+from . import csv_import, media_kinds, title_matching
 from .models import Episode, ImportCandidate, ImportSession, MediaType, Title, WatchEvent
 
 # Large real-world exports (a Trakt "Export now" zip) can carry 10k+
@@ -52,6 +53,9 @@ from .models import Episode, ImportCandidate, ImportSession, MediaType, Title, W
 # polling status bar has something to show mid-run instead of sitting at
 # 0 until the whole file is done.
 PROGRESS_UPDATE_INTERVAL = 200
+# Matching can stall on network lookups (TMDB), so progress is also
+# saved at least this often while matching, not only every N items.
+PROGRESS_UPDATE_SECONDS = 2.0
 COMMIT_CHUNK_SIZE = 200
 
 FILE_SOURCES = (ImportSession.Source.CSV, ImportSession.Source.JSON, ImportSession.Source.ZIP)
@@ -114,6 +118,10 @@ def normalize_file_rows(rows, parse_errors):
             source_external_ids["trakt"] = str(row["trakt_id"])
         if row.get("tmdb_id"):
             source_external_ids["tmdb"] = str(row["tmdb_id"])
+        if row.get("tmdb_kind"):
+            # Kept with the ids so commit knows an anime film from an
+            # anime series (tracker/media_kinds.py).
+            source_external_ids["tmdb_kind"] = row["tmdb_kind"]
         normalized.append(
             {
                 "media_type": row["media_type"],
@@ -154,6 +162,22 @@ def scan_file_import(session):
     path = session.source_metadata.get("path")
     mapping = session.import_options.get("mapping")
     rows, parse_errors = csv_import.parse_file(path, session.source, mapping)
+    if session.source == "json":
+        # Spool's own full backup also carries lists - counted here so the
+        # review page can say so; restored at commit (restore_lists).
+        from tracker import backup
+
+        data = backup.read_backup(path)
+        if data is not None and data.get("lists"):
+            # The lists themselves are kept on the session too - the
+            # uploaded file is deleted as soon as the scan finishes
+            # (tasks.scan_import_session), long before commit runs.
+            session.source_metadata = {
+                **session.source_metadata,
+                "backup_lists": backup.list_summary(data),
+                "backup_lists_data": data["lists"],
+            }
+            session.save(update_fields=["source_metadata"])
     scan_normalized_items(session, normalize_file_rows(rows, parse_errors))
 
 
@@ -172,10 +196,23 @@ def scan_normalized_items(session, normalized):
 
     match_cache = {}
     prepared = []  # [(item, TitleMatch|None, error|None), ...]
-    for item in normalized:
+    # Progress is reported from this matching loop - the slow part, one
+    # title lookup (possibly a TMDB call) per unique title - rather than
+    # from the candidate-building loop below, which is pure in-memory
+    # work. Reporting only from the latter left the review page stuck on
+    # "0 of N processed" for the whole (often minutes-long) match phase
+    # of a large import, which reads as a hung scan.
+    last_progress_save = time.monotonic()
+    for i, item in enumerate(normalized, start=1):
+        now = time.monotonic()
+        if i % PROGRESS_UPDATE_INTERVAL == 0 or now - last_progress_save >= PROGRESS_UPDATE_SECONDS:
+            session.processed_items = i - 1
+            session.save(update_fields=["processed_items"])
+            last_progress_save = now
         error = item["error"]
-        if not error and item["media_type"] != MediaType.MOVIE and (item["season"] is None or item["episode"] is None):
-            error = "TV/anime rows need a season and episode number"
+        explicit_kind = item["source_external_ids"].get("tmdb_kind")
+        if not error and item["media_type"]:
+            error = media_kinds.row_error(item["media_type"], item["season"], item["episode"], explicit_kind)
         if error:
             prepared.append((item, None, error))
             continue
@@ -183,11 +220,12 @@ def scan_normalized_items(session, normalized):
         provider, provider_id = _external_id_provider(item["source_external_ids"])
         tmdb_id = item["source_external_ids"].get("tmdb")
         imdb_id = item["source_external_ids"].get("imdb")
-        key = (item["media_type"], item["title_name"].strip().lower(), item["year"], provider, provider_id, tmdb_id, imdb_id)
+        kind = media_kinds.tmdb_kind_for(item["media_type"], item["season"], item["episode"], explicit_kind)
+        key = (item["media_type"], kind, item["title_name"].strip().lower(), item["year"], provider, provider_id, tmdb_id, imdb_id)
         if key not in match_cache:
             match_cache[key] = title_matching.resolve_title_match(
                 item["media_type"], provider, provider_id, name=item["title_name"], year=item["year"],
-                tmdb_id=tmdb_id, imdb_id=imdb_id, **_match_options(provider),
+                tmdb_id=tmdb_id, imdb_id=imdb_id, tmdb_kind=kind, **_match_options(provider),
             )
         prepared.append((item, match_cache[key], None))
 
@@ -204,12 +242,9 @@ def scan_normalized_items(session, normalized):
         ).values_list("title_id", "episode_id", "watched_at"):
             existing_events.add((title_id, episode_id, watched_at))
 
-    candidates = []
-    for i, (item, match, error) in enumerate(prepared, start=1):
-        candidates.append(_build_candidate(item, match, error, episode_lookup, existing_events))
-        if i % PROGRESS_UPDATE_INTERVAL == 0:
-            session.processed_items = i
-            session.save(update_fields=["processed_items"])
+    candidates = [
+        _build_candidate(item, match, error, episode_lookup, existing_events) for item, match, error in prepared
+    ]
 
     ImportCandidate.objects.bulk_create(
         [ImportCandidate(import_session=session, **fields) for fields in candidates], batch_size=500
@@ -242,7 +277,9 @@ def _build_candidate(item, match, error, episode_lookup, existing_events):
     warning = ""
     selected = True
     if existing_title:
-        if item["media_type"] == MediaType.MOVIE:
+        if not media_kinds.is_episodic(
+            item["media_type"], item["season"], item["episode"], item["source_external_ids"].get("tmdb_kind")
+        ):
             already = (existing_title.id, None, item["watched_at"]) in existing_events
         else:
             episode_id = episode_lookup.get((existing_title.id, item["season"], item["episode"]))
@@ -338,7 +375,9 @@ def _commit_candidates(session):
     session.status = ImportSession.Status.IMPORTING
     if not session.started_at:
         session.started_at = timezone.now()
-    session.save(update_fields=["status", "started_at"])
+    # A resumed commit starts back in the row phase, not "finishing".
+    session.source_metadata = {k: v for k, v in session.source_metadata.items() if k != "finishing"}
+    session.save(update_fields=["status", "started_at", "source_metadata"])
 
     result = CommitResult()
     pending = session.candidates.filter(status=ImportCandidate.Status.PENDING, selected=True).order_by("id")
@@ -356,7 +395,39 @@ def _commit_candidates(session):
         session.processed_items = processed
         session.save(update_fields=["processed_items"])
 
-    _sync_downstream(session.profile, result)
+    # Every row is written at this point, but the review page would
+    # otherwise sit at "N of N processed" while the TMDB-bound downstream
+    # pass runs - report it as its own "finishing" phase instead.
+    # Stored in source_metadata (no schema change); throttled like scan
+    # progress so a fast pass doesn't write per title.
+    last_save = [0.0]
+
+    def report_finishing(done, total):
+        now = time.monotonic()
+        if done not in (0, total) and now - last_save[0] < PROGRESS_UPDATE_SECONDS:
+            return
+        last_save[0] = now
+        session.source_metadata = {**session.source_metadata, "finishing": {"done": done, "total": total}}
+        session.save(update_fields=["source_metadata"])
+
+    _sync_downstream(session.profile, result, on_progress=report_finishing)
+
+    # A Spool backup's lists (see tracker/backup.py) - restored after the
+    # downstream pass above, so its watched-titles-leave-the-Watchlist
+    # step can't strip a title the backup deliberately has on the
+    # Watchlist (re-added after watching). Idempotent (items already on
+    # a list are skipped), so a retried commit is safe.
+    if session.source_metadata.get("backup_lists"):
+        from tracker import backup
+
+        lists_data = session.source_metadata.get("backup_lists_data")
+        if lists_data is not None:
+            lists_touched, items_added = backup.restore_lists(session.profile, {"lists": lists_data})
+            session.source_metadata = {
+                **{k: v for k, v in session.source_metadata.items() if k != "backup_lists_data"},
+                "backup_lists_restored": {"lists": lists_touched, "items": items_added},
+            }
+            session.save(update_fields=["source_metadata"])
 
     # Cumulative totals across every run of this session's commit, not
     # just this call's own result - a resumed commit (worker crash mid-
@@ -411,6 +482,9 @@ def _commit_one(session, candidate, result):
 
     try:
         provider, provider_id = _external_id_provider(candidate.source_external_ids)
+        kind = media_kinds.tmdb_kind_for(
+            candidate.media_type, candidate.season, candidate.episode, candidate.source_external_ids.get("tmdb_kind")
+        )
         title = title_matching.apply_title_match(
             candidate.media_type,
             provider,
@@ -419,10 +493,11 @@ def _commit_one(session, candidate, result):
             year=candidate.year,
             tmdb_id=candidate.source_external_ids.get("tmdb"),
             imdb_id=candidate.source_external_ids.get("imdb"),
+            tmdb_kind=kind,
             **_match_options(provider),
         )
         episode = None
-        is_show = candidate.media_type != MediaType.MOVIE
+        is_show = kind == "tv"
         if is_show:
             episode, _ = Episode.objects.get_or_create(title=title, season=candidate.season, episode=candidate.episode)
     except Exception as e:
@@ -455,25 +530,40 @@ def _commit_one(session, candidate, result):
     result.touched_watch_keys.add((title.id, episode.id if episode else None))
 
 
-def _sync_downstream(profile, result):
+def _sync_downstream(profile, result, on_progress=None):
     """Exactly the batched downstream-effects pass csv_import.
     commit_rows already ran for a direct CSV commit - moved here
     unchanged so Import Review's commit path preserves the same
-    rewatch/completion/recommendation/watchlist behavior."""
+    rewatch/completion/recommendation/watchlist behavior.
+
+    on_progress(done, total) is called as titles are finished - the
+    completion/runtime pass makes TMDB calls per touched title, so on a
+    large import this phase alone can run for many minutes after every
+    row is already written."""
     from . import completion, recommendations, rewatches
 
     for title_id, episode_id in result.touched_watch_keys:
         rewatches.recompute_is_rewatch(
             profile, Title.objects.get(id=title_id), Episode.objects.get(id=episode_id) if episode_id else None
         )
+    total = len(result.touched_movies) + len(result.touched_shows)
+    done = 0
+    if on_progress:
+        on_progress(done, total)
     for title in Title.objects.filter(id__in=result.touched_movies):
         completion.update_movie_runtime(title)
         completion.sync_watchlist_removal(profile, title)
         recommendations.mark_title_watched(profile, title)
+        done += 1
+        if on_progress:
+            on_progress(done, total)
     for title in Title.objects.filter(id__in=result.touched_shows):
         completion.sync_show_completion(profile, title)
         completion.sync_watchlist_removal(profile, title)
         recommendations.mark_title_watched(profile, title)
+        done += 1
+        if on_progress:
+            on_progress(done, total)
 
 
 # --------------------------------------------------------------------

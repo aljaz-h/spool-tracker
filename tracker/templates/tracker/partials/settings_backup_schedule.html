@@ -1,0 +1,18 @@
+{# context: kind, d (BackupDestination or None), backup_frequencies - the "how often / how many to keep" selects shared by every destination's setup form in settings_backups.html. #}
+<div>
+  <label class="block text-xs text-ink-dim mb-1" for="backup-{{ kind }}-frequency">How often</label>
+  <select id="backup-{{ kind }}-frequency" name="frequency" class="select select-sm">
+    {% for value, label in backup_frequencies %}
+      <option value="{{ value }}" {% if d and d.frequency == value or not d and value == "weekly" %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div>
+  <label class="block text-xs text-ink-dim mb-1" for="backup-{{ kind }}-keep">Keep</label>
+  <select id="backup-{{ kind }}-keep" name="keep_last" class="select select-sm">
+    <option value="5" {% if d.keep_last == 5 %}selected{% endif %}>Last 5</option>
+    <option value="10" {% if not d or d.keep_last == 10 %}selected{% endif %}>Last 10</option>
+    <option value="30" {% if d.keep_last == 30 %}selected{% endif %}>Last 30</option>
+    <option value="0" {% if d and d.keep_last == 0 %}selected{% endif %}>All</option>
+  </select>
+</div>

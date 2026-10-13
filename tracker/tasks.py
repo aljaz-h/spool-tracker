@@ -315,24 +315,14 @@ def commit_import_session(session_id):
         import_pipeline.commit_session(session)
     except Exception as e:
         logger.exception("commit_import_session: session %s failed", session_id)
+        # The FAILED save is logged (Logs + the user's notification) by
+        # transfer_tracking.sync_import_session via ImportSession's post_save.
         session.status = ImportSession.Status.FAILED
         session.error_message = str(e)[:500]
         session.save(update_fields=["status", "error_message"])
-        DataLog.objects.create(
-            profile=session.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.FAILED,
-            error_message=str(e)[:500],
-        )
         raise
-    # session.imported_items/skipped_items/failed_items are cumulative
-    # totals over every run of this session's commit (see
-    # import_pipeline._commit_candidates' own docstring) - using those
-    # rather than this call's own in-memory result keeps the DataLog
-    # entry correct even after a resumed/retried commit.
-    all_skipped = session.skipped_items + session.failed_items
-    DataLog.objects.create(
-        profile=session.profile, action=DataLog.Action.IMPORT, status=DataLog.Status.SUCCESS,
-        item_count=session.imported_items, detail=f"{all_skipped} skipped" if all_skipped else "",
-    )
+    # The DataLog row and the user's notification for this import were
+    # updated by the COMPLETED save itself (transfer_tracking.py).
     logger.info(
         "commit_import_session: session %s, %d imported, %d skipped, %d failed",
         session_id, session.imported_items, session.skipped_items, session.failed_items,
@@ -541,6 +531,49 @@ def run_backfill_genres(data_log_id):
 @shared_task
 def run_backfill_completion(data_log_id):
     _run_backfill_command(data_log_id, "backfill_completion")
+
+
+@shared_task
+def run_due_backups():
+    """Hourly beat job (see bootstrap_periodic_tasks.py) - queues a
+    run_scheduled_backup for every enabled BackupDestination whose next
+    daily/weekly/monthly backup is due (backup_destinations.is_due)."""
+    from .backup_destinations import is_due
+    from .models import BackupDestination
+
+    queued = 0
+    now = timezone.now()
+    for destination in BackupDestination.objects.filter(enabled=True):
+        if is_due(destination, now):
+            run_scheduled_backup.delay(destination.id)
+            queued += 1
+    return queued
+
+
+@shared_task
+def run_scheduled_backup(destination_id, notify=False):
+    """One backup to one destination - from run_due_backups, or (notify=
+    True) Settings' "Back up now"/first backup, which also gets a
+    notification that turns into the result. Shows as running in Logs
+    and on the import/export page while it works (transfer_tracking.py)."""
+    from . import backup_destinations, transfer_tracking
+    from .models import BackupDestination
+
+    destination = BackupDestination.objects.select_related("profile").filter(id=destination_id).first()
+    if destination is None:
+        return False
+    previous_error = destination.last_error
+    log, note = transfer_tracking.start_backup(destination, notify=notify)
+    try:
+        ok, message = backup_destinations.run_backup(destination)
+    except Exception as exc:
+        ok, message = False, f"Unexpected error: {exc.__class__.__name__}"
+        destination.last_error = message
+        destination.save(update_fields=["last_error"])
+        logger.exception("run_scheduled_backup: destination %s crashed", destination_id)
+    transfer_tracking.finish_backup(destination, log, ok, message, note=note, previous_error=previous_error)
+    logger.info("run_scheduled_backup: destination %s (%s) -> %s", destination_id, destination.kind, "ok" if ok else message)
+    return ok
 
 
 @shared_task

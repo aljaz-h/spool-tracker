@@ -372,12 +372,16 @@ def upsert_lists(profile, lists_data, labels_out=None):
     labeled "Title (List Name)" so a list add reads distinctly from a
     watch-history import in the Logs tab's detail view."""
     from tracker.models import MediaType, WatchList, WatchListItem
+    from tracker.watchlists import WATCHLIST_NAME, ensure_watchlist
 
     added = 0
     for entry in lists_data:
-        watchlist, _ = WatchList.objects.get_or_create(
-            profile=profile, name=entry["name"], defaults={"is_watchlist": entry["name"] == "Watchlist"}
-        )
+        if entry["name"] == WATCHLIST_NAME:
+            # Trakt's own watchlist lands in this profile's auto-managed
+            # Watchlist - the same list, so watched titles drop off it.
+            watchlist = ensure_watchlist(profile)
+        else:
+            watchlist, _ = WatchList.objects.get_or_create(profile=profile, name=entry["name"])
         for item in entry["items"]:
             if item.get("type") == "movie":
                 m = item.get("movie") or {}

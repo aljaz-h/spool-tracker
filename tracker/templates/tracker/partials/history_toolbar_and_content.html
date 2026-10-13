@@ -5,7 +5,7 @@
   hx-target="#history-page"
   hx-trigger="change"
   hx-push-url="true"
-  class="flex justify-between items-center flex-wrap gap-3 mb-5"
+  class="flex justify-between items-center flex-wrap gap-3 mb-7"
 >
   <div class="flex items-center gap-3 flex-wrap">
     {% comment %}
@@ -13,17 +13,17 @@
       updates the instant it's clicked, not only once the HTMX response
       swaps this whole region back in.
     {% endcomment %}
-    <div class="inline-flex bg-base-200 border border-line rounded-lg p-1 gap-0.5">
-      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+    <div class="seg">
+      <label class="seg-item cursor-pointer has-checked:bg-base-300 has-checked:text-base-content">
         <input type="radio" name="type" value="all" class="hidden" {% if type_filter == "all" %}checked{% endif %}>All
       </label>
-      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+      <label class="seg-item cursor-pointer has-checked:bg-base-300 has-checked:text-base-content">
         <input type="radio" name="type" value="movie" class="hidden" {% if type_filter == "movie" %}checked{% endif %}>Movies
       </label>
-      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+      <label class="seg-item cursor-pointer has-checked:bg-base-300 has-checked:text-base-content">
         <input type="radio" name="type" value="tv" class="hidden" {% if type_filter == "tv" %}checked{% endif %}>TV
       </label>
-      <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+      <label class="seg-item cursor-pointer has-checked:bg-base-300 has-checked:text-base-content">
         <input type="radio" name="type" value="anime" class="hidden" {% if type_filter == "anime" %}checked{% endif %}>Anime
       </label>
     </div>
@@ -37,15 +37,14 @@
       hx-trigger="change" listener, which would otherwise double-fire
       the request.
     {% endcomment %}
-    <div class="relative">
-      {% icon "search" "w-3.5 h-3.5 text-ink-faint absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" %}
+    <div class="field w-48 sm:w-64">
+      {% icon "search" "w-3.5 h-3.5 text-ink-faint flex-none" %}
       <input
         type="text" name="q" value="{{ query }}"
         placeholder="Search history…"
         aria-label="Search history"
         hx-trigger="input changed delay:400ms, search"
         @change.stop=""
-        class="bg-base-200 border border-line text-ink-dim text-xs pl-8 pr-3 py-2 rounded-lg w-40 sm:w-56 focus:outline-primary"
       >
     </div>
   </div>
@@ -75,24 +74,24 @@
         this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 224, false, 'right'));
       },
     }">
-      <button type="button" @click="togglePanel($el)" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
+      <button type="button" @click="togglePanel($el)" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-sm btn-ghost gap-1.5 cursor-pointer text-ink-dim hover:text-base-content">
         {% icon "filter" "w-3.5 h-3.5" %}
         Filters
         {% if period != "all" or sort != "new" %}
           <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
         {% endif %}
       </button>
-      <div x-ref="panel" x-show="open" x-cloak class="fixed w-56 bg-base-200 border border-line rounded-lg shadow-lg z-40 flex flex-col">
+      <div x-ref="panel" x-show="open" x-cloak class="fixed w-56 menu-surface z-40 flex flex-col">
         <div class="flex items-center justify-between px-4 pt-4 pb-2">
-          <h2 class="font-display text-lg">Filters</h2>
+          <h2 class="text-sm font-semibold">Filters</h2>
           <button type="button" @click="open = false" aria-label="Close filters" class="btn btn-xs btn-circle btn-ghost cursor-pointer">
             {% icon "x" "w-3.5 h-3.5" %}
           </button>
         </div>
         <div class="flex flex-col gap-4 px-4 pb-4">
           <div>
-            <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Period</div>
-            <select name="period" class="select select-sm w-full bg-base-100 focus:outline-primary">
+            <div class="text-xs text-ink-dim mb-1.5 font-medium">Period</div>
+            <select name="period" class="select select-sm w-full">
               <option value="all" {% if period == "all" %}selected{% endif %}>All time</option>
               <option value="today" {% if period == "today" %}selected{% endif %}>Today</option>
               <option value="yesterday" {% if period == "yesterday" %}selected{% endif %}>Yesterday</option>
@@ -102,8 +101,8 @@
             </select>
           </div>
           <div>
-            <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Sort</div>
-            <select name="sort" class="select select-sm w-full bg-base-100 focus:outline-primary">
+            <div class="text-xs text-ink-dim mb-1.5 font-medium">Sort</div>
+            <select name="sort" class="select select-sm w-full">
               <option value="new" {% if sort == "new" %}selected{% endif %}>Newest first</option>
               <option value="old" {% if sort == "old" %}selected{% endif %}>Oldest first</option>
               <option value="most_watched" {% if sort == "most_watched" %}selected{% endif %}>Most watched</option>
@@ -117,8 +116,8 @@
       <button
         type="button"
         @click="selecting = !selecting; selectedCount = 0"
-        class="px-3.5 py-2 rounded-lg text-xs font-semibold border border-line"
-        :class="selecting ? 'bg-primary text-primary-content border-primary' : 'bg-base-200 text-ink-dim'"
+        class="btn btn-sm"
+        :class="selecting ? 'btn-primary' : 'btn-soft'"
       ><span x-text="selecting ? 'Cancel' : 'Select'"></span></button>
     {% endif %}
   </div>

@@ -307,6 +307,16 @@ TENRAI_THROTTLE_ENABLED = "test" not in sys.argv
 
 TRAKT_CLIENT_ID = env("TRAKT_CLIENT_ID", default="")
 TRAKT_CLIENT_SECRET = env("TRAKT_CLIENT_SECRET", default="")
+
+# Scheduled backups (tracker/backup_destinations.py). Google Drive/Dropbox
+# OAuth apps can also be set from Settings -> Server Integrations; the
+# "Server folder" destination writes under BACKUP_ROOT (mount a NAS share
+# or a volume there - see docker-compose.coolify.yml).
+GOOGLE_CLIENT_ID = env("GOOGLE_CLIENT_ID", default="")
+GOOGLE_CLIENT_SECRET = env("GOOGLE_CLIENT_SECRET", default="")
+DROPBOX_APP_KEY = env("DROPBOX_APP_KEY", default="")
+DROPBOX_APP_SECRET = env("DROPBOX_APP_SECRET", default="")
+BACKUP_ROOT = env("BACKUP_ROOT", default=str(BASE_DIR / "backups"))
 SIMKL_CLIENT_ID = env("SIMKL_CLIENT_ID", default="")
 SIMKL_CLIENT_SECRET = env("SIMKL_CLIENT_SECRET", default="")
 TMDB_API_KEY = env("TMDB_API_KEY", default="")

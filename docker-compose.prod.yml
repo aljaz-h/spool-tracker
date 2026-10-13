@@ -64,6 +64,9 @@ services:
     env_file: .env
     volumes:
       - media_data:/app/media
+      # Settings → Import & Export → Automatic Backups → "Server folder".
+      # To keep them on a NAS, replace with a bind mount, e.g. /mnt/nas/spool:/app/backups
+      - backup_data:/app/backups
     # Every periodic/on-demand task here does blocking network I/O
     # (TMDB/Trakt/Simkl/Nuvio/MDBList calls) - Celery's own per-CPU-core
     # default concurrency can leave a slow sync serializing behind other
@@ -86,6 +89,7 @@ volumes:
   db_data:
   redis_data:
   media_data:
+  backup_data:
 
 networks:
   proxy:

@@ -17,14 +17,14 @@ card rather than trying to remember a position that may no longer exist
 once the list has shrunk.
 {% endcomment %}
 {% if received_recommendations %}
-  <div id="recommendations-block" class="bg-base-200 border border-line rounded-2xl p-4 shadow-md shadow-black/20" x-data="{ active: 0 }">
-    <h2 class="font-display text-lg tracking-wide mb-1 flex items-center gap-2">{% icon "sparkles" "w-4 h-4 text-ink-dim" %}Recommended by Friends</h2>
-    <div class="flex items-center justify-between mb-3">
-      <span class="font-mono text-[11px] font-semibold bg-primary/15 text-primary px-2 py-0.5 rounded-full">{% if received_recommendations|length > 1 %}{{ received_recommendations|length }} New{% else %}New{% endif %}</span>
+  <section id="recommendations-block" class="surface p-4" x-data="{ active: 0 }" aria-label="Recommended by Friends">
+    <h2 class="text-[15px] font-semibold">Recommended by Friends</h2>
+    <div class="flex items-center justify-between gap-2 mt-1 mb-3">
+      <span class="chip chip-primary">{% if received_recommendations|length > 1 %}{{ received_recommendations|length }} New{% else %}New{% endif %}</span>
       {% if received_recommendations|length > 1 %}
         <div class="flex items-center gap-1">
           <button type="button" @click="active = (active - 1 + {{ received_recommendations|length }}) % {{ received_recommendations|length }}" aria-label="Previous recommendation" class="w-6 h-6 rounded-full flex items-center justify-center text-ink-dim hover:text-base-content hover:bg-base-300 cursor-pointer">{% icon "chevron-left" "w-3.5 h-3.5" %}</button>
-          <span class="font-mono text-[11px] text-ink-faint" x-text="(active + 1) + ' / {{ received_recommendations|length }}'"></span>
+          <span class="text-[12px] text-ink-faint tabular-nums" x-text="(active + 1) + ' / {{ received_recommendations|length }}'"></span>
           <button type="button" @click="active = (active + 1) % {{ received_recommendations|length }}" aria-label="Next recommendation" class="w-6 h-6 rounded-full flex items-center justify-center text-ink-dim hover:text-base-content hover:bg-base-300 cursor-pointer">{% icon "chevron-right" "w-3.5 h-3.5" %}</button>
         </div>
       {% endif %}
@@ -33,18 +33,18 @@ once the list has shrunk.
       <div x-show="active === {{ forloop.counter0 }}" {% if not forloop.first %}x-cloak{% endif %}>
         {% if rec.is_blind and not rec.revealed %}
           <div class="flex items-center gap-3">
-            <div class="w-20 aspect-[2/3] rounded-lg relative overflow-hidden flex-none bg-gradient-to-br from-primary/25 to-base-300 flex items-center justify-center">
+            <div class="w-16 aspect-[2/3] rounded-lg relative overflow-hidden flex-none bg-base-300 flex items-center justify-center">
               <span class="text-4xl">&#127873;</span>
             </div>
             <div class="min-w-0 flex-1">
               <div class="text-sm font-semibold">Mystery recommendation</div>
-              <div class="text-[11px] text-ink-dim mt-0.5">from {{ rec.from_profile.display_name }} &middot; {{ rec.created_at|timesince }} ago</div>
+              <div class="text-[12px] text-ink-dim mt-0.5">from {{ rec.from_profile.display_name }} &middot; {{ rec.created_at|timesince }} ago</div>
             </div>
           </div>
           <div class="flex items-center gap-1.5 mt-3">
             <form class="flex-1" hx-post="{% url 'reveal_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
               {% csrf_token %}
-              <button type="submit" class="btn btn-sm btn-primary btn-block">Open it</button>
+              <button type="submit" class="btn btn-sm btn-soft btn-block">Open it</button>
             </form>
             <form hx-post="{% url 'dismiss_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
               {% csrf_token %}
@@ -53,7 +53,7 @@ once the list has shrunk.
           </div>
         {% else %}
           <div class="flex items-center gap-3">
-            <a href="{% url 'title_detail' rec.title.pk %}" class="w-20 aspect-[2/3] rounded-lg relative overflow-hidden flex-none {% if not rec.title.poster_url %}{{ rec.title.pk|gradient_class }}{% endif %}">
+            <a href="{% url 'title_detail' rec.title.pk %}" class="w-16 aspect-[2/3] rounded-lg relative overflow-hidden flex-none {% if not rec.title.poster_url %}{{ rec.title.pk|gradient_class }}{% endif %}">
               {% if rec.title.poster_url %}
                 <img src="{{ rec.title.poster_url|poster_size:"w185" }}" alt="{{ rec.title.name }}" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
               {% endif %}
@@ -63,14 +63,14 @@ once the list has shrunk.
             </a>
             <div class="min-w-0 flex-1">
               <a href="{% url 'title_detail' rec.title.pk %}" class="text-sm font-semibold truncate block hover:text-primary transition-colors">{{ rec.title.name }}</a>
-              <div class="text-[11px] text-ink-dim font-mono mt-0.5">{{ rec.title.media_type|upper }}{% if rec.title.year %} &middot; {{ rec.title.year }}{% endif %}</div>
+              <div class="meta meta-sm mt-0.5"><span>{{ rec.title.media_type|media_label }}</span>{% if rec.title.year %}<span>{{ rec.title.year }}</span>{% endif %}</div>
               <div class="flex items-center gap-1.5 mt-1">
                 {% if rec.from_profile.avatar_image %}
                   <div class="w-4 h-4 rounded-full bg-cover bg-center flex-none" style="background-image:url('{{ rec.from_profile.avatar_image.url }}')"></div>
                 {% else %}
                   <div class="w-4 h-4 rounded-full flex items-center justify-center font-mono text-[9px] font-semibold flex-none" style="background:{{ rec.from_profile.avatar_color }};color:#fff;">{{ rec.from_profile.display_name|first|upper }}</div>
                 {% endif %}
-                <span class="text-[11px] text-ink-dim truncate">by <b class="text-base-content">{{ rec.from_profile.display_name }}</b></span>
+                <span class="text-[12px] text-ink-dim truncate">by <b class="text-base-content">{{ rec.from_profile.display_name }}</b></span>
               </div>
             </div>
           </div>
@@ -99,9 +99,9 @@ once the list has shrunk.
                 <div
                   x-ref="panel"
                   x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
-                  class="fixed z-50 w-[272px] bg-base-200 border border-line rounded-xl p-2 shadow-xl"
+                  class="fixed z-50 w-[272px] menu-surface p-2"
                 >
-                  <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1 border-b border-line">
+                  <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1">
                     <div class="min-w-0">
                       <div class="font-semibold text-sm">Add to list</div>
                       <div class="text-xs text-ink-faint truncate">{{ rec.title.name }}</div>
@@ -114,15 +114,15 @@ once the list has shrunk.
                         {% csrf_token %}
                         <input type="hidden" name="title_id" value="{{ rec.title.pk }}">
                         <button type="submit" class="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
-                          <span class="w-8 h-8 rounded-full flex items-center justify-center flex-none {% if list.id in in_list_ids %}bg-primary/15 text-primary{% else %}bg-base-300 text-ink-dim{% endif %}">{% if list.id in in_list_ids %}{% icon "check" "w-4 h-4" %}{% else %}{% icon "list-checks" "w-4 h-4" %}{% endif %}</span>
+                          <span class="w-7 h-7 rounded-md flex items-center justify-center flex-none {% if list.id in in_list_ids %}bg-primary/15 text-primary{% else %}bg-base-300 text-ink-dim{% endif %}">{% if list.id in in_list_ids %}{% icon "check" "w-4 h-4" %}{% else %}{% icon "list-checks" "w-4 h-4" %}{% endif %}</span>
                           <span class="min-w-0 flex-1">
                             <span class="block text-[13px] font-semibold truncate">{{ list.name }}</span>
-                            <span class="block text-[11px] text-ink-faint">{% if list.id in in_list_ids %}In this list — tap to remove{% else %}Add to this list{% endif %}</span>
+                            <span class="block text-[12px] text-ink-faint">{% if list.id in in_list_ids %}In this list — tap to remove{% else %}Add to this list{% endif %}</span>
                           </span>
                         </button>
                       </form>
                     {% empty %}
-                      <div class="text-[11px] text-ink-faint px-2 py-1.5">No lists yet.</div>
+                      <div class="text-[12px] text-ink-faint px-2 py-1.5">No lists yet.</div>
                     {% endfor %}
                   </div>
                 </div>
@@ -149,7 +149,7 @@ once the list has shrunk.
                 <div
                   x-ref="panel"
                   x-show="open" x-cloak x-transition @click.outside="open = false" @keydown.escape.window="open = false"
-                  class="fixed z-50 w-60 bg-base-200 border border-line rounded-xl p-2.5 shadow-xl"
+                  class="fixed z-50 w-60 menu-surface p-2.5"
                 >
                   <div class="flex justify-between gap-1">
                     <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
@@ -175,7 +175,7 @@ once the list has shrunk.
                   </div>
                   <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" class="flex items-center gap-1.5 mt-2">
                     {% csrf_token %}
-                    <input type="text" name="reply_message" maxlength="160" placeholder="Reply…" aria-label="Reply" class="input input-xs flex-1 min-w-0 bg-base-100">
+                    <input type="text" name="reply_message" maxlength="160" placeholder="Reply…" aria-label="Reply" class="input input-xs flex-1 min-w-0">
                     <button type="submit" aria-label="Send" class="w-7 h-7 rounded-full flex items-center justify-center flex-none bg-primary text-primary-content hover:brightness-110 transition-all cursor-pointer">{% icon "send" "w-3.5 h-3.5" %}</button>
                   </form>
                 </div>
@@ -189,5 +189,5 @@ once the list has shrunk.
         {% endif %}
       </div>
     {% endfor %}
-  </div>
+  </section>
 {% endif %}

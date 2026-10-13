@@ -16,6 +16,17 @@ def _invalidate_stats_cache_on_watchevent_change(sender, instance, **kwargs):
     invalidate_profile_stats_cache(instance.profile_id)
 
 
+def _ensure_watchlist_on_profile_create(sender, instance, created, raw=False, **kwargs):
+    # Every profile gets its auto-managed Watchlist the moment it exists
+    # (see tracker/watchlists.py) - module-level for the same weak-
+    # reference reason as the receiver above. raw=True is a fixture load;
+    # the fixture brings its own lists.
+    if created and not raw:
+        from .watchlists import ensure_watchlist
+
+        ensure_watchlist(instance)
+
+
 class TrackerConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'tracker'
@@ -44,4 +55,23 @@ class TrackerConfig(AppConfig):
             _invalidate_stats_cache_on_watchevent_change,
             sender=WatchEvent,
             dispatch_uid="watchevent_stats_cache_invalidate_delete",
+        )
+
+        from .models import Profile
+
+        post_save.connect(
+            _ensure_watchlist_on_profile_create,
+            sender=Profile,
+            dispatch_uid="profile_ensure_watchlist",
+        )
+
+        # Every ImportSession status/progress change is mirrored into the
+        # admin Logs and the user's notification bell (transfer_tracking.py).
+        from .models import ImportSession
+        from .transfer_tracking import on_import_session_saved
+
+        post_save.connect(
+            on_import_session_saved,
+            sender=ImportSession,
+            dispatch_uid="import_session_transfer_tracking",
         )

@@ -9,18 +9,20 @@
   prefersdark: true;
   color-scheme: dark;
 
-  --color-base-100: #14161c;
-  --color-base-200: #1b1e26;
-  --color-base-300: #232732;
+  /* Surfaces - three close tonal steps, separated mostly by tone and
+     spacing rather than borders. Page < surface < raised. */
+  --color-base-100: #0e1014; /* page */
+  --color-base-200: #16181d; /* surface: cards that really are cards, inputs, menus */
+  --color-base-300: #1f2229; /* raised: hover, tracks, nested controls */
   --color-base-content: #eceef2;
 
-  --color-primary: #e8a63c; /* marquee amber */
+  --color-primary: #e8a63c; /* Spool amber - also the Movies colour */
   --color-primary-content: #1a1305;
-  --color-secondary: #3fa9a0; /* teal — anime accent */
+  --color-secondary: #3fa9a0; /* teal - Anime */
   --color-secondary-content: #0c211f;
-  --color-accent: #8b85d6; /* violet — TV split in charts */
+  --color-accent: #8b85d6; /* muted violet - TV */
   --color-accent-content: #171531;
-  --color-neutral: #1b1e26;
+  --color-neutral: #1f2229;
   --color-neutral-content: #eceef2;
   --color-info: #6fb7ce;
   --color-info-content: #0a1f26;
@@ -28,27 +30,31 @@
   --color-success-content: #07230f;
   --color-warning: #e8a63c;
   --color-warning-content: #1a1305;
-  --color-error: #fa5a3d;
+  --color-error: #f0604a;
   --color-error-content: #240a05;
 
-  --radius-selector: 8px;
+  --radius-selector: 6px;
   --radius-field: 8px;
-  --radius-box: 16px;
+  --radius-box: 12px;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
 }
 
 @theme {
-  --font-display: "Bebas Neue", sans-serif;
+  /* Public Sans carries the interface, headings included. Bebas Neue is
+     kept only for the wordmark and the occasional hero figure
+     (font-brand); JetBrains Mono only for codes/times/technical figures. */
+  --font-display: "Public Sans", sans-serif;
+  --font-brand: "Bebas Neue", sans-serif;
   --font-body: "Public Sans", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
 
-  /* Brand tokens straight from the mockup that fall outside daisyUI's
-     semantic palette — rating-source colors, dimmed pairs for gradients/
-     borders, and the mockup's r-s/r-m/r-l radius scale (r-m/r-l already
-     match --radius-field/--radius-box above; r-s has no daisyUI slot). */
-  --color-line: #2b2f3b;
+  --color-line: #262930;
+  --color-line-strong: #30333c;
   --color-ink: #eceef2;
-  --color-ink-dim: #9195a6;
-  --color-ink-faint: #5c606f;
+  --color-ink-dim: #a6aab8;
+  --color-ink-faint: #737887;
 
   --color-marquee: #e8a63c;
   --color-marquee-dim: #8a641f;
@@ -57,6 +63,11 @@
   --color-violet: #8b85d6;
   --color-violet-dim: #4b4880;
 
+  /* Media-type aliases - same three hues, named for what they mean. */
+  --color-movie: #e8a63c;
+  --color-tv: #8b85d6;
+  --color-anime: #3fa9a0;
+
   --color-imdb: #f5c518;
   --color-rt: #fa5a3d;
   --color-trakt: #ed4a50;
@@ -64,26 +75,898 @@
   --color-metacritic: #ffcc33;
   --color-tmdb: #01b4e4;
 
-  /* No custom radius tokens: Tailwind's built-in rounded-sm (4px) /
-     rounded-lg (8px) / rounded-2xl (16px) already match the mockup's
-     r-s/r-m/r-l exactly. (A same-named --radius-s/--radius-l override was
-     tried and dropped — those names collide with Tailwind's *reserved*
-     logical-corner utilities, "start corners" and "left corners", not
-     "small"/"large", producing a conflicting duplicate rule.) */
+  /* Flatter radius scale than Tailwind's defaults: posters/buttons/inputs
+     sit at 8px, cards at 10-12px, nothing rounder than 14px except true
+     pills/avatars (rounded-full). Remapping the named steps here (rather
+     than find-and-replacing every template) keeps old and new markup on
+     the same scale. */
+  /* text-xs carries most metadata - 12.5px rather than Tailwind's 12px so
+     tiny text is the exception, not the default. */
+  --text-xs: 0.78125rem;
+  --text-xs--line-height: 1.45;
+
+  /* Application grid - every page aligns to these. */
+  --spacing-topbar: 3.75rem; /* 60px */
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.625rem;
+  --radius-2xl: 0.75rem;
+  --radius-3xl: 0.875rem;
 }
 
 @layer base {
   body {
     font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
   h1,
   h2,
   h3,
   .font-display {
     font-family: var(--font-display);
-    font-weight: 400;
-    letter-spacing: 0.02em;
+    font-weight: 600;
+    letter-spacing: -0.01em;
   }
+  .font-brand {
+    font-family: var(--font-brand);
+    font-weight: 400;
+    letter-spacing: 0.03em;
+  }
+  :focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--color-primary) 70%, transparent);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--color-primary) 35%, transparent);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Spool UI primitives. Templates compose these instead of re-spelling the
+   same utility strings, so the look stays consistent page to page.
+   -------------------------------------------------------------------------- */
+@layer components {
+  /* Page shell */
+  /* One content column for every page: 16px gutters on phones, 24 on
+     tablets, 40 on desktop, capped at 1920px of content. */
+  .page {
+    width: 100%;
+    max-width: calc(1920px + 5rem);
+    margin-inline: auto;
+    padding-inline: 1rem;
+  }
+  @media (min-width: 640px) {
+    .page {
+      padding-inline: 1.5rem;
+    }
+  }
+  @media (min-width: 1024px) {
+    .page {
+      padding-inline: 2.5rem;
+    }
+  }
+  .page-narrow {
+    max-width: 960px;
+  }
+  /* Reading-width pages (Settings, History, Notifications) */
+  .page-reading {
+    max-width: 1120px;
+  }
+  /* Breaks out of .page to the full window width (title hero, its sticky
+     tab bar). 50% is half the page column, 50vw half the window - the
+     column is centred, so this lands exactly on the window edges. Put a
+     .page inside to keep the content itself on the grid. */
+  .bleed {
+    margin-inline: calc(50% - 50vw);
+  }
+  .page-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 0.75rem 1.5rem;
+    margin-bottom: 2rem;
+  }
+  .page-title {
+    font-family: var(--font-display);
+    font-size: 1.75rem;
+    line-height: 1.12;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--color-base-content);
+  }
+  @media (min-width: 1024px) {
+    .page-title {
+      font-size: 2.0625rem;
+    }
+  }
+  .page-subtitle {
+    margin-top: 0.5rem;
+    font-size: 0.9375rem;
+    color: var(--color-ink-dim);
+  }
+
+  /* Sections - content sits on the page; a heading and spacing do the
+     grouping, not a box. */
+  .section + .section {
+    margin-top: 2.75rem;
+  }
+  @media (min-width: 1024px) {
+    .section + .section {
+      margin-top: 3.5rem;
+    }
+  }
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .section-title {
+    font-family: var(--font-display);
+    font-size: 1.1875rem;
+    line-height: 1.3;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    color: var(--color-base-content);
+  }
+  @media (min-width: 1024px) {
+    .section-title {
+      font-size: 1.3125rem;
+    }
+  }
+  /* Secondary rails (Home's household column): same weight, one step
+     smaller, so the main column's sections lead. */
+  .section-title.section-title-sm {
+    font-size: 1.0625rem;
+  }
+  .section-count {
+    margin-left: 0.375rem;
+    font-weight: 500;
+    color: var(--color-ink-faint);
+  }
+  .section-link {
+    flex: none;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-ink-dim);
+    white-space: nowrap;
+  }
+  .section-link:hover {
+    color: var(--color-primary);
+  }
+  .subhead {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-ink-dim);
+  }
+
+  /* A real card: a surface, no border. */
+  .surface {
+    background: var(--color-base-200);
+    border-radius: var(--radius-2xl);
+  }
+  .surface-raised {
+    background: var(--color-base-300);
+    border-radius: var(--radius-xl);
+  }
+  .rule {
+    height: 1px;
+    background: var(--color-line);
+  }
+
+  /* Metadata line: "2024 · Movie · 2h 14m" - plain text with dot
+     separators instead of a row of pills. */
+  /* Every item carries its own leading dot in a fixed 0.9rem slot; the
+     line is shifted left by one slot and clip-path trims that slot away,
+     so the dot that starts each wrapped line (and the very first one) is
+     never visible - no stray "·" at a line start however it wraps or
+     whichever items are hidden at a breakpoint. */
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 0;
+    row-gap: 0.125rem;
+    margin-left: -0.9rem;
+    clip-path: inset(-0.5em -0.5em -0.5em 0.9rem);
+    font-size: 0.8125rem;
+    color: var(--color-ink-dim);
+    min-width: 0;
+  }
+  .meta-sm {
+    font-size: 0.78125rem;
+  }
+  .meta > *::before {
+    content: "·";
+    display: inline-block;
+    width: 0.9rem;
+    text-align: center;
+    color: var(--color-ink-faint);
+  }
+  .meta-sep::before {
+    content: "·";
+    margin-right: 0.4rem;
+    color: var(--color-ink-faint);
+  }
+  .meta > .meta-nosep::before {
+    content: "";
+  }
+
+  /* Small, quiet label chip - reserved for state that benefits from
+     isolation (status, filler/special, sync state, active filter). */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    height: 1.375rem;
+    padding: 0 0.45rem;
+    border-radius: 5px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    background: var(--color-base-300);
+    color: var(--color-ink-dim);
+  }
+  .chip-primary {
+    background: color-mix(in oklab, var(--color-primary) 16%, transparent);
+    color: var(--color-primary);
+  }
+  .chip-success {
+    background: color-mix(in oklab, var(--color-success) 15%, transparent);
+    color: var(--color-success);
+  }
+  .chip-error {
+    background: color-mix(in oklab, var(--color-error) 15%, transparent);
+    color: var(--color-error);
+  }
+  .chip-info {
+    background: color-mix(in oklab, var(--color-info) 15%, transparent);
+    color: var(--color-info);
+  }
+  .chip-tv {
+    background: color-mix(in oklab, var(--color-tv) 18%, transparent);
+    color: var(--color-tv);
+  }
+  .chip-anime {
+    background: color-mix(in oklab, var(--color-anime) 18%, transparent);
+    color: var(--color-anime);
+  }
+  .chip-movie {
+    background: color-mix(in oklab, var(--color-movie) 16%, transparent);
+    color: var(--color-movie);
+  }
+  /* Overlay variant for chips sitting on artwork */
+  .chip-scrim {
+    background: rgba(10, 11, 14, 0.78);
+    color: #eceef2;
+  }
+
+  /* Media-type dot, used next to a meta line instead of a type badge. */
+  .type-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    flex: none;
+  }
+
+  /* Progress */
+  .progress-track {
+    height: 3px;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.09);
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: var(--color-primary);
+  }
+
+  /* Artwork */
+  .poster {
+    position: relative;
+    aspect-ratio: 2 / 3;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background: var(--color-base-300);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  }
+  .poster img,
+  .backdrop img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .backdrop {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+    background: var(--color-base-300);
+  }
+  .art-scrim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, rgba(8, 9, 12, 0.92) 0%, rgba(8, 9, 12, 0.55) 38%, rgba(8, 9, 12, 0) 70%);
+    pointer-events: none;
+  }
+
+  /* Responsive poster grid - posters dominate, cards stay light. */
+  /* Tracker density, not a streaming homepage: 3 columns on phones, then
+     ~170px posters - 5 across at 1366px, 6 at 1440px. */
+  .media-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 1.25rem 0.75rem;
+  }
+  @media (min-width: 640px) {
+    .media-grid {
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 2rem 1.25rem;
+    }
+  }
+  @media (min-width: 1280px) {
+    .media-grid {
+      grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+      gap: 2.25rem 1.25rem;
+    }
+  }
+  .media-grid-sm {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+    gap: 1.25rem 0.75rem;
+  }
+  .landscape-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 1rem;
+  }
+
+  /* Media card text under a poster */
+  .media-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--color-base-content);
+  }
+  .media-sub {
+    margin-top: 0.125rem;
+    font-size: 0.75rem;
+    color: var(--color-ink-dim);
+  }
+
+  /* Rows: compact list items separated by hairlines. */
+  /* Rows group by spacing; a hover wash marks the row, not a hairline. */
+  .rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+
+  /* Segmented control (type/category switches). */
+  .seg {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.125rem;
+    padding: 0.1875rem;
+    border-radius: 9px;
+    background: var(--color-base-200);
+  }
+  .seg-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    height: 1.875rem;
+    padding: 0 0.75rem;
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--color-ink-dim);
+    white-space: nowrap;
+  }
+  .seg-item:hover {
+    color: var(--color-base-content);
+  }
+  .seg-item.is-active,
+  .seg-item[aria-current="page"],
+  .seg-item[aria-pressed="true"] {
+    background: var(--color-base-300);
+    color: var(--color-base-content);
+  }
+
+  /* Underline tabs - for in-page category navigation. */
+  .tabs-line {
+    display: flex;
+    gap: 1.5rem;
+    border-bottom: 1px solid var(--color-line);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tabs-line::-webkit-scrollbar {
+    display: none;
+  }
+  .tab-line {
+    position: relative;
+    padding: 0.625rem 0;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-ink-dim);
+    white-space: nowrap;
+  }
+  .tab-line:hover {
+    color: var(--color-base-content);
+  }
+  .tab-line.is-active,
+  .tab-line[aria-current="page"] {
+    color: var(--color-base-content);
+  }
+  .tab-line.is-active::after,
+  .tab-line[aria-current="page"]::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--color-primary);
+  }
+
+  /* Settings: grouped forms separated by hairlines, not boxed cards. */
+  .settings-panel {
+    padding-bottom: 2rem;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .settings-panel:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+  .settings-panel > h3:first-child,
+  .settings-panel h3 {
+    font-size: 1rem;
+    font-weight: 650;
+  }
+
+  /* Removable active-filter chip. */
+  .filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    height: 1.75rem;
+    padding: 0 0.625rem 0 0.75rem;
+    border-radius: 9999px;
+    background: color-mix(in oklab, var(--color-primary) 13%, transparent);
+    color: var(--color-base-content);
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+  .filter-chip svg {
+    color: var(--color-ink-dim);
+  }
+  .filter-chip:hover svg {
+    color: var(--color-primary);
+  }
+
+  /* Toolbar row for filters/sort/search. */
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+  }
+  .field {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: 2.5rem;
+    padding: 0 0.75rem;
+    border-radius: var(--radius-lg);
+    background: var(--color-base-200);
+    box-shadow: inset 0 0 0 1px var(--color-line);
+    color: var(--color-ink-dim);
+  }
+  .field:focus-within {
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-primary) 60%, transparent);
+  }
+  .field input {
+    min-width: 0;
+    flex: 1;
+    background: transparent;
+    font-size: 0.875rem;
+    color: var(--color-base-content);
+    outline: none;
+  }
+  .field input::placeholder {
+    color: var(--color-ink-faint);
+  }
+
+  /* Empty states: short, plain, one optional action. */
+  .empty {
+    padding: 2.5rem 1rem;
+    text-align: center;
+    color: var(--color-ink-faint);
+    font-size: 0.875rem;
+  }
+  .empty-title {
+    margin-bottom: 0.25rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--color-ink-dim);
+  }
+
+  /* Big figure used on Stats/Dashboard summaries. */
+  .figure {
+    font-size: 1.75rem;
+    line-height: 1.1;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-base-content);
+  }
+  .figure-label {
+    margin-top: 0.25rem;
+    font-size: 0.75rem;
+    color: var(--color-ink-dim);
+  }
+
+  /* Popover/menu surface */
+  .menu-surface {
+    background: var(--color-base-200);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-xl);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* App shell: the page column under the sticky top bar. */
+@layer components {
+  .app-content {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    /* clip (not hidden): stops stray off-canvas pseudo-elements (hidden
+       tooltips near the right edge) from adding a horizontal scrollbar,
+       without turning this into a scroll container that would break the
+       sticky top bar. */
+    overflow-x: clip;
+  }
+  .sheet-row {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+    height: 3rem;
+    padding: 0 0.75rem;
+    border-radius: var(--radius-lg);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: var(--color-base-content);
+  }
+  .sheet-row:hover,
+  .sheet-row:active {
+    background: var(--color-base-300);
+  }
+}
+
+/* Desktop top navigation (topbar.html, lg: and up): plain text links,
+   the current page marked by full-brightness text and a 2px amber line on
+   the bar's bottom edge - the same signal as the in-page underline tabs. */
+.topnav-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-ink-dim);
+  white-space: nowrap;
+}
+.topnav-item:hover {
+  color: var(--color-base-content);
+}
+.topnav-item {
+  gap: 0.5rem;
+}
+.topnav-icon {
+  opacity: 0.75;
+}
+.topnav-item:hover .topnav-icon {
+  opacity: 1;
+}
+.topnav-item[aria-current="page"] .topnav-icon {
+  opacity: 1;
+  color: var(--color-primary);
+}
+.topnav-item[aria-current="page"] {
+  color: var(--color-base-content);
+}
+.topnav-item[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-primary);
+}
+.topnav-item:focus-visible {
+  outline-offset: -4px;
+  border-radius: 8px;
+}
+@media (min-width: 1536px) {
+  .topnav-item {
+    padding: 0 0.875rem;
+  }
+  .topnav-item[aria-current="page"]::after {
+    left: 0.875rem;
+    right: 0.875rem;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Media cards. One family for every poster/landscape tile in the app:
+   artwork carries the card, text sits below (portrait) or on a scrim
+   (landscape), and actions surface on hover/focus (or first tap on touch,
+   driven by base.html's .tile-hover/.tile-focus classes on .discover-tile).
+   -------------------------------------------------------------------------- */
+@layer components {
+  .media-card {
+    position: relative;
+    min-width: 0;
+  }
+  .media-card-art {
+    position: relative;
+  }
+  .media-card-art > .poster img,
+  .media-card-art > .backdrop img,
+  .media-card-art .art-fill {
+    transition: filter 200ms ease;
+  }
+  .media-card .media-title {
+    display: block;
+    margin-top: 0.625rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .media-card a:hover .media-title,
+  .media-card a.media-title:hover {
+    color: #fff;
+  }
+  .media-card .meta {
+    margin-top: 0.25rem;
+    font-size: 0.8125rem;
+    flex-wrap: nowrap;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  /* Hover/focus action bar, overlaid on the bottom of the artwork. It is
+     a sibling of the overflow-hidden art box (not a child) so the
+     fixed-position popovers its buttons open are never clipped. */
+  .card-actions {
+    position: absolute;
+    left: 0.375rem;
+    right: 0.375rem;
+    bottom: 0.375rem;
+    z-index: 20;
+    display: flex;
+    align-items: stretch;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border-radius: 0.5rem;
+    background: rgba(12, 13, 17, 0.86);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    pointer-events: none;
+  }
+  /* Persistent state marker (watched / in progress) in the poster corner. */
+  .card-state {
+    position: absolute;
+    top: 0.375rem;
+    left: 0.375rem;
+    z-index: 10;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.125rem;
+    min-width: 1.375rem;
+    height: 1.375rem;
+    padding: 0 0.3rem;
+    border-radius: 9999px;
+    font-size: 0.625rem;
+    font-weight: 700;
+    pointer-events: none;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  }
+  .card-state-watched {
+    background: var(--color-success);
+    color: var(--color-success-content);
+  }
+  .card-state-progress {
+    background: #0d0f12;
+    color: var(--color-info);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-info) 55%, transparent), 0 1px 4px rgba(0, 0, 0, 0.5);
+  }
+  .card-corner {
+    position: absolute;
+    top: 0.375rem;
+    right: 0.375rem;
+    z-index: 10;
+    pointer-events: none;
+  }
+
+  /* One-row media strip: scrolls sideways on phones, becomes a single
+     clamped grid row from sm: up (the rest is a "View all" away). */
+  .media-row {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 7.75rem;
+    gap: 0.75rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+    scroll-padding-inline: 1rem;
+  }
+  .media-row::-webkit-scrollbar {
+    display: none;
+  }
+  @media (min-width: 640px) {
+    .media-row {
+      grid-auto-flow: row;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      grid-template-rows: auto;
+      grid-auto-rows: 0;
+      column-gap: 1.125rem;
+      row-gap: 0;
+      overflow: hidden;
+      margin-inline: 0;
+      padding-inline: 0;
+    }
+  }
+  @media (min-width: 1280px) {
+    .media-row {
+      grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+      column-gap: 1.25rem;
+    }
+  }
+  /* Row inside a narrower column (title page main column, side rails):
+     smaller poster minimum so 4-6 fit instead of three oversized ones. */
+  @media (min-width: 640px) {
+    .media-row.media-row-sm {
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      column-gap: 1rem;
+    }
+  }
+  @media (min-width: 1280px) {
+    .media-row.media-row-sm {
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    }
+  }
+  .landscape-row {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 82%;
+    gap: 0.75rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+    scroll-padding-inline: 1rem;
+    scroll-snap-type: x mandatory;
+  }
+  .landscape-row > * {
+    scroll-snap-align: start;
+  }
+  .landscape-row::-webkit-scrollbar {
+    display: none;
+  }
+  @media (min-width: 640px) {
+    .landscape-row {
+      grid-auto-flow: row;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      grid-template-rows: auto;
+      grid-auto-rows: 0;
+      row-gap: 0;
+      column-gap: 1rem;
+      overflow: hidden;
+      margin-inline: 0;
+      padding-inline: 0;
+    }
+    .landscape-row.landscape-row-wrap {
+      grid-auto-rows: auto;
+      row-gap: 1.25rem;
+    }
+  }
+}
+
+.discover-tile:is(.tile-hover, .tile-focus) .card-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.discover-tile:is(.tile-hover, .tile-focus) .media-card-art img,
+.discover-tile:is(.tile-hover, .tile-focus) .media-card-art .art-fill {
+  filter: brightness(1.08);
+}
+@media (prefers-reduced-motion: no-preference) {
+  body[data-animations="on"] .card-actions {
+    transition: opacity 180ms ease-out;
+  }
+  body[data-animations="on"] .media-card-art img {
+    transition: filter 200ms ease, scale 250ms ease-out;
+  }
+  body[data-animations="on"] .discover-tile:is(.tile-hover, .tile-focus) .media-card-art img {
+    scale: 1.02;
+  }
+}
+
+/* Episode rows (title_episodes.html). Watched rows recede a little; the
+   first unwatched episode straight after a watched one is "up next". */
+.ep-row .ep-upnext,
+.ep-row .ep-upnext-line {
+  display: none;
+}
+.ep-row[data-state="watched"] .ep-name,
+.ep-row[data-state="watched"] .meta {
+  opacity: 0.6;
+}
+.ep-row[data-state="watched"] .ep-thumb {
+  filter: saturate(0.7) brightness(0.8);
+}
+.ep-row[data-state="watched"] + .ep-row[data-state="unwatched"] {
+  box-shadow: inset 2px 0 0 var(--color-primary);
+  background: linear-gradient(90deg, color-mix(in oklab, var(--color-primary) 7%, transparent), transparent 60%);
+}
+.ep-row[data-state="watched"] + .ep-row[data-state="unwatched"] .ep-code {
+  color: var(--color-primary);
+}
+.ep-row[data-state="watched"] + .ep-row[data-state="unwatched"] .ep-upnext {
+  display: inline-flex;
+}
+.ep-row[data-state="watched"] + .ep-row[data-state="unwatched"] .ep-upnext-line {
+  display: block;
+}
+
+/* daisyUI button tuning: flatter, quieter secondaries. */
+.btn {
+  font-weight: 600;
+  box-shadow: none;
+  --btn-shadow: none;
+}
+.btn-soft:not(.btn-primary):not(.btn-error):not(.btn-success):not(.btn-warning):not(.btn-info):not(.btn-secondary):not(.btn-accent) {
+  background: var(--color-base-300);
+  border-color: transparent;
+  color: var(--color-base-content);
+}
+.btn-soft:not(.btn-primary):not(.btn-error):not(.btn-success):not(.btn-warning):not(.btn-info):not(.btn-secondary):not(.btn-accent):hover {
+  background: #272a32;
+}
+.btn-ghost:hover {
+  background: var(--color-base-300);
+}
+.input,
+.select,
+.textarea {
+  background: var(--color-base-200);
+  border-color: var(--color-line);
+}
+.input:focus,
+.input:focus-within,
+.select:focus,
+.textarea:focus {
+  border-color: color-mix(in oklab, var(--color-primary) 60%, transparent);
+  outline: none;
+}
+.modal-box {
+  background: var(--color-base-200);
 }
 
 /* Scope the Anime section to the teal accent without a second daisyUI theme —
@@ -551,10 +1434,130 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   pointer-events: auto;
 }
 .discover-tile:is(.tile-hover, .tile-focus) .discover-tile-zoom {
-  /* the standalone CSS `scale` property, not `transform` - matches the
-     zoom amount the old group-hover:scale-[1.06] utility used */
-  scale: 1.06;
+  /* the standalone CSS `scale` property, not `transform` */
+  scale: 1.02;
 }
 .discover-tile.discover-tile-dim:is(.tile-hover, .tile-focus) {
   opacity: 1;
+}
+
+/* Short viewports (phones in landscape, ~390px tall): the top bar, title
+   tabs and day headings stop pinning - with the bottom nav they would
+   otherwise cover a third of the screen. They scroll away like content;
+   the bottom nav stays as the one fixed control. */
+@media (max-height: 520px) {
+  .app-topbar,
+  .title-tabs,
+  .day-head {
+    position: static;
+  }
+}
+
+/* Focus rings inside clipping containers (tab strips, sideways rows, the
+   one-row media strips) would be cut off at the edges with the global
+   2px outside offset - draw them inside the element instead so keyboard
+   focus stays fully visible. */
+.tabs-line :focus-visible,
+.media-row :focus-visible,
+.landscape-row :focus-visible,
+.scroll-row :focus-visible,
+.ep-list :focus-visible {
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+/* Title page (title_detail.html): labelled facts under the title -
+   a small caps label, then the value in full brightness. */
+.hero-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem 1rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-base-content);
+}
+.hero-fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+@media (min-width: 640px) {
+  .hero-facts {
+    gap: 0.5rem 1.375rem;
+    font-size: 0.875rem;
+  }
+}
+.hero-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
+}
+/* Title page rail: each section is a quiet panel with its own heading. */
+.title-rail > section {
+  background: var(--color-base-200);
+  border-radius: var(--radius-2xl);
+  padding: 1.25rem;
+}
+.title-rail > section .subhead {
+  margin-bottom: 0.875rem;
+  font-size: 0.9375rem;
+  color: var(--color-base-content);
+}
+
+/* Phone tab bar (bottom_nav.html): a floating frosted-glass capsule.
+   Translucent tint + blur/saturate so content shows through softly, a
+   hairline rim and a faint top highlight for the glass edge, a soft drop
+   shadow to lift it off the page. Without backdrop-filter support it
+   falls back to a near-solid fill so labels stay readable. */
+.glass-bar {
+  background: rgba(16, 18, 23, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 12px 32px rgba(0, 0, 0, 0.5),
+    0 2px 8px rgba(0, 0, 0, 0.35);
+}
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .glass-bar {
+    background: rgba(24, 26, 32, 0.58);
+    -webkit-backdrop-filter: blur(22px) saturate(170%);
+    backdrop-filter: blur(22px) saturate(170%);
+  }
+}
+.glass-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  height: 3.25rem;
+  border-radius: 22px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--color-ink-dim);
+}
+.glass-tab:active {
+  background: rgba(255, 255, 255, 0.06);
+}
+.glass-tab.is-active,
+.glass-tab[aria-current="page"] {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-base-content);
+}
+.glass-tab.is-active svg,
+.glass-tab[aria-current="page"] svg {
+  color: var(--color-primary);
+}
+.glass-tab:focus-visible {
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  body[data-animations="on"] .glass-tab {
+    transition: background-color 180ms ease, color 180ms ease;
+  }
 }

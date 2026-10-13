@@ -1,14 +1,11 @@
 {% load tracker_extras %}
-{# context: item (dict: id, name, poster_url) #}
-<a href="{% url 'collection_detail' item.id %}" class="block">
-  <div class="aspect-[2/3] rounded-lg relative overflow-hidden {% if not item.poster_url %}{{ item.id|gradient_class }}{% endif %}">
+{# context: item (dict: id, name, poster_url) - one TMDB collection in the Movies → Collections grid; same poster-first card shape as discover_tile.html. #}
+<a href="{% url 'collection_detail' item.id %}" class="media-card block group">
+  <div class="poster {% if not item.poster_url %}{{ item.id|gradient_class }}{% endif %}">
     {% if item.poster_url %}
-      <img src="{{ item.poster_url|poster_size:"w342" }}" alt="{{ item.name }}" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+      <img src="{{ item.poster_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 group-hover:brightness-110">
     {% endif %}
-    <div class="absolute inset-0 bg-linear-to-t from-black/85 via-black/35 via-55% to-transparent"></div>
-    <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">COLLECTION</span>
   </div>
-  <div class="mt-1.5 min-w-0">
-    <div class="text-[12.5px] font-semibold truncate">{{ item.name }}</div>
-  </div>
+  <span class="media-title">{{ item.name }}</span>
+  <span class="meta"><span>Collection</span></span>
 </a>

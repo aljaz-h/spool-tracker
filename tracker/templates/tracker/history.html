@@ -3,9 +3,11 @@
 {% block title %}History · Spool{% endblock %}
 {% block content %}
 
-  <div class="mb-6">
-    <h1 class="font-display text-4xl">{% if is_own_history or not profile %}History{% else %}{{ profile.display_name }}&rsquo;s History{% endif %}</h1>
-    <div class="text-ink-dim text-sm mt-1">Every movie, episode and rewatch, across Movies, TV &amp; Anime</div>
+  <div class="page-head !mb-6">
+    <div>
+      <h1 class="page-title">{% if is_own_history or not profile %}History{% else %}{{ profile.display_name }}&rsquo;s History{% endif %}</h1>
+      <p class="page-subtitle">Every movie, episode and rewatch, across Movies, TV &amp; Anime.</p>
+    </div>
   </div>
 
   <div x-data="{ selecting: false, selectedCount: 0, recount() { this.selectedCount = [...document.querySelectorAll('[name=event_ids]:checked')].reduce((sum, cb) => sum + cb.value.split(',').length, 0) } }">
@@ -16,9 +18,9 @@
     {% if is_own_history and not grouped_by_watch_count %}
       <div
         x-show="selecting && selectedCount > 0" x-cloak x-transition
-        class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 bg-base-200 border border-line rounded-full pl-5 pr-2 py-2 shadow-xl"
+        class="fixed bottom-24 lg:bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 menu-surface rounded-xl pl-5 pr-2 py-2"
       >
-        <span class="text-xs font-mono text-ink-dim"><span x-text="selectedCount"></span> selected</span>
+        <span class="text-sm text-ink-dim"><span x-text="selectedCount" class="text-base-content font-semibold"></span> selected</span>
         <button
           type="button"
           hx-post="{% url 'history_bulk_delete' %}?{{ base_query }}&page={{ page_obj.number }}"
@@ -26,7 +28,7 @@
           hx-target="#history-content"
           hx-confirm="Remove the selected items from your watch history? This can't be undone."
           @htmx:after-request.camel="if ($event.detail.successful) { selecting = false; selectedCount = 0 }"
-          class="px-4 py-2 rounded-full bg-error text-error-content text-xs font-semibold"
+          class="btn btn-sm btn-error"
         >Delete selected</button>
       </div>
     {% endif %}

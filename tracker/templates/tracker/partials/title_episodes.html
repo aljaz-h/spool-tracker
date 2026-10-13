@@ -2,61 +2,57 @@
 {# context: title (Title or None - preview titles have no local row yet), seasons, season, episodes (each carrying watched (bool) and watch_count (int, 0 when unwatched - the checkmark's own ×N badge, see episode_watched_button.html), optionally filler/recap bools - anime only, from Jikan/MyAnimeList, see views._apply_anime_filler_flags - absent entirely rather than False when there's no match/data, which {% if %} already treats as falsy - and release_in, a "In N days/weeks/months" countdown string for a not-yet-aired episode, None once it's aired, and aired_on, the episode's own air date as a date object or None when TMDB has none), season_avg_rating, season_total_runtime (str, format_duration of the selected season's episodes with a known runtime), season_ratings (dict {season_number: TMDB rating}), season_cards ([{"number", "poster_url", "total_episodes", "watched_count", "percent"}, ...] - the season picker's own poster-card row), season_watched_count/season_remaining_count/season_remaining_runtime (str|None - the selected season's own "N watched · N left · runtime left" summary strip), season_fully_watched/show_completed (bool - whether the "Mark episodes" popover's own rows below should show their unmark reverse instead), preview_media_type/preview_tmdb_id/preview_name (only set when title is None - each per-episode watched button materializes the title on click, see episode_watched_button.html) #}
 <div id="episodes-panel">
   {% if seasons %}
-    <h2 class="font-display text-xl m-0 mb-3">
-      Seasons
+    <section>
+    <div class="section-head">
+      <h2 class="section-title">Seasons</h2>
       {% if season_watched_count or season_remaining_count %}
-        <span class="text-[12.5px] text-ink-faint font-mono font-body ml-2">Season {{ season }} progress &middot; {{ season_watched_count }} watched &middot; {{ season_remaining_count }} left{% if season_remaining_runtime %} &middot; {{ season_remaining_runtime }} left{% endif %}</span>
+        <span class="text-[13px] text-ink-dim truncate max-sm:hidden">Season {{ season }} · {{ season_watched_count }} watched · {{ season_remaining_count }} left{% if season_remaining_runtime %} · {{ season_remaining_runtime }} left{% endif %}</span>
       {% endif %}
-    </h2>
+    </div>
 
     {% comment %}
-      Trakt-style season picker - a horizontal row of poster cards
-      (season_cards, see views._episode_panel_context) replacing the old
-      "Season N ▾" dropdown-style popover. Still the same hx-get/
-      hx-target/hx-swap the dropdown's own season buttons used - only
-      the trigger markup changed, not how switching seasons actually
-      works. The selected card gets a colored border rather than a
-      filled background (matching how poster-card selection reads
-      elsewhere in the app - a background fill would fight the poster
-      image itself for attention).
+      Season picker - a row of season posters (season_cards, see
+      views._episode_panel_context), each an hx-get that swaps
+      #episodes-panel to that season. The selected one gets an amber
+      ring and label; each shows its own watched progress as a thin
+      line along the poster's bottom edge.
     {% endcomment %}
-    <div class="flex gap-3 overflow-x-auto scroll-row pb-2 mb-4">
+    <div class="flex gap-3.5 overflow-x-auto scroll-row pb-2 mb-9">
       {% for card in season_cards %}
         <button
           type="button"
           hx-get="{% if title %}{% url 'title_episodes' title.pk %}{% else %}{% url 'title_preview_episodes' preview_media_type preview_tmdb_id %}{% endif %}?season={{ card.number }}"
           hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-          class="w-24 sm:w-28 flex-none text-left group"
+          {% if card.number == season %}aria-current="true"{% endif %}
+          class="w-[84px] sm:w-[96px] flex-none text-left group"
         >
-          <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-base-300 border-2 {% if card.number == season %}border-primary{% else %}border-transparent group-hover:border-line{% endif %} {% if not card.poster_url %}{{ title.pk|default:preview_tmdb_id|add:card.number|gradient_class }}{% endif %}">
+          <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-base-300 {% if card.number == season %}ring-2 ring-primary ring-offset-2 ring-offset-base-100{% else %}opacity-80 group-hover:opacity-100{% endif %} {% if not card.poster_url %}{{ title.pk|default:preview_tmdb_id|add:card.number|gradient_class }}{% endif %}">
             {% if card.poster_url %}
               <img src="{{ card.poster_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
             {% endif %}
-            {% with rating=season_ratings|get_item:card.number %}
-              {% if rating %}
-                <span class="absolute top-1 right-1 font-mono text-[9px] font-bold bg-black/85 px-1.5 py-0.5 rounded-md text-white/90">&#9733; {{ rating|floatformat:1 }}</span>
-              {% endif %}
-            {% endwith %}
             {% if card.total_episodes %}
-              <div class="absolute bottom-0 inset-x-0 h-1.5 bg-black/60">
-                <div class="h-full bg-success" style="width: {{ card.percent }}%"></div>
+              <div class="absolute bottom-0 inset-x-0 h-[3px] bg-black/60">
+                <div class="h-full {% if card.percent >= 100 %}bg-success{% else %}bg-primary{% endif %}" style="width: {{ card.percent }}%"></div>
               </div>
             {% endif %}
           </div>
-          <div class="mt-1.5 text-[11.5px] font-semibold truncate {% if card.number == season %}text-primary{% else %}text-base-content{% endif %}">Season {{ card.number }}</div>
-          {% if card.total_episodes %}
-            <div class="text-[10px] font-mono text-ink-faint">{{ card.watched_count }}/{{ card.total_episodes }} eps</div>
-          {% endif %}
+          <div class="mt-2 text-[13px] font-medium truncate {% if card.number == season %}text-base-content{% else %}text-ink-dim{% endif %}">Season {{ card.number }}</div>
+          <div class="text-[12px] text-ink-faint truncate">
+            {% if card.total_episodes %}{{ card.watched_count }}/{{ card.total_episodes }}{% endif %}{% with rating=season_ratings|get_item:card.number %}{% if rating %}{% if card.total_episodes %} · {% endif %}&#9733; {{ rating|floatformat:1 }}{% endif %}{% endwith %}
+          </div>
         </button>
       {% endfor %}
     </div>
 
-    <div class="flex justify-between items-center flex-wrap gap-3 mb-4">
-      <h2 class="font-display text-xl m-0">
-        Episodes
-        {% if season_avg_rating %}<span class="text-[12.5px] text-ink-faint font-mono font-body ml-2">&#9733; {{ season_avg_rating }} season avg</span>{% endif %}
-        {% if season_total_runtime %}<span class="text-[12.5px] text-ink-faint font-mono font-body ml-2">{{ season_total_runtime }} total</span>{% endif %}
-      </h2>
+    <div class="flex justify-between items-end flex-wrap gap-3 mb-4">
+      <div>
+        <h2 class="section-title">Season {{ season }} Episodes</h2>
+        <div class="meta meta-sm mt-1">
+          <span>{{ episodes|length }} episode{{ episodes|length|pluralize }}</span>
+          {% if season_avg_rating %}<span>&#9733; {{ season_avg_rating }} season avg</span>{% endif %}
+          {% if season_total_runtime %}<span>{{ season_total_runtime }} total</span>{% endif %}
+        </div>
+      </div>
       <div class="flex items-center gap-2 flex-wrap">
         {% if title or preview_tmdb_id %}
           {% comment %}
@@ -113,7 +109,7 @@
             <button
               type="button" @click="togglePanel($el)"
               :aria-expanded="open.toString()" aria-haspopup="true"
-              class="bg-base-200 border border-line rounded-lg text-xs font-semibold px-3 py-1.5 text-base-content cursor-pointer hover:bg-base-300 transition-colors flex items-center gap-1.5"
+              class="btn btn-sm btn-soft gap-1.5"
             >
               {% icon "eye" "w-3.5 h-3.5" %}
               Mark episodes
@@ -122,9 +118,9 @@
             <div
               x-ref="panel"
               x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
-              class="fixed z-50 w-72 bg-base-200 border border-line rounded-xl p-2 shadow-xl"
+              class="fixed z-50 w-72 menu-surface p-2"
             >
-              <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1 border-b border-line">
+              <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1">
                 <div class="min-w-0">
                   <div class="font-semibold text-sm">Mark episodes</div>
                   <div class="text-xs text-ink-faint truncate">{{ episodes_title_name }}</div>
@@ -139,10 +135,10 @@
                   hx-confirm="Remove every watched mark for Season {{ season }} of “{{ episodes_title_name }}”? This can't be undone."
                   class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
                 >
-                  <span class="w-8 h-8 rounded-full bg-error/15 flex items-center justify-center flex-none text-error">{% icon "eye-off" "w-4 h-4" %}</span>
+                  <span class="w-7 h-7 rounded-md bg-error/15 flex items-center justify-center flex-none text-error">{% icon "eye-off" "w-4 h-4" %}</span>
                   <span class="min-w-0">
                     <span class="block text-[13px] font-semibold">Unmark season watched</span>
-                    <span class="block text-[11px] text-ink-faint">Remove every play for Season {{ season }}</span>
+                    <span class="block text-[12px] text-ink-faint">Remove every play for Season {{ season }}</span>
                   </span>
                 </button>
               {% else %}
@@ -152,10 +148,10 @@
                   hx-confirm="Mark every episode of Season {{ season }} of “{{ episodes_title_name }}” as watched?"
                   class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
                 >
-                  <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "eye" "w-4 h-4" %}</span>
+                  <span class="w-7 h-7 rounded-md bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "eye" "w-4 h-4" %}</span>
                   <span class="min-w-0">
                     <span class="block text-[13px] font-semibold">Mark season watched</span>
-                    <span class="block text-[11px] text-ink-faint">Every episode of Season {{ season }}</span>
+                    <span class="block text-[12px] text-ink-faint">Every episode of Season {{ season }}</span>
                   </span>
                 </button>
                 {% if title.media_type == "anime" or preview_media_type == "anime" %}
@@ -166,10 +162,10 @@
                     hx-confirm="Mark every canon episode of Season {{ season }} of “{{ episodes_title_name }}” as watched, skipping filler/recap?"
                     class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
                   >
-                    <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "eye" "w-4 h-4" %}</span>
+                    <span class="w-7 h-7 rounded-md bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "eye" "w-4 h-4" %}</span>
                     <span class="min-w-0">
                       <span class="block text-[13px] font-semibold">Mark season watched (canon only)</span>
-                      <span class="block text-[11px] text-ink-faint">Skips filler/recap episodes</span>
+                      <span class="block text-[12px] text-ink-faint">Skips filler/recap episodes</span>
                     </span>
                   </button>
                 {% endif %}
@@ -182,10 +178,10 @@
                   hx-confirm="Remove every watched mark for every season of “{{ episodes_title_name }}”? This can't be undone."
                   class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
                 >
-                  <span class="w-8 h-8 rounded-full bg-error/15 flex items-center justify-center flex-none text-error">{% icon "trash-2" "w-4 h-4" %}</span>
+                  <span class="w-7 h-7 rounded-md bg-error/15 flex items-center justify-center flex-none text-error">{% icon "trash-2" "w-4 h-4" %}</span>
                   <span class="min-w-0">
                     <span class="block text-[13px] font-semibold">Unmark all watched</span>
-                    <span class="block text-[11px] text-ink-faint">Remove every episode play</span>
+                    <span class="block text-[12px] text-ink-faint">Remove every episode play</span>
                   </span>
                 </button>
               {% else %}
@@ -195,10 +191,10 @@
                   hx-confirm="Mark every episode of every season of “{{ episodes_title_name }}” as watched? This can take a moment for shows with many seasons."
                   class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
                 >
-                  <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "check" "w-4 h-4" %}</span>
+                  <span class="w-7 h-7 rounded-md bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "check" "w-4 h-4" %}</span>
                   <span class="min-w-0">
                     <span class="block text-[13px] font-semibold">Mark all watched</span>
-                    <span class="block text-[11px] text-ink-faint">Every episode, every season</span>
+                    <span class="block text-[12px] text-ink-faint">Every episode, every season</span>
                   </span>
                 </button>
                 {% if title.media_type == "anime" or preview_media_type == "anime" %}
@@ -209,10 +205,10 @@
                     hx-confirm="Mark every canon episode of every season of “{{ episodes_title_name }}” as watched, skipping filler/recap? This can take a moment for shows with many seasons."
                     class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
                   >
-                    <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "check" "w-4 h-4" %}</span>
+                    <span class="w-7 h-7 rounded-md bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "check" "w-4 h-4" %}</span>
                     <span class="min-w-0">
                       <span class="block text-[13px] font-semibold">Mark all watched (canon only)</span>
-                      <span class="block text-[11px] text-ink-faint">Skips filler/recap episodes</span>
+                      <span class="block text-[12px] text-ink-faint">Skips filler/recap episodes</span>
                     </span>
                   </button>
                 {% endif %}
@@ -224,99 +220,89 @@
     </div>
 
     {% comment %}
-      Two different layouts, not one resized with breakpoints: below
-      sm:, each episode is a compact row (small thumbnail + text
-      inline, badges folded into the text line) instead of a card with
-      a full-width video-aspect image on top - the card version at a
-      single mobile-width column meant a full-bleed thumbnail per
-      episode, turning a season into a very long, thumbnail-heavy
-      scroll. sm: and up keeps the existing card grid exactly as it
-      was (already proven at those widths) - same precedent as the
-      topbar/sidebar's separate mobile vs desktop nav markup.
+      One compact row per episode at every width: thumbnail, code/date/
+      runtime/rating meta line, title, state chips, watched control.
+      Rows are separated by hairlines, not boxed. A watched episode dims
+      slightly; the first unwatched episode right after a watched one is
+      "up next" and gets a subtle amber edge (pure CSS sibling selector
+      in app.css, .ep-row[data-state] - no server-side bookkeeping).
 
-      Both layouts render every episode unconditionally (CSS display
-      toggles which one shows, not conditional rendering), so each
-      episode's own data-episode="{season}-{episode_number}" marker
-      necessarily exists twice in the DOM - a data attribute rather than
-      an id specifically because of that (ids must be unique; a data
-      attribute doesn't have to be). base.html's own scrollToEpisodeAnchor()
-      reads it on page load to jump straight to and briefly highlight
-      whichever specific episode a link built via tracker_extras.
-      episode_detail_url pointed at (poster_card.html's Continue
-      Watching/Social Activity rows) - picking whichever of the two
-      matching elements is actually visible at the current viewport
-      width, since a browser's own native #fragment scroll can't be
-      trusted to do that.
+      data-episode="{season}-{episode_number}" is what base.html's
+      scrollToEpisodeAnchor() looks for to jump to and briefly highlight
+      the episode a Continue Watching / Social Activity card linked to.
     {% endcomment %}
-    <div class="flex flex-col gap-2 mb-8 sm:hidden">
+    {% comment %}
+      Long seasons show their first 12 rows plus a "Show all" control, so
+      a 24-episode season doesn't turn the page into a wall. When "up
+      next" (or an #episode-S-E deep link) is further down than that,
+      only a window around it (3 before, 8 after) is shown, with "Show
+      earlier episodes" above it, rather than expanding the whole season -
+      a 366-episode anime season would otherwise render every row.
+    {% endcomment %}
+    <div
+      class="ep-list flex flex-col gap-1"
+      x-data="{
+        all: {% if episodes|length > 12 %}false{% else %}true{% endif %},
+        from: -1,
+        to: -1,
+        init() {
+          if (this.all) return;
+          const rows = [...this.$el.querySelectorAll('.ep-row')];
+          const upNext = this.$el.querySelector('.ep-row[data-state=watched] + .ep-row[data-state=unwatched]');
+          const m = location.hash.match(/^#episode-(\d+)-(\d+)$/);
+          let focus = upNext ? rows.indexOf(upNext) : -1;
+          if (m && +m[1] === {{ season }}) {
+            const linked = rows.findIndex((r) => r.dataset.episode === m[1] + '-' + m[2]);
+            if (linked >= 0) focus = linked;
+          }
+          if (focus >= 12) { this.from = focus - 3; this.to = focus + 8; }
+        },
+        shown(i) { return this.all || (this.from < 0 ? i < 12 : i >= this.from && i <= this.to); },
+      }"
+    >
+      {% if episodes|length > 12 %}
+        <button type="button" x-show="!all && from > 0" x-cloak @click="all = true" class="mb-2 self-start btn btn-sm btn-ghost text-ink-dim">Show earlier episodes</button>
+      {% endif %}
       {% for ep in episodes %}
-        <div data-episode="{{ season }}-{{ ep.episode_number }}" class="episode-card bg-base-200 border border-line rounded-lg overflow-hidden flex items-center gap-3 p-2">
-          <div
-            class="w-20 h-14 flex-none rounded-md relative overflow-hidden bg-base-300 {% if not ep.still_url %}{{ title.pk|default:preview_tmdb_id|add:ep.episode_number|gradient_class }}{% endif %}"
-          >
+        <div data-episode="{{ season }}-{{ ep.episode_number }}" data-state="{% if ep.watched %}watched{% elif ep.release_in %}upcoming{% else %}unwatched{% endif %}" {% if episodes|length > 12 %}x-show="shown({{ forloop.counter0 }})"{% endif %} class="episode-card ep-row flex items-center gap-3.5 sm:gap-5 py-1.5 px-2 -mx-2 rounded-lg hover:bg-white/[0.03]">
+          <div class="w-[104px] sm:w-32 aspect-video flex-none rounded-md relative overflow-hidden bg-base-300 {% if not ep.still_url %}{{ title.pk|default:preview_tmdb_id|add:ep.episode_number|gradient_class }}{% endif %}">
             {% if ep.still_url %}
-              <img src="{{ ep.still_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+              <img src="{{ ep.still_url|poster_size:"w342" }}" alt="" loading="lazy" class="ep-thumb absolute inset-0 w-full h-full object-cover">
             {% endif %}
             {% if ep.watched %}
-              <span class="absolute inset-0 bg-black/35 flex items-center justify-center text-success text-base" title="Watched">&#10003;</span>
+              <span class="absolute bottom-1 right-1 w-5 h-5 rounded-full bg-success text-success-content flex items-center justify-center text-[12px] font-bold shadow" title="Watched">&#10003;</span>
             {% endif %}
           </div>
           <div class="min-w-0 flex-1">
-            <div class="font-mono text-[10px] text-ink-dim flex items-center gap-1.5">
-              <span class="text-base-content font-bold">S{{ season|stringformat:"02d" }}E{{ ep.episode_number|stringformat:"02d" }}</span>
+            <div class="meta meta-sm">
+              <span class="ep-code font-mono text-base-content">S{{ season|stringformat:"02d" }}E{{ ep.episode_number|stringformat:"02d" }}</span>
               {% if ep.aired_on %}<span>{{ ep.aired_on|date:"M j, Y" }}</span>{% endif %}
               {% if ep.runtime %}<span>{{ ep.runtime }}m</span>{% endif %}
-              {% if ep.vote_average %}<span><span class="text-amber-400">&#9733;</span> {{ ep.vote_average|floatformat:1 }}</span>{% endif %}
-              {% if ep.release_in %}<span class="text-primary font-bold uppercase">{{ ep.release_in }}</span>{% endif %}
-              {% if ep.is_finale %}<span class="text-primary font-bold uppercase">Finale</span>{% endif %}
-              {% if ep.filler %}<span class="bg-warning text-warning-content font-bold uppercase px-1 rounded-sm">Filler</span>{% elif ep.recap %}<span class="bg-info text-info-content font-bold uppercase px-1 rounded-sm">Recap</span>{% endif %}
+              {% if ep.vote_average %}<span>&#9733; {{ ep.vote_average|floatformat:1 }}</span>{% endif %}
             </div>
-            <div class="text-[13px] font-semibold truncate mt-0.5">{{ ep.name }}</div>
-          </div>
-          {% include "tracker/partials/episode_watched_button.html" with title=title season=season episode_number=ep.episode_number watched=ep.watched watch_count=ep.watch_count id_suffix="-m" preview_media_type=preview_media_type preview_tmdb_id=preview_tmdb_id preview_name=preview_name %}
-        </div>
-      {% empty %}
-        <p class="text-ink-faint text-sm">No episode data for this season yet.</p>
-      {% endfor %}
-    </div>
-
-    <div class="hidden sm:grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4 mb-8">
-      {% for ep in episodes %}
-        <div data-episode="{{ season }}-{{ ep.episode_number }}" class="episode-card bg-base-200 border border-line rounded-lg overflow-hidden">
-          <div
-            class="aspect-video relative bg-base-300 {% if not ep.still_url %}{{ title.pk|default:preview_tmdb_id|add:ep.episode_number|gradient_class }}{% endif %}"
-          >
-            {% if ep.still_url %}
-              <img src="{{ ep.still_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
-            {% endif %}
-            <div class="absolute inset-0 bg-linear-to-t from-black/60 to-transparent"></div>
-            {% if ep.vote_average %}
-              <span class="absolute top-2 left-2 font-mono text-[10px] font-bold bg-black/85 px-1.5 py-0.5 rounded-md shadow-[0_1px_4px_rgba(0,0,0,0.7)]"><span class="text-amber-400">&#9733;</span> <span class="text-white">{{ ep.vote_average|floatformat:1 }}</span></span>
-            {% endif %}
-            {% if ep.release_in %}
-              <span class="absolute top-2 right-2 font-mono text-[9px] font-bold uppercase tracking-wide bg-primary/90 text-primary-content px-2 py-1 rounded-md shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ ep.release_in }}</span>
-            {% endif %}
-            {% if ep.is_finale %}
-              <span class="absolute bottom-2 left-2 font-mono text-[9px] font-bold uppercase tracking-wide bg-primary text-primary-content px-2 py-1 rounded-md">Season Finale</span>
-            {% endif %}
-            {% if ep.filler %}
-              <span class="absolute bottom-2 right-2 font-mono text-[9px] font-bold uppercase tracking-wide bg-warning text-warning-content px-2 py-1 rounded-md">Filler</span>
-            {% elif ep.recap %}
-              <span class="absolute bottom-2 right-2 font-mono text-[9px] font-bold uppercase tracking-wide bg-info text-info-content px-2 py-1 rounded-md">Recap</span>
+            <div class="ep-name text-[15px] font-medium truncate mt-1">{{ ep.name }}</div>
+            {% if ep.release_in or ep.is_finale or ep.filler or ep.recap %}
+              <div class="flex flex-wrap gap-1.5 mt-1.5">
+                <span class="ep-upnext chip chip-primary">Up next</span>
+                {% if ep.release_in %}<span class="chip chip-primary">{{ ep.release_in }}</span>{% endif %}
+                {% if ep.is_finale %}<span class="chip">Season Finale</span>{% endif %}
+                {% if ep.filler %}<span class="chip chip-primary !bg-warning/20 !text-warning">Filler</span>{% elif ep.recap %}<span class="chip chip-info">Recap</span>{% endif %}
+              </div>
+            {% else %}
+              <div class="ep-upnext-line mt-1.5"><span class="ep-upnext chip chip-primary">Up next</span></div>
             {% endif %}
           </div>
-          <div class="p-2.5 flex items-center justify-between gap-2">
-            <div class="min-w-0">
-              <div class="font-mono text-[10.5px] text-ink-dim"><span class="text-base-content font-bold">S{{ season|stringformat:"02d" }} E{{ ep.episode_number|stringformat:"02d" }}</span>{% if ep.runtime %} · {{ ep.runtime }}m{% endif %}</div>
-              {% if ep.aired_on %}<div class="font-mono text-[10.5px] text-ink-dim">{{ ep.aired_on|date:"M j, Y" }}</div>{% endif %}
-              <div class="text-[12.5px] font-semibold truncate mt-0.5">{{ ep.name }}</div>
-            </div>
+          <div class="flex items-stretch h-8 flex-none">
             {% include "tracker/partials/episode_watched_button.html" with title=title season=season episode_number=ep.episode_number watched=ep.watched watch_count=ep.watch_count preview_media_type=preview_media_type preview_tmdb_id=preview_tmdb_id preview_name=preview_name %}
           </div>
         </div>
       {% empty %}
-        <p class="text-ink-faint text-sm">No episode data for this season yet.</p>
+        <p class="text-ink-faint text-sm py-4">No episode data for this season yet.</p>
       {% endfor %}
+      {% if episodes|length > 12 %}
+        <button type="button" x-show="!all" @click="all = true" class="mt-3 self-start btn btn-sm btn-soft">Show all {{ episodes|length }} episodes</button>
+      {% endif %}
     </div>
+    </section>
   {% endif %}
 </div>

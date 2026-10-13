@@ -662,6 +662,8 @@ class Notification(models.Model):
         RECOMMENDATION_WATCHED = "recommendation_watched", "Recommendation watched"
         RECOMMENDATION_REPLIED = "recommendation_replied", "Recommendation replied"
         WATCHLIST_STALE = "watchlist_stale", "Watchlist time capsule"
+        IMPORT_STATUS = "import_status", "Import"
+        BACKUP_STATUS = "backup_status", "Backup"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="notifications")
     kind = models.CharField(max_length=25, choices=Kind.choices)
@@ -674,6 +676,16 @@ class Notification(models.Model):
     message = models.CharField(max_length=255)
     read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Where the row links to when it has no title - the Import Review page
+    # or Settings' backups card (import_status/backup_status kinds).
+    link = models.CharField(max_length=255, blank=True, default="")
+    # import_status rows: the one notification per import, rewritten in
+    # place as it moves scanning -> ready -> importing -> done (see
+    # tracker/transfer_tracking.py), so the bell always shows where an
+    # import is even after the user has left the page.
+    import_session = models.ForeignKey(
+        "ImportSession", null=True, blank=True, on_delete=models.SET_NULL, related_name="notifications"
+    )
 
     class Meta:
         ordering = ["-created_at"]
@@ -964,6 +976,14 @@ class InstanceConfig(models.Model):
     # credential), same reasoning as trakt_client_id above.
     spool_wrapped_url = models.URLField(blank=True, default="")
     encrypted_sso_shared_secret = models.TextField(blank=True, default="")
+    # OAuth app credentials for scheduled backups to Google Drive/Dropbox
+    # (see tracker/backup_destinations.py) - same public-id/encrypted-
+    # secret split as Trakt/Simkl above, with the same .env fallback
+    # (GOOGLE_CLIENT_ID/... - see instance_config.get_backup_credentials).
+    google_client_id = models.CharField(max_length=255, blank=True)
+    encrypted_google_client_secret = models.TextField(blank=True, default="")
+    dropbox_app_key = models.CharField(max_length=255, blank=True)
+    encrypted_dropbox_app_secret = models.TextField(blank=True, default="")
 
     # Every caller needing a Trakt/Simkl/TMDB credential goes through
     # this (instance_config.py's own get_*_credentials/get_tmdb_api_key)
@@ -1068,6 +1088,30 @@ class InstanceConfig(models.Model):
 
         self.encrypted_sso_shared_secret = crypto.encrypt(plaintext) if plaintext else ""
 
+    def get_google_client_secret(self):
+        if not self.encrypted_google_client_secret:
+            return ""
+        from . import crypto
+
+        return crypto.decrypt(self.encrypted_google_client_secret)
+
+    def set_google_client_secret(self, plaintext):
+        from . import crypto
+
+        self.encrypted_google_client_secret = crypto.encrypt(plaintext) if plaintext else ""
+
+    def get_dropbox_app_secret(self):
+        if not self.encrypted_dropbox_app_secret:
+            return ""
+        from . import crypto
+
+        return crypto.decrypt(self.encrypted_dropbox_app_secret)
+
+    def set_dropbox_app_secret(self, plaintext):
+        from . import crypto
+
+        self.encrypted_dropbox_app_secret = crypto.encrypt(plaintext) if plaintext else ""
+
     def __str__(self):
         return "Instance configuration"
 
@@ -1124,7 +1168,7 @@ class DataLog(models.Model):
     (selectors.combined_logs)."""
 
     class Action(models.TextChoices):
-        IMPORT = "import", "CSV Import"
+        IMPORT = "import", "Import"
         EXPORT = "export", "Export"
         TRAKT_CONNECT = "trakt_connect", "Trakt Connect"
         SIMKL_CONNECT = "simkl_connect", "Simkl Connect"
@@ -1142,11 +1186,17 @@ class DataLog(models.Model):
         WATCHLIST_STALE = "watchlist_stale", "Watchlist Reminders"
         UPDATE_CHECK = "update_check", "Update Check"
         LOG_RETENTION = "log_retention", "Log Retention"
+        BACKUP = "backup", "Automatic Backup"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"
+        # An Import Review session that's scanned and is waiting on the
+        # user to review/confirm it - not "running" (nothing is working
+        # on it), and not polled by the Logs tab.
+        WAITING = "waiting", "Awaiting review"
         SUCCESS = "success", "Success"
         FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="data_logs")
     action = models.CharField(max_length=25, choices=Action.choices)
@@ -1165,6 +1215,15 @@ class DataLog(models.Model):
     imported_titles = models.JSONField(default=list, blank=True)
     error_message = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Set once a RUNNING/WAITING row reaches its final status - Logs shows
+    # the difference as the row's duration. Blank for rows written
+    # already finished (most actions).
+    finished_at = models.DateTimeField(null=True, blank=True)
+    # IMPORT rows written by Import Review: the session this row tracks
+    # from scan to finish (tracker/transfer_tracking.py).
+    import_session = models.ForeignKey(
+        "ImportSession", null=True, blank=True, on_delete=models.SET_NULL, related_name="data_logs"
+    )
 
     class Meta:
         ordering = ["-created_at"]
@@ -1402,3 +1461,70 @@ class ImportCandidate(models.Model):
 
     def __str__(self):
         return f"{self.get_category_display()} · {self.title_name} ({self.get_status_display()})"
+
+
+class BackupDestination(models.Model):
+    """Where a profile's scheduled backups go - one row per kind per
+    profile. Each run uploads a full Spool backup (tracker/backup.py,
+    the same file Settings' "Export full backup" downloads, importable
+    back through Import Review) and then keeps only the newest keep_last
+    of this profile's backups there. See tracker/backup_destinations.py
+    for the per-kind upload code and tasks.run_due_backups for the
+    hourly check that decides what's due."""
+
+    class Kind(models.TextChoices):
+        GOOGLE_DRIVE = "gdrive", "Google Drive"
+        DROPBOX = "dropbox", "Dropbox"
+        WEBDAV = "webdav", "WebDAV"
+        FOLDER = "folder", "Server folder"
+
+    class Frequency(models.TextChoices):
+        DAILY = "daily", "Daily"
+        WEEKLY = "weekly", "Weekly"
+        MONTHLY = "monthly", "Monthly"
+
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="backup_destinations")
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    enabled = models.BooleanField(default=True)
+    frequency = models.CharField(max_length=10, choices=Frequency.choices, default=Frequency.WEEKLY)
+    # 0 = keep every backup; otherwise older ones beyond this are deleted
+    # after each successful run (only files this profile's backups wrote).
+    keep_last = models.PositiveSmallIntegerField(default=10)
+    # WebDAV: the folder URL backups go into (https://nas.local/remote.php/dav/files/me/Spool).
+    url = models.CharField(max_length=500, blank=True)
+    username = models.CharField(max_length=255, blank=True)
+    # WebDAV password, or the OAuth refresh token for Google Drive/Dropbox -
+    # Fernet-encrypted like every other stored secret (tracker/crypto.py).
+    encrypted_secret = models.TextField(blank=True, default="")
+    # Server folder: a subfolder under settings.BACKUP_ROOT. Google Drive:
+    # the id of the "Spool Backups" folder once created.
+    folder = models.CharField(max_length=255, blank=True)
+    # Who the remote account is (email / display name) - shown in Settings.
+    account_label = models.CharField(max_length=255, blank=True)
+    # True while a backup to this destination is running - Settings'
+    # import/export activity panel keeps polling until it clears.
+    in_progress = models.BooleanField(default=False)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    last_success_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=500, blank=True)
+    last_filename = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["profile", "kind"], name="one_backup_destination_per_kind")]
+        ordering = ["id"]
+
+    def get_secret(self):
+        if not self.encrypted_secret:
+            return ""
+        from . import crypto
+
+        return crypto.decrypt(self.encrypted_secret)
+
+    def set_secret(self, plaintext):
+        from . import crypto
+
+        self.encrypted_secret = crypto.encrypt(plaintext) if plaintext else ""
+
+    def __str__(self):
+        return f"{self.get_kind_display()} backups for {self.profile}"

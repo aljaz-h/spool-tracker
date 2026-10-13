@@ -1,24 +1,23 @@
 {% load icons %}
-{# context: ratings (ExternalRating iterable), user_rating (int|None), tmdb_pill ({label,icon,icon_class,display,unit}|None), mdblist_ratings (list of {label,icon,icon_class,display,unit}) #}
-<div class="flex gap-2 flex-wrap mb-2">
+{# context: ratings (ExternalRating iterable), user_rating (int|None), tmdb_pill ({label,icon,icon_class,display,unit}|None), mdblist_ratings (list of {label,icon,icon_class,display,unit}) - one compact ratings line: your own rating first (it matters most), then each external source as its brand mark + score, separated by spacing rather than boxed pills. #}
+<div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px]">
+  {% if user_rating %}
+    <span class="inline-flex items-center gap-1 font-semibold text-primary" title="Your rating">&#9733; {{ user_rating }}<span class="text-ink-faint font-normal">/10</span></span>
+  {% endif %}
   {% if tmdb_pill %}
-    <span class="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-line bg-base-300/60 font-mono text-xs">
+    <span class="inline-flex items-center gap-1.5" title="{{ tmdb_pill.label }}">
       <span class="{{ tmdb_pill.icon_class }} shrink-0">{% icon tmdb_pill.icon "w-4 h-4" %}</span>
-      <span class="text-ink-dim">{{ tmdb_pill.label }}</span>
-      <span class="font-semibold text-base-content">{{ tmdb_pill.display }}</span>
-      <span class="text-ink-faint">{{ tmdb_pill.unit }}</span>
+      <span class="font-semibold text-base-content">{{ tmdb_pill.display }}</span>{% if tmdb_pill.unit %}<span class="text-ink-faint -ml-1 text-[12px]">{{ tmdb_pill.unit }}</span>{% endif %}
     </span>
   {% endif %}
   {% for p in mdblist_ratings %}
-    <span class="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-line bg-base-300/60 font-mono text-xs">
+    <span class="inline-flex items-center gap-1.5" title="{{ p.label }}">
       <span class="{{ p.icon_class }} shrink-0">{% icon p.icon "w-4 h-4" %}</span>
-      <span class="text-ink-dim">{{ p.label }}</span>
-      <span class="font-semibold text-base-content">{{ p.display }}</span>
-      <span class="text-ink-faint">{{ p.unit }}</span>
+      <span class="font-semibold text-base-content">{{ p.display }}</span>{% if p.unit %}<span class="text-ink-faint -ml-1 text-[12px]">{{ p.unit }}</span>{% endif %}
     </span>
   {% endfor %}
   {% for r in ratings %}
-    <span class="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-line bg-base-300/60 font-mono text-xs">
+    <span class="inline-flex items-center gap-1.5" title="{{ r.get_source_display }}">
       {% if r.source == 'imdb' %}<span class="text-imdb shrink-0">{% icon "imdb" "w-4 h-4" %}</span>
       {% elif r.source == 'rt' %}<span class="text-rt shrink-0">{% icon "rt" "w-4 h-4" %}</span>
       {% elif r.source == 'trakt' %}<span class="text-trakt shrink-0">{% icon "trakt" "w-4 h-4" %}</span>
@@ -26,7 +25,4 @@
       <span class="font-semibold text-base-content">{{ r.score }}</span>
     </span>
   {% endfor %}
-  {% if user_rating %}
-    <span class="font-mono text-xs px-2.5 py-1.5 rounded-lg bg-primary/15 text-primary">★ {{ user_rating }}</span>
-  {% endif %}
 </div>

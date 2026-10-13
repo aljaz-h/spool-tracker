@@ -143,7 +143,7 @@ def _parse_rating(rating_raw):
         return None
     try:
         candidate = int(float(rating_raw))
-    except ValueError:
+    except (TypeError, ValueError):
         return None
     return candidate if 1 <= candidate <= 10 else None
 
@@ -221,18 +221,25 @@ def _row_from_trakt_item(item, i):
     if watched_at is None:
         return None, (i, f'unparseable watched_at "{watched_raw or "(blank)"}"')
 
+    # Spool's own exports (backup.py, views.export_trakt_json) add
+    # media_type and ids.tmdb_kind alongside the Trakt fields, so anime
+    # (series and films) survives the round trip; real Trakt data has
+    # neither, and is read as movie/tv as before.
+    spool_media_type = item.get("media_type") if item.get("media_type") == MediaType.ANIME else None
+
     if item.get("type") == "movie":
         m = item.get("movie") or {}
         ids = m.get("ids") or {}
         return {
             "row": i,
             "title": (m.get("title") or "")[:TITLE_MAX_LENGTH],
-            "media_type": MediaType.MOVIE,
+            "media_type": spool_media_type or MediaType.MOVIE,
+            "tmdb_kind": "movie",
             "year": _safe_int(m.get("year")),
             "season": None,
             "episode": None,
             "watched_at": watched_at,
-            "rating": None,
+            "rating": _parse_rating(item.get("rating")),
             "trakt_id": ids.get("trakt"),
             "tmdb_id": ids.get("tmdb"),
         }, None
@@ -245,12 +252,13 @@ def _row_from_trakt_item(item, i):
     return {
         "row": i,
         "title": (s.get("title") or "")[:TITLE_MAX_LENGTH],
-        "media_type": MediaType.TV,
+        "media_type": spool_media_type or MediaType.TV,
+        "tmdb_kind": "tv",
         "year": _safe_int(s.get("year")),
         "season": _safe_int(e.get("season")),
         "episode": _safe_int(e.get("number")),
         "watched_at": watched_at,
-        "rating": None,
+        "rating": _parse_rating(item.get("rating")),
         "trakt_id": ids.get("trakt"),
         "tmdb_id": ids.get("tmdb"),
     }, None
@@ -302,11 +310,18 @@ def parse_json_rows(data, limit=None):
     are flattened by concatenating every list-valued top-level entry
     (some export tools group items under keys like "movies"/"shows"
     rather than a single flat list). Each item is matched against
-    Trakt's history shape first, falling back to a generic flat object -
+    Trakt's history shape first (with an optional "rating", which Spool's
+    own backup adds), falling back to a generic flat object -
     see _looks_like_trakt_history_item/_row_from_trakt_item/
     _generic_row_from_dict above. Returns (rows, errors) in the same
     shape as parse_rows()."""
-    if isinstance(data, dict):
+    from tracker import backup
+
+    if backup.is_spool_backup(data):
+        # Spool's own full backup (tracker/backup.py): only "history" holds
+        # watch rows - its "lists" are restored separately at commit.
+        items = data.get("history") or []
+    elif isinstance(data, dict):
         items = [item for value in data.values() if isinstance(value, list) for item in value]
     elif isinstance(data, list):
         items = data
@@ -403,7 +418,7 @@ def parse_file(path, kind, mapping=None, limit=None):
     return parse_zip_file(path, limit=limit)
 
 
-def _get_or_create_title(media_type, name, year, trakt_id=None, tmdb_id=None):
+def _get_or_create_title(media_type, name, year, trakt_id=None, tmdb_id=None, tmdb_kind=None):
     """trakt_id/tmdb_id: present for rows sourced from Trakt-shaped
     JSON/zip imports - Trakt's own ids.trakt/ids.tmdb (see
     _row_from_trakt_item). tmdb_id is checked first (same
@@ -419,7 +434,10 @@ def _get_or_create_title(media_type, name, year, trakt_id=None, tmdb_id=None):
     backfills-missing-data pattern nuvio.py's upsert_history_items uses
     for its own source marker. CSV rows and generic JSON rows carry
     neither id (see module docstring)."""
-    kind = "movie" if media_type == MediaType.MOVIE else "tv"
+    from tracker.media_kinds import tmdb_kind_for
+
+    # tmdb_kind: "movie" for an anime film (see tracker/media_kinds.py).
+    kind = tmdb_kind_for(media_type, explicit=tmdb_kind) if tmdb_kind else ("movie" if media_type == MediaType.MOVIE else "tv")
     if tmdb_id:
         title = Title.objects.filter(external_ids__tmdb=str(tmdb_id), external_ids__tmdb_kind=kind).first()
         if title:
@@ -459,7 +477,7 @@ def _get_or_create_title(media_type, name, year, trakt_id=None, tmdb_id=None):
             poster_url = details["poster_url"] or ""
             genre_names = details["genres"]
     else:
-        match = tmdb.find_match(media_type, name, year)
+        match = tmdb.find_match(MediaType.MOVIE if kind == "movie" else media_type, name, year)
         if match:
             external_ids["tmdb"] = str(match["id"])
             external_ids["tmdb_kind"] = match["kind"]
@@ -494,7 +512,7 @@ def commit_rows(profile, rows, labels_out=None):
 
     labels_out: same optional label-collecting list as trakt.py's own
     upsert_history_items."""
-    from . import completion, recommendations, rewatches
+    from . import completion, media_kinds, recommendations, rewatches
 
     imported = 0
     skipped = []
@@ -502,13 +520,15 @@ def commit_rows(profile, rows, labels_out=None):
     touched_shows = set()
     touched_watch_keys = set()
     for r in rows:
-        if r["media_type"] != MediaType.MOVIE and (r["season"] is None or r["episode"] is None):
-            skipped.append((r["row"], "TV/anime rows need a season and episode number"))
+        error = media_kinds.row_error(r["media_type"], r["season"], r["episode"], r.get("tmdb_kind"))
+        if error:
+            skipped.append((r["row"], error))
             continue
 
-        title = _get_or_create_title(r["media_type"], r["title"], r["year"], r.get("trakt_id"), r.get("tmdb_id"))
+        kind = media_kinds.tmdb_kind_for(r["media_type"], r["season"], r["episode"], r.get("tmdb_kind"))
+        title = _get_or_create_title(r["media_type"], r["title"], r["year"], r.get("trakt_id"), r.get("tmdb_id"), kind)
         episode = None
-        if r["media_type"] != MediaType.MOVIE:
+        if kind == "tv":
             episode, _ = Episode.objects.get_or_create(title=title, season=r["season"], episode=r["episode"])
             touched_shows.add(title.id)
         else:

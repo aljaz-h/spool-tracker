@@ -30,7 +30,7 @@ min/max is a real HTML5 input-level constraint the browser enforces
 live during the drag itself, not just on release.
 {% endcomment %}
 <div>
-  {% if label %}<div class="text-[11px] text-ink-dim mb-4 font-semibold uppercase tracking-wide">{{ label }}</div>{% endif %}
+  {% if label %}<div class="text-[12px] text-ink-dim mb-4 font-semibold uppercase tracking-wide">{{ label }}</div>{% endif %}
   <div class="relative h-4 {% if not label %}mt-1{% endif %}" x-data="{ _min: {{ min }}, _max: {{ max }} }">
     <span
       x-cloak

@@ -70,7 +70,7 @@ class TitleMatch:
 
 def resolve_title_match(
     media_type, provider, provider_id, name=None, year=None, tmdb_id=None, imdb_id=None,
-    prefer_resolved_name=False, require_details_for_tmdb_id=False,
+    prefer_resolved_name=False, require_details_for_tmdb_id=False, tmdb_kind=None,
 ):
     """Read-only - see module docstring. name/year are a hint - Trakt/
     Simkl always have a real one and it's always kept as-is (never
@@ -85,7 +85,10 @@ def resolve_title_match(
     from tracker.integrations import tmdb as tmdb_integration
     from tracker.models import MediaType, Title
 
-    tmdb_kind = "movie" if media_type == MediaType.MOVIE else "tv"
+    # tmdb_kind: given for an anime film (see tracker/media_kinds.py) -
+    # anime is otherwise matched as a TMDB tv show.
+    tmdb_kind = tmdb_kind or ("movie" if media_type == MediaType.MOVIE else "tv")
+    search_type = MediaType.MOVIE if tmdb_kind == "movie" else media_type
 
     # Step 1 - this exact provider id, already tracked. Skipped entirely
     # when provider_id is falsy (a CSV/generic-JSON row with no native
@@ -133,13 +136,13 @@ def resolve_title_match(
         else:
             details = None
     if not match and imdb_id:
-        candidate = tmdb_integration.find_by_imdb_id(imdb_id, media_type)
+        candidate = tmdb_integration.find_by_imdb_id(imdb_id, search_type)
         if candidate:
             match = candidate
             details = tmdb_integration.get_full_details(candidate["kind"], candidate["id"])
             resolved_via_direct_id = True
     if not match and name:
-        candidate = tmdb_integration.find_match(media_type, name, year)
+        candidate = tmdb_integration.find_match(search_type, name, year)
         if candidate:
             match = candidate
             details = tmdb_integration.get_full_details(candidate["kind"], candidate["id"])
@@ -198,7 +201,7 @@ def resolve_title_match(
 
 def apply_title_match(
     media_type, provider, provider_id, name=None, year=None, tmdb_id=None, imdb_id=None,
-    prefer_resolved_name=False, require_details_for_tmdb_id=False,
+    prefer_resolved_name=False, require_details_for_tmdb_id=False, tmdb_kind=None,
 ):
     """resolve_title_match() plus the actual write - reuses (backfilling
     a missing provider/tmdb id onto it if needed) or creates a Title.
@@ -210,6 +213,7 @@ def apply_title_match(
     match = resolve_title_match(
         media_type, provider, provider_id, name=name, year=year, tmdb_id=tmdb_id, imdb_id=imdb_id,
         prefer_resolved_name=prefer_resolved_name, require_details_for_tmdb_id=require_details_for_tmdb_id,
+        tmdb_kind=tmdb_kind,
     )
 
     if match.existing_title:

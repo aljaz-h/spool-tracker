@@ -1,0 +1,12 @@
+{# context: person (dict with name, profile_url, tmdb_person_id), role (str - character or job), grid (bool, optional - fills its grid cell instead of a fixed-width scroll-row tile). A portrait photo card: photo, then name and role under it. #}
+{% if person.tmdb_person_id %}<a href="{% url 'person_detail' person.tmdb_person_id %}" class="{% if grid %}min-w-0{% else %}w-[92px] lg:w-[100px] flex-none{% endif %} group block">{% else %}<div class="{% if grid %}min-w-0{% else %}w-[92px] lg:w-[100px] flex-none{% endif %}">{% endif %}
+  <div class="aspect-[3/4] rounded-lg relative overflow-hidden bg-base-300 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)]">
+    {% if person.profile_url %}
+      <img src="{{ person.profile_url }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover group-hover:brightness-110">
+    {% else %}
+      <span class="absolute inset-0 flex items-center justify-center text-2xl font-semibold text-ink-faint" aria-hidden="true">{{ person.name|first|upper }}</span>
+    {% endif %}
+  </div>
+  <div class="text-[13px] font-semibold mt-2 text-center leading-tight line-clamp-2 group-hover:text-white">{{ person.name }}</div>
+  {% if role %}<div class="text-[12px] text-ink-dim text-center leading-tight line-clamp-2 mt-0.5">{{ role }}</div>{% endif %}
+{% if person.tmdb_person_id %}</a>{% else %}</div>{% endif %}

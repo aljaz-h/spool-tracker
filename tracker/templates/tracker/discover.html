@@ -3,44 +3,35 @@
 {% block title %}{{ page_title }} · Spool{% endblock %}
 {% block content %}
 
-{% comment %}
-  Claws back half of <main>'s own lg: side gutter (px-[calc(2rem+10%)],
-  base.html) for this page specifically, so the results grid gets enough
-  extra width for one more auto-fill column at typical desktop sizes
-  without shrinking the poster size back down. A plain negative margin,
-  not a transform, so it doesn't create a new containing block for any
-  fixed-positioned popover a descendant might open (see discover_tile.html's
-  own comment on that exact hazard). Only the grid/toolbar below is
-  widened - the Movies/TV/Anime type switcher above this block (rendered
-  by base.html itself, outside this template's own {% block content %})
-  stays at <main>'s normal width, a minor, deliberately-accepted
-  misalignment rather than widening that shared partial for every page
-  it appears on.
-{% endcomment %}
-<div class="lg:-mx-[calc(1rem+5%)]">
-
-  <div class="mb-6">
-    <h1 class="font-display text-4xl">{{ page_title }}</h1>
-    <div class="text-ink-dim text-sm mt-1">Browse what's trending, popular, upcoming, and top rated on TMDB{% if not is_anime and collections_enabled %}, or browse by collection{% endif %}</div>
+<div>
+  <div class="page-head !mb-6">
+    <div>
+      <h1 class="page-title">{{ page_title }}</h1>
+      <p class="page-subtitle">Browse what's trending, popular, upcoming and top rated on TMDB{% if not is_anime and collections_enabled %}, or explore collections{% endif %}.</p>
+    </div>
   </div>
 
-  <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
-    <div class="flex flex-wrap items-center gap-3">
-      {% url library_url_name category="trending" as trending_url %}
-      <div class="inline-flex bg-base-300 border border-line rounded-lg p-1 gap-0.5">
-        {% url library_url_name category="popular" as popular_url %}
-        {% url library_url_name category="upcoming" as upcoming_url %}
-        {% url library_url_name category="top_rated" as top_rated_url %}
-        <a href="{{ trending_url }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "trending" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Trending</a>
-        <a href="{{ popular_url }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "popular" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Popular</a>
-        <a href="{{ upcoming_url }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "upcoming" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Upcoming</a>
-        <a href="{{ top_rated_url }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if category == "top_rated" %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Top Rated</a>
-        {% if not is_anime and collections_enabled %}
-          {% url library_url_name category="collections" as collections_url %}
-          <a href="{{ collections_url }}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if is_collections %}bg-base-100 text-base-content{% else %}text-ink-dim{% endif %}">Collections</a>
-        {% endif %}
-      </div>
-    </div>
+  {% comment %}
+    Toolbar: category tabs on the left (underline tabs - the page's own
+    sub-navigation), the Filters popover trigger on the right. Active
+    filters show as removable chips underneath (see below).
+  {% endcomment %}
+  <div class="flex items-end justify-between gap-4 mb-7 border-b border-line">
+    {% url library_url_name category="trending" as trending_url %}
+    {% url library_url_name category="popular" as popular_url %}
+    {% url library_url_name category="upcoming" as upcoming_url %}
+    {% url library_url_name category="top_rated" as top_rated_url %}
+    <nav class="tabs-line !border-b-0 min-w-0" aria-label="Category">
+      <a href="{{ trending_url }}" class="tab-line" {% if category == "trending" %}aria-current="page"{% endif %}>Trending</a>
+      <a href="{{ popular_url }}" class="tab-line" {% if category == "popular" %}aria-current="page"{% endif %}>Popular</a>
+      <a href="{{ upcoming_url }}" class="tab-line" {% if category == "upcoming" %}aria-current="page"{% endif %}>Upcoming</a>
+      <a href="{{ top_rated_url }}" class="tab-line" {% if category == "top_rated" %}aria-current="page"{% endif %}>Top Rated</a>
+      {% if not is_anime and collections_enabled %}
+        {% url library_url_name category="collections" as collections_url %}
+        <a href="{{ collections_url }}" class="tab-line" {% if is_collections %}aria-current="page"{% endif %}>Collections</a>
+      {% endif %}
+    </nav>
+    <div class="pb-2 flex-none">
     {% if not is_collections %}
       {% comment %}
         A dropdown popover, not a sliding drawer - daisyUI's drawer
@@ -73,17 +64,17 @@
           this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 320, false, 'right'));
         },
       }">
-        <button type="button" @click="togglePanel($el)" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-sm btn-soft gap-1.5 cursor-pointer">
+        <button type="button" @click="togglePanel($el)" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-sm btn-soft gap-2 cursor-pointer">
           {% icon "filter" "w-3.5 h-3.5" %}
-          Filters
+          <span class="max-sm:sr-only">Filters</span>
           {% if selected_genres or selected_providers or selected_decades or selected_runtime_bucket or request.GET.rating_from or request.GET.rating_to or selected_language or selected_certification or selected_status or selected_availability or selected_origin_country %}
             <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
           {% endif %}
         </button>
 
-        <div x-ref="panel" x-cloak :class="{'spool-popover-open': open}" class="spool-popover fixed w-80 max-h-[75vh] overflow-y-auto bg-base-200 border border-line rounded-lg shadow-lg z-40 flex flex-col">
+        <div x-ref="panel" x-cloak :class="{'spool-popover-open': open}" class="spool-popover fixed w-80 max-h-[75vh] overflow-y-auto menu-surface z-40 flex flex-col">
           <div class="flex items-center justify-between px-5 pt-5 pb-3">
-            <h2 class="font-display text-xl">Filters</h2>
+            <h2 class="text-base font-semibold">Filters</h2>
             <button type="button" @click="open = false" aria-label="Close filters" class="btn btn-sm btn-circle btn-ghost cursor-pointer">
               {% icon "x" "w-4 h-4" %}
             </button>
@@ -110,13 +101,13 @@
             {% endcomment %}
             <input type="hidden" name="filters_submitted" value="1">
             <div>
-              <div class="text-[13px] font-bold text-base-content uppercase tracking-wide mb-1">Discover</div>
+              <div class="subhead mb-1">Discover</div>
               <div class="flex flex-col divide-y divide-line">
 
                 <details class="group" {% if selected_genres %}open{% endif %}>
                   <summary class="flex items-center justify-between gap-3 py-2.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
                     <span class="text-sm font-medium">Genres</span>
-                    <span class="flex items-center gap-2 text-xs text-ink-faint font-mono">
+                    <span class="flex items-center gap-2 text-xs text-ink-faint">
                       {% if selected_genres %}{{ selected_genres|length }} selected{% else %}Any{% endif %}
                       {% icon "chevron-down" "w-3.5 h-3.5 text-ink-dim transition-transform group-open:rotate-180" %}
                     </span>
@@ -124,7 +115,7 @@
                   <div class="pb-3">
                     <div class="flex flex-wrap gap-1.5">
                       {% for g in genres %}
-                        <label class="text-xs font-medium bg-base-100 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                        <label class="text-xs font-medium bg-base-300 text-ink-dim rounded-full px-3 py-1.5 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
                           <input type="checkbox" name="genre" value="{{ g.id }}" class="sr-only" {% if g.id in selected_genres %}checked{% endif %}>
                           {{ g.name }}
                         </label>
@@ -136,7 +127,7 @@
                 <details class="group" {% if selected_decades %}open{% endif %}>
                   <summary class="flex items-center justify-between gap-3 py-2.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
                     <span class="text-sm font-medium">Year</span>
-                    <span class="flex items-center gap-2 text-xs text-ink-faint font-mono">
+                    <span class="flex items-center gap-2 text-xs text-ink-faint">
                       {% if selected_decades %}{{ selected_decades|length }} selected{% else %}Any{% endif %}
                       {% icon "chevron-down" "w-3.5 h-3.5 text-ink-dim transition-transform group-open:rotate-180" %}
                     </span>
@@ -144,7 +135,7 @@
                   <div class="pb-3">
                     <div class="flex flex-wrap gap-1.5">
                       {% for decade_start, is_current in decade_options %}
-                        <label class="text-xs font-medium bg-base-100 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                        <label class="text-xs font-medium bg-base-300 text-ink-dim rounded-full px-3 py-1.5 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
                           <input type="checkbox" name="decade" value="{{ decade_start }}" class="sr-only" {% if decade_start in selected_decades %}checked{% endif %}>
                           {{ decade_start }}s{% if is_current %} <span class="opacity-70">(so far)</span>{% endif %}
                         </label>
@@ -156,7 +147,7 @@
                 <details class="group" {% if selected_runtime_bucket %}open{% endif %}>
                   <summary class="flex items-center justify-between gap-3 py-2.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
                     <span class="text-sm font-medium">Runtime</span>
-                    <span class="flex items-center gap-2 text-xs text-ink-faint font-mono">
+                    <span class="flex items-center gap-2 text-xs text-ink-faint">
                       {% if selected_runtime_bucket %}
                         {% for bucket_key, bucket_label, bucket_from, bucket_to in runtime_buckets %}
                           {% if bucket_key == selected_runtime_bucket %}{{ bucket_label }}{% endif %}
@@ -168,7 +159,7 @@
                   <div class="pb-3">
                     <div class="grid grid-cols-2 gap-1.5">
                       {% for bucket_key, bucket_label, bucket_from, bucket_to in runtime_buckets %}
-                        <label class="text-xs font-medium text-center bg-base-100 text-ink-dim border border-line rounded-lg px-3 py-2 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                        <label class="text-xs font-medium text-center bg-base-300 text-ink-dim rounded-lg px-3 py-2 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
                           <input type="radio" name="runtime_bucket" value="{{ bucket_key }}" class="sr-only" {% if selected_runtime_bucket == bucket_key %}checked{% endif %}>
                           {{ bucket_label }}
                         </label>
@@ -180,7 +171,7 @@
                 <details class="group" {% if request.GET.rating_from or request.GET.rating_to %}open{% endif %}>
                   <summary class="flex items-center justify-between gap-3 py-2.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
                     <span class="text-sm font-medium">Rating</span>
-                    <span class="flex items-center gap-2 text-xs text-ink-faint font-mono">
+                    <span class="flex items-center gap-2 text-xs text-ink-faint">
                       <span><span x-text="ratingFrom"></span>–<span x-text="ratingTo"></span></span>
                       {% icon "chevron-down" "w-3.5 h-3.5 text-ink-dim transition-transform group-open:rotate-180" %}
                     </span>
@@ -194,7 +185,7 @@
             </div>
 
             <div>
-              <div class="text-[13px] font-semibold text-ink-dim uppercase tracking-wide mb-1">Access</div>
+              <div class="subhead mb-1">Access</div>
               <div class="flex flex-col divide-y divide-line">
 
                 <details class="group" {% if selected_language or selected_availability or selected_certification or selected_status %}open{% endif %}>
@@ -205,8 +196,8 @@
                   <div class="flex flex-col gap-4 pb-4 pt-1">
 
                     <div>
-                      <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Language</div>
-                      <select name="language" aria-label="Language" class="select select-sm w-full bg-base-100 focus:outline-primary">
+                      <div class="text-xs text-ink-dim mb-1.5 font-medium">Language</div>
+                      <select name="language" aria-label="Language" class="select select-sm w-full">
                         <option value="">Any language</option>
                         {% for code, name in languages %}
                           <option value="{{ code }}" {% if selected_language == code %}selected{% endif %}>{{ name }}</option>
@@ -222,8 +213,8 @@
                         (falls back to tmdb.AVAILABILITY_WATCH_REGION with
                         no profile) instead of a hardcoded one now.
                       {% endcomment %}
-                      <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Availability</div>
-                      <select name="availability" aria-label="Availability" class="select select-sm w-full bg-base-100 focus:outline-primary">
+                      <div class="text-xs text-ink-dim mb-1.5 font-medium">Availability</div>
+                      <select name="availability" aria-label="Availability" class="select select-sm w-full">
                         <option value="">Any</option>
                         {% for value, availability_label in availability_choices %}
                           <option value="{{ value }}" {% if selected_availability == value %}selected{% endif %}>{{ availability_label }}</option>
@@ -233,7 +224,7 @@
 
                     {% if providers %}
                       <div>
-                        <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Streaming services</div>
+                        <div class="text-xs text-ink-dim mb-1.5 font-medium">Streaming services</div>
                         {% comment %}
                           providers is already sorted most-popular-first
                           (tmdb.watch_provider_catalog's own
@@ -248,7 +239,7 @@
                         {% endcomment %}
                         <div class="flex flex-wrap gap-1.5">
                           {% for p in providers|slice:":10" %}
-                            <label class="flex items-center gap-1.5 text-xs font-medium bg-base-100 text-ink-dim border border-line rounded-full pl-1.5 pr-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                            <label class="flex items-center gap-1.5 text-xs font-medium bg-base-300 text-ink-dim rounded-full pl-1.5 pr-3 py-1.5 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
                               <input type="checkbox" name="provider" value="{{ p.id }}" class="sr-only" {% if p.id in selected_providers %}checked{% endif %}>
                               {% if p.logo_url %}<img src="{{ p.logo_url }}" alt="" class="w-4.5 h-4.5 rounded">{% endif %}
                               {{ p.name }}
@@ -258,7 +249,7 @@
                         {% if providers|length > 10 %}
                           <div x-show="showAllProviders" x-cloak class="flex flex-wrap gap-1.5 mt-1.5">
                             {% for p in providers|slice:"10:" %}
-                              <label class="flex items-center gap-1.5 text-xs font-medium bg-base-100 text-ink-dim border border-line rounded-full pl-1.5 pr-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                              <label class="flex items-center gap-1.5 text-xs font-medium bg-base-300 text-ink-dim rounded-full pl-1.5 pr-3 py-1.5 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
                                 <input type="checkbox" name="provider" value="{{ p.id }}" class="sr-only" {% if p.id in selected_providers %}checked{% endif %}>
                                 {% if p.logo_url %}<img src="{{ p.logo_url }}" alt="" class="w-4.5 h-4.5 rounded">{% endif %}
                                 {{ p.name }}
@@ -283,8 +274,8 @@
                         do nothing.
                       {% endcomment %}
                       <div>
-                        <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Age Rating</div>
-                        <select name="certification" aria-label="Age rating" class="select select-sm w-full bg-base-100 focus:outline-primary">
+                        <div class="text-xs text-ink-dim mb-1.5 font-medium">Age Rating</div>
+                        <select name="certification" aria-label="Age rating" class="select select-sm w-full">
                           <option value="">Any rating</option>
                           {% for cert in certifications %}
                             <option value="{{ cert }}" {% if selected_certification == cert %}selected{% endif %}>{{ cert }}</option>
@@ -298,8 +289,8 @@
                         (see tmdb.TV_STATUSES).
                       {% endcomment %}
                       <div>
-                        <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Status</div>
-                        <select name="status" aria-label="Status" class="select select-sm w-full bg-base-100 focus:outline-primary">
+                        <div class="text-xs text-ink-dim mb-1.5 font-medium">Status</div>
+                        <select name="status" aria-label="Status" class="select select-sm w-full">
                           <option value="">Any status</option>
                           {% for status_value in tv_statuses %}
                             <option value="{{ status_value }}" {% if selected_status == status_value %}selected{% endif %}>{{ status_value }}</option>
@@ -327,11 +318,11 @@
             results it affects instead of two clicks away.
           {% endcomment %}
           <div>
-            <div class="text-[13px] font-semibold text-ink-dim uppercase tracking-wide mb-2">Display</div>
+            <div class="subhead mb-2">Display</div>
             <div class="flex flex-col gap-2.5">
               <div class="flex items-center justify-between gap-3">
                 <span class="text-sm font-medium">Watched</span>
-                <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="inline-flex bg-base-100 border border-line rounded-lg p-1 gap-0.5">
+                <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="seg">
                   <label class="p-1.5 rounded-md cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content" title="Show">
                     <input type="radio" name="discover_watched_display" value="show" class="hidden" {% if profile.discover_watched_display == "show" %}checked{% endif %}>
                     {% icon "eye" "w-3.5 h-3.5" %}
@@ -348,7 +339,7 @@
               </div>
               <div class="flex items-center justify-between gap-3">
                 <span class="text-sm font-medium">Watchlisted</span>
-                <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="inline-flex bg-base-100 border border-line rounded-lg p-1 gap-0.5">
+                <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="seg">
                   <label class="p-1.5 rounded-md cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content" title="Show">
                     <input type="radio" name="discover_watchlisted_display" value="show" class="hidden" {% if profile.discover_watchlisted_display == "show" %}checked{% endif %}>
                     {% icon "eye" "w-3.5 h-3.5" %}
@@ -374,26 +365,12 @@
         </div>
       </div>
     {% endif %}
+    </div>
   </div>
 
-  {% if selected_origin_country %}
-    {% comment %}
-      A plain query param (origin_country), not a persisted per-profile
-      setting - landed on from title_detail's own "click a country" chip
-      (see tmdb.get_full_details' countries_display), or a shared/
-      bookmarked URL. Shown here (not just as the Filters button's own
-      dot) since origin_country has no dropdown of its own in that panel
-      to otherwise surface it in - same "Filtered to X" banner shape
-      History's own title filter already uses.
-    {% endcomment %}
-    <div class="flex items-center justify-between gap-3 bg-base-200 border border-line rounded-lg px-4 py-2.5 mb-4 text-sm">
-      <span>Filtered to <b>{{ selected_origin_country_name }}</b></span>
-      <a href="?{{ query_without_origin_country }}" class="text-ink-faint hover:text-base-content" aria-label="Clear country filter">{% icon "x" "w-4 h-4" %}</a>
-    </div>
-  {% endif %}
-
+  {% include "tracker/partials/discover_active_filters.html" %}
   {% if not results %}
-    <div class="py-16 text-center text-ink-faint text-sm">
+    <div class="empty py-16">
       {% if not profile %}Your account isn't linked to a household profile yet.{% elif is_collections %}Nothing found — check that a TMDB API key is configured in Settings.{% else %}Nothing found — try widening your filters, or check that a TMDB API key is configured in Settings.{% endif %}
     </div>
   {% else %}
@@ -410,7 +387,7 @@
       "incomplete") changes with it.
     {% endcomment %}
     <div
-      class="grid grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(215px,1fr))] gap-1.5 sm:gap-2"
+      class="media-grid"
       x-data="{
         resizeTimer: null,
         trimIncompleteLastRow() {
@@ -452,17 +429,26 @@
     </div>
 
     {% if not is_collections %}
-      <div class="flex justify-between items-center flex-wrap gap-3 mt-7">
-        <span class="font-mono text-xs text-ink-faint">Page {{ current_page }} of {{ total_pages }}</span>
-        <div class="flex gap-1.5">
+      <nav class="flex justify-between items-center flex-wrap gap-4 mt-14" aria-label="Pagination">
+        <span class="text-[13px] text-ink-dim tabular-nums">Page {{ current_page }} of {{ total_pages }}</span>
+        <div class="flex items-center gap-1">
           {% if current_page > 1 %}
-            <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"-1" }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim">‹ Prev</a>
+            <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"-1" }}" class="btn btn-sm btn-ghost">&larr; Previous</a>
           {% endif %}
+          {% for p in current_page|page_window:total_pages %}
+            {% if p is None %}
+              <span class="w-6 text-center text-ink-faint max-sm:hidden" aria-hidden="true">&hellip;</span>
+            {% elif p == current_page %}
+              <span class="max-sm:hidden min-w-9 h-9 px-2 inline-flex items-center justify-center rounded-lg bg-base-300 text-sm font-semibold tabular-nums" aria-current="page">{{ p }}</span>
+            {% else %}
+              <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ p }}" class="max-sm:hidden min-w-9 h-9 px-2 inline-flex items-center justify-center rounded-lg text-sm text-ink-dim hover:text-base-content hover:bg-base-200 tabular-nums">{{ p }}</a>
+            {% endif %}
+          {% endfor %}
           {% if current_page < total_pages %}
-            <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"1" }}" class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim">Next ›</a>
+            <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"1" }}" class="btn btn-sm btn-soft">Next &rarr;</a>
           {% endif %}
         </div>
-      </div>
+      </nav>
     {% endif %}
   {% endif %}
 

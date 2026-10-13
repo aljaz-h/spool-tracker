@@ -201,6 +201,8 @@ _NOTIFICATION_ICON_META = {
     Notification.Kind.SYNC_FAILED: ("triangle-alert", "text-error"),
     Notification.Kind.SYSTEM_UPDATE: ("settings", "text-ink-dim"),
     Notification.Kind.WATCHLIST_STALE: ("clock", "text-accent"),
+    Notification.Kind.IMPORT_STATUS: ("upload", "text-primary"),
+    Notification.Kind.BACKUP_STATUS: ("server", "text-info"),
 }
 _DEFAULT_NOTIFICATION_ICON_META = ("bell", "text-ink-dim")
 
@@ -254,3 +256,110 @@ def badge_color_classes(color):
     Details panel's own copy of it), which used to mean the same if/elif
     chain duplicated verbatim in both."""
     return _BADGE_COLOR_CLASSES.get(color, _DEFAULT_BADGE_COLOR_CLASSES)
+
+
+_MEDIA_LABELS = {"movie": "Movie", "tv": "TV", "anime": "Anime"}
+_MEDIA_DOT_CLASSES = {"movie": "bg-movie", "tv": "bg-tv", "anime": "bg-anime"}
+
+
+@register.filter
+def media_label(media_type):
+    """"movie"/"tv"/"anime" -> the human label used in metadata lines
+    ("Movie · 2024"), in place of the old upper-cased type pills."""
+    return _MEDIA_LABELS.get(media_type, (media_type or "").title())
+
+
+@register.filter
+def media_dot_class(media_type):
+    """Background class for the small media-type dot (Movie amber / TV
+    violet / Anime teal) that accompanies media_label in meta lines."""
+    return _MEDIA_DOT_CLASSES.get(media_type, "bg-ink-faint")
+
+
+@register.filter
+def runtime_hm(minutes):
+    """148 -> "2h 28m", 45 -> "45m" - a movie runtime in the hero's meta
+    line. Passes anything non-numeric (None, "") straight through."""
+    try:
+        minutes = int(minutes)
+    except (TypeError, ValueError):
+        return minutes
+    hours, mins = divmod(minutes, 60)
+    if not hours:
+        return f"{mins}m"
+    return f"{hours}h {mins}m" if mins else f"{hours}h"
+
+
+_CHIP_COLOR_CLASSES = {
+    "success": "chip-success",
+    "error": "chip-error",
+    "info": "chip-info",
+    "warning": "chip-primary",
+}
+
+
+@register.filter
+def chip_color_class(color):
+    """tmdb.STATUS_BADGES' semantic color name -> the matching .chip
+    modifier (app.css), for the status chip in title_detail's hero."""
+    return _CHIP_COLOR_CLASSES.get(color, "")
+
+
+@register.filter
+def season_totals(season_cards):
+    """Whole-show progress for title_detail's hero, summed from the
+    season picker's own season_cards (views._episode_panel_context) -
+    {"watched", "total", "percent"}, or None when TMDB gave no episode
+    counts at all. Season 0 (specials) is left out so the figure means
+    "how far through the show", same as WatchProgress's own completion
+    check."""
+    watched = total = 0
+    for card in season_cards or []:
+        if card.get("number") == 0:
+            continue
+        watched += card.get("watched_count") or 0
+        total += card.get("total_episodes") or 0
+    if not total:
+        return None
+    return {"watched": watched, "total": total, "percent": round(watched / total * 100)}
+
+
+@register.filter
+def page_window(current, total):
+    """Numbered pager for Discover: [1, None, 4, 5, 6, None, 500] around
+    current (None = a gap rendered as an ellipsis). First and last pages
+    always included; one neighbour each side of the current page."""
+    try:
+        current, total = int(current), int(total)
+    except (TypeError, ValueError):
+        return []
+    if total <= 1:
+        return []
+    pages = sorted({1, total, *range(max(1, current - 1), min(total, current + 1) + 1)})
+    out = []
+    for p in pages:
+        if out and p - out[-1] > 1:
+            out.append(None)
+        out.append(p)
+    return out
+
+
+@register.filter
+def list_updated_at(wl):
+    """When a list last changed, for list_card.html's meta line - the
+    newest item's added_at (items are prefetched by selectors.
+    visible_lists/featured_lists, so this is no extra query), falling back
+    to the list's own created_at when it's empty."""
+    stamps = [item.added_at for item in wl.items.all() if item.added_at]
+    return max(stamps) if stamps else wl.created_at
+
+
+@register.filter
+def short_timesince(value):
+    """Django's timesince cut to its largest unit - "3 days" rather than
+    "3 days, 4 hours" - for compact meta lines (list_card.html)."""
+    from django.utils.timesince import timesince
+
+    if not value:
+        return ""
+    return timesince(value, depth=1)

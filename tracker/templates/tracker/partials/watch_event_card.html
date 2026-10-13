@@ -1,19 +1,22 @@
 {% load tracker_extras %}
-{# context: event (WatchEvent, .still_url/.caption attached by selectors._attach_watch_event_display) - Dashboard's Recently Watched row only, linking straight to the watched episode (see episode_detail_url) for a show; Social Activity uses poster_card.html instead (see dashboard.html) #}
+{# context: event (WatchEvent, .still_url/.caption attached by selectors._attach_watch_event_display) - Dashboard's Recently Watched row only, linking straight to the watched episode (see episode_detail_url) for a show; Social Activity uses poster_card.html instead (see dashboard.html). Same 16:9 artwork + bottom scrim as the Continue Watching card, minus the progress/actions. #}
 {% if event.episode %}
   {% episode_detail_url event.title.pk event.episode.season event.episode.episode as detail_url %}
 {% else %}
   {% url 'title_detail' event.title.pk as detail_url %}
 {% endif %}
-<a href="{{ detail_url }}" class="w-[270px] flex-none">
-  <div class="aspect-video rounded-lg relative overflow-hidden {% if not event.still_url %}{{ event.title.pk|gradient_class }}{% endif %}">
+<a href="{{ detail_url }}" class="media-card group block min-w-0">
+  <div class="backdrop aspect-video {% if not event.still_url %}{{ event.title.pk|gradient_class }}{% endif %}">
     {% if event.still_url %}
-      <img src="{{ event.still_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+      <img src="{{ event.still_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 group-hover:brightness-110">
     {% endif %}
-    <span class="absolute top-2 right-2 z-10 font-mono text-[10.5px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ event.title.media_type|upper }}</span>
-    <div class="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/85 via-black/40 to-transparent">
-      <div class="text-[14.5px] font-semibold text-white truncate">{{ event.title.name }}</div>
-      {% if event.caption %}<div class="text-[12px] text-white/70 truncate">{{ event.caption }}</div>{% endif %}
+    <div class="art-scrim"></div>
+    <div class="absolute inset-x-0 bottom-0 px-3 pb-2.5">
+      <div class="text-[14px] font-semibold text-white truncate leading-tight">{{ event.title.name }}</div>
+      <div class="text-[12px] text-white/70 truncate mt-0.5 flex items-center gap-1.5">
+        <span class="type-dot {{ event.title.media_type|media_dot_class }}"></span>
+        {% if event.caption %}{{ event.caption }}{% else %}{{ event.title.media_type|media_label }}{% endif %}
+      </div>
     </div>
   </div>
 </a>

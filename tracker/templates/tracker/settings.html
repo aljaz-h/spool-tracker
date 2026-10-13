@@ -12,19 +12,20 @@
       history.replaceState({}, '', url);
     },
   }"
-  class="mx-auto"
-  :class="tab === 'logs' ? 'max-w-7xl' : 'max-w-4xl'"
+  :class="tab === 'logs' ? 'max-w-7xl' : 'max-w-5xl'"
 >
 
-  <div class="mb-6">
-    <h1 class="font-display text-4xl">Settings</h1>
-    <div class="text-ink-dim text-sm mt-1">Your account, appearance, integrations, and data</div>
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Settings</h1>
+      <p class="page-subtitle">Your account, appearance, integrations and data.</p>
+    </div>
   </div>
 
   {% if latest_available_version %}
     <a
       href="{{ changelog_url }}" target="_blank" rel="noopener"
-      class="flex items-center justify-between gap-3 bg-info/10 border border-info/30 rounded-xl px-4 py-2.5 mb-6 text-sm text-info hover:bg-info/15"
+      class="flex items-center justify-between gap-3 bg-info/10 rounded-lg px-4 py-2.5 mb-7 text-sm text-info hover:bg-info/15"
     >
       <span>Spool v{{ latest_available_version }} is available (you're on v{{ app_version }}).</span>
       <span class="font-semibold whitespace-nowrap">View changelog &rarr;</span>
@@ -65,12 +66,12 @@
       @click="mobileNavOpen = !mobileNavOpen"
       :aria-expanded="mobileNavOpen.toString()"
       aria-haspopup="true"
-      class="w-full flex items-center justify-between gap-2 px-4 py-3 rounded-lg bg-base-200 border border-line text-sm font-semibold"
+      class="w-full flex items-center justify-between gap-2 px-4 py-3 rounded-lg bg-base-200 text-sm font-semibold"
     >
       <span x-text="labels[tab] || tab"></span>
       <span class="text-ink-faint flex-none transition-transform" :class="mobileNavOpen ? 'rotate-180' : ''">{% icon "chevron-down" "w-4 h-4" %}</span>
     </button>
-    <div x-show="mobileNavOpen" x-cloak @click="mobileNavOpen = false" class="mt-1.5 flex flex-col gap-1 bg-base-200 border border-line rounded-lg p-1.5">
+    <div x-show="mobileNavOpen" x-cloak @click="mobileNavOpen = false" class="mt-1.5 flex flex-col gap-0.5 menu-surface p-1.5">
       {% include "tracker/partials/settings_nav_button.html" with key="account" label="Account" icon="user" %}
       {% include "tracker/partials/settings_nav_button.html" with key="security" label="Security" icon="shield" %}
       {% include "tracker/partials/settings_nav_button.html" with key="preferences" label="Preferences" icon="settings" %}
@@ -81,7 +82,7 @@
       {% include "tracker/partials/settings_nav_button.html" with key="danger" label="Danger Zone" icon="triangle-alert" %}
 
       {% if profile.is_owner %}
-        <div class="text-[10.5px] font-semibold text-ink-faint uppercase tracking-widest px-3 pt-2.5 pb-1.5">Admin</div>
+        <div class="text-[12.5px] font-semibold text-ink-faint px-3 pt-2.5 pb-1">Admin</div>
         {% include "tracker/partials/settings_nav_button.html" with key="profiles" label="Profiles" icon="users" %}
         {% include "tracker/partials/settings_nav_button.html" with key="server_integrations" label="Server Integrations" icon="key" %}
         {% include "tracker/partials/settings_nav_button.html" with key="maintenance" label="Maintenance" icon="refresh-cw" %}
@@ -91,9 +92,9 @@
     </div>
   </div>
 
-  <div class="flex flex-col lg:flex-row gap-6 items-start">
+  <div class="flex flex-col lg:flex-row gap-10 items-start">
 
-    <nav class="hidden lg:flex w-[190px] flex-none lg:sticky lg:top-6 flex-col gap-1">
+    <nav class="hidden lg:flex w-[200px] flex-none lg:sticky lg:top-20 flex-col gap-0.5" aria-label="Settings sections">
       {% include "tracker/partials/settings_nav_button.html" with key="account" label="Account" icon="user" %}
       {% include "tracker/partials/settings_nav_button.html" with key="security" label="Security" icon="shield" %}
       {% include "tracker/partials/settings_nav_button.html" with key="preferences" label="Preferences" icon="settings" %}
@@ -104,7 +105,7 @@
       {% include "tracker/partials/settings_nav_button.html" with key="danger" label="Danger Zone" icon="triangle-alert" %}
 
       {% if profile.is_owner %}
-        <div class="text-[10.5px] font-semibold text-ink-faint uppercase tracking-widest px-3 pt-4 pb-1.5">Admin</div>
+        <div class="text-[12.5px] font-semibold text-ink-faint px-3 pt-5 pb-1">Admin</div>
         {% include "tracker/partials/settings_nav_button.html" with key="profiles" label="Profiles" icon="users" %}
         {% include "tracker/partials/settings_nav_button.html" with key="server_integrations" label="Server Integrations" icon="key" %}
         {% include "tracker/partials/settings_nav_button.html" with key="maintenance" label="Maintenance" icon="refresh-cw" %}
@@ -113,7 +114,7 @@
       {% endif %}
     </nav>
 
-    <div class="flex-1 min-w-0">
+    <div class="flex-1 min-w-0 w-full">
 
       {# ==================== ACCOUNT ==================== #}
       <div x-show="tab === 'account'" x-cloak
@@ -136,19 +137,19 @@
           <span class="text-ink-faint">Member since {{ profile.created_at|date:"F Y" }}</span>
           <span class="text-line">&middot;</span>
           {% if "trakt" in connected_providers %}
-            <span class="font-mono text-success">&#10003; Trakt connected</span>
+            <span class="text-success">&#10003; Trakt connected</span>
           {% else %}
-            <span class="font-mono text-ink-faint">Trakt not connected</span>
+            <span class="text-ink-faint">Trakt not connected</span>
           {% endif %}
           <span class="text-line">&middot;</span>
           {% if "simkl" in connected_providers %}
-            <span class="font-mono text-success">&#10003; Simkl connected</span>
+            <span class="text-success">&#10003; Simkl connected</span>
           {% else %}
-            <span class="font-mono text-ink-faint">Simkl not connected</span>
+            <span class="text-ink-faint">Simkl not connected</span>
           {% endif %}
         </div>
 
-        <div class="bg-base-200 border border-line rounded-2xl p-5">
+        <div class="settings-panel">
           <h3 class="text-lg mb-3.5">Profile</h3>
           <form method="post" action="{% url 'my_profile' %}" enctype="multipart/form-data">
             {% csrf_token %}
@@ -187,7 +188,7 @@
                 </button>
               {% endif %}
             </div>
-            <div class="text-[10.5px] text-ink-faint mb-5">JPG, PNG, or WEBP, up to 5MB. Falls back to your avatar color below when removed.</div>
+            <div class="text-[12px] text-ink-faint mb-5">JPG, PNG, or WEBP, up to 5MB. Falls back to your avatar color below when removed.</div>
 
             <label class="block text-xs text-ink-dim mb-2">Avatar color</label>
             <div class="flex flex-wrap gap-2 mb-5">
@@ -216,7 +217,7 @@
 
       {# ==================== SECURITY ==================== #}
       <div x-show="tab === 'security'" x-cloak class="flex flex-col gap-5 max-w-2xl">
-        <div class="bg-base-200 border border-line rounded-2xl p-5" x-data="{ showCurrent: false, showNew: false, showConfirm: false }">
+        <div class="settings-panel" x-data="{ showCurrent: false, showNew: false, showConfirm: false }">
           <h3 class="text-lg mb-3.5">Change password</h3>
           <form method="post" action="{% url 'my_profile' %}">
             {% csrf_token %}
@@ -239,7 +240,7 @@
                 <span x-show="showNew" x-cloak>{% icon "eye-off" "w-4 h-4" %}</span>
               </button>
             </div>
-            <div class="text-[10.5px] text-ink-faint mb-3">Must be at least 8 characters.</div>
+            <div class="text-[12px] text-ink-faint mb-3">Must be at least 8 characters.</div>
 
             <label class="block text-xs text-ink-dim mb-1">Confirm new password</label>
             <div class="relative mb-4">
@@ -258,17 +259,17 @@
       </div>
 
       {# ==================== PREFERENCES ==================== #}
-      <div x-show="tab === 'preferences'" x-cloak class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl">
+      <div x-show="tab === 'preferences'" x-cloak class="settings-panel max-w-2xl">
         <h3 class="text-lg mb-1">Preferences</h3>
         <div class="text-ink-dim text-xs mb-3">Dark is the default; a light mode preview isn't built yet.</div>
         <div class="flex gap-4">
           <div class="flex flex-col items-center gap-1.5">
             <div class="w-13 h-9 rounded-md border-2 border-primary" style="background:#14161c;"></div>
-            <span class="text-[10px] text-ink-dim">Dark</span>
+            <span class="text-xs text-ink-dim">Dark</span>
           </div>
           <div class="flex flex-col items-center gap-1.5 opacity-40 cursor-not-allowed" title="Light mode isn't available yet">
             <div class="w-13 h-9 rounded-md border-2 border-transparent" style="background:#f4f2ec;"></div>
-            <span class="text-[10px] text-ink-dim">Coming soon</span>
+            <span class="text-xs text-ink-dim">Coming soon</span>
           </div>
         </div>
 
@@ -278,7 +279,7 @@
             <span class="text-[13.5px] flex items-center gap-2">Interface animations<span class="spool-spinner" aria-hidden="true"></span></span>
             <input type="checkbox" name="animations_enabled" class="checkbox checkbox-sm" {% if profile.animations_enabled %}checked{% endif %}>
           </label>
-          <div class="text-[10.5px] text-ink-faint mt-1.5">Subtle transitions on a few interactions (mark watched, list actions, popovers). Off by default; always off if your system has reduced motion enabled, regardless of this setting.</div>
+          <div class="text-[12px] text-ink-faint mt-1.5">Subtle transitions on a few interactions (mark watched, list actions, popovers). Off by default; always off if your system has reduced motion enabled, regardless of this setting.</div>
         </form>
 
         <div class="text-ink-dim text-xs mt-4 mb-2">Time format</div>
@@ -297,7 +298,7 @@
 
         <div class="text-ink-dim text-xs mt-4 mb-2">Default landing page</div>
         <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="flex items-center gap-2">
-          <select name="default_landing_page" aria-label="Default landing page" class="select select-sm w-full bg-base-100 focus:outline-primary">
+          <select name="default_landing_page" aria-label="Default landing page" class="select select-sm w-full">
             {% for value, label in landing_pages %}
               <option value="{{ value }}" {% if profile.default_landing_page == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
@@ -308,7 +309,7 @@
         <div class="text-ink-dim text-xs mt-4 mb-2">Preferred language</div>
         <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
           <div class="flex items-center gap-2">
-            <select name="preferred_language" aria-label="Preferred language" class="select select-sm w-full bg-base-100 focus:outline-primary">
+            <select name="preferred_language" aria-label="Preferred language" class="select select-sm w-full">
               <option value="">Any language</option>
               {% for code, name in languages %}
                 <option value="{{ code }}" {% if profile.preferred_language == code %}selected{% endif %}>{{ name }}</option>
@@ -316,13 +317,13 @@
             </select>
             <span class="spool-spinner flex-none" aria-hidden="true"></span>
           </div>
-          <div class="text-[10.5px] text-ink-faint mt-1.5">Pre-fills the language filter on Movies, TV, and Anime.</div>
+          <div class="text-[12px] text-ink-faint mt-1.5">Pre-fills the language filter on Movies, TV, and Anime.</div>
         </form>
 
         <div class="text-ink-dim text-xs mt-4 mb-2">Timezone</div>
         <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
           <div class="flex items-center gap-2">
-            <select name="timezone" aria-label="Timezone" class="select select-sm w-full bg-base-100 focus:outline-primary">
+            <select name="timezone" aria-label="Timezone" class="select select-sm w-full">
               <option value="">Server default ({{ server_time_zone }})</option>
               {% for tz in timezones %}
                 <option value="{{ tz }}" {% if profile.timezone == tz %}selected{% endif %}>{{ tz }}</option>
@@ -330,7 +331,7 @@
             </select>
             <span class="spool-spinner flex-none" aria-hidden="true"></span>
           </div>
-          <div class="text-[10.5px] text-ink-faint mt-1.5">Your own timezone for times shown across the app - useful if you're not in the same timezone as the server.</div>
+          <div class="text-[12px] text-ink-faint mt-1.5">Your own timezone for times shown across the app - useful if you're not in the same timezone as the server.</div>
         </form>
 
         {% comment %}
@@ -351,19 +352,19 @@
         <div class="text-ink-dim text-xs mt-4 mb-2">Region</div>
         <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
           <div class="flex items-center gap-2">
-            <select name="preferred_region" aria-label="Region" class="select select-sm w-full bg-base-100 focus:outline-primary">
+            <select name="preferred_region" aria-label="Region" class="select select-sm w-full">
               {% for code, name in discover_regions %}
                 <option value="{{ code }}" {% if profile.preferred_region == code %}selected{% endif %}>{{ name }}</option>
               {% endfor %}
             </select>
             <span class="spool-spinner flex-none" aria-hidden="true"></span>
           </div>
-          <div class="text-[10.5px] text-ink-faint mt-1.5">Which country's streaming availability to use for the services above.</div>
+          <div class="text-[12px] text-ink-faint mt-1.5">Which country's streaming availability to use for the services above.</div>
         </form>
       </div>
 
       {# ==================== NOTIFICATIONS ==================== #}
-      <div x-show="tab === 'notifications'" x-cloak class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl">
+      <div x-show="tab === 'notifications'" x-cloak class="settings-panel max-w-2xl">
         <h3 class="text-lg mb-1">Notifications</h3>
         <div class="text-ink-dim text-xs mb-3">In-app only for now - no email or push.</div>
         <form hx-post="{% url 'save_notifications' %}" hx-trigger="change" hx-swap="none" class="flex flex-col gap-3">
@@ -383,68 +384,90 @@
       </div>
 
       {# ==================== CONNECTED APPS ==================== #}
-      <div x-show="tab === 'connected_apps'" x-cloak class="flex flex-col gap-5 max-w-2xl">
-        <div class="bg-base-200 border border-line rounded-2xl p-5">
-          <h3 class="text-lg mb-3.5">Connected Apps</h3>
+      <div x-show="tab === 'connected_apps'" x-cloak class="flex flex-col gap-4 max-w-3xl">
+        <div class="mb-1">
+          <h3 class="text-lg font-semibold">Connected Apps</h3>
+          <p class="text-sm text-ink-dim mt-1">Bring history in from other trackers and keep it in sync on a schedule.</p>
+        </div>
 
-          <div class="py-3.5 border-b border-line">
-            <div class="flex justify-between items-center">
-              <div><div class="font-semibold text-[13.5px]">Trakt</div><div class="text-xs text-ink-dim">Sync watched history, ratings &amp; lists</div></div>
-              {% if "trakt" in connected_providers %}
-                <span class="font-mono text-xs text-success">&#10003; Connected</span>
-              {% elif trakt_configured %}
-                <a href="{% url 'trakt_connect' %}" class="btn btn-sm btn-soft">Connect</a>
-              {% else %}
-                <button type="button" disabled data-tooltip="Ask your server owner to set this up first" class="btn btn-sm btn-disabled spool-tooltip">Connect</button>
-              {% endif %}
+        {% comment %}
+          One contained row per provider: monogram, name + what it does,
+          connection state on the right, then (once connected) the
+          account, last sync and schedule controls underneath.
+        {% endcomment %}
+        <div class="surface p-5">
+          <div class="flex items-start gap-4">
+            <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none text-[15px] font-bold text-ink-dim" aria-hidden="true">T</div>
+            <div class="min-w-0 flex-1">
+              <div class="font-semibold text-[15px]">Trakt</div>
+              <div class="text-[13px] text-ink-dim mt-0.5">Sync watched history, ratings &amp; lists</div>
             </div>
             {% if "trakt" in connected_providers %}
-              {% include "tracker/partials/sync_schedule_form.html" with provider="trakt" account=external_accounts.trakt %}
-            {% elif not trakt_configured %}
-              <div class="text-[10.5px] text-ink-faint mt-1">Not available yet - ask your server owner to set up Trakt first.</div>
+              <span class="chip chip-success flex-none">&#10003; Connected</span>
+            {% elif trakt_configured %}
+              <a href="{% url 'trakt_connect' %}" class="btn btn-sm btn-primary flex-none">Connect</a>
+            {% else %}
+              <button type="button" disabled data-tooltip="Ask your server owner to set this up first" class="btn btn-sm btn-disabled spool-tooltip flex-none">Connect</button>
             {% endif %}
           </div>
+          {% if "trakt" in connected_providers %}
+            <div class="sm:pl-14">{% include "tracker/partials/sync_schedule_form.html" with provider="trakt" account=external_accounts.trakt %}</div>
+          {% elif not trakt_configured %}
+            <div class="text-[13px] text-ink-faint mt-3 sm:pl-14">Not available yet - ask your server owner to set up Trakt first.</div>
+          {% endif %}
+        </div>
 
-          <div class="py-3.5 border-b border-line">
-            <div class="flex justify-between items-center">
-              <div><div class="font-semibold text-[13.5px]">Simkl</div><div class="text-xs text-ink-dim">Import history &amp; anime progress</div></div>
-              {% if "simkl" in connected_providers %}
-                <span class="font-mono text-xs text-success">&#10003; Connected</span>
-              {% elif simkl_configured %}
-                <a href="{% url 'simkl_connect' %}" class="btn btn-sm btn-soft">Connect</a>
-              {% else %}
-                <button type="button" disabled data-tooltip="Ask your server owner to set this up first" class="btn btn-sm btn-disabled spool-tooltip">Connect</button>
-              {% endif %}
+        <div class="surface p-5">
+          <div class="flex items-start gap-4">
+            <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none text-[15px] font-bold text-ink-dim" aria-hidden="true">S</div>
+            <div class="min-w-0 flex-1">
+              <div class="font-semibold text-[15px]">Simkl</div>
+              <div class="text-[13px] text-ink-dim mt-0.5">Import history &amp; anime progress</div>
             </div>
             {% if "simkl" in connected_providers %}
-              {% include "tracker/partials/sync_schedule_form.html" with provider="simkl" account=external_accounts.simkl %}
-            {% elif not simkl_configured %}
-              <div class="text-[10.5px] text-ink-faint mt-1">Not available yet - ask your server owner to set up Simkl first.</div>
+              <span class="chip chip-success flex-none">&#10003; Connected</span>
+            {% elif simkl_configured %}
+              <a href="{% url 'simkl_connect' %}" class="btn btn-sm btn-primary flex-none">Connect</a>
+            {% else %}
+              <button type="button" disabled data-tooltip="Ask your server owner to set this up first" class="btn btn-sm btn-disabled spool-tooltip flex-none">Connect</button>
             {% endif %}
           </div>
+          {% if "simkl" in connected_providers %}
+            <div class="sm:pl-14">{% include "tracker/partials/sync_schedule_form.html" with provider="simkl" account=external_accounts.simkl %}</div>
+          {% elif not simkl_configured %}
+            <div class="text-[13px] text-ink-faint mt-3 sm:pl-14">Not available yet - ask your server owner to set up Simkl first.</div>
+          {% endif %}
+        </div>
 
-          <div class="py-3.5">
-            <div class="flex justify-between items-center">
-              <div><div class="font-semibold text-[13.5px]">Nuvio</div><div class="text-xs text-ink-dim">Sync watch history &amp; continue-watching progress</div></div>
+        <div class="surface p-5">
+          <div class="flex items-start gap-4">
+            <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none text-[15px] font-bold text-ink-dim" aria-hidden="true">N</div>
+            <div class="min-w-0 flex-1">
+              <div class="font-semibold text-[15px]">Nuvio</div>
+              <div class="text-[13px] text-ink-dim mt-0.5">Sync watch history &amp; continue-watching progress</div>
               {% if nuvio_connection %}
-                <span class="font-mono text-xs text-success">&#10003; Connected</span>
+                <div class="text-[13px] text-base-content/85 mt-1.5">{{ nuvio_connection.email }}{% if nuvio_connection.nuvio_profile_name %} <span class="text-ink-faint">·</span> {{ nuvio_connection.nuvio_profile_name }}{% endif %}</div>
               {% endif %}
             </div>
             {% if nuvio_connection %}
-              <div class="text-[10.5px] text-ink-faint mt-1">{{ nuvio_connection.email }}{% if nuvio_connection.nuvio_profile_name %} · {{ nuvio_connection.nuvio_profile_name }}{% endif %}</div>
-              {% include "tracker/partials/sync_schedule_form.html" with provider="nuvio" account=nuvio_connection %}
+              <span class="chip chip-success flex-none">&#10003; Connected</span>
             {% else %}
-              <form method="post" action="{% url 'nuvio_connect_submit' %}" class="flex flex-col gap-2 mt-2">
-                {% csrf_token %}
-                <input type="email" name="email" placeholder="Nuvio email" required class="w-full bg-base-100 border border-line rounded-lg px-3 py-1.5 text-sm focus:outline-primary">
-                <input type="password" name="password" placeholder="Nuvio password" required class="w-full bg-base-100 border border-line rounded-lg px-3 py-1.5 text-sm focus:outline-primary">
-                <button type="submit" class="btn btn-sm btn-soft self-start">Connect</button>
-                <div class="text-[10.5px] text-ink-faint">
-                  Stores an encrypted token, never your password. Uses an undocumented Nuvio API that could change or break without notice.
-                </div>
-              </form>
+              <span class="chip flex-none">Not connected</span>
             {% endif %}
           </div>
+          {% if nuvio_connection %}
+            <div class="sm:pl-14">{% include "tracker/partials/sync_schedule_form.html" with provider="nuvio" account=nuvio_connection %}</div>
+          {% else %}
+            <form method="post" action="{% url 'nuvio_connect_submit' %}" class="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 mt-4 sm:pl-14">
+              {% csrf_token %}
+              <input type="email" name="email" placeholder="Nuvio email" required class="input input-sm w-full">
+              <input type="password" name="password" placeholder="Nuvio password" required class="input input-sm w-full">
+              <button type="submit" class="btn btn-sm btn-soft">Connect</button>
+              <div class="sm:col-span-3 text-[12.5px] text-ink-faint">
+                Stores an encrypted token, never your password. Uses an undocumented Nuvio API that could change or break without notice.
+              </div>
+            </form>
+          {% endif %}
         </div>
       </div>
 
@@ -460,7 +483,7 @@
           absent here (wrapped_enabled off) is the only opt-out
           mechanism the Reports API has - see api/routers/reports.py.
         {% endcomment %}
-        <div class="bg-base-200 border border-line rounded-2xl p-5">
+        <div class="settings-panel">
           <h3 class="text-lg mb-1">Wrapped</h3>
           <div class="text-ink-dim text-xs mb-3">
             Opt in to share your watch history with the companion
@@ -474,10 +497,10 @@
               <input type="checkbox" name="wrapped_enabled" class="checkbox checkbox-sm" {% if profile.wrapped_enabled %}checked{% endif %}>
             </label>
             <div>
-              <div class="text-[11px] text-ink-dim mb-1">Webhook URL (optional Spool-side default)</div>
+              <div class="text-[12px] text-ink-dim mb-1">Webhook URL (optional Spool-side default)</div>
               <input
                 type="url" name="wrapped_webhook_url" value="{{ profile.wrapped_webhook_url }}" placeholder="https://discord.com/api/webhooks/…"
-                class="w-full bg-base-100 border border-line rounded-lg px-3.5 py-2 text-sm font-mono focus:outline-primary"
+                class="w-full bg-base-300 rounded-lg px-3.5 py-2 text-sm font-mono"
               >
             </div>
             <label class="flex items-center justify-between gap-3 cursor-pointer">
@@ -486,13 +509,14 @@
             </label>
             <span class="spool-spinner self-start" aria-hidden="true"></span>
           </form>
-          <div class="text-[10.5px] text-ink-faint mt-2">spool-wrapped's own per-profile delivery settings, once configured there, always take priority over these.</div>
+          <div class="text-[12px] text-ink-faint mt-2">spool-wrapped's own per-profile delivery settings, once configured there, always take priority over these.</div>
         </div>
       </div>
 
       {# ==================== IMPORT & EXPORT ==================== #}
       <div x-show="tab === 'data'" x-cloak class="flex flex-col gap-5 max-w-2xl">
-        <div class="bg-base-200 border border-line rounded-2xl p-5">
+        {% include "tracker/partials/transfer_activity.html" %}
+        <div class="settings-panel">
           <h3 class="text-lg mb-1">Import Data</h3>
           <div class="text-ink-dim text-xs mb-3.5">Upload an export from any tracker as a CSV, JSON, or zip file — including Trakt's own "Export now" zip.</div>
           <form method="post" action="{% url 'import_csv' %}" enctype="multipart/form-data" class="flex items-center gap-2" x-data="{ fileName: null }">
@@ -506,18 +530,22 @@
           </form>
         </div>
 
-        <div class="bg-base-200 border border-line rounded-2xl p-5">
+        <div class="settings-panel">
           <h3 class="text-lg mb-1">Export Data</h3>
           <div class="text-ink-dim text-xs mb-3">Download everything you've watched, rated, or added to a list.</div>
-          <div class="flex gap-2">
+          <div class="flex flex-wrap gap-2">
+            <a href="{% url 'export_spool_backup' %}" class="btn btn-sm btn-primary">Export full backup (JSON)</a>
             <a href="{% url 'export_csv' %}" class="btn btn-sm btn-soft">Export as CSV</a>
             <a href="{% url 'export_trakt_json' %}" class="btn btn-sm btn-soft">Export as Trakt JSON</a>
           </div>
+          <div class="text-ink-dim text-xs mt-2.5">The full backup includes your history, ratings and every list (Watchlist included) and can be imported back here. CSV and Trakt JSON carry watch history only.</div>
         </div>
+
+        {% include "tracker/partials/settings_backups.html" %}
       </div>
 
       {# ==================== DANGER ZONE ==================== #}
-      <div x-show="tab === 'danger'" x-cloak class="bg-error/5 border border-error/30 rounded-2xl p-5 max-w-2xl">
+      <div x-show="tab === 'danger'" x-cloak class="rounded-xl border border-error/25 p-5 max-w-2xl">
         <h3 class="text-lg text-error mb-1">Danger Zone</h3>
         <div class="text-ink-dim text-xs mb-3.5">These actions are permanent and can't be undone.</div>
 
@@ -603,7 +631,7 @@
 
       {% if profile.is_owner %}
         {# ==================== ADMIN: PROFILES ==================== #}
-        <div x-show="tab === 'profiles'" x-cloak x-data="{ showAddProfile: false }" class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl">
+        <div x-show="tab === 'profiles'" x-cloak x-data="{ showAddProfile: false }" class="settings-panel max-w-2xl">
           <h3 class="text-lg mb-3.5">Profiles</h3>
           {% for p in profiles %}
             <div {% if p.id != profile.id %}x-data="{ showReset: false }"{% endif %} class="py-3 border-b border-line last:border-b-0">
@@ -615,7 +643,7 @@
                 {% endif %}
                 <div class="flex-1 min-w-0">
                   <div class="font-semibold text-[13.5px]">{{ p.display_name }}</div>
-                  <div class="text-[11.5px] text-ink-dim font-mono">{% if p.is_owner %}Owner{% else %}Member{% endif %}</div>
+                  <div class="text-[12.5px] text-ink-dim">{% if p.is_owner %}Owner{% else %}Member{% endif %}</div>
                 </div>
                 {% if p.id != profile.id %}
                   <div class="flex items-center gap-1.5 flex-none">
@@ -655,8 +683,8 @@
                 <div x-show="showReset" x-cloak class="flex flex-col gap-2 mt-2.5 pl-11">
                   <form method="post" action="{% url 'admin_reset_password' p.id %}" class="flex flex-col gap-2">
                     {% csrf_token %}
-                    <input type="password" name="new_password" placeholder="New password" required minlength="8" class="input input-sm w-full bg-base-100">
-                    <input type="password" name="confirm_password" placeholder="Confirm new password" required minlength="8" class="input input-sm w-full bg-base-100">
+                    <input type="password" name="new_password" placeholder="New password" required minlength="8" class="input input-sm w-full">
+                    <input type="password" name="confirm_password" placeholder="Confirm new password" required minlength="8" class="input input-sm w-full">
                     <button type="submit" class="btn btn-xs btn-soft self-start">Set new password</button>
                   </form>
                 </div>
@@ -682,75 +710,30 @@
         {# ==================== ADMIN: SERVER INTEGRATIONS ==================== #}
         <div
           x-show="tab === 'server_integrations'" x-cloak
-          x-data="{ showTraktSecret: false, showSimklSecret: false, showTmdb: false, showMdblist: false, showSsoSecret: false }"
-          class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl"
+          x-data="{ showTraktSecret: false, showSimklSecret: false, showTmdb: false, showMdblist: false, showSsoSecret: false, showGoogleSecret: false, showDropboxSecret: false }"
+          class="flex flex-col gap-8 max-w-3xl min-w-0"
         >
-          <h3 class="text-lg mb-1">Server Integrations</h3>
-          <div class="text-ink-dim text-xs mb-3.5">Overrides the server's .env values for Trakt/Simkl/TMDB — leave a field blank to keep what's already set.</div>
-          <form method="post" action="{% url 'save_instance_config' %}" class="space-y-3">
+          <div>
+            <h3 class="text-lg font-semibold mb-1">Server Integrations</h3>
+            <div class="text-ink-dim text-xs">Credentials for the services Spool talks to. Values here override the server's .env - leave a field blank to keep what's already set.</div>
+          </div>
+          <form method="post" action="{% url 'save_instance_config' %}" class="flex flex-col gap-8 min-w-0">
             {% csrf_token %}
-            <div>
-              <div class="flex items-center justify-between mb-1">
-                <label class="block text-xs text-ink-dim">Trakt Client ID {% if trakt_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
-                {% if trakt_configured %}
-                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'trakt' %}" onclick="return confirm('Clear the stored Trakt client ID and secret? Spool will fall back to the server .env values, if any.');" class="text-[11px] text-ink-faint hover:text-error underline">Clear</button>
-                {% endif %}
-              </div>
-              <input type="text" name="trakt_client_id" value="{{ integration_field_values.trakt_client_id|default:'' }}" @keydown.enter.prevent placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
+        <div class="settings-panel">
+          <h3 class="text-lg mb-1">Movie &amp; TV data</h3>
+          <div class="text-ink-dim text-xs mb-4">TMDB supplies posters, details and release dates; MDBList adds extra ratings.</div>
+          <div class="divide-y divide-line min-w-0 [&>div]:pb-5 [&>div:last-child]:pb-0">
+          <div class="pt-5 first:pt-0">
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <div class="text-sm font-semibold">TMDB API key {% if tmdb_configured %}<span class="text-success font-normal">&#10003; configured</span>{% else %}<span class="text-ink-faint font-normal">&#9675; not configured</span>{% endif %}</div>
+              {% if tmdb_configured %}
+                <button type="submit" formaction="{% url 'clear_instance_config_field' 'tmdb' %}" onclick="return confirm('Clear the stored TMDB API key? Spool will fall back to the server .env value, if any.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
+              {% endif %}
             </div>
-            <div>
-              <label class="block text-xs text-ink-dim mb-1">Trakt Client Secret</label>
-              <div class="flex gap-1.5">
-                <div class="relative flex-1">
-                  <input :type="showTraktSecret ? 'text' : 'password'" name="trakt_client_secret" value="{{ integration_field_values.trakt_client_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
-                  <button type="button" @click="showTraktSecret = !showTraktSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
-                    <span x-show="!showTraktSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
-                    <span x-show="showTraktSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
-                  </button>
-                </div>
-                <button
-                  type="submit" formaction="{% url 'test_provider_credentials' 'trakt' %}"
-                  data-tooltip="Makes a live request to Trakt using the values above (without saving them) - only confirms the client ID is live, since Trakt doesn't check the secret outside the OAuth flow"
-                  class="btn btn-sm btn-soft shrink-0 spool-tooltip"
-                >Test</button>
-              </div>
-            </div>
-            <div>
-              <div class="flex items-center justify-between mb-1">
-                <label class="block text-xs text-ink-dim">Simkl Client ID {% if simkl_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
-                {% if simkl_configured %}
-                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'simkl' %}" onclick="return confirm('Clear the stored Simkl client ID and secret? Spool will fall back to the server .env values, if any.');" class="text-[11px] text-ink-faint hover:text-error underline">Clear</button>
-                {% endif %}
-              </div>
-              <input type="text" name="simkl_client_id" value="{{ integration_field_values.simkl_client_id|default:'' }}" @keydown.enter.prevent placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono">
-            </div>
-            <div>
-              <label class="block text-xs text-ink-dim mb-1">Simkl Client Secret</label>
-              <div class="flex gap-1.5">
-                <div class="relative flex-1">
-                  <input :type="showSimklSecret ? 'text' : 'password'" name="simkl_client_secret" value="{{ integration_field_values.simkl_client_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
-                  <button type="button" @click="showSimklSecret = !showSimklSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
-                    <span x-show="!showSimklSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
-                    <span x-show="showSimklSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
-                  </button>
-                </div>
-                <button
-                  type="submit" formaction="{% url 'test_provider_credentials' 'simkl' %}"
-                  data-tooltip="Makes a live request to Simkl using the values above (without saving them) - best effort, Simkl's API beyond OAuth isn't fully documented"
-                  class="btn btn-sm btn-soft shrink-0 spool-tooltip"
-                >Test</button>
-              </div>
-            </div>
-            <div>
-              <div class="flex items-center justify-between mb-1">
-                <label class="block text-xs text-ink-dim">TMDB API Key {% if tmdb_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
-                {% if tmdb_configured %}
-                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'tmdb' %}" onclick="return confirm('Clear the stored TMDB API key? Spool will fall back to the server .env value, if any.');" class="text-[11px] text-ink-faint hover:text-error underline">Clear</button>
-                {% endif %}
-              </div>
-              <div class="flex gap-1.5">
-                <div class="relative flex-1">
-                  <input :type="showTmdb ? 'text' : 'password'" name="tmdb_api_key" value="{{ integration_field_values.tmdb_api_key|default:'' }}" @keydown.enter.prevent placeholder="{% if tmdb_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
+            <label class="sr-only" for="si-tmdb_api_key">TMDB API key</label>
+            <div class="flex gap-1.5">
+                <div class="relative flex-1 min-w-0">
+                  <input :type="showTmdb ? 'text' : 'password'" id="si-tmdb_api_key" name="tmdb_api_key" value="{{ integration_field_values.tmdb_api_key|default:'' }}" @keydown.enter.prevent placeholder="{% if tmdb_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
                   <button type="button" @click="showTmdb = !showTmdb" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
                     <span x-show="!showTmdb">{% icon "eye" "w-3.5 h-3.5" %}</span>
                     <span x-show="showTmdb" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
@@ -761,18 +744,19 @@
                   data-tooltip="Makes a live request to TMDB using the value above (without saving it) - fully validates the key"
                   class="btn btn-sm btn-soft shrink-0 spool-tooltip"
                 >Test</button>
-              </div>
             </div>
-            <div>
-              <div class="flex items-center justify-between mb-1">
-                <label class="block text-xs text-ink-dim">MDBList API Key {% if mdblist_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
-                {% if mdblist_configured %}
-                  <button type="submit" formaction="{% url 'clear_instance_config_field' 'mdblist' %}" onclick="return confirm('Clear the stored MDBList API key? This turns off supplementary ratings on title pages until a new key is set.');" class="text-[11px] text-ink-faint hover:text-error underline">Clear</button>
-                {% endif %}
-              </div>
-              <div class="flex gap-1.5">
-                <div class="relative flex-1">
-                  <input :type="showMdblist ? 'text' : 'password'" name="mdblist_api_key" value="{{ integration_field_values.mdblist_api_key|default:'' }}" @keydown.enter.prevent placeholder="{% if mdblist_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
+          </div>
+          <div class="pt-5 first:pt-0">
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <div class="text-sm font-semibold">MDBList API key {% if mdblist_configured %}<span class="text-success font-normal">&#10003; configured</span>{% else %}<span class="text-ink-faint font-normal">&#9675; not configured</span>{% endif %}</div>
+              {% if mdblist_configured %}
+                <button type="submit" formaction="{% url 'clear_instance_config_field' 'mdblist' %}" onclick="return confirm('Clear the stored MDBList API key? This turns off supplementary ratings on title pages until a new key is set.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
+              {% endif %}
+            </div>
+            <label class="sr-only" for="si-mdblist_api_key">MDBList API key</label>
+            <div class="flex gap-1.5">
+                <div class="relative flex-1 min-w-0">
+                  <input :type="showMdblist ? 'text' : 'password'" id="si-mdblist_api_key" name="mdblist_api_key" value="{{ integration_field_values.mdblist_api_key|default:'' }}" @keydown.enter.prevent placeholder="{% if mdblist_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
                   <button type="button" @click="showMdblist = !showMdblist" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
                     <span x-show="!showMdblist">{% icon "eye" "w-3.5 h-3.5" %}</span>
                     <span x-show="showMdblist" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
@@ -783,26 +767,173 @@
                   data-tooltip="Makes a live request to MDBList using the value above (without saving it) - fully validates the key"
                   class="btn btn-sm btn-soft shrink-0 spool-tooltip"
                 >Test</button>
-              </div>
-              <div class="text-ink-dim text-[11px] mt-1">Optional - adds IMDb/Rotten Tomatoes/Metacritic/Trakt pills to a title's page. Get a free key at mdblist.com/api.</div>
             </div>
-            <div class="pt-1 border-t border-line">
-              <div class="text-xs font-semibold mt-3 mb-1">spool-wrapped</div>
-              <div class="text-ink-dim text-[11px] mb-2">Base URL and shared secret for the "Manage Wrapped" SSO handshake below - set identically to spool-wrapped's own SSO_SHARED_SECRET.</div>
-              <label class="block text-xs text-ink-dim mb-1">spool-wrapped URL</label>
-              <input type="url" name="spool_wrapped_url" value="{{ integration_field_values.spool_wrapped_url|default:cfg.spool_wrapped_url }}" @keydown.enter.prevent placeholder="https://wrapped.example.com" class="input input-sm w-full bg-base-100 font-mono mb-2">
-              <div class="flex items-center justify-between mb-1">
-                <label class="block text-xs text-ink-dim">Shared Secret {% if sso_shared_secret_configured %}<span class="text-success">&#10003; configured</span>{% else %}<span class="text-ink-faint">&#9675; not configured</span>{% endif %}</label>
+            <div class="text-ink-dim text-[12px] mt-1.5">Optional - adds IMDb/Rotten Tomatoes/Metacritic/Trakt pills to a title's page. Get a free key at mdblist.com/api.</div>
+          </div>
+          </div>
+        </div>
+        <div class="settings-panel">
+          <h3 class="text-lg mb-1">Trakt &amp; Simkl</h3>
+          <div class="text-ink-dim text-xs mb-4">Lets profiles connect their Trakt or Simkl account to import and sync their history.</div>
+          <div class="divide-y divide-line min-w-0 [&>div]:pb-5 [&>div:last-child]:pb-0">
+          <div class="pt-5 first:pt-0">
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <div class="text-sm font-semibold">Trakt {% if trakt_configured %}<span class="text-success font-normal">&#10003; configured</span>{% else %}<span class="text-ink-faint font-normal">&#9675; not configured</span>{% endif %}</div>
+              {% if trakt_configured %}
+                <button type="submit" formaction="{% url 'clear_instance_config_field' 'trakt' %}" onclick="return confirm('Clear the stored Trakt client ID and secret? Spool will fall back to the server .env values, if any.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
+              {% endif %}
+            </div>
+            <div class="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs text-ink-dim mb-1" for="si-trakt_client_id">Client ID</label>
+                <input type="text" id="si-trakt_client_id" name="trakt_client_id" value="{{ integration_field_values.trakt_client_id|default:'' }}" @keydown.enter.prevent placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono">
               </div>
-              <div class="relative">
-                <input :type="showSsoSecret ? 'text' : 'password'" name="sso_shared_secret" value="{{ integration_field_values.sso_shared_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if sso_shared_secret_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full bg-base-100 font-mono pr-8">
-                <button type="button" @click="showSsoSecret = !showSsoSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
-                  <span x-show="!showSsoSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
-                  <span x-show="showSsoSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
-                </button>
+              <div>
+                <label class="block text-xs text-ink-dim mb-1" for="si-trakt_client_secret">Client secret</label>
+                <div class="flex gap-1.5">
+                <div class="relative flex-1 min-w-0">
+                  <input :type="showTraktSecret ? 'text' : 'password'" id="si-trakt_client_secret" name="trakt_client_secret" value="{{ integration_field_values.trakt_client_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if trakt_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
+                  <button type="button" @click="showTraktSecret = !showTraktSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                    <span x-show="!showTraktSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                    <span x-show="showTraktSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                  </button>
+                </div>
+                <button
+                  type="submit" formaction="{% url 'test_provider_credentials' 'trakt' %}"
+                  data-tooltip="Makes a live request to Trakt using the values above (without saving them) - only confirms the client ID is live, since Trakt doesn't check the secret outside the OAuth flow"
+                  class="btn btn-sm btn-soft shrink-0 spool-tooltip"
+                >Test</button>
+                </div>
               </div>
             </div>
-            <button type="submit" class="btn btn-sm btn-soft w-full">Save</button>
+          </div>
+          <div class="pt-5 first:pt-0">
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <div class="text-sm font-semibold">Simkl {% if simkl_configured %}<span class="text-success font-normal">&#10003; configured</span>{% else %}<span class="text-ink-faint font-normal">&#9675; not configured</span>{% endif %}</div>
+              {% if simkl_configured %}
+                <button type="submit" formaction="{% url 'clear_instance_config_field' 'simkl' %}" onclick="return confirm('Clear the stored Simkl client ID and secret? Spool will fall back to the server .env values, if any.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
+              {% endif %}
+            </div>
+            <div class="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs text-ink-dim mb-1" for="si-simkl_client_id">Client ID</label>
+                <input type="text" id="si-simkl_client_id" name="simkl_client_id" value="{{ integration_field_values.simkl_client_id|default:'' }}" @keydown.enter.prevent placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono">
+              </div>
+              <div>
+                <label class="block text-xs text-ink-dim mb-1" for="si-simkl_client_secret">Client secret</label>
+                <div class="flex gap-1.5">
+                <div class="relative flex-1 min-w-0">
+                  <input :type="showSimklSecret ? 'text' : 'password'" id="si-simkl_client_secret" name="simkl_client_secret" value="{{ integration_field_values.simkl_client_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if simkl_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
+                  <button type="button" @click="showSimklSecret = !showSimklSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                    <span x-show="!showSimklSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                    <span x-show="showSimklSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                  </button>
+                </div>
+                <button
+                  type="submit" formaction="{% url 'test_provider_credentials' 'simkl' %}"
+                  data-tooltip="Makes a live request to Simkl using the values above (without saving them) - best effort, Simkl's API beyond OAuth isn't fully documented"
+                  class="btn btn-sm btn-soft shrink-0 spool-tooltip"
+                >Test</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          </div>
+        </div>
+        <div class="settings-panel">
+          <h3 class="text-lg mb-1">Cloud backups</h3>
+          <div class="text-ink-dim text-xs mb-4">Lets every profile back up to its own Google Drive or Dropbox (Settings → Import &amp; Export). Register the redirect URI with each app - see docs/BACKUPS.md.</div>
+          <div class="divide-y divide-line min-w-0 [&>div]:pb-5 [&>div:last-child]:pb-0">
+          <div class="pt-5 first:pt-0">
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <div class="text-sm font-semibold">Google Drive {% if gdrive_backup_configured %}<span class="text-success font-normal">&#10003; configured</span>{% else %}<span class="text-ink-faint font-normal">&#9675; not configured</span>{% endif %}</div>
+              {% if gdrive_backup_configured %}
+                <button type="submit" formaction="{% url 'clear_instance_config_field' 'gdrive' %}" onclick="return confirm('Clear the stored Google Drive app credentials? Profiles backing up to Google Drive will start failing until they are set again.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
+              {% endif %}
+            </div>
+            <div class="flex items-center gap-2 rounded-lg bg-base-200 px-3 py-2 mb-3 min-w-0" x-data="{ copied: false }">
+              <span class="text-[12px] text-ink-faint flex-none">Redirect URI</span>
+              <code class="flex-1 min-w-0 truncate font-mono text-[12px] text-ink" title="{{ backup_redirect_uris.gdrive }}">{{ backup_redirect_uris.gdrive }}</code>
+              <button type="button" @click="navigator.clipboard?.writeText('{{ backup_redirect_uris.gdrive|escapejs }}'); copied = true; setTimeout(() => copied = false, 1500)" class="text-[12px] text-ink-dim hover:text-base-content flex-none" x-text="copied ? 'Copied' : 'Copy'">Copy</button>
+            </div>
+            <div class="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs text-ink-dim mb-1" for="si-google_client_id">Client ID</label>
+                <input type="text" id="si-google_client_id" name="google_client_id" value="{{ integration_field_values.google_client_id|default:'' }}" @keydown.enter.prevent placeholder="{% if gdrive_backup_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono">
+              </div>
+              <div>
+                <label class="block text-xs text-ink-dim mb-1" for="si-google_client_secret">Client secret</label>
+                <div class="flex gap-1.5">
+                <div class="relative flex-1 min-w-0">
+                  <input :type="showGoogleSecret ? 'text' : 'password'" id="si-google_client_secret" name="google_client_secret" value="{{ integration_field_values.google_client_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if gdrive_backup_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
+                  <button type="button" @click="showGoogleSecret = !showGoogleSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                    <span x-show="!showGoogleSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                    <span x-show="showGoogleSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                  </button>
+                </div>
+                
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="pt-5 first:pt-0">
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <div class="text-sm font-semibold">Dropbox {% if dropbox_backup_configured %}<span class="text-success font-normal">&#10003; configured</span>{% else %}<span class="text-ink-faint font-normal">&#9675; not configured</span>{% endif %}</div>
+              {% if dropbox_backup_configured %}
+                <button type="submit" formaction="{% url 'clear_instance_config_field' 'dropbox' %}" onclick="return confirm('Clear the stored Dropbox app credentials? Profiles backing up to Dropbox will start failing until they are set again.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
+              {% endif %}
+            </div>
+            <div class="flex items-center gap-2 rounded-lg bg-base-200 px-3 py-2 mb-3 min-w-0" x-data="{ copied: false }">
+              <span class="text-[12px] text-ink-faint flex-none">Redirect URI</span>
+              <code class="flex-1 min-w-0 truncate font-mono text-[12px] text-ink" title="{{ backup_redirect_uris.dropbox }}">{{ backup_redirect_uris.dropbox }}</code>
+              <button type="button" @click="navigator.clipboard?.writeText('{{ backup_redirect_uris.dropbox|escapejs }}'); copied = true; setTimeout(() => copied = false, 1500)" class="text-[12px] text-ink-dim hover:text-base-content flex-none" x-text="copied ? 'Copied' : 'Copy'">Copy</button>
+            </div>
+            <div class="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs text-ink-dim mb-1" for="si-dropbox_app_key">App key</label>
+                <input type="text" id="si-dropbox_app_key" name="dropbox_app_key" value="{{ integration_field_values.dropbox_app_key|default:'' }}" @keydown.enter.prevent placeholder="{% if dropbox_backup_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono">
+              </div>
+              <div>
+                <label class="block text-xs text-ink-dim mb-1" for="si-dropbox_app_secret">App secret</label>
+                <div class="flex gap-1.5">
+                <div class="relative flex-1 min-w-0">
+                  <input :type="showDropboxSecret ? 'text' : 'password'" id="si-dropbox_app_secret" name="dropbox_app_secret" value="{{ integration_field_values.dropbox_app_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if dropbox_backup_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
+                  <button type="button" @click="showDropboxSecret = !showDropboxSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                    <span x-show="!showDropboxSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                    <span x-show="showDropboxSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                  </button>
+                </div>
+                
+                </div>
+              </div>
+            </div>
+          </div>
+          </div>
+        </div>
+        <div class="settings-panel">
+          <h3 class="text-lg mb-1">spool-wrapped</h3>
+          <div class="text-ink-dim text-xs mb-4">Base URL and shared secret for the "Manage Wrapped" SSO handshake - set identically to spool-wrapped's own SSO_SHARED_SECRET.</div>
+          <div class="grid sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs text-ink-dim mb-1" for="si-spool_wrapped_url">spool-wrapped URL</label>
+              <input type="url" id="si-spool_wrapped_url" name="spool_wrapped_url" value="{{ integration_field_values.spool_wrapped_url|default:cfg.spool_wrapped_url }}" @keydown.enter.prevent placeholder="https://wrapped.example.com" class="input input-sm w-full font-mono">
+            </div>
+            <div>
+              <label class="block text-xs text-ink-dim mb-1" for="si-sso_shared_secret">Shared secret {% if sso_shared_secret_configured %}<span class="text-success font-normal">&#10003; configured</span>{% else %}<span class="text-ink-faint font-normal">&#9675; not configured</span>{% endif %}</label>
+              <div class="relative flex-1 min-w-0">
+                  <input :type="showSsoSecret ? 'text' : 'password'" id="si-sso_shared_secret" name="sso_shared_secret" value="{{ integration_field_values.sso_shared_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if sso_shared_secret_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
+                  <button type="button" @click="showSsoSecret = !showSsoSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                    <span x-show="!showSsoSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                    <span x-show="showSsoSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                  </button>
+                </div>
+            </div>
+          </div>
+        </div>
+            <div class="flex flex-wrap items-center justify-end gap-3">
+              <span class="text-xs text-ink-faint">Blank fields keep their saved value.</span>
+              <button type="submit" class="btn btn-sm btn-primary px-6">Save</button>
+            </div>
           </form>
 
           {% comment %}
@@ -812,9 +943,9 @@
             so it's owner-only here rather than self-service there. Same
             show/hide-per-row + delete-with-confirm UX as that card.
           {% endcomment %}
-          <div class="mt-5 pt-3.5 border-t border-line">
-            <h4 class="text-sm font-semibold mb-1">Reports API keys</h4>
-            <div class="text-ink-dim text-[11px] mb-2">Read-only keys for external services (like spool-wrapped) to pull watch history for every profile that's opted in to Wrapped (Settings → Integrations).</div>
+          <div class="settings-panel">
+            <h3 class="text-lg mb-1">Reports API keys</h3>
+            <div class="text-ink-dim text-[12px] mb-2">Read-only keys for external services (like spool-wrapped) to pull watch history for every profile that's opted in to Wrapped (Settings → Integrations).</div>
             {% for key in service_api_keys %}
               <div class="flex items-center gap-1.5 py-2 border-t border-line" x-data="{ show: false }">
                 <div class="flex-1 min-w-0">
@@ -822,7 +953,7 @@
                   <input
                     :type="show ? 'text' : 'password'" readonly value="{{ key.key }}"
                     onclick="this.select()" aria-label="{{ key.name }} key"
-                    class="w-full bg-transparent text-[11px] font-mono text-ink-dim focus:outline-none cursor-text"
+                    class="w-full bg-transparent text-[12px] font-mono text-ink-dim focus:outline-none cursor-text"
                   >
                 </div>
                 <button type="button" @click="show = !show" title="Show/hide key" class="text-ink-faint hover:text-base-content p-1.5 flex-none">
@@ -841,20 +972,20 @@
             {% endfor %}
             <form method="post" action="{% url 'create_service_api_key' %}" class="flex items-center gap-2 mt-3{% if service_api_keys %} pt-3 border-t border-line{% endif %}">
               {% csrf_token %}
-              <input type="text" name="name" maxlength="60" required placeholder="e.g. spool-wrapped" aria-label="New key name" class="input input-sm flex-1 min-w-0 bg-base-100">
+              <input type="text" name="name" maxlength="60" required placeholder="e.g. spool-wrapped" aria-label="New key name" class="input input-sm flex-1 min-w-0">
               <button type="submit" class="btn btn-sm btn-soft flex-none">+ Add key</button>
             </form>
+            <a href="{% url 'manage_wrapped' %}" class="btn btn-sm btn-soft mt-3.5">Manage Wrapped →</a>
           </div>
 
-          <a href="{% url 'manage_wrapped' %}" class="btn btn-sm btn-soft w-full mt-3.5">Manage Wrapped →</a>
-          <a href="#" @click.prevent="setTab('logs')" class="block text-center text-xs text-ink-dim hover:text-base-content mt-3.5 pt-3.5 border-t border-line">View Logs →</a>
+          <a href="#" @click.prevent="setTab('logs')" class="text-xs text-ink-dim hover:text-base-content">View Logs →</a>
         </div>
 
         {# ==================== ADMIN: MAINTENANCE ==================== #}
         <div x-show="tab === 'maintenance'" x-cloak class="flex flex-col gap-5 max-w-2xl">
-        <div class="bg-base-200 border border-line rounded-2xl p-5">
+        <div class="settings-panel">
           <h3 class="text-lg mb-3">Server</h3>
-          <div class="font-mono text-[11.5px] text-ink-faint leading-loose">
+          <div class="font-mono text-[12.5px] text-ink-faint leading-loose">
             spool&nbsp;&nbsp;&nbsp;&nbsp;v{{ app_version }}<br>
             django&nbsp;&nbsp;&nbsp;{{ django_version }}<br>
             database&nbsp;{{ db_engine }}<br>
@@ -864,7 +995,7 @@
           </div>
         </div>
 
-        <div class="bg-base-200 border border-line rounded-2xl p-5">
+        <div class="settings-panel">
           <h3 class="text-lg mb-1">Maintenance</h3>
           <div class="text-ink-dim text-xs mb-3.5">One-off cleanup and backfill jobs, normally only run from the command line. Results show up in the Logs tab below.</div>
 
@@ -886,7 +1017,7 @@
                 <input
                   type="number" name="log_retention_days" min="1" max="3650" placeholder="forever"
                   value="{{ cfg.log_retention_days|default_if_none:'' }}"
-                  class="input input-xs w-20 bg-base-100 text-xs"
+                  class="input input-xs w-20 text-xs"
                 >
                 <span class="text-xs text-ink-dim">days</span>
                 <span class="spool-spinner" aria-hidden="true"></span>
@@ -990,7 +1121,7 @@
         </div>
 
         {# ==================== ADMIN: ACTIVITY LOG ==================== #}
-        <div x-show="tab === 'activity_log'" x-cloak class="bg-base-200 border border-line rounded-2xl p-5 max-w-2xl">
+        <div x-show="tab === 'activity_log'" x-cloak class="settings-panel max-w-2xl">
           <h3 class="text-lg mb-1">Activity Log</h3>
           <div class="text-ink-dim text-xs mb-3.5">Who added, removed, promoted, or demoted a profile - most recent first.</div>
           {% if audit_log %}
@@ -1002,7 +1133,7 @@
                     <span class="text-ink-dim">{{ entry.get_action_display|lower }}</span>
                     <span class="font-semibold">{{ entry.target_display_name }}</span>
                   </div>
-                  <span class="text-ink-faint font-mono text-[10.5px] flex-none">{{ entry.created_at|timesince }} ago</span>
+                  <span class="text-ink-faint font-mono text-[12px] flex-none">{{ entry.created_at|timesince }} ago</span>
                 </div>
               {% endfor %}
             </div>
@@ -1012,9 +1143,9 @@
         </div>
 
         {# ==================== ADMIN: LOGS ==================== #}
-        <div x-show="tab === 'logs'" x-cloak class="bg-base-200 border border-line rounded-2xl p-5">
+        <div x-show="tab === 'logs'" x-cloak class="settings-panel">
           <h3 class="text-lg mb-1">Logs</h3>
-          <div class="text-ink-dim text-xs mb-3.5">Trakt/Simkl syncs and connects, CSV imports and exports — every profile, most recent first, admin-only.</div>
+          <div class="text-ink-dim text-xs mb-3.5">Syncs, connects, imports (including ones still running or awaiting review), exports and backups — every profile, most recent first, admin-only.</div>
 
           <div class="flex items-center justify-between gap-2.5 flex-wrap mb-3.5">
             {% comment %}
@@ -1043,7 +1174,7 @@
 
               <div x-ref="panel" x-show="open" x-cloak class="fixed w-96 max-h-[75vh] overflow-y-auto bg-base-300 border border-line rounded-lg shadow-2xl shadow-black/60 z-40 flex flex-col">
                 <div class="flex items-center justify-between px-5 pt-5 pb-3">
-                  <h2 class="font-display text-xl">Filters</h2>
+                  <h2 class="text-base font-semibold">Filters</h2>
                   <button type="button" @click="open = false" aria-label="Close filters" class="btn btn-sm btn-circle btn-ghost cursor-pointer">
                     {% icon "x" "w-4 h-4" %}
                   </button>
@@ -1057,14 +1188,14 @@
                   <input type="hidden" name="log_sort" value="{{ log_sort }}">
 
                   <div>
-                    <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Profile</div>
+                    <div class="text-xs text-ink-dim mb-1.5 font-medium">Profile</div>
                     <div class="flex flex-wrap gap-1.5">
-                      <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                      <label class="text-xs font-medium bg-base-300 text-ink-dim rounded-full px-3 py-1.5 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
                         <input type="radio" name="log_profile" value="" class="sr-only" {% if not log_profile_id %}checked{% endif %}>
                         All profiles
                       </label>
                       {% for p in profiles %}
-                        <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                        <label class="text-xs font-medium bg-base-300 text-ink-dim rounded-full px-3 py-1.5 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
                           <input type="radio" name="log_profile" value="{{ p.id }}" class="sr-only" {% if log_profile_id == p.id|stringformat:"s" %}checked{% endif %}>
                           {{ p.display_name }}
                         </label>
@@ -1073,14 +1204,14 @@
                   </div>
 
                   <div>
-                    <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Action Type</div>
+                    <div class="text-xs text-ink-dim mb-1.5 font-medium">Action Type</div>
                     <div class="flex flex-wrap gap-1.5">
-                      <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                      <label class="text-xs font-medium bg-base-300 text-ink-dim rounded-full px-3 py-1.5 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
                         <input type="radio" name="log_action_type" value="" class="sr-only" {% if not log_action_type %}checked{% endif %}>
                         All
                       </label>
                       {% for key, label, values in log_action_types %}
-                        <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                        <label class="text-xs font-medium bg-base-300 text-ink-dim rounded-full px-3 py-1.5 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
                           <input type="radio" name="log_action_type" value="{{ key }}" class="sr-only" {% if log_action_type == key %}checked{% endif %}>
                           {{ label }}
                         </label>
@@ -1089,14 +1220,14 @@
                   </div>
 
                   <div>
-                    <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Provider</div>
+                    <div class="text-xs text-ink-dim mb-1.5 font-medium">Provider</div>
                     <div class="flex flex-wrap gap-1.5">
-                      <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                      <label class="text-xs font-medium bg-base-300 text-ink-dim rounded-full px-3 py-1.5 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
                         <input type="radio" name="log_provider" value="" class="sr-only" {% if not log_provider %}checked{% endif %}>
                         All
                       </label>
                       {% for value, provider_label in log_provider_choices %}
-                        <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                        <label class="text-xs font-medium bg-base-300 text-ink-dim rounded-full px-3 py-1.5 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
                           <input type="radio" name="log_provider" value="{{ value }}" class="sr-only" {% if log_provider == value %}checked{% endif %}>
                           {{ provider_label }}
                         </label>
@@ -1105,14 +1236,14 @@
                   </div>
 
                   <div>
-                    <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Status</div>
+                    <div class="text-xs text-ink-dim mb-1.5 font-medium">Status</div>
                     <div class="flex flex-wrap gap-1.5">
-                      <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                      <label class="text-xs font-medium bg-base-300 text-ink-dim rounded-full px-3 py-1.5 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
                         <input type="radio" name="log_status" value="" class="sr-only" {% if not log_status %}checked{% endif %}>
                         All
                       </label>
                       {% for value, status_label in log_status_choices %}
-                        <label class="text-xs font-medium bg-base-200 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+                        <label class="text-xs font-medium bg-base-300 text-ink-dim rounded-full px-3 py-1.5 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
                           <input type="radio" name="log_status" value="{{ value }}" class="sr-only" {% if log_status == value %}checked{% endif %}>
                           {{ status_label }}
                         </label>
@@ -1121,11 +1252,11 @@
                   </div>
 
                   <div>
-                    <div class="text-[11px] text-ink-dim mb-2 font-semibold uppercase tracking-wide">Date Range</div>
+                    <div class="text-xs text-ink-dim mb-1.5 font-medium">Date Range</div>
                     <div class="flex items-center gap-2 mb-2">
-                      <input type="date" name="log_date_from" x-model="dateFrom" class="input input-sm bg-base-100 text-xs flex-1">
+                      <input type="date" name="log_date_from" x-model="dateFrom" class="input input-sm text-xs flex-1">
                       <span class="text-ink-faint text-xs">–</span>
-                      <input type="date" name="log_date_to" x-model="dateTo" class="input input-sm bg-base-100 text-xs flex-1">
+                      <input type="date" name="log_date_to" x-model="dateTo" class="input input-sm text-xs flex-1">
                     </div>
                     <div class="flex flex-wrap gap-1.5">
                       <button type="button" class="btn btn-xs btn-soft" @click="const d = new Date().toISOString().slice(0,10); dateFrom = d; dateTo = d;">Today</button>
@@ -1151,7 +1282,7 @@
               <input type="hidden" name="log_status" value="{{ log_status }}">
               <input type="hidden" name="log_date_from" value="{{ log_date_from }}">
               <input type="hidden" name="log_date_to" value="{{ log_date_to }}">
-              <select name="log_sort" onchange="this.form.submit()" class="select select-sm bg-base-100 focus:outline-primary text-xs">
+              <select name="log_sort" onchange="this.form.submit()" class="select select-sm text-xs">
                 <option value="newest" {% if log_sort == "newest" %}selected{% endif %}>Newest first</option>
                 <option value="oldest" {% if log_sort == "oldest" %}selected{% endif %}>Oldest first</option>
               </select>

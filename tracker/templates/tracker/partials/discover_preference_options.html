@@ -4,14 +4,14 @@
   <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="flex flex-wrap gap-1.5">
     <input type="hidden" name="preferred_genre_ids_submitted" value="1">
     {% for g in discover_genres %}
-      <label class="text-xs font-medium bg-base-100 text-ink-dim border border-line rounded-full px-3 py-1.5 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+      <label class="text-xs font-medium bg-base-300 text-ink-dim rounded-full px-3 py-1.5 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
         <input type="checkbox" name="preferred_genre_ids" value="{{ g.id }}" class="sr-only" {% if g.id in profile.preferred_genre_ids %}checked{% endif %}>
         {{ g.name }}
       </label>
     {% endfor %}
     <span class="spool-spinner self-center" aria-hidden="true"></span>
   </form>
-  <div class="text-[10.5px] text-ink-faint mt-1.5">Pre-fills the genre filter on Movies, TV, and Anime, and powers the Dashboard's "For You" row.</div>
+  <div class="text-[12px] text-ink-faint mt-1.5">Pre-fills the genre filter on Movies, TV, and Anime, and powers the Dashboard's "For You" row.</div>
 
   <div class="text-ink-dim text-xs mt-4 mb-2">Streaming services</div>
   {% comment %}
@@ -25,7 +25,7 @@
   <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="flex flex-wrap gap-2">
     <input type="hidden" name="preferred_provider_ids_submitted" value="1">
     {% for p in discover_providers|slice:":10" %}
-      <label class="flex items-center gap-1.5 text-xs font-medium bg-base-100 text-ink-dim border border-line rounded-full pl-1.5 pr-3 py-1 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+      <label class="flex items-center gap-1.5 text-xs font-medium bg-base-300 text-ink-dim rounded-full pl-1.5 pr-3 py-1 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
         <input type="checkbox" name="preferred_provider_ids" value="{{ p.id }}" class="sr-only" {% if p.id in profile.preferred_provider_ids %}checked{% endif %}>
         {% if p.logo_url %}<img src="{{ p.logo_url }}" alt="" class="w-5 h-5 rounded">{% endif %}
         {{ p.name }}
@@ -33,7 +33,7 @@
     {% endfor %}
     {% if discover_providers|length > 10 %}
       {% for p in discover_providers|slice:"10:" %}
-        <label x-show="showAllProviders" x-cloak class="flex items-center gap-1.5 text-xs font-medium bg-base-100 text-ink-dim border border-line rounded-full pl-1.5 pr-3 py-1 cursor-pointer transition-colors has-[:checked]:bg-primary has-[:checked]:text-primary-content has-[:checked]:border-primary">
+        <label x-show="showAllProviders" x-cloak class="flex items-center gap-1.5 text-xs font-medium bg-base-300 text-ink-dim rounded-full pl-1.5 pr-3 py-1 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
           <input type="checkbox" name="preferred_provider_ids" value="{{ p.id }}" class="sr-only" {% if p.id in profile.preferred_provider_ids %}checked{% endif %}>
           {% if p.logo_url %}<img src="{{ p.logo_url }}" alt="" class="w-5 h-5 rounded">{% endif %}
           {{ p.name }}
@@ -49,5 +49,5 @@
       class="text-xs text-primary hover:underline mt-1.5 cursor-pointer"
     ><span x-show="!showAllProviders">Show {{ discover_providers|length|add:"-10" }} more streaming services</span><span x-show="showAllProviders" x-cloak>Show fewer streaming services</span></button>
   {% endif %}
-  <div class="text-[10.5px] text-ink-faint mt-1.5">Pre-fills the streaming-service filter on Movies &amp; TV.</div>
+  <div class="text-[12px] text-ink-faint mt-1.5">Pre-fills the streaming-service filter on Movies &amp; TV.</div>
 </div>

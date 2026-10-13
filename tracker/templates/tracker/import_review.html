@@ -2,9 +2,9 @@
 {% block title %}Review import · Spool{% endblock %}
 {% block content %}
 
-  <div class="mb-6">
-    <h1 class="font-display text-4xl">Review import</h1>
-    <div class="text-ink-dim text-sm mt-1">
+  <div class="page-head !block">
+    <h1 class="page-title">Review import</h1>
+    <div class="page-subtitle">
       {{ session.get_source_display }}{% if session.source_filename %} — {{ session.source_filename }}{% endif %}
       · {{ session.get_status_display }}
     </div>
@@ -13,41 +13,49 @@
   {% include "tracker/partials/import_review_status.html" %}
 
   {% if session.status == "cancelled" %}
-    <div class="bg-base-200 border border-line rounded-2xl p-5 mb-5 text-ink-dim">This import was cancelled — nothing was imported.</div>
+    <div class="surface p-5 mb-6 text-ink-dim">This import was cancelled — nothing was imported.</div>
   {% elif session.status == "expired" %}
-    <div class="bg-base-200 border border-line rounded-2xl p-5 mb-5 text-ink-dim">This import session expired before it was reviewed.</div>
+    <div class="surface p-5 mb-6 text-ink-dim">This import session expired before it was reviewed.</div>
   {% endif %}
 
   {% if session.status != "scanning" and session.status != "failed" %}
-    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
-      <div class="bg-base-200 border border-line rounded-xl p-3.5">
-        <div class="text-xs text-ink-dim">Total</div>
-        <div class="text-xl font-display">{{ session.summary.total|default:0 }}</div>
+    <div class="grid grid-cols-3 lg:grid-cols-6 gap-y-5 border-y border-line py-5 mb-7">
+      <div>
+        <div class="figure-label !mt-0 mb-1">Total</div>
+        <div class="figure !text-2xl">{{ session.summary.total|default:0 }}</div>
       </div>
-      <div class="bg-base-200 border border-line rounded-xl p-3.5">
-        <div class="text-xs text-ink-dim">New</div>
-        <div class="text-xl font-display text-success">{{ session.summary.new|default:0 }}</div>
+      <div>
+        <div class="figure-label !mt-0 mb-1">New</div>
+        <div class="figure !text-2xl text-success">{{ session.summary.new|default:0 }}</div>
       </div>
-      <div class="bg-base-200 border border-line rounded-xl p-3.5">
-        <div class="text-xs text-ink-dim">Existing</div>
-        <div class="text-xl font-display">{{ session.summary.existing|default:0 }}</div>
+      <div>
+        <div class="figure-label !mt-0 mb-1">Existing</div>
+        <div class="figure !text-2xl">{{ session.summary.existing|default:0 }}</div>
       </div>
-      <div class="bg-base-200 border border-line rounded-xl p-3.5">
-        <div class="text-xs text-ink-dim">Duplicate</div>
-        <div class="text-xl font-display text-ink-dim">{{ session.summary.duplicate|default:0 }}</div>
+      <div>
+        <div class="figure-label !mt-0 mb-1">Duplicate</div>
+        <div class="figure !text-2xl text-ink-dim">{{ session.summary.duplicate|default:0 }}</div>
       </div>
-      <div class="bg-base-200 border border-line rounded-xl p-3.5">
-        <div class="text-xs text-ink-dim">Conflict</div>
-        <div class="text-xl font-display text-warning">{{ session.summary.conflict|default:0 }}</div>
+      <div>
+        <div class="figure-label !mt-0 mb-1">Conflict</div>
+        <div class="figure !text-2xl text-warning">{{ session.summary.conflict|default:0 }}</div>
       </div>
-      <div class="bg-base-200 border border-line rounded-xl p-3.5">
-        <div class="text-xs text-ink-dim">Error</div>
-        <div class="text-xl font-display text-error">{{ session.summary.error|default:0 }}</div>
+      <div>
+        <div class="figure-label !mt-0 mb-1">Error</div>
+        <div class="figure !text-2xl text-error">{{ session.summary.error|default:0 }}</div>
       </div>
     </div>
 
+    {% with bl=session.source_metadata.backup_lists restored=session.source_metadata.backup_lists_restored %}
+      {% if restored %}
+        <div class="surface p-5 mb-6 text-sm">Lists restored: <span class="font-semibold">{{ restored.lists }}</span> list{{ restored.lists|pluralize }}, <span class="font-semibold">{{ restored.items }}</span> title{{ restored.items|pluralize }} added.</div>
+      {% elif bl and session.status != "completed" %}
+        <div class="surface p-5 mb-6 text-sm">This backup also contains <span class="font-semibold">{{ bl.lists }}</span> list{{ bl.lists|pluralize }} ({{ bl.items }} title{{ bl.items|pluralize }}, Watchlist included) &mdash; they're restored when you import. Titles already on a list are left as they are.</div>
+      {% endif %}
+    {% endwith %}
+
     {% if session.status == "completed" %}
-      <div class="bg-base-200 border border-line rounded-2xl p-5 mb-5">
+      <div class="surface p-5 mb-6">
         <div class="text-lg">
           <span class="text-success font-semibold">{{ session.imported_items }}</span> imported
           {% if session.skipped_items %}&middot; <span class="text-ink-dim">{{ session.skipped_items }}</span> skipped{% endif %}
@@ -59,7 +67,7 @@
     <form method="get" class="flex flex-wrap gap-2.5 items-end mb-3.5">
       <div>
         <label class="block text-xs text-ink-dim mb-1">Content type</label>
-        <select name="content_type" class="select select-sm bg-base-100" onchange="this.form.submit()">
+        <select name="content_type" class="select select-sm" onchange="this.form.submit()">
           <option value="">All</option>
           <option value="movie" {% if content_type == "movie" %}selected{% endif %}>Movies</option>
           <option value="tv" {% if content_type == "tv" %}selected{% endif %}>TV</option>
@@ -68,7 +76,7 @@
       </div>
       <div>
         <label class="block text-xs text-ink-dim mb-1">Status</label>
-        <select name="status" class="select select-sm bg-base-100" onchange="this.form.submit()">
+        <select name="status" class="select select-sm" onchange="this.form.submit()">
           <option value="">All</option>
           <option value="new" {% if status_filter == "new" %}selected{% endif %}>New</option>
           <option value="existing" {% if status_filter == "existing" %}selected{% endif %}>Existing</option>
@@ -79,7 +87,7 @@
       </div>
       <div class="flex-1 min-w-[160px]">
         <label class="block text-xs text-ink-dim mb-1">Search</label>
-        <input type="text" name="q" value="{{ q }}" placeholder="Title…" class="input input-sm w-full bg-base-100">
+        <input type="text" name="q" value="{{ q }}" placeholder="Title…" class="input input-sm w-full">
       </div>
       <button type="submit" class="btn btn-sm btn-soft">Filter</button>
     </form>
@@ -105,7 +113,7 @@
       </div>
     {% endif %}
 
-    <div class="bg-base-200 border border-line rounded-2xl p-5 mb-5">
+    <div class="surface p-5 mb-6">
       {% if not page_obj.object_list %}
         <div class="py-10 text-center text-ink-faint text-sm">Nothing matches these filters.</div>
       {% else %}
@@ -139,23 +147,23 @@
                     <td class="py-2 pr-3">
                       {{ candidate.title_name }}
                       {% if candidate.year %}<span class="text-ink-faint">({{ candidate.year }})</span>{% endif %}
-                      {% if candidate.matched_title %}<div class="text-[10.5px] text-ink-faint">→ {{ candidate.matched_title.name }}</div>{% endif %}
+                      {% if candidate.matched_title %}<div class="text-[12px] text-ink-faint">→ {{ candidate.matched_title.name }}</div>{% endif %}
                     </td>
-                    <td class="py-2 pr-3 font-mono text-[11px]">{{ candidate.media_type }}</td>
+                    <td class="py-2 pr-3 font-mono text-[12px]">{{ candidate.media_type }}</td>
                     <td class="py-2 pr-3">{% if candidate.season %}S{{ candidate.season }}E{{ candidate.episode }}{% else %}—{% endif %}</td>
-                    <td class="py-2 pr-3 font-mono text-[11px]">{{ candidate.watched_at|date:"Y-m-d H:i"|default:"—" }}</td>
+                    <td class="py-2 pr-3 font-mono text-[12px]">{{ candidate.watched_at|date:"Y-m-d H:i"|default:"—" }}</td>
                     <td class="py-2 pr-3">{{ candidate.rating|default:"—" }}</td>
                     <td class="py-2 pr-3">
                       {% if candidate.status == "failed" %}
-                        <span class="text-error font-mono text-[11px]" title="{{ candidate.error }}">Error</span>
+                        <span class="text-error font-mono text-[12px]" title="{{ candidate.error }}">Error</span>
                       {% elif candidate.action == "noop_duplicate" %}
-                        <span class="text-ink-dim font-mono text-[11px]" title="{{ candidate.warning }}">Duplicate</span>
+                        <span class="text-ink-dim font-mono text-[12px]" title="{{ candidate.warning }}">Duplicate</span>
                       {% elif candidate.conflict_type %}
-                        <span class="text-warning font-mono text-[11px]">Conflict</span>
+                        <span class="text-warning font-mono text-[12px]">Conflict</span>
                       {% elif candidate.matched_title %}
-                        <span class="text-ink-dim font-mono text-[11px]">Existing</span>
+                        <span class="text-ink-dim font-mono text-[12px]">Existing</span>
                       {% else %}
-                        <span class="text-success font-mono text-[11px]">New</span>
+                        <span class="text-success font-mono text-[12px]">New</span>
                       {% endif %}
                     </td>
                   </tr>
@@ -172,13 +180,13 @@
       {% endif %}
 
       <div class="flex justify-between items-center flex-wrap gap-3 mt-3.5 px-1 pb-1">
-        <span class="font-mono text-xs text-ink-faint">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }} · {{ page_obj.paginator.count }} rows</span>
+        <span class="text-xs text-ink-faint">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }} · {{ page_obj.paginator.count }} rows</span>
         <div class="flex gap-1.5">
           {% if page_obj.has_previous %}
-            <a href="?{{ base_query }}&page={{ page_obj.previous_page_number }}" class="px-3 py-1.5 rounded-md border border-line bg-base-100 font-mono text-xs text-ink-dim">‹ Prev</a>
+            <a href="?{{ base_query }}&page={{ page_obj.previous_page_number }}" class="btn btn-sm btn-ghost text-ink-dim">&larr; Prev</a>
           {% endif %}
           {% if page_obj.has_next %}
-            <a href="?{{ base_query }}&page={{ page_obj.next_page_number }}" class="px-3 py-1.5 rounded-md border border-line bg-base-100 font-mono text-xs text-ink-dim">Next ›</a>
+            <a href="?{{ base_query }}&page={{ page_obj.next_page_number }}" class="btn btn-sm btn-ghost text-ink-dim">Next &rarr;</a>
           {% endif %}
         </div>
       </div>
@@ -188,7 +196,7 @@
       <div class="flex gap-3">
         <form method="post" action="{% url 'import_review_commit' session.id %}">
           {% csrf_token %}
-          <button type="submit" class="btn btn-primary">Import {{ session.selected_items }} selected item{{ session.selected_items|pluralize }}</button>
+          <button type="submit" class="btn btn-primary">{% if not session.selected_items and session.source_metadata.backup_lists %}Restore lists{% else %}Import {{ session.selected_items }} selected item{{ session.selected_items|pluralize }}{% endif %}</button>
         </form>
         <form method="post" action="{% url 'import_review_cancel' session.id %}">
           {% csrf_token %}

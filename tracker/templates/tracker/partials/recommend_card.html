@@ -7,10 +7,10 @@
     would eventually push every card below it further down the sidebar
     every time someone new gets added.
   {% endcomment %}
-  <div class="bg-base-200 border border-line rounded-2xl p-4" x-data="{ expanded: false }">
+  <section id="recommend-card" x-data="{ expanded: false }">
     <div class="flex items-center justify-between mb-2.5">
-      <h2 class="font-display text-lg">Recommend to</h2>
-      <label class="flex items-center gap-1.5 text-[11px] text-ink-dim cursor-pointer select-none spool-tooltip" data-tooltip="Recipient sees just a mystery card until they open it">
+      <h2 class="subhead">Recommend to</h2>
+      <label class="flex items-center gap-1.5 text-[12px] text-ink-dim cursor-pointer select-none spool-tooltip" data-tooltip="Recipient sees just a mystery card until they open it">
         <input type="checkbox" id="recommend-blind-toggle" name="is_blind" class="checkbox checkbox-xs">
         Send as mystery &#127873;
       </label>
@@ -21,11 +21,11 @@
           {% if op.avatar_image %}
             <div class="w-8 h-8 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ op.avatar_image.url }}')"></div>
           {% else %}
-            <div class="w-8 h-8 rounded-full flex items-center justify-center font-mono text-xs font-semibold flex-none" style="background:{{ op.avatar_color }};color:#fff;">{{ op.display_name|first|upper }}</div>
+            <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-none" style="background:{{ op.avatar_color }};color:#fff;">{{ op.display_name|first|upper }}</div>
           {% endif %}
           <div class="flex-1 min-w-0 text-[13px] font-medium truncate">{{ op.display_name }}</div>
           {% if op.id in already_watched_profile_ids %}
-            <span class="text-[10.5px] text-ink-faint flex-none">Already watched</span>
+            <span class="text-[12px] text-ink-faint flex-none">Already watched</span>
           {% elif op.id in recommended_profile_ids %}
             {% with reply=reply_by_profile_id|get_item:op.id %}
               {% if reply %}
@@ -38,7 +38,7 @@
                   own width doesn't leave room to show it uncropped.
                 {% endcomment %}
                 <span
-                  class="flex items-center gap-1 flex-none text-[10.5px] text-success max-w-[110px] spool-tooltip"
+                  class="flex items-center gap-1 flex-none text-[12px] text-success max-w-[110px] spool-tooltip"
                   data-tooltip="{% if reply.reply_reaction %}{{ reply.get_reply_reaction_display }}{% endif %}{% if reply.reply_reaction and reply.reply_message %} – {% endif %}{% if reply.reply_message %}&ldquo;{{ reply.reply_message }}&rdquo;{% endif %}"
                 >
                   {% icon "check" "w-3.5 h-3.5 flex-none" %}
@@ -60,7 +60,7 @@
             {% endcomment %}
             <form
               hx-post="{% if is_preview %}{% url 'title_preview_send_recommendation' preview_media_type preview_tmdb_id %}{% else %}{% url 'send_recommendation' title.pk %}{% endif %}"
-              hx-target="closest div.bg-base-200" hx-swap="outerHTML"
+              hx-target="#recommend-card" hx-swap="outerHTML"
               hx-include="#recommend-blind-toggle"
               class="flex-none"
             >
@@ -69,7 +69,7 @@
               <button
                 type="submit"
                 title="Recommend to {{ op.display_name }}"
-                class="w-7 h-7 rounded-full flex items-center justify-center border border-line text-ink-dim hover:border-primary hover:text-primary transition-colors"
+                class="w-7 h-7 rounded-md flex items-center justify-center text-ink-dim hover:bg-base-300 hover:text-primary"
               >{% icon "send" "w-3.5 h-3.5" %}</button>
             </form>
           {% endif %}
@@ -80,11 +80,11 @@
       <button
         type="button"
         @click="expanded = !expanded"
-        class="mt-2.5 text-[11.5px] font-semibold text-ink-faint hover:text-primary transition-colors cursor-pointer"
+        class="mt-2.5 text-[12.5px] font-semibold text-ink-faint hover:text-primary transition-colors cursor-pointer"
       >
         <span x-show="!expanded">+ {{ other_profiles|length|add:"-4" }} more</span>
         <span x-show="expanded" x-cloak>Show less</span>
       </button>
     {% endif %}
-  </div>
+  </section>
 {% endif %}

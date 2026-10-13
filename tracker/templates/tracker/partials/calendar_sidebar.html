@@ -1,43 +1,53 @@
-{% load icons %}
+{% load icons tracker_extras %}
+{# context: featured/queue (the next new episode ready to watch, plus the rest of that queue), agenda_groups (releases grouped by date), today. The agenda beside the month grid - date headings with compact poster rows, no box around it. #}
 {% if featured %}
-  <div class="bg-base-300 rounded-lg p-3.5">
-    <div class="flex justify-between items-baseline gap-2">
-      <a href="{% url 'title_detail' featured.title.pk %}" class="font-semibold text-sm hover:underline">{{ featured.title.name }}</a>
-      <span class="font-mono text-xs text-ink-dim whitespace-nowrap">S{{ featured.episode.season }} E{{ featured.episode.episode }}</span>
-    </div>
-    <div class="text-xs text-ink-dim mt-1">New episode ready to watch</div>
-    <button class="mt-3 w-full flex items-center justify-center gap-1.5 bg-primary text-primary-content border-none rounded-md py-2 font-bold text-xs cursor-pointer">
-      {% icon "play" "w-3.5 h-3.5" %} Watch now
-    </button>
-  </div>
-  {% for q in queue %}
-    <div class="flex justify-between px-3.5 py-2 text-ink-faint text-xs border-t border-line">
-      <a href="{% url 'title_detail' q.title.pk %}" class="hover:underline hover:text-ink-dim">{{ q.title.name }}</a>
-      <span class="font-mono">S{{ q.episode.season }} E{{ q.episode.episode }}</span>
-    </div>
-  {% endfor %}
+  <section class="mb-6">
+    <h2 class="subhead mb-2.5">Ready to watch</h2>
+    <a href="{% url 'title_detail' featured.title.pk %}" class="flex items-center gap-3 group">
+      <div class="w-12 aspect-[2/3] rounded-md relative overflow-hidden flex-none bg-base-300 {% if not featured.title.poster_url %}{{ featured.title.pk|gradient_class }}{% endif %}">
+        {% if featured.title.poster_url %}<img src="{{ featured.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">{% endif %}
+      </div>
+      <div class="min-w-0 flex-1">
+        <div class="text-[14px] font-semibold truncate group-hover:text-white">{{ featured.title.name }}</div>
+        <div class="text-xs text-ink-dim"><span class="font-mono text-primary">S{{ featured.episode.season }} E{{ featured.episode.episode }}</span> · New episode</div>
+      </div>
+      <span class="btn btn-sm btn-primary gap-1 flex-none">{% icon "play" "w-3.5 h-3.5" %} Watch now</span>
+    </a>
+    {% if queue %}
+      <div class="mt-2 rows">
+        {% for q in queue %}
+          <div class="flex justify-between gap-3 py-1.5 text-[12.5px] text-ink-dim">
+            <a href="{% url 'title_detail' q.title.pk %}" class="truncate hover:text-base-content">{{ q.title.name }}</a>
+            <span class="font-mono text-ink-faint flex-none">S{{ q.episode.season }} E{{ q.episode.episode }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
 {% endif %}
-
 {% if not agenda_groups %}
-  <div class="p-4 text-ink-faint text-sm {% if featured %}mt-4{% endif %}">Nothing upcoming matches these filters — try widening them.</div>
+  <div class="empty !py-8">Nothing upcoming matches these filters — try widening them.</div>
 {% else %}
   {% for group in agenda_groups %}
-    <div
-      class="{% if not forloop.first %}mt-5{% endif %} -mx-2 px-2 py-1 rounded-lg transition-colors"
-      :class="selected === '{{ group.date|date:'Y-m-d' }}' && 'bg-violet/10'"
-    >
+    <div class="{% if not forloop.first %}mt-5{% endif %}">
       <div
         id="agenda-{{ group.date|date:'Y-m-d' }}"
-        class="font-display text-lg tracking-wide pb-1.5 mb-1.5 border-b scroll-mt-20 {% if group.date == today %}text-primary{% endif %}"
-        :class="selected === '{{ group.date|date:'Y-m-d' }}' ? 'border-violet' : 'border-line'"
-      >{{ group.date|date:"M j" }}</div>
+        class="flex items-baseline justify-between pb-1.5 mb-1 border-b scroll-mt-20 {% if group.date == today %}text-primary{% endif %}"
+        :class="selected === '{{ group.date|date:'Y-m-d' }}' ? 'border-primary/60' : 'border-line'"
+      >
+        <span class="text-[13.5px] font-semibold">{% if group.date == today %}Today{% else %}{{ group.date|date:"D, M j" }}{% endif %}</span>
+        {% if group.date == today %}<span class="text-[12.5px] text-ink-faint">{{ group.date|date:"M j" }}</span>{% endif %}
+      </div>
       {% for rs in group.items %}
-        <div class="flex justify-between items-center py-1.5 px-0.5 text-[12.5px] text-ink-faint {% if group.date == today %}text-base-content font-semibold{% endif %}">
-          <a href="{% url 'title_detail' rs.title.pk %}" class="hover:underline">{{ rs.title.name }}</a>
-          <span class="font-mono text-[11.5px]">
+        <a href="{% url 'title_detail' rs.title.pk %}" class="flex items-center gap-2.5 py-1.5 group">
+          <div class="w-7 aspect-[2/3] rounded-[3px] relative overflow-hidden flex-none bg-base-300 {% if not rs.title.poster_url %}{{ rs.title.pk|gradient_class }}{% endif %}">
+            {% if rs.title.poster_url %}<img src="{{ rs.title.poster_url|poster_size:"w92" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">{% endif %}
+          </div>
+          <span class="min-w-0 flex-1 text-[13px] truncate {% if group.date == today %}text-base-content font-medium{% else %}text-ink-dim{% endif %} group-hover:text-base-content">{{ rs.title.name }}</span>
+          <span class="flex-none text-[12.5px] {% if rs.episode %}font-mono{% endif %} text-ink-faint">
             {% if rs.episode %}S{{ rs.episode.season }} E{{ rs.episode.episode }}{% else %}{{ rs.get_release_type_display }}{% endif %}
           </span>
-        </div>
+        </a>
       {% endfor %}
     </div>
   {% endfor %}

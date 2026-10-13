@@ -1,46 +1,33 @@
 {% load tracker_extras %}
-{# context: event (WatchEvent) #}
+{# context: event (WatchEvent) - one play on History's day-grouped poster grid (the classic Trakt-style history wall): poster with the episode code on it, then title and a "episode name / year · time" line. Remove and select controls sit on the poster corner. #}
 {% if event.episode %}
   {% episode_detail_url event.title.pk event.episode.season event.episode.episode as detail_url %}
 {% else %}
   {% url 'title_detail' event.title.pk as detail_url %}
 {% endif %}
-<div class="group relative" id="hist-item-{{ event.id }}">
+<div class="media-card hist-card group relative" id="hist-item-{{ event.id }}">
   <label
     x-show="selecting" x-cloak
-    class="absolute top-1.5 right-1.5 z-20 w-5 h-5 rounded-md bg-black/75 border border-white/20 flex items-center justify-center cursor-pointer"
-  ><input type="checkbox" name="event_ids" value="{{ event.id }}" @change="recount()" class="checkbox checkbox-xs checkbox-primary"></label>
+    class="absolute top-2 right-2 z-20 w-6 h-6 rounded-md bg-black/75 flex items-center justify-center cursor-pointer"
+  ><input type="checkbox" name="event_ids" value="{{ event.id }}" @change="recount()" class="checkbox checkbox-xs checkbox-primary" aria-label="Select {{ event.title.name }}"></label>
   <a href="{{ detail_url }}" class="block" @click="if (selecting) $event.preventDefault()">
-    <div class="aspect-[2/3] rounded-lg relative overflow-hidden {% if not event.title.poster_url %}{{ event.title.pk|gradient_class }}{% endif %}">
+    <div class="poster {% if not event.title.poster_url %}{{ event.title.pk|gradient_class }}{% endif %}">
       {% if event.title.poster_url %}
-        <img src="{{ event.title.poster_url|poster_size:"w342" }}" alt="{{ event.title.name }}" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+        <img src="{{ event.title.poster_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 group-hover:brightness-110">
       {% endif %}
-      <div class="absolute inset-0 bg-linear-to-t from-black/50 to-transparent"></div>
       {% if event.episode %}
-        <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 shadow-[0_1px_4px_rgba(0,0,0,0.7)]">S{{ event.episode.season }}:E{{ event.episode.episode }}</span>
+        <span class="absolute top-2 left-2 z-10 chip chip-scrim font-mono">S{{ event.episode.season }}:E{{ event.episode.episode }}</span>
       {% endif %}
-      <span class="absolute bottom-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ event.title.media_type|upper }}</span>
-      {% comment %}
-        Marks a row synced/imported from a third-party app (Nuvio/Simkl/
-        Trakt) - rows logged directly in Spool leave source blank and
-        get no marker at all. See WatchEvent.Source.
-      {% endcomment %}
-      {% if event.source == "nuvio" %}
-        <span class="absolute bottom-1.5 right-1.5 z-10 font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)]" title="Added by Nuvio sync">N</span>
-      {% elif event.source == "simkl" %}
-        <span class="absolute bottom-1.5 right-1.5 z-10 font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)]" title="Added by Simkl sync">S</span>
-      {% elif event.source == "trakt" %}
-        <span class="absolute bottom-1.5 right-1.5 z-10 font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)]" title="Added by Trakt sync">T</span>
-      {% elif event.source == "webhook" %}
-        <span class="absolute bottom-1.5 right-1.5 z-10 font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)]" title="Added via the Scrobble API">W</span>
-      {% endif %}
+      {% comment %} Synced/imported from a third-party app - rows logged directly in Spool leave source blank and get no marker. See WatchEvent.Source. {% endcomment %}
+      {% if event.source == "nuvio" %}<span class="absolute bottom-2 right-2 z-10 chip chip-scrim" title="Added by Nuvio sync">Nuvio</span>
+      {% elif event.source == "simkl" %}<span class="absolute bottom-2 right-2 z-10 chip chip-scrim" title="Added by Simkl sync">Simkl</span>
+      {% elif event.source == "trakt" %}<span class="absolute bottom-2 right-2 z-10 chip chip-scrim" title="Added by Trakt sync">Trakt</span>
+      {% elif event.source == "webhook" %}<span class="absolute bottom-2 right-2 z-10 chip chip-scrim" title="Added via the Scrobble API">Scrobble</span>{% endif %}
     </div>
-    <div class="mt-1.5 min-w-0">
-      <div class="text-[11.5px] font-semibold truncate">{{ event.title.name }}</div>
-      <div class="flex justify-between items-center mt-0.5 text-[10px] font-mono text-ink-dim">
-        <span>{{ event.title.year }}</span>
-        <span class="text-ink-faint">{{ event.watched_at|time:time_format_str }}</span>
-      </div>
+    <span class="media-title group-hover:text-white">{{ event.title.name }}</span>
+    <div class="meta">
+      {% if event.episode and event.episode.name %}<span class="truncate max-sm:hidden">{{ event.episode.name }}</span>{% elif event.title.year %}<span>{{ event.title.year }}</span>{% else %}<span class="inline-flex items-center gap-1.5"><span class="type-dot {{ event.title.media_type|media_dot_class }}"></span>{{ event.title.media_type|media_label }}</span>{% endif %}
+      <span class="flex-none tabular-nums">{{ event.watched_at|time:time_format_str }}</span>
     </div>
   </a>
   <button
@@ -50,6 +37,7 @@
     hx-target="#hist-item-{{ event.id }}"
     hx-swap="outerHTML swap:150ms"
     title="Remove from history"
-    class="absolute top-1.5 right-1.5 z-20 w-5 h-5 rounded-full bg-black/75 text-white text-xs leading-none flex items-center justify-center hover:bg-error"
+    aria-label="Remove from history"
+    class="absolute top-2 right-2 z-20 w-6 h-6 rounded-full bg-black/70 text-white/80 text-sm leading-none flex items-center justify-center hover:bg-error hover:text-white"
   >&times;</button>
 </div>

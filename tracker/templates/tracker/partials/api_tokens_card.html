@@ -9,7 +9,7 @@
   x-data="{ show: false }" per <div>, not one shared boolean like the old
   single-token card used) since up to 5 rows now each need their own.
 {% endcomment %}
-<div id="api-tokens-card" class="bg-base-200 border border-line rounded-2xl p-5">
+<div id="api-tokens-card" class="settings-panel">
   <h3 class="text-lg mb-1">Custom Player</h3>
   <div class="text-ink-dim text-xs mb-3">
     Bring your own player or script - point it at the
@@ -24,7 +24,7 @@
         <input
           :type="show ? 'text' : 'password'" readonly value="{{ token.token }}"
           onclick="this.select()" aria-label="{{ token.name }} token"
-          class="w-full bg-transparent text-[11px] font-mono text-ink-dim focus:outline-none cursor-text"
+          class="w-full bg-transparent text-[12px] font-mono text-ink-dim focus:outline-none cursor-text"
         >
       </div>
       <button type="button" @click="show = !show" title="Show/hide token" class="text-ink-faint hover:text-base-content p-1.5 flex-none">
@@ -62,11 +62,11 @@
       <input
         type="text" name="name" maxlength="60" required
         placeholder="e.g. Living room Kodi" aria-label="New token name"
-        class="input input-sm flex-1 min-w-0 bg-base-100"
+        class="input input-sm flex-1 min-w-0"
       >
       <button type="submit" class="btn btn-sm btn-primary flex-none">+ Add token</button>
     </form>
   {% else %}
-    <div class="text-[10.5px] text-ink-faint mt-3 pt-3 border-t border-line">{{ max_api_tokens }} of {{ max_api_tokens }} tokens used - delete one to add another.</div>
+    <div class="text-[12px] text-ink-faint mt-3 pt-3 border-t border-line">{{ max_api_tokens }} of {{ max_api_tokens }} tokens used - delete one to add another.</div>
   {% endif %}
 </div>

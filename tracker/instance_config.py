@@ -50,3 +50,21 @@ def get_spool_wrapped_config():
     setting; set via Settings' Server Integrations tab only."""
     cfg = InstanceConfig.load()
     return cfg.spool_wrapped_url, cfg.get_sso_shared_secret()
+
+
+def get_backup_credentials(kind):
+    """(client_id, client_secret) for a Google Drive ("gdrive") or Dropbox
+    ("dropbox") backup destination's OAuth app - database first, .env
+    fallback, same as the Trakt/Simkl credentials above."""
+    cfg = InstanceConfig.load()
+    if kind == "gdrive":
+        return (
+            cfg.google_client_id or settings.GOOGLE_CLIENT_ID,
+            cfg.get_google_client_secret() or settings.GOOGLE_CLIENT_SECRET,
+        )
+    if kind == "dropbox":
+        return (
+            cfg.dropbox_app_key or settings.DROPBOX_APP_KEY,
+            cfg.get_dropbox_app_secret() or settings.DROPBOX_APP_SECRET,
+        )
+    raise ValueError(f"unknown backup provider: {kind!r}")

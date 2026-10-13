@@ -26,134 +26,124 @@ to avoid triggering navigation.
 {% endcomment %}
 {% if progress %}
   {% comment %}
-  Watching row only - a landscape still card (episode still for a show
-  with a resolved current_episode, that show's own poster as a fallback
-  when it isn't, a movie's TMDB backdrop) instead of the portrait poster
-  below, so every card in this row reads the same way, matching Recently
-  Watched's own still-image cards (watch_event_card.html) rather than
-  mixing landscape shows with portrait movies in the same row -
-  confirmed as a real reported inconsistency once shows got this
-  treatment and movies didn't. The bottom action bar still branches on
-  progress.season: a resolved show uses the per-episode watched button
-  (episode_watched_button.html, always "watched" - current_episode is
-  itself the last watched episode), a movie or an unresolved show uses
-  the same whole-title watched button every portrait card uses below -
-  just that one, not its usual list-popover partner too, since this row
-  is about tracking watch progress, not list management, and a lone
-  square icon button read oddly next to the show cards' own single
-  button (also reported live).
+  Continue Watching card: 16:9 artwork (the episode still for a show
+  with a resolved current episode, otherwise its poster/backdrop), title
+  and episode on a bottom scrim, a thin progress line along the bottom
+  edge, and the remaining-time caption underneath. Movies and shows share
+  the same layout. The watched control sits beside the caption - for a
+  resolved show it's the per-episode button (current_episode is itself
+  the last watched episode), otherwise the whole-title button. Drop /
+  remove reveal in the top-right corner on hover/focus (first tap on
+  touch, see base.html's watch-progress-card handlers).
   {% endcomment %}
-  <div class="{{ width_class|default:"w-[270px] flex-none" }} discover-tile" id="watch-progress-card-{{ title.pk }}" {% if oob %}hx-swap-oob="true"{% endif %}>
-    <div class="aspect-video rounded-t-lg relative overflow-hidden {% if not progress.still_url %}{{ title.pk|gradient_class }}{% endif %}">
-      {% if progress.still_url %}
-        <img src="{{ progress.still_url|poster_size:"w342" }}" alt="{{ title.name }}" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
-      {% endif %}
-      <a href="{{ detail_url }}" class="absolute inset-0 z-0"></a>
-
-      {% if progress.is_season_finale %}
-        <div class="absolute top-2 left-2 z-10 pointer-events-none">
-          <span class="font-mono text-[9px] font-bold uppercase tracking-wide bg-primary text-primary-content px-2 py-1 rounded-md shadow-[0_1px_4px_rgba(0,0,0,0.7)]">Season Finale</span>
+  <div class="{{ width_class|default:"w-[280px] flex-none" }} discover-tile watch-progress-card media-card" id="watch-progress-card-{{ title.pk }}" {% if oob %}hx-swap-oob="true"{% endif %}>
+    <div class="media-card-art">
+      <div class="backdrop aspect-video {% if not progress.still_url %}{{ title.pk|gradient_class }}{% endif %}">
+        {% if progress.still_url %}
+          <img src="{{ progress.still_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0">
+        {% endif %}
+        <div class="art-scrim"></div>
+        <a href="{{ detail_url }}" class="absolute inset-0 z-0" tabindex="-1" aria-hidden="true"></a>
+        {% if progress.is_season_finale %}
+          <span class="absolute top-2 left-2 z-10 chip chip-primary !bg-primary !text-primary-content pointer-events-none">Season Finale</span>
+        {% endif %}
+        <div class="absolute inset-x-0 bottom-0 z-10 px-3 pb-3 pointer-events-none">
+          <div class="text-[15px] font-semibold text-white truncate leading-tight">{{ title.name }}</div>
+          {% if progress.season %}
+            <div class="text-[12px] text-white/70 truncate mt-0.5"><span class="font-mono">S{{ progress.season }}E{{ progress.episode_number }}</span>{% if progress.episode_name %} · {{ progress.episode_name }}{% endif %}</div>
+          {% else %}
+            <div class="text-[12px] text-white/70 truncate mt-0.5">{{ title.media_type|media_label }}{% if title.year %} · {{ title.year }}{% endif %}</div>
+          {% endif %}
         </div>
-      {% endif %}
-
-      <div class="absolute top-2 right-2 z-20 flex items-center gap-1.5">
-        <div class="watch-progress-actions discover-tile-reveal-actions flex gap-1 opacity-0 pointer-events-none transition-opacity duration-300 ease-out">
-          <button
-            type="button"
-            hx-post="/api/watch-progress/{{ title.pk }}/drop"
-            hx-confirm="Mark &quot;{{ title.name }}&quot; as dropped? Your watch history stays intact - resume any time from its detail page."
-            hx-target="#watch-progress-card-{{ title.pk }}"
-            hx-swap="outerHTML swap:150ms"
-            title="Drop - keeps your watch history, just leaves Watching"
-            class="w-5 h-5 rounded-full bg-black/75 text-white leading-none flex items-center justify-center hover:bg-error"
-          >{% icon "circle" "w-2.5 h-2.5" %}</button>
-          <button
-            type="button"
-            hx-delete="/api/watch-progress/{{ title.pk }}"
-            hx-confirm="Remove &quot;{{ title.name }}&quot; from Watching? This only clears its progress - your watch history isn't touched."
-            hx-target="#watch-progress-card-{{ title.pk }}"
-            hx-swap="outerHTML swap:150ms"
-            title="Remove from Watching"
-            class="w-5 h-5 rounded-full bg-black/75 text-white text-xs leading-none flex items-center justify-center hover:bg-error"
-          >&times;</button>
-        </div>
-        <span class="font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ title.media_type|upper }}</span>
-      </div>
-
-      <div class="absolute inset-x-0 bottom-0 z-10 pointer-events-none">
-        <div class="px-2 pb-1.5">
-          <span class="inline-block font-mono text-[10.5px] font-bold text-primary bg-black/85 px-2 py-1 rounded-md">{{ progress.caption }}</span>
-        </div>
-        <div class="h-1 bg-black/60">
+        <div class="absolute inset-x-0 bottom-0 z-10 h-[3px] bg-white/10">
           <div class="h-full bg-primary" style="width:{{ progress.percent }}%"></div>
         </div>
       </div>
+      <div class="watch-progress-actions discover-tile-reveal-actions absolute top-2 right-2 z-20 flex gap-1 opacity-0 pointer-events-none">
+        <button
+          type="button"
+          hx-post="/api/watch-progress/{{ title.pk }}/drop"
+          hx-confirm="Mark &quot;{{ title.name }}&quot; as dropped? Your watch history stays intact - resume any time from its detail page."
+          hx-target="#watch-progress-card-{{ title.pk }}"
+          hx-swap="outerHTML swap:150ms"
+          title="Drop - keeps your watch history, just leaves Watching"
+          aria-label="Drop"
+          class="h-7 px-2 rounded-md bg-black/75 text-white/85 text-[12px] font-semibold flex items-center hover:bg-black/90 hover:text-white"
+        >Drop</button>
+        <button
+          type="button"
+          hx-delete="/api/watch-progress/{{ title.pk }}"
+          hx-confirm="Remove &quot;{{ title.name }}&quot; from Watching? This only clears its progress - your watch history isn't touched."
+          hx-target="#watch-progress-card-{{ title.pk }}"
+          hx-swap="outerHTML swap:150ms"
+          title="Remove from Watching"
+          aria-label="Remove from Watching"
+          class="w-7 h-7 rounded-md bg-black/75 text-white/85 text-sm leading-none flex items-center justify-center hover:bg-black/90 hover:text-white"
+        >&times;</button>
+      </div>
     </div>
-    <div class="bg-base-300 rounded-b-lg p-2.5 flex items-center justify-between gap-2">
-      <a href="{{ detail_url }}" class="min-w-0 watch-progress-link" @click="if (window.matchMedia('(hover: none)').matches && !mobileOptions) { $event.preventDefault(); mobileOptions = true; }">
-        <div class="text-[13px] font-semibold truncate">{{ title.name }}</div>
-        {% if progress.season %}
-          <div class="font-mono text-[11px] text-ink-dim truncate mt-0.5">S{{ progress.season }}E{{ progress.episode_number }}{% if progress.episode_name %} &middot; {{ progress.episode_name }}{% endif %}</div>
-        {% endif %}
+    <div class="mt-2 flex items-center justify-between gap-3">
+      <a href="{{ detail_url }}" class="min-w-0 watch-progress-link text-xs text-ink-dim truncate hover:text-base-content" @click="if (window.matchMedia('(hover: none)').matches && !mobileOptions) { $event.preventDefault(); mobileOptions = true; }">
+        <span class="text-primary font-medium">{{ progress.percent }}%</span> · {{ progress.caption }}
       </a>
+      <div class="flex items-stretch h-8 flex-none">
       {% if progress.season %}
         {% include "tracker/partials/episode_watched_button.html" with title=title season=progress.season episode_number=progress.episode_number watched=progress.watch_count|default:0 watch_count=progress.watch_count|default:0 preview_tmdb_id="" preview_media_type="" preview_name="" %}
       {% else %}
-        {% comment %}
-        compact=True gives the shared watched button the same fixed-width
-        solid pill episode_watched_button.html (the show cards' button
-        above) uses, instead of the portrait card's full-width flat
-        action-bar cell - so movies and shows read identically here.
-        {% endcomment %}
         {% include "tracker/partials/poster_card_watched_button.html" with title=title compact=True watched=watched_by_title|get_item:title.pk watch_count=watch_count_by_title|get_item:title.pk in_progress=in_progress_by_title|get_item:title.pk %}
       {% endif %}
+      </div>
     </div>
   </div>
 {% else %}
   {% comment %}
-  Every caller that passes progress now lands in the landscape branch
-  above instead (continue_watching() always sets it, for a movie or an
-  unresolved episode too - see its own docstring) - this portrait
-  branch is only ever reached without one (Watchlist Queue, Start
-  Watching, general library grids, Social Activity's event_episode
-  cards), so it no longer needs its own progress-only bits (the Watching
-  tile's drop/remove hover buttons, its own id, or the sprocket bar).
+  Portrait media card (Watchlist Queue, Start Watching, list detail,
+  search, Social Activity): poster with a corner watched/in-progress
+  marker, title + one meta line beneath, watched/list actions revealed
+  over the poster on hover/focus. Same structure and reveal mechanics as
+  discover_tile.html - see its comment for why .card-actions must stay a
+  sibling of the overflow-hidden .poster box.
   {% endcomment %}
-  <div class="{{ width_class|default:"w-[168px] flex-none" }}">
-    <div
-      class="aspect-[2/3] rounded-t-lg relative overflow-hidden {% if not title.poster_url %}{{ title.pk|gradient_class }}{% endif %}"
-    >
-      {% if title.poster_url %}
-        <img src="{{ title.poster_url|poster_size:"w342" }}" alt="{{ title.name }}" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
-      {% endif %}
-      <a href="{{ detail_url }}" class="absolute inset-0 z-0">
-        <span class="absolute top-2 right-2 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ title.media_type|upper }}</span>
+  {% with w=watched_by_title|get_item:title.pk ip=in_progress_by_title|get_item:title.pk wc=watch_count_by_title|get_item:title.pk %}
+  <div class="{{ width_class|default:"w-[168px] flex-none" }} discover-tile media-card">
+    <div class="media-card-art">
+      <a href="{{ detail_url }}" class="poster block {% if not title.poster_url %}{{ title.pk|gradient_class }}{% endif %}" tabindex="-1" aria-hidden="true">
+        {% if title.poster_url %}
+          <img src="{{ title.poster_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0">
+        {% endif %}
+        {% if ip %}
+          <span class="card-state card-state-progress" title="Watching">&#9654;</span>
+        {% elif w %}
+          <span class="card-state card-state-watched" title="Watched{% if wc > 1 %} {{ wc }} times{% endif %}">&#10003;{% if wc > 1 %}<span>{{ wc }}</span>{% endif %}</span>
+        {% endif %}
+        {% if event_profile %}
+          <span class="absolute top-1.5 right-1.5 z-10 flex items-center gap-1 rounded-full bg-black/75 pl-0.5 pr-2 py-0.5 max-w-[80%] pointer-events-none">
+            {% if event_profile.avatar_image %}
+              <span class="w-4 h-4 rounded-full bg-cover bg-center flex-none" style="background-image:url('{{ event_profile.avatar_image.url }}')"></span>
+            {% else %}
+              <span class="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-semibold flex-none" style="background:{{ event_profile.avatar_color }};color:#fff;">{{ event_profile.display_name|first|upper }}</span>
+            {% endif %}
+            <span class="text-[12px] font-semibold text-white truncate">{{ event_profile.display_name }}</span>
+          </span>
+        {% endif %}
       </a>
-      {% if event_profile %}
-        <div class="absolute top-2 left-2 z-10 flex items-center gap-1.5 bg-black/70 rounded-full pl-1 pr-2.5 py-1 max-w-[80%] pointer-events-none">
-          {% if event_profile.avatar_image %}
-            <div class="w-5 h-5 rounded-full bg-cover bg-center flex-none" style="background-image:url('{{ event_profile.avatar_image.url }}')"></div>
-          {% else %}
-            <div class="w-5 h-5 rounded-full flex items-center justify-center font-mono text-[10px] font-semibold flex-none" style="background:{{ event_profile.avatar_color }};color:#fff;">{{ event_profile.display_name|first|upper }}</div>
-          {% endif %}
-          <span class="text-[11px] font-semibold text-white truncate">{{ event_profile.display_name }}</span>
-        </div>
-      {% endif %}
-      {% if event_episode %}
-        <span class="absolute bottom-2 right-2 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 shadow-[0_1px_4px_rgba(0,0,0,0.7)]">S{{ event_episode.season }}:E{{ event_episode.episode }}</span>
-      {% endif %}
+      <div class="discover-tile-reveal-actions card-actions">
+        {% include "tracker/partials/poster_card_watched_button.html" with title=title watched=w watch_count=wc in_progress=ip %}
+        {% include "tracker/partials/poster_card_list_popover.html" with title=title my_lists=my_lists in_list_ids=list_membership|get_item:title.pk %}
+      </div>
     </div>
-    <div class="flex items-stretch bg-base-300 rounded-b-lg overflow-hidden">
-      {% include "tracker/partials/poster_card_watched_button.html" with title=title watched=watched_by_title|get_item:title.pk watch_count=watch_count_by_title|get_item:title.pk in_progress=in_progress_by_title|get_item:title.pk %}
-      {% include "tracker/partials/poster_card_list_popover.html" with title=title my_lists=my_lists in_list_ids=list_membership|get_item:title.pk %}
-    </div>
-    <a href="{{ detail_url }}" class="block mt-2 min-w-0">
-      <div class="text-[13px] font-semibold truncate">{{ title.name }}</div>
-      {% if show_ratings %}
-        <div class="mt-1">
-          {% include "tracker/partials/pill_badges.html" with ratings=title.ratings.all user_rating=user_rating %}
-        </div>
-      {% endif %}
+    <a href="{{ detail_url }}" class="block min-w-0" title="{{ title.name }}">
+      <span class="media-title">{{ title.name }}</span>
+      <span class="meta">
+        {% if event_episode %}<span class="font-mono">S{{ event_episode.season }}E{{ event_episode.episode }}</span>{% endif %}
+        <span class="inline-flex items-center gap-1.5"><span class="type-dot {{ title.media_type|media_dot_class }}"></span>{{ title.media_type|media_label }}</span>
+        {% if title.year %}<span>{{ title.year }}</span>{% endif %}
+        {% if show_ratings %}
+          {% if user_rating %}<span class="text-primary">&#9733; {{ user_rating }}</span>
+          {% else %}{% for r in title.ratings.all|slice:":1" %}<span>{% if r.source == 'imdb' %}IMDb{% elif r.source == 'rt' %}RT{% else %}{{ r.get_source_display }}{% endif %} {{ r.score }}</span>{% endfor %}{% endif %}
+        {% endif %}
+      </span>
     </a>
   </div>
+  {% endwith %}
 {% endif %}

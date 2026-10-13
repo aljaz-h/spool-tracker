@@ -1,7 +1,7 @@
 {% load icons tracker_extras %}
 {# context: watchlist, can_edit, can_reorder, items, page_obj, base_query - can_reorder (only true in the fully unfiltered/manual-order view, see views._list_detail_context) gates the drag handles: dragging a subset of a filtered view can't unambiguously reposition items relative to whatever's hidden. Drag-and-drop only ever reorders within the current page (views.reorder_list splices that page's new order back into the full list server-side) - dragging an item onto a different page isn't supported. #}
 <div id="list-items">
-<div class="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-4">
+<div class="media-grid">
   {% for item in items %}
     <div
       class="group relative"
@@ -49,7 +49,7 @@
     >
       {% include "tracker/partials/poster_card.html" with title=item.title show_ratings=True width_class="w-full" %}
       {% if can_edit and can_reorder %}
-        <div class="absolute top-2 left-2 w-6 h-6 rounded-full bg-black/70 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-grab">
+        <div class="absolute top-1.5 right-9 z-20 w-6 h-6 rounded-md bg-black/75 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-grab" title="Drag to reorder">
           {% icon "grip-vertical" "w-3.5 h-3.5" %}
         </div>
       {% endif %}
@@ -57,36 +57,36 @@
         <form
           hx-post="{% url 'remove_from_list' watchlist.id %}"
           hx-target="#list-items" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-          class="absolute top-2 right-2"
+          class="absolute top-1.5 right-1.5 z-20"
         >
           <input type="hidden" name="title_id" value="{{ item.title.id }}">
-          <button type="submit" title="Remove from list" class="w-6 h-6 rounded-full bg-black/70 text-white text-sm opacity-0 group-hover:opacity-100 hover:bg-error transition-opacity flex items-center justify-center">&times;</button>
+          <button type="submit" title="Remove from list" aria-label="Remove from list" class="w-6 h-6 rounded-md bg-black/75 text-white text-sm opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-error transition-opacity flex items-center justify-center">&times;</button>
         </form>
       {% endif %}
     </div>
   {% empty %}
-    <p class="text-ink-faint text-sm col-span-full">No titles on this list yet.</p>
+    <div class="empty col-span-full"><div class="empty-title">Nothing on this list yet</div>Add a title to get it started.</div>
   {% endfor %}
 </div>
 {% if page_obj.paginator.num_pages > 1 %}
-  <div class="flex justify-between items-center flex-wrap gap-3 mt-6">
-    <span class="font-mono text-xs text-ink-faint">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }} · {{ page_obj.paginator.count }} title{{ page_obj.paginator.count|pluralize }}</span>
+  <div class="flex justify-between items-center flex-wrap gap-3 mt-10 pt-5 border-t border-line">
+    <span class="text-xs text-ink-faint">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }} · {{ page_obj.paginator.count }} title{{ page_obj.paginator.count|pluralize }}</span>
     <div class="flex gap-1.5">
       {% if page_obj.has_previous %}
         <a hx-get="{% url 'list_detail' watchlist.id %}?{{ base_query }}&page={{ page_obj.previous_page_number }}" hx-target="#list-items" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" hx-push-url="true"
-           class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim cursor-pointer">‹ Prev</a>
+           class="btn btn-sm btn-ghost text-ink-dim">&larr; Prev</a>
       {% endif %}
       {% for num in page_obj.paginator.page_range %}
         {% if num == page_obj.number %}
-          <span class="px-3 py-1.5 rounded-md bg-primary text-primary-content font-mono text-xs font-bold">{{ num }}</span>
+          <span class="btn btn-sm btn-square bg-primary/15 border-transparent text-primary" aria-current="page">{{ num }}</span>
         {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}
           <a hx-get="{% url 'list_detail' watchlist.id %}?{{ base_query }}&page={{ num }}" hx-target="#list-items" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" hx-push-url="true"
-             class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim cursor-pointer">{{ num }}</a>
+             class="btn btn-sm btn-square btn-ghost text-ink-dim">{{ num }}</a>
         {% endif %}
       {% endfor %}
       {% if page_obj.has_next %}
         <a hx-get="{% url 'list_detail' watchlist.id %}?{{ base_query }}&page={{ page_obj.next_page_number }}" hx-target="#list-items" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" hx-push-url="true"
-           class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim cursor-pointer">Next ›</a>
+           class="btn btn-sm btn-ghost text-ink-dim">Next &rarr;</a>
       {% endif %}
     </div>
   </div>

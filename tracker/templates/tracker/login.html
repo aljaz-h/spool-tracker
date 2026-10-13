@@ -8,7 +8,7 @@
   <link rel="icon" type="image/x-icon" href="{% static 'img/favicon.ico' %}">
   <link rel="apple-touch-icon" href="{% static 'img/apple-touch-icon.png' %}">
   <link rel="manifest" href="{% static 'img/manifest.webmanifest' %}">
-  <meta name="theme-color" content="#14161c">
+  <meta name="theme-color" content="#0e1014">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Public+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'dist/app.css' %}">
@@ -20,8 +20,8 @@
   </script>
 </head>
 <body class="bg-base-100 text-base-content min-h-screen flex flex-col items-center justify-center p-6">
-  <div class="w-full max-w-sm bg-base-200 border border-line rounded-2xl p-8" x-data="{ showPassword: false }">
-    <h1 class="font-display text-3xl text-marquee tracking-wide">SPOOL</h1>
+  <div class="w-full max-w-sm bg-base-200 rounded-2xl p-8 shadow-[0_24px_64px_rgba(0,0,0,0.5)]" x-data="{ showPassword: false }">
+    <div class="font-brand text-[36px] leading-none text-marquee">SPOOL</div>
     <p class="text-ink-dim text-sm mt-1 mb-6">Sign in to your household</p>
 
     <form method="post">
@@ -33,14 +33,14 @@
       <label class="block text-xs text-ink-dim mb-1" for="id_username">Username</label>
       <input
         type="text" name="username" id="id_username" autofocus required placeholder="e.g. jordan"
-        class="input w-full mb-4 bg-base-100"
+        class="input w-full mb-4"
       >
 
       <label class="block text-xs text-ink-dim mb-1" for="id_password">Password</label>
       <div class="relative mb-4">
         <input
           :type="showPassword ? 'text' : 'password'" name="password" id="id_password" required
-          class="input w-full bg-base-100 pr-10"
+          class="input w-full pr-10"
         >
         <button
           type="button" @click="showPassword = !showPassword" tabindex="-1" title="Show/hide password"
@@ -68,7 +68,7 @@
     <p class="text-center text-xs text-ink-dim">Locked out? Ask a household admin to reset your password.</p>
   </div>
 
-  <div class="mt-4 text-center text-[11px] text-ink-faint font-mono">
+  <div class="mt-5 text-center text-[12.5px] text-ink-faint">
     spool.tracker &middot; v{{ app_version }} &middot; self-hosted
   </div>
 </body>

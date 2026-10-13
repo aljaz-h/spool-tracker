@@ -1,5 +1,5 @@
 {% load tracker_extras icons %}
-{# context: group (dict: title, count, range_label, total_duration, events, timeline_events - same-title/same-day episode watches) #}
+{# context: group (dict: title, count, range_label, total_duration, events, timeline_events - same-title/same-day episode watches) - one binge session on History's poster grid: one card for the whole run, with the episode range on the poster, a per-episode remove menu on the count badge, a thin session strip, then title and "N/M episodes · duration". #}
 {% comment %}
   Deep-links to whichever episode was watched LAST in this binge
   session (timeline_events' own actual-watched-order, not group.events'
@@ -10,11 +10,11 @@
   past its own {% endwith %}, since {% with %} pushes and pops a real
   context scope.
 {% endcomment %}
-<div class="group relative" data-history-tile>
+<div class="media-card hist-card group relative" data-history-tile>
   <label
     x-show="selecting" x-cloak
-    class="absolute top-1.5 right-1.5 z-20 w-5 h-5 rounded-md bg-black/75 border border-white/20 flex items-center justify-center cursor-pointer"
-  ><input type="checkbox" name="event_ids" value="{% for event in group.events %}{{ event.id }}{% if not forloop.last %},{% endif %}{% endfor %}" @change="recount()" class="checkbox checkbox-xs checkbox-primary"></label>
+    class="absolute top-2 right-2 z-20 w-6 h-6 rounded-md bg-black/75 flex items-center justify-center cursor-pointer"
+  ><input type="checkbox" name="event_ids" value="{% for event in group.events %}{{ event.id }}{% if not forloop.last %},{% endif %}{% endfor %}" @change="recount()" class="checkbox checkbox-xs checkbox-primary" aria-label="Select {{ group.title.name }}"></label>
   <button
     x-show="!selecting"
     hx-post="{% url 'history_delete_group' %}"
@@ -23,12 +23,13 @@
     hx-target="closest [data-history-tile]"
     hx-swap="outerHTML swap:150ms"
     title="Remove all {{ group.count }} plays"
-    class="absolute top-1.5 right-1.5 z-20 w-5 h-5 rounded-full bg-black/75 text-white text-xs leading-none flex items-center justify-center hover:bg-error"
+    aria-label="Remove all {{ group.count }} plays"
+    class="absolute top-2 right-2 z-20 w-6 h-6 rounded-full bg-black/70 text-white/80 text-sm leading-none flex items-center justify-center hover:bg-error hover:text-white"
   >&times;</button>
 
-  <div class="aspect-[2/3] rounded-lg relative overflow-hidden {% if not group.title.poster_url %}{{ group.title.pk|gradient_class }}{% endif %}">
+  <div class="poster {% if not group.title.poster_url %}{{ group.title.pk|gradient_class }}{% endif %}">
     {% if group.title.poster_url %}
-      <img src="{{ group.title.poster_url|poster_size:"w342" }}" alt="{{ group.title.name }}" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+      <img src="{{ group.title.poster_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 group-hover:brightness-110">
     {% endif %}
     {% with last_event=group.timeline_events|last %}
       {% if last_event.episode %}
@@ -36,27 +37,26 @@
       {% else %}
         {% url 'title_detail' group.title.pk as detail_url %}
       {% endif %}
-      <a href="{{ detail_url }}" class="absolute inset-0 z-0" @click="if (selecting) $event.preventDefault()">
-        <div class="absolute inset-0 bg-linear-to-t from-black/50 to-transparent"></div>
-        <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ group.range_label }}</span>
-        <span class="absolute bottom-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ group.title.media_type|upper }}</span>
+      <a href="{{ detail_url }}" class="absolute inset-0 z-0" aria-label="{{ group.title.name }}" @click="if (selecting) $event.preventDefault()">
+        <span class="absolute top-2 left-2 z-10 chip chip-scrim font-mono">{{ group.range_label }}</span>
       </a>
     {% endwith %}
     {% comment %}
       The count badge is a sibling of the poster anchor, not nested
       inside it (same reasoning as poster_card.html's own action bar) -
-      so opening this dropdown never triggers the title_detail
-      navigation underneath it.
+      so opening this menu never triggers the title_detail navigation
+      underneath it. Its fixed-position panel isn't clipped by the
+      poster's overflow-hidden either.
     {% endcomment %}
     <div
       x-show="!selecting" x-cloak
-      class="absolute bottom-1.5 right-1.5 z-20 flex items-center gap-1"
+      class="absolute bottom-2 right-2 z-20 flex items-center gap-1"
       x-data="{
         open: false,
         togglePanel(button) {
           this.open = !this.open;
           if (!this.open) return;
-          this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 180, true));
+          this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 200, true));
         },
       }"
     >
@@ -64,20 +64,10 @@
         One marker per third-party source this group's episodes were
         actually synced from (see WatchEvent.Source and _build_episode_
         group) - rows logged directly in Spool leave source blank and
-        get no marker at all. Sits next to the count badge (not below
-        the title, where this used to live) so both read together as
-        "how many, from where" in one glance at the poster corner.
+        get no marker at all.
       {% endcomment %}
       {% for source in group.sync_sources %}
-        {% if source == "nuvio" %}
-          <span class="font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)]" title="Added by Nuvio sync">N</span>
-        {% elif source == "simkl" %}
-          <span class="font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)]" title="Added by Simkl sync">S</span>
-        {% elif source == "trakt" %}
-          <span class="font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)]" title="Added by Trakt sync">T</span>
-        {% elif source == "webhook" %}
-          <span class="font-mono text-[9px] font-bold bg-info/90 px-1.5 py-1 rounded-md text-black shadow-[0_1px_4px_rgba(0,0,0,0.7)]" title="Added via the Scrobble API">W</span>
-        {% endif %}
+        <span class="chip chip-scrim max-sm:hidden" title="{% if source == "webhook" %}Added via the Scrobble API{% else %}Added by {{ source|title }} sync{% endif %}">{% if source == "webhook" %}Scrobble{% else %}{{ source|title }}{% endif %}</span>
       {% endfor %}
       <button
         type="button"
@@ -85,17 +75,17 @@
         :aria-expanded="open.toString()"
         aria-haspopup="true"
         title="{{ group.count }} episodes - click to remove one"
-        class="font-mono text-[10px] font-bold bg-primary/90 px-2 py-1 rounded-md text-primary-content shadow-[0_1px_4px_rgba(0,0,0,0.7)] hover:bg-primary"
+        class="chip !h-6 !px-2 bg-primary text-primary-content tabular-nums hover:brightness-110"
       >{{ group.count }}&times;</button>
       <div
         x-ref="panel"
         x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
-        class="fixed z-50 w-[180px] max-h-56 overflow-y-auto bg-base-200 border border-line rounded-lg p-1.5 shadow-xl flex flex-col gap-0.5"
+        class="fixed z-50 w-[200px] max-h-56 overflow-y-auto menu-surface p-1.5 flex flex-col gap-0.5"
       >
-        <div class="text-[10px] text-ink-faint px-2 py-1">Remove an episode</div>
+        <div class="text-[12px] text-ink-faint px-2 py-1">Remove an episode</div>
         {% for event in group.timeline_events %}
           <div class="flex items-center justify-between gap-2 px-2 py-1 rounded-md hover:bg-base-300">
-            <span class="text-[11px] font-mono text-ink-dim">S{{ event.episode.season }}E{{ event.episode.episode }} <span class="text-ink-faint">· {{ event.watched_at|time:time_format_str }}</span></span>
+            <span class="text-[12px] font-mono text-ink-dim">S{{ event.episode.season }}E{{ event.episode.episode }} <span class="text-ink-faint">· {{ event.watched_at|time:time_format_str }}</span></span>
             <button
               type="button"
               hx-post="{% url 'history_delete_episode' event.id %}"
@@ -115,38 +105,32 @@
   {% comment %}
     One thin segment per episode, in the order they were actually
     watched (group.timeline_events, not the page's own newest/oldest
-    sort) - reads as a single filmstrip-like session bar rather than
-    a list. No click/expand behavior, just a hover tooltip per segment.
+    sort) - a small session strip; hover a segment for its time.
   {% endcomment %}
-  <div class="flex gap-px h-[6px] rounded-full overflow-hidden mt-1.5 bg-base-300">
+  <div class="flex gap-px h-1 rounded-full overflow-hidden mt-2 bg-base-300" aria-hidden="true">
     {% for event in group.timeline_events %}
-      <div
-        class="flex-1 bg-primary/55 hover:bg-primary transition-colors"
-        title="S{{ event.episode.season }}E{{ event.episode.episode }} · {{ event.watched_at|time:time_format_str }}"
-      ></div>
+      <div class="flex-1 bg-primary/55 hover:bg-primary" title="S{{ event.episode.season }}E{{ event.episode.episode }} · {{ event.watched_at|time:time_format_str }}"></div>
     {% endfor %}
   </div>
-  {% with last_event=group.timeline_events|last %}
+  {% with last_event=group.timeline_events|last first_event=group.timeline_events|first %}
     {% if last_event.episode %}
       {% episode_detail_url group.title.pk last_event.episode.season last_event.episode.episode as detail_url %}
     {% else %}
       {% url 'title_detail' group.title.pk as detail_url %}
     {% endif %}
-    <a href="{{ detail_url }}" class="block mt-1.5 min-w-0" @click="if (selecting) $event.preventDefault()">
+    <a href="{{ detail_url }}" class="block min-w-0" @click="if (selecting) $event.preventDefault()">
+      <span class="media-title !mt-2 group-hover:text-white">{{ group.title.name }}</span>
+      <div class="meta">
+        <span class="truncate">{{ group.count }}{% if group.total_episodes %}/{{ group.total_episodes }}{% endif %} episodes{% if group.total_duration %}<span class="max-sm:hidden"> · {{ group.total_duration }}</span>{% endif %}</span>
+        <span class="flex-none tabular-nums">{{ first_event.watched_at|time:time_format_str }}</span>
+      </div>
       {% comment %}
         Same "did this run end on the show's own last known episode"
-        check the Activity feed's watched_group already surfaces (see
-        views._build_episode_group) - without it a full-series bulk
-        catch-up (every episode logged with the same timestamp, so it
-        groups exactly like any other binge) read here as just
-        "N episodes", no sense of whether that was the whole show or
-        one session out of many still to come.
+        check the Activity feed's watched_group surfaces (see
+        views._build_episode_group) - a full-series catch-up would
+        otherwise read as just "N episodes".
       {% endcomment %}
-      {% if group.completed_series %}
-        <div class="inline-flex items-center gap-1 text-[9.5px] font-mono font-bold uppercase tracking-wide text-success mb-0.5">{% icon "check" "w-2.5 h-2.5" %} Series completed</div>
-      {% endif %}
-      <div class="text-[11.5px] font-semibold truncate">{{ group.title.name }}</div>
-      <div class="text-[10px] font-mono text-ink-dim mt-0.5">{{ group.count }}{% if group.total_episodes %}/{{ group.total_episodes }}{% endif %} episodes{% if group.total_duration %} · {{ group.total_duration }}{% endif %}</div>
+      {% if group.completed_series %}<span class="chip chip-success mt-1.5">Series completed</span>{% endif %}
     </a>
   {% endwith %}
 </div>

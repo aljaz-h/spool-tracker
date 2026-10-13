@@ -50,9 +50,9 @@
           {% for entry in logs_page.object_list %}
             <tr class="border-b border-line last:border-b-0">
               <td class="py-2.5 px-3.5">{{ entry.profile.display_name }}</td>
-              <td class="py-2.5 px-3.5 font-mono text-[11px]">{{ entry.action }}</td>
-              <td class="py-2.5 px-3.5 font-mono text-[11px] text-ink-dim">{{ entry.timestamp|date:"Y-m-d H:i:s" }}</td>
-              <td class="py-2.5 px-3.5 font-mono text-[11px] text-ink-dim">
+              <td class="py-2.5 px-3.5 font-mono text-[12px]">{{ entry.action }}</td>
+              <td class="py-2.5 px-3.5 font-mono text-[12px] text-ink-dim">{{ entry.timestamp|date:"Y-m-d H:i:s" }}</td>
+              <td class="py-2.5 px-3.5 font-mono text-[12px] text-ink-dim">
                 {% if entry.duration_seconds %}
                   {{ entry.duration_seconds|floatformat:1 }}s
                   {% if entry.status == "failed" and entry.duration_seconds < 1 %}
@@ -67,27 +67,31 @@
               </td>
               <td class="py-2.5 px-3.5">
                 {% if entry.status == "success" %}
-                  <span class="inline-flex items-center gap-1 font-mono text-[11px] text-success">{% icon "check" "w-3 h-3" %}success</span>
+                  <span class="inline-flex items-center gap-1 font-mono text-[12px] text-success">{% icon "check" "w-3 h-3" %}success</span>
                 {% elif entry.status == "failed" %}
-                  <span class="inline-flex items-center gap-1 font-mono text-[11px] text-error">{% icon "x" "w-3 h-3" %}failed</span>
+                  <span class="inline-flex items-center gap-1 font-mono text-[12px] text-error">{% icon "x" "w-3 h-3" %}failed</span>
+                {% elif entry.status == "waiting" %}
+                  <span class="font-mono text-[12px] text-info">awaiting review</span>
+                {% elif entry.status == "cancelled" %}
+                  <span class="font-mono text-[12px] text-ink-faint">cancelled</span>
                 {% else %}
-                  <span class="font-mono text-[11px] text-warning">running</span>
+                  <span class="font-mono text-[12px] text-warning">running</span>
                 {% endif %}
               </td>
-              <td class="py-2.5 px-3.5 font-mono text-[11px] align-top">
+              <td class="py-2.5 px-3.5 font-mono text-[12px] align-top">
                 {% if entry.imported_titles %}
                   <div x-data="{ open: false }">
                     <button type="button" @click="open = !open" class="hover:text-base-content underline decoration-dotted">{{ entry.item_count }} <span x-text="open ? '▲' : '▾'"></span></button>
                     <div x-show="open" x-cloak class="mt-1.5 max-h-48 w-48 overflow-y-auto bg-base-300 border border-line rounded-md p-2">
-                      <ul class="space-y-0.5 text-[10.5px] text-ink-dim font-body">
+                      <ul class="space-y-0.5 text-[12px] text-ink-dim font-body">
                         {% for label in entry.imported_titles %}<li class="truncate" title="{{ label }}">{{ label }}</li>{% endfor %}
                       </ul>
-                      {% if entry.imported_titles_more %}<div class="mt-1 text-[10.5px] text-ink-faint">+{{ entry.imported_titles_more }} more</div>{% endif %}
+                      {% if entry.imported_titles_more %}<div class="mt-1 text-[12px] text-ink-faint">+{{ entry.imported_titles_more }} more</div>{% endif %}
                     </div>
                   </div>
                 {% else %}{{ entry.item_count|default:"—" }}{% endif %}
               </td>
-              <td class="py-2.5 px-3.5 text-ink-faint text-[11px] max-w-[280px]">
+              <td class="py-2.5 px-3.5 text-ink-faint text-[12px] max-w-[280px]">
                 {% if entry.error_message %}
                   <div x-data="{ open: false, copied: false }">
                     <button
@@ -97,14 +101,14 @@
                     >{{ entry.error_message }}</button>
                     <button
                       type="button" @click="open = !open" x-show="open" x-cloak
-                      class="text-[10.5px] text-ink-dim hover:text-base-content underline decoration-dotted"
+                      class="text-[12px] text-ink-dim hover:text-base-content underline decoration-dotted"
                     >Collapse ▲</button>
                     <div x-show="open" x-cloak class="mt-1.5 flex flex-col gap-1.5 max-w-md">
-                      <div x-ref="fulltext" class="font-mono text-[10.5px] whitespace-pre-wrap break-all bg-base-300 border border-line rounded-md p-2 select-text">{{ entry.error_message }}</div>
+                      <div x-ref="fulltext" class="font-mono text-[12px] whitespace-pre-wrap break-all bg-base-300 border border-line rounded-md p-2 select-text">{{ entry.error_message }}</div>
                       <button
                         type="button"
                         @click="navigator.clipboard.writeText($refs.fulltext.innerText); copied = true; setTimeout(() => copied = false, 1500)"
-                        class="self-start px-2 py-1 rounded-md border border-line bg-base-100 text-[10.5px] text-ink-dim hover:text-base-content"
+                        class="self-start px-2 py-1 rounded-md border border-line bg-base-100 text-[12px] text-ink-dim hover:text-base-content"
                       ><span x-show="!copied">Copy</span><span x-show="copied" x-cloak>Copied!</span></button>
                     </div>
                   </div>
@@ -117,13 +121,13 @@
     </div>
 
     <div class="flex justify-between items-center flex-wrap gap-3 mt-3.5 px-2 pb-1">
-      <span class="font-mono text-xs text-ink-faint">Page {{ logs_page.number }} of {{ logs_page.paginator.num_pages }} · {{ logs_page.paginator.count }} entries</span>
+      <span class="text-xs text-ink-faint">Page {{ logs_page.number }} of {{ logs_page.paginator.num_pages }} · {{ logs_page.paginator.count }} entries</span>
       <div class="flex gap-1.5">
         {% if logs_page.has_previous %}
-          <a href="?tab=logs&page={{ logs_page.previous_page_number }}{% if log_profile_id %}&log_profile={{ log_profile_id }}{% endif %}{% if log_sort == "oldest" %}&log_sort=oldest{% endif %}{% if log_action_type %}&log_action_type={{ log_action_type }}{% endif %}{% if log_provider %}&log_provider={{ log_provider }}{% endif %}{% if log_status %}&log_status={{ log_status }}{% endif %}{% if log_date_from %}&log_date_from={{ log_date_from }}{% endif %}{% if log_date_to %}&log_date_to={{ log_date_to }}{% endif %}" class="px-3 py-1.5 rounded-md border border-line bg-base-100 font-mono text-xs text-ink-dim">‹ Prev</a>
+          <a href="?tab=logs&page={{ logs_page.previous_page_number }}{% if log_profile_id %}&log_profile={{ log_profile_id }}{% endif %}{% if log_sort == "oldest" %}&log_sort=oldest{% endif %}{% if log_action_type %}&log_action_type={{ log_action_type }}{% endif %}{% if log_provider %}&log_provider={{ log_provider }}{% endif %}{% if log_status %}&log_status={{ log_status }}{% endif %}{% if log_date_from %}&log_date_from={{ log_date_from }}{% endif %}{% if log_date_to %}&log_date_to={{ log_date_to }}{% endif %}" class="btn btn-sm btn-ghost text-ink-dim">&larr; Prev</a>
         {% endif %}
         {% if logs_page.has_next %}
-          <a href="?tab=logs&page={{ logs_page.next_page_number }}{% if log_profile_id %}&log_profile={{ log_profile_id }}{% endif %}{% if log_sort == "oldest" %}&log_sort=oldest{% endif %}{% if log_action_type %}&log_action_type={{ log_action_type }}{% endif %}{% if log_provider %}&log_provider={{ log_provider }}{% endif %}{% if log_status %}&log_status={{ log_status }}{% endif %}{% if log_date_from %}&log_date_from={{ log_date_from }}{% endif %}{% if log_date_to %}&log_date_to={{ log_date_to }}{% endif %}" class="px-3 py-1.5 rounded-md border border-line bg-base-100 font-mono text-xs text-ink-dim">Next ›</a>
+          <a href="?tab=logs&page={{ logs_page.next_page_number }}{% if log_profile_id %}&log_profile={{ log_profile_id }}{% endif %}{% if log_sort == "oldest" %}&log_sort=oldest{% endif %}{% if log_action_type %}&log_action_type={{ log_action_type }}{% endif %}{% if log_provider %}&log_provider={{ log_provider }}{% endif %}{% if log_status %}&log_status={{ log_status }}{% endif %}{% if log_date_from %}&log_date_from={{ log_date_from }}{% endif %}{% if log_date_to %}&log_date_to={{ log_date_to }}{% endif %}" class="btn btn-sm btn-ghost text-ink-dim">Next &rarr;</a>
         {% endif %}
       </div>
     </div>

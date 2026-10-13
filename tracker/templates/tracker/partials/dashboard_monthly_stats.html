@@ -1,43 +1,30 @@
 {% load icons %}
-{# context: monthly_stats (selectors.monthly_stats()) #}
-<div class="bg-base-200 border border-line rounded-2xl p-4 shadow-md shadow-black/20">
-  <div class="flex items-center justify-between mb-3.5">
-    <h2 class="font-display text-lg tracking-wide">Monthly Stats</h2>
-    <span class="text-[11px] text-ink-faint font-mono">{% now "F Y" %}</span>
+{# context: monthly_stats (selectors.monthly_stats()) - the Dashboard's "This Month" summary: two headline figures and the Movie/TV/Anime split, laid out on the page rather than boxed. #}
+<section aria-labelledby="monthly-stats-heading">
+  <div class="section-head">
+    <h2 id="monthly-stats-heading" class="section-title section-title-sm">This Month <span class="sr-only">— Monthly Stats</span></h2>
+    <a href="{% url 'stats' %}" class="section-link">Stats &rarr;</a>
   </div>
-  <div class="grid grid-cols-2 gap-3 mb-4">
+  <div class="grid grid-cols-2 gap-4">
     <div>
-      <div class="text-[10.5px] text-ink-faint uppercase tracking-wide">Hours Watched</div>
-      <div class="flex items-baseline gap-1.5 mt-0.5">
-        <span class="font-display text-2xl">{{ monthly_stats.hours }}</span>
-        <span class="text-xs text-ink-dim">hrs</span>
-      </div>
-      {% if monthly_stats.pct_change_vs_last_month is not None %}
-        <div class="text-[11px] font-mono mt-0.5 {% if monthly_stats.pct_change_vs_last_month >= 0 %}text-success{% else %}text-error{% endif %}">
-          {% if monthly_stats.pct_change_vs_last_month >= 0 %}&#8593;{% else %}&#8595;{% endif %} {{ monthly_stats.pct_change_vs_last_month|cut:"-" }}% vs last mo
-        </div>
-      {% endif %}
+      <div class="figure">{{ monthly_stats.hours }}<span class="text-sm font-medium text-ink-dim ml-1">hrs</span></div>
+      <div class="figure-label">Hours watched{% if monthly_stats.pct_change_vs_last_month is not None %} · <span class="{% if monthly_stats.pct_change_vs_last_month >= 0 %}text-success{% else %}text-error{% endif %}">{% if monthly_stats.pct_change_vs_last_month >= 0 %}&#8593;{% else %}&#8595;{% endif %} {{ monthly_stats.pct_change_vs_last_month|cut:"-" }}% vs last mo</span>{% endif %}</div>
     </div>
     <div>
-      <div class="text-[10.5px] text-ink-faint uppercase tracking-wide">Episodes Logged</div>
-      <div class="flex items-baseline gap-1.5 mt-0.5">
-        <span class="font-display text-2xl">{{ monthly_stats.episodes_logged }}</span>
-        <span class="text-xs text-ink-dim">eps</span>
-      </div>
+      <div class="figure">{{ monthly_stats.episodes_logged }}<span class="text-sm font-medium text-ink-dim ml-1">eps</span></div>
+      <div class="figure-label">Episodes logged</div>
     </div>
   </div>
   {% if monthly_stats.split.movie_pct or monthly_stats.split.tv_pct or monthly_stats.split.anime_pct %}
-    <div class="text-[10.5px] text-ink-faint uppercase tracking-wide mb-1.5">Movies / TV / Anime</div>
-    <div class="flex h-2 rounded-full overflow-hidden bg-base-300">
-      {% if monthly_stats.split.movie_pct %}<div class="bg-primary" style="width:{{ monthly_stats.split.movie_pct }}%"></div>{% endif %}
-      {% if monthly_stats.split.tv_pct %}<div class="bg-info" style="width:{{ monthly_stats.split.tv_pct }}%"></div>{% endif %}
-      {% if monthly_stats.split.anime_pct %}<div class="bg-secondary" style="width:{{ monthly_stats.split.anime_pct }}%"></div>{% endif %}
+    <div class="flex h-1.5 rounded-full overflow-hidden bg-base-300 gap-px mt-5" role="img" aria-label="Movies {{ monthly_stats.split.movie_pct }}%, TV {{ monthly_stats.split.tv_pct }}%, Anime {{ monthly_stats.split.anime_pct }}%">
+      {% if monthly_stats.split.movie_pct %}<div class="bg-movie" style="width:{{ monthly_stats.split.movie_pct }}%"></div>{% endif %}
+      {% if monthly_stats.split.tv_pct %}<div class="bg-tv" style="width:{{ monthly_stats.split.tv_pct }}%"></div>{% endif %}
+      {% if monthly_stats.split.anime_pct %}<div class="bg-anime" style="width:{{ monthly_stats.split.anime_pct }}%"></div>{% endif %}
     </div>
-    <div class="flex items-center gap-3 mt-2 text-[10.5px] text-ink-dim">
-      <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-primary"></span>{{ monthly_stats.split.movie_pct }}%</span>
-      <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-info"></span>{{ monthly_stats.split.tv_pct }}%</span>
-      <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-secondary"></span>{{ monthly_stats.split.anime_pct }}%</span>
+    <div class="flex items-center gap-4 mt-2 text-[12.5px] text-ink-dim">
+      <span class="flex items-center gap-1.5"><span class="type-dot bg-movie"></span>Movies {{ monthly_stats.split.movie_pct }}%</span>
+      <span class="flex items-center gap-1.5"><span class="type-dot bg-tv"></span>TV {{ monthly_stats.split.tv_pct }}%</span>
+      <span class="flex items-center gap-1.5"><span class="type-dot bg-anime"></span>Anime {{ monthly_stats.split.anime_pct }}%</span>
     </div>
   {% endif %}
-  <a href="{% url 'stats' %}" class="block text-center text-xs text-ink-faint hover:text-ink-dim mt-4 pt-3 border-t border-line">View full stats &rarr;</a>
-</div>
+</section>

@@ -1,37 +1,36 @@
 {% load tracker_extras %}
 {% if title_filter %}
-  <div class="flex items-center justify-between gap-3 bg-base-200 border border-line rounded-lg px-4 py-2.5 mb-5 text-sm">
-    <span>Filtered to <b>{{ title_filter.name }}</b></span>
+  <div class="mb-6">
     <a hx-get="?type={{ type_filter }}&period={{ period }}&sort={{ sort }}&q={{ query|urlencode }}" hx-target="#history-content" hx-push-url="true"
-       class="text-xs text-ink-faint hover:text-base-content cursor-pointer">&times; Clear</a>
+       class="filter-chip cursor-pointer" aria-label="Clear title filter">Filtered to <b class="font-semibold">{{ title_filter.name }}</b> &times;</a>
   </div>
 {% endif %}
 {% if not profile %}
   <p class="text-ink-faint text-sm">Your account isn't linked to a household profile yet.</p>
 {% elif grouped_by_watch_count %}
   {% if not title_rows %}
-    <div class="py-10 text-center text-ink-faint text-sm">No history matches these filters — yet.</div>
+    <div class="empty"><div class="empty-title">Nothing here yet</div>No history matches these filters — yet.</div>
   {% else %}
-    <div class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-4">
+    <div class="media-grid">
       {% for row in title_rows %}
         {% include "tracker/partials/history_watch_count_tile.html" with title=row.title watch_count=row.watch_count last_watched_at=row.last_watched_at %}
       {% endfor %}
     </div>
   {% endif %}
 {% elif not day_groups %}
-  <div class="py-10 text-center text-ink-faint text-sm">No history matches these filters — yet.</div>
+  <div class="empty"><div class="empty-title">Nothing here yet</div>No history matches these filters — yet.</div>
 {% else %}
   {% for group in day_groups %}
-    <div class="flex justify-between items-baseline {% if not forloop.first %}mt-7{% endif %} mb-3 pb-2 border-b border-line">
-      <div class="font-display text-lg tracking-wide">{{ group.date|day_header }}</div>
-      <div class="text-[11.5px] text-ink-faint font-mono">
+    <div class="day-head sticky top-14 lg:top-15 z-10 bg-base-100 flex justify-between items-baseline gap-4 {% if not forloop.first %}mt-10{% endif %} pt-3 pb-3">
+      <h2 class="text-[17px] font-semibold">{{ group.date|day_header }}</h2>
+      <div class="text-[13px] text-ink-dim">
         {% if group.movie_count %}{{ group.movie_count }} movie{{ group.movie_count|pluralize }}{% endif %}
         {% if group.movie_count and group.episode_count %}·{% endif %}
         {% if group.episode_count %}{{ group.episode_count }} episode{{ group.episode_count|pluralize }}{% endif %}
         {% if group.total_duration %}· {{ group.total_duration }}{% endif %}
       </div>
     </div>
-    <div class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-4">
+    <div class="media-grid pt-2">
       {% for item in group.items %}
         {% if item.is_group %}
           {% include "tracker/partials/history_group_tile.html" with group=item %}
@@ -43,24 +42,24 @@
   {% endfor %}
 {% endif %}
 {% if profile and page_obj and page_obj.paginator.count %}
-  <div class="flex justify-between items-center flex-wrap gap-3 mt-7">
-    <span class="font-mono text-xs text-ink-faint">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }} · {{ page_obj.paginator.count }} {% if grouped_by_watch_count %}title{{ page_obj.paginator.count|pluralize }}{% else %}day{{ page_obj.paginator.count|pluralize }}{% endif %}</span>
+  <div class="flex justify-between items-center flex-wrap gap-3 mt-12">
+    <span class="text-[13px] text-ink-dim">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }} · {{ page_obj.paginator.count }} {% if grouped_by_watch_count %}title{{ page_obj.paginator.count|pluralize }}{% else %}day{{ page_obj.paginator.count|pluralize }}{% endif %}</span>
     <div class="flex gap-1.5">
       {% if page_obj.has_previous %}
         <a hx-get="?{{ base_query }}&page={{ page_obj.previous_page_number }}" hx-target="#history-content" hx-push-url="true"
-           class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim cursor-pointer">‹ Prev</a>
+           class="btn btn-sm btn-ghost text-ink-dim">&larr; Prev</a>
       {% endif %}
       {% for num in page_obj.paginator.page_range %}
         {% if num == page_obj.number %}
-          <span class="px-3 py-1.5 rounded-md bg-primary text-primary-content font-mono text-xs font-bold">{{ num }}</span>
+          <span class="btn btn-sm btn-square bg-primary/15 border-transparent text-primary" aria-current="page">{{ num }}</span>
         {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}
           <a hx-get="?{{ base_query }}&page={{ num }}" hx-target="#history-content" hx-push-url="true"
-             class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim cursor-pointer">{{ num }}</a>
+             class="btn btn-sm btn-square btn-ghost text-ink-dim">{{ num }}</a>
         {% endif %}
       {% endfor %}
       {% if page_obj.has_next %}
         <a hx-get="?{{ base_query }}&page={{ page_obj.next_page_number }}" hx-target="#history-content" hx-push-url="true"
-           class="px-3 py-1.5 rounded-md border border-line bg-base-200 font-mono text-xs text-ink-dim cursor-pointer">Next ›</a>
+           class="btn btn-sm btn-ghost text-ink-dim">Next &rarr;</a>
       {% endif %}
     </div>
   </div>

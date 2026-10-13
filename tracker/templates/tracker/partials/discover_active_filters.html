@@ -1,0 +1,69 @@
+{% load icons %}
+{% comment %}
+  context: the same discover() context discover.html reads (genres/
+  selected_genres, decade_options/selected_decades, runtime_buckets/
+  selected_runtime_bucket, languages/selected_language, availability_
+  choices/selected_availability, providers/selected_providers,
+  selected_certification, selected_status, selected_origin_country(_name),
+  query_without_origin_country). One removable chip per active filter,
+  under the toolbar, plus "Clear all".
+
+  Removing a chip edits the (hidden) Filters form in place - unchecks
+  that one checkbox, or disables the select/range so it isn't submitted -
+  and re-submits it, so the result is exactly what unticking it in the
+  panel and pressing "Apply filters" would have produced. Origin country
+  has no control in that form (it arrives from a title page's country
+  link), so its chip is a plain link to the URL without it.
+{% endcomment %}
+{% if selected_genres or selected_providers or selected_decades or selected_runtime_bucket or request.GET.rating_from or request.GET.rating_to or selected_language or selected_certification or selected_status or selected_availability or selected_origin_country %}
+<div class="flex flex-wrap items-center gap-2 -mt-1 mb-6" x-data="{
+  disable(name) {
+    const form = document.getElementById('discover-filters-form');
+    form?.querySelectorAll(`[name='${name}']`).forEach((el) => { el.disabled = true; });
+  },
+  remove(name, value) {
+    const form = document.getElementById('discover-filters-form');
+    if (!form) return;
+    form.querySelectorAll(`[name='${name}']`).forEach((el) => {
+      if (el.type === 'checkbox' || el.type === 'radio') {
+        if (value === undefined || el.value === String(value)) el.checked = false;
+      } else {
+        el.disabled = true;
+      }
+    });
+    form.requestSubmit();
+  },
+}">
+  {% for g in genres %}{% if g.id in selected_genres %}
+    <button type="button" class="filter-chip" @click="remove('genre', '{{ g.id }}')">{{ g.name }} {% icon "x" "w-3 h-3" %}</button>
+  {% endif %}{% endfor %}
+  {% for decade_start, is_current in decade_options %}{% if decade_start in selected_decades %}
+    <button type="button" class="filter-chip" @click="remove('decade', '{{ decade_start }}')">{{ decade_start }}s {% icon "x" "w-3 h-3" %}</button>
+  {% endif %}{% endfor %}
+  {% for bucket_key, bucket_label, bucket_from, bucket_to in runtime_buckets %}{% if bucket_key == selected_runtime_bucket %}
+    <button type="button" class="filter-chip" @click="remove('runtime_bucket')">Runtime: {{ bucket_label }} {% icon "x" "w-3 h-3" %}</button>
+  {% endif %}{% endfor %}
+  {% if request.GET.rating_from or request.GET.rating_to %}
+    <button type="button" class="filter-chip" @click="disable('rating_to'); remove('rating_from')">Rating {{ request.GET.rating_from|default:"0" }}–{{ request.GET.rating_to|default:"10" }} {% icon "x" "w-3 h-3" %}</button>
+  {% endif %}
+  {% for code, name in languages %}{% if selected_language == code %}
+    <button type="button" class="filter-chip" @click="remove('language')">{{ name }} {% icon "x" "w-3 h-3" %}</button>
+  {% endif %}{% endfor %}
+  {% for value, availability_label in availability_choices %}{% if selected_availability == value %}
+    <button type="button" class="filter-chip" @click="remove('availability')">{{ availability_label }} {% icon "x" "w-3 h-3" %}</button>
+  {% endif %}{% endfor %}
+  {% for p in providers %}{% if p.id in selected_providers %}
+    <button type="button" class="filter-chip" @click="remove('provider', '{{ p.id }}')">{{ p.name }} {% icon "x" "w-3 h-3" %}</button>
+  {% endif %}{% endfor %}
+  {% if selected_certification %}
+    <button type="button" class="filter-chip" @click="remove('certification')">Rated {{ selected_certification }} {% icon "x" "w-3 h-3" %}</button>
+  {% endif %}
+  {% if selected_status %}
+    <button type="button" class="filter-chip" @click="remove('status')">{{ selected_status }} {% icon "x" "w-3 h-3" %}</button>
+  {% endif %}
+  {% if selected_origin_country %}
+    <a href="?{{ query_without_origin_country }}" class="filter-chip" aria-label="Clear country filter">Filtered to <b class="font-semibold">{{ selected_origin_country_name }}</b> {% icon "x" "w-3 h-3" %}</a>
+  {% endif %}
+  <a href="?filters_submitted=1" class="text-xs font-medium text-ink-dim hover:text-primary ml-1">Clear all</a>
+</div>
+{% endif %}

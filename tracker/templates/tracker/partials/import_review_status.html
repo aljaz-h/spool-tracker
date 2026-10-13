@@ -4,7 +4,7 @@
   {% if session.status == "scanning" or session.status == "importing" %}
     hx-get="{% url 'import_review_status' session.id %}" hx-trigger="every 3s" hx-swap="outerHTML"
   {% endif %}
-  class="bg-base-200 border border-line rounded-2xl p-5 mb-5"
+  class="settings-panel mb-5"
 >
   {% if session.status == "scanning" %}
     <div class="text-lg">Scanning {{ session.get_source_display }} import…</div>
@@ -12,8 +12,15 @@
       {% if session.total_items %}{{ session.processed_items }} of {{ session.total_items }} items processed{% else %}Reading file…{% endif %}
     </div>
   {% elif session.status == "importing" %}
-    <div class="text-lg">Importing…</div>
-    <div class="text-ink-dim text-sm mt-1">{{ session.processed_items }} of {{ session.selected_items }} selected items processed</div>
+    {% with finishing=session.source_metadata.finishing %}
+      {% if finishing %}
+        <div class="text-lg">Finishing up…</div>
+        <div class="text-ink-dim text-sm mt-1">All {{ session.processed_items }} items written. Updating completion and runtimes from TMDB: {{ finishing.done }} of {{ finishing.total }} titles. This can take a while on a large import.</div>
+      {% else %}
+        <div class="text-lg">Importing…</div>
+        <div class="text-ink-dim text-sm mt-1">{{ session.processed_items }} of {{ session.selected_items }} selected items processed</div>
+      {% endif %}
+    {% endwith %}
   {% elif session.status == "failed" %}
     <div class="text-lg text-error">Scan failed</div>
     {% if session.error_message %}<div class="text-ink-dim text-sm mt-1 font-mono">{{ session.error_message }}</div>{% endif %}

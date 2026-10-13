@@ -7,7 +7,7 @@
 {% endcomment %}
 <div
   data-notification-row
-  class="notification-row group relative flex items-start gap-2.5 px-3 py-2.5 border-b border-l-2 border-line last:border-b-0 {% if not n.read %}bg-primary/5 border-l-primary{% else %}border-l-transparent{% endif %}"
+  class="notification-row group relative flex items-start gap-3 px-3.5 py-2.5 border-b border-line last:border-b-0 {% if not n.read %}bg-primary/[0.04] shadow-[inset_2px_0_0_var(--color-primary)]{% endif %}"
 >
   {% comment %}
     A real poster (or its gradient fallback) for every kind that carries
@@ -30,13 +30,15 @@
   </div>
   <div class="min-w-0 flex-1">
     {% if n.title %}
-      <a href="{% url 'title_detail' n.title.pk %}" class="text-[13.5px] {% if not n.read %}font-semibold{% else %}text-ink-dim{% endif %} block line-clamp-2 hover:underline">{{ n.display_message }}</a>
+      <a href="{% url 'title_detail' n.title.pk %}" class="text-[13.5px] {% if not n.read %}font-medium text-base-content{% else %}text-ink-dim{% endif %} block line-clamp-2 hover:text-white">{{ n.display_message }}</a>
+    {% elif n.link %}
+      <a href="{{ n.link }}" class="text-[13.5px] {% if not n.read %}font-medium text-base-content{% else %}text-ink-dim{% endif %} block line-clamp-2 hover:text-white">{{ n.display_message }}</a>
     {% elif n.kind == "system_update" %}
-      <a href="{{ changelog_url }}" target="_blank" rel="noopener" class="text-[13.5px] {% if not n.read %}font-semibold{% else %}text-ink-dim{% endif %} block line-clamp-2 hover:underline">{{ n.display_message }}</a>
+      <a href="{{ changelog_url }}" target="_blank" rel="noopener" class="text-[13.5px] {% if not n.read %}font-medium text-base-content{% else %}text-ink-dim{% endif %} block line-clamp-2 hover:text-white">{{ n.display_message }}</a>
     {% else %}
-      <div class="text-[13.5px] {% if not n.read %}font-semibold{% else %}text-ink-dim{% endif %} line-clamp-2">{{ n.display_message }}</div>
+      <div class="text-[13.5px] {% if not n.read %}font-medium text-base-content{% else %}text-ink-dim{% endif %} line-clamp-2">{{ n.display_message }}</div>
     {% endif %}
-    <div class="text-[11.5px] text-ink-faint font-mono mt-0.5">{{ n.created_at|timesince }} ago</div>
+    <div class="text-[12.5px] text-ink-faint mt-0.5">{{ n.created_at|timesince }} ago</div>
   </div>
   {% if not n.read %}
     {% comment %}

@@ -1,0 +1,3 @@
+{% load icons %}
+{# context: href, label, is_active, icon_name - one link in the desktop top navigation (topbar.html, lg: and up). Muted by default; the current page gets full-brightness text, an amber icon and an amber underline along the bottom edge of the bar (.topnav-item in app.css). The icon only shows from xl: - below that the nine text links need the room. #}
+<a href="{{ href }}" {% if is_active %}aria-current="page"{% endif %} class="topnav-item">{% if icon_name %}{% icon icon_name "topnav-icon hidden xl:block w-4 h-4 flex-none" %}{% endif %}{{ label }}</a>

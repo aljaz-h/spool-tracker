@@ -10,7 +10,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="{% static 'img/favicon-16.png' %}">
   <link rel="apple-touch-icon" href="{% static 'img/apple-touch-icon.png' %}">
   <link rel="manifest" href="{% static 'img/manifest.webmanifest' %}">
-  <meta name="theme-color" content="#14161c">
+  <meta name="theme-color" content="#0e1014">
   {% comment %}
     iOS Safari doesn't act on the web manifest for "Add to Home Screen" -
     these are its own separate, older meta-tag convention for the same
@@ -20,6 +20,28 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Spool">
+  <script>
+    // "/" jumps to the global search field from anywhere that isn't
+    // already a text input - the usual media-app shortcut.
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target;
+      if (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+      const input = document.getElementById('global-search-input');
+      // Below 2xl the top bar shows a search icon instead of the field -
+      // "/" then opens the Search page (desktop only; phones have no "/").
+      if (!input || !input.offsetParent) {
+        if (window.innerWidth >= 1024 && !location.pathname.startsWith('/search')) {
+          e.preventDefault();
+          location.href = '{% url "search" %}';
+        }
+        return;
+      }
+      e.preventDefault();
+      input.focus();
+      input.select();
+    });
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Public+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'dist/app.css' %}">
@@ -54,12 +76,16 @@
     // not something anyone pressed, and flashing the bar every few
     // seconds on those pages would be pure noise.
     (() => {
-      const bar = document.getElementById('spool-progress-bar');
+      // Looked up lazily - this script runs in <head>, before the bar
+      // element exists, so a top-level getElementById here is null.
+      const getBar = () => document.getElementById('spool-progress-bar');
       let activeRequests = 0;
       let trickleTimer = null;
       let hideTimer = null;
 
       const trickle = () => {
+        const bar = getBar();
+        if (!bar) return;
         const current = parseFloat(bar.style.width) || 0;
         if (current >= 90) return;
         bar.style.width = Math.min(90, current + (90 - current) * 0.2 + 4) + '%';
@@ -67,6 +93,8 @@
       };
 
       const start = () => {
+        const bar = getBar();
+        if (!bar) return;
         clearTimeout(hideTimer);
         clearTimeout(trickleTimer);
         bar.style.transition = 'none';
@@ -80,6 +108,8 @@
       };
 
       const finish = () => {
+        const bar = getBar();
+        if (!bar) return;
         clearTimeout(trickleTimer);
         bar.style.width = '100%';
         hideTimer = setTimeout(() => {
@@ -357,7 +387,10 @@
       target.classList.add('episode-card-highlight');
       setTimeout(() => target.classList.remove('episode-card-highlight'), 2000);
     }
-    document.addEventListener('DOMContentLoaded', scrollToEpisodeAnchor);
+    // After Alpine, not on DOMContentLoaded: title_detail.html's tabs and
+    // title_episodes.html's "Show all" collapse both decide from the hash
+    // which episode row is visible, so scrolling has to wait for them.
+    document.addEventListener('alpine:initialized', () => requestAnimationFrame(scrollToEpisodeAnchor));
     // htmx's documented custom-confirm recipe: intercept the cancelable
     // htmx:confirm event and only call issueRequest(true) (proceeding
     // with the original request) once the dialog above resolves true.
@@ -399,30 +432,42 @@
     paying that cost anywhere it wasn't actually needed.
   {% endcomment %}
   <div
-    x-data="{ sidebarOpen: false, mobileSearchOpen: false, bottomSheetOpen: false }"
+    x-data="{ mobileSearchOpen: false, bottomSheetOpen: false }"
     x-effect="document.body.classList.toggle('overflow-hidden', bottomSheetOpen)"
   >
-    {% include "tracker/partials/sidebar.html" %}
-    <div class="min-h-screen flex flex-col">
+    <div class="app-content">
       {% include "tracker/partials/topbar.html" %}
-      <main class="p-4 sm:p-6 lg:p-8 pb-28 xl:pb-16 lg:px-[calc(2rem+10%)]">
+      <main id="main" class="page flex-1 pt-6 sm:pt-8 lg:pt-10 pb-14 lg:pb-20">
         {% include "tracker/partials/discover_type_switcher.html" %}
         {% block content %}{% endblock %}
       </main>
+      {% comment %}
+        Version + data credits. TMDB's terms require crediting it wherever
+        its data is shown; Jikan/MAL and AniFiller get the same courtesy.
+        Clears the phone bottom nav (and the iOS home indicator) below lg.
+      {% endcomment %}
+      <footer class="page flex flex-wrap items-center justify-between gap-x-6 gap-y-1 pt-6 border-t border-line text-[12.5px] text-ink-faint pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-8">
+        <div>{{ all_profiles|length }} profile{{ all_profiles|length|pluralize }} on this server · <span class="font-mono">v{{ app_version }}</span></div>
+        <div>
+          Data by <a href="https://www.themoviedb.org/" target="_blank" rel="noopener" class="hover:text-ink-dim underline decoration-dotted underline-offset-2">TMDB</a>,
+          <a href="https://jikan.moe/" target="_blank" rel="noopener" class="hover:text-ink-dim underline decoration-dotted underline-offset-2">Jikan</a> &amp;
+          <a href="https://github.com/AniraTeam/AniFiller" target="_blank" rel="noopener" class="hover:text-ink-dim underline decoration-dotted underline-offset-2">AniFiller</a>.
+        </div>
+      </footer>
     </div>
     {% include "tracker/partials/bottom_nav.html" %}
     {% include "tracker/partials/bottom_sheet.html" %}
   </div>
 
   <dialog id="confirm_modal" class="modal" aria-labelledby="confirm-modal-message">
-    <div class="modal-box bg-base-200 border border-line rounded-2xl p-5 max-w-sm">
+    <div class="modal-box bg-base-200 rounded-2xl p-5 max-w-sm">
       <div id="confirm-modal-message" class="text-sm leading-relaxed mb-5"></div>
       <div class="flex gap-2.5 justify-end">
         <form method="dialog"><button type="submit" class="btn btn-sm btn-soft">Cancel</button></form>
         <button type="button" id="confirm-modal-confirm-btn" class="btn btn-sm btn-error">Confirm</button>
       </div>
     </div>
-    <form method="dialog" class="modal-backdrop bg-black/60 backdrop-blur-sm"><button>close</button></form>
+    <form method="dialog" class="modal-backdrop bg-black/70"><button>close</button></form>
   </dialog>
 
   {% include "tracker/partials/toasts.html" %}

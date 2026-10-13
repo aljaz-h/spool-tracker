@@ -1,9 +1,9 @@
 {# context: progress (WatchProgress or None), recent_events (list of WatchEvent, newest first), oob (bool, optional - true when this is being sent as an hx-swap-oob fragment alongside some other response, e.g. episode_mark_watched) #}
-<div id="history-card" {% if oob %}hx-swap-oob="true"{% endif %} class="bg-base-200 border border-line rounded-2xl p-4">
-  <h2 class="font-display text-lg mb-2.5">Your history</h2>
+<section id="history-card" {% if oob %}hx-swap-oob="true"{% endif %}>
+  <h2 class="subhead mb-2.5">Your history</h2>
   {% if progress %}
     <div class="flex items-center justify-between gap-2 mb-2">
-      <div class="text-[12.5px]">
+      <div class="text-[13px]">
         Status: <span class="font-semibold">{{ progress.get_status_display }}</span>
         {% if progress.current_episode %}— S{{ progress.current_episode.season }}E{{ progress.current_episode.episode }}{% endif %}
       </div>
@@ -13,7 +13,7 @@
           hx-post="{% url 'title_resume_watching' progress.title_id %}"
           hx-target="#history-card"
           hx-swap="outerHTML"
-          class="flex-none text-[11px] font-semibold text-primary hover:underline"
+          class="flex-none text-[12px] font-semibold text-primary hover:underline"
         >Resume watching</button>
       {% elif progress.status == "watching" %}
         <button
@@ -22,21 +22,21 @@
           hx-target="#history-card"
           hx-swap="outerHTML"
           hx-confirm="Mark &quot;{{ progress.title.name }}&quot; as dropped? Your watch history stays intact - you can resume any time."
-          class="flex-none text-[11px] font-semibold text-ink-faint hover:text-error"
+          class="flex-none text-[12px] font-semibold text-ink-faint hover:text-error"
         >Drop</button>
       {% endif %}
     </div>
   {% endif %}
   {% if recent_events %}
-    <div class="flex flex-col gap-1.5">
+    <div class="rows">
       {% for event in recent_events %}
-        <div class="flex justify-between items-center gap-3 text-[12px]">
-          <span class="font-mono text-ink-dim">{% if event.episode %}S{{ event.episode.season }}E{{ event.episode.episode }}{% else %}Watched{% endif %}</span>
-          <span class="font-mono text-ink-faint">{{ event.watched_at|timesince }} ago</span>
+        <div class="flex justify-between items-center gap-3 text-[12.5px] py-1.5">
+          <span class="text-ink-dim">{% if event.episode %}<span class="font-mono">S{{ event.episode.season }}E{{ event.episode.episode }}</span>{% else %}Watched{% endif %}</span>
+          <span class="text-ink-faint">{{ event.watched_at|timesince }} ago</span>
         </div>
       {% endfor %}
     </div>
   {% elif not progress %}
     <div class="text-xs text-ink-faint">Not watched yet.</div>
   {% endif %}
-</div>
+</section>

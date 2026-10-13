@@ -20,6 +20,8 @@ from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
 from . import achievements, completion, crypto, csv_import, episode_matching, import_pipeline, instance_config, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, title_matching, totp, update_check, views
+from django.utils import timezone as _tz
+from .watchlists import ensure_watchlist
 from .integrations import anifiller, mdblist, nuvio, scrobble, simkl, tenrai, tmdb, trakt
 from .models import (
     AVATAR_COLOR_CHOICES,
@@ -1696,7 +1698,7 @@ class CompletionWatchlistRemovalTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("watchlistwatcher", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="WatchlistWatcher")
-        self.watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        self.watchlist = ensure_watchlist(self.profile)
         self.custom_list = WatchList.objects.create(profile=self.profile, name="Favorites")
 
     def test_removes_a_watched_movie_from_the_watchlist(self):
@@ -2295,7 +2297,7 @@ class GenerateWatchlistStaleNotificationsTests(TestCase):
 
         user = User.objects.create_user("stalewatcher", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="StaleWatcher")
-        self.watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        self.watchlist = ensure_watchlist(self.profile)
         self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Old Pick", year=2019)
         self.now = timezone.now()
 
@@ -2977,7 +2979,7 @@ class DashboardRecommendationsTests(TestCase):
 
     def test_shows_list_membership_when_title_already_on_a_list(self):
         Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
-        watchlist = WatchList.objects.create(profile=self.recipient, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(self.recipient)
         WatchListItem.objects.create(watchlist=watchlist, title=self.title)
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, "On 1 list")
@@ -5965,7 +5967,9 @@ class ScanAndCommitImportSessionTaskTests(TestCase):
         tasks.commit_import_session(session.id)
 
         self.assertEqual(WatchEvent.objects.filter(profile=self.profile).count(), 1)
-        self.assertEqual(DataLog.objects.filter(profile=self.profile).count(), 2)
+        # One Logs row per import session (transfer_tracking.py), however
+        # many times its commit runs.
+        self.assertEqual(DataLog.objects.filter(profile=self.profile).count(), 1)
         # Regression: session.imported_items must reflect the cumulative
         # total across both runs, not get clobbered back to 0 by the
         # second run's own (empty, since everything's already IMPORTED)
@@ -6755,13 +6759,13 @@ class OAuthCallbackDataLogTests(TestCase):
 
         self.client.get(reverse("trakt_callback"), {"code": "authcode", "state": "abc123"})
 
-        log = DataLog.objects.get(profile=self.profile)
+        log = DataLog.objects.exclude(action=DataLog.Action.IMPORT).get(profile=self.profile)
         self.assertEqual(log.action, DataLog.Action.TRAKT_CONNECT)
         self.assertEqual(log.status, DataLog.Status.SUCCESS)
 
     def test_expired_state_is_logged_as_failure(self):
         self.client.get(reverse("trakt_callback"), {"code": "authcode", "state": "wrong"})
-        log = DataLog.objects.get(profile=self.profile)
+        log = DataLog.objects.exclude(action=DataLog.Action.IMPORT).get(profile=self.profile)
         self.assertEqual(log.action, DataLog.Action.TRAKT_CONNECT)
         self.assertEqual(log.status, DataLog.Status.FAILED)
 
@@ -7421,7 +7425,7 @@ class CombinedLogsTests(TestCase):
 
         page = selectors.combined_logs(None)
         self.assertEqual(len(page.object_list), 2)
-        self.assertEqual(page.object_list[0]["action"], "CSV Import")
+        self.assertEqual(page.object_list[0]["action"], "Import")
         self.assertEqual(page.object_list[1]["action"], "Sync · Trakt")
 
     def test_paginates(self):
@@ -7445,7 +7449,7 @@ class CombinedLogsTests(TestCase):
 
         page = selectors.combined_logs(None, oldest_first=True)
         self.assertEqual(page.object_list[0]["action"], "Sync · Trakt")
-        self.assertEqual(page.object_list[1]["action"], "CSV Import")
+        self.assertEqual(page.object_list[1]["action"], "Import")
 
     def test_profile_id_filters_to_one_profile(self):
         other_user = User.objects.create_user("logsmerger2", password="pass12345")
@@ -7479,7 +7483,7 @@ class CombinedLogsTests(TestCase):
         sync_entry = next(e for e in page.object_list if e["action"] == "Sync · Trakt")
         self.assertEqual(sync_entry["imported_titles"], ["Fathom", "Silo"])
         self.assertEqual(sync_entry["imported_titles_more"], 3)
-        import_entry = next(e for e in page.object_list if e["action"] == "CSV Import")
+        import_entry = next(e for e in page.object_list if e["action"] == "Import")
         self.assertEqual(import_entry["imported_titles"], ["Fathom"])
         self.assertEqual(import_entry["imported_titles_more"], 0)
 
@@ -7491,7 +7495,7 @@ class CombinedLogsTests(TestCase):
         page = selectors.combined_logs(None, action_type="import")
 
         self.assertEqual(len(page.object_list), 1)
-        self.assertEqual(page.object_list[0]["action"], "CSV Import")
+        self.assertEqual(page.object_list[0]["action"], "Import")
 
     def test_action_type_connect_groups_all_three_providers(self):
         DataLog.objects.create(profile=self.profile, action=DataLog.Action.TRAKT_CONNECT, provider="trakt", status=DataLog.Status.SUCCESS)
@@ -7534,7 +7538,7 @@ class CombinedLogsTests(TestCase):
         page = selectors.combined_logs(None, date_from=today, date_to=today)
 
         self.assertEqual(len(page.object_list), 1)
-        self.assertEqual(page.object_list[0]["action"], "CSV Import")
+        self.assertEqual(page.object_list[0]["action"], "Import")
 
 
 class SyncLogViewTests(TestCase):
@@ -7616,7 +7620,7 @@ class SyncLogViewTests(TestCase):
         self.client.login(username="logowner", password="pass12345")
         resp = self.client.get(reverse("settings"), {"tab": "logs", "log_status": "failed"})
         actions_shown = {entry["action"] for entry in resp.context["logs_page"].object_list}
-        self.assertEqual(actions_shown, {"CSV Import"})
+        self.assertEqual(actions_shown, {"Import"})
 
     def test_invalid_log_date_is_ignored_rather_than_erroring(self):
         self.client.login(username="logowner", password="pass12345")
@@ -8129,7 +8133,7 @@ class NuvioConnectViewTests(TestCase):
         import_session = ImportSession.objects.get(profile=self.profile, source=ImportSession.Source.NUVIO)
         self.assertRedirects(resp, reverse("import_review", args=[import_session.id]))
         mock_dispatch.assert_called_once_with(views.tasks.scan_import_session, [import_session.id])
-        log = DataLog.objects.get(profile=self.profile)
+        log = DataLog.objects.exclude(action=DataLog.Action.IMPORT).get(profile=self.profile)
         self.assertEqual(log.action, DataLog.Action.NUVIO_CONNECT)
         self.assertEqual(log.status, DataLog.Status.SUCCESS)
 
@@ -8853,7 +8857,7 @@ class ClearWatchHistoryViewTests(TestCase):
         self.assertFalse(WatchProgress.objects.filter(profile=self.profile).exists())
 
     def test_does_not_touch_lists_or_watchlist(self):
-        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(self.profile)
         WatchListItem.objects.create(watchlist=watchlist, title=self.title)
         custom_list = WatchList.objects.create(profile=self.profile, name="Favorites")
         WatchListItem.objects.create(watchlist=custom_list, title=self.title)
@@ -12997,7 +13001,7 @@ class DiscoverViewTests(TestCase):
         title = Title.objects.create(
             media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
         )
-        watchlist = WatchList.objects.create(profile=profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(profile)
         WatchListItem.objects.create(watchlist=watchlist, title=title)
         mock_discover.return_value = {
             "results": [{"tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020",
@@ -13133,7 +13137,7 @@ class SearchViewTests(TestCase):
         with patch("tracker.integrations.tmdb.search") as mock_search:
             resp = self.client.get(reverse("search"))
         mock_search.assert_not_called()
-        self.assertContains(resp, "Type something above")
+        self.assertContains(resp, "Type a title above")
 
     @patch("tracker.integrations.tmdb.search")
     def test_matches_a_title_already_in_the_library(self, mock_search):
@@ -13167,7 +13171,7 @@ class SearchViewTests(TestCase):
             "results": [{"tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020", "poster_url": None, "vote_average": 7.5, "overview": ""}]
         }
         resp = self.client.get(reverse("search"), {"q": "fathom"})
-        self.assertContains(resp, ">MOVIE<")
+        self.assertContains(resp, '<span class="type-dot bg-movie"></span>Movie</span>')
 
     @patch("tracker.integrations.tmdb.search")
     def test_tmdb_results_already_tracked_are_excluded(self, mock_search):
@@ -13371,7 +13375,7 @@ class RecentlyAddedToListsSelectorTests(TestCase):
 
     def test_excludes_watchlist_items(self):
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Watchlisted Movie", year=2020)
-        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(self.profile)
         WatchListItem.objects.create(watchlist=watchlist, title=title)
         self.assertEqual(list(selectors.recently_added_to_lists(self.profile)), [])
 
@@ -13941,7 +13945,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         WatchProgress.objects.create(
             profile=self.profile, title=watching_title, position_seconds=100, status=WatchProgress.Status.WATCHING
         )
-        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(self.profile)
         watchlist_title = Title.objects.create(media_type=MediaType.MOVIE, name="Not Started Movie", year=2021)
         WatchListItem.objects.create(watchlist=watchlist, title=watchlist_title)
 
@@ -14033,7 +14037,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         from django.utils import timezone
 
         title = Title.objects.create(media_type=MediaType.TV, name="Recently Released Show", year=2023)
-        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(self.profile)
         WatchListItem.objects.create(watchlist=watchlist, title=title)
         ReleaseSchedule.objects.create(
             title=title, release_type=ReleaseSchedule.ReleaseType.EPISODE,
@@ -14048,7 +14052,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         from django.utils import timezone
 
         title = Title.objects.create(media_type=MediaType.TV, name="Already Watching Show", year=2023)
-        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(self.profile)
         WatchListItem.objects.create(watchlist=watchlist, title=title)
         ReleaseSchedule.objects.create(
             title=title, release_type=ReleaseSchedule.ReleaseType.EPISODE,
@@ -14128,7 +14132,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Plain Link Movie", year=2020)
         WatchEvent.objects.create(profile=self.profile, title=title, watched_at=timezone.now())
         resp = self.client.get(reverse("dashboard"))
-        self.assertContains(resp, f'href="{reverse("title_detail", args=[title.pk])}" class="w-[270px] flex-none"')
+        self.assertContains(resp, f'href="{reverse("title_detail", args=[title.pk])}" class="media-card group block min-w-0"')
 
     def test_recently_watched_shows_each_episode_separately_not_deduped_by_title(self):
         from django.utils import timezone
@@ -14191,7 +14195,7 @@ class DashboardWatchingWatchlistTests(TestCase):
 
     def test_shows_watchlist_items(self):
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Listed Movie", year=2020)
-        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(self.profile)
         WatchListItem.objects.create(watchlist=watchlist, title=title)
         resp = self.client.get(reverse("dashboard"))
         self.assertEqual(len(resp.context["watchlist_items"]), 1)
@@ -14217,10 +14221,10 @@ class DashboardWatchingWatchlistTests(TestCase):
         # falls back to sizing itself from its own (unconstrained,
         # variable-length) title text instead of a fixed width.
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Listed Movie", year=2020)
-        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(self.profile)
         WatchListItem.objects.create(watchlist=watchlist, title=title)
         resp = self.client.get(reverse("dashboard"))
-        self.assertContains(resp, "w-[168px]")
+        self.assertContains(resp, 'class="min-w-0 discover-tile media-card"')
 
     def test_milestone_banner_shows_on_a_streak_milestone_day(self):
         from django.utils import timezone
@@ -14249,7 +14253,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, f'href="{reverse("calendar")}"')
 
-    def test_mobile_scroll_rows_get_a_fade_and_arrow_overlay_not_a_scrollbar(self):
+    def test_mobile_rows_have_no_native_scrollbar_affordance(self):
         # Reported live: the header stat pills and Up Next rows showed a
         # native scrollbar on mobile instead of the edge-fade affordance
         # every other Dashboard scroll row already uses - scroll-row-fade
@@ -14265,17 +14269,19 @@ class DashboardWatchingWatchlistTests(TestCase):
             release_date=timezone.now() + timedelta(days=1),
         )
         resp = self.client.get(reverse("dashboard"))
-        content = resp.content.decode()
-        self.assertEqual(content.count("scroll-row-fade"), 2)
-        self.assertContains(resp, 'aria-label="Scroll left"')
-        self.assertContains(resp, 'aria-label="Scroll right"')
+        # Redesign: the Up Next strip is now compact rows (no sideways
+        # scroll at all), and the header stats are one plain meta line.
+        # The remaining scroll rows are .media-row/.landscape-row, whose
+        # native scrollbar is hidden in app.css (scrollbar-width: none).
+        self.assertContains(resp, "Up Next Show")
+        self.assertNotContains(resp, "scroll-row-fade")
 
     def test_footer_stats_bar_links_to_full_stats(self):
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, f'href="{reverse("stats")}"')
 
     def test_watchlist_caps_to_one_row_but_the_header_count_shows_the_total(self):
-        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(self.profile)
         for i in range(15):
             title = Title.objects.create(media_type=MediaType.MOVIE, name=f"Watchlist Movie {i}", year=2020)
             WatchListItem.objects.create(watchlist=watchlist, title=title)
@@ -14283,7 +14289,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         self.assertEqual(resp.context["watchlist_count"], 15)
         self.assertLess(len(resp.context["watchlist_items"]), 15)
         self.assertContains(resp, "Watchlist")
-        self.assertContains(resp, "(15)")
+        self.assertContains(resp, '<span class="section-count">15</span>')
 
 
 class RecentlyWatchedStillImageTests(TestCase):
@@ -15036,7 +15042,7 @@ class ActivityViewTemplateTests(TestCase):
             WatchEvent.objects.create(profile=self.profile, title=self.show, episode=ep, watched_at=self.now - timedelta(minutes=minutes_ago))
         resp = self.client.get(reverse("activity"))
         body = resp.content.decode()
-        self.assertContains(resp, "<b>3</b> episodes")
+        self.assertContains(resp, '<b class="font-semibold text-base-content">3</b> episodes')
         self.assertContains(resp, "S1E1")
         self.assertNotIn("chevron-down", body)
         # Scoped to the feed container itself - the page's own sidebar/
@@ -15070,7 +15076,7 @@ class ActivityViewTemplateTests(TestCase):
             WatchEvent.objects.create(profile=self.profile, title=self.show, episode=ep, watched_at=self.now - timedelta(minutes=minutes_ago))
         resp = self.client.get(reverse("activity"))
         self.assertContains(resp, "Binge Session")
-        self.assertContains(resp, "bg-primary/15 text-primary")
+        self.assertContains(resp, '<span class="chip chip-primary">Binge Session</span>')
 
     def test_a_short_run_under_the_binge_threshold_gets_no_special_badge(self):
         # Reported live: 2 consecutive episodes already showed "Binge
@@ -15087,13 +15093,13 @@ class ActivityViewTemplateTests(TestCase):
         ep = Episode.objects.create(title=self.show, season=1, episode=1)
         WatchEvent.objects.create(profile=self.profile, title=self.show, episode=ep, watched_at=self.now, user_rating=9)
         resp = self.client.get(reverse("activity"))
-        self.assertContains(resp, "text-warning")
+        self.assertContains(resp, '<span class="text-primary font-semibold whitespace-nowrap">&#9733; 9/10</span>')
 
     def test_added_to_list_gets_the_secondary_accent(self):
         watchlist = WatchList.objects.create(profile=self.profile, name="Anime")
         WatchListItem.objects.create(watchlist=watchlist, title=self.show)
         resp = self.client.get(reverse("activity"))
-        self.assertContains(resp, "bg-secondary/15 text-secondary")
+        self.assertContains(resp, "<span>Added to List</span>")
 
 
 class ActivityLeaderboardHtmxTests(TestCase):
@@ -15135,6 +15141,34 @@ class ActivityLeaderboardHtmxTests(TestCase):
         Profile.objects.exclude(user__username="leaderboarduser").delete()
         resp = self.client.get(reverse("activity_leaderboard"))
         self.assertEqual(resp.status_code, 404)
+
+    def test_quiet_week_opens_on_this_year(self):
+        # Only play is 3 weeks old: nothing this week, something this year.
+        from django.utils import timezone
+
+        WatchEvent.objects.update(watched_at=timezone.now() - timedelta(days=21))
+        resp = self.client.get(reverse("activity"))
+        self.assertEqual(resp.context["leaderboard_period"], "year")
+        self.assertContains(resp, "LeaderboardUser")
+
+    def test_explicit_week_stays_on_week_and_shows_the_empty_state(self):
+        from django.utils import timezone
+
+        WatchEvent.objects.update(watched_at=timezone.now() - timedelta(days=21))
+        resp = self.client.get(reverse("activity"), {"period": "week"})
+        self.assertEqual(resp.context["leaderboard_period"], "week")
+        self.assertContains(resp, "No plays logged by the household in the last 7 days")
+        self.assertContains(resp, "This Year")
+
+    def test_both_cards_render_even_with_no_plays_at_all(self):
+        # The cards (and the week/year toggle) are always there, so the
+        # household can find them - each says it's empty instead of vanishing.
+        WatchEvent.objects.all().delete()
+        resp = self.client.get(reverse("activity"))
+        self.assertContains(resp, 'id="household-leaderboard"')
+        self.assertContains(resp, "No plays logged by the household in the last 7 days")
+        self.assertContains(resp, "Household Top 5")
+        self.assertContains(resp, "Nothing played by the household in the last 7 days yet.")
 
 
 class TitleDetailViewTests(TestCase):
@@ -15242,8 +15276,8 @@ class TitleDetailViewTests(TestCase):
         mock_details.return_value = self._details(status="Ended")
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         # The hero's own copy plus the Details panel's copy - both should
-        # carry the shared badge_color_classes output for "warning".
-        self.assertContains(resp, "border-warning/30 bg-warning/15 text-warning", count=2)
+        # carry the shared chip_color_class output for "warning".
+        self.assertContains(resp, '<span class="chip chip-primary">Ended</span>', count=2)
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -15348,7 +15382,7 @@ class TitleDetailViewTests(TestCase):
         ]
         mock_details.return_value = self._details()
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, '<h2 class="font-display text-xl mb-3 flex items-center gap-2">')
+        self.assertContains(resp, '<h2 class="section-title">Media</h2>')
         self.assertContains(resp, "https://img.youtube.com/vi/abc123/hqdefault.jpg")
         self.assertContains(resp, "https://image.tmdb.org/t/p/w300/a.jpg")
         self.assertContains(resp, "https://image.tmdb.org/t/p/w1280/a.jpg")  # in the lightbox's json_script data
@@ -15362,7 +15396,7 @@ class TitleDetailViewTests(TestCase):
         # get_trailer/get_backdrops both default to empty via setUp.
         mock_details.return_value = self._details()
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertNotContains(resp, '<h2 class="font-display text-xl mb-3 flex items-center gap-2">')
+        self.assertNotContains(resp, '<h2 class="section-title">Media</h2>')
         self.assertNotContains(resp, "gallery-image-urls")
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
@@ -15510,7 +15544,7 @@ class TitleDetailViewTests(TestCase):
     def test_shows_the_release_date_for_an_already_released_movie(self, mock_details, mock_credits, mock_similar):
         mock_details.return_value = self._details(release_date="2020-05-01")
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, ">Released</span> May 01, 2020")
+        self.assertContains(resp, '>Released</span> May 01, 2020')
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -15562,7 +15596,7 @@ class TitleDetailViewTests(TestCase):
             "backdrop_url": None, "parts": self._collection_parts(),
         }
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, '<h2 class="font-display text-xl mb-3">Collection</h2>')
+        self.assertContains(resp, '<h2 class="section-title">Collection</h2>')
         self.assertContains(resp, "Iron Man 3")
         mock_collection.assert_called_once_with(131292)
 
@@ -15592,7 +15626,7 @@ class TitleDetailViewTests(TestCase):
         mock_details.return_value = self._details(collection_id=None)
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         self.assertEqual(resp.context["collection_parts"], [])
-        self.assertNotContains(resp, '<h2 class="font-display text-xl mb-3">Collection</h2>')
+        self.assertNotContains(resp, '<h2 class="section-title">Collection</h2>')
 
     @patch("tracker.integrations.tmdb.get_collection_details")
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
@@ -15843,8 +15877,8 @@ class TitleEpisodeBrowserTests(TestCase):
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         self.assertEqual(resp.context["episodes"][0]["aired_on"], _date(2020, 3, 4))
         self.assertIsNone(resp.context["episodes"][1]["aired_on"])
-        # Rendered in both the mobile row and the desktop card layouts.
-        self.assertContains(resp, "Mar 4, 2020", count=2)
+        # One responsive row per episode now (no separate mobile/desktop copies).
+        self.assertContains(resp, "Mar 4, 2020", count=1)
 
     @patch("tracker.integrations.tmdb.get_season_details")
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
@@ -16093,21 +16127,19 @@ class TitleEpisodeBrowserTests(TestCase):
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
     @patch("tracker.integrations.tmdb.get_full_details")
-    def test_mobile_and_desktop_episode_layouts_both_render_with_distinct_button_ids(
+    def test_each_episode_renders_once_with_a_single_watched_button(
         self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details
     ):
-        # The compact mobile row list and the sm:+ card grid render the
-        # same episodes twice (one hidden via CSS at any given
-        # breakpoint) - episode_watched_button.html's id_suffix keeps
-        # their button ids from colliding (see EpisodeMarkWatchedTests
-        # for the round-trip through a click).
+        # One responsive row per episode (title_episodes.html) - the old
+        # separate mobile list + desktop card grid, and the "-m" id_suffix
+        # that kept their duplicate button ids apart, are gone.
         mock_details.return_value = self._details()
         mock_season.return_value = self._season(["Freedom Day"])
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         content = resp.content.decode()
-        self.assertIn(f'id="ep-watched-btn-{self.title.pk}-1-1"', content)
-        self.assertIn(f'id="ep-watched-btn-{self.title.pk}-1-1-m"', content)
-        self.assertEqual(content.count("Freedom Day"), 2)
+        self.assertEqual(content.count(f'id="ep-watched-btn-{self.title.pk}-1-1"'), 1)
+        self.assertNotIn(f'id="ep-watched-btn-{self.title.pk}-1-1-m"', content)
+        self.assertEqual(content.count("Freedom Day"), 1)
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -16155,7 +16187,7 @@ class TitleEpisodeBrowserTests(TestCase):
         }
         mock_details.return_value = details
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, ">Premieres</span> Sep 01, 2026")
+        self.assertContains(resp, '>Premieres</span> Sep 01, 2026')
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -17019,7 +17051,7 @@ class AnimeMalDetailContextTests(TestCase):
         mock_mal_details.return_value = self._mal_details()
         resp = self.client.get(reverse("title_detail", args=[self.anime.pk]))
         self.assertContains(resp, "Studio Pierrot")
-        self.assertContains(resp, "Source: Manga")
+        self.assertContains(resp, ">Source</span> Manga")
         self.assertContains(resp, "BLEACH - ブリーチ -")
 
     @patch("tracker.integrations.tenrai.get_episode_filler_map", return_value={})
@@ -18424,9 +18456,9 @@ class TitleTvWatchedButtonTests(TestCase):
         # the_success_button_once_the_show_is_actually_finished below).
         self._watch(1, 1)
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, "bg-info/90")
+        self.assertContains(resp, "bg-info hover:brightness-110")
         self.assertContains(resp, "Watching")
-        self.assertNotContains(resp, "bg-success/90")
+        self.assertNotContains(resp, "bg-success hover:brightness-110")
         self.assertNotContains(resp, "+ Mark as Watched")
 
     @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
@@ -18436,9 +18468,9 @@ class TitleTvWatchedButtonTests(TestCase):
         WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.COMPLETED)
         mock_details.return_value = self._details(1)
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, "bg-success/90")
+        self.assertContains(resp, "bg-success hover:brightness-110")
         self.assertContains(resp, "&#10003; Watched")
-        self.assertNotContains(resp, "bg-info/90")
+        self.assertNotContains(resp, "bg-info hover:brightness-110")
 
     @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
     @patch("tracker.integrations.tmdb.get_full_details")
@@ -19013,7 +19045,7 @@ class PosterCardWatchedButtonPopoverTests(TestCase):
         self.profile = Profile.objects.create(user=user, display_name="WatchedPopoverUser")
         self.client.login(username="watchedpopoveruser", password="pass12345")
         self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
-        self.watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        self.watchlist = ensure_watchlist(self.profile)
         WatchListItem.objects.create(watchlist=self.watchlist, title=self.title)
 
     def test_unwatched_title_shows_the_first_watch_popover_not_the_watched_menu(self):
@@ -19465,7 +19497,7 @@ class WatchlistAutoRemovalIntegrationTests(TestCase):
         user = User.objects.create_user("watchlistclicker", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="WatchlistClicker")
         self.client.login(username="watchlistclicker", password="pass12345")
-        self.watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        self.watchlist = ensure_watchlist(self.profile)
         self.custom_list = WatchList.objects.create(profile=self.profile, name="Favorites")
 
     def test_marking_a_movie_watched_removes_it_from_the_watchlist_not_custom_lists(self):
@@ -19607,7 +19639,7 @@ class TitlePreviewViewTests(TestCase):
     def test_shows_the_release_date_same_as_the_tracked_detail_page(self, mock_details, mock_credits, mock_similar):
         mock_details.return_value = self._details(release_date="2020-05-01")
         resp = self.client.get(reverse("title_preview", args=["movie", 42]))
-        self.assertContains(resp, ">Released</span> May 01, 2020")
+        self.assertContains(resp, '>Released</span> May 01, 2020')
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -19619,7 +19651,7 @@ class TitlePreviewViewTests(TestCase):
         # picker a tracked title's own page uses (see title_detail.html) -
         # every chip, including one named "Watchlist", posts to
         # title_preview_add_to_list here since there's no local Title yet.
-        watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(self.profile)
         mock_details.return_value = self._details()
         resp = self.client.get(reverse("title_preview", args=["movie", 42]))
         self.assertContains(resp, "+ Mark as Watched")
@@ -19670,7 +19702,7 @@ class TitlePreviewViewTests(TestCase):
             ],
         }
         resp = self.client.get(reverse("title_preview", args=["movie", 42]))
-        self.assertContains(resp, '<h2 class="font-display text-xl mb-3">Collection</h2>')
+        self.assertContains(resp, '<h2 class="section-title">Collection</h2>')
         self.assertEqual([p["tmdb_id"] for p in resp.context["collection_parts"]], [42, 10138])
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
@@ -19680,7 +19712,7 @@ class TitlePreviewViewTests(TestCase):
         mock_details.return_value = self._details(collection_id=None)
         resp = self.client.get(reverse("title_preview", args=["movie", 42]))
         self.assertEqual(resp.context["collection_parts"], [])
-        self.assertNotContains(resp, '<h2 class="font-display text-xl mb-3">Collection</h2>')
+        self.assertNotContains(resp, '<h2 class="section-title">Collection</h2>')
 
     def test_redirects_to_real_detail_page_if_already_tracked(self):
         title = Title.objects.create(
@@ -19733,7 +19765,7 @@ class TitlePreviewViewTests(TestCase):
             media_type=MediaType.MOVIE, name="Fathom", year=2020,
             external_ids={"tmdb": "42", "tmdb_kind": "movie"},
         )
-        existing_watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist")
+        existing_watchlist = ensure_watchlist(self.profile)  # every profile already has one
         self.client.post(reverse("title_preview_add_to_watchlist", args=["movie", 42]))
         mock_details.assert_not_called()  # title already existed - no need to refetch
         self.assertEqual(Title.objects.filter(external_ids__tmdb="42").count(), 1)
@@ -20029,10 +20061,13 @@ class CreateListNeverFlagsAsWatchlistTests(TestCase):
         watchlist = WatchList.objects.get(profile=self.profile, name="Favorites")
         self.assertFalse(watchlist.is_watchlist)
 
-    def test_a_custom_list_named_watchlist_is_still_not_flagged(self):
-        self.client.post(reverse("create_list"), {"name": "Watchlist"})
-        watchlist = WatchList.objects.get(profile=self.profile, name="Watchlist")
-        self.assertFalse(watchlist.is_watchlist)
+    def test_a_custom_list_named_watchlist_is_refused(self):
+        # The profile already has its Watchlist (created with the
+        # profile) - a second list of that name is refused, not made.
+        self.client.post(reverse("create_list"), {"name": "watchlist"})
+        lists = WatchList.objects.filter(profile=self.profile, name__iexact="Watchlist")
+        self.assertEqual(lists.count(), 1)
+        self.assertTrue(lists.get().is_watchlist)
 
 
 class ParseTagsTests(TestCase):
@@ -20119,7 +20154,8 @@ class ListsPageTagFilterTests(TestCase):
     def test_no_filter_shows_every_list(self):
         resp = self.client.get(reverse("lists"))
         names = [wl.name for wl in resp.context["watchlists"]]
-        self.assertEqual(set(names), {"Comfort", "Progress", "Untagged"})
+        # The Watchlist every profile gets (tracker/watchlists.py) is untagged too.
+        self.assertEqual(set(names), {"Watchlist", "Comfort", "Progress", "Untagged"})
 
     def test_filtering_by_tag_narrows_to_matching_lists_only(self):
         resp = self.client.get(reverse("lists"), {"tag": "comfort watches"})
@@ -20168,7 +20204,7 @@ class SurpriseMeViewTests(TestCase):
         user = User.objects.create_user("surpriser", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="Surpriser")
         self.client.login(username="surpriser", password="pass12345")
-        self.watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        self.watchlist = ensure_watchlist(self.profile)
 
     def test_redirects_straight_to_the_only_title_in_the_watchlist(self):
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
@@ -20189,9 +20225,9 @@ class SurpriseMeViewTests(TestCase):
         other_profile = Profile.objects.create(
             user=User.objects.create_user("surpriser2", password="pass12345"), display_name="Surpriser2"
         )
-        other_watchlist = WatchList.objects.create(
-            profile=other_profile, name="Watchlist", is_watchlist=True, is_shared=True
-        )
+        other_watchlist = ensure_watchlist(other_profile)
+        other_watchlist.is_shared = True
+        other_watchlist.save(update_fields=["is_shared"])
         title = Title.objects.create(media_type=MediaType.TV, name="On someone else's shared watchlist", year=2021)
         WatchListItem.objects.create(watchlist=other_watchlist, title=title)
         resp = self.client.get(reverse("surprise_me"))
@@ -20789,6 +20825,40 @@ class PersonDetailViewTests(TestCase):
 
     @patch("tracker.integrations.tmdb.get_person_credits")
     @patch("tracker.integrations.tmdb.get_person_details")
+    def test_youve_watched_row_lists_each_watched_title_once(self, mock_details, mock_credits):
+        # The titles behind the stats card's "N of M watched" - deduped
+        # across departments, so a film they both acted in and directed
+        # appears once in this row.
+        watched_title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Seen Twice Credited", year=2015,
+            external_ids={"tmdb": "42", "tmdb_kind": "movie"},
+        )
+        WatchEvent.objects.create(profile=self.profile, title=watched_title, watched_at="2024-01-01T00:00:00Z")
+        mock_details.return_value = self._person()
+        mock_credits.return_value = {
+            "acting": [self._credit(42, "Seen Twice Credited", year="2015"), self._credit(43, "Never Seen")],
+            "directing": [self._credit(42, "Seen Twice Credited", year="2015")],
+            "writing": [],
+        }
+        resp = self.client.get(reverse("person_detail", args=[500]))
+        sections = resp.context["filmography_sections"]
+        self.assertEqual(sections[0]["key"], "watched")
+        self.assertEqual([i["tmdb_id"] for i in sections[0]["items"]], [42])
+        self.assertContains(resp, "You&#x27;ve Watched")
+        # Department sections are unchanged by it.
+        self.assertEqual({s["key"] for s in sections}, {"watched", "acting", "directing"})
+
+    @patch("tracker.integrations.tmdb.get_person_credits")
+    @patch("tracker.integrations.tmdb.get_person_details")
+    def test_no_youve_watched_row_when_nothing_is_watched(self, mock_details, mock_credits):
+        mock_details.return_value = self._person()
+        mock_credits.return_value = {"acting": [self._credit(43, "Never Seen")], "directing": [], "writing": []}
+        resp = self.client.get(reverse("person_detail", args=[500]))
+        self.assertNotIn("watched", [s["key"] for s in resp.context["filmography_sections"]])
+        self.assertNotContains(resp, "You&#x27;ve Watched")
+
+    @patch("tracker.integrations.tmdb.get_person_credits")
+    @patch("tracker.integrations.tmdb.get_person_details")
     def test_personal_stats_card_shows_watched_count(self, mock_details, mock_credits):
         title = Title.objects.create(
             media_type=MediaType.MOVIE, name="Fathom", year=2020,
@@ -21107,7 +21177,7 @@ class RecommendationListPopoverViewTests(TestCase):
         self.recipient = Profile.objects.create(user=recipient_user, display_name="RecPopRecipient")
         self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
         self.rec = Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
-        self.watchlist = WatchList.objects.create(profile=self.recipient, name="Watchlist", is_watchlist=True)
+        self.watchlist = ensure_watchlist(self.recipient)
         self.client.login(username="recpoprecipient", password="pass12345")
 
     def test_adds_the_title_to_the_chosen_list(self):
@@ -21499,7 +21569,7 @@ class ListDetailToolbarStaysInSyncTests(TestCase):
 
     def test_plain_request_returns_the_full_page(self):
         resp = self.client.get(reverse("list_detail", args=[self.watchlist.id]))
-        self.assertContains(resp, "All lists")
+        self.assertContains(resp, "&larr; Lists")
         self.assertContains(resp, 'id="list-page"')
 
     def test_hx_request_targeting_list_items_returns_just_the_items_partial(self):
@@ -21508,7 +21578,7 @@ class ListDetailToolbarStaysInSyncTests(TestCase):
         resp = self.client.get(
             reverse("list_detail", args=[self.watchlist.id]), HTTP_HX_REQUEST="true", HTTP_HX_TARGET="list-items"
         )
-        self.assertNotContains(resp, "All lists")
+        self.assertNotContains(resp, "&larr; Lists")
         self.assertContains(resp, 'id="list-items"')
 
     def test_switching_type_keeps_the_filters_dot_in_sync(self):
@@ -23868,9 +23938,12 @@ class HistoryGroupTileDropdownTests(TestCase):
         remaining = {int(part) for part in match.group(1).split(",") if part.strip().isdigit()}
         self.assertEqual(remaining, {e1.pk, e3.pk})
 
-    def test_grid_uses_the_bumped_tile_size(self):
+    def test_renders_on_the_poster_grid(self):
+        # History is a day-grouped poster wall (the classic Trakt history
+        # layout) - a binge group is one poster card on the shared grid.
         resp = self.client.get(reverse("history"))
-        self.assertContains(resp, "minmax(150px,1fr)")
+        self.assertContains(resp, "data-history-tile")
+        self.assertContains(resp, 'class="media-grid pt-2"')
 
 
 class TestProviderCredentialsViewTests(TestCase):
@@ -24593,7 +24666,7 @@ class GenerateWatchlistStaleNotificationsTaskTests(TestCase):
 
         user = User.objects.create_user("staletaskwatcher", password="pass12345")
         profile = Profile.objects.create(user=user, display_name="StaleTaskWatcher")
-        watchlist = WatchList.objects.create(profile=profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(profile)
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Old Pick", year=2019)
         item = WatchListItem.objects.create(watchlist=watchlist, title=title)
         WatchListItem.objects.filter(pk=item.pk).update(
@@ -24608,7 +24681,7 @@ class GenerateWatchlistStaleNotificationsTaskTests(TestCase):
 
         owner = User.objects.create_superuser("staletaskowner", password="pass12345")
         owner_profile = Profile.objects.create(user=owner, display_name="StaleTaskOwner")
-        watchlist = WatchList.objects.create(profile=owner_profile, name="Watchlist", is_watchlist=True)
+        watchlist = ensure_watchlist(owner_profile)
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Old Pick", year=2019)
         item = WatchListItem.objects.create(watchlist=watchlist, title=title)
         WatchListItem.objects.filter(pk=item.pk).update(
@@ -25087,3 +25160,689 @@ class SilkOptInTests(TestCase):
     def test_silk_url_is_unreachable_when_disabled(self):
         resp = self.client.get("/silk/")
         self.assertEqual(resp.status_code, 404)
+
+
+class WatchlistGuaranteeTests(TestCase):
+    """Every profile always has exactly one Watchlist (tracker/watchlists.py)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("wlguard", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="WLGuard")
+        self.client.login(username="wlguard", password="pass12345")
+
+    def test_a_new_profile_gets_a_watchlist(self):
+        lists = WatchList.objects.filter(profile=self.profile, is_watchlist=True)
+        self.assertEqual(lists.count(), 1)
+        self.assertEqual(lists.get().name, "Watchlist")
+
+    def test_ensure_watchlist_is_idempotent(self):
+        first = ensure_watchlist(self.profile)
+        self.assertEqual(ensure_watchlist(self.profile), first)
+        self.assertEqual(WatchList.objects.filter(profile=self.profile).count(), 1)
+
+    def test_ensure_watchlist_adopts_an_unflagged_list_named_watchlist(self):
+        WatchList.objects.filter(profile=self.profile).delete()
+        legacy = WatchList.objects.create(profile=self.profile, name="watchlist", is_watchlist=False)
+        self.assertEqual(ensure_watchlist(self.profile), legacy)
+        legacy.refresh_from_db()
+        self.assertTrue(legacy.is_watchlist)
+
+    def test_the_watchlist_cannot_be_deleted(self):
+        watchlist = ensure_watchlist(self.profile)
+        self.client.post(reverse("delete_list", args=[watchlist.id]))
+        self.assertTrue(WatchList.objects.filter(id=watchlist.id).exists())
+
+    def test_list_detail_hides_delete_for_the_watchlist(self):
+        watchlist = ensure_watchlist(self.profile)
+        resp = self.client.get(reverse("list_detail", args=[watchlist.id]))
+        self.assertNotContains(resp, reverse("delete_list", args=[watchlist.id]))
+
+
+class SpoolBackupTests(TestCase):
+    def setUp(self):
+        from django.utils import timezone
+
+        from tracker import backup
+
+        self.backup = backup
+        self.user = User.objects.create_user("backuper", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="Backuper")
+        self.client.login(username="backuper", password="pass12345")
+        self.movie = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "11", "tmdb_kind": "movie"}
+        )
+        self.show = Title.objects.create(
+            media_type=MediaType.TV, name="Cinder Street", year=2022, external_ids={"tmdb": "22", "tmdb_kind": "tv"}
+        )
+        episode = Episode.objects.create(title=self.show, season=1, episode=2, name="Two")
+        _now = timezone.now()
+        WatchEvent.objects.create(profile=self.profile, title=self.movie, watched_at=_now, user_rating=8)
+        WatchEvent.objects.create(profile=self.profile, title=self.show, episode=episode, watched_at=_now)
+        WatchListItem.objects.create(watchlist=ensure_watchlist(self.profile), title=self.show)
+        custom = WatchList.objects.create(profile=self.profile, name="Comfort", is_shared=True, tags=["cozy"])
+        WatchListItem.objects.create(watchlist=custom, title=self.movie, position=3)
+
+    def test_backup_contains_history_ratings_and_every_list(self):
+        data = self.backup.build_backup(self.profile)
+        self.assertEqual(data["format"], "spool-backup")
+        self.assertEqual(len(data["history"]), 2)
+        self.assertEqual(data["history"][0]["rating"], 8)
+        by_name = {entry["name"]: entry for entry in data["lists"]}
+        self.assertTrue(by_name["Watchlist"]["is_watchlist"])
+        self.assertEqual(by_name["Watchlist"]["items"][0]["ids"]["tmdb"], 22)
+        self.assertEqual(by_name["Comfort"]["tags"], ["cozy"])
+        self.assertTrue(by_name["Comfort"]["is_shared"])
+
+    def test_export_view_downloads_the_backup(self):
+        resp = self.client.get(reverse("export_spool_backup"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("spool-backup-", resp["Content-Disposition"])
+        self.assertEqual(len(json.loads(resp.content)["lists"]), 2)
+        self.assertTrue(DataLog.objects.filter(profile=self.profile, action=DataLog.Action.EXPORT).exists())
+
+    def test_settings_links_the_full_backup(self):
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, reverse("export_spool_backup"))
+
+    def test_parse_json_rows_reads_only_the_history_with_ratings(self):
+        rows, errors = csv_import.parse_json_rows(self.backup.build_backup(self.profile))
+        self.assertEqual(errors, [])
+        self.assertEqual(len(rows), 2)
+        self.assertIn(8, [row.get("rating") for row in rows])
+
+    def test_restore_lists_on_another_profile_maps_the_watchlist_and_is_idempotent(self):
+        data = self.backup.build_backup(self.profile)
+        other = Profile.objects.create(
+            user=User.objects.create_user("restorer", password="pass12345"), display_name="Restorer"
+        )
+        self.assertEqual(self.backup.restore_lists(other, data), (2, 2))
+        self.assertEqual(WatchList.objects.filter(profile=other, is_watchlist=True).count(), 1)
+        watchlist = WatchList.objects.get(profile=other, is_watchlist=True)
+        self.assertEqual(list(watchlist.items.values_list("title_id", flat=True)), [self.show.id])
+        comfort = WatchList.objects.get(profile=other, name="Comfort")
+        self.assertEqual(comfort.tags, ["cozy"])
+        self.assertEqual(comfort.items.get().title, self.movie)
+        self.assertEqual(self.backup.restore_lists(other, data), (2, 0))
+
+    def test_importing_a_backup_restores_lists_through_import_review(self):
+        data = self.backup.build_backup(self.profile)
+        other_user = User.objects.create_user("restorer2", password="pass12345")
+        other = Profile.objects.create(user=other_user, display_name="Restorer2")
+        path = os.path.join(tempfile.mkdtemp(), "backup.json")
+        with open(path, "w") as f:
+            json.dump(data, f)
+        session = ImportSession.objects.create(
+            profile=other, source="json", status=ImportSession.Status.SCANNING, source_metadata={"path": path}
+        )
+        tasks.scan_import_session(session.id)  # deletes the upload, like in production
+        session.refresh_from_db()
+        self.assertFalse(os.path.exists(path))
+        self.assertEqual(session.source_metadata["backup_lists"], {"lists": 2, "items": 2})
+        tasks.commit_import_session(session.id)
+        session.refresh_from_db()
+        self.assertEqual(session.source_metadata["backup_lists_restored"], {"lists": 2, "items": 2})
+        self.assertTrue(WatchList.objects.filter(profile=other, name="Comfort").exists())
+        self.assertEqual(WatchEvent.objects.filter(profile=other).count(), 2)
+
+
+_PUBLIC_ADDRINFO = [(2, 1, 6, "", ("93.184.216.34", 443))]
+
+
+def _addrinfo(ip):
+    return [(2, 1, 6, "", (ip, 443))]
+
+
+class ScheduledBackupTests(TestCase):
+    """Automatic backups (tracker/backup_destinations.py) - each profile
+    sets up its own destinations under Settings -> Import & Export."""
+
+    def setUp(self):
+        from tracker import backup_destinations
+        from tracker.models import BackupDestination
+
+        self.bd = backup_destinations
+        self.Dest = BackupDestination
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        override = override_settings(BACKUP_ROOT=self.root)
+        override.enable()
+        self.addCleanup(override.disable)
+        self.user = User.objects.create_user("backupsched", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="Back Upper")
+        self.client.login(username="backupsched", password="pass12345")
+
+    def _folder_dest(self, **kwargs):
+        return self.Dest.objects.create(profile=self.profile, kind="folder", folder="mine", **kwargs)
+
+    def test_safe_subfolder_never_leaves_the_backup_root(self):
+        self.assertEqual(self.bd.safe_subfolder("../../etc"), "etc")
+        self.assertEqual(self.bd.safe_subfolder("/a/./b/"), "a/b")
+        self.assertEqual(self.bd.safe_subfolder(""), "")
+
+    def test_a_new_destination_is_due_and_a_fresh_backup_is_not(self):
+        from datetime import timedelta
+
+        dest = self._folder_dest(frequency="weekly")
+        now = _tz.now()
+        self.assertTrue(self.bd.is_due(dest, now))
+        dest.last_success_at = now - timedelta(days=2)
+        self.assertFalse(self.bd.is_due(dest, now))
+        dest.last_success_at = now - timedelta(days=7)
+        self.assertTrue(self.bd.is_due(dest, now))
+        dest.enabled = False
+        self.assertFalse(self.bd.is_due(dest, now))
+
+    def test_a_failed_run_waits_before_retrying(self):
+        from datetime import timedelta
+
+        now = _tz.now()
+        dest = self._folder_dest(last_attempt_at=now - timedelta(hours=1), last_error="boom")
+        self.assertFalse(self.bd.is_due(dest, now))
+        dest.last_attempt_at = now - timedelta(hours=7)
+        self.assertTrue(self.bd.is_due(dest, now))
+
+    def test_server_folder_backup_writes_a_restorable_file_and_prunes(self):
+        from tracker import backup
+
+        dest = self._folder_dest(keep_last=2)
+        folder = os.path.join(self.root, "mine")
+        os.makedirs(folder)
+        prefix = self.bd.backup_prefix(self.profile)
+        for stamp in ("2020-01-01-0000", "2020-01-02-0000"):
+            open(os.path.join(folder, f"{prefix}{stamp}.json"), "w").close()
+        open(os.path.join(folder, "spool-backup-someone-else-99-2019-01-01-0000.json"), "w").close()
+        ok, message = self.bd.run_backup(dest)
+        self.assertTrue(ok, message)
+        names = sorted(os.listdir(folder))
+        self.assertEqual(len([n for n in names if n.startswith(prefix)]), 2)
+        self.assertNotIn(f"{prefix}2020-01-01-0000.json", names)
+        self.assertIn("spool-backup-someone-else-99-2019-01-01-0000.json", names)
+        dest.refresh_from_db()
+        self.assertEqual(dest.last_error, "")
+        with open(os.path.join(folder, dest.last_filename)) as f:
+            self.assertTrue(backup.is_spool_backup(json.load(f)))
+
+    def test_a_failure_is_recorded_and_logged(self):
+        dest = self._folder_dest()
+        with patch.object(self.bd.ServerFolder, "upload", side_effect=self.bd.BackupError("disk full")):
+            self.assertFalse(tasks.run_scheduled_backup(dest.id))
+        dest.refresh_from_db()
+        self.assertEqual(dest.last_error, "disk full")
+        log = DataLog.objects.get(profile=self.profile, action=DataLog.Action.BACKUP)
+        self.assertEqual(log.status, DataLog.Status.FAILED)
+
+    def test_run_due_backups_queues_only_due_destinations(self):
+        due = self._folder_dest()
+        other = Profile.objects.create(
+            user=User.objects.create_user("backupsched2", password="pass12345"), display_name="Other"
+        )
+        self.Dest.objects.create(profile=other, kind="folder", last_success_at=_tz.now())
+        with patch.object(tasks.run_scheduled_backup, "delay") as delay:
+            self.assertEqual(tasks.run_due_backups(), 1)
+        delay.assert_called_once_with(due.id)
+
+    def test_webdav_upload_and_prune_requests(self):
+        dest = self.Dest(profile=self.profile, kind="webdav", url="https://dav.example/Spool", username="me")
+        dest.set_secret("pw")
+        dest.save()
+        prefix = self.bd.backup_prefix(self.profile)
+        listing = (
+            '<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">'
+            '<d:response><d:href>/Spool/</d:href></d:response>'
+            + "".join(f"<d:response><d:href>/Spool/{prefix}2020-01-0{i}-0000.json</d:href></d:response>" for i in range(1, 4))
+            + "</d:multistatus>"
+        )
+        calls = []
+
+        def fake_request(method, url, **kwargs):
+            calls.append((method, url))
+            resp = Mock(status_code=207 if method == "PROPFIND" else 201, text="", content=listing.encode())
+            return resp
+
+        dest.keep_last = 2
+        with patch("tracker.backup_destinations.requests.request", side_effect=fake_request), \
+                patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_PUBLIC_ADDRINFO):
+            ok, message = self.bd.run_backup(dest)
+        self.assertTrue(ok, message)
+        self.assertTrue(any(m == "PUT" and u.startswith("https://dav.example/Spool/" + prefix) for m, u in calls))
+        self.assertIn(("DELETE", f"https://dav.example/Spool/{prefix}2020-01-01-0000.json"), calls)
+
+    def test_settings_shows_the_backups_card(self):
+        resp = self.client.get(reverse("settings") + "?tab=data")
+        self.assertContains(resp, "Automatic Backups")
+        self.assertContains(resp, "Server folder")
+        self.assertContains(resp, "Not available on this server yet")  # Drive/Dropbox not configured
+
+    def test_turning_on_a_server_folder_creates_it_and_starts_a_backup(self):
+        with patch.object(views, "_dispatch_sync_task_safely") as dispatch:
+            resp = self.client.post(
+                reverse("backup_destination_save", args=["folder"]),
+                {"folder": "../Me", "frequency": "daily", "keep_last": "5"},
+            )
+        self.assertEqual(resp.status_code, 302)
+        dest = self.Dest.objects.get(profile=self.profile, kind="folder")
+        self.assertEqual((dest.folder, dest.frequency, dest.keep_last, dest.enabled), ("Me", "daily", 5, True))
+        dispatch.assert_called_once_with(tasks.run_scheduled_backup, [dest.id, True])
+
+    def test_pause_and_remove(self):
+        dest = self._folder_dest()
+        self.client.post(reverse("backup_destination_save", args=["folder"]), {"enabled": "0"})
+        dest.refresh_from_db()
+        self.assertFalse(dest.enabled)
+        self.client.post(reverse("backup_destination_delete", args=["folder"]))
+        self.assertFalse(self.Dest.objects.filter(id=dest.id).exists())
+
+    def test_webdav_save_checks_the_folder_first(self):
+        with patch("tracker.backup_destinations.requests.request", return_value=Mock(status_code=401, text="")), \
+                patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_PUBLIC_ADDRINFO):
+            self.client.post(reverse("backup_destination_save", args=["webdav"]), {
+                "url": "https://dav.example/Spool", "username": "me", "password": "bad",
+            })
+        self.assertFalse(self.Dest.objects.filter(profile=self.profile, kind="webdav").exists())
+
+    def test_connect_without_server_credentials_explains(self):
+        resp = self.client.get(reverse("backup_connect", args=["gdrive"]), follow=True)
+        self.assertContains(resp, "aren&#x27;t set up on this server yet")
+
+    @override_settings(DROPBOX_APP_KEY="dbkey", DROPBOX_APP_SECRET="dbsecret")
+    def test_dropbox_oauth_round_trip(self):
+        resp = self.client.get(reverse("backup_connect", args=["dropbox"]), {"frequency": "monthly", "keep_last": "30"})
+        self.assertTrue(resp["Location"].startswith("https://www.dropbox.com/oauth2/authorize?"))
+        state = self.client.session["backup_dropbox_oauth_state"]
+        with patch("tracker.backup_destinations.exchange_code", return_value=("refresh-1", "me@example.com")), \
+                patch.object(views, "_dispatch_sync_task_safely"):
+            self.client.get(reverse("backup_callback", args=["dropbox"]), {"code": "abc", "state": state})
+        dest = self.Dest.objects.get(profile=self.profile, kind="dropbox")
+        self.assertEqual(dest.get_secret(), "refresh-1")
+        self.assertEqual((dest.frequency, dest.keep_last, dest.account_label), ("monthly", 30, "me@example.com"))
+
+    def test_callback_rejects_a_bad_state(self):
+        with override_settings(GOOGLE_CLIENT_ID="g", GOOGLE_CLIENT_SECRET="s"):
+            self.client.get(reverse("backup_callback", args=["gdrive"]), {"code": "abc", "state": "nope"})
+        self.assertFalse(self.Dest.objects.filter(profile=self.profile).exists())
+
+    def test_other_profiles_destinations_are_not_reachable(self):
+        other = Profile.objects.create(
+            user=User.objects.create_user("backupsched3", password="pass12345"), display_name="Other3"
+        )
+        self.Dest.objects.create(profile=other, kind="folder")
+        resp = self.client.post(reverse("backup_destination_delete", args=["folder"]))
+        self.assertEqual(resp.status_code, 404)
+        self.assertTrue(self.Dest.objects.filter(profile=other).exists())
+
+    def test_google_drive_upload_creates_the_folder_once(self):
+        dest = self.Dest(profile=self.profile, kind="gdrive", keep_last=0)
+        dest.set_secret("refresh")
+        dest.save()
+        posts = []
+
+        def fake_post(url, **kwargs):
+            posts.append(url)
+            if "oauth2" in url:
+                return Mock(status_code=200, json=lambda: {"access_token": "tok"})
+            return Mock(status_code=200, json=lambda: {"id": "folder-1"})
+
+        with override_settings(GOOGLE_CLIENT_ID="g", GOOGLE_CLIENT_SECRET="s"), \
+                patch("tracker.backup_destinations.requests.post", side_effect=fake_post):
+            ok, message = self.bd.run_backup(dest)
+        self.assertTrue(ok, message)
+        dest.refresh_from_db()
+        self.assertEqual(dest.folder, "folder-1")
+        self.assertTrue(any("upload/drive/v3/files" in url for url in posts))
+
+
+class BackupServerIntegrationTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_superuser("backupowner", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Owner")
+        self.client.login(username="backupowner", password="pass12345")
+
+    def test_owner_saves_and_clears_google_drive_credentials(self):
+        self.client.post(reverse("save_instance_config"), {"google_client_id": "gid", "google_client_secret": "gsecret"})
+        cfg = InstanceConfig.load()
+        self.assertEqual((cfg.google_client_id, cfg.get_google_client_secret()), ("gid", "gsecret"))
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, "/settings/backups/gdrive/callback/")
+        self.client.post(reverse("clear_instance_config_field", args=["gdrive"]))
+        cfg.refresh_from_db()
+        self.assertEqual((cfg.google_client_id, cfg.get_google_client_secret()), ("", ""))
+
+
+class TransferTrackingTests(TestCase):
+    """Imports and backups stay visible after leaving the page - Logs for
+    the admin, the notification bell and Import & Export's Activity card
+    for the user (tracker/transfer_tracking.py)."""
+
+    def setUp(self):
+        user = User.objects.create_user("tracker1", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Tracker")
+        self.client.login(username="tracker1", password="pass12345")
+
+    def _make_session(self, content="title,type,watched_at\nFathom,movie,2024-01-05\n"):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            f.write(content)
+        return ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.CSV, source_filename="history.csv",
+            source_metadata={"path": f.name},
+            import_options={"mapping": {"title": "title", "media_type": "type", "watched_at": "watched_at"}},
+        )
+
+    def _log(self, session):
+        return DataLog.objects.get(import_session=session)
+
+    def _note(self, session):
+        return Notification.objects.get(import_session=session)
+
+    def test_an_import_is_tracked_from_scan_to_finish(self):
+        session = self._make_session()
+        self.assertEqual(self._log(session).status, DataLog.Status.RUNNING)
+        note = self._note(session)
+        self.assertTrue(note.read)  # the user is looking at it right now
+        self.assertIn("Scanning history.csv", note.message)
+        self.assertEqual(note.link, reverse("import_review", args=[session.id]))
+
+        tasks.scan_import_session(session.id)
+        self.assertEqual(self._log(session).status, DataLog.Status.WAITING)
+        note = self._note(session)
+        self.assertFalse(note.read)
+        self.assertIn("ready to review", note.message)
+
+        tasks.commit_import_session(session.id)
+        log = self._log(session)
+        self.assertEqual(log.status, DataLog.Status.SUCCESS)
+        self.assertEqual(log.item_count, 1)
+        self.assertIsNotNone(log.finished_at)
+        note = self._note(session)
+        self.assertFalse(note.read)
+        self.assertTrue(note.message.startswith("Imported history.csv: 1 added"))
+        self.assertEqual(Notification.objects.filter(profile=self.profile).count(), 1)
+
+    def test_progress_ticks_do_not_re_notify(self):
+        session = self._make_session()
+        tasks.scan_import_session(session.id)
+        Notification.objects.filter(import_session=session).update(read=True)
+        session.processed_items = 1
+        session.save(update_fields=["processed_items"])
+        self.assertTrue(self._note(session).read)
+
+    def test_a_failed_scan_is_logged_and_notified(self):
+        session = self._make_session()
+        with patch.object(import_pipeline, "scan_file_import", side_effect=ValueError("bad file")):
+            with self.assertRaises(ValueError):
+                tasks.scan_import_session(session.id)
+        log = self._log(session)
+        self.assertEqual((log.status, log.error_message), (DataLog.Status.FAILED, "bad file"))
+        note = self._note(session)
+        self.assertFalse(note.read)
+        self.assertIn("failed: bad file", note.message)
+
+    def test_cancelling_marks_the_log_cancelled_without_an_unread_notification(self):
+        session = self._make_session()
+        tasks.scan_import_session(session.id)
+        self.client.post(reverse("import_review_cancel", args=[session.id]))
+        self.assertEqual(self._log(session).status, DataLog.Status.CANCELLED)
+        self.assertTrue(self._note(session).read)
+
+    def test_activity_card_shows_a_scanning_import_and_polls(self):
+        session = self._make_session()
+        resp = self.client.get(reverse("settings") + "?tab=data")
+        self.assertContains(resp, "history.csv")
+        self.assertContains(resp, 'hx-trigger="every 3s"')
+        self.assertContains(resp, reverse("import_review", args=[session.id]))
+
+    def test_activity_card_stops_polling_once_waiting_for_review(self):
+        session = self._make_session()
+        tasks.scan_import_session(session.id)
+        resp = self.client.get(reverse("transfer_activity"))
+        self.assertContains(resp, "Ready to review")
+        self.assertNotContains(resp, 'hx-trigger="every 3s"')
+
+    def test_activity_card_is_empty_with_nothing_going_on(self):
+        resp = self.client.get(reverse("transfer_activity"))
+        self.assertNotContains(resp, "settings-panel")
+
+    def test_notification_links_to_the_review_page(self):
+        session = self._make_session()
+        tasks.scan_import_session(session.id)
+        resp = self.client.get(reverse("notifications_list"))
+        self.assertContains(resp, f'href="{reverse("import_review", args=[session.id])}"')
+
+    def test_a_manual_backup_notifies_with_its_result(self):
+        from tracker.models import BackupDestination
+
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        dest = BackupDestination.objects.create(profile=self.profile, kind="folder", folder="x")
+        with override_settings(BACKUP_ROOT=root):
+            self.assertTrue(tasks.run_scheduled_backup(dest.id, True))
+        dest.refresh_from_db()
+        self.assertFalse(dest.in_progress)
+        note = Notification.objects.get(profile=self.profile, kind=Notification.Kind.BACKUP_STATUS)
+        self.assertEqual(note.message, "Backed up to Server folder.")
+        self.assertFalse(note.read)
+        log = DataLog.objects.get(profile=self.profile, action=DataLog.Action.BACKUP)
+        self.assertEqual(log.status, DataLog.Status.SUCCESS)
+        self.assertIsNotNone(log.finished_at)
+
+    def test_scheduled_backups_notify_once_when_they_start_failing(self):
+        from tracker import backup_destinations
+        from tracker.models import BackupDestination
+
+        dest = BackupDestination.objects.create(profile=self.profile, kind="folder")
+        with patch.object(backup_destinations.ServerFolder, "upload", side_effect=backup_destinations.BackupError("no space")):
+            tasks.run_scheduled_backup(dest.id)
+            tasks.run_scheduled_backup(dest.id)
+        notes = Notification.objects.filter(profile=self.profile, kind=Notification.Kind.BACKUP_STATUS)
+        self.assertEqual(notes.count(), 1)
+        self.assertIn("no space", notes.get().message)
+        self.assertEqual(
+            DataLog.objects.filter(profile=self.profile, action=DataLog.Action.BACKUP, status=DataLog.Status.FAILED).count(), 2
+        )
+
+    def test_scheduled_success_does_not_notify(self):
+        from tracker.models import BackupDestination
+
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        dest = BackupDestination.objects.create(profile=self.profile, kind="folder")
+        with override_settings(BACKUP_ROOT=root):
+            tasks.run_scheduled_backup(dest.id)
+        self.assertFalse(Notification.objects.filter(profile=self.profile).exists())
+
+
+class TransferTrackingLogsTests(TestCase):
+    def test_owner_sees_an_import_awaiting_review_in_logs(self):
+        owner = User.objects.create_superuser("logowner", password="pass12345")
+        Profile.objects.create(user=owner, display_name="Owner")
+        member = Profile.objects.create(user=User.objects.create_user("logmember", password="pass12345"), display_name="Member")
+        ImportSession.objects.create(profile=member, source="csv", source_filename="mine.csv", status=ImportSession.Status.READY)
+        self.client.login(username="logowner", password="pass12345")
+        resp = self.client.get(reverse("settings") + "?tab=logs")
+        self.assertContains(resp, "awaiting review")
+        self.assertContains(resp, "mine.csv")
+
+
+@patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+@patch("tracker.integrations.tmdb.find_match", return_value=None)
+class AnimeRoundTripTests(TestCase):
+    """Anime survives export -> import on a fresh server, both as a series
+    (TMDB tv, by episode) and as a film (TMDB movie, one watch) - see
+    tracker/media_kinds.py."""
+
+    def setUp(self):
+        user = User.objects.create_user("animefan", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Anime Fan")
+        self.client.login(username="animefan", password="pass12345")
+        self.series = Title.objects.create(
+            media_type=MediaType.ANIME, name="Frieren", year=2023, external_ids={"tmdb": "209867", "tmdb_kind": "tv"}
+        )
+        self.film = Title.objects.create(
+            media_type=MediaType.ANIME, name="Your Name", year=2016, external_ids={"tmdb": "372058", "tmdb_kind": "movie"}
+        )
+        episode = Episode.objects.create(title=self.series, season=1, episode=1, name="Journey's End")
+        WatchEvent.objects.create(profile=self.profile, title=self.series, episode=episode, watched_at=_tz.now())
+        WatchEvent.objects.create(profile=self.profile, title=self.film, watched_at=_tz.now(), user_rating=9)
+        WatchListItem.objects.create(watchlist=ensure_watchlist(self.profile), title=self.film)
+
+    def _fresh_server(self):
+        """Another profile on a server that has never seen these titles."""
+        WatchEvent.objects.all().delete()
+        Title.objects.all().delete()
+        other = Profile.objects.create(
+            user=User.objects.create_user("restorer9", password="pass12345"), display_name="Restorer"
+        )
+        return other
+
+    def _import(self, profile, filename, content, source):
+        path = os.path.join(tempfile.mkdtemp(), filename)
+        with open(path, "w") as f:
+            f.write(content)
+        session = ImportSession.objects.create(
+            profile=profile, source=source, source_metadata={"path": path},
+            import_options={"mapping": csv_import.detect_mapping(content.splitlines()[0].split(","))} if source == "csv" else {},
+        )
+        tasks.scan_import_session(session.id)
+        session.refresh_from_db()
+        self.assertEqual(session.summary.get("error", 0), 0, list(session.candidates.values_list("error", flat=True)))
+        tasks.commit_import_session(session.id)
+        return session
+
+    def _assert_restored(self, profile, with_ids=True):
+        series = Title.objects.get(name="Frieren")
+        film = Title.objects.get(name="Your Name")
+        self.assertEqual(series.media_type, MediaType.ANIME)
+        if with_ids:  # a CSV carries no TMDB ids (and TMDB search is mocked out here)
+            self.assertEqual(series.external_ids.get("tmdb_kind"), "tv")
+            self.assertEqual(film.external_ids.get("tmdb_kind"), "movie")
+        self.assertEqual(film.media_type, MediaType.ANIME)
+        self.assertTrue(WatchEvent.objects.filter(profile=profile, title=series, episode__season=1, episode__episode=1).exists())
+        self.assertTrue(WatchEvent.objects.filter(profile=profile, title=film, episode__isnull=True).exists())
+        self.assertFalse(Episode.objects.filter(title=film).exists())
+        return series, film
+
+    def test_full_backup_round_trip(self, *_mocks):
+        from tracker import backup
+
+        data = backup.build_backup(self.profile)
+        anime_items = [h for h in data["history"] if h.get("media_type") == "anime"]
+        self.assertEqual(len(anime_items), 2)
+        other = self._fresh_server()
+        session = self._import(other, "backup.json", json.dumps(data), "json")
+        session.refresh_from_db()
+        self.assertEqual(session.source_metadata["backup_lists_restored"], {"lists": 1, "items": 1})
+        series, film = self._assert_restored(other)
+        self.assertEqual(film.external_ids.get("tmdb_kind"), "movie")
+        self.assertEqual(WatchEvent.objects.get(profile=other, title=film).user_rating, 9)
+        watchlist = WatchList.objects.get(profile=other, is_watchlist=True)
+        self.assertEqual(list(watchlist.items.values_list("title_id", flat=True)), [film.id])
+
+    def test_trakt_json_round_trip(self, *_mocks):
+        resp = self.client.get(reverse("export_trakt_json"))
+        items = json.loads(resp.content)
+        movie_item = next(i for i in items if i["type"] == "movie")
+        self.assertEqual(movie_item["media_type"], "anime")
+        self.assertEqual(movie_item["movie"]["ids"]["tmdb_kind"], "movie")
+        other = self._fresh_server()
+        self._import(other, "trakt.json", resp.content.decode(), "json")
+        self._assert_restored(other)
+
+    def test_csv_round_trip_keeps_an_anime_film(self, *_mocks):
+        resp = self.client.get(reverse("export_csv"))
+        content = resp.content.decode()
+        self.assertIn("Your Name,anime,2016,,,", content)
+        other = self._fresh_server()
+        self._import(other, "export.csv", content, "csv")
+        self._assert_restored(other, with_ids=False)
+
+    def test_a_tv_row_without_an_episode_is_still_an_error(self, *_mocks):
+        from tracker import media_kinds
+
+        self.assertEqual(media_kinds.row_error(MediaType.TV, None, None), media_kinds.SHOW_ROW_ERROR)
+        self.assertEqual(media_kinds.row_error(MediaType.ANIME, 1, None), media_kinds.SHOW_ROW_ERROR)
+        self.assertIsNone(media_kinds.row_error(MediaType.ANIME, None, None))
+        self.assertEqual(media_kinds.row_error(MediaType.ANIME, None, None, "tv"), media_kinds.SHOW_ROW_ERROR)
+
+    def test_plain_trakt_items_are_still_movie_or_tv(self, *_mocks):
+        rows, errors = csv_import.parse_json_rows([
+            {"type": "movie", "watched_at": "2024-01-01T00:00:00Z", "movie": {"title": "A", "ids": {}}},
+            {"type": "episode", "watched_at": "2024-01-01T00:00:00Z", "show": {"title": "B", "ids": {}},
+             "episode": {"season": 1, "number": 2}},
+        ])
+        self.assertEqual([r["media_type"] for r in rows], [MediaType.MOVIE, MediaType.TV])
+
+
+
+class WebDAVAddressCheckTests(TestCase):
+    """The WebDAV URL is user-typed and fetched by the server - it must not
+    become a way to reach the server's own internals (SSRF)."""
+
+    def setUp(self):
+        from tracker import backup_destinations
+
+        self.bd = backup_destinations
+        self.member = Profile.objects.create(
+            user=User.objects.create_user("davmember", password="pass12345"), display_name="Member"
+        )
+        self.owner = Profile.objects.create(
+            user=User.objects.create_superuser("davowner", password="pass12345"), display_name="Owner"
+        )
+
+    def _check(self, ip, owner=False, url="https://dav.example/Spool"):
+        with patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_addrinfo(ip)):
+            self.bd.check_webdav_url(url, allow_local_network=owner)
+
+    def test_public_addresses_are_fine(self):
+        self._check("93.184.216.34")
+
+    def test_never_loopback_link_local_or_metadata(self):
+        for ip in ("127.0.0.1", "169.254.169.254", "::1", "0.0.0.0", "::ffff:127.0.0.1"):
+            for owner in (False, True):
+                with self.subTest(ip=ip, owner=owner), self.assertRaises(self.bd.BackupError):
+                    self._check(ip, owner=owner)
+
+    def test_local_network_only_for_the_owner(self):
+        for ip in ("192.168.1.10", "10.0.0.5", "172.18.0.3", "fd00::1"):
+            with self.subTest(ip=ip):
+                with self.assertRaises(self.bd.BackupError):
+                    self._check(ip, owner=False)
+                self._check(ip, owner=True)
+
+    def test_non_http_schemes_are_refused(self):
+        with self.assertRaises(self.bd.BackupError):
+            self.bd.check_webdav_url("file:///etc/passwd")
+
+    def test_every_request_is_checked_and_redirects_are_not_followed(self):
+        from tracker.models import BackupDestination
+
+        dest = BackupDestination(profile=self.member, kind="webdav", url="https://dav.example/Spool")
+        client = self.bd.WebDAV(dest)
+        with patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_addrinfo("10.0.0.5")), \
+                patch("tracker.backup_destinations.requests.request") as request:
+            with self.assertRaises(self.bd.BackupError):
+                client.check()
+        request.assert_not_called()
+        with patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_PUBLIC_ADDRINFO), \
+                patch("tracker.backup_destinations.requests.request", return_value=Mock(status_code=302, text="")) as request:
+            with self.assertRaises(self.bd.BackupError):
+                client.check()
+        self.assertFalse(request.call_args.kwargs["allow_redirects"])
+
+    def test_errors_do_not_echo_the_remote_response(self):
+        from tracker.models import BackupDestination
+
+        dest = BackupDestination(profile=self.member, kind="webdav", url="https://dav.example/Spool")
+        with patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_PUBLIC_ADDRINFO), \
+                patch("tracker.backup_destinations.requests.request", return_value=Mock(status_code=500, text="SECRET internal page")):
+            with self.assertRaises(self.bd.BackupError) as ctx:
+                self.bd.WebDAV(dest).check()
+        self.assertNotIn("SECRET", str(ctx.exception))
+
+    def test_a_member_cannot_save_a_local_address(self):
+        self.client.login(username="davmember", password="pass12345")
+        with patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_addrinfo("192.168.1.10")), \
+                patch("tracker.backup_destinations.requests.request") as request:
+            self.client.post(reverse("backup_destination_save", args=["webdav"]), {"url": "http://nas.lan/dav"})
+        request.assert_not_called()
+        from tracker.models import BackupDestination
+
+        self.assertFalse(BackupDestination.objects.filter(profile=self.member, kind="webdav").exists())

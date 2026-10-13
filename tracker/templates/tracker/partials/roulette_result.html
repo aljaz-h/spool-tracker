@@ -14,13 +14,13 @@ and "narrow the pool" are one request shape.
     hx-swap="innerHTML"
     class="flex flex-wrap items-center justify-center gap-2 w-full"
   >
-    <select name="type" class="select select-sm bg-base-100">
+    <select name="type" class="select select-sm">
       <option value="all" {% if media_type == "all" %}selected{% endif %}>Any type</option>
       <option value="movie" {% if media_type == "movie" %}selected{% endif %}>Movies</option>
       <option value="tv" {% if media_type == "tv" %}selected{% endif %}>TV</option>
       <option value="anime" {% if media_type == "anime" %}selected{% endif %}>Anime</option>
     </select>
-    <select name="max_runtime" class="select select-sm bg-base-100">
+    <select name="max_runtime" class="select select-sm">
       <option value="" {% if not max_runtime %}selected{% endif %}>Any runtime</option>
       <option value="30" {% if max_runtime == "30" %}selected{% endif %}>Under 30 min</option>
       <option value="60" {% if max_runtime == "60" %}selected{% endif %}>Under 1 hr</option>

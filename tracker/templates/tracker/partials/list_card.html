@@ -1,42 +1,54 @@
 {% load tracker_extras icons %}
-{# context: wl, show_featured_toggle (optional, bool) - shared between lists.html's grid and dashboard_featured_lists.html's rail so both render a list's cover collage identically. #}
-<div class="relative group">
-  <a href="{% url 'list_detail' wl.id %}" class="block bg-base-200 border border-line rounded-2xl overflow-hidden hover:border-ink-faint transition-colors">
-    <div class="grid grid-cols-4 h-24 bg-base-300">
-      {% for item in wl.items.all|slice:":4" %}
-        <div class="relative overflow-hidden {% if not item.title.poster_url %}{{ item.title.pk|gradient_class }}{% endif %}">
-          {% if item.title.poster_url %}
-            <img src="{{ item.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
-          {% endif %}
-        </div>
-      {% endfor %}
-    </div>
-    <div class="p-3.5">
-      <div class="font-bold text-[14.5px] mb-0.5">{{ wl.name }}</div>
-      <div class="text-xs text-ink-dim font-mono">{{ wl.items.all|length }} title{{ wl.items.all|length|pluralize }} · {% if wl.is_shared %}shared{% else %}private{% endif %}</div>
+{# context: wl, show_featured_toggle (optional, bool) - shared between lists.html's grid and dashboard_featured_lists.html so both render a list the same way: a 16:9 collage of its first four posters, then name and one meta line (count, sharing, last change, and the owner when it isn't you). #}
+<div class="relative group min-w-0">
+  <a href="{% url 'list_detail' wl.id %}" class="block">
+    {% with items=wl.items.all|slice:":4" %}
+      <div class="relative aspect-video rounded-xl overflow-hidden bg-base-200 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
+        {% if items %}
+          <div class="absolute inset-0 grid gap-px bg-base-100" style="grid-template-columns: repeat({{ items|length }}, minmax(0, 1fr))">
+            {% for item in items %}
+              <div class="relative overflow-hidden bg-base-300 {% if not item.title.poster_url %}{{ item.title.pk|gradient_class }}{% endif %}">
+                {% if item.title.poster_url %}
+                  <img src="{{ item.title.poster_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover group-hover:brightness-110">
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="absolute inset-0 flex flex-col items-center justify-center gap-2 text-ink-faint">
+            {% icon "list-checks" "w-6 h-6" %}
+            <span class="text-[13px]">No titles yet</span>
+          </div>
+        {% endif %}
+      </div>
+    {% endwith %}
+    <div class="mt-3 min-w-0">
+      <div class="text-[16px] font-semibold leading-snug truncate group-hover:text-white">{{ wl.name }}</div>
+      <div class="meta mt-1">
+        <span class="text-base-content/85">{{ wl.items.all|length }} title{{ wl.items.all|length|pluralize }}</span>
+        <span>{% if wl.is_shared %}Shared{% else %}Private{% endif %}</span>
+        <span>Updated {{ wl|list_updated_at|short_timesince }} ago</span>
+        {% if active_profile and wl.profile_id != active_profile.id %}<span>by {{ wl.profile.display_name }}</span>{% endif %}
+      </div>
       {% if wl.tags %}
-        <div class="flex flex-wrap gap-1 mt-1.5">
-          {% for tag in wl.tags %}
-            <span class="px-1.5 py-0.5 rounded bg-base-300 text-[10px] text-ink-dim font-mono">{{ tag }}</span>
-          {% endfor %}
-        </div>
+        <div class="mt-1.5 flex flex-wrap gap-x-2 text-[12.5px] text-ink-faint">{% for tag in wl.tags %}<span>#{{ tag }}</span>{% endfor %}</div>
       {% endif %}
     </div>
   </a>
   {% if show_featured_toggle and wl.is_shared %}
-    {# Owner-only curation control (views.toggle_list_featured) - not nested inside the <a> above (invalid HTML, and would double as a navigation click) so it's an absolutely-positioned sibling instead, same non-nesting pattern list_detail_items.html uses for its remove button over poster_card.html. #}
+    {# Owner-only curation control (views.toggle_list_featured) - a positioned sibling of the <a> above, not nested inside it (invalid HTML, and would double as a navigation click). #}
     <form
       method="post" action="{% url 'toggle_list_featured' wl.id %}"
-      class="absolute top-2 right-2"
+      class="absolute top-2.5 right-2.5"
       title="{% if wl.is_featured %}Remove from Dashboard{% else %}Feature on Dashboard{% endif %}"
     >
       {% csrf_token %}
       <button
         type="submit"
         aria-label="{% if wl.is_featured %}Remove from Dashboard{% else %}Feature on Dashboard{% endif %}"
-        class="w-7 h-7 rounded-full flex items-center justify-center transition-colors {% if wl.is_featured %}bg-primary text-primary-content{% else %}bg-black/70 text-white opacity-0 group-hover:opacity-100{% endif %}"
+        class="h-7 px-2 rounded-md flex items-center gap-1 text-[12px] font-semibold {% if wl.is_featured %}bg-primary text-primary-content{% else %}bg-black/70 text-white opacity-0 group-hover:opacity-100 focus:opacity-100 max-lg:opacity-100{% endif %}"
       >
-        {% icon "sparkles" "w-3.5 h-3.5" %}
+        {% icon "sparkles" "w-3.5 h-3.5" %}{% if wl.is_featured %}Featured{% endif %}
       </button>
     </form>
   {% endif %}

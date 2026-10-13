@@ -3,9 +3,11 @@
 {% block title %}Calendar · Spool{% endblock %}
 {% block content %}
 
-  <div class="mb-6">
-    <h1 class="font-display text-4xl">Calendar</h1>
-    <div class="text-ink-dim text-sm mt-1">New episodes, season premieres &amp; releases — from what you're watching and your watchlists</div>
+  <div class="page-head !mb-6">
+    <div>
+      <h1 class="page-title">Calendar</h1>
+      <p class="page-subtitle">New episodes, season premieres and releases from what you're watching and your watchlists.</p>
+    </div>
   </div>
 
   {% comment %}
@@ -27,7 +29,7 @@
     hx-target="#calendar-body"
     hx-trigger="change"
     hx-push-url="true"
-    class="grid grid-cols-1 lg:grid-cols-[1fr_auto_1fr] items-center gap-4 lg:gap-5 mb-5"
+    class="grid grid-cols-1 lg:grid-cols-[1fr_auto_1fr] items-center gap-4 lg:gap-5 mb-6"
   >
     <input type="hidden" name="month" value="{{ current_month_param }}" id="calendar-month-field">
 
@@ -39,17 +41,17 @@
         (Django's {# #} comment is single-line only — a multi-line one
         like this isn't recognized as a tag and renders as literal text.)
       {% endcomment %}
-      <div class="inline-flex bg-base-200 border border-line rounded-lg p-1 gap-0.5">
-        <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+      <div class="seg">
+        <label class="seg-item cursor-pointer has-checked:bg-base-300 has-checked:text-base-content">
           <input type="radio" name="type" value="all" class="hidden" {% if type_filter == "all" %}checked{% endif %}>All
         </label>
-        <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+        <label class="seg-item cursor-pointer has-checked:bg-base-300 has-checked:text-base-content">
           <input type="radio" name="type" value="movie" class="hidden" {% if type_filter == "movie" %}checked{% endif %}>Movies
         </label>
-        <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+        <label class="seg-item cursor-pointer has-checked:bg-base-300 has-checked:text-base-content">
           <input type="radio" name="type" value="tv" class="hidden" {% if type_filter == "tv" %}checked{% endif %}>TV
         </label>
-        <label class="px-3.5 py-1.5 rounded-md text-xs font-semibold cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content">
+        <label class="seg-item cursor-pointer has-checked:bg-base-300 has-checked:text-base-content">
           <input type="radio" name="type" value="anime" class="hidden" {% if type_filter == "anime" %}checked{% endif %}>Anime
         </label>
       </div>
@@ -80,10 +82,10 @@
         hx-swap="none"
         @htmx:after-request="justRefreshed = true; setTimeout(() => justRefreshed = false, 3000)"
         title="Refresh releases from TMDB - runs in the background, reload in a few seconds to see updates"
-        class="flex-none bg-base-200 border border-line rounded-lg p-2 text-ink-dim hover:text-base-content hover:bg-base-300 transition-colors cursor-pointer"
+        class="btn btn-sm btn-ghost gap-1.5 text-ink-dim hover:text-base-content"
       >
-        <span x-show="!justRefreshed">{% icon "refresh-cw" "w-4 h-4" %}</span>
-        <span x-show="justRefreshed" x-cloak class="flex items-center gap-1 text-success text-[10px] font-semibold whitespace-nowrap">{% icon "check" "w-4 h-4" %} Started</span>
+        <span x-show="!justRefreshed" class="flex items-center gap-1.5">{% icon "refresh-cw" "w-4 h-4" %} Refresh</span>
+        <span x-show="justRefreshed" x-cloak class="flex items-center gap-1 text-success text-xs font-semibold whitespace-nowrap">{% icon "check" "w-4 h-4" %} Started</span>
       </button>
     </div>
   </form>

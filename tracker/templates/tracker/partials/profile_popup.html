@@ -3,11 +3,11 @@
   {% if target.avatar_image %}
     <div class="w-12 h-12 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ target.avatar_image.url }}')"></div>
   {% else %}
-    <div class="w-12 h-12 rounded-full flex items-center justify-center font-mono text-base font-semibold flex-none" style="background:{{ target.avatar_color }};color:#fff;">{{ target.display_name|first|upper }}</div>
+    <div class="w-12 h-12 rounded-full flex items-center justify-center text-base font-semibold flex-none" style="background:{{ target.avatar_color }};color:#fff;">{{ target.display_name|first|upper }}</div>
   {% endif %}
   <div>
     <div class="text-lg font-semibold">{{ target.display_name }}</div>
-    <div class="flex items-center gap-2 text-xs text-ink-dim font-mono">
+    <div class="flex items-center gap-2 text-xs text-ink-dim">
       <span>{% if target.is_owner %}Owner{% else %}Member{% endif %}</span>
       <span class="text-ink-faint">&middot;</span>
       <span>Member since {{ target.created_at|date:"F Y" }}</span>
@@ -15,66 +15,66 @@
   </div>
 </div>
 
-<div class="bg-base-100 border border-line rounded-2xl p-4 mb-4">
+<div class="pb-4 mb-4 border-b border-line">
   <div class="flex items-baseline gap-2">
-    <span class="font-display text-4xl text-primary leading-none">{{ current_streak }}</span>
-    <span class="font-display text-xs text-ink-dim uppercase tracking-wide">day streak</span>
+    <span class="figure !text-4xl text-primary">{{ current_streak }}</span>
+    <span class="text-sm text-ink-dim">day streak</span>
   </div>
   {% if longest_streak %}
-    <div class="text-[11px] text-ink-faint mt-1.5">Personal best <span class="text-ink-dim underline decoration-dotted underline-offset-2">{{ longest_streak }} days</span></div>
+    <div class="text-[12px] text-ink-faint mt-1.5">Personal best <span class="text-ink-dim underline decoration-dotted underline-offset-2">{{ longest_streak }} days</span></div>
   {% endif %}
-  <div class="grid grid-cols-2 gap-x-3 gap-y-2.5 mt-4 pt-4 border-t border-line">
+  <div class="grid grid-cols-2 gap-x-3 gap-y-2.5 mt-4">
     <div>
-      <div class="font-display text-xl text-accent leading-none">{{ movies_watched }} / {{ shows_completed }}</div>
-      <div class="text-[10px] text-ink-dim mt-1">Movies watched / Shows completed</div>
+      <div class="text-xl font-bold tabular-nums">{{ movies_watched }} / {{ shows_completed }}</div>
+      <div class="text-[12px] text-ink-dim mt-1">Movies watched / Shows completed</div>
     </div>
     <div>
-      <div class="font-display text-xl leading-none">{{ total_watch_hours }}h</div>
-      <div class="text-[10px] text-ink-dim mt-1">Total watch time</div>
+      <div class="text-xl font-bold tabular-nums">{{ total_watch_hours }}h</div>
+      <div class="text-[12px] text-ink-dim mt-1">Total watch time</div>
     </div>
   </div>
 </div>
 
-<div class="bg-base-100 border border-line rounded-2xl grid grid-cols-2 divide-x divide-line mb-4">
-  <div class="min-w-0 p-4">
+<div class="grid grid-cols-2 gap-6 pb-4 mb-4 border-b border-line">
+  <div class="min-w-0">
     <h3 class="text-xs font-semibold mb-3">Last 30 days</h3>
     <div class="space-y-2.5">
       <div class="flex justify-between items-baseline gap-2">
-        <span class="text-[11px] text-ink-dim">Movies</span>
-        <span class="font-mono text-[11px] text-right"><b>{{ watch_time_breakdown.last_30_days.movie.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.last_30_days.movie.count }})</span></span>
+        <span class="text-[12.5px] text-ink-dim">Movies</span>
+        <span class="text-[12.5px] text-right tabular-nums"><b>{{ watch_time_breakdown.last_30_days.movie.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.last_30_days.movie.count }})</span></span>
       </div>
       <div class="flex justify-between items-baseline gap-2">
-        <span class="text-[11px] text-ink-dim">TV</span>
-        <span class="font-mono text-[11px] text-right"><b>{{ watch_time_breakdown.last_30_days.tv.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.last_30_days.tv.count }})</span></span>
+        <span class="text-[12.5px] text-ink-dim">TV</span>
+        <span class="text-[12.5px] text-right tabular-nums"><b>{{ watch_time_breakdown.last_30_days.tv.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.last_30_days.tv.count }})</span></span>
       </div>
       <div class="flex justify-between items-baseline gap-2">
-        <span class="text-[11px] text-ink-dim">Anime</span>
-        <span class="font-mono text-[11px] text-right"><b>{{ watch_time_breakdown.last_30_days.anime.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.last_30_days.anime.count }})</span></span>
+        <span class="text-[12.5px] text-ink-dim">Anime</span>
+        <span class="text-[12.5px] text-right tabular-nums"><b>{{ watch_time_breakdown.last_30_days.anime.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.last_30_days.anime.count }})</span></span>
       </div>
       <div class="flex justify-between items-baseline gap-2 pt-2.5 border-t border-line">
-        <span class="text-[11px] text-ink-dim">Combined</span>
-        <span class="font-mono text-[11px] text-right"><b>{{ watch_time_breakdown.last_30_days.combined.days_rounded }}d</b> <span class="text-ink-faint">(&asymp; {{ watch_time_breakdown.last_30_days.combined.hours_display }})</span></span>
+        <span class="text-[12.5px] text-ink-dim">Combined</span>
+        <span class="text-[12.5px] text-right tabular-nums"><b>{{ watch_time_breakdown.last_30_days.combined.days_rounded }}d</b> <span class="text-ink-faint">(&asymp; {{ watch_time_breakdown.last_30_days.combined.hours_display }})</span></span>
       </div>
     </div>
   </div>
-  <div class="min-w-0 p-4">
+  <div class="min-w-0">
     <h3 class="text-xs font-semibold mb-3">All time</h3>
     <div class="space-y-2.5">
       <div class="flex justify-between items-baseline gap-2">
-        <span class="text-[11px] text-ink-dim">Movies</span>
-        <span class="font-mono text-[11px] text-right"><b>{{ watch_time_breakdown.all_time.movie.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.all_time.movie.count }})</span></span>
+        <span class="text-[12.5px] text-ink-dim">Movies</span>
+        <span class="text-[12.5px] text-right tabular-nums"><b>{{ watch_time_breakdown.all_time.movie.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.all_time.movie.count }})</span></span>
       </div>
       <div class="flex justify-between items-baseline gap-2">
-        <span class="text-[11px] text-ink-dim">TV</span>
-        <span class="font-mono text-[11px] text-right"><b>{{ watch_time_breakdown.all_time.tv.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.all_time.tv.count }})</span></span>
+        <span class="text-[12.5px] text-ink-dim">TV</span>
+        <span class="text-[12.5px] text-right tabular-nums"><b>{{ watch_time_breakdown.all_time.tv.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.all_time.tv.count }})</span></span>
       </div>
       <div class="flex justify-between items-baseline gap-2">
-        <span class="text-[11px] text-ink-dim">Anime</span>
-        <span class="font-mono text-[11px] text-right"><b>{{ watch_time_breakdown.all_time.anime.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.all_time.anime.count }})</span></span>
+        <span class="text-[12.5px] text-ink-dim">Anime</span>
+        <span class="text-[12.5px] text-right tabular-nums"><b>{{ watch_time_breakdown.all_time.anime.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.all_time.anime.count }})</span></span>
       </div>
       <div class="flex justify-between items-baseline gap-2 pt-2.5 border-t border-line">
-        <span class="text-[11px] text-ink-dim">Combined</span>
-        <span class="font-mono text-[11px] text-right"><b>{{ total_watch_days_rounded }}d</b> <span class="text-ink-faint">(&asymp; {{ total_watch_hours_display }})</span></span>
+        <span class="text-[12.5px] text-ink-dim">Combined</span>
+        <span class="text-[12.5px] text-right tabular-nums"><b>{{ total_watch_days_rounded }}d</b> <span class="text-ink-faint">(&asymp; {{ total_watch_hours_display }})</span></span>
       </div>
     </div>
   </div>
@@ -82,10 +82,10 @@
 
 {% if top_genres %}
   <div class="mb-4">
-    <div class="text-[10px] text-ink-dim uppercase tracking-wide mb-2">Top genres</div>
+    <div class="text-xs text-ink-dim mb-2">Top genres</div>
     <div class="flex flex-wrap gap-1.5">
       {% for g in top_genres %}
-        <span class="px-2.5 py-1 rounded-full bg-base-100 border border-line text-[11px] font-semibold">{{ g.name }}</span>
+        <span class="px-2.5 py-1 rounded-full bg-base-300 text-[12.5px] font-medium">{{ g.name }}</span>
       {% endfor %}
     </div>
   </div>
@@ -98,14 +98,14 @@
   <div class="space-y-2">
     {% for event in recent_events %}
       <div class="flex items-center gap-2.5 text-[12.5px]">
-        <div class="w-7 h-9 rounded relative overflow-hidden flex-none {% if not event.title.poster_url %}{{ event.title.pk|gradient_class }}{% endif %}">
+        <div class="w-7 h-10 rounded relative overflow-hidden flex-none bg-base-300 {% if not event.title.poster_url %}{{ event.title.pk|gradient_class }}{% endif %}">
           {% if event.title.poster_url %}
             <img src="{{ event.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
           {% endif %}
         </div>
         <div class="min-w-0 flex-1">
-          <div class="truncate font-semibold">{{ event.title.name }}{% if event.episode %} — S{{ event.episode.season }}E{{ event.episode.episode }}{% endif %}</div>
-          <div class="text-ink-faint font-mono text-[10.5px]">{{ event.watched_at|timesince }} ago</div>
+          <div class="truncate font-medium">{{ event.title.name }}{% if event.episode %} — S{{ event.episode.season }}E{{ event.episode.episode }}{% endif %}</div>
+          <div class="text-ink-faint text-[12px]">{{ event.watched_at|timesince }} ago</div>
         </div>
       </div>
     {% endfor %}

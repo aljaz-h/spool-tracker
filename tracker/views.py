@@ -29,7 +29,7 @@ from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Q
 from django.db.models.functions import TruncDate
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -56,10 +56,12 @@ from . import (
     totp,
 )
 from .integrations import anifiller, mdblist, nuvio, simkl, tenrai, tmdb, trakt
+from .watchlists import WATCHLIST_NAME, ensure_watchlist
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
     ApiToken,
+    BackupDestination,
     DataLog,
     Episode,
     ExternalAccount,
@@ -2558,6 +2560,21 @@ def person_detail(request, person_id):
                 {"value": str(count), "label": f"{section['label'].lower()} {noun}", "info": None}
             )
 
+    # "You've Watched" - the titles behind the stats card's "N of M
+    # watched" figure, so that number has something to point at. Same
+    # deduped item list (a film they both acted in and directed shows
+    # once) and the same watched lookup the figure itself uses. Added
+    # after Known for/the credit-count callouts are worked out above, so
+    # it never counts as one of this person's departments.
+    watched_items = [
+        item for item in items
+        if action_context["discover_watched"].get(f"{item['media_type']}:{item['tmdb_id']}", False)
+    ]
+    for item in watched_items:
+        item["watched"] = True
+    if watched_items:
+        filmography_sections.insert(0, {"key": "watched", "label": "You've Watched", "items": watched_items})
+
     context = {
         "profile": profile,
         "person": details,
@@ -2637,9 +2654,9 @@ def title_preview_add_to_watchlist(request, media_type, tmdb_id):
     if title is None:
         raise Http404
 
-    watchlist, _ = WatchList.objects.get_or_create(
-        profile=profile, name="Watchlist", defaults={"is_watchlist": True}
-    )
+
+
+    watchlist = ensure_watchlist(profile)
     WatchListItem.objects.get_or_create(watchlist=watchlist, title=title)
     return redirect("title_detail", pk=title.pk)
 
@@ -3455,6 +3472,11 @@ def create_list(request):
     if not name:
         messages.error(request, "List name is required.")
         return redirect("lists")
+    if name.casefold() == WATCHLIST_NAME.casefold():
+        # Every profile already has exactly one (tracker/watchlists.py) -
+        # a second list of the same name would just be confusing.
+        messages.error(request, "You already have a Watchlist - pick another name.")
+        return redirect("lists")
     watchlist = WatchList.objects.create(
         profile=profile, name=name, is_shared=bool(request.POST.get("is_shared")),
         tags=_parse_tags(request.POST.get("tags", "")),
@@ -3484,6 +3506,12 @@ def delete_list(request, list_id):
     watchlist = get_object_or_404(WatchList, pk=list_id)
     if profile is None or not watchlist.can_edit(profile):
         messages.error(request, "Only the creator of a list can delete it.")
+        return redirect("list_detail", list_id=list_id)
+    if watchlist.is_watchlist:
+        # The auto-managed Watchlist always exists (tracker/watchlists.py) -
+        # finished titles come off it automatically; it can be emptied, not
+        # removed.
+        messages.error(request, "Your Watchlist can't be deleted - remove titles from it instead.")
         return redirect("list_detail", list_id=list_id)
     watchlist.delete()
     return redirect("lists")
@@ -3936,7 +3964,16 @@ def activity(request):
         feed = [item for item in feed if item["profile"].pk == selected_member_id]
 
     page_obj = Paginator(feed, ACTIVITY_PAGE_SIZE).get_page(request.GET.get("page"))
-    leaderboard_period = request.GET.get("period") if request.GET.get("period") in ("week", "year") else "week"
+    requested_period = request.GET.get("period")
+    leaderboard_period = requested_period if requested_period in ("week", "year") else "week"
+    leaderboard = selectors.household_leaderboard(leaderboard_period)
+    # No explicit ?period= and a quiet week: open on This Year instead of
+    # an empty card, as long as the year actually has plays. The card (and
+    # its toggle) always renders now - see household_leaderboard.html.
+    if requested_period not in ("week", "year") and not leaderboard:
+        year_leaderboard = selectors.household_leaderboard("year")
+        if year_leaderboard:
+            leaderboard_period, leaderboard = "year", year_leaderboard
 
     query_without_page = request.GET.copy()
     query_without_page.pop("page", None)
@@ -3949,7 +3986,7 @@ def activity(request):
         "selected_member_id": selected_member_id,
         "recently_watching_count": selectors.recently_watching_count(),
         "leaderboard_period": leaderboard_period,
-        "leaderboard": selectors.household_leaderboard(leaderboard_period),
+        "leaderboard": leaderboard,
         "top_titles": selectors.household_top_titles(),
         "time_format_str": _time_format_str(profile),
     }
@@ -4154,11 +4191,19 @@ def _settings_page_context(request, profile):
         "api_tokens": profile.api_tokens.all(),
         "max_api_tokens": ApiToken.MAX_TOKENS_PER_PROFILE,
         **_security_card_context(profile),
+        **_backup_card_context(request, profile),
+        **_transfer_activity_context(profile),
     }
     if profile.is_owner:
         db_engine = django_settings.DATABASES["default"]["ENGINE"].rsplit(".", 1)[-1]
         context.update(
             {
+                "backup_redirect_uris": {
+                    kind: request.build_absolute_uri(reverse("backup_callback", args=[kind]))
+                    for kind in ("gdrive", "dropbox")
+                },
+                "gdrive_backup_configured": all(instance_config.get_backup_credentials("gdrive")),
+                "dropbox_backup_configured": all(instance_config.get_backup_credentials("dropbox")),
                 "profiles": Profile.objects.select_related("user").all(),
                 "cfg": InstanceConfig.load(),
                 "tmdb_configured": bool(instance_config.get_tmdb_api_key()),
@@ -4290,8 +4335,11 @@ _INSTANCE_CONFIG_FIELDS = [
     "simkl_client_id", "simkl_client_secret",
     "tmdb_api_key", "mdblist_api_key",
     "spool_wrapped_url", "sso_shared_secret",
+    "google_client_id", "google_client_secret",
+    "dropbox_app_key", "dropbox_app_secret",
 ]
 _INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES = {"trakt": "Trakt", "simkl": "Simkl", "tmdb": "TMDB", "mdblist": "MDBList"}
+_INSTANCE_CONFIG_CLEARABLE = {**_INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES, "gdrive": "Google Drive", "dropbox": "Dropbox"}
 
 
 def _render_server_integrations(request, profile):
@@ -4324,7 +4372,7 @@ def save_instance_config(request):
     # clear_instance_config_field for the explicit way to actually clear
     # a field) - a blank field only ever means the admin didn't type a
     # replacement.
-    for field in ["trakt_client_id", "simkl_client_id", "spool_wrapped_url"]:
+    for field in ["trakt_client_id", "simkl_client_id", "spool_wrapped_url", "google_client_id", "dropbox_app_key"]:
         value = request.POST.get(field, "").strip()
         if value:
             setattr(cfg, field, value)
@@ -4337,6 +4385,8 @@ def save_instance_config(request):
         ("tmdb_api_key", cfg.set_tmdb_api_key),
         ("mdblist_api_key", cfg.set_mdblist_api_key),
         ("sso_shared_secret", cfg.set_sso_shared_secret),
+        ("google_client_secret", cfg.set_google_client_secret),
+        ("dropbox_app_secret", cfg.set_dropbox_app_secret),
     ]:
         value = request.POST.get(field, "").strip()
         if value:
@@ -4358,11 +4408,17 @@ def clear_instance_config_field(request, provider):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None or not profile.is_owner:
         raise Http404
-    if provider not in _INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES:
+    if provider not in _INSTANCE_CONFIG_CLEARABLE:
         raise Http404
 
     cfg = InstanceConfig.load()
-    if provider == "trakt":
+    if provider == "gdrive":
+        cfg.google_client_id = ""
+        cfg.set_google_client_secret("")
+    elif provider == "dropbox":
+        cfg.dropbox_app_key = ""
+        cfg.set_dropbox_app_secret("")
+    elif provider == "trakt":
         cfg.trakt_client_id = ""
         cfg.set_trakt_client_secret("")
     elif provider == "simkl":
@@ -4373,7 +4429,7 @@ def clear_instance_config_field(request, provider):
     else:
         cfg.set_mdblist_api_key("")
     cfg.save()
-    messages.success(request, f"Cleared {_INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES[provider]} credentials.")
+    messages.success(request, f"Cleared {_INSTANCE_CONFIG_CLEARABLE[provider]} credentials.")
     return _render_server_integrations(request, profile)
 
 
@@ -5431,6 +5487,8 @@ def export_trakt_json(request):
         tmdb_id = event.title.external_ids.get("tmdb")
         if tmdb_id:
             ids["tmdb"] = int(tmdb_id) if str(tmdb_id).isdigit() else tmdb_id
+            if event.title.external_ids.get("tmdb_kind"):
+                ids["tmdb_kind"] = event.title.external_ids["tmdb_kind"]
         if event.episode:
             items.append(
                 {
@@ -5452,6 +5510,9 @@ def export_trakt_json(request):
                     "movie": {"title": event.title.name, "year": event.title.year, "ids": ids},
                 }
             )
+        if event.title.media_type == MediaType.ANIME:
+            # Extra, non-Trakt field so Spool re-imports it as anime.
+            items[-1]["media_type"] = MediaType.ANIME
     response = JsonResponse(items, safe=False, json_dumps_params={"indent": 2})
     filename = f"spool-trakt-export-{timezone.localdate().isoformat()}.json"
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
@@ -5461,6 +5522,29 @@ def export_trakt_json(request):
     )
     return response
 
+
+
+@login_required
+def export_spool_backup(request):
+    """Spool's full backup (tracker/backup.py): history with ratings plus
+    every list, the Watchlist included. Importing this file through the
+    normal JSON import restores both."""
+    from tracker import backup
+
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    data = backup.build_backup(profile)
+    response = JsonResponse(data, json_dumps_params={"indent": 2})
+    filename = f"spool-backup-{timezone.localdate().isoformat()}.json"
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    list_items = sum(len(entry["items"]) for entry in data["lists"])
+    DataLog.objects.create(
+        profile=profile, action=DataLog.Action.EXPORT, status=DataLog.Status.SUCCESS,
+        item_count=len(data["history"]) + list_items,
+        detail=f"Spool backup ({len(data['lists'])} lists)",
+    )
+    return response
 
 PROVIDER_MODULES = {"trakt": trakt, "simkl": simkl}
 SYNC_TASKS = {"trakt": tasks.sync_trakt_history, "simkl": tasks.sync_simkl_history, "nuvio": tasks.sync_nuvio_history}
@@ -5971,8 +6055,11 @@ def import_csv_upload(request):
             os.remove(path)
             messages.error(request, f'"{upload.name}" doesn\'t look like a valid JSON file.')
             return redirect("settings")
+        from tracker import backup
+
         rows, errors = csv_import.parse_json_rows(data, limit=1)
-        if not rows and not errors:
+        has_lists = backup.is_spool_backup(data) and backup.list_summary(data)["lists"]
+        if not rows and not errors and not has_lists:
             os.remove(path)
             messages.error(request, f'"{upload.name}" doesn\'t contain any recognizable watch history.')
             return redirect("settings")
@@ -6272,7 +6359,8 @@ def import_review_commit(request, session_id):
     profile, session = _get_import_session_or_404(request, session_id)
     if session.status != ImportSession.Status.READY:
         return redirect("import_review", session_id=session.id)
-    if not session.candidates.filter(selected=True, status=ImportCandidate.Status.PENDING).exists():
+    has_backup_lists = bool(session.source_metadata.get("backup_lists"))
+    if not has_backup_lists and not session.candidates.filter(selected=True, status=ImportCandidate.Status.PENDING).exists():
         messages.error(request, "Select at least one item to import.")
         return redirect("import_review", session_id=session.id)
 
@@ -6294,3 +6382,241 @@ def import_review_cancel(request, session_id):
     import_pipeline.discard_session(session)
     messages.info(request, "Import cancelled — nothing was imported.")
     return redirect("settings")
+
+
+
+# --------------------------------------------------------------------
+# Scheduled backups (Settings -> Import & Export) - see
+# tracker/backup_destinations.py. Each profile sets up its own.
+# --------------------------------------------------------------------
+
+BACKUP_OAUTH_KINDS = ("gdrive", "dropbox")
+
+
+def _backup_card_context(request, profile):
+    from . import backup_destinations
+
+    destinations = {d.kind: d for d in BackupDestination.objects.filter(profile=profile)}
+    rows = []
+    for kind, label in BackupDestination.Kind.choices:
+        destination = destinations.get(kind)
+        rows.append({
+            "kind": kind,
+            "label": label,
+            "destination": destination,
+            "next_run_at": backup_destinations.next_run_at(destination) if destination else None,
+            "available": kind not in BACKUP_OAUTH_KINDS or bool(all(instance_config.get_backup_credentials(kind))),
+        })
+    return {
+        "backup_rows": rows,
+        "backup_frequencies": BackupDestination.Frequency.choices,
+        "any_backup_enabled": any(d.enabled for d in destinations.values()),
+    }
+
+
+def _redirect_to_backups():
+    return redirect(f"{reverse('settings')}?tab=data#backups")
+
+
+def _apply_backup_schedule(destination, post):
+    frequency = post.get("frequency")
+    if frequency in BackupDestination.Frequency.values:
+        destination.frequency = frequency
+    try:
+        destination.keep_last = max(0, min(int(post.get("keep_last", destination.keep_last)), 365))
+    except (TypeError, ValueError):
+        pass
+
+
+@login_required
+def backup_connect(request, kind):
+    """Starts Google Drive/Dropbox OAuth for this profile's backups."""
+    from . import backup_destinations
+
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or kind not in BACKUP_OAUTH_KINDS:
+        raise Http404
+    client_id, client_secret = instance_config.get_backup_credentials(kind)
+    label = BackupDestination.Kind(kind).label
+    if not client_id or not client_secret:
+        messages.error(request, f"{label} backups aren't set up on this server yet - ask the server owner to add its app credentials under Server Integrations.")
+        return _redirect_to_backups()
+    state = secrets.token_urlsafe(24)
+    request.session[f"backup_{kind}_oauth_state"] = state
+    request.session[f"backup_{kind}_schedule"] = {
+        "frequency": request.GET.get("frequency", ""), "keep_last": request.GET.get("keep_last", ""),
+    }
+    redirect_uri = request.build_absolute_uri(reverse("backup_callback", args=[kind]))
+    return redirect(backup_destinations.authorize_url(kind, client_id, redirect_uri, state))
+
+
+@login_required
+def backup_callback(request, kind):
+    from . import backup_destinations
+
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or kind not in BACKUP_OAUTH_KINDS:
+        raise Http404
+    label = BackupDestination.Kind(kind).label
+    expected_state = request.session.pop(f"backup_{kind}_oauth_state", None)
+    schedule = request.session.pop(f"backup_{kind}_schedule", None) or {}
+    if not expected_state or request.GET.get("state") != expected_state:
+        messages.error(request, f"That {label} connection request expired - please try again.")
+        return _redirect_to_backups()
+    code = request.GET.get("code")
+    if not code:
+        messages.error(request, f"{label} didn't grant access{': ' + request.GET['error'] if request.GET.get('error') else ''}.")
+        return _redirect_to_backups()
+    client_id, client_secret = instance_config.get_backup_credentials(kind)
+    redirect_uri = request.build_absolute_uri(reverse("backup_callback", args=[kind]))
+    try:
+        refresh_token, account_label = backup_destinations.exchange_code(kind, client_id, client_secret, code, redirect_uri)
+    except (backup_destinations.BackupError, requests.RequestException, ValueError, KeyError) as exc:
+        messages.error(request, f"Couldn't connect {label}: {exc}")
+        return _redirect_to_backups()
+    destination, created = BackupDestination.objects.get_or_create(profile=profile, kind=kind)
+    destination.set_secret(refresh_token)
+    destination.account_label = account_label
+    destination.enabled = True
+    destination.last_error = ""
+    if created:
+        _apply_backup_schedule(destination, schedule)
+    destination.save()
+    _dispatch_sync_task_safely(tasks.run_scheduled_backup, [destination.id, True])
+    messages.success(request, f"{label} connected - your first backup is on its way.")
+    return _redirect_to_backups()
+
+
+@login_required
+@require_POST
+def backup_destination_save(request, kind):
+    """Creates/updates a WebDAV or server-folder destination, or just the
+    schedule (frequency/keep/enabled) of any existing one."""
+    from . import backup_destinations
+
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or kind not in BackupDestination.Kind.values:
+        raise Http404
+    label = BackupDestination.Kind(kind).label
+    destination = BackupDestination.objects.filter(profile=profile, kind=kind).first()
+    if destination is None:
+        if kind in BACKUP_OAUTH_KINDS:
+            raise Http404
+        destination = BackupDestination(profile=profile, kind=kind)
+
+    if kind == "webdav" and "url" in request.POST:
+        url = request.POST.get("url", "").strip()
+        if not url.lower().startswith(("http://", "https://")):
+            messages.error(request, "Enter the WebDAV folder's full address, starting with https:// (or http://).")
+            return _redirect_to_backups()
+        destination.url = url[:500]
+        destination.username = request.POST.get("username", "").strip()[:255]
+        password = request.POST.get("password", "")
+        if password:
+            destination.set_secret(password)
+        try:
+            backup_destinations.WebDAV(destination).check()
+        except backup_destinations.BackupError as exc:
+            messages.error(request, f"Couldn't use that WebDAV folder: {exc}")
+            return _redirect_to_backups()
+    elif kind == "folder" and "folder" in request.POST:
+        destination.folder = backup_destinations.safe_subfolder(request.POST.get("folder", ""))[:255]
+
+    _apply_backup_schedule(destination, request.POST)
+    if "enabled" in request.POST or destination.pk is None:
+        destination.enabled = request.POST.get("enabled", "1") == "1"
+    is_new = destination.pk is None
+    destination.save()
+    if is_new:
+        _dispatch_sync_task_safely(tasks.run_scheduled_backup, [destination.id, True])
+        messages.success(request, f"{label} backups turned on - your first backup is on its way.")
+    else:
+        messages.success(request, f"{label} backup settings saved.")
+    return _redirect_to_backups()
+
+
+@login_required
+@require_POST
+def backup_run_now(request, kind):
+    profile = Profile.objects.filter(user=request.user).first()
+    destination = BackupDestination.objects.filter(profile=profile, kind=kind).first() if profile else None
+    if destination is None:
+        raise Http404
+    _dispatch_sync_task_safely(tasks.run_scheduled_backup, [destination.id, True])
+    messages.success(request, f"Backing up to {destination.get_kind_display()} now - refresh in a moment to see the result.")
+    return _redirect_to_backups()
+
+
+@login_required
+@require_POST
+def backup_destination_delete(request, kind):
+    """Stops backups to this destination and forgets its credentials.
+    Backups already uploaded there are left alone."""
+    profile = Profile.objects.filter(user=request.user).first()
+    destination = BackupDestination.objects.filter(profile=profile, kind=kind).first() if profile else None
+    if destination is None:
+        raise Http404
+    destination.delete()
+    messages.success(request, f"Removed {destination.get_kind_display()} backups. Files already there were kept.")
+    return _redirect_to_backups()
+
+
+
+# --------------------------------------------------------------------
+# Import & Export activity - what's running or recently finished, so a
+# user who left the page mid-import can see where it got to. Polls
+# itself (every 3s) only while something is actually working.
+# --------------------------------------------------------------------
+
+TRANSFER_ACTIVITY_RECENT_DAYS = 3
+
+
+def _session_progress(session):
+    """(percent or None, short status text) for one Import Review session."""
+    Status = ImportSession.Status
+    if session.status == Status.SCANNING:
+        if session.total_items:
+            return int(100 * session.processed_items / session.total_items), f"Scanning - {session.processed_items:,} of {session.total_items:,} checked"
+        return None, "Scanning - reading the file"
+    if session.status == Status.IMPORTING:
+        finishing = session.source_metadata.get("finishing")
+        if finishing and finishing.get("total"):
+            return int(100 * finishing.get("done", 0) / finishing["total"]), "Finishing up"
+        if session.selected_items:
+            return int(100 * session.processed_items / session.selected_items), f"Importing - {session.processed_items:,} of {session.selected_items:,}"
+        return None, "Importing"
+    if session.status == Status.READY:
+        return None, f"Ready to review - {session.total_items:,} items"
+    if session.status == Status.COMPLETED:
+        return None, f"Imported {session.imported_items:,}" + (f", {session.skipped_items + session.failed_items:,} skipped" if session.skipped_items + session.failed_items else "")
+    if session.status == Status.FAILED:
+        return None, f"Failed - {session.error_message[:120] or 'unknown error'}"
+    return None, session.get_status_display()
+
+
+def _transfer_activity_context(profile):
+    since = timezone.now() - timedelta(days=TRANSFER_ACTIVITY_RECENT_DAYS)
+    sessions = list(
+        ImportSession.objects.filter(profile=profile)
+        .filter(
+            Q(status__in=(ImportSession.Status.SCANNING, ImportSession.Status.READY, ImportSession.Status.IMPORTING))
+            | Q(updated_at__gte=since)
+        )
+        .order_by("-created_at")[:5]
+    )
+    for session in sessions:
+        session.progress_pct, session.progress_text = _session_progress(session)
+        session.label = session.source_filename or f"{session.get_source_display()} import"
+    running_backups = list(BackupDestination.objects.filter(profile=profile, in_progress=True))
+    working = running_backups or any(
+        s.status in (ImportSession.Status.SCANNING, ImportSession.Status.IMPORTING) for s in sessions
+    )
+    return {"transfer_sessions": sessions, "running_backups": running_backups, "transfer_polling": bool(working)}
+
+
+@login_required
+def transfer_activity_partial(request):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    return render(request, "tracker/partials/transfer_activity.html", _transfer_activity_context(profile))

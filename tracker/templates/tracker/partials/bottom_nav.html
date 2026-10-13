@@ -1,9 +1,9 @@
 {% load icons tracker_extras %}
-{# context: none explicit - reads request.resolver_match directly, same as sidebar.html/topbar.html. Mobile-only (xl:hidden) floating tab bar, purely additive alongside the existing sidebar drawer/topbar - never shown at/above the xl breakpoint (topbar.html's own comment on that threshold explains why it's xl:, not the more typical md:). #}
+{# context: none explicit - reads request.resolver_match directly, same as topbar.html. Mobile/tablet-only (lg:hidden) tab bar: a floating frosted-glass capsule above the bottom edge (.glass-bar in app.css), the current tab on its own lighter pill. At lg: and up the top bar's links take over. #}
 {% with url_name=request.resolver_match.url_name %}
 <nav
   aria-label="Primary"
-  class="xl:hidden fixed inset-x-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40 flex items-stretch gap-1 px-2 py-1.5 rounded-[22px] bg-base-200/80 backdrop-blur-md border border-line shadow-2xl"
+  class="glass-bar lg:hidden fixed inset-x-3 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-[440px] bottom-[calc(0.625rem+env(safe-area-inset-bottom))] z-40 flex items-stretch p-1.5 rounded-[28px]"
 >
   {% url 'dashboard' as home_url %}
   {% include "tracker/partials/nav_item_bottom.html" with href=home_url icon_name="home" label="Home" is_active=url_name|eq:"dashboard" %}
@@ -16,17 +16,13 @@
     re-tapping this tab.
   {% endcomment %}
   {% url 'movies' category='trending' as discover_url %}
-  {% include "tracker/partials/nav_item_bottom.html" with href=discover_url icon_name="compass" label="Discover" is_active=url_name|in_list:"movies,tv,anime" %}
-
-  {% url 'calendar' as calendar_url %}
-  {% include "tracker/partials/nav_item_bottom.html" with href=calendar_url icon_name="calendar-days" label="Calendar" is_active=url_name|eq:"calendar" %}
+  {% include "tracker/partials/nav_item_bottom.html" with href=discover_url icon_name="compass" label="Browse" is_active=url_name|in_list:"movies,tv,anime" %}
 
   {% comment %}
     Opens the same mobileSearchOpen overlay the (now-hidden-on-mobile)
     topbar search icon used to (topbar.html) - a button, not a link, like
     More below, and for the same reason: this doesn't navigate anywhere,
-    it toggles state on the shared root x-data (base.html). Stats moved
-    into the More sheet (bottom_sheet.html) to make room for this.
+    it toggles state on the shared root x-data (base.html).
 
     Plain, undeferred focus() - see topbar.html's own comment next to the
     search panel for why even a double requestAnimationFrame (an earlier
@@ -40,23 +36,47 @@
     :aria-expanded="mobileSearchOpen.toString()"
     aria-haspopup="true"
     aria-label="Search"
-    class="flex flex-col items-center justify-center gap-0.5 flex-1 py-2 rounded-2xl text-[10px] font-medium transition-colors"
-    :class="mobileSearchOpen ? 'text-primary bg-primary/15' : 'text-ink-dim'"
+    class="glass-tab"
+    :class="mobileSearchOpen && 'is-active'"
   >
-    {% icon "search" "w-5 h-5" %}
+    {% icon "search" "w-[22px] h-[22px]" %}
     <span>Search</span>
   </button>
 
+  {% comment %}
+    Alerts: the full notifications page, with the unread count as a badge
+    on the bell. Its own count (not notification_badge.html) - that
+    partial's #notifications-badge id belongs to the desktop bell and is
+    what HTMX's out-of-band updates target, so it must stay unique.
+  {% endcomment %}
+  {% url 'notifications_list' as notifications_url %}
+  <a href="{{ notifications_url }}" class="glass-tab{% if url_name == 'notifications_list' %} is-active{% endif %}" {% if url_name == 'notifications_list' %}aria-current="page"{% endif %} aria-label="Alerts{% if unread_notification_count %}, {{ unread_notification_count }} unread{% endif %}">
+    <span class="relative">
+      {% icon "bell" "w-[22px] h-[22px]" %}
+      {% if unread_notification_count %}<span class="absolute -top-1.5 -right-2.5 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-content text-[11px] font-bold leading-none flex items-center justify-center">{% if unread_notification_count > 99 %}99+{% else %}{{ unread_notification_count }}{% endif %}</span>{% endif %}
+    </span>
+    <span>Alerts</span>
+  </a>
+
+  {% comment %}
+    You: your avatar - opens the sheet (bottom_sheet.html) with your
+    profile, the library pages (Calendar, History, Lists, Stats,
+    Activity), friends, Settings and Log out.
+  {% endcomment %}
   <button
     type="button"
     @click="bottomSheetOpen = true"
     :aria-expanded="bottomSheetOpen.toString()"
     aria-haspopup="dialog"
-    class="flex flex-col items-center justify-center gap-0.5 flex-1 py-2 rounded-2xl text-[10px] font-medium transition-colors"
-    :class="bottomSheetOpen ? 'text-primary bg-primary/15' : 'text-ink-dim'"
+    class="glass-tab{% if url_name|in_list:'my_profile,settings,calendar,history,member_history,lists,list_detail,stats,member_stats,activity' %} is-active{% endif %}"
+    :class="bottomSheetOpen && 'is-active'"
   >
-    {% icon "ellipsis" "w-5 h-5" %}
-    <span>More</span>
+    {% if active_profile %}
+      <span class="w-[24px] h-[24px] rounded-full flex items-center justify-center text-[11px] font-bold border-[1.5px] {% if active_profile.avatar_image %}bg-cover bg-center{% endif %}" style="border-color:{{ active_profile.avatar_color }};{% if active_profile.avatar_image %}background-image:url('{{ active_profile.avatar_image.url }}'){% else %}background:{{ active_profile.avatar_color }};color:#fff;{% endif %}">{% if not active_profile.avatar_image %}{{ active_profile.display_name|first|upper }}{% endif %}</span>
+    {% else %}
+      {% icon "user" "w-[22px] h-[22px]" %}
+    {% endif %}
+    <span>You</span>
   </button>
 </nav>
 {% endwith %}

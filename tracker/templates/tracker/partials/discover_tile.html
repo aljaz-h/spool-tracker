@@ -1,130 +1,72 @@
 {% load tracker_extras %}
-{# context: item (dict: tmdb_id, media_type, name, year, poster_url, vote_average, genre_names (list of str, optional - see views.discover's own stamping; absent anywhere else this partial renders), optional display_mode), my_lists (list of WatchList, for the list-picker popover), discover_title_by_key/discover_watched/discover_watch_count/discover_in_progress/discover_list_membership from selectors.discover_action_context(), hide_type_badge (bool, optional - Movies/TV/Anime's own grid passes this, since every tile on that page is already the one type the page picked; every other renderer of this partial (Dashboard, search, a title's Collection/similar row, a person's filmography, ...) mixes movies and shows in the same grid and still needs the label) #}
+{# context: item (dict: tmdb_id, media_type, name, year, poster_url, vote_average, genre_names (list of str, optional - see views.discover's own stamping; absent anywhere else this partial renders), optional display_mode), my_lists (list of WatchList, for the list-picker popover), discover_title_by_key/discover_watched/discover_watch_count/discover_in_progress/discover_list_membership from selectors.discover_action_context(), hide_type_badge (bool, optional - Movies/TV/Anime's own grid passes this, since every tile on that page is already the one type the page picked; every other renderer mixes types and still shows "Movie"/"TV"/"Anime" in the meta line) #}
 {% comment %}
-Clean-grid, hover-for-detail card: at rest this is just the poster art
-plus its two always-on corner badges (type/rating) - title, year/genres,
-and the watched/list actions all live in one overlay panel that reveals
-from the bottom on hover/focus, rather than sitting in a permanently-
-visible strip below the poster (the old layout - still what
-poster_card.html, the library-grid version of this same tile, uses).
+Poster-first media card (same family as poster_card.html): the artwork,
+then title and a one-line meta ("2024 · ★ 7.8") underneath. A watched/in-
+progress marker stays visible in the poster corner so tracking state is
+scannable at rest; the watched/list actions reveal as a small bar over
+the bottom of the poster on hover/focus (first tap on touch).
 
-Split into two independently-revealed pieces - discover-tile-reveal-text
-(title/year/genres) and discover-tile-reveal-actions (the watched/list
-buttons) - that look like one unit but deliberately aren't, because they
-can't share an ancestor that clips: the buttons' own popovers
-(poster_card_watched_button.html etc.) are fixed-positioned via
-window.positionPopover's own viewport-relative math (base.html), and
-confirmed live (an actual screenshot, not just the popover's computed
-position - the position was always correct, the clipping wasn't
-visible in coordinates) - clip-path clips a position:fixed descendant's
-*paint* to its own box exactly like overflow:hidden does, at every inset
-value including a fully "open" inset(0 0 0 0), not just while animating
-- so a popover opened from inside a clipped ancestor rendered, but only
-the sliver of it inside that small bottom panel's own box was ever
-visible, the rest cut clean off. (A `transform` has the same problem
-one level up - it creates a new containing block for fixed descendants
-in the first place, so this was never an option either.) The fix isn't
-a smarter clip - there isn't one; nothing clips only "the part of me
-that isn't a fixed popover" - it's not clipping the buttons' subtree at
-all: discover-tile-reveal-actions lives *outside* the
-overflow-hidden/rounded poster box (a sibling of it, not a descendant),
-positioned by its own known height instead, and reveals via opacity, a
-property that changes compositing alpha but never clips a descendant's
-paint regardless of where that descendant renders. discover-tile-reveal-
-text has no such constraint (a plain text link, nothing fixed-positioned
-inside it), so it keeps the clip-path slide-up animation exactly as
-before, sitting directly above the button row.
+The reveal is driven by .tile-hover/.tile-focus - plain classes
+base.html's delegated listeners toggle on .discover-tile - not CSS
+:hover, which browsers leave stuck on after a bfcache restore (see
+base.html's comment on those listeners for the full history).
 
-The poster art itself (the <img>, or the gradient placeholder div when
-there's no poster_url - both plain siblings of the reveal panel below,
-not its ancestors, so scaling them can't touch the popovers'
-containing-block either) gets its own small `scale` zoom on the same
-hover, purely cosmetic ("pop out a bit").
+.card-actions is a sibling of the overflow-hidden .poster box, never a
+descendant, and reveals via opacity only: its buttons open fixed-
+position popovers (window.positionPopover), and an ancestor that clips
+(clip-path) or transforms would cut those popovers off.
 
-None of this - the reveal, the zoom, or the "dim" mode's opacity below -
-triggers off CSS `:hover`/`:focus-within` at all, deliberately. It's
-driven by `.tile-hover`/`.tile-focus`, plain classes base.html toggles
-itself via delegated mouseover/mouseout/focusin/focusout listeners on
-`.discover-tile` (this template's own marker class on the outer
-wrapper). That's not a style preference - it's the fix for a bfcache bug
-that went through several failed CSS-only and hybrid attempts first (see
-base.html's own comment on that listener for the full history): browsers
-don't re-run :hover hit-testing on a bfcache restore, so a tile clicked
-into and then backed out of stays visually "hovered" with the pointer
-nowhere near it - and, confirmed live across multiple different fixes
-tried, the browser's own internal :hover cache never reliably self-
-corrected afterward no matter what real interaction happened next, or
-where. Owning the trigger as a plain class instead sidesteps that
-category of bug entirely: on restore, base.html unconditionally clears
-every `.tile-hover`/`.tile-focus` it finds - a plain classList.remove is
-definitive, not a guess about an opaque browser cache - and real
-subsequent hover/focus re-adds them exactly as on any fresh load, no
-special-casing needed.
+These are TMDB preview items that may or may not have a matching local
+Title yet - discover_action_context() resolves that per item; when a
+match exists this reuses the tracked title's own watched/list partials,
+otherwise the "materialize on click" preview partials.
 
-Same two-anchor structure as poster_card.html (image box + text block,
-each their own <a>, action bar as a sibling of the image anchor) - see
-that template's comment for why. These are TMDB preview items that may
-or may not have a matching local Title row yet - discover_action_context()
-resolves that per item; when a match exists, this reuses the same
-watched/list-popover partials a tracked title's own poster card uses (so
-a title already watched/listed elsewhere correctly shows that here too),
-falling back to the "always off, materializes on click" preview partials
-only when there's truly no local Title yet.
-
-display_mode ("show"/"dim"/"hide", set by views.discover's
-_apply_display_modes per the Filters panel's Display toggle - absent,
-and so always "show", anywhere else this partial renders) "hide" skips the
-tile entirely; "dim" keeps it in the grid but lowered-opacity until
-hovered/focused, per the user's ask for something short of fully hiding
-a title they've already watched or listed - the same hover/focus
-trigger that reveals the detail overlay below also restores full opacity
-(discover-tile-dim, the marker class app.css keys that restore off),
-so both happen together rather than needing separate interactions.
+display_mode ("show"/"dim"/"hide", from the Discover Filters panel's
+Display toggle) - "hide" skips the tile entirely; "dim" keeps it at low
+opacity until hovered/focused (discover-tile-dim, see app.css).
 {% endcomment %}
 {% if item.display_mode != "hide" %}
 {% with key=item|tmdb_key %}
 {% with matched_title=discover_title_by_key|get_item:key %}
-<div class="discover-tile relative {% if item.display_mode == "dim" %}discover-tile-dim opacity-25 transition-opacity{% endif %}">
-  <div class="aspect-[2/3] rounded-lg relative overflow-hidden">
-    {% if item.poster_url %}
-      <img src="{{ item.poster_url|poster_size:"w342" }}" alt="{{ item.name }}" loading="lazy" class="discover-tile-zoom absolute inset-0 w-full h-full object-cover transition-transform duration-300 ease-out">
-    {% else %}
-      <div class="discover-tile-zoom absolute inset-0 transition-transform duration-300 ease-out {{ item.tmdb_id|gradient_class }}"></div>
-    {% endif %}
-    <a href="{% url 'title_preview' item|preview_media_type item.tmdb_id %}" class="absolute inset-0 z-0">
-      {% if not hide_type_badge %}
-        <span class="absolute top-1.5 left-1.5 z-10 font-mono text-[10px] font-bold bg-black/85 px-2 py-1 rounded-md text-white/90 tracking-wide shadow-[0_1px_4px_rgba(0,0,0,0.7)]">{{ item.media_type|upper }}</span>
+{% url 'title_preview' item|preview_media_type item.tmdb_id as preview_url %}
+<div class="discover-tile media-card {% if item.display_mode == "dim" %}discover-tile-dim opacity-25 transition-opacity{% endif %}">
+  <div class="media-card-art">
+    <a href="{{ preview_url }}" class="poster block" tabindex="-1" aria-hidden="true">
+      {% if item.poster_url %}
+        <img src="{{ item.poster_url|poster_size:"w342" }}" alt="" loading="lazy" class="discover-tile-zoom absolute inset-0">
+      {% else %}
+        <div class="art-fill discover-tile-zoom absolute inset-0 {{ item.tmdb_id|gradient_class }}"></div>
       {% endif %}
-      {% if item.vote_average %}
-        <span class="absolute top-1.5 right-1.5 z-10 font-mono text-[11px] font-bold bg-black/85 px-2 py-1 rounded-md shadow-[0_1px_4px_rgba(0,0,0,0.7)]"><span class="text-amber-400">&#9733;</span> <span class="text-white">{{ item.vote_average|floatformat:1 }}</span></span>
+      {% if matched_title %}
+        {% with w=discover_watched|get_item:key ip=discover_in_progress|get_item:key wc=discover_watch_count|get_item:key %}
+          {% if ip %}
+            <span class="card-state card-state-progress" title="Watching">&#9654;</span>
+          {% elif w %}
+            <span class="card-state card-state-watched" title="Watched{% if wc > 1 %} {{ wc }} times{% endif %}">&#10003;{% if wc > 1 %}<span>{{ wc }}</span>{% endif %}</span>
+          {% endif %}
+        {% endwith %}
       {% endif %}
     </a>
-
-    <div class="discover-tile-reveal-text absolute inset-x-0 bottom-9 z-20 transition-[clip-path] duration-300 ease-out [clip-path:inset(100%_0_0_0)]">
-      <a href="{% url 'title_preview' item|preview_media_type item.tmdb_id %}" class="block min-w-0 bg-gradient-to-t from-black/95 via-black/85 to-black/0 pt-7 px-2 pb-1.5">
-        <div class="text-[12.5px] font-semibold text-white truncate">{{ item.name }}</div>
-        <div class="text-[10.5px] font-mono text-white/70 mt-0.5 truncate">{{ item.year|default:"—" }}{% if item.genre_names %} &middot; {{ item.genre_names|join:", " }}{% endif %}</div>
-      </a>
+    <div class="discover-tile-reveal-actions card-actions">
+      {% if matched_title %}
+        {% include "tracker/partials/poster_card_watched_button.html" with title=matched_title watched=discover_watched|get_item:key watch_count=discover_watch_count|get_item:key in_progress=discover_in_progress|get_item:key %}
+        {% include "tracker/partials/poster_card_list_popover.html" with title=matched_title my_lists=my_lists in_list_ids=discover_list_membership|get_item:key %}
+      {% else %}
+        {% include "tracker/partials/discover_tile_watched_button.html" with media_type=item|preview_media_type tmdb_id=item.tmdb_id name=item.name %}
+        {% include "tracker/partials/discover_tile_list_popover.html" with media_type=item|preview_media_type tmdb_id=item.tmdb_id my_lists=my_lists name=item.name %}
+      {% endif %}
     </div>
   </div>
-
-  {% comment %}
-  Sibling of the overflow-hidden poster box above, not a descendant -
-  see this template's own comment for why: its buttons' popovers must
-  never share an ancestor that clips. Its own h-9 is also why the text
-  block above sits at bottom-9, not bottom-0 - that's this row's fixed
-  height, positioning the text to sit flush above it now that they're
-  no longer stacked in the same flow.
-  {% endcomment %}
-  <div class="discover-tile-reveal-actions absolute inset-x-0 bottom-0 z-20 h-9 flex items-stretch bg-base-300 rounded-b-lg opacity-0 pointer-events-none transition-opacity duration-300 ease-out">
-    {% if matched_title %}
-      {% include "tracker/partials/poster_card_watched_button.html" with title=matched_title watched=discover_watched|get_item:key watch_count=discover_watch_count|get_item:key in_progress=discover_in_progress|get_item:key %}
-      {% include "tracker/partials/poster_card_list_popover.html" with title=matched_title my_lists=my_lists in_list_ids=discover_list_membership|get_item:key %}
-    {% else %}
-      {% include "tracker/partials/discover_tile_watched_button.html" with media_type=item|preview_media_type tmdb_id=item.tmdb_id name=item.name %}
-      {% include "tracker/partials/discover_tile_list_popover.html" with media_type=item|preview_media_type tmdb_id=item.tmdb_id my_lists=my_lists name=item.name %}
-    {% endif %}
-  </div>
+  <a href="{{ preview_url }}" class="block min-w-0" title="{{ item.name }}{% if item.genre_names %} — {{ item.genre_names|join:", " }}{% endif %}">
+    <span class="media-title">{{ item.name }}</span>
+    <span class="meta">
+      {% if not hide_type_badge %}<span class="inline-flex items-center gap-1.5"><span class="type-dot {{ item.media_type|media_dot_class }}"></span>{{ item.media_type|media_label }}</span>{% endif %}
+      <span>{{ item.year|default:"—" }}</span>
+      {% if item.vote_average %}<span><span class="text-primary">&#9733;</span> {{ item.vote_average|floatformat:1 }}</span>{% endif %}
+      {% if hide_type_badge and item.genre_names %}<span class="truncate max-sm:hidden">{{ item.genre_names.0 }}</span>{% endif %}
+    </span>
+  </a>
 </div>
 {% endwith %}
 {% endwith %}

@@ -1,6 +1,6 @@
 {% load icons tracker_extras %}
 {# context: title (Title), season, episode_number, watch_count (int - how many plays this exact episode has, shown next to the header so a rewatch is visible without leaving this popover), id_suffix (str, optional) - the episode watched button's popover menu, mirrors watched_menu_panel.html but scoped to a single episode instead of the whole title. Each POST button targets "closest div.relative" (episode_watched_button.html's own wrapper). #}
-<div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1 border-b border-line">
+<div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1">
   <div class="min-w-0">
     <div class="font-semibold text-sm">Watched{% if watch_count > 1 %} &times;{{ watch_count }}{% endif %}</div>
     <div class="text-xs text-ink-faint truncate">S{{ season }}E{{ episode_number }} · {{ title.name }}</div>
@@ -9,10 +9,10 @@
 </div>
 
 <a href="{% url 'history' %}?title={{ title.pk }}" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300">
-  <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "history" "w-4 h-4" %}</span>
+  <span class="w-7 h-7 rounded-md bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "history" "w-4 h-4" %}</span>
   <span class="min-w-0">
     <span class="block text-[13px] font-semibold">View history plays</span>
-    <span class="block text-[11px] text-ink-faint">See all your past watches</span>
+    <span class="block text-[12px] text-ink-faint">See all your past watches</span>
   </span>
 </a>
 
@@ -24,10 +24,10 @@
   hx-vals='{"id_suffix": "{{ id_suffix }}"}'
   class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
 >
-  <span class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "eye" "w-4 h-4" %}</span>
+  <span class="w-7 h-7 rounded-md bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "eye" "w-4 h-4" %}</span>
   <span class="min-w-0">
     <span class="block text-[13px] font-semibold">Watch again</span>
-    <span class="block text-[11px] text-ink-faint">Add another play to the history</span>
+    <span class="block text-[12px] text-ink-faint">Add another play to the history</span>
   </span>
 </button>
 
@@ -39,10 +39,10 @@
   hx-vals='{"id_suffix": "{{ id_suffix }}"}'
   class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
 >
-  <span class="w-8 h-8 rounded-full bg-error/15 flex items-center justify-center flex-none text-error">{% icon "eye-off" "w-4 h-4" %}</span>
+  <span class="w-7 h-7 rounded-md bg-error/15 flex items-center justify-center flex-none text-error">{% icon "eye-off" "w-4 h-4" %}</span>
   <span class="min-w-0">
     <span class="block text-[13px] font-semibold">Remove last watched</span>
-    <span class="block text-[11px] text-ink-faint">Undo the most recent play</span>
+    <span class="block text-[12px] text-ink-faint">Undo the most recent play</span>
   </span>
 </button>
 
@@ -55,9 +55,9 @@
   hx-confirm="Remove all watched history for S{{ season }}E{{ episode_number }} of “{{ title.name }}”? This can't be undone."
   class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
 >
-  <span class="w-8 h-8 rounded-full bg-error/15 flex items-center justify-center flex-none text-error">{% icon "trash-2" "w-4 h-4" %}</span>
+  <span class="w-7 h-7 rounded-md bg-error/15 flex items-center justify-center flex-none text-error">{% icon "trash-2" "w-4 h-4" %}</span>
   <span class="min-w-0">
     <span class="block text-[13px] font-semibold">Remove all watched history</span>
-    <span class="block text-[11px] text-ink-faint">Delete every play of this episode</span>
+    <span class="block text-[12px] text-ink-faint">Delete every play of this episode</span>
   </span>
 </button>

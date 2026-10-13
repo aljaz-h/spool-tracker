@@ -15,7 +15,7 @@ both conditions really are simultaneously true on that one response);
 plain enabled (just a status line + a password-gated Disable form); not
 yet enabled (QR + manual-entry secret + a code field to confirm setup).
 {% endcomment %}
-<div id="totp-card" class="bg-base-200 border border-line rounded-2xl p-5">
+<div id="totp-card" class="settings-panel">
   <h3 class="text-lg mb-1">Two-factor authentication</h3>
   <div class="text-ink-dim text-xs mb-3">Require a code from an authenticator app (Google Authenticator, Authy, 1Password, …) in addition to your password when signing in.</div>
 
@@ -26,10 +26,10 @@ yet enabled (QR + manual-entry secret + a code field to confirm setup).
   {% if backup_codes_to_show %}
     <div class="flex items-center gap-2 text-sm text-success font-semibold mb-3">{% icon "shield" "w-4 h-4" %} 2FA is now on</div>
     <div class="text-xs text-ink-dim mb-2">Save these backup codes somewhere safe - each one works once, if you ever lose access to your authenticator app. They won't be shown again.</div>
-    <div class="grid grid-cols-2 gap-1.5 font-mono text-xs bg-base-100 border border-line rounded-lg p-3 mb-3">
+    <div class="grid grid-cols-2 gap-1.5 font-mono text-xs bg-base-300 rounded-lg p-3 mb-3">
       {% for code in backup_codes_to_show %}<div>{{ code }}</div>{% endfor %}
     </div>
-    <div class="text-[10.5px] text-ink-faint">Once you've saved these, reload this page - they won't be shown again after that.</div>
+    <div class="text-[12px] text-ink-faint">Once you've saved these, reload this page - they won't be shown again after that.</div>
 
   {% elif profile.totp_enabled %}
     <div class="flex items-center gap-2 text-sm text-success font-semibold mb-4">{% icon "shield" "w-4 h-4" %} On</div>
@@ -44,7 +44,7 @@ yet enabled (QR + manual-entry secret + a code field to confirm setup).
         {% csrf_token %}
         <div class="flex-1">
           <label class="block text-xs text-ink-dim mb-1">Confirm your password to turn off 2FA</label>
-          <input type="password" name="current_password" required class="input input-sm w-full bg-base-100">
+          <input type="password" name="current_password" required class="input input-sm w-full">
         </div>
         <button type="submit" class="btn btn-sm btn-error flex-none">Turn off</button>
       </form>
@@ -55,7 +55,7 @@ yet enabled (QR + manual-entry secret + a code field to confirm setup).
       <img src="{{ totp_qr_data_uri }}" alt="Scan with your authenticator app" class="w-36 h-36 rounded-lg bg-white p-2 flex-none">
       <div class="min-w-0 text-xs text-ink-dim">
         <div class="mb-2">Scan this QR code with your authenticator app, or enter this key manually:</div>
-        <div class="font-mono text-[11px] bg-base-100 border border-line rounded-lg px-2.5 py-1.5 break-all mb-3">{{ totp_secret_display }}</div>
+        <div class="font-mono text-[12px] bg-base-300 rounded-lg px-2.5 py-1.5 break-all mb-3">{{ totp_secret_display }}</div>
         <div>Then enter the 6-digit code it shows to turn 2FA on.</div>
       </div>
     </div>
@@ -67,7 +67,7 @@ yet enabled (QR + manual-entry secret + a code field to confirm setup).
       {% csrf_token %}
       <div class="flex-1">
         <label class="block text-xs text-ink-dim mb-1">6-digit code</label>
-        <input type="text" name="code" inputmode="numeric" maxlength="6" required placeholder="123456" class="input input-sm w-full bg-base-100 font-mono tracking-widest">
+        <input type="text" name="code" inputmode="numeric" maxlength="6" required placeholder="123456" class="input input-sm w-full font-mono tracking-widest">
       </div>
       <button type="submit" class="btn btn-sm btn-primary flex-none">Turn on</button>
     </form>

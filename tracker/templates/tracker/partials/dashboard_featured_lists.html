@@ -1,21 +1,14 @@
-{# context: featured_lists (owner-curated, is_shared and is_featured - selectors.featured_lists()) #}
-{% comment %}
-Collapses to nothing when there's nothing featured, same "disappears
-along with its own margin" pattern as dashboard_recommendations.html -
-no owner has curated anything yet is the common case on a fresh
-instance, not an error state.
-{% endcomment %}
+{# context: featured_lists (owner-curated, is_shared and is_featured - selectors.featured_lists()). Renders nothing at all when no owner has featured a list yet - the common case on a fresh instance, not an error state. #}
 {% if featured_lists %}
-  <div class="dashboard-rule my-9"></div>
-  <div class="flex justify-between items-center mb-3.5">
-    <h2 class="font-display text-xl">Featured Lists</h2>
-    <a href="{% url 'lists' %}" class="text-xs text-ink-faint hover:text-ink-dim">See all lists &rarr;</a>
-  </div>
-  <div class="flex gap-4 overflow-x-auto scroll-row pb-2">
-    {% for wl in featured_lists %}
-      <div class="w-[230px] flex-none">
+  <section class="section">
+    <div class="section-head">
+      <h2 class="section-title">Featured Lists</h2>
+      <a href="{% url 'lists' %}" class="section-link">All lists &rarr;</a>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+      {% for wl in featured_lists|slice:":3" %}
         {% include "tracker/partials/list_card.html" with wl=wl %}
-      </div>
-    {% endfor %}
-  </div>
+      {% endfor %}
+    </div>
+  </section>
 {% endif %}
