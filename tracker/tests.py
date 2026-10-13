@@ -20723,6 +20723,40 @@ class PersonDetailViewTests(TestCase):
 
     @patch("tracker.integrations.tmdb.get_person_credits")
     @patch("tracker.integrations.tmdb.get_person_details")
+    def test_youve_watched_row_lists_each_watched_title_once(self, mock_details, mock_credits):
+        # The titles behind the stats card's "N of M watched" - deduped
+        # across departments, so a film they both acted in and directed
+        # appears once in this row.
+        watched_title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Seen Twice Credited", year=2015,
+            external_ids={"tmdb": "42", "tmdb_kind": "movie"},
+        )
+        WatchEvent.objects.create(profile=self.profile, title=watched_title, watched_at="2024-01-01T00:00:00Z")
+        mock_details.return_value = self._person()
+        mock_credits.return_value = {
+            "acting": [self._credit(42, "Seen Twice Credited", year="2015"), self._credit(43, "Never Seen")],
+            "directing": [self._credit(42, "Seen Twice Credited", year="2015")],
+            "writing": [],
+        }
+        resp = self.client.get(reverse("person_detail", args=[500]))
+        sections = resp.context["filmography_sections"]
+        self.assertEqual(sections[0]["key"], "watched")
+        self.assertEqual([i["tmdb_id"] for i in sections[0]["items"]], [42])
+        self.assertContains(resp, "You&#x27;ve Watched")
+        # Department sections are unchanged by it.
+        self.assertEqual({s["key"] for s in sections}, {"watched", "acting", "directing"})
+
+    @patch("tracker.integrations.tmdb.get_person_credits")
+    @patch("tracker.integrations.tmdb.get_person_details")
+    def test_no_youve_watched_row_when_nothing_is_watched(self, mock_details, mock_credits):
+        mock_details.return_value = self._person()
+        mock_credits.return_value = {"acting": [self._credit(43, "Never Seen")], "directing": [], "writing": []}
+        resp = self.client.get(reverse("person_detail", args=[500]))
+        self.assertNotIn("watched", [s["key"] for s in resp.context["filmography_sections"]])
+        self.assertNotContains(resp, "You&#x27;ve Watched")
+
+    @patch("tracker.integrations.tmdb.get_person_credits")
+    @patch("tracker.integrations.tmdb.get_person_details")
     def test_personal_stats_card_shows_watched_count(self, mock_details, mock_credits):
         title = Title.objects.create(
             media_type=MediaType.MOVIE, name="Fathom", year=2020,

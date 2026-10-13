@@ -90,12 +90,14 @@
       class="mb-12"
     >
       <div class="flex justify-between items-center flex-wrap gap-3 mb-4">
-        <h2 class="section-title">{{ section.label }}</h2>
-        <div class="seg">
-          <button type="button" @click="filter = 'all'; expanded = false; measure()" class="seg-item" :class="filter === 'all' && 'is-active'">All</button>
-          <button type="button" @click="filter = 'watched'; expanded = false; measure()" class="seg-item" :class="filter === 'watched' && 'is-active'">Watched</button>
-          <button type="button" @click="filter = 'unwatched'; expanded = false; measure()" class="seg-item" :class="filter === 'unwatched' && 'is-active'">Unwatched</button>
-        </div>
+        <h2 class="section-title">{{ section.label }}{% if section.key == "watched" %}<span class="section-count">{{ section.items|length }}</span>{% endif %}</h2>
+        {% if section.key != "watched" %}
+          <div class="seg">
+            <button type="button" @click="filter = 'all'; expanded = false; measure()" class="seg-item" :class="filter === 'all' && 'is-active'">All</button>
+            <button type="button" @click="filter = 'watched'; expanded = false; measure()" class="seg-item" :class="filter === 'watched' && 'is-active'">Watched</button>
+            <button type="button" @click="filter = 'unwatched'; expanded = false; measure()" class="seg-item" :class="filter === 'unwatched' && 'is-active'">Unwatched</button>
+          </div>
+        {% endif %}
       </div>
       <div class="relative">
         <div

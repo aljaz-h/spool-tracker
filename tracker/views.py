@@ -2486,6 +2486,21 @@ def person_detail(request, person_id):
                 {"value": str(count), "label": f"{section['label'].lower()} {noun}", "info": None}
             )
 
+    # "You've Watched" - the titles behind the stats card's "N of M
+    # watched" figure, so that number has something to point at. Same
+    # deduped item list (a film they both acted in and directed shows
+    # once) and the same watched lookup the figure itself uses. Added
+    # after Known for/the credit-count callouts are worked out above, so
+    # it never counts as one of this person's departments.
+    watched_items = [
+        item for item in items
+        if action_context["discover_watched"].get(f"{item['media_type']}:{item['tmdb_id']}", False)
+    ]
+    for item in watched_items:
+        item["watched"] = True
+    if watched_items:
+        filmography_sections.insert(0, {"key": "watched", "label": "You've Watched", "items": watched_items})
+
     context = {
         "profile": profile,
         "person": details,
