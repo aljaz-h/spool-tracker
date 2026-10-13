@@ -247,7 +247,14 @@ def check_webdav_url(url, allow_local_network=False):
     - private/local-network addresses (a NAS on the LAN, 10.x, 192.168.x,
       Docker networks...): only for the server owner's own profile
       (allow_local_network) - the owner already controls the machine.
-    """
+
+    Returns the first validated address (a plain IP string) so the
+    caller (WebDAV._request) can pin the actual connection to exactly
+    the address checked here - see _PinnedHostAdapter's own docstring
+    for why re-resolving the hostname a second time, left to urllib3
+    itself, would reopen a DNS-rebinding gap between this check and the
+    real request even though this function already re-runs on every
+    single call."""
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise BackupError("Enter the WebDAV folder's full address, starting with https:// (or http://).")
@@ -257,8 +264,12 @@ def check_webdav_url(url, allow_local_network=False):
         )
     except (socket.gaierror, UnicodeError, ValueError) as exc:
         raise BackupError(f"Couldn't find the server {parts.hostname}.") from exc
+    if not infos:
+        raise BackupError(f"Couldn't find the server {parts.hostname}.")
+    validated_address = None
     for info in infos:
-        ip = ipaddress.ip_address(info[4][0].split("%", 1)[0])
+        raw_address = info[4][0].split("%", 1)[0]
+        ip = ipaddress.ip_address(raw_address)
         if getattr(ip, "ipv4_mapped", None):
             ip = ip.ipv4_mapped
         if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
@@ -268,6 +279,62 @@ def check_webdav_url(url, allow_local_network=False):
                 f"{parts.hostname} is on a local network - only the server owner can back up to local addresses. "
                 "Use an address reachable from the internet."
             )
+        if validated_address is None:
+            validated_address = raw_address
+    return validated_address
+
+
+class _PinnedHostAdapter(requests.adapters.HTTPAdapter):
+    """Makes the request's actual TCP connection go to a specific,
+    already-validated IP address instead of letting urllib3 resolve the
+    hostname itself a second time - closes a DNS-rebinding gap that
+    would otherwise survive check_webdav_url's own re-check-every-call
+    design: that function's DNS lookup and the HTTP library's own DNS
+    lookup for the real connection are still two separate resolutions
+    moments apart, and nothing stops a malicious/compromised DNS answer
+    from differing between them (classic SSRF-via-DNS-rebinding - the
+    exact gap a CodeQL py/full-ssrf scan flags, since it can't know a
+    custom validator function like check_webdav_url is meant to cover
+    this).
+
+    TLS verification is unaffected by the pin: build_connection_pool_key_
+    attributes (requests' own documented subclassing hook for exactly
+    this) still runs first, then only the resulting host_params["host"]
+    is swapped for the pinned IP - server_hostname (SNI) and
+    assert_hostname (certificate hostname check) are both explicitly set
+    to the real hostname, so an HTTPS connection still verifies the
+    certificate against the hostname the user actually typed, not the
+    IP - a wrong/absent cert for that hostname still fails exactly as it
+    would without this adapter.
+
+    send() also pins the HTTP Host header to the real hostname - without
+    this, confirmed via a real local-socket test, http.client's own
+    Host-header default kicks in and sends whatever the connection
+    actually connected to (now the pinned IP) instead, which would
+    silently break any WebDAV server reached through name-based virtual
+    hosting (a reverse proxy routing by hostname, which most self-hosted
+    WebDAV setups - Nextcloud/ownCloud behind nginx or Traefik - are)."""
+
+    def __init__(self, resolved_ip, *args, **kwargs):
+        self._resolved_ip = resolved_ip
+        super().__init__(*args, **kwargs)
+
+    def build_connection_pool_key_attributes(self, request, verify, cert=None):
+        host_params, pool_kwargs = super().build_connection_pool_key_attributes(request, verify, cert)
+        hostname = host_params["host"]
+        host_params["host"] = self._resolved_ip
+        if host_params.get("scheme") == "https":
+            pool_kwargs["server_hostname"] = hostname
+            pool_kwargs["assert_hostname"] = hostname
+        return host_params, pool_kwargs
+
+    def send(self, request, **kwargs):
+        if "Host" not in request.headers:
+            parts = urlsplit(request.url)
+            default_port = {"http": 80, "https": 443}.get(parts.scheme)
+            host_header = parts.hostname if parts.port in (None, default_port) else f"{parts.hostname}:{parts.port}"
+            request.headers["Host"] = host_header
+        return super().send(request, **kwargs)
 
 
 class WebDAV:
@@ -277,13 +344,22 @@ class WebDAV:
         self.allow_local_network = destination.profile.is_owner
 
     def _request(self, method, url, **kwargs):
-        check_webdav_url(url, self.allow_local_network)
+        # The IP validated here is the one the actual connection below
+        # is pinned to (see _PinnedHostAdapter) - not just a check that's
+        # discarded once it passes.
+        resolved_ip = check_webdav_url(url, self.allow_local_network)
+        session = requests.Session()
+        adapter = _PinnedHostAdapter(resolved_ip)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
         try:
             # No redirects: a redirect could lead to an address the check
             # above would have refused.
-            resp = requests.request(
-                method, url, auth=self.auth, timeout=kwargs.pop("timeout", TIMEOUT), allow_redirects=False, **kwargs
-            )
+            with session:
+                resp = session.request(
+                    method, url, auth=self.auth, timeout=kwargs.pop("timeout", TIMEOUT), allow_redirects=False,
+                    **kwargs,
+                )
         except requests.RequestException as exc:
             raise BackupError(f"Couldn't reach {urlsplit(self.base).netloc}: {exc.__class__.__name__}") from exc
         if 300 <= resp.status_code < 400:

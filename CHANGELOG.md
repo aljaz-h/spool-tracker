@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.145.2] - 2026-10-13
+
+### Fixed
+
+- WebDAV backups: `check_webdav_url`'s own validation and the actual
+  HTTP connection were still two separate DNS lookups moments apart -
+  a CodeQL-flagged DNS-rebinding SSRF gap even after the earlier WebDAV
+  SSRF hardening pass. The connection is now pinned to the exact
+  address that was validated (TLS certificate verification still checks
+  the real hostname, not the pinned IP - confirmed with dedicated
+  tests, including one against a real local socket).
+
 ## [0.145.1] - 2026-10-13
 
 ### Fixed

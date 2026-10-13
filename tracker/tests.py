@@ -25400,7 +25400,7 @@ class ScheduledBackupTests(TestCase):
             return resp
 
         dest.keep_last = 2
-        with patch("tracker.backup_destinations.requests.request", side_effect=fake_request), \
+        with patch("tracker.backup_destinations.requests.Session.request", side_effect=fake_request), \
                 patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_PUBLIC_ADDRINFO):
             ok, message = self.bd.run_backup(dest)
         self.assertTrue(ok, message)
@@ -25433,7 +25433,7 @@ class ScheduledBackupTests(TestCase):
         self.assertFalse(self.Dest.objects.filter(id=dest.id).exists())
 
     def test_webdav_save_checks_the_folder_first(self):
-        with patch("tracker.backup_destinations.requests.request", return_value=Mock(status_code=401, text="")), \
+        with patch("tracker.backup_destinations.requests.Session.request", return_value=Mock(status_code=401, text="")), \
                 patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_PUBLIC_ADDRINFO):
             self.client.post(reverse("backup_destination_save", args=["webdav"]), {
                 "url": "https://dav.example/Spool", "username": "me", "password": "bad",
@@ -25817,12 +25817,12 @@ class WebDAVAddressCheckTests(TestCase):
         dest = BackupDestination(profile=self.member, kind="webdav", url="https://dav.example/Spool")
         client = self.bd.WebDAV(dest)
         with patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_addrinfo("10.0.0.5")), \
-                patch("tracker.backup_destinations.requests.request") as request:
+                patch("tracker.backup_destinations.requests.Session.request") as request:
             with self.assertRaises(self.bd.BackupError):
                 client.check()
         request.assert_not_called()
         with patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_PUBLIC_ADDRINFO), \
-                patch("tracker.backup_destinations.requests.request", return_value=Mock(status_code=302, text="")) as request:
+                patch("tracker.backup_destinations.requests.Session.request", return_value=Mock(status_code=302, text="")) as request:
             with self.assertRaises(self.bd.BackupError):
                 client.check()
         self.assertFalse(request.call_args.kwargs["allow_redirects"])
@@ -25832,7 +25832,7 @@ class WebDAVAddressCheckTests(TestCase):
 
         dest = BackupDestination(profile=self.member, kind="webdav", url="https://dav.example/Spool")
         with patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_PUBLIC_ADDRINFO), \
-                patch("tracker.backup_destinations.requests.request", return_value=Mock(status_code=500, text="SECRET internal page")):
+                patch("tracker.backup_destinations.requests.Session.request", return_value=Mock(status_code=500, text="SECRET internal page")):
             with self.assertRaises(self.bd.BackupError) as ctx:
                 self.bd.WebDAV(dest).check()
         self.assertNotIn("SECRET", str(ctx.exception))
@@ -25840,9 +25840,102 @@ class WebDAVAddressCheckTests(TestCase):
     def test_a_member_cannot_save_a_local_address(self):
         self.client.login(username="davmember", password="pass12345")
         with patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_addrinfo("192.168.1.10")), \
-                patch("tracker.backup_destinations.requests.request") as request:
+                patch("tracker.backup_destinations.requests.Session.request") as request:
             self.client.post(reverse("backup_destination_save", args=["webdav"]), {"url": "http://nas.lan/dav"})
         request.assert_not_called()
         from tracker.models import BackupDestination
 
         self.assertFalse(BackupDestination.objects.filter(profile=self.member, kind="webdav").exists())
+
+    def test_request_connects_to_the_exact_address_that_was_validated(self):
+        """The real point of _PinnedHostAdapter: check_webdav_url's own
+        DNS lookup and the actual HTTP connection must use the *same*
+        address, not two separate lookups a DNS answer could differ
+        between (DNS rebinding). wraps= keeps the real _PinnedHostAdapter
+        behavior (and the real Session.mount/request flow below it,
+        still exercised for real) while also recording exactly what
+        address it was constructed with - a more direct check than
+        trying to recover the session/adapter back out of a mocked
+        Session.request call, which plain (non-autospec) method patching
+        doesn't hand back a usable `self` for anyway."""
+        from tracker.models import BackupDestination
+
+        dest = BackupDestination(profile=self.owner, kind="webdav", url="https://dav.example/Spool")
+        client = self.bd.WebDAV(dest)
+        with patch("tracker.backup_destinations.socket.getaddrinfo", return_value=_addrinfo("93.184.216.34")), \
+                patch("tracker.backup_destinations.requests.Session.request", return_value=Mock(status_code=207, text="")), \
+                patch.object(self.bd, "_PinnedHostAdapter", wraps=self.bd._PinnedHostAdapter) as adapter_cls:
+            client._request("PROPFIND", client.base, headers={"Depth": "0"})
+        adapter_cls.assert_called_once_with("93.184.216.34")
+
+    def test_pinned_adapter_still_verifies_the_certificate_against_the_real_hostname(self):
+        """The whole point of setting assert_hostname/server_hostname
+        alongside the pinned IP (see _PinnedHostAdapter's own docstring) -
+        proven here by checking the actual pool_kwargs/host_params this
+        produces for a real PreparedRequest, not just trusting the
+        adapter doesn't error. A regression that dropped assert_hostname
+        would make this silently accept connecting to the pinned IP
+        while verifying the cert against the IP instead of the real
+        hostname - not a loud failure, just a quietly weaker check."""
+        req = requests.PreparedRequest()
+        req.prepare(method="GET", url="https://dav.example/Spool/")
+        adapter = self.bd._PinnedHostAdapter("203.0.113.9")
+        host_params, pool_kwargs = adapter.build_connection_pool_key_attributes(req, verify=True)
+        self.assertEqual(host_params["host"], "203.0.113.9")
+        self.assertEqual(pool_kwargs["assert_hostname"], "dav.example")
+        self.assertEqual(pool_kwargs["server_hostname"], "dav.example")
+
+    def test_pinned_adapter_leaves_http_pool_kwargs_untouched(self):
+        """No assert_hostname/server_hostname for plain http:// - those
+        are TLS-only concerns, and setting them for a non-TLS connection
+        would be meaningless clutter at best."""
+        req = requests.PreparedRequest()
+        req.prepare(method="GET", url="http://dav.example/Spool/")
+        adapter = self.bd._PinnedHostAdapter("203.0.113.9")
+        host_params, pool_kwargs = adapter.build_connection_pool_key_attributes(req, verify=True)
+        self.assertEqual(host_params["host"], "203.0.113.9")
+        self.assertNotIn("assert_hostname", pool_kwargs)
+        self.assertNotIn("server_hostname", pool_kwargs)
+
+    def test_pinned_adapter_actually_connects_to_the_pinned_ip_over_a_real_socket(self):
+        """Everything above checks the adapter's own logic (what
+        host_params/pool_kwargs it builds) - this instead proves the
+        real urllib3 connection pool actually honors that and opens a
+        real TCP connection to the pinned address, not the request
+        URL's own (bogus, deliberately unroutable) hostname. A real
+        local http.server, not a mock - requests.Session.request is
+        mocked everywhere else in this class specifically to avoid real
+        network calls, so this is the one test that deliberately makes
+        one, to cover what those mocks can't: that urllib3 itself
+        behaves the way _PinnedHostAdapter assumes it does."""
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+
+        received = {}
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                received["host_header"] = self.headers.get("Host")
+                self.send_response(200)
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            port = server.server_address[1]
+            session = requests.Session()
+            adapter = self.bd._PinnedHostAdapter("127.0.0.1")
+            session.mount("http://", adapter)
+            # spool-tracker-does-not-exist.invalid resolves nowhere - if
+            # the pin didn't actually work, this request would fail with
+            # a DNS error instead of reaching the real local server above.
+            resp = session.get(f"http://spool-tracker-does-not-exist.invalid:{port}/Spool/", timeout=5)
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(received["host_header"], f"spool-tracker-does-not-exist.invalid:{port}")
