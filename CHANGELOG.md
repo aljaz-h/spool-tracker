@@ -8,7 +8,25 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
-## [0.145.5] - 2026-10-16
+## [0.145.6] - 2026-10-16
+
+### Fixed
+
+- Activity feed: a series or season finale watched on its own (not as
+  part of a binge run) showed no "completed" indication at all - only
+  grouped binge entries ever got that check. Singles now get it too,
+  and both singles and groups now also call out finishing just a
+  *season* (previously only a full series finish was shown). History's
+  own group tile gained the same season-completed indicator.
+- Activity feed's binge summary read "8/37 episodes" for an 8-episode
+  session of a 37-episode show, which looks like cumulative progress
+  ("8 of 37 watched") rather than what it actually means ("this session
+  was 8 of the show's 37 total"). Reworded to "37-episode series".
+
+### Changed
+
+- `episode_totals_for_group` now also returns whether the group's last
+  episode completed its own season, not just the whole series.
 
 ### Fixed
 

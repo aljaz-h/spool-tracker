@@ -14900,6 +14900,87 @@ class ActivityFeedGroupingTests(TestCase):
         self.assertEqual(feed[0]["source"], "trakt")
         self.assertEqual(feed[0]["source_display"], "Trakt")
 
+    def test_group_completed_season_true_when_run_ends_a_season_but_not_the_series(self):
+        # A 2-season show, binge covers all of season 1 - that's a real
+        # season finale, but the show (season 2 still ahead) isn't done.
+        self.show.external_ids = {"tmdb": "12345", "tmdb_kind": "tv"}
+        self.show.save(update_fields=["external_ids"])
+        for i, minutes_ago in enumerate(range(8, 0, -1)):
+            self._watch(episode_num=1 + i, minutes_ago=minutes_ago, season=1)
+        tv_details = {
+            "number_of_episodes": 16,
+            "seasons": [{"season_number": n, "episode_count": 8} for n in (1, 2)],
+        }
+        with patch("tracker.integrations.tmdb.get_tv_details", return_value=tv_details):
+            feed = selectors.activity_feed()
+        self.assertTrue(feed[0]["completed_season"])
+        self.assertEqual(feed[0]["season"], 1)
+        self.assertFalse(feed[0]["completed_series"])
+
+    def test_group_completed_season_false_mid_season(self):
+        self.show.external_ids = {"tmdb": "12345", "tmdb_kind": "tv"}
+        self.show.save(update_fields=["external_ids"])
+        for i, minutes_ago in enumerate([20, 10, 0]):
+            self._watch(episode_num=1 + i, minutes_ago=minutes_ago, season=1)
+        tv_details = {
+            "number_of_episodes": 16,
+            "seasons": [{"season_number": n, "episode_count": 8} for n in (1, 2)],
+        }
+        with patch("tracker.integrations.tmdb.get_tv_details", return_value=tv_details):
+            feed = selectors.activity_feed()
+        self.assertFalse(feed[0]["completed_season"])
+
+    def test_single_watch_shows_completed_series_when_it_is_the_finale(self):
+        # The exact bug report this covers: a series finale watched on
+        # its own (not as part of a binge, so it never went through
+        # _build_group at all) used to carry no completion info
+        # whatsoever - only a grouped run ever got this check.
+        self.show.external_ids = {"tmdb": "12345", "tmdb_kind": "tv"}
+        self.show.save(update_fields=["external_ids"])
+        tv_details = {
+            "number_of_episodes": 12,
+            "seasons": [{"season_number": 1, "episode_count": 12}],
+        }
+        with patch("tracker.integrations.tmdb.get_tv_details", return_value=tv_details):
+            self._watch(episode_num=12, minutes_ago=0, season=1)
+            feed = selectors.activity_feed()
+        self.assertEqual(feed[0]["kind"], "watched")
+        self.assertTrue(feed[0]["completed_series"])
+        self.assertTrue(feed[0]["completed_season"])
+
+    def test_single_watch_shows_completed_season_when_it_ends_a_season_but_not_the_series(self):
+        self.show.external_ids = {"tmdb": "12345", "tmdb_kind": "tv"}
+        self.show.save(update_fields=["external_ids"])
+        tv_details = {
+            "number_of_episodes": 16,
+            "seasons": [{"season_number": n, "episode_count": 8} for n in (1, 2)],
+        }
+        with patch("tracker.integrations.tmdb.get_tv_details", return_value=tv_details):
+            self._watch(episode_num=8, minutes_ago=0, season=1)
+            feed = selectors.activity_feed()
+        self.assertTrue(feed[0]["completed_season"])
+        self.assertFalse(feed[0]["completed_series"])
+
+    def test_single_watch_completion_flags_false_mid_season(self):
+        self.show.external_ids = {"tmdb": "12345", "tmdb_kind": "tv"}
+        self.show.save(update_fields=["external_ids"])
+        tv_details = {
+            "number_of_episodes": 16,
+            "seasons": [{"season_number": n, "episode_count": 8} for n in (1, 2)],
+        }
+        with patch("tracker.integrations.tmdb.get_tv_details", return_value=tv_details):
+            self._watch(episode_num=3, minutes_ago=0, season=1)
+            feed = selectors.activity_feed()
+        self.assertFalse(feed[0]["completed_season"])
+        self.assertFalse(feed[0]["completed_series"])
+
+    def test_single_movie_watch_has_no_completion_flags(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Movie A", year=2020)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now - timedelta(minutes=10))
+        feed = selectors.activity_feed()
+        self.assertNotIn("completed_season", feed[0])
+        self.assertNotIn("completed_series", feed[0])
+
 
 class HouseholdActivitySidebarSelectorsTests(TestCase):
     """household_leaderboard/household_top_titles/recently_watching_count -
@@ -22229,6 +22310,24 @@ class HistoryConsecutiveEpisodeGroupingTests(TestCase):
         }
         with patch("tracker.integrations.tmdb.get_tv_details", return_value=tv_details):
             grouped = views._group_consecutive_episodes(events)
+        self.assertFalse(grouped[0]["completed_series"])
+
+    def test_completed_season_true_when_run_ends_a_season_but_not_the_series(self):
+        # A 2-season show, binge covers all of season 1 - a real season
+        # finale, but the show (season 2 still ahead) isn't done.
+        self.show.external_ids = {"tmdb": "12345", "tmdb_kind": "tv"}
+        self.show.save(update_fields=["external_ids"])
+        for i in range(1, 9):
+            self._watch(episode_num=i, minutes_ago=(9 - i))
+        events = list(WatchEvent.objects.filter(title=self.show).order_by("-watched_at"))
+        tv_details = {
+            "number_of_episodes": 16,
+            "seasons": [{"season_number": n, "episode_count": 8} for n in (1, 2)],
+        }
+        with patch("tracker.integrations.tmdb.get_tv_details", return_value=tv_details):
+            grouped = views._group_consecutive_episodes(events)
+        self.assertTrue(grouped[0]["completed_season"])
+        self.assertEqual(grouped[0]["season"], 1)
         self.assertFalse(grouped[0]["completed_series"])
 
     def test_history_page_renders_group_tile_for_a_binge(self):

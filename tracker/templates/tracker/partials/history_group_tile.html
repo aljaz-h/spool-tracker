@@ -138,12 +138,13 @@
         <span class="flex-none tabular-nums">{{ first_event.watched_at|time:time_format_str }}</span>
       </div>
       {% comment %}
-        Same "did this run end on the show's own last known episode"
-        check the Activity feed's watched_group surfaces (see
-        views._build_episode_group) - a full-series catch-up would
-        otherwise read as just "N episodes".
+        Same "did this run end on the show's own last known episode (or
+        just its own season)" check the Activity feed's watched_group
+        surfaces (see views._build_episode_group) - a full-series or
+        full-season catch-up would otherwise read as just "N episodes".
       {% endcomment %}
-      {% if group.completed_series %}<span class="chip chip-success mt-1.5">Series completed</span>{% endif %}
+      {% if group.completed_series %}<span class="chip chip-success mt-1.5">Series completed</span>
+      {% elif group.completed_season %}<span class="chip chip-success mt-1.5">Season {{ group.season }} completed</span>{% endif %}
     </a>
   {% endwith %}
 </div>

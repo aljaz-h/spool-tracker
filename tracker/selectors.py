@@ -1883,7 +1883,9 @@ def activity_feed(limit=30):
     profile. Only meaningful with >1 profile, which is exactly when the
     Activity page exists at all (spool-product-spec.md §5). Excludes any
     profile with share_activity=False (Settings → Privacy) entirely -
-    not just muted, actually absent from the merged feed."""
+    not just muted, actually absent from the merged feed. Every episode
+    watch/rate (grouped or standalone) carries completed_season/
+    completed_series - see episode_totals_for_group's own docstring."""
     items = []
     for event in (
         WatchEvent.objects.filter(profile__share_activity=True)
@@ -1917,7 +1919,21 @@ def activity_feed(limit=30):
             }
         )
     items.sort(key=lambda i: i["timestamp"], reverse=True)
-    return _group_consecutive_watches(items[:limit])
+    grouped = _group_consecutive_watches(items[:limit])
+    # A single (ungrouped) episode watch/rate never goes through
+    # _build_group, so unlike watched_group it never got a completed_
+    # season/completed_series check at all - a season or series finale
+    # watched on its own (not as part of a binge run) showed no
+    # indication of that. Computed here, after grouping, so this only
+    # ever runs once per item that's actually going to be shown
+    # standalone - a binge's own check already happened once, inside
+    # _build_group, for the whole run.
+    for item in grouped:
+        if item.get("kind") in ("watched", "rated") and item.get("episode") is not None:
+            _, item["completed_season"], item["completed_series"] = episode_totals_for_group(
+                item["title"], (item["episode"].season, item["episode"].episode)
+            )
+    return grouped
 
 
 def _group_key(item):
@@ -1978,10 +1994,11 @@ def _group_consecutive_watches(items):
     return grouped
 
 
-def episode_totals_for_group(title, last_episode):
-    """The real total_episodes/completed_series pair for a show, shared by
-    _build_group (Activity feed) and views._build_episode_group (History) -
-    both used to derive this from Episode.objects.filter(title=title), the
+def episode_totals_for_group(title, last_episode, details=None):
+    """The real total_episodes/completed_season/completed_series triple for
+    a show, shared by _build_group (Activity feed), activity_feed's own
+    single-episode rows, and views._build_episode_group (History) - all
+    three used to derive this from Episode.objects.filter(title=title), the
     locally-known episode rows, which only ever include whatever's actually
     been watched/browsed so far. That silently breaks the moment a show
     isn't 100% locally known: marking only Season 1 of Reacher (4 seasons)
@@ -1992,6 +2009,13 @@ def episode_totals_for_group(title, last_episode):
     since marking episodes watched just called completion.sync_show_
     completion, which fetches this exact same endpoint) with the old local-
     count as a fallback for a title with no tmdb id at all.
+
+    `details` lets a caller that's already batch-fetched this show's own
+    TMDB details (activity_feed, across its whole raw event list in one
+    shared thread pool - see its own comment) pass them straight through
+    instead of this doing its own call, which is otherwise still safe
+    (cached) but wasteful to repeat per row. Every other caller leaves it
+    None and this fetches it itself, same as before.
 
     last_episode is this specific group's own last episode by number,
     (season, episode) - completed_series is whether *that* is the show's
@@ -2004,18 +2028,28 @@ def episode_totals_for_group(title, last_episode):
     16/64-episode entry, both from partway into season 1, both read
     "Series Completed" once the profile finished the whole 64-episode
     series much later. A past entry should only ever read that way if
-    *it* was actually the one that finished the show."""
-    tmdb_id = title.external_ids.get("tmdb") if title.external_ids else None
-    details = tmdb.get_tv_details(tmdb_id) if tmdb_id else None
+    *it* was actually the one that finished the show. completed_season is
+    the same idea scoped to just last_episode's own season, for a run/
+    entry that ends a season without being the series finale."""
+    if details is None:
+        tmdb_id = title.external_ids.get("tmdb") if title.external_ids else None
+        details = tmdb.get_tv_details(tmdb_id) if tmdb_id else None
     if details and details.get("number_of_episodes") and details.get("seasons"):
         total_episodes = details["number_of_episodes"]
-        final_season = max(details["seasons"], key=lambda s: s["season_number"])
+        seasons = details["seasons"]
+        final_season = max(seasons, key=lambda s: s["season_number"])
         completed_series = last_episode == (final_season["season_number"], final_season.get("episode_count"))
+        this_season = next((s for s in seasons if s["season_number"] == last_episode[0]), None)
+        completed_season = bool(this_season) and last_episode[1] == this_season.get("episode_count")
     else:
         total_episodes = Episode.objects.filter(title=title).count()
         final_known = Episode.objects.filter(title=title).order_by("-season", "-episode").first()
         completed_series = bool(final_known) and last_episode == (final_known.season, final_known.episode)
-    return total_episodes, completed_series
+        final_known_in_season = (
+            Episode.objects.filter(title=title, season=last_episode[0]).order_by("-episode").first()
+        )
+        completed_season = bool(final_known_in_season) and last_episode[1] == final_known_in_season.episode
+    return total_episodes, completed_season, completed_series
 
 
 def _build_group(group_type, run):
@@ -2026,7 +2060,7 @@ def _build_group(group_type, run):
         last_by_ep = max(episodes, key=lambda e: (e.season, e.episode))
         range_label = f"S{first_by_ep.season}E{first_by_ep.episode}–S{last_by_ep.season}E{last_by_ep.episode}"
         total_runtime = sum(e.runtime_minutes for e in episodes if e.runtime_minutes)
-        total_episodes, completed_series = episode_totals_for_group(
+        total_episodes, completed_season, completed_series = episode_totals_for_group(
             run[0]["title"], (last_by_ep.season, last_by_ep.episode)
         )
         return {
@@ -2039,6 +2073,8 @@ def _build_group(group_type, run):
             "episodes": run,
             "total_runtime_display": format_duration(total_runtime) if total_runtime else "",
             "total_episodes": total_episodes,
+            "season": last_by_ep.season,
+            "completed_season": completed_season,
             "completed_series": completed_series,
             "is_group": True,
         }

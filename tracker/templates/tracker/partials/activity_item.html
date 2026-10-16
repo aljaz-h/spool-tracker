@@ -50,6 +50,18 @@
           <span class="inline-flex items-center gap-1.5"><span class="type-dot {{ item.title.media_type|media_dot_class }}"></span>{{ item.title.media_type|media_label }}</span>
           {% if item.source_display %}<span>{{ item.source_display }}</span>{% endif %}
         </div>
+        {% comment %}
+          A lone (ungrouped) episode watch gets the same completed-season/
+          series check a binge group already does below - previously only
+          the grouped path showed this, so a finale watched on its own
+          (not part of a binge run) gave no indication it finished
+          anything. See selectors.episode_totals_for_group's docstring.
+        {% endcomment %}
+        {% if item.completed_series %}
+          <div class="mt-2"><span class="chip chip-success">Series Completed</span> <span class="text-xs text-success ml-1">Finished the series</span></div>
+        {% elif item.completed_season %}
+          <div class="mt-2"><span class="chip chip-success">Season {{ item.episode.season }} Completed</span></div>
+        {% endif %}
       </div>
 
     {% elif item.kind == "watched_group" %}
@@ -62,11 +74,22 @@
         <div class="text-[15px] text-ink-dim leading-snug"><b class="font-semibold text-base-content">{{ item.profile.display_name }}</b> watched <b class="font-semibold text-base-content">{{ item.count }}</b> episodes of <a href="{% url 'title_detail' item.title.pk %}" class="font-semibold text-base-content hover:text-white">{{ item.title.name }}</a></div>
         <div class="meta meta-sm mt-1">
           <span class="font-mono">{{ item.range_label }}</span>
-          {% if item.total_episodes %}<span>{{ item.count }}/{{ item.total_episodes }} episodes</span>{% endif %}
+          {% comment %}
+            "{{ item.total_episodes }}-episode series", not "{{ item.count }}/
+            {{ item.total_episodes }} episodes" (the old wording) - that
+            read as "{{ item.count }} of {{ item.total_episodes }} watched
+            so far" (cumulative progress) to anyone who hadn't already
+            parsed range_label right next to it, when it only ever meant
+            "this session was {{ item.count }} of the show's
+            {{ item.total_episodes }} episodes total".
+          {% endcomment %}
+          {% if item.total_episodes %}<span>{{ item.total_episodes }}-episode series</span>{% endif %}
           {% if item.total_runtime_display %}<span>{{ item.total_runtime_display }} total</span>{% endif %}
         </div>
         {% if item.completed_series %}
           <div class="mt-2"><span class="chip chip-success">Series Completed</span> <span class="text-xs text-success ml-1">Finished the series</span></div>
+        {% elif item.completed_season %}
+          <div class="mt-2"><span class="chip chip-success">Season {{ item.season }} Completed</span></div>
         {% elif item.count >= 4 %}
           <div class="mt-2"><span class="chip chip-primary">Binge Session</span></div>
         {% endif %}

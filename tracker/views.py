@@ -2833,7 +2833,7 @@ def _build_episode_group(title, run):
     # real finale rather than "is the show fully watched right now" -
     # the latter used to retroactively mark every past History entry for
     # a show "Series Completed" the moment it was eventually finished.
-    total_episodes, completed_series = selectors.episode_totals_for_group(
+    total_episodes, completed_season, completed_series = selectors.episode_totals_for_group(
         title, (last_by_ep.season, last_by_ep.episode)
     )
     return {
@@ -2843,6 +2843,8 @@ def _build_episode_group(title, run):
         "range_label": f"S{first_by_ep.season}E{first_by_ep.episode}–S{last_by_ep.season}E{last_by_ep.episode}",
         "total_duration": selectors.format_duration(total_minutes) if total_minutes else None,
         "total_episodes": total_episodes,
+        "season": last_by_ep.season,
+        "completed_season": completed_season,
         "completed_series": completed_series,
         "events": run,
         "timeline_events": sorted(run, key=lambda e: e.watched_at),
