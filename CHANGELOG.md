@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.145.5] - 2026-10-16
+
+### Fixed
+
+- Title page's season picker: the selected season's ring looked cut off
+  along the bottom edge - the picker row scrolls horizontally, which
+  forces the browser to clip vertical overflow too, and the ring's
+  outward box-shadow bleed was getting caught in that clip. Switched to
+  an inset ring, which is drawn inside the poster instead of bleeding
+  past it.
+
 ## [0.145.4] - 2026-10-16
 
 ### Fixed

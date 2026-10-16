@@ -26,7 +26,19 @@
           {% if card.number == season %}aria-current="true"{% endif %}
           class="w-[84px] sm:w-[96px] flex-none text-left group"
         >
-          <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-base-300 {% if card.number == season %}ring-2 ring-primary ring-offset-2 ring-offset-base-100{% else %}opacity-80 group-hover:opacity-100{% endif %} {% if not card.poster_url %}{{ title.pk|default:preview_tmdb_id|add:card.number|gradient_class }}{% endif %}">
+          {% comment %}
+            ring-inset, not ring-offset - this row scrolls horizontally
+            (overflow-x-auto), which per the CSS overflow spec forces
+            overflow-y to compute as auto too even though it's never set
+            explicitly. An offset ring's box-shadow bleeds a few px
+            outside the border box, and that bleed was getting clipped
+            at the row's bottom edge by that forced auto overflow
+            (confirmed live - the cutoff was always at the bottom, never
+            the sides, which only a vertical clip explains). An inset
+            ring is drawn inside the border box instead, so it has
+            nothing to clip.
+          {% endcomment %}
+          <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-base-300 {% if card.number == season %}ring-2 ring-inset ring-primary{% else %}opacity-80 group-hover:opacity-100{% endif %} {% if not card.poster_url %}{{ title.pk|default:preview_tmdb_id|add:card.number|gradient_class }}{% endif %}">
             {% if card.poster_url %}
               <img src="{{ card.poster_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
             {% endif %}
