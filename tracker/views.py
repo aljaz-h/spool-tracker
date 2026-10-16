@@ -5276,12 +5276,28 @@ def _group_notifications_for_panel(items):
     never render its header at all, instead of an empty "Today" heading
     showing up on System because all of today's actual activity happens
     to be personal-kind."""
+    now = timezone.now()
     result = {}
     for category, is_system in (("personal", False), ("system", True)):
         bucket = [n for n in items if (n.kind in _SYSTEM_NOTIFICATION_KINDS) == is_system]
         for n in bucket:
             n.display_message = _notification_display_message(n)
-        upcoming = [n for n in bucket if n.kind == Notification.Kind.UPCOMING_RELEASE]
+        upcoming = [
+            n
+            for n in bucket
+            if n.kind == Notification.Kind.UPCOMING_RELEASE
+            # Excludes a release whose date has since passed - nothing
+            # here ever converts/removes an UPCOMING_RELEASE row once its
+            # release_date is behind us (generate_release_notifications
+            # only ever creates new NEW_RELEASE rows alongside it, never
+            # touches the old one), so without this a reminder generated
+            # a week ago for a release that already happened sits here
+            # forever, and since it's the *oldest* release date, ascending
+            # sort below puts it first - reading as the whole section
+            # being backwards. A row with no release_schedule at all
+            # (synthetic/test data) is kept, same as always.
+            and not (n.release_schedule and n.release_schedule.release_date <= now)
+        ]
         recent = [n for n in bucket if n.kind != Notification.Kind.UPCOMING_RELEASE]
         upcoming.sort(key=lambda n: n.release_schedule.release_date if n.release_schedule else n.created_at)
         result[category] = {

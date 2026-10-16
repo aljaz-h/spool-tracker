@@ -4114,6 +4114,42 @@ class NotificationsPanelViewTests(TestCase):
         self.assertNotContains(resp, "Coming Sep 3:")
         self.assertContains(resp, "Upcoming")
 
+    def test_upcoming_release_whose_date_has_passed_is_not_shown(self):
+        # The exact bug report this fix addresses: generate_release_
+        # notifications never converts/removes an UPCOMING_RELEASE row
+        # once its own release_date is behind us, so without this check
+        # a reminder generated for a release that already happened sat
+        # under "Upcoming" indefinitely - and being the *oldest* release
+        # date, it sorted first, reading as the whole section backwards.
+        from django.utils import timezone
+
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Stale Movie", year=2020)
+        release = ReleaseSchedule.objects.create(
+            title=title,
+            release_type=ReleaseSchedule.ReleaseType.MOVIE_RELEASE,
+            release_date=timezone.now() - timedelta(days=6),
+        )
+        Notification.objects.create(
+            profile=self.profile,
+            kind=Notification.Kind.UPCOMING_RELEASE,
+            title=title,
+            release_schedule=release,
+            message="Coming Oct 10: Stale Movie",
+        )
+        resp = self.client.get(reverse("notifications_panel"))
+        self.assertNotContains(resp, "Stale Movie")
+
+    def test_upcoming_release_with_no_release_schedule_still_shows(self):
+        # A row with no release_schedule at all (synthetic/test data, or
+        # any future state that creates one this way) has no date to
+        # compare against "now" - kept, same as before this fix.
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        Notification.objects.create(
+            profile=self.profile, kind=Notification.Kind.UPCOMING_RELEASE, title=title, message="Fathom releases soon"
+        )
+        resp = self.client.get(reverse("notifications_panel"))
+        self.assertContains(resp, "Fathom releases soon")
+
     def test_new_release_keeps_its_now_available_wording(self):
         # Unlike UPCOMING_RELEASE's own date prefix, "Now available: " is
         # a status, not a date, so it isn't stripped even though the row

@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.145.8] - 2026-10-16
+
+### Fixed
+
+- Notifications: an "Upcoming" release reminder was never converted or
+  removed once its own release date passed, so it sat under "Upcoming"
+  indefinitely - and being the oldest release date in the list, it
+  sorted first, making the whole section look ordered backwards.
+  Reminders whose release date has already passed no longer show.
+
 ## [0.145.7] - 2026-10-16
 
 ### Fixed
