@@ -58,8 +58,14 @@ RECOMMENDED_TV = [("The Last of Us", 2023)]
 FRIENDS = [("sam", "Sam"), ("jamie", "Jamie")]
 
 # Left partway-through (WatchProgress.WATCHING) instead of fully watched,
-# so Continue Watching/Up Next have something to show.
-IN_PROGRESS_TITLES = {"Severance", "Frieren: Beyond Journey's End"}
+# so Continue Watching/Up Next have more than one or two cards to show -
+# enough to actually demonstrate the row scrolling, not just hint at it.
+IN_PROGRESS_TITLES = {"Severance", "Frieren: Beyond Journey's End", "The Bear", "Attack on Titan"}
+
+# A movie left mid-watch too (WatchProgress.WATCHING with a position, no
+# WatchEvent yet) - Continue Watching otherwise only ever shows shows,
+# since every seeded movie above gets a finished WatchEvent straight away.
+IN_PROGRESS_MOVIE = "Mad Max: Fury Road"
 
 
 class Command(BaseCommand):
@@ -141,6 +147,19 @@ class Command(BaseCommand):
         pool = []
         for title in watched_titles:
             if title.media_type == MediaType.MOVIE:
+                if title.name == IN_PROGRESS_MOVIE:
+                    # Left mid-watch, not watched yet - no WatchEvent, just
+                    # a WatchProgress with a position partway through its
+                    # own runtime, same as a real resume from Nuvio/a
+                    # scrobble would leave behind.
+                    runtime_seconds = (title.runtime_minutes or 110) * 60
+                    WatchProgress.objects.create(
+                        profile=profile,
+                        title=title,
+                        status=WatchProgress.Status.WATCHING,
+                        position_seconds=int(runtime_seconds * 0.4),
+                    )
+                    continue
                 rating = random.choice([None, 7, 8, 8, 9, 9, 10])
                 pool.append({"title": title, "episode": None, "rating": rating})
                 continue

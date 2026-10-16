@@ -51,6 +51,7 @@ account.
 - Activity feed across profiles (only shown once a second profile exists)
 - Import Review: CSV/JSON/ZIP file import (with column-mapping) and a first Trakt/Simkl/Nuvio connection both scan and stage what they'd bring in - filterable, selectable, nothing written until you confirm
 - Trakt / Simkl OAuth connect, Nuvio email/password connect, + a daily background sync job
+- [Automatic backups](docs/BACKUPS.md) per profile, on a schedule, to WebDAV (Nextcloud/NAS), Google Drive, or Dropbox — plus a one-off full export/import
 - A generic [Scrobble API](docs/SCROBBLE_API.md) for any player/script, and a read-only [Reports API](docs/REPORTS_API.md) for external services like spool-wrapped
 
 ## Get started
@@ -74,7 +75,8 @@ instead.
 | 🔗 **[Importing your data](docs/IMPORTING.md)** | Connecting Trakt/Simkl/Nuvio, CSV import, posters, duplicate-title cleanup. |
 | 📡 **[Scrobble API](docs/SCROBBLE_API.md)** | A generic webhook for any player or script to report watches directly - no per-app integration needed. |
 | 📊 **[Reports API](docs/REPORTS_API.md)** | Read-only watch-history access for external services like spool-wrapped, opt-in per profile. |
-| 🛠️ **[Updating & backups](docs/MAINTENANCE.md)** | Updating, rolling back a bad release, backing up. |
+| 💾 **[Backups](docs/BACKUPS.md)** | Full export/import, and scheduled automatic backups to a server folder, WebDAV, Google Drive, or Dropbox. |
+| 🛠️ **[Updating & rollback](docs/MAINTENANCE.md)** | Updating, rolling back a bad release, raw database backup. |
 | ⚠️ **[Known limitations](docs/LIMITATIONS.md)** | What's unverified, out of scope, or not built yet. |
 | 💻 **[Local development](docs/DEVELOPMENT.md)** | Running without Docker. |
 | 🤝 **[Contributing](CONTRIBUTING.md)** | Dev setup expectations, PR checklist. |
