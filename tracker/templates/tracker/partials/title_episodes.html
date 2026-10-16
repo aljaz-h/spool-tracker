@@ -27,18 +27,35 @@
           class="w-[84px] sm:w-[96px] flex-none text-left group"
         >
           {% comment %}
-            ring-inset, not ring-offset - this row scrolls horizontally
+            Why inset-ring-* at all: this row scrolls horizontally
             (overflow-x-auto), which per the CSS overflow spec forces
             overflow-y to compute as auto too even though it's never set
-            explicitly. An offset ring's box-shadow bleeds a few px
-            outside the border box, and that bleed was getting clipped
-            at the row's bottom edge by that forced auto overflow
-            (confirmed live - the cutoff was always at the bottom, never
-            the sides, which only a vertical clip explains). An inset
-            ring is drawn inside the border box instead, so it has
-            nothing to clip.
+            explicitly, and an outset ring-offset's box-shadow bleeds a
+            few px past the border box - which was getting clipped at
+            the row's bottom edge by that forced auto overflow (the
+            cutoff was always at the bottom, never the sides, which only
+            a vertical clip explains).
+
+            Why the ring is its own overlay div, not just inset-ring-* on
+            the poster box itself: an inset box-shadow is painted as
+            part of a box's own background layer, and a child paints on
+            top of its parent's own background/box-shadow regardless of
+            DOM nesting depth - the <img> below is absolutely positioned
+            edge-to-edge (inset-0) over this exact box, so it fully
+            covered an inset ring placed on that same box (confirmed
+            in-browser: zero visible ring). Rendered as its own div
+            *after* the image instead, so it paints over it, not under
+            it - confirmed in-browser this is what actually shows a
+            complete, uninterrupted ring.
+
+            (ring-inset, tried first, isn't the v3 modifier it looks
+            like - Tailwind v4 split "ring" into two independent utility
+            families, ring-* (outset, offset-capable) and inset-ring-*
+            (its own utilities) - ring-inset compiles but is never
+            actually consumed by ring-*'s box-shadow in v4, so that
+            attempt silently rendered as a plain outset ring.)
           {% endcomment %}
-          <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-base-300 {% if card.number == season %}ring-2 ring-inset ring-primary{% else %}opacity-80 group-hover:opacity-100{% endif %} {% if not card.poster_url %}{{ title.pk|default:preview_tmdb_id|add:card.number|gradient_class }}{% endif %}">
+          <div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-base-300 {% if card.number != season %}opacity-80 group-hover:opacity-100{% endif %} {% if not card.poster_url %}{{ title.pk|default:preview_tmdb_id|add:card.number|gradient_class }}{% endif %}">
             {% if card.poster_url %}
               <img src="{{ card.poster_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
             {% endif %}
@@ -46,6 +63,9 @@
               <div class="absolute bottom-0 inset-x-0 h-[3px] bg-black/60">
                 <div class="h-full {% if card.percent >= 100 %}bg-success{% else %}bg-primary{% endif %}" style="width: {{ card.percent }}%"></div>
               </div>
+            {% endif %}
+            {% if card.number == season %}
+              <div class="absolute inset-0 rounded-lg inset-ring-2 inset-ring-primary pointer-events-none" aria-hidden="true"></div>
             {% endif %}
           </div>
           <div class="mt-2 text-[13px] font-medium truncate {% if card.number == season %}text-base-content{% else %}text-ink-dim{% endif %}">Season {{ card.number }}</div>

@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.145.7] - 2026-10-16
+
+### Fixed
+
+- Title page's season picker: the selected season's ring still wasn't
+  showing after the previous fix - `ring-inset` turned out to be a
+  Tailwind v3 modifier that's a no-op in this Tailwind v4, and even
+  switched to the real v4 `inset-ring-*` utilities, an inset ring on
+  the same box as the full-bleed poster image was getting painted over
+  by the image itself. Now rendered as its own overlay div after the
+  image, which actually shows.
+
 ## [0.145.6] - 2026-10-16
 
 ### Fixed
