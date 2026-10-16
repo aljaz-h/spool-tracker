@@ -19,10 +19,10 @@
         <span class="absolute top-2 left-2 z-10 chip chip-scrim font-mono">S{{ event.episode.season }}:E{{ event.episode.episode }}</span>
       {% endif %}
       {% comment %} Synced/imported from a third-party app - rows logged directly in Spool leave source blank and get no marker. See WatchEvent.Source. {% endcomment %}
-      {% if event.source == "nuvio" %}<span class="absolute bottom-2 right-2 z-10 chip chip-scrim" title="Added by Nuvio sync">Nuvio</span>
-      {% elif event.source == "simkl" %}<span class="absolute bottom-2 right-2 z-10 chip chip-scrim" title="Added by Simkl sync">Simkl</span>
-      {% elif event.source == "trakt" %}<span class="absolute bottom-2 right-2 z-10 chip chip-scrim" title="Added by Trakt sync">Trakt</span>
-      {% elif event.source == "webhook" %}<span class="absolute bottom-2 right-2 z-10 chip chip-scrim" title="Added via the Scrobble API">Scrobble</span>{% endif %}
+      {% if event.source == "nuvio" %}<span class="absolute bottom-2 right-2 z-10 flex items-center justify-center w-5 h-5 rounded-md bg-info/90 text-info-content text-[10px] font-mono font-bold" title="Added by Nuvio sync">N</span>
+      {% elif event.source == "simkl" %}<span class="absolute bottom-2 right-2 z-10 flex items-center justify-center w-5 h-5 rounded-md bg-info/90 text-info-content text-[10px] font-mono font-bold" title="Added by Simkl sync">S</span>
+      {% elif event.source == "trakt" %}<span class="absolute bottom-2 right-2 z-10 flex items-center justify-center w-5 h-5 rounded-md bg-info/90 text-info-content text-[10px] font-mono font-bold" title="Added by Trakt sync">T</span>
+      {% elif event.source == "webhook" %}<span class="absolute bottom-2 right-2 z-10 flex items-center justify-center w-5 h-5 rounded-md bg-info/90 text-info-content text-[10px] font-mono font-bold" title="Added via the Scrobble API">W</span>{% endif %}
     </div>
     <span class="media-title group-hover:text-white">{{ event.title.name }}</span>
     <div class="meta">

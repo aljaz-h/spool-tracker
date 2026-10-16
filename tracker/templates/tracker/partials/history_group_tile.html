@@ -67,7 +67,7 @@
         get no marker at all.
       {% endcomment %}
       {% for source in group.sync_sources %}
-        <span class="chip chip-scrim max-sm:hidden" title="{% if source == "webhook" %}Added via the Scrobble API{% else %}Added by {{ source|title }} sync{% endif %}">{% if source == "webhook" %}Scrobble{% else %}{{ source|title }}{% endif %}</span>
+        <span class="max-sm:hidden flex items-center justify-center w-6 h-6 rounded-md bg-info/90 text-info-content text-[10px] font-mono font-bold" title="{% if source == "webhook" %}Added via the Scrobble API{% else %}Added by {{ source|title }} sync{% endif %}">{% if source == "webhook" %}W{% elif source == "nuvio" %}N{% elif source == "simkl" %}S{% elif source == "trakt" %}T{% endif %}</span>
       {% endfor %}
       <button
         type="button"

@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.145.3] - 2026-10-16
+
+### Changed
+
+- History's third-party sync marker (Trakt/Simkl/Nuvio/Scrobble) is back
+  to a small bluish letter badge (N/S/T/W) instead of a full-width text
+  chip, on both the single-play tile and the binge-grouped tile.
+
 ## [0.145.2] - 2026-10-13
 
 ### Fixed
