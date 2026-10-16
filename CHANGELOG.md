@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.145.4] - 2026-10-16
+
+### Fixed
+
+- History's binge-grouped tile: the per-episode "remove" dropdown could
+  render clipped to the poster's edges on some browsers despite being
+  fixed-positioned - now teleported out to `<body>` so no ancestor's
+  `overflow: hidden` can clip it. The group tile's sync-source badge
+  (N/S/T/W) was also hidden below the `sm` breakpoint while the
+  single-play tile's own badge wasn't - dropped that inconsistency now
+  that it's a small icon rather than a wide text chip.
+
 ## [0.145.3] - 2026-10-16
 
 ### Changed

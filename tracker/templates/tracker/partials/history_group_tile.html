@@ -45,8 +45,8 @@
       The count badge is a sibling of the poster anchor, not nested
       inside it (same reasoning as poster_card.html's own action bar) -
       so opening this menu never triggers the title_detail navigation
-      underneath it. Its fixed-position panel isn't clipped by the
-      poster's overflow-hidden either.
+      underneath it. Its panel is teleported to <body> (see below) so
+      the poster's overflow-hidden can't clip it either.
     {% endcomment %}
     <div
       x-show="!selecting" x-cloak
@@ -67,7 +67,7 @@
         get no marker at all.
       {% endcomment %}
       {% for source in group.sync_sources %}
-        <span class="max-sm:hidden flex items-center justify-center w-6 h-6 rounded-md bg-info/90 text-info-content text-[10px] font-mono font-bold" title="{% if source == "webhook" %}Added via the Scrobble API{% else %}Added by {{ source|title }} sync{% endif %}">{% if source == "webhook" %}W{% elif source == "nuvio" %}N{% elif source == "simkl" %}S{% elif source == "trakt" %}T{% endif %}</span>
+        <span class="flex items-center justify-center w-6 h-6 rounded-md bg-info/90 text-info-content text-[10px] font-mono font-bold" title="{% if source == "webhook" %}Added via the Scrobble API{% else %}Added by {{ source|title }} sync{% endif %}">{% if source == "webhook" %}W{% elif source == "nuvio" %}N{% elif source == "simkl" %}S{% elif source == "trakt" %}T{% endif %}</span>
       {% endfor %}
       <button
         type="button"
@@ -77,28 +77,41 @@
         title="{{ group.count }} episodes - click to remove one"
         class="chip !h-6 !px-2 bg-primary text-primary-content tabular-nums hover:brightness-110"
       >{{ group.count }}&times;</button>
-      <div
-        x-ref="panel"
-        x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
-        class="fixed z-50 w-[200px] max-h-56 overflow-y-auto menu-surface p-1.5 flex flex-col gap-0.5"
-      >
-        <div class="text-[12px] text-ink-faint px-2 py-1">Remove an episode</div>
-        {% for event in group.timeline_events %}
-          <div class="flex items-center justify-between gap-2 px-2 py-1 rounded-md hover:bg-base-300">
-            <span class="text-[12px] font-mono text-ink-dim">S{{ event.episode.season }}E{{ event.episode.episode }} <span class="text-ink-faint">· {{ event.watched_at|time:time_format_str }}</span></span>
-            <button
-              type="button"
-              hx-post="{% url 'history_delete_episode' event.id %}"
-              hx-vals='{"remaining_ids": "{% for e in group.events %}{% if e.id != event.id %}{{ e.id }}{% if not forloop.last %},{% endif %}{% endif %}{% endfor %}"}'
-              hx-target="closest [data-history-tile]"
-              hx-swap="outerHTML swap:150ms"
-              hx-confirm="Remove S{{ event.episode.season }}E{{ event.episode.episode }} from your watch history?"
-              title="Remove this episode"
-              class="text-ink-faint hover:text-error flex-none"
-            >&times;</button>
-          </div>
-        {% endfor %}
-      </div>
+      {% comment %}
+        Teleported to <body> - a plain fixed-position panel here would
+        still be a DOM descendant of .poster, and some browsers (real-
+        device Safari among them, per the History page bug report this
+        was added for) clip a fixed-position element to an overflow-
+        hidden ancestor's bounds despite the spec saying fixed escapes
+        it. Teleporting removes the ancestor entirely instead of relying
+        on that spec behavior being followed. $refs.panel below still
+        resolves to the teleported node - Alpine tracks refs by
+        component scope, not DOM location.
+      {% endcomment %}
+      <template x-teleport="body">
+        <div
+          x-ref="panel"
+          x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
+          class="fixed z-50 w-[200px] max-h-56 overflow-y-auto menu-surface p-1.5 flex flex-col gap-0.5"
+        >
+          <div class="text-[12px] text-ink-faint px-2 py-1">Remove an episode</div>
+          {% for event in group.timeline_events %}
+            <div class="flex items-center justify-between gap-2 px-2 py-1 rounded-md hover:bg-base-300">
+              <span class="text-[12px] font-mono text-ink-dim">S{{ event.episode.season }}E{{ event.episode.episode }} <span class="text-ink-faint">· {{ event.watched_at|time:time_format_str }}</span></span>
+              <button
+                type="button"
+                hx-post="{% url 'history_delete_episode' event.id %}"
+                hx-vals='{"remaining_ids": "{% for e in group.events %}{% if e.id != event.id %}{{ e.id }}{% if not forloop.last %},{% endif %}{% endif %}{% endfor %}"}'
+                hx-target="closest [data-history-tile]"
+                hx-swap="outerHTML swap:150ms"
+                hx-confirm="Remove S{{ event.episode.season }}E{{ event.episode.episode }} from your watch history?"
+                title="Remove this episode"
+                class="text-ink-faint hover:text-error flex-none"
+              >&times;</button>
+            </div>
+          {% endfor %}
+        </div>
+      </template>
     </div>
   </div>
 
