@@ -205,7 +205,7 @@
     padding: 4px 16px;
     border-radius: 6px;
   }
-  .browser-frame img { display: block; width: 100%; height: auto; }
+  .browser-frame img { display: block; width: 100%; height: auto; cursor: zoom-in; }
 
   section { padding: 100px 24px; }
   section.alt { background: linear-gradient(180deg, transparent, rgba(255,255,255,0.012) 10%, rgba(255,255,255,0.012) 90%, transparent); border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }
@@ -275,11 +275,61 @@
     transition: transform 0.18s ease, border-color 0.18s ease;
   }
   .gallery figure:hover { transform: translateY(-3px); border-color: rgba(255,255,255,0.15); }
-  .gallery .thumb { overflow: hidden; }
-  .gallery img { display: block; width: 100%; height: auto; transition: transform 0.4s ease; }
-  .gallery figure:hover img { transform: scale(1.03); }
+  /* Fixed-ratio crop so cards of very different native heights (a tall
+     poster grid vs. a short Lists/Calendar page) still line up evenly -
+     top-aligned since the nav/heading at the top of every screenshot is
+     the most identifying part of it at thumbnail size. */
+  .gallery .thumb { overflow: hidden; aspect-ratio: 16 / 10; }
+  .gallery img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top center; transition: transform 0.4s ease; cursor: zoom-in; }
+  .gallery figure:hover img { transform: scale(1.04); }
   .gallery figcaption { padding: 14px 16px; color: var(--ink-dim); font-size: 13px; border-top: 1px solid var(--line-soft); }
   .gallery figcaption b { color: var(--ink); font-weight: 600; }
+
+  /* Click-to-expand overlay for the hero/gallery screenshots */
+  .lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 56px 24px;
+    background: rgba(10, 11, 14, 0.92);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    cursor: zoom-out;
+  }
+  .lightbox.open { display: flex; }
+  .lightbox figure { margin: 0; max-width: 1400px; max-height: 100%; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .lightbox img {
+    display: block;
+    max-width: 100%;
+    max-height: 82vh;
+    width: auto;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    box-shadow: 0 30px 80px -20px rgba(0,0,0,0.8);
+    cursor: default;
+  }
+  .lightbox figcaption { color: var(--ink-dim); font-size: 13.5px; text-align: center; }
+  .lightbox-close {
+    position: fixed;
+    top: 20px;
+    right: 24px;
+    width: 40px;
+    height: 40px;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+  .lightbox-close:hover { border-color: var(--ink-faint); color: var(--primary); }
+  .lightbox-close svg { width: 18px; height: 18px; }
 
   .quickstart {
     max-width: 720px;
@@ -517,6 +567,22 @@
         <div class="thumb"><img src="images/screenshots/calendar.png" alt="Calendar page with upcoming releases"></div>
         <figcaption><b>Calendar</b> — episodes, premieres, movie releases</figcaption>
       </figure>
+      <figure>
+        <div class="thumb"><img src="images/screenshots/history.png" alt="History page with a day-grouped poster wall"></div>
+        <figcaption><b>History</b> — every play, day-grouped, filterable</figcaption>
+      </figure>
+      <figure>
+        <div class="thumb"><img src="images/screenshots/lists.png" alt="Lists page with shared and private lists"></div>
+        <figcaption><b>Lists</b> — shared &amp; private, plus "Surprise me"</figcaption>
+      </figure>
+      <figure>
+        <div class="thumb"><img src="images/screenshots/activity.png" alt="Household activity feed with a leaderboard"></div>
+        <figcaption><b>Activity</b> — household feed &amp; leaderboard</figcaption>
+      </figure>
+      <figure>
+        <div class="thumb"><img src="images/screenshots/backups.png" alt="Automatic backups settings with WebDAV, Google Drive, and Dropbox"></div>
+        <figcaption><b>Backups</b> — scheduled, to WebDAV/Drive/Dropbox</figcaption>
+      </figure>
     </div>
   </div>
 </section>
@@ -555,6 +621,16 @@ cd spool-tracker
   <div class="sub">Spool is not affiliated with Trakt or Simkl. Built with Django, HTMX, and Tailwind.</div>
 </footer>
 
+<div class="lightbox" id="lightbox">
+  <button class="lightbox-close" id="lightbox-close" type="button" aria-label="Close">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+  </button>
+  <figure>
+    <img id="lightbox-img" src="" alt="">
+    <figcaption id="lightbox-caption"></figcaption>
+  </figure>
+</div>
+
 <script>
   (function () {
     var btn = document.getElementById("copy-btn");
@@ -566,6 +642,40 @@ cd spool-tracker
         btn.textContent = "Copied";
         setTimeout(function () { btn.textContent = original; }, 1600);
       }).catch(function () {});
+    });
+  })();
+
+  (function () {
+    var lightbox = document.getElementById("lightbox");
+    var lbImg = document.getElementById("lightbox-img");
+    var lbCaption = document.getElementById("lightbox-caption");
+    var closeBtn = document.getElementById("lightbox-close");
+    if (!lightbox || !lbImg) return;
+
+    function openLightbox(img) {
+      lbImg.src = img.currentSrc || img.src;
+      lbImg.alt = img.alt || "";
+      var figcaption = img.closest("figure") ? img.closest("figure").querySelector("figcaption") : null;
+      lbCaption.textContent = figcaption ? figcaption.textContent : (img.alt || "");
+      lbCaption.style.display = lbCaption.textContent ? "" : "none";
+      lightbox.classList.add("open");
+      document.body.style.overflow = "hidden";
+    }
+    function closeLightbox() {
+      lightbox.classList.remove("open");
+      document.body.style.overflow = "";
+      lbImg.src = "";
+    }
+
+    document.querySelectorAll(".browser-frame img, .gallery img").forEach(function (img) {
+      img.addEventListener("click", function () { openLightbox(img); });
+    });
+    closeBtn.addEventListener("click", closeLightbox);
+    lightbox.addEventListener("click", function (e) {
+      if (e.target === lightbox) closeLightbox();
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && lightbox.classList.contains("open")) closeLightbox();
     });
   })();
 </script>

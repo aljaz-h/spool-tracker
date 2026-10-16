@@ -30,8 +30,13 @@ data (`manage.py seed_demo`) — nothing mocked up.
 |---|---|
 | ![Dashboard](docs/images/screenshots/dashboard.png) Dashboard — streak, up next, watching, watchlist | ![Movies & TV](docs/images/screenshots/discover.png) Movies & TV — trending/popular/upcoming/top rated, live from TMDB |
 | ![Title detail](docs/images/screenshots/title-detail.png) Title detail — cast, lists, recommend-to-a-housemate | ![Stats](docs/images/screenshots/stats.png) Stats — streaks, genre breakdown, watch time |
+| ![History](docs/images/screenshots/history.png) History — every play, day-grouped, filterable | ![Activity](docs/images/screenshots/activity.png) Activity — household feed and leaderboard |
 
 <p align="center"><img src="docs/images/screenshots/calendar.png" alt="Calendar" width="720"><br>Calendar — episodes, season premieres, and movie releases from what you're watching and your watchlists</p>
+
+|  |  |
+|---|---|
+| ![Lists](docs/images/screenshots/lists.png) Lists — shared and private, plus "Surprise me" | ![Automatic backups](docs/images/screenshots/backups.png) Automatic backups — to a server folder, WebDAV, Google Drive, or Dropbox |
 
 A household member can each get their own profile, watch history, lists,
 and stats on one instance. History can be logged manually, imported from
