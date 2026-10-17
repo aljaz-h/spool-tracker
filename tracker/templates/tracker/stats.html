@@ -25,7 +25,7 @@
     boxed cards. dial_pct / completion_efficiency_pct are real computed
     figures - see their selector docstrings.
   {% endcomment %}
-  <section class="grid grid-cols-2 lg:grid-cols-4 gap-y-6 lg:divide-x divide-line border-y border-line py-6">
+  <section class="grid grid-cols-2 lg:grid-cols-5 gap-y-6 lg:divide-x divide-line border-y border-line py-6">
     <div class="pr-4 lg:pr-6">
       <div class="flex items-baseline gap-1.5"><span class="figure !text-[2.5rem] text-primary">{{ current_streak }}</span><span class="text-sm text-ink-dim">day streak</span></div>
       {% if longest_streak %}
@@ -41,15 +41,21 @@
       <div class="figure !text-[2.5rem]">{{ shows_completed }}</div>
       <div class="figure-label">Shows completed{% if completion_efficiency_pct is not None %} · <span class="text-success">{{ completion_efficiency_pct }}%</span> completion{% endif %}</div>
     </div>
-    <div class="lg:pl-6">
+    <div class="lg:px-6">
       <div class="figure !text-[2.5rem]">{{ total_watch_days_rounded }}<span class="text-base font-medium text-ink-dim ml-1">days</span></div>
       <div class="figure-label">Total watch time · {{ total_watch_hours_display }}</div>
+    </div>
+    <div class="pr-4 lg:pl-6">
+      <div class="figure !text-[2.5rem]">{{ daily_average.average_duration }}</div>
+      <div class="figure-label">Daily average{% if daily_average.delta_label %} · <span class="{% if daily_average.delta_positive %}text-success{% else %}text-error{% endif %}">{{ daily_average.delta_label }}</span>{% endif %}</div>
     </div>
   </section>
 
   <section class="section">
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-x-12 gap-y-10">
+    <div class="min-w-0">
     <div class="section-head"><h2 class="section-title">Watch Time</h2></div>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6 max-w-4xl">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-6">
     <div class="min-w-0">
       <h3 class="subhead mb-1">Last 30 days</h3>
       <div class="rows">
@@ -93,13 +99,14 @@
       </div>
     </div>
     </div>
+    </div>
+    <div class="min-w-0">
+      {% include "tracker/partials/stats_heatmap.html" %}
+    </div>
+    </div>
   </section>
 
   {% include "tracker/partials/stats_genre_breakdown.html" %}
-
-  <section class="section">
-    {% include "tracker/partials/stats_heatmap.html" %}
-  </section>
 
   <section class="section grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-12 gap-y-10">
     <div class="min-w-0">
@@ -229,32 +236,23 @@
     </div>
   </section>
 
-  <section class="section grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_240px] gap-x-12 gap-y-8 max-w-4xl">
-    <div class="min-w-0">
-      <h3 class="section-title !text-base mb-4">Daily Breakdown</h3>
-      <div class="flex items-end justify-between gap-2 h-[140px]">
-        {% for d in daily_breakdown.days %}
-          <div class="flex flex-col items-center justify-end flex-1 h-full">
-            <div class="text-[12px] font-semibold text-ink-dim mb-1 h-3.5 whitespace-nowrap tabular-nums">
-              {% if daily_breakdown.peak_minutes and d.minutes == daily_breakdown.peak_minutes %}{{ d.duration }}{% endif %}
-            </div>
-            <div
-              tabindex="0" aria-label="{{ d.label }} · {{ d.duration }}"
-              class="w-full max-w-[26px] rounded-t spool-tooltip {% if daily_breakdown.peak_minutes and d.minutes == daily_breakdown.peak_minutes %}bg-primary{% else %}bg-primary/35{% endif %}"
-              style="height:{{ d.height_pct }}%"
-              data-tooltip="{{ d.label }} · {{ d.duration }}"
-            ></div>
-            <div class="text-[12px] text-ink-faint mt-1.5">{{ d.label }}</div>
+  <section class="section max-w-4xl">
+    <h3 class="section-title !text-base mb-4">Daily Breakdown</h3>
+    <div class="flex items-end justify-between gap-2 h-[140px]">
+      {% for d in daily_breakdown.days %}
+        <div class="flex flex-col items-center justify-end flex-1 h-full">
+          <div class="text-[12px] font-semibold text-ink-dim mb-1 h-3.5 whitespace-nowrap tabular-nums">
+            {% if daily_breakdown.peak_minutes and d.minutes == daily_breakdown.peak_minutes %}{{ d.duration }}{% endif %}
           </div>
-        {% endfor %}
-      </div>
-    </div>
-    <div class="min-w-0">
-      <h3 class="section-title !text-base mb-4">Daily Average</h3>
-      <div class="figure !text-4xl">{{ daily_average.average_duration }}</div>
-      {% if daily_average.delta_label %}
-        <div class="text-xs mt-2 {% if daily_average.delta_positive %}text-success{% else %}text-error{% endif %}">{{ daily_average.delta_label }}</div>
-      {% endif %}
+          <div
+            tabindex="0" aria-label="{{ d.label }} · {{ d.duration }}"
+            class="w-full max-w-[26px] rounded-t spool-tooltip {% if daily_breakdown.peak_minutes and d.minutes == daily_breakdown.peak_minutes %}bg-primary{% else %}bg-primary/35{% endif %}"
+            style="height:{{ d.height_pct }}%"
+            data-tooltip="{{ d.label }} · {{ d.duration }}"
+          ></div>
+          <div class="text-[12px] text-ink-faint mt-1.5">{{ d.label }}</div>
+        </div>
+      {% endfor %}
     </div>
   </section>
 
