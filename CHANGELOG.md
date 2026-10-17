@@ -8,6 +8,23 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.145.9] - 2026-10-17
+
+### Fixed
+
+- iOS home-screen installs could flash white between the native launch
+  splash and the page's own CSS loading (app.css is render-blocking,
+  behind a Google Fonts stylesheet) - the WebView's own default canvas
+  is white, and there was nothing telling it otherwise for that gap.
+  Added `color-scheme: dark` plus an inline background as an earlier,
+  non-network fallback, and matched the web manifest's background/theme
+  color to the page's own real background (`#0e1014` - it was `#14161c`,
+  a different dark shade, which stood out against the real page once
+  content painted). Already-installed home-screen icons were likely
+  the other half of the inconsistency - iOS captures manifest colors at
+  "Add to Home Screen" time, so an existing install may need to be
+  removed and re-added to pick this up.
+
 ## [0.145.8] - 2026-10-16
 
 ### Fixed
