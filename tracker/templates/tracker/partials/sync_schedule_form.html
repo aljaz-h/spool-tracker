@@ -1,5 +1,17 @@
 {# context: provider (str), account (ExternalAccount) #}
 <div class="mt-4 pt-4 border-t border-line">
+  {% if provider == "wetrakr" %}
+    <div class="flex items-center gap-2 mb-1.5 flex-wrap">
+      {% if account.wetrakr_plan == "vip" or account.wetrakr_plan == "patron" %}
+        <span class="chip chip-success">{{ account.wetrakr_plan|title }}</span>
+      {% elif account.wetrakr_plan == "free" %}
+        <span class="chip">Free plan</span>
+      {% endif %}
+      {% if account.paused_import_session %}
+        <a href="{% url 'import_review' account.paused_import_session.id %}" class="text-[12.5px] text-warning hover:underline">Paused — resuming after quota resets</a>
+      {% endif %}
+    </div>
+  {% endif %}
   <div class="flex items-center justify-between gap-2 mb-1.5">
     <div class="text-[13px] text-ink-dim">
       Last synced: {% if account.last_synced_at %}{{ account.last_synced_at|timesince }} ago{% else %}never{% endif %}

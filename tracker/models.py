@@ -478,6 +478,7 @@ class WatchEvent(models.Model):
         NUVIO = "nuvio", "Nuvio"
         SIMKL = "simkl", "Simkl"
         TRAKT = "trakt", "Trakt"
+        WETRAKR = "wetrakr", "WeTrakr"
         WEBHOOK = "webhook", "Scrobble API"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="watch_events")
@@ -803,6 +804,7 @@ class ExternalAccount(models.Model):
         # choices reuse this enum, can represent a Nuvio sync run in the
         # Logs tab without a parallel provider enum.
         NUVIO = "nuvio", "Nuvio"
+        WETRAKR = "wetrakr", "WeTrakr"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="external_accounts")
     provider = models.CharField(max_length=10, choices=Provider.choices)
@@ -843,6 +845,20 @@ class ExternalAccount(models.Model):
     # list-equivalent endpoints are additional unverified surface on top of
     # an already-unverified integration, not worth layering on yet.
     import_lists = models.BooleanField(default=False)
+    # WeTrakr only - its free plan caps a connected user at 1000 API
+    # requests/day (no X-RateLimit-* headers exist to read a live
+    # "remaining" count, so this is a self-tracked count, not a mirror of
+    # one - see tasks._wetrakr_account_budget_ok). wetrakr_plan is cached
+    # from GET /plan-usage (free/vip/patron) so a sync can tell up front
+    # how much headroom it has instead of discovering it via a 429.
+    # wetrakr_quota_count/date use the exact same lazy-rollover-on-read
+    # idiom as InstanceConfig's mdblist_quota_count/date below - rolled to
+    # today/0 the first time either is checked past UTC midnight, no
+    # dedicated reset job.
+    wetrakr_plan = models.CharField(max_length=10, blank=True)
+    wetrakr_plan_checked_at = models.DateTimeField(null=True, blank=True)
+    wetrakr_quota_date = models.DateField(null=True, blank=True)
+    wetrakr_quota_count = models.PositiveIntegerField(default=0)
 
     class Meta:
         constraints = [
@@ -872,6 +888,20 @@ class ExternalAccount(models.Model):
         from . import crypto
 
         self.encrypted_refresh_token = crypto.encrypt(plaintext) if plaintext else ""
+
+    @property
+    def paused_import_session(self):
+        """WeTrakr only - the currently-paused-on-quota ImportSession for
+        this account, if any (see ImportSession.Status.PAUSED). Used by
+        sync_schedule_form.html to show a "paused, resuming..." line on
+        the Settings card without the template needing its own query.
+        ImportSession is defined further down this same module - safe to
+        reference directly with no import, since by the time any instance
+        method actually runs the whole module has already finished
+        loading."""
+        return ImportSession.objects.filter(
+            profile=self.profile, source=self.provider, status=ImportSession.Status.PAUSED,
+        ).order_by("-created_at").first()
 
     def __str__(self):
         return f"{self.profile} · {self.get_provider_display()}"
@@ -939,8 +969,17 @@ class InstanceConfig(models.Model):
     encrypted_trakt_client_secret = models.TextField(blank=True, default="")
     simkl_client_id = models.CharField(max_length=255, blank=True)
     encrypted_simkl_client_secret = models.TextField(blank=True, default="")
+    wetrakr_client_id = models.CharField(max_length=255, blank=True)
+    encrypted_wetrakr_client_secret = models.TextField(blank=True, default="")
     encrypted_tmdb_api_key = models.TextField(blank=True, default="")
     encrypted_mdblist_api_key = models.TextField(blank=True, default="")
+    # Self-tracked daily request counter for WeTrakr's app-wide quota (one
+    # Spool instance's combined requests across every connected household's
+    # WeTrakr account - distinct from each ExternalAccount's own per-user
+    # wetrakr_quota_count above). Same lazy-rollover-on-read idiom as
+    # mdblist_quota_date/count just below - see tasks._wetrakr_app_budget_ok.
+    wetrakr_app_quota_date = models.DateField(null=True, blank=True)
+    wetrakr_app_quota_count = models.PositiveIntegerField(default=0)
     # Self-tracked daily request counter for MDBList's free-tier quota (see
     # tasks.fetch_mdblist_ratings) - rolled over to today/0 the first time
     # it's checked past UTC midnight, rather than on a timer, so a quiet
@@ -1052,6 +1091,18 @@ class InstanceConfig(models.Model):
 
         self.encrypted_simkl_client_secret = crypto.encrypt(plaintext) if plaintext else ""
 
+    def get_wetrakr_client_secret(self):
+        if not self.encrypted_wetrakr_client_secret:
+            return ""
+        from . import crypto
+
+        return crypto.decrypt(self.encrypted_wetrakr_client_secret)
+
+    def set_wetrakr_client_secret(self, plaintext):
+        from . import crypto
+
+        self.encrypted_wetrakr_client_secret = crypto.encrypt(plaintext) if plaintext else ""
+
     def get_tmdb_api_key(self):
         if not self.encrypted_tmdb_api_key:
             return ""
@@ -1129,6 +1180,11 @@ class SyncLog(models.Model):
         RUNNING = "running", "Running"
         SUCCESS = "success", "Success"
         FAILED = "failed", "Failed"
+        # WeTrakr only - this run was cut off by its daily request quota,
+        # not a failure. account.last_synced_at is deliberately left where
+        # it was, so the account's own next scheduled sync just retries the
+        # same incremental delta - see tasks.sync_wetrakr_history.
+        PAUSED = "paused", "Paused"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="sync_logs")
     provider = models.CharField(max_length=10, choices=ExternalAccount.Provider.choices)
@@ -1173,6 +1229,7 @@ class DataLog(models.Model):
         TRAKT_CONNECT = "trakt_connect", "Trakt Connect"
         SIMKL_CONNECT = "simkl_connect", "Simkl Connect"
         NUVIO_CONNECT = "nuvio_connect", "Nuvio Connect"
+        WETRAKR_CONNECT = "wetrakr_connect", "WeTrakr Connect"
         MERGE_DUPLICATES = "merge_duplicates", "Merge Duplicate Titles"
         BACKFILL_POSTERS = "backfill_posters", "Backfill Posters"
         BACKFILL_GENRES = "backfill_genres", "Backfill Genres"
@@ -1197,6 +1254,11 @@ class DataLog(models.Model):
         SUCCESS = "success", "Success"
         FAILED = "failed", "Failed"
         CANCELLED = "cancelled", "Cancelled"
+        # Mirrors ImportSession.Status.PAUSED - a WeTrakr import that's
+        # checkpointed mid-pull, waiting for its daily quota to roll over.
+        # Distinct from WAITING, which is specifically "scanned, waiting on
+        # the user to review" - this is "waiting on WeTrakr, not the user".
+        PAUSED = "paused", "Paused"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="data_logs")
     action = models.CharField(max_length=25, choices=Action.choices)
@@ -1311,6 +1373,7 @@ class ImportSession(models.Model):
         TRAKT = "trakt", "Trakt"
         SIMKL = "simkl", "Simkl"
         NUVIO = "nuvio", "Nuvio"
+        WETRAKR = "wetrakr", "WeTrakr"
         CSV = "csv", "CSV"
         JSON = "json", "JSON"
         ZIP = "zip", "ZIP"
@@ -1323,6 +1386,11 @@ class ImportSession(models.Model):
         FAILED = "failed", "Failed"
         CANCELLED = "cancelled", "Cancelled"
         EXPIRED = "expired", "Expired"
+        # WeTrakr only - a scan that hit its daily request quota mid-pull,
+        # not an error. source_metadata["wetrakr_raw_items"]/["wetrakr_cursor"]
+        # hold what's been fetched so far; tasks.resume_paused_wetrakr_imports
+        # re-dispatches scan_import_session once the quota window rolls over.
+        PAUSED = "paused", "Paused — waiting for quota"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="import_sessions")
     source = models.CharField(max_length=10, choices=Source.choices)
@@ -1378,7 +1446,7 @@ class ImportSession(models.Model):
         idiom settings_logs_table.html already uses) and to decide
         whether a fresh "Review full import" click should reuse an
         in-progress session instead of starting a second one."""
-        return self.status in (self.Status.SCANNING, self.Status.READY, self.Status.IMPORTING)
+        return self.status in (self.Status.SCANNING, self.Status.READY, self.Status.IMPORTING, self.Status.PAUSED)
 
 
 class ImportCandidate(models.Model):

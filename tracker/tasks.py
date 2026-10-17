@@ -20,7 +20,7 @@ from . import (
     update_check,
     version,
 )
-from .integrations import mdblist, nuvio, simkl, tmdb, trakt
+from .integrations import mdblist, nuvio, simkl, tmdb, trakt, wetrakr
 from .models import (
     DataLog,
     ExternalAccount,
@@ -86,6 +86,21 @@ def _run_sync(profile, provider, fetch_and_upsert):
     log = SyncLog.objects.create(profile=profile, provider=provider)
     try:
         created, labels = fetch_and_upsert()
+    except wetrakr.WeTrakrQuotaError as e:
+        # Not a failure - WeTrakr's daily quota was reached mid-sync.
+        # PAUSED instead of FAILED so Settings -> Logs doesn't alarm the
+        # user over something that resolves itself automatically, and no
+        # notify_sync_failure bell ping - a quiet background daily-sync
+        # deferral shouldn't page anyone (see sync_wetrakr_history's own
+        # docstring for why last_synced_at also isn't advanced for this
+        # case). Still re-raised so the caller's own post-_run_sync code
+        # (which would otherwise unconditionally advance last_synced_at)
+        # doesn't run.
+        log.status = SyncLog.Status.PAUSED
+        log.error_message = str(e)[:500]
+        log.finished_at = timezone.now()
+        log.save(update_fields=["status", "error_message", "finished_at"])
+        raise
     except Exception as e:
         log.status = SyncLog.Status.FAILED
         log.error_message = str(e)[:500]
@@ -200,6 +215,60 @@ def sync_nuvio_history(profile_id):
     return created
 
 
+@shared_task
+def sync_wetrakr_history(profile_id):
+    """Routine incremental sync, same shape as sync_trakt_history above -
+    captures sync_start before fetching, uses fetch_all_history's
+    start_at to only pull what's new. On a WeTrakrQuotaError mid-fetch,
+    deliberately does NOT advance last_synced_at (the except branch below
+    returns before reaching that save) - the account's own already-
+    scheduled PeriodicTask (see scheduling.ensure_periodic_task) just
+    retries the same incremental delta on its next normal run, with no
+    new cursor/resume machinery needed for this path. A routine sync's
+    delta is normally small for an already-synced account, so this
+    simple "just don't advance the watermark" approach is enough -
+    contrast with _scan_wetrakr_session below, which needs real
+    page-level resumability because a first-time full history pull can
+    be thousands of items."""
+    try:
+        account = ExternalAccount.objects.select_related("profile").get(
+            profile_id=profile_id, provider=ExternalAccount.Provider.WETRAKR
+        )
+    except ExternalAccount.DoesNotExist:
+        logger.info("sync_wetrakr_history: profile %s has no WeTrakr account connected", profile_id)
+        return 0
+
+    sync_start = timezone.now()
+    client_id, client_secret = instance_config.get_wetrakr_credentials()
+
+    def fetch_and_upsert():
+        cfg = InstanceConfig.load()
+        _roll_wetrakr_account_quota(account)
+        _roll_wetrakr_app_quota(cfg)
+        if not _wetrakr_account_budget_ok(account) or not _wetrakr_app_budget_ok(cfg):
+            account.save(update_fields=["wetrakr_quota_date", "wetrakr_quota_count"])
+            cfg.save(update_fields=["wetrakr_app_quota_date", "wetrakr_app_quota_count"])
+            raise wetrakr.WeTrakrQuotaError("QUOTA_EXCEEDED", "WeTrakr daily quota already spent before this sync")
+        _record_wetrakr_request(account, cfg)
+        labels = []
+        items = wetrakr.fetch_all_history(account.get_access_token(), client_id, start_at=account.last_synced_at)
+        created = wetrakr.upsert_history_items(account.profile, items, labels_out=labels)
+        return created, labels
+
+    def do_sync():
+        return _call_with_refresh(account, wetrakr, client_id, client_secret, fetch_and_upsert)
+
+    try:
+        created = _run_sync(account.profile, ExternalAccount.Provider.WETRAKR, do_sync)
+    except wetrakr.WeTrakrQuotaError:
+        logger.info("sync_wetrakr_history: profile %s paused on quota, last_synced_at unchanged", profile_id)
+        return 0
+    account.last_synced_at = sync_start
+    account.save(update_fields=["last_synced_at"])
+    logger.info("sync_wetrakr_history: profile %s, %d new watch events", profile_id, created)
+    return created
+
+
 def _scan_trakt_session(session):
     """Fetches this profile's full Trakt history (same trakt.fetch_history
     call routine sync uses, including its own 401-triggers-a-refresh
@@ -255,12 +324,110 @@ def _scan_nuvio_session(session):
     import_pipeline.scan_normalized_items(session, normalized)
 
 
+def _scan_wetrakr_session(session):
+    """Resumable scan - unlike _scan_trakt_session/_scan_simkl_session's
+    "fetch everything in one shot" shape, a WeTrakr full history pull can
+    outlast one day's request quota (see tracker/integrations/wetrakr.py's
+    own module docstring, point 2), so this checkpoints between pages
+    instead of fetching everything in one task invocation.
+
+    On entry, resumes from session.source_metadata["wetrakr_cursor"]/
+    ["wetrakr_raw_items"] if a previous run already paused mid-pull;
+    otherwise starts fresh from page 1. Every page fetched gets appended
+    to the accumulated raw-item list and the cursor saved immediately, so
+    a crash or a quota pause between any two pages loses nothing already
+    fetched (the accumulated list re-saving in full on every page is a
+    real but accepted cost - see the plan this shipped from - bounded by
+    page count, not item count, so even a very large history is at most
+    a few hundred saves, not thousands).
+
+    Only once the very last page is reached (fetch_history_page returns
+    next_cursor=None) does this normalize the full accumulated list and
+    hand off to the shared scan_normalized_items - exactly like every
+    other source's scan function. Nothing downstream of that call (the
+    actual matching/candidate-building/commit pipeline) ever needs to
+    know a multi-day pause happened in between.
+
+    The plan (free/vip/patron) is force-refreshed from GET /plan-usage
+    once, only on a fresh (non-resumed) scan - see _check_wetrakr_plan's
+    own docstring for why a resume reuses the already-cached reading
+    instead of re-checking it on every resumed page."""
+    account = ExternalAccount.objects.select_related("profile").get(
+        profile=session.profile, provider=ExternalAccount.Provider.WETRAKR
+    )
+    client_id, client_secret = instance_config.get_wetrakr_credentials()
+
+    resuming = "wetrakr_cursor" in session.source_metadata or "wetrakr_raw_items" in session.source_metadata
+    cursor = session.source_metadata.get("wetrakr_cursor")
+    raw_items = session.source_metadata.get("wetrakr_raw_items", [])
+
+    _call_with_refresh(
+        account, wetrakr, client_id, client_secret,
+        lambda: _check_wetrakr_plan(account, client_id, force=not resuming),
+    )
+
+    while True:
+        def fetch_one_page():
+            cfg = InstanceConfig.load()
+            _roll_wetrakr_account_quota(account)
+            _roll_wetrakr_app_quota(cfg)
+            if not _wetrakr_account_budget_ok(account):
+                account.save(update_fields=["wetrakr_quota_date", "wetrakr_quota_count"])
+                raise wetrakr.WeTrakrQuotaError("QUOTA_EXCEEDED", "WeTrakr account daily quota reached")
+            if not _wetrakr_app_budget_ok(cfg):
+                cfg.save(update_fields=["wetrakr_app_quota_date", "wetrakr_app_quota_count"])
+                raise wetrakr.WeTrakrQuotaError("APP_QUOTA_EXCEEDED", "WeTrakr app-wide daily quota reached")
+            _record_wetrakr_request(account, cfg)
+            return wetrakr.fetch_history_page(account.get_access_token(), client_id, cursor=cursor)
+
+        try:
+            page_items, next_cursor = _call_with_refresh(account, wetrakr, client_id, client_secret, fetch_one_page)
+        except wetrakr.WeTrakrQuotaError as e:
+            if e.error_code == "APP_QUOTA_EXCEEDED":
+                _saturate_wetrakr_app_quota(InstanceConfig.load())
+            session.source_metadata["wetrakr_cursor"] = cursor
+            session.source_metadata["wetrakr_raw_items"] = raw_items
+            session.source_metadata["wetrakr_pause"] = {
+                "reason": e.error_code, "paused_at": timezone.now().isoformat(),
+            }
+            session.status = ImportSession.Status.PAUSED
+            session.processed_items = len(raw_items)
+            # A slow multi-day pull shouldn't be swept by expire_import_sessions
+            # just because it's outlived the original 7-day IMPORT_SESSION_EXPIRY
+            # (views.py) - each pause extends the runway by a fresh grace
+            # window rather than disabling expiry altogether, so a session a
+            # bug leaves stuck PAUSED forever still eventually gets cleaned up.
+            grace = timezone.now() + timedelta(days=3)
+            if session.expires_at is None or session.expires_at < grace:
+                session.expires_at = grace
+            session.save(update_fields=["source_metadata", "status", "processed_items", "expires_at"])
+            logger.info(
+                "_scan_wetrakr_session: session %s paused (%s), %d items so far",
+                session.id, e.error_code, len(raw_items),
+            )
+            return
+
+        raw_items.extend(page_items)
+        cursor = next_cursor
+        session.source_metadata["wetrakr_raw_items"] = raw_items
+        session.source_metadata["wetrakr_cursor"] = cursor
+        session.processed_items = len(raw_items)
+        session.save(update_fields=["source_metadata", "processed_items"])
+        if cursor is None:
+            break
+
+    session.source_metadata.pop("wetrakr_pause", None)
+    normalized = [wetrakr.normalize_history_item(item, i) for i, item in enumerate(raw_items, start=1)]
+    import_pipeline.scan_normalized_items(session, normalized)
+
+
 # session.source values with a scan implementation wired in - dispatched
 # by scan_import_session below.
 SCAN_HANDLERS = {
     ImportSession.Source.TRAKT: _scan_trakt_session,
     ImportSession.Source.SIMKL: _scan_simkl_session,
     ImportSession.Source.NUVIO: _scan_nuvio_session,
+    ImportSession.Source.WETRAKR: _scan_wetrakr_session,
 }
 
 
@@ -332,17 +499,22 @@ def commit_import_session(session_id):
 @shared_task
 def expire_import_sessions():
     """Nightly beat job (see bootstrap_periodic_tasks.py) - marks any
-    SCANNING/READY ImportSession past its own expires_at as EXPIRED and
-    discards its staging data (ImportCandidate rows + a file import's own
-    temp file - see import_pipeline.discard_session), so a review nobody
-    ever came back to doesn't accumulate forever. Never touches an
-    IMPORTING/COMPLETED/CANCELLED/FAILED session (already finished, one
-    way or another) or any canonical Title/Episode/WatchEvent data -
-    only this session's own staging rows. Same idempotent-per-row
-    pattern as prune_old_logs: safe to run on a session more than once,
-    safe to re-run after a crash mid-way."""
+    SCANNING/READY/PAUSED ImportSession past its own expires_at as
+    EXPIRED and discards its staging data (ImportCandidate rows + a file
+    import's own temp file - see import_pipeline.discard_session), so a
+    review nobody ever came back to doesn't accumulate forever. PAUSED is
+    included so a WeTrakr pull stuck paused by a bug (rather than
+    resuming normally via resume_paused_wetrakr_imports) still eventually
+    gets cleaned up - _scan_wetrakr_session extends expires_at by a fresh
+    grace window on every real pause, so a pull that's still actively
+    progressing day to day never hits this, only one that's truly stuck.
+    Never touches an IMPORTING/COMPLETED/CANCELLED/FAILED session
+    (already finished, one way or another) or any canonical Title/
+    Episode/WatchEvent data - only this session's own staging rows. Same
+    idempotent-per-row pattern as prune_old_logs: safe to run on a
+    session more than once, safe to re-run after a crash mid-way."""
     stale = ImportSession.objects.filter(
-        status__in=(ImportSession.Status.SCANNING, ImportSession.Status.READY),
+        status__in=(ImportSession.Status.SCANNING, ImportSession.Status.READY, ImportSession.Status.PAUSED),
         expires_at__lt=timezone.now(),
     )
     count = 0
@@ -353,6 +525,32 @@ def expire_import_sessions():
         import_pipeline.discard_session(session)
         count += 1
     logger.info("expire_import_sessions: expired %d stale session(s)", count)
+    return count
+
+
+@shared_task
+def resume_paused_wetrakr_imports():
+    """Runs at 00:05 UTC (see scheduling.ensure_wetrakr_resume_task) -
+    just after WeTrakr's daily quota resets at UTC midnight. Finds every
+    ImportSession a WeTrakr pull left PAUSED and re-dispatches
+    scan_import_session for each; _scan_wetrakr_session itself detects
+    the resume (its cursor/accumulated items are already in
+    source_metadata) and picks up exactly where it left off. Dispatched
+    directly via .delay() rather than views._dispatch_sync_task_safely's
+    bounded-wait-thread helper - that one exists specifically to bound a
+    request/response cycle's wait on a broker call, which doesn't apply
+    here (this already runs inside a Celery worker). Same unbounded-
+    sweep shape as queue_due_mdblist_refreshes, minus that one's [:200]
+    cap - a single self-hosted instance isn't going to have hundreds of
+    paused WeTrakr sessions at once."""
+    paused = ImportSession.objects.filter(
+        source=ImportSession.Source.WETRAKR, status=ImportSession.Status.PAUSED,
+    )
+    count = 0
+    for session in paused:
+        scan_import_session.delay(session.id)
+        count += 1
+    logger.info("resume_paused_wetrakr_imports: resumed %d paused session(s)", count)
     return count
 
 
@@ -770,3 +968,95 @@ def queue_due_mdblist_refreshes():
         fetch_mdblist_ratings.delay(title_id)
         count += 1
     return count
+
+
+# --------------------------------------------------------------------
+# WeTrakr quota bookkeeping
+#
+# Two independent self-tracked daily counters, same lazy-rollover-on-read
+# idiom as _roll_mdblist_quota above - rolled to today/0 the first time
+# either is checked past UTC midnight, no dedicated reset job:
+#   - ExternalAccount.wetrakr_quota_count: this one connected user's own
+#     requests today, checked against their free-plan ceiling.
+#   - InstanceConfig.wetrakr_app_quota_count: every connected account's
+#     requests today, combined, checked against the whole app's shared
+#     ceiling (WeTrakr enforces both independently - see
+#     tracker/integrations/wetrakr.py's own module docstring).
+# Unlike MDBList, there's no X-RateLimit-Remaining-style header to use as
+# a backstop (WeTrakr's API has none) - these proactive checks are the
+# only line of defense before a live 429, so _scan_wetrakr_session and
+# sync_wetrakr_history both call them before every request, not just on
+# a failure.
+# --------------------------------------------------------------------
+
+
+def _roll_wetrakr_account_quota(account):
+    """Mutates account in place; caller saves."""
+    today = timezone.now().date()
+    if account.wetrakr_quota_date != today:
+        account.wetrakr_quota_date = today
+        account.wetrakr_quota_count = 0
+
+
+def _roll_wetrakr_app_quota(cfg):
+    """Mutates cfg in place; caller saves."""
+    today = timezone.now().date()
+    if cfg.wetrakr_app_quota_date != today:
+        cfg.wetrakr_app_quota_date = today
+        cfg.wetrakr_app_quota_count = 0
+
+
+def _wetrakr_account_budget_ok(account):
+    """VIP/patron accounts are never proactively paused here - WeTrakr
+    doesn't publish their real daily ceiling, so guessing one and pausing
+    against it risks cutting off headroom the account actually has. Only
+    a free-plan account (whose 1000/day WeTrakr does publish) gets
+    self-paced, and with a safety margin (WETRAKR_FREE_QUOTA_PAUSE_AT)
+    below that, not the exact number."""
+    if account.wetrakr_plan in ("vip", "patron"):
+        return True
+    return account.wetrakr_quota_count < django_settings.WETRAKR_FREE_QUOTA_PAUSE_AT
+
+
+def _wetrakr_app_budget_ok(cfg):
+    return cfg.wetrakr_app_quota_count < django_settings.WETRAKR_APP_QUOTA_PAUSE_AT
+
+
+def _record_wetrakr_request(account, cfg):
+    """Call once per actual outbound WeTrakr HTTP request (after rolling
+    both counters over) - increments and saves both the per-account and
+    the app-wide counter together, since every WeTrakr request this app
+    makes spends from both budgets at once."""
+    account.wetrakr_quota_count += 1
+    account.save(update_fields=["wetrakr_quota_date", "wetrakr_quota_count"])
+    cfg.wetrakr_app_quota_count += 1
+    cfg.save(update_fields=["wetrakr_app_quota_date", "wetrakr_app_quota_count"])
+
+
+def _saturate_wetrakr_app_quota(cfg):
+    """Called when a live APP_QUOTA_EXCEEDED 429 comes back - pins the
+    app-wide counter at its pause threshold immediately, so every other
+    connected account's next proactive _wetrakr_app_budget_ok check also
+    stops, rather than each one individually re-discovering the same
+    shared exhaustion one 429 at a time."""
+    _roll_wetrakr_app_quota(cfg)
+    cfg.wetrakr_app_quota_count = max(cfg.wetrakr_app_quota_count, django_settings.WETRAKR_APP_QUOTA_PAUSE_AT)
+    cfg.save(update_fields=["wetrakr_app_quota_date", "wetrakr_app_quota_count"])
+
+
+def _check_wetrakr_plan(account, client_id, force=False):
+    """Refreshes account.wetrakr_plan from GET /plan-usage. Cached for
+    about a day (routine sync just lets the cache ride), but force=True
+    (used at the start of every new Import Review scan) always re-checks
+    regardless of cache age - the whole point of checking plan at all is
+    knowing the real budget before a potentially-large first pull, so a
+    stale "free" reading from before the user upgraded (or vice versa)
+    would be exactly the wrong moment to trust a day-old cache."""
+    if not force and account.wetrakr_plan_checked_at:
+        if timezone.now() - account.wetrakr_plan_checked_at < timedelta(days=1):
+            return account.wetrakr_plan
+    usage = wetrakr.get_plan_usage(account.get_access_token(), client_id)
+    account.wetrakr_plan = usage.get("plan") or ""
+    account.wetrakr_plan_checked_at = timezone.now()
+    account.save(update_fields=["wetrakr_plan", "wetrakr_plan_checked_at"])
+    return account.wetrakr_plan

@@ -8,6 +8,25 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.146.0] - 2026-10-17
+
+### Added
+
+- WeTrakr connect - a fourth sync provider alongside Trakt/Simkl/Nuvio,
+  same OAuth2-connect-then-Import-Review flow (see
+  [Importing your data](docs/IMPORTING.md#connecting-trakt--simkl--wetrakr--nuvio)).
+  WeTrakr's free plan caps a connected account at 1000 API requests/day:
+  Spool checks which plan an account is on before a scan starts and
+  self-paces to stay under a free account's limit. If a first-time
+  import is large enough to outlast one day's quota, it pauses partway
+  through - Import Review shows "Paused - waiting for quota" with
+  progress so far - and resumes automatically right after the quota
+  resets (shortly after midnight UTC), continuing from exactly where it
+  left off rather than starting over or failing. A routine daily sync
+  that hits the quota mid-run simply retries the same small delta on its
+  next scheduled run. New `WETRAKR_CLIENT_ID`/`WETRAKR_CLIENT_SECRET` env
+  vars (also settable under Settings → Server Integrations).
+
 ## [0.145.11] - 2026-10-17
 
 ### Fixed

@@ -147,6 +147,12 @@
           {% else %}
             <span class="text-ink-faint">Simkl not connected</span>
           {% endif %}
+          <span class="text-line">&middot;</span>
+          {% if "wetrakr" in connected_providers %}
+            <span class="text-success">&#10003; WeTrakr connected</span>
+          {% else %}
+            <span class="text-ink-faint">WeTrakr not connected</span>
+          {% endif %}
         </div>
 
         <div class="settings-panel">
@@ -441,6 +447,28 @@
 
         <div class="surface p-5">
           <div class="flex items-start gap-4">
+            <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none text-[15px] font-bold text-ink-dim" aria-hidden="true">W</div>
+            <div class="min-w-0 flex-1">
+              <div class="font-semibold text-[15px]">WeTrakr</div>
+              <div class="text-[13px] text-ink-dim mt-0.5">Sync watched history &amp; ratings</div>
+            </div>
+            {% if "wetrakr" in connected_providers %}
+              <span class="chip chip-success flex-none">&#10003; Connected</span>
+            {% elif wetrakr_configured %}
+              <a href="{% url 'wetrakr_connect' %}" class="btn btn-sm btn-primary flex-none">Connect</a>
+            {% else %}
+              <button type="button" disabled data-tooltip="Ask your server owner to set this up first" class="btn btn-sm btn-disabled spool-tooltip flex-none">Connect</button>
+            {% endif %}
+          </div>
+          {% if "wetrakr" in connected_providers %}
+            <div class="sm:pl-14">{% include "tracker/partials/sync_schedule_form.html" with provider="wetrakr" account=external_accounts.wetrakr %}</div>
+          {% elif not wetrakr_configured %}
+            <div class="text-[13px] text-ink-faint mt-3 sm:pl-14">Not available yet - ask your server owner to set up WeTrakr first.</div>
+          {% endif %}
+        </div>
+
+        <div class="surface p-5">
+          <div class="flex items-start gap-4">
             <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none text-[15px] font-bold text-ink-dim" aria-hidden="true">N</div>
             <div class="min-w-0 flex-1">
               <div class="font-semibold text-[15px]">Nuvio</div>
@@ -597,6 +625,19 @@
           </div>
         {% endif %}
 
+        {% if "wetrakr" in connected_providers %}
+          <div class="flex flex-wrap justify-between items-center gap-2 py-3.5 border-b border-error/20">
+            <div>
+              <div class="font-semibold text-[13.5px]">Disconnect &amp; wipe WeTrakr</div>
+              <div class="text-xs text-ink-dim">Disconnects WeTrakr and removes watch history for titles matched via WeTrakr.</div>
+            </div>
+            <form method="post" action="{% url 'disconnect_and_wipe_provider' 'wetrakr' %}" onsubmit="return confirm('Disconnect WeTrakr and remove watch history for titles matched via WeTrakr? This is permanent.');">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content flex-none whitespace-nowrap">Disconnect &amp; wipe</button>
+            </form>
+          </div>
+        {% endif %}
+
         {% if nuvio_connection %}
           <div class="flex flex-wrap justify-between items-center gap-2 py-3.5 border-b border-error/20">
             <div>
@@ -710,7 +751,7 @@
         {# ==================== ADMIN: SERVER INTEGRATIONS ==================== #}
         <div
           x-show="tab === 'server_integrations'" x-cloak
-          x-data="{ showTraktSecret: false, showSimklSecret: false, showTmdb: false, showMdblist: false, showSsoSecret: false, showGoogleSecret: false, showDropboxSecret: false }"
+          x-data="{ showTraktSecret: false, showSimklSecret: false, showWetrakrSecret: false, showTmdb: false, showMdblist: false, showSsoSecret: false, showGoogleSecret: false, showDropboxSecret: false }"
           class="flex flex-col gap-8 max-w-3xl min-w-0"
         >
           <div>
@@ -773,8 +814,8 @@
           </div>
         </div>
         <div class="settings-panel">
-          <h3 class="text-lg mb-1">Trakt &amp; Simkl</h3>
-          <div class="text-ink-dim text-xs mb-4">Lets profiles connect their Trakt or Simkl account to import and sync their history.</div>
+          <h3 class="text-lg mb-1">Trakt, Simkl &amp; WeTrakr</h3>
+          <div class="text-ink-dim text-xs mb-4">Lets profiles connect their Trakt, Simkl or WeTrakr account to import and sync their history.</div>
           <div class="divide-y divide-line min-w-0 [&>div]:pb-5 [&>div:last-child]:pb-0">
           <div class="pt-5 first:pt-0">
             <div class="flex items-center justify-between gap-3 mb-2">
@@ -832,6 +873,37 @@
                 <button
                   type="submit" formaction="{% url 'test_provider_credentials' 'simkl' %}"
                   data-tooltip="Makes a live request to Simkl using the values above (without saving them) - best effort, Simkl's API beyond OAuth isn't fully documented"
+                  class="btn btn-sm btn-soft shrink-0 spool-tooltip"
+                >Test</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="pt-5 first:pt-0">
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <div class="text-sm font-semibold">WeTrakr {% if wetrakr_configured %}<span class="text-success font-normal">&#10003; configured</span>{% else %}<span class="text-ink-faint font-normal">&#9675; not configured</span>{% endif %}</div>
+              {% if wetrakr_configured %}
+                <button type="submit" formaction="{% url 'clear_instance_config_field' 'wetrakr' %}" onclick="return confirm('Clear the stored WeTrakr client ID and secret? Spool will fall back to the server .env values, if any.');" class="text-[12px] text-ink-faint hover:text-error underline">Clear</button>
+              {% endif %}
+            </div>
+            <div class="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs text-ink-dim mb-1" for="si-wetrakr_client_id">Client ID</label>
+                <input type="text" id="si-wetrakr_client_id" name="wetrakr_client_id" value="{{ integration_field_values.wetrakr_client_id|default:'' }}" @keydown.enter.prevent placeholder="{% if wetrakr_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono">
+              </div>
+              <div>
+                <label class="block text-xs text-ink-dim mb-1" for="si-wetrakr_client_secret">Client secret</label>
+                <div class="flex gap-1.5">
+                <div class="relative flex-1 min-w-0">
+                  <input :type="showWetrakrSecret ? 'text' : 'password'" id="si-wetrakr_client_secret" name="wetrakr_client_secret" value="{{ integration_field_values.wetrakr_client_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if wetrakr_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
+                  <button type="button" @click="showWetrakrSecret = !showWetrakrSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                    <span x-show="!showWetrakrSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                    <span x-show="showWetrakrSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                  </button>
+                </div>
+                <button
+                  type="submit" formaction="{% url 'test_provider_credentials' 'wetrakr' %}"
+                  data-tooltip="Makes a live request to WeTrakr using the values above (without saving them) - only confirms the client ID is live, since WeTrakr doesn't check the secret outside the OAuth flow"
                   class="btn btn-sm btn-soft shrink-0 spool-tooltip"
                 >Test</button>
                 </div>

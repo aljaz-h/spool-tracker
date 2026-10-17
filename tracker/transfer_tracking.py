@@ -47,6 +47,20 @@ def _import_state(session):
             f"{label} is ready to review - {count:,} item{'s' if count != 1 else ''} found.",
             True, False,
         )
+    if session.status == Status.PAUSED:
+        pause = session.source_metadata.get("wetrakr_pause") or {}
+        reason = pause.get("reason")
+        if reason == "APP_QUOTA_EXCEEDED":
+            cause = "this server's shared WeTrakr limit"
+        else:
+            cause = "WeTrakr's daily limit for your account"
+        count = session.processed_items
+        return (
+            DataLog.Status.PAUSED,
+            f"{label} is paused - {cause} was reached. Spool has checked {count:,} item{'s' if count != 1 else ''} "
+            "so far and will continue automatically after the quota resets (around midnight UTC). No action needed.",
+            True, False,
+        )
     if session.status == Status.IMPORTING:
         finishing = session.source_metadata.get("finishing")
         if finishing:
@@ -87,6 +101,8 @@ def _import_log_detail(session):
         parts.append("waiting for review")
     elif session.status == ImportSession.Status.EXPIRED:
         parts.append("review expired")
+    elif session.status == ImportSession.Status.PAUSED:
+        parts.append(f"paused, {session.processed_items} checked so far")
     return ", ".join(parts)[:255]
 
 

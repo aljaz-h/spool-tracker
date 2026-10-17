@@ -59,7 +59,10 @@ PROGRESS_UPDATE_SECONDS = 2.0
 COMMIT_CHUNK_SIZE = 200
 
 FILE_SOURCES = (ImportSession.Source.CSV, ImportSession.Source.JSON, ImportSession.Source.ZIP)
-KNOWN_PROVIDERS = (ImportSession.Source.TRAKT, ImportSession.Source.SIMKL, ImportSession.Source.NUVIO)
+KNOWN_PROVIDERS = (
+    ImportSession.Source.TRAKT, ImportSession.Source.SIMKL, ImportSession.Source.NUVIO,
+    ImportSession.Source.WETRAKR,
+)
 
 
 def _external_id_provider(source_external_ids):
@@ -464,6 +467,7 @@ WATCH_EVENT_SOURCE_BY_PROVIDER = {
     ImportSession.Source.TRAKT: WatchEvent.Source.TRAKT,
     ImportSession.Source.SIMKL: WatchEvent.Source.SIMKL,
     ImportSession.Source.NUVIO: WatchEvent.Source.NUVIO,
+    ImportSession.Source.WETRAKR: WatchEvent.Source.WETRAKR,
 }
 
 

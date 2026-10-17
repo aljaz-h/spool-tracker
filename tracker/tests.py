@@ -22,7 +22,7 @@ from django_celery_beat.models import PeriodicTask
 from . import achievements, completion, crypto, csv_import, episode_matching, import_pipeline, instance_config, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, title_matching, totp, update_check, views
 from django.utils import timezone as _tz
 from .watchlists import ensure_watchlist
-from .integrations import anifiller, mdblist, nuvio, scrobble, simkl, tenrai, tmdb, trakt
+from .integrations import anifiller, mdblist, nuvio, scrobble, simkl, tenrai, tmdb, trakt, wetrakr
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
@@ -6942,6 +6942,79 @@ class OAuthConnectImportReviewTests(TestCase):
         mock_dispatch.assert_called_once_with(tasks.sync_simkl_history, [self.profile.id])
 
 
+class WetrakrPkceOAuthFlowTests(TestCase):
+    """oauth_connect/oauth_callback's provider == "wetrakr" branches -
+    WeTrakr needs PKCE on top of the plain authorization-code flow
+    Trakt/Simkl use, handled as a two-line branch at each call site
+    rather than widening their shared authorize_url/exchange_code
+    signatures (see tracker/integrations/wetrakr.py's own docstring)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("wetrakrpkce", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="WetrakrPkce")
+        InstanceConfig.objects.update_or_create(
+            pk=1,
+            defaults={"wetrakr_client_id": "wcid", "encrypted_wetrakr_client_secret": crypto.encrypt("wcsecret")},
+        )
+        self.client.login(username="wetrakrpkce", password="pass12345")
+
+    def test_oauth_connect_stores_a_code_verifier_in_session_for_wetrakr(self):
+        resp = self.client.get(reverse("wetrakr_connect"))
+        self.assertIn("wetrakr_oauth_verifier", self.client.session)
+        self.assertTrue(resp.url.startswith(wetrakr.AUTHORIZE_URL))
+        self.assertIn("code_challenge=", resp.url)
+        self.assertIn("code_challenge_method=S256", resp.url)
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.wetrakr.exchange_code")
+    def test_oauth_callback_passes_the_stored_verifier_to_exchange_code(self, mock_exchange, mock_dispatch):
+        mock_exchange.return_value = {"access_token": "tok", "refresh_token": "rtok", "expires_in": 7776000}
+        session = self.client.session
+        session["wetrakr_oauth_state"] = "abc123"
+        session["wetrakr_oauth_verifier"] = "the-verifier"
+        session.save()
+
+        self.client.get(reverse("wetrakr_callback"), {"code": "authcode", "state": "abc123"})
+
+        mock_exchange.assert_called_once()
+        self.assertEqual(mock_exchange.call_args.args[-1], "the-verifier")
+        # Consumed - a second callback with no verifier left in session
+        # shouldn't be able to replay the first one's.
+        self.assertNotIn("wetrakr_oauth_verifier", self.client.session)
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.wetrakr.exchange_code")
+    def test_new_wetrakr_connection_creates_review_session_instead_of_syncing(self, mock_exchange, mock_dispatch):
+        mock_exchange.return_value = {"access_token": "tok", "refresh_token": "rtok", "expires_in": 7776000}
+        session = self.client.session
+        session["wetrakr_oauth_state"] = "abc123"
+        session["wetrakr_oauth_verifier"] = "v"
+        session.save()
+
+        resp = self.client.get(reverse("wetrakr_callback"), {"code": "authcode", "state": "abc123"})
+
+        import_session = ImportSession.objects.get(profile=self.profile, source=ImportSession.Source.WETRAKR)
+        self.assertEqual(import_session.status, ImportSession.Status.SCANNING)
+        self.assertRedirects(resp, reverse("import_review", args=[import_session.id]))
+
+    @patch("tracker.integrations.trakt.exchange_code")
+    def test_trakt_connect_is_unaffected_by_the_wetrakr_branch(self, mock_exchange):
+        InstanceConfig.objects.update_or_create(
+            pk=1,
+            defaults={"trakt_client_id": "cid", "encrypted_trakt_client_secret": crypto.encrypt("csecret")},
+        )
+        mock_exchange.return_value = {"access_token": "tok", "refresh_token": "rtok", "expires_in": 7776000}
+        session = self.client.session
+        session["trakt_oauth_state"] = "abc123"
+        session.save()
+
+        self.client.get(reverse("trakt_callback"), {"code": "authcode", "state": "abc123"})
+
+        # Trakt's exchange_code has no code_verifier param at all - the
+        # wetrakr branch must never be reached for provider="trakt".
+        self.assertEqual(len(mock_exchange.call_args.args), 4)
+
+
 class TriggerImportReviewViewTests(TestCase):
     """The "Review full import" button (trigger_import_review) - lets an
     already-connected account run another reviewed import on demand,
@@ -7290,6 +7363,461 @@ class ScanNuvioSessionTests(TestCase):
         event = WatchEvent.objects.get(profile=self.profile)
         self.assertEqual(event.source, WatchEvent.Source.NUVIO)
         self.assertEqual(event.title.external_ids.get("nuvio"), "tmdb:550")
+
+
+class WetrakrNormalizeHistoryItemTests(TestCase):
+    """wetrakr.normalize_history_item - mirrors TraktNormalizeHistoryItemTests,
+    keyed off a "wetrakr" id instead of "trakt"."""
+
+    def test_movie_item(self):
+        item = {
+            "id": 555, "type": "movie", "watched_at": "2024-01-05T20:30:00.000Z",
+            "movie": {"title": "Fathom", "year": 2020, "ids": {"wetrakr": 42, "tmdb": 99}},
+        }
+        normalized = wetrakr.normalize_history_item(item, 1)
+        self.assertIsNone(normalized["error"])
+        self.assertEqual(normalized["media_type"], MediaType.MOVIE)
+        self.assertEqual(normalized["title_name"], "Fathom")
+        self.assertEqual(normalized["source_external_ids"], {"wetrakr": "42", "tmdb": "99"})
+        self.assertEqual(normalized["source_row"], 555)
+
+    def test_episode_item(self):
+        item = {
+            "type": "episode", "watched_at": "2024-01-05T20:30:00.000Z",
+            "show": {"title": "Silo", "year": 2023, "ids": {"wetrakr": 7}},
+            "episode": {"season": 1, "number": 2},
+        }
+        normalized = wetrakr.normalize_history_item(item, 3)
+        self.assertIsNone(normalized["error"])
+        self.assertEqual(normalized["media_type"], MediaType.TV)
+        self.assertEqual(normalized["season"], 1)
+        self.assertEqual(normalized["episode"], 2)
+        self.assertEqual(normalized["source_row"], 3)
+
+    def test_movie_missing_wetrakr_id_is_an_error(self):
+        item = {"type": "movie", "watched_at": "2024-01-05T20:30:00.000Z", "movie": {"title": "No Id", "ids": {}}}
+        normalized = wetrakr.normalize_history_item(item, 1)
+        self.assertIsNotNone(normalized["error"])
+
+    def test_episode_missing_season_or_number_is_an_error(self):
+        item = {
+            "type": "episode", "watched_at": "2024-01-05T20:30:00.000Z",
+            "show": {"title": "Silo", "ids": {"wetrakr": 7}}, "episode": {"season": 1},
+        }
+        normalized = wetrakr.normalize_history_item(item, 1)
+        self.assertIsNotNone(normalized["error"])
+
+    def test_unparseable_watched_at_is_an_error(self):
+        item = {"type": "movie", "watched_at": "not a date", "movie": {"title": "X", "ids": {"wetrakr": 1}}}
+        normalized = wetrakr.normalize_history_item(item, 1)
+        self.assertIsNotNone(normalized["error"])
+
+
+class WetrakrRequestErrorHandlingTests(TestCase):
+    """wetrakr._request - the shared 429 handling every fetch/get_plan_usage
+    call goes through. CONCURRENCY_LIMIT (or anything unrecognized) is a
+    short sleep-and-retry, same shape as tenrai.py's own _get; the three
+    day-scale codes raise WeTrakrQuotaError immediately, never retried."""
+
+    def _response(self, status, body=None, headers=None):
+        resp = Mock()
+        resp.status_code = status
+        resp.json.return_value = body or {}
+        resp.headers = headers or {}
+        resp.raise_for_status = Mock()
+        return resp
+
+    @patch("tracker.integrations.wetrakr.time.sleep")
+    @patch("tracker.integrations.wetrakr.requests.request")
+    def test_concurrency_limit_retries_once_after_retry_after(self, mock_request, mock_sleep):
+        mock_request.side_effect = [
+            self._response(429, {"error": "CONCURRENCY_LIMIT"}, {"Retry-After": "2"}),
+            self._response(200, {"ok": True}),
+        ]
+        resp = wetrakr._request("GET", "/plan-usage", "tok", "client-id")
+        self.assertEqual(resp.json(), {"ok": True})
+        self.assertEqual(mock_request.call_count, 2)
+        mock_sleep.assert_called_once_with(2.0)
+
+    @patch("tracker.integrations.wetrakr.requests.request")
+    def test_quota_exceeded_is_not_retried_and_raises(self, mock_request):
+        mock_request.return_value = self._response(429, {"error": "QUOTA_EXCEEDED", "message": "nope"})
+        with self.assertRaises(wetrakr.WeTrakrQuotaError) as ctx:
+            wetrakr._request("GET", "/plan-usage", "tok", "client-id")
+        self.assertEqual(ctx.exception.error_code, "QUOTA_EXCEEDED")
+        self.assertEqual(mock_request.call_count, 1)
+
+    @patch("tracker.integrations.wetrakr.requests.request")
+    def test_app_quota_exceeded_is_not_retried_and_raises(self, mock_request):
+        mock_request.return_value = self._response(429, {"error": "APP_QUOTA_EXCEEDED"})
+        with self.assertRaises(wetrakr.WeTrakrQuotaError) as ctx:
+            wetrakr._request("GET", "/plan-usage", "tok", "client-id")
+        self.assertEqual(ctx.exception.error_code, "APP_QUOTA_EXCEEDED")
+
+    @patch("tracker.integrations.wetrakr.requests.request")
+    def test_app_user_quota_exceeded_is_not_retried_and_raises(self, mock_request):
+        mock_request.return_value = self._response(429, {"error": "APP_USER_QUOTA_EXCEEDED"})
+        with self.assertRaises(wetrakr.WeTrakrQuotaError) as ctx:
+            wetrakr._request("GET", "/plan-usage", "tok", "client-id")
+        self.assertEqual(ctx.exception.error_code, "APP_USER_QUOTA_EXCEEDED")
+
+    @patch("tracker.integrations.wetrakr.time.sleep")
+    @patch("tracker.integrations.wetrakr.requests.request")
+    def test_missing_retry_after_header_falls_back_to_default_delay(self, mock_request, mock_sleep):
+        mock_request.side_effect = [
+            self._response(429, {"error": "CONCURRENCY_LIMIT"}),
+            self._response(200, {"ok": True}),
+        ]
+        wetrakr._request("GET", "/plan-usage", "tok", "client-id")
+        mock_sleep.assert_called_once_with(1.0)
+
+
+class WetrakrFetchHistoryPageTests(TestCase):
+    """wetrakr.fetch_history_page - the resumable page-at-a-time primitive.
+    cursor encodes both which of the two target endpoints (movies/episodes)
+    and which page within it, so a caller can keep calling this with
+    whatever next_cursor it got back with no knowledge of the two
+    underlying endpoints."""
+
+    def _response(self, items, page, page_count):
+        resp = Mock()
+        resp.status_code = 200
+        resp.json.return_value = items
+        resp.headers = {"X-Pagination-Page-Count": str(page_count)}
+        resp.raise_for_status = Mock()
+        return resp
+
+    @patch("tracker.integrations.wetrakr.requests.request")
+    def test_first_call_with_no_cursor_fetches_movies_page_one(self, mock_request):
+        mock_request.return_value = self._response([{"id": 1}], page=1, page_count=1)
+        items, next_cursor = wetrakr.fetch_history_page("tok", "client-id")
+        self.assertEqual(mock_request.call_args.args[1], "https://api.wetrakr.com/sync/tracking/watched/history/movies")
+        self.assertEqual(items[0]["type"], "movie")
+        self.assertEqual(next_cursor, "episodes:1")
+
+    @patch("tracker.integrations.wetrakr.requests.request")
+    def test_more_movie_pages_remain(self, mock_request):
+        mock_request.return_value = self._response([{"id": 1}], page=1, page_count=3)
+        _, next_cursor = wetrakr.fetch_history_page("tok", "client-id", cursor="movies:1")
+        self.assertEqual(next_cursor, "movies:2")
+
+    @patch("tracker.integrations.wetrakr.requests.request")
+    def test_last_episode_page_returns_none_cursor(self, mock_request):
+        mock_request.return_value = self._response([{"id": 9}], page=2, page_count=2)
+        items, next_cursor = wetrakr.fetch_history_page("tok", "client-id", cursor="episodes:2")
+        self.assertEqual(items[0]["type"], "episode")
+        self.assertIsNone(next_cursor)
+
+
+class WetrakrQuotaBookkeepingTests(TestCase):
+    """tasks._roll_wetrakr_account_quota/_wetrakr_account_budget_ok/
+    _wetrakr_app_budget_ok/_record_wetrakr_request - the self-tracked
+    daily counters that stand in for the X-RateLimit-* headers this API
+    doesn't have."""
+
+    def setUp(self):
+        user = User.objects.create_user("quotauser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="QuotaUser")
+        self.account = ExternalAccount.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.WETRAKR,
+        )
+
+    def test_account_quota_rolls_over_on_a_new_utc_day(self):
+        self.account.wetrakr_quota_date = _date(2020, 1, 1)
+        self.account.wetrakr_quota_count = 500
+        tasks._roll_wetrakr_account_quota(self.account)
+        self.assertEqual(self.account.wetrakr_quota_date, _tz.now().date())
+        self.assertEqual(self.account.wetrakr_quota_count, 0)
+
+    def test_app_quota_rolls_over_on_a_new_utc_day(self):
+        cfg = InstanceConfig.load()
+        cfg.wetrakr_app_quota_date = _date(2020, 1, 1)
+        cfg.wetrakr_app_quota_count = 5000
+        tasks._roll_wetrakr_app_quota(cfg)
+        self.assertEqual(cfg.wetrakr_app_quota_date, _tz.now().date())
+        self.assertEqual(cfg.wetrakr_app_quota_count, 0)
+
+    @override_settings(WETRAKR_FREE_QUOTA_PAUSE_AT=900)
+    def test_free_account_stops_proactively_before_the_published_ceiling(self):
+        self.account.wetrakr_plan = "free"
+        self.account.wetrakr_quota_count = 899
+        self.assertTrue(tasks._wetrakr_account_budget_ok(self.account))
+        self.account.wetrakr_quota_count = 900
+        self.assertFalse(tasks._wetrakr_account_budget_ok(self.account))
+
+    def test_vip_account_is_never_proactively_stopped(self):
+        self.account.wetrakr_plan = "vip"
+        self.account.wetrakr_quota_count = 999999
+        self.assertTrue(tasks._wetrakr_account_budget_ok(self.account))
+
+    def test_patron_account_is_never_proactively_stopped(self):
+        self.account.wetrakr_plan = "patron"
+        self.account.wetrakr_quota_count = 999999
+        self.assertTrue(tasks._wetrakr_account_budget_ok(self.account))
+
+    @override_settings(WETRAKR_APP_QUOTA_PAUSE_AT=16000)
+    def test_app_wide_counter_stops_before_the_published_ceiling(self):
+        cfg = InstanceConfig.load()
+        cfg.wetrakr_app_quota_count = 15999
+        self.assertTrue(tasks._wetrakr_app_budget_ok(cfg))
+        cfg.wetrakr_app_quota_count = 16000
+        self.assertFalse(tasks._wetrakr_app_budget_ok(cfg))
+
+    def test_record_request_increments_and_saves_both_counters(self):
+        cfg = InstanceConfig.load()
+        tasks._roll_wetrakr_account_quota(self.account)
+        tasks._roll_wetrakr_app_quota(cfg)
+        tasks._record_wetrakr_request(self.account, cfg)
+        self.account.refresh_from_db()
+        cfg.refresh_from_db()
+        self.assertEqual(self.account.wetrakr_quota_count, 1)
+        self.assertEqual(cfg.wetrakr_app_quota_count, 1)
+
+    @override_settings(WETRAKR_APP_QUOTA_PAUSE_AT=16000)
+    def test_saturate_app_quota_pins_counter_at_threshold(self):
+        cfg = InstanceConfig.load()
+        cfg.wetrakr_app_quota_count = 100
+        cfg.save()
+        tasks._saturate_wetrakr_app_quota(cfg)
+        cfg.refresh_from_db()
+        self.assertEqual(cfg.wetrakr_app_quota_count, 16000)
+
+    @patch("tracker.integrations.wetrakr.get_plan_usage")
+    def test_check_plan_caches_and_does_not_refetch_within_a_day(self, mock_get_plan):
+        mock_get_plan.return_value = {"plan": "vip"}
+        tasks._check_wetrakr_plan(self.account, "client-id")
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.wetrakr_plan, "vip")
+        mock_get_plan.reset_mock()
+
+        tasks._check_wetrakr_plan(self.account, "client-id")
+        mock_get_plan.assert_not_called()
+
+    @patch("tracker.integrations.wetrakr.get_plan_usage")
+    def test_check_plan_force_refreshes_regardless_of_cache_age(self, mock_get_plan):
+        self.account.wetrakr_plan = "free"
+        self.account.wetrakr_plan_checked_at = _tz.now()
+        self.account.save()
+        mock_get_plan.return_value = {"plan": "vip"}
+
+        tasks._check_wetrakr_plan(self.account, "client-id", force=True)
+
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.wetrakr_plan, "vip")
+        mock_get_plan.assert_called_once()
+
+
+class ScanWetrakrSessionResumeTests(TestCase):
+    """tasks._scan_wetrakr_session - the one scan handler that can pause
+    mid-fetch and resume across separate task invocations instead of
+    fetching everything in one shot, since a full WeTrakr history pull
+    can outlast a free account's daily quota."""
+
+    def setUp(self):
+        user = User.objects.create_user("wetrakrscanner", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="WetrakrScanner")
+        self.account = ExternalAccount.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.WETRAKR,
+            encrypted_access_token=crypto.encrypt("tok"), wetrakr_plan="free",
+            wetrakr_plan_checked_at=_tz.now(),
+        )
+
+    def _session(self):
+        return ImportSession.objects.create(profile=self.profile, source=ImportSession.Source.WETRAKR)
+
+    def _movie_item(self, id_):
+        return {
+            "id": id_, "type": "movie", "watched_at": "2024-01-05T20:30:00.000Z",
+            "movie": {"title": f"Movie {id_}", "year": 2020, "ids": {"wetrakr": id_}},
+        }
+
+    @patch("tracker.integrations.wetrakr.get_plan_usage", return_value={"plan": "free"})
+    @patch("tracker.integrations.wetrakr.fetch_history_page")
+    def test_scan_pauses_and_persists_cursor_when_account_quota_is_hit(self, mock_fetch_page, mock_plan):
+        mock_fetch_page.side_effect = [
+            ([self._movie_item(1)], "movies:2"),
+            wetrakr.WeTrakrQuotaError("QUOTA_EXCEEDED", "nope"),
+        ]
+        session = self._session()
+
+        tasks.scan_import_session(session.id)
+
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.PAUSED)
+        self.assertEqual(session.source_metadata["wetrakr_cursor"], "movies:2")
+        self.assertEqual(len(session.source_metadata["wetrakr_raw_items"]), 1)
+        self.assertEqual(session.processed_items, 1)
+        self.assertFalse(session.candidates.exists())
+        self.assertIsNotNone(session.expires_at)
+
+    @patch("tracker.integrations.wetrakr.get_plan_usage", return_value={"plan": "free"})
+    @patch("tracker.integrations.wetrakr.fetch_history_page")
+    def test_resumed_scan_continues_from_the_persisted_cursor(self, mock_fetch_page, mock_plan):
+        session = self._session()
+        session.source_metadata = {"wetrakr_cursor": "movies:2", "wetrakr_raw_items": [self._movie_item(1)]}
+        session.status = ImportSession.Status.PAUSED
+        session.save()
+
+        mock_fetch_page.return_value = ([self._movie_item(2)], None)
+
+        tasks.scan_import_session(session.id)
+
+        # Resumed - didn't re-fetch from page 1, started straight from the
+        # persisted cursor.
+        mock_fetch_page.assert_called_once()
+        self.assertEqual(mock_fetch_page.call_args.kwargs.get("cursor") or mock_fetch_page.call_args[0][2], "movies:2")
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.READY)
+        self.assertEqual(session.candidates.count(), 2)
+        # A resume reuses the already-cached plan instead of re-checking it.
+        mock_plan.assert_not_called()
+
+    @patch("tracker.integrations.wetrakr.get_plan_usage", return_value={"plan": "free"})
+    @patch("tracker.integrations.wetrakr.fetch_history_page")
+    def test_uninterrupted_scan_normalizes_only_once_on_the_final_page(self, mock_fetch_page, mock_plan):
+        mock_fetch_page.side_effect = [
+            ([self._movie_item(1)], "movies:2"),
+            ([self._movie_item(2)], None),
+        ]
+        session = self._session()
+
+        with patch("tracker.import_pipeline.scan_normalized_items", wraps=import_pipeline.scan_normalized_items) as spy:
+            tasks.scan_import_session(session.id)
+            spy.assert_called_once()
+            self.assertEqual(len(spy.call_args.args[1]), 2)
+
+    @patch("tracker.integrations.wetrakr.get_plan_usage", return_value={"plan": "free"})
+    @patch("tracker.integrations.wetrakr.fetch_history_page")
+    def test_app_quota_exceeded_saturates_the_app_wide_counter(self, mock_fetch_page, mock_plan):
+        mock_fetch_page.side_effect = [wetrakr.WeTrakrQuotaError("APP_QUOTA_EXCEEDED", "nope")]
+        session = self._session()
+
+        with override_settings(WETRAKR_APP_QUOTA_PAUSE_AT=16000):
+            tasks.scan_import_session(session.id)
+
+        cfg = InstanceConfig.load()
+        self.assertEqual(cfg.wetrakr_app_quota_count, 16000)
+
+
+class ImportSessionWetrakrActiveAndCancelTests(TestCase):
+    """ImportSession.is_active / trigger_import_review / import_review_cancel
+    - PAUSED needs to behave like an in-progress session in all three
+    places, since a WeTrakr pull can sit paused for up to a day (unlike
+    Trakt/Simkl/Nuvio's scans, which finish in seconds)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("wetrakractive", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="WetrakrActive")
+        self.account = ExternalAccount.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.WETRAKR,
+        )
+        self.client.login(username="wetrakractive", password="pass12345")
+
+    def test_is_active_includes_paused(self):
+        session = ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.WETRAKR, status=ImportSession.Status.PAUSED,
+        )
+        self.assertTrue(session.is_active)
+
+    def test_trigger_import_review_reuses_a_paused_session_instead_of_creating_a_second_one(self):
+        existing = ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.WETRAKR, status=ImportSession.Status.PAUSED,
+        )
+        resp = self.client.post(reverse("trigger_import_review", args=["wetrakr"]))
+        self.assertRedirects(resp, reverse("import_review", args=[existing.id]))
+        self.assertEqual(ImportSession.objects.filter(source=ImportSession.Source.WETRAKR).count(), 1)
+
+    def test_import_review_cancel_succeeds_from_paused(self):
+        session = ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.WETRAKR, status=ImportSession.Status.PAUSED,
+        )
+        self.client.post(reverse("import_review_cancel", args=[session.id]))
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.CANCELLED)
+
+
+class SyncWetrakrHistoryTaskTests(TestCase):
+    """tasks.sync_wetrakr_history - routine incremental sync. On a quota
+    pause, deliberately does NOT advance last_synced_at - the account's
+    own already-scheduled PeriodicTask just retries the same delta next
+    time, no new resume cursor needed for this (small, incremental) path."""
+
+    def setUp(self):
+        user = User.objects.create_user("wetrakrsync", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="WetrakrSync")
+        self.account = ExternalAccount.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.WETRAKR,
+            encrypted_access_token=crypto.encrypt("tok"), wetrakr_plan="vip",
+        )
+
+    @patch("tracker.integrations.wetrakr.fetch_all_history")
+    def test_quota_pause_mid_sync_does_not_advance_last_synced_at(self, mock_fetch_all):
+        mock_fetch_all.side_effect = wetrakr.WeTrakrQuotaError("QUOTA_EXCEEDED", "nope")
+        self.account.last_synced_at = _tz.now() - timedelta(days=1)
+        self.account.save(update_fields=["last_synced_at"])
+        original = self.account.last_synced_at
+
+        tasks.sync_wetrakr_history(self.profile.id)
+
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.last_synced_at, original)
+
+    @patch("tracker.integrations.wetrakr.fetch_all_history")
+    def test_quota_pause_mid_sync_writes_a_paused_synclog_not_a_failed_one(self, mock_fetch_all):
+        mock_fetch_all.side_effect = wetrakr.WeTrakrQuotaError("QUOTA_EXCEEDED", "nope")
+
+        tasks.sync_wetrakr_history(self.profile.id)
+
+        log = SyncLog.objects.get(profile=self.profile, provider=ExternalAccount.Provider.WETRAKR)
+        self.assertEqual(log.status, SyncLog.Status.PAUSED)
+
+    @patch("tracker.integrations.wetrakr.fetch_all_history")
+    def test_successful_sync_advances_last_synced_at(self, mock_fetch_all):
+        mock_fetch_all.return_value = []
+        before = _tz.now()
+
+        tasks.sync_wetrakr_history(self.profile.id)
+
+        self.account.refresh_from_db()
+        self.assertGreaterEqual(self.account.last_synced_at, before)
+
+
+class TransferTrackingWetrakrPausedStateTests(TestCase):
+    """transfer_tracking._import_state's PAUSED branch - the whole
+    notification mechanism for a quota-paused WeTrakr import, since
+    sync_import_session's rewrite-in-place logic is already fully generic
+    over whatever this returns."""
+
+    def setUp(self):
+        user = User.objects.create_user("wetrakrnotify", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="WetrakrNotify")
+
+    def test_paused_import_writes_one_unread_notification_explaining_the_wait(self):
+        session = ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.WETRAKR, status=ImportSession.Status.PAUSED,
+            processed_items=42,
+        )
+        note = Notification.objects.get(import_session=session)
+        self.assertFalse(note.read)
+        self.assertIn("42", note.message)
+        self.assertIn("quota", note.message.lower())
+
+    def test_resuming_from_paused_to_ready_does_not_create_a_duplicate_notification(self):
+        session = ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.WETRAKR, status=ImportSession.Status.PAUSED,
+        )
+        session.status = ImportSession.Status.READY
+        session.total_items = 10
+        session.save()
+        self.assertEqual(Notification.objects.filter(import_session=session).count(), 1)
+
+    def test_paused_datalog_status_is_distinct_from_waiting(self):
+        session = ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.WETRAKR, status=ImportSession.Status.PAUSED,
+        )
+        log = DataLog.objects.get(import_session=session)
+        self.assertEqual(log.status, DataLog.Status.PAUSED)
+        self.assertNotEqual(DataLog.Status.PAUSED, DataLog.Status.WAITING)
 
 
 class IncrementalSyncTests(TestCase):
@@ -24768,6 +25296,81 @@ class ExpireImportSessionsTaskTests(TestCase):
         )
         tasks.expire_import_sessions()
         self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title=movie).exists())
+
+    def test_expires_a_stale_paused_wetrakr_session_too(self):
+        session = ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.WETRAKR,
+            status=ImportSession.Status.PAUSED,
+            expires_at=self.timezone.now() - timedelta(days=1),
+        )
+        tasks.expire_import_sessions()
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.EXPIRED)
+
+    def test_does_not_touch_a_paused_wetrakr_session_still_within_its_extended_expiry(self):
+        session = ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.WETRAKR,
+            status=ImportSession.Status.PAUSED,
+            expires_at=self.timezone.now() + timedelta(days=2),
+        )
+        tasks.expire_import_sessions()
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.PAUSED)
+
+
+class EnsureWetrakrResumeTaskTests(TestCase):
+    def test_creates_the_single_task_with_defaults(self):
+        scheduling.ensure_wetrakr_resume_task()
+        pt = PeriodicTask.objects.get(name=scheduling.WETRAKR_RESUME_TASK_NAME)
+        self.assertEqual(pt.task, "tracker.tasks.resume_paused_wetrakr_imports")
+        self.assertEqual(pt.crontab.hour, "0")
+        self.assertEqual(pt.crontab.minute, "5")
+        self.assertTrue(pt.enabled)
+
+    def test_re_running_updates_rather_than_duplicates(self):
+        scheduling.ensure_wetrakr_resume_task()
+        scheduling.ensure_wetrakr_resume_task(hour=1)
+        self.assertEqual(PeriodicTask.objects.filter(name=scheduling.WETRAKR_RESUME_TASK_NAME).count(), 1)
+
+
+class BootstrapAlsoRegistersWetrakrResumeTaskTests(TestCase):
+    def test_registers_the_wetrakr_resume_task(self):
+        from django.core.management import call_command
+
+        call_command("bootstrap_periodic_tasks")
+        self.assertTrue(PeriodicTask.objects.filter(name=scheduling.WETRAKR_RESUME_TASK_NAME).exists())
+
+
+class ResumePausedWetrakrImportsTaskTests(TestCase):
+    """tasks.resume_paused_wetrakr_imports - the 00:05 UTC sweep that
+    re-dispatches scan_import_session for every WeTrakr session left
+    PAUSED, so _scan_wetrakr_session's own resume-from-cursor logic
+    picks each one back up without anyone having to click anything."""
+
+    def setUp(self):
+        user = User.objects.create_user("resumesweep", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ResumeSweep")
+
+    @patch("tracker.tasks.scan_import_session.delay")
+    def test_redispatches_every_paused_wetrakr_session(self, mock_delay):
+        paused = ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.WETRAKR, status=ImportSession.Status.PAUSED,
+        )
+        ready = ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.WETRAKR, status=ImportSession.Status.READY,
+        )
+        count = tasks.resume_paused_wetrakr_imports()
+        self.assertEqual(count, 1)
+        mock_delay.assert_called_once_with(paused.id)
+
+    @patch("tracker.tasks.scan_import_session.delay")
+    def test_ignores_paused_sessions_from_other_sources(self, mock_delay):
+        ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.CSV, status=ImportSession.Status.READY,
+        )
+        count = tasks.resume_paused_wetrakr_imports()
+        self.assertEqual(count, 0)
+        mock_delay.assert_not_called()
 
 
 class ReclassifyAnimeTitlesTaskTests(TestCase):

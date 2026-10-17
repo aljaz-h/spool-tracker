@@ -319,6 +319,8 @@ DROPBOX_APP_SECRET = env("DROPBOX_APP_SECRET", default="")
 BACKUP_ROOT = env("BACKUP_ROOT", default=str(BASE_DIR / "backups"))
 SIMKL_CLIENT_ID = env("SIMKL_CLIENT_ID", default="")
 SIMKL_CLIENT_SECRET = env("SIMKL_CLIENT_SECRET", default="")
+WETRAKR_CLIENT_ID = env("WETRAKR_CLIENT_ID", default="")
+WETRAKR_CLIENT_SECRET = env("WETRAKR_CLIENT_SECRET", default="")
 TMDB_API_KEY = env("TMDB_API_KEY", default="")
 MDBLIST_API_KEY = env("MDBLIST_API_KEY", default="")
 
@@ -337,6 +339,17 @@ MDBLIST_REFRESH_NOT_FOUND_DAYS = env.int("MDBLIST_REFRESH_NOT_FOUND_DAYS", defau
 # racing the exact limit.
 MDBLIST_DAILY_QUOTA = env.int("MDBLIST_DAILY_QUOTA", default=1000)
 MDBLIST_QUOTA_PAUSE_AT = env.int("MDBLIST_QUOTA_PAUSE_AT", default=950)
+# WeTrakr's free plan is 1,000 requests/day *per connected account*
+# (reset at UTC midnight) - paused a margin early (900), same reasoning as
+# MDBLIST_QUOTA_PAUSE_AT above, since this app's own count and WeTrakr's
+# are two independent counters that could drift slightly. VIP/patron
+# accounts are never proactively paused against this - WeTrakr doesn't
+# publish their real ceiling, so only reactive 429 handling applies to
+# them (see tracker/tasks.py's _wetrakr_account_budget_ok). The app-wide
+# ceiling (18,600/day, shared across every connected account on this
+# instance) gets its own, separate margin.
+WETRAKR_FREE_QUOTA_PAUSE_AT = env.int("WETRAKR_FREE_QUOTA_PAUSE_AT", default=900)
+WETRAKR_APP_QUOTA_PAUSE_AT = env.int("WETRAKR_APP_QUOTA_PAUSE_AT", default=16000)
 
 
 # Transport security - all opt-in via env var, defaulting to Django's own

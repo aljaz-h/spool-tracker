@@ -25,11 +25,21 @@ def get_simkl_credentials():
     )
 
 
+def get_wetrakr_credentials():
+    cfg = InstanceConfig.load()
+    return (
+        cfg.wetrakr_client_id or settings.WETRAKR_CLIENT_ID,
+        cfg.get_wetrakr_client_secret() or settings.WETRAKR_CLIENT_SECRET,
+    )
+
+
 def get_credentials(provider):
     if provider == "trakt":
         return get_trakt_credentials()
     if provider == "simkl":
         return get_simkl_credentials()
+    if provider == "wetrakr":
+        return get_wetrakr_credentials()
     raise ValueError(f"unknown provider: {provider!r}")
 
 

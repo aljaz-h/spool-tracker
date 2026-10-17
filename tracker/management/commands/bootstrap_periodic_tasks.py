@@ -55,3 +55,6 @@ class Command(BaseCommand):
 
         scheduling.ensure_backup_task()
         self.stdout.write(self.style.SUCCESS("Confirmed the hourly scheduled-backups task."))
+
+        scheduling.ensure_wetrakr_resume_task()
+        self.stdout.write(self.style.SUCCESS("Confirmed the WeTrakr paused-import resume task."))

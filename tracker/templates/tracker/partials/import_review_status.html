@@ -1,7 +1,7 @@
 {# context: session #}
 <div
   id="import-review-status"
-  {% if session.status == "scanning" or session.status == "importing" %}
+  {% if session.status == "scanning" or session.status == "importing" or session.status == "paused" %}
     hx-get="{% url 'import_review_status' session.id %}" hx-trigger="every 3s" hx-swap="outerHTML"
   {% endif %}
   class="settings-panel mb-5"
@@ -20,6 +20,15 @@
         <div class="text-lg">Importing…</div>
         <div class="text-ink-dim text-sm mt-1">{{ session.processed_items }} of {{ session.selected_items }} selected items processed</div>
       {% endif %}
+    {% endwith %}
+  {% elif session.status == "paused" %}
+    {% with pause=session.source_metadata.wetrakr_pause %}
+      <div class="text-lg text-warning">Paused — waiting for quota</div>
+      <div class="text-ink-dim text-sm mt-1">
+        {% if pause.reason == "APP_QUOTA_EXCEEDED" %}This server's shared WeTrakr limit{% else %}WeTrakr's daily limit for your account{% endif %}
+        was reached. Spool has checked {{ session.processed_items }} item{{ session.processed_items|pluralize }} so far
+        and will continue automatically after the quota resets (around midnight UTC). No action needed.
+      </div>
     {% endwith %}
   {% elif session.status == "failed" %}
     <div class="text-lg text-error">Scan failed</div>

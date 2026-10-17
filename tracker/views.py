@@ -55,7 +55,7 @@ from . import (
     tasks,
     totp,
 )
-from .integrations import anifiller, mdblist, nuvio, simkl, tenrai, tmdb, trakt
+from .integrations import anifiller, mdblist, nuvio, simkl, tenrai, tmdb, trakt, wetrakr
 from .watchlists import WATCHLIST_NAME, ensure_watchlist
 from .models import (
     AVATAR_COLOR_CHOICES,
@@ -4186,6 +4186,7 @@ def _settings_page_context(request, profile):
         "landing_pages": Profile.LandingPage.choices,
         "trakt_configured": bool(instance_config.get_trakt_credentials()[0]),
         "simkl_configured": bool(instance_config.get_simkl_credentials()[0]),
+        "wetrakr_configured": bool(instance_config.get_wetrakr_credentials()[0]),
         "timezones": PROFILE_TIMEZONES,
         "server_time_zone": django_settings.TIME_ZONE,
         "avatar_colors": AVATAR_COLOR_CHOICES,
@@ -4335,12 +4336,15 @@ def logs_table_partial(request):
 _INSTANCE_CONFIG_FIELDS = [
     "trakt_client_id", "trakt_client_secret",
     "simkl_client_id", "simkl_client_secret",
+    "wetrakr_client_id", "wetrakr_client_secret",
     "tmdb_api_key", "mdblist_api_key",
     "spool_wrapped_url", "sso_shared_secret",
     "google_client_id", "google_client_secret",
     "dropbox_app_key", "dropbox_app_secret",
 ]
-_INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES = {"trakt": "Trakt", "simkl": "Simkl", "tmdb": "TMDB", "mdblist": "MDBList"}
+_INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES = {
+    "trakt": "Trakt", "simkl": "Simkl", "wetrakr": "WeTrakr", "tmdb": "TMDB", "mdblist": "MDBList",
+}
 _INSTANCE_CONFIG_CLEARABLE = {**_INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES, "gdrive": "Google Drive", "dropbox": "Dropbox"}
 
 
@@ -4374,7 +4378,10 @@ def save_instance_config(request):
     # clear_instance_config_field for the explicit way to actually clear
     # a field) - a blank field only ever means the admin didn't type a
     # replacement.
-    for field in ["trakt_client_id", "simkl_client_id", "spool_wrapped_url", "google_client_id", "dropbox_app_key"]:
+    for field in [
+        "trakt_client_id", "simkl_client_id", "wetrakr_client_id",
+        "spool_wrapped_url", "google_client_id", "dropbox_app_key",
+    ]:
         value = request.POST.get(field, "").strip()
         if value:
             setattr(cfg, field, value)
@@ -4384,6 +4391,7 @@ def save_instance_config(request):
     for field, setter in [
         ("trakt_client_secret", cfg.set_trakt_client_secret),
         ("simkl_client_secret", cfg.set_simkl_client_secret),
+        ("wetrakr_client_secret", cfg.set_wetrakr_client_secret),
         ("tmdb_api_key", cfg.set_tmdb_api_key),
         ("mdblist_api_key", cfg.set_mdblist_api_key),
         ("sso_shared_secret", cfg.set_sso_shared_secret),
@@ -4426,6 +4434,9 @@ def clear_instance_config_field(request, provider):
     elif provider == "simkl":
         cfg.simkl_client_id = ""
         cfg.set_simkl_client_secret("")
+    elif provider == "wetrakr":
+        cfg.wetrakr_client_id = ""
+        cfg.set_wetrakr_client_secret("")
     elif provider == "tmdb":
         cfg.set_tmdb_api_key("")
     else:
@@ -4457,6 +4468,9 @@ def test_provider_credentials(request, provider):
     elif provider == "simkl":
         credential = request.POST.get("simkl_client_id", "").strip() or instance_config.get_simkl_credentials()[0]
         caveat = " (best effort - Simkl's API beyond OAuth isn't fully documented, see Server Integrations)"
+    elif provider == "wetrakr":
+        credential = request.POST.get("wetrakr_client_id", "").strip() or instance_config.get_wetrakr_credentials()[0]
+        caveat = " (this only confirms the client ID is live - WeTrakr only checks the secret during the OAuth flow, not here)"
     elif provider == "mdblist":
         credential = request.POST.get("mdblist_api_key", "").strip() or instance_config.get_mdblist_api_key()
         caveat = ""
@@ -4473,6 +4487,8 @@ def test_provider_credentials(request, provider):
             trakt.test_credentials(credential)
         elif provider == "simkl":
             simkl.test_credentials(credential)
+        elif provider == "wetrakr":
+            wetrakr.test_credentials(credential)
         elif provider == "mdblist":
             mdblist.test_api_key(credential)
         elif not tmdb.test_api_key(credential):
@@ -5565,14 +5581,17 @@ def export_spool_backup(request):
     return response
 
 PROVIDER_MODULES = {"trakt": trakt, "simkl": simkl}
-SYNC_TASKS = {"trakt": tasks.sync_trakt_history, "simkl": tasks.sync_simkl_history, "nuvio": tasks.sync_nuvio_history}
+SYNC_TASKS = {
+    "trakt": tasks.sync_trakt_history, "simkl": tasks.sync_simkl_history, "nuvio": tasks.sync_nuvio_history,
+    "wetrakr": tasks.sync_wetrakr_history,
+}
 # Providers whose FIRST connection goes through Import Review instead of
 # an immediate sync (see oauth_callback) - grows as Simkl/Nuvio's own
 # scan adapters (tasks.SCAN_HANDLERS) land in later stages. A provider
 # missing here keeps today's connect-triggers-immediate-sync behavior
 # unchanged, so half-wiring this set never leaves a provider connecting
 # into a review session with no scan implementation behind it.
-IMPORT_REVIEW_PROVIDERS = {"trakt", "simkl", "nuvio"}
+IMPORT_REVIEW_PROVIDERS = {"trakt", "simkl", "nuvio", "wetrakr"}
 
 
 @login_required
@@ -5593,10 +5612,23 @@ def oauth_connect(request, provider):
     state = secrets.token_urlsafe(24)
     request.session[f"{provider}_oauth_state"] = state
     redirect_uri = request.build_absolute_uri(reverse(f"{provider}_callback"))
+    if provider == "wetrakr":
+        # WeTrakr requires PKCE on top of the plain authorization-code
+        # flow Trakt/Simkl use - the verifier only ever needs to survive
+        # this one connect->callback round trip, so it's stashed in the
+        # session the same way `state` already is, never persisted
+        # anywhere past oauth_callback reading it back below.
+        code_verifier, code_challenge = wetrakr.generate_pkce_pair()
+        request.session["wetrakr_oauth_verifier"] = code_verifier
+        return redirect(wetrakr.authorize_url(redirect_uri, state, client_id, code_challenge))
     return redirect(PROVIDER_MODULES[provider].authorize_url(redirect_uri, state, client_id))
 
 
-CONNECT_ACTIONS = {"trakt": DataLog.Action.TRAKT_CONNECT, "simkl": DataLog.Action.SIMKL_CONNECT}
+CONNECT_ACTIONS = {
+    "trakt": DataLog.Action.TRAKT_CONNECT,
+    "simkl": DataLog.Action.SIMKL_CONNECT,
+    "wetrakr": DataLog.Action.WETRAKR_CONNECT,
+}
 
 
 @login_required
@@ -5627,7 +5659,11 @@ def oauth_callback(request, provider):
     redirect_uri = request.build_absolute_uri(reverse(f"{provider}_callback"))
     client_id, client_secret = instance_config.get_credentials(provider)
     try:
-        token_data = PROVIDER_MODULES[provider].exchange_code(code, redirect_uri, client_id, client_secret)
+        if provider == "wetrakr":
+            code_verifier = request.session.pop("wetrakr_oauth_verifier", None)
+            token_data = wetrakr.exchange_code(code, redirect_uri, client_id, client_secret, code_verifier)
+        else:
+            token_data = PROVIDER_MODULES[provider].exchange_code(code, redirect_uri, client_id, client_secret)
     except requests.RequestException as e:
         DataLog.objects.create(
             profile=profile, action=connect_action, provider=provider, status=DataLog.Status.FAILED,
@@ -5992,6 +6028,22 @@ def trigger_import_review(request, provider):
     if provider not in IMPORT_REVIEW_PROVIDERS:
         raise Http404
     _get_provider_account(profile, provider)
+    # A real scan finishes in seconds for Trakt/Simkl/Nuvio, so a second
+    # click landing before the first one's done was never a practical
+    # concern for them - but a WeTrakr pull can sit PAUSED for up to a
+    # day (see ImportSession.Status.PAUSED), making "clicked this again
+    # the next day, forgetting one's already pending" a real scenario.
+    # Reuse whatever's already active for this (profile, provider) rather
+    # than starting a second one, which would otherwise double-spend the
+    # same account's WeTrakr quota against itself.
+    existing = ImportSession.objects.filter(
+        profile=profile, source=provider, status__in=(
+            ImportSession.Status.SCANNING, ImportSession.Status.READY,
+            ImportSession.Status.IMPORTING, ImportSession.Status.PAUSED,
+        ),
+    ).order_by("-created_at").first()
+    if existing is not None:
+        return redirect("import_review", session_id=existing.id)
     session = ImportSession.objects.create(
         profile=profile, source=provider, status=ImportSession.Status.SCANNING,
         expires_at=timezone.now() + IMPORT_SESSION_EXPIRY,
@@ -6392,7 +6444,12 @@ def import_review_commit(request, session_id):
 @require_POST
 def import_review_cancel(request, session_id):
     profile, session = _get_import_session_or_404(request, session_id)
-    if session.status not in (ImportSession.Status.SCANNING, ImportSession.Status.READY):
+    # PAUSED included so a user isn't stuck unable to abort a WeTrakr
+    # pull that's checkpointed mid-way waiting for tomorrow's quota - see
+    # ImportSession.Status.PAUSED.
+    if session.status not in (
+        ImportSession.Status.SCANNING, ImportSession.Status.READY, ImportSession.Status.PAUSED,
+    ):
         return redirect("import_review", session_id=session.id)
     session.status = ImportSession.Status.CANCELLED
     session.completed_at = timezone.now()

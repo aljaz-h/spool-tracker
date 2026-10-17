@@ -2,21 +2,23 @@
 
 # Importing your data
 
-## Connecting Trakt / Simkl / Nuvio
+## Connecting Trakt / Simkl / WeTrakr / Nuvio
 
-### Trakt / Simkl
+### Trakt / Simkl / WeTrakr
 
 1. Register an application with the provider:
    - Trakt: create an app at Trakt's API settings page.
    - Simkl: create an app at Simkl's developer settings page.
+   - WeTrakr: create an app at `wetrakr.com/profile/settings/api`.
 2. Set the app's redirect URI to exactly what Spool will send — scheme,
    host, port, and trailing slash all have to match character-for-character,
    since OAuth2 redirect URIs are matched exactly, not just by origin:
    - **Running behind a reverse proxy with a real domain** (the
      `docker-compose.prod.yml` / Nginx Proxy Manager setup):
-     `https://<your-domain>/import/trakt/callback/` (or `/import/simkl/callback/`
-     for Simkl). This requires `DJANGO_ALLOWED_HOSTS` to include that domain
-     and `DJANGO_CSRF_TRUSTED_ORIGINS=https://<your-domain>` in `.env` — see
+     `https://<your-domain>/import/trakt/callback/` (`/import/simkl/callback/`
+     for Simkl, `/import/wetrakr/callback/` for WeTrakr). This requires
+     `DJANGO_ALLOWED_HOSTS` to include that domain and
+     `DJANGO_CSRF_TRUSTED_ORIGINS=https://<your-domain>` in `.env` — see
      [Configuration](CONFIGURATION.md). Spool trusts the
      proxy's `X-Forwarded-Proto` header to know the original request was
      HTTPS even though the proxy forwards to it over plain HTTP internally;
@@ -41,10 +43,25 @@
 
 **Caveat:** the OAuth flow itself (authorization redirect, token exchange)
 follows each provider's documented API shape, but the history-sync response
-parsing — especially Simkl's — was written against documentation rather
-than a live account, since this project was built without real developer
-credentials to test against. Do a small test sync first and spot-check a
-few titles/episodes before trusting a full history import.
+parsing — especially Simkl's and WeTrakr's — was written against
+documentation rather than a live account, since this project was built
+without real developer credentials to test against. Do a small test sync
+first and spot-check a few titles/episodes before trusting a full history
+import.
+
+**WeTrakr's daily quota:** WeTrakr's free plan caps a connected account at
+1000 API requests/day (reset at midnight UTC) — VIP/patron accounts aren't
+capped the same way. Spool checks which plan an account is on right before
+a scan starts, and self-paces to stay under a free account's limit rather
+than racing it. If a first-time import is large enough that it can't finish
+within one day's quota, it **pauses automatically partway through** — Import
+Review shows "Paused — waiting for quota" with how much has been checked so
+far, and a background job resumes it right after the quota resets, continuing
+from exactly where it left off rather than starting over. Nothing is lost
+and no action is needed; this can take a few days in a row for a very large
+free-tier history. A routine (already-connected, incremental) daily sync
+that hits the quota mid-run simply retries the same small delta on its next
+scheduled run, the same as if nothing had happened.
 
 ### Nuvio
 
@@ -98,16 +115,16 @@ no effect. Only what you leave selected when you click **Import** actually
 gets written; **Cancel** discards the staged review data and imports
 nothing.
 
-Titles are matched the same way Trakt/Simkl/Nuvio's own sync matches them
-(provider id → TMDB id → fuzzy name/year → reuse across providers), so
-importing a title already pulled in via Trakt/Simkl sync — or reviewing
-the same file twice — won't create duplicates.
+Titles are matched the same way Trakt/Simkl/WeTrakr/Nuvio's own sync
+matches them (provider id → TMDB id → fuzzy name/year → reuse across
+providers), so importing a title already pulled in via Trakt/Simkl/WeTrakr
+sync — or reviewing the same file twice — won't create duplicates.
 
 ## Posters
 
-Trakt's API doesn't serve poster images at all, and CSV exports never do
-either, so titles created via Trakt/Simkl sync or CSV import get a
-best-effort poster looked up from TMDB at creation time — set
+Trakt's (and WeTrakr's) API doesn't serve poster images at all, and CSV
+exports never do either, so titles created via Trakt/Simkl/WeTrakr sync or
+CSV import get a best-effort poster looked up from TMDB at creation time — set
 `TMDB_API_KEY` (a free v3 API key from themoviedb.org) in `.env` and
 restart `web`/`worker` for this to take effect. It's matched by title +
 year search, so an unusual title or a wrong year in the source data can

@@ -12,6 +12,7 @@ _TASK_NAME = {
     ExternalAccount.Provider.TRAKT: "tracker.tasks.sync_trakt_history",
     ExternalAccount.Provider.SIMKL: "tracker.tasks.sync_simkl_history",
     ExternalAccount.Provider.NUVIO: "tracker.tasks.sync_nuvio_history",
+    ExternalAccount.Provider.WETRAKR: "tracker.tasks.sync_wetrakr_history",
 }
 
 
@@ -55,6 +56,7 @@ WATCHLIST_STALE_TASK_NAME = "generate-watchlist-stale-notifications"
 RECLASSIFY_ANIME_TASK_NAME = "reclassify-anime-titles"
 IMPORT_CLEANUP_TASK_NAME = "expire-import-sessions"
 BACKUP_TASK_NAME = "run-due-backups"
+WETRAKR_RESUME_TASK_NAME = "resume-paused-wetrakr-imports"
 
 
 def ensure_release_sync_task(hour=3, minute=0):
@@ -209,6 +211,30 @@ def ensure_import_cleanup_task(hour=4, minute=45):
         defaults={
             "crontab": schedule,
             "task": "tracker.tasks.expire_import_sessions",
+            "args": "[]",
+            "enabled": True,
+        },
+    )
+
+
+def ensure_wetrakr_resume_task(hour=0, minute=5):
+    """(Re)creates the PeriodicTask that re-dispatches any WeTrakr Import
+    Review session left PAUSED by the daily quota (tasks.
+    resume_paused_wetrakr_imports). Unlike every other nightly task above
+    (spread across 3:00-4:45 UTC just to avoid collisions with each
+    other - their exact minute doesn't otherwise matter), this one's
+    timing is deliberately tied to something real: WeTrakr's quota resets
+    exactly at UTC midnight, so 00:05 gives the reset a few minutes of
+    margin rather than racing it, instead of landing in the unrelated
+    3:00-4:45 maintenance block."""
+    schedule, _ = CrontabSchedule.objects.get_or_create(
+        minute=str(minute), hour=str(hour), day_of_week="*", day_of_month="*", month_of_year="*"
+    )
+    PeriodicTask.objects.update_or_create(
+        name=WETRAKR_RESUME_TASK_NAME,
+        defaults={
+            "crontab": schedule,
+            "task": "tracker.tasks.resume_paused_wetrakr_imports",
             "args": "[]",
             "enabled": True,
         },

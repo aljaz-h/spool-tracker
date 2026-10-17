@@ -18,7 +18,7 @@
     <div class="surface p-5 mb-6 text-ink-dim">This import session expired before it was reviewed.</div>
   {% endif %}
 
-  {% if session.status != "scanning" and session.status != "failed" %}
+  {% if session.status != "scanning" and session.status != "failed" and session.status != "paused" %}
     <div class="grid grid-cols-3 lg:grid-cols-6 gap-y-5 border-y border-line py-5 mb-7">
       <div>
         <div class="figure-label !mt-0 mb-1">Total</div>
@@ -206,7 +206,7 @@
     {% elif session.status == "completed" or session.status == "cancelled" or session.status == "expired" %}
       <a href="{% url 'settings' %}" class="btn btn-primary">Back to Settings</a>
     {% endif %}
-  {% elif session.status == "scanning" %}
+  {% elif session.status == "scanning" or session.status == "paused" %}
     <form method="post" action="{% url 'import_review_cancel' session.id %}">
       {% csrf_token %}
       <button type="submit" class="btn btn-soft">Cancel</button>

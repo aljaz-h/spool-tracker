@@ -10,7 +10,7 @@
 
 <p align="center">
   Track what your household watches — movies, TV, and anime — on your own
-  server, not someone else's. A self-hosted Trakt/Simkl
+  server, not someone else's. A self-hosted Trakt/Simkl/WeTrakr
   alternative: Django + Postgres + Redis/Celery, server-rendered with HTMX,
   shipped as a five-container Docker Compose stack you can be running in
   under five minutes.
@@ -54,8 +54,8 @@ account.
 - Recommend a title to a housemate — including an anonymous "mystery" recommendation
 - Anime enrichment via MyAnimeList (score, studio, source, filler/recap episode badges) and automatic season-numbering reconciliation against TMDB — no separate account or API key needed
 - Activity feed across profiles (only shown once a second profile exists)
-- Import Review: CSV/JSON/ZIP file import (with column-mapping) and a first Trakt/Simkl/Nuvio connection both scan and stage what they'd bring in - filterable, selectable, nothing written until you confirm
-- Trakt / Simkl OAuth connect, Nuvio email/password connect, + a daily background sync job
+- Import Review: CSV/JSON/ZIP file import (with column-mapping) and a first Trakt/Simkl/WeTrakr/Nuvio connection both scan and stage what they'd bring in - filterable, selectable, nothing written until you confirm
+- Trakt / Simkl / WeTrakr OAuth connect, Nuvio email/password connect, + a daily background sync job - a large first WeTrakr import that outlasts the free plan's daily quota pauses and resumes automatically, never gets stuck or fails
 - [Automatic backups](docs/BACKUPS.md) per profile, on a schedule, to WebDAV (Nextcloud/NAS), Google Drive, or Dropbox — plus a one-off full export/import
 - A generic [Scrobble API](docs/SCROBBLE_API.md) for any player/script, and a read-only [Reports API](docs/REPORTS_API.md) for external services like spool-wrapped
 
@@ -77,7 +77,7 @@ instead.
 |---|---|
 | 🚀 **[Quick start](docs/QUICKSTART.md)** | Docker Compose install (from source or the pre-built image), first login. |
 | ⚙️ **[Configuration](docs/CONFIGURATION.md)** | Every `.env` variable and `docker-compose.yml`/`docker-compose.prod.yml` setting. |
-| 🔗 **[Importing your data](docs/IMPORTING.md)** | Connecting Trakt/Simkl/Nuvio, CSV import, posters, duplicate-title cleanup. |
+| 🔗 **[Importing your data](docs/IMPORTING.md)** | Connecting Trakt/Simkl/WeTrakr/Nuvio, CSV import, posters, duplicate-title cleanup. |
 | 📡 **[Scrobble API](docs/SCROBBLE_API.md)** | A generic webhook for any player or script to report watches directly - no per-app integration needed. |
 | 📊 **[Reports API](docs/REPORTS_API.md)** | Read-only watch-history access for external services like spool-wrapped, opt-in per profile. |
 | 💾 **[Backups](docs/BACKUPS.md)** | Full export/import, and scheduled automatic backups to a server folder, WebDAV, Google Drive, or Dropbox. |
