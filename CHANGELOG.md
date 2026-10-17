@@ -8,6 +8,33 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.145.10] - 2026-10-17
+
+### Added
+
+- A real launch splash screen for the iOS home-screen install, instead
+  of a blank screen: the Spool wordmark on the app's own background,
+  covering every current iPhone/iPad size and both orientations (28
+  images total). iOS never generates one from the web manifest the way
+  Android does - it has to be an exact-pixel-match image per device
+  size, or nothing shows.
+
+### Fixed
+
+- The PWA `<head>` metadata (icons, manifest, theme-color, and now the
+  splash tags) was hand-duplicated across every standalone page -
+  login, the 2FA challenge, and first-run credential setup - not just
+  base.html. Confirmed live as a real gap, not just untidy: the
+  color-scheme/white-flash fix from the previous release only ever
+  reached base.html, so a PWA launch that opened straight to the login
+  screen (the single most common cold-launch case) got none of it.
+  Pulled into one shared partial every one of these pages now includes,
+  so this can't drift out of sync again.
+
+Existing home-screen installs: iOS caches the splash/icon state from
+when the app was added, not live - remove and re-add Spool from the
+home screen to pick this up.
+
 ## [0.145.9] - 2026-10-17
 
 ### Fixed

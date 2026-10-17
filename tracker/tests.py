@@ -4632,6 +4632,35 @@ class PwaSupportTests(TestCase):
         self.assertContains(resp, "serviceWorker")
         self.assertContains(resp, "self-hosted")
 
+    def test_apple_touch_startup_images_cover_both_orientations_and_all_exist(self):
+        # iOS never generates a launch splash from the manifest the way
+        # Android does - every device size class needs its own
+        # apple-touch-startup-image tag, and a typo'd filename here
+        # fails silently on a real device (just no splash, no error
+        # anywhere), so this pins both "every current size class has a
+        # portrait and a landscape entry" and "every href actually
+        # resolves to a real file", not just that the tag exists at all.
+        import re
+        from pathlib import Path
+
+        from django.conf import settings
+
+        resp = self.client.get(reverse("login"))
+        body = resp.content.decode()
+        hrefs = re.findall(r'rel="apple-touch-startup-image" href="([^"]+)"', body)
+        self.assertGreaterEqual(len(hrefs), 28)
+        orientations = re.findall(r'apple-touch-startup-image"[^>]*orientation:\s*(portrait|landscape)', body)
+        self.assertEqual(orientations.count("portrait"), orientations.count("landscape"))
+        for href in hrefs:
+            # Strips the collectstatic cache-busting hash segment
+            # (ManifestStaticFilesStorage) back to the source path under
+            # static/ - .../img/splash/splash-640x1136.abcd1234.png ->
+            # img/splash/splash-640x1136.png.
+            rel = re.sub(r"\.[0-9a-f]{12}(?=\.png$)", "", href.split("/static/", 1)[1])
+            self.assertTrue(
+                (Path(settings.BASE_DIR) / "static" / rel).exists(), f"missing splash image: {rel}"
+            )
+
     def test_username_field_has_a_placeholder(self):
         resp = self.client.get(reverse("login"))
         self.assertContains(resp, 'placeholder="e.g. jordan"')

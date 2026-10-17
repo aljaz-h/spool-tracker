@@ -4,37 +4,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  {% comment %}
-    Fixes the white flash iOS PWA launches show between the native
-    splash handing off and app.css finishing its own (render-blocking,
-    two-stylesheet - Google Fonts then this) load: color-scheme tells
-    the WebView what its OWN default canvas color is for that gap,
-    before any author CSS has applied - dark instead of the UA default
-    white. The inline style is the same fix again, belt-and-suspenders,
-    for the sliver of browsers that honor an explicit background sooner
-    than they honor color-scheme. Both have to be inline/this early -
-    anything in app.css itself is already too late, since the whole
-    point is covering the time before that file has loaded. #0e1014
-    matches --color-base-100 in app.css - keep them in sync.
-  {% endcomment %}
-  <meta name="color-scheme" content="dark">
-  <style>html { background: #0e1014; }</style>
+  {% include "tracker/partials/pwa_head.html" %}
   <title>{% block title %}Spool{% endblock %}</title>
-  <link rel="icon" type="image/x-icon" href="{% static 'img/favicon.ico' %}">
-  <link rel="icon" type="image/png" sizes="32x32" href="{% static 'img/favicon-32.png' %}">
-  <link rel="icon" type="image/png" sizes="16x16" href="{% static 'img/favicon-16.png' %}">
-  <link rel="apple-touch-icon" href="{% static 'img/apple-touch-icon.png' %}">
-  <link rel="manifest" href="{% static 'img/manifest.webmanifest' %}">
-  <meta name="theme-color" content="#0e1014">
-  {% comment %}
-    iOS Safari doesn't act on the web manifest for "Add to Home Screen" -
-    these are its own separate, older meta-tag convention for the same
-    fullscreen/standalone install behavior the manifest already declares
-    for every other browser.
-  {% endcomment %}
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Spool">
   <script>
     // "/" jumps to the global search field from anywhere that isn't
     // already a text input - the usual media-app shortcut.
