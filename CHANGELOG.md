@@ -8,6 +8,21 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.145.11] - 2026-10-17
+
+### Fixed
+
+- iOS launch splash was missing for iPhone 17, iPhone 17 Pro, iPhone 17
+  Pro Max, and iPhone Air - their exact screen-size media queries weren't
+  in the apple-touch-startup-image list yet, so none of the 28 existing
+  splash images could match and the home-screen launch fell back to a
+  plain black screen (the dark background with no wordmark). Added the
+  3 missing size classes (6 images, both orientations).
+
+Existing home-screen installs: iOS caches the splash/icon state from
+when the app was added, not live - remove and re-add Spool from the
+home screen to pick this up.
+
 ## [0.145.10] - 2026-10-17
 
 ### Added
