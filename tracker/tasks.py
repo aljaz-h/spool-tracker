@@ -215,21 +215,28 @@ def sync_nuvio_history(profile_id):
     return created
 
 
+# Hard safety bound on sync_wetrakr_history's own in-memory page loop,
+# same reasoning as trakt.fetch_history's max_pages - two targets x 500
+# pages x 200 items is far beyond any real incremental delta.
+_WETRAKR_SYNC_MAX_PAGES = 500
+
+
 @shared_task
 def sync_wetrakr_history(profile_id):
     """Routine incremental sync, same shape as sync_trakt_history above -
-    captures sync_start before fetching, uses fetch_all_history's
-    start_at to only pull what's new. On a WeTrakrQuotaError mid-fetch,
-    deliberately does NOT advance last_synced_at (the except branch below
-    returns before reaching that save) - the account's own already-
-    scheduled PeriodicTask (see scheduling.ensure_periodic_task) just
-    retries the same incremental delta on its next normal run, with no
-    new cursor/resume machinery needed for this path. A routine sync's
-    delta is normally small for an already-synced account, so this
-    simple "just don't advance the watermark" approach is enough -
-    contrast with _scan_wetrakr_session below, which needs real
-    page-level resumability because a first-time full history pull can
-    be thousands of items."""
+    captures sync_start before fetching, loops _fetch_wetrakr_page_quota_checked
+    page by page (same budget-checked-before-every-request helper
+    _scan_wetrakr_session uses) with start_at to only pull what's new. On
+    a WeTrakrQuotaError mid-fetch, deliberately does NOT advance
+    last_synced_at (the except branch below returns before reaching that
+    save) - the account's own already-scheduled PeriodicTask (see
+    scheduling.ensure_periodic_task) just retries the same incremental
+    delta on its next normal run, with no new cursor/resume machinery
+    needed for this path. A routine sync's delta is normally small for
+    an already-synced account, so this simple "just don't advance the
+    watermark" approach is enough - contrast with _scan_wetrakr_session
+    below, which needs real page-level resumability because a first-time
+    full history pull can be thousands of items."""
     try:
         account = ExternalAccount.objects.select_related("profile").get(
             profile_id=profile_id, provider=ExternalAccount.Provider.WETRAKR
@@ -242,24 +249,23 @@ def sync_wetrakr_history(profile_id):
     client_id, client_secret = instance_config.get_wetrakr_credentials()
 
     def fetch_and_upsert():
-        cfg = InstanceConfig.load()
-        _roll_wetrakr_account_quota(account)
-        _roll_wetrakr_app_quota(cfg)
-        if not _wetrakr_account_budget_ok(account) or not _wetrakr_app_budget_ok(cfg):
-            account.save(update_fields=["wetrakr_quota_date", "wetrakr_quota_count"])
-            cfg.save(update_fields=["wetrakr_app_quota_date", "wetrakr_app_quota_count"])
-            raise wetrakr.WeTrakrQuotaError("QUOTA_EXCEEDED", "WeTrakr daily quota already spent before this sync")
-        _record_wetrakr_request(account, cfg)
         labels = []
-        items = wetrakr.fetch_all_history(account.get_access_token(), client_id, start_at=account.last_synced_at)
+        items = []
+        cursor = None
+        pages_fetched = 0
+        while pages_fetched < _WETRAKR_SYNC_MAX_PAGES:
+            page_items, cursor = _fetch_wetrakr_page_quota_checked(
+                account, client_id, client_secret, cursor, start_at=account.last_synced_at,
+            )
+            items.extend(page_items)
+            pages_fetched += 1
+            if cursor is None:
+                break
         created = wetrakr.upsert_history_items(account.profile, items, labels_out=labels)
         return created, labels
 
-    def do_sync():
-        return _call_with_refresh(account, wetrakr, client_id, client_secret, fetch_and_upsert)
-
     try:
-        created = _run_sync(account.profile, ExternalAccount.Provider.WETRAKR, do_sync)
+        created = _run_sync(account.profile, ExternalAccount.Provider.WETRAKR, fetch_and_upsert)
     except wetrakr.WeTrakrQuotaError:
         logger.info("sync_wetrakr_history: profile %s paused on quota, last_synced_at unchanged", profile_id)
         return 0
@@ -367,21 +373,8 @@ def _scan_wetrakr_session(session):
     )
 
     while True:
-        def fetch_one_page():
-            cfg = InstanceConfig.load()
-            _roll_wetrakr_account_quota(account)
-            _roll_wetrakr_app_quota(cfg)
-            if not _wetrakr_account_budget_ok(account):
-                account.save(update_fields=["wetrakr_quota_date", "wetrakr_quota_count"])
-                raise wetrakr.WeTrakrQuotaError("QUOTA_EXCEEDED", "WeTrakr account daily quota reached")
-            if not _wetrakr_app_budget_ok(cfg):
-                cfg.save(update_fields=["wetrakr_app_quota_date", "wetrakr_app_quota_count"])
-                raise wetrakr.WeTrakrQuotaError("APP_QUOTA_EXCEEDED", "WeTrakr app-wide daily quota reached")
-            _record_wetrakr_request(account, cfg)
-            return wetrakr.fetch_history_page(account.get_access_token(), client_id, cursor=cursor)
-
         try:
-            page_items, next_cursor = _call_with_refresh(account, wetrakr, client_id, client_secret, fetch_one_page)
+            page_items, next_cursor = _fetch_wetrakr_page_quota_checked(account, client_id, client_secret, cursor)
         except wetrakr.WeTrakrQuotaError as e:
             if e.error_code == "APP_QUOTA_EXCEEDED":
                 _saturate_wetrakr_app_quota(InstanceConfig.load())
@@ -1026,7 +1019,10 @@ def _record_wetrakr_request(account, cfg):
     """Call once per actual outbound WeTrakr HTTP request (after rolling
     both counters over) - increments and saves both the per-account and
     the app-wide counter together, since every WeTrakr request this app
-    makes spends from both budgets at once."""
+    makes spends from both budgets at once. Passed as wetrakr.py's
+    on_request callback (see that module's _request docstring) so a
+    CONCURRENCY_LIMIT retry - a second real request for what looks like
+    one call from here - gets counted too, not just the first attempt."""
     account.wetrakr_quota_count += 1
     account.save(update_fields=["wetrakr_quota_date", "wetrakr_quota_count"])
     cfg.wetrakr_app_quota_count += 1
@@ -1044,6 +1040,44 @@ def _saturate_wetrakr_app_quota(cfg):
     cfg.save(update_fields=["wetrakr_app_quota_date", "wetrakr_app_quota_count"])
 
 
+def _ensure_wetrakr_budget(account, cfg):
+    """Rolls both counters over if needed, then raises WeTrakrQuotaError
+    if either is already exhausted - called right before every real
+    WeTrakr request (plan check, each history page) so the proactive
+    stop happens before spending the request, not just after discovering
+    the account was already over via a live 429."""
+    _roll_wetrakr_account_quota(account)
+    _roll_wetrakr_app_quota(cfg)
+    if not _wetrakr_account_budget_ok(account):
+        account.save(update_fields=["wetrakr_quota_date", "wetrakr_quota_count"])
+        raise wetrakr.WeTrakrQuotaError("QUOTA_EXCEEDED", "WeTrakr account daily quota reached")
+    if not _wetrakr_app_budget_ok(cfg):
+        cfg.save(update_fields=["wetrakr_app_quota_date", "wetrakr_app_quota_count"])
+        raise wetrakr.WeTrakrQuotaError("APP_QUOTA_EXCEEDED", "WeTrakr app-wide daily quota reached")
+
+
+def _fetch_wetrakr_page_quota_checked(account, client_id, client_secret, cursor, start_at=None):
+    """The one place that actually calls wetrakr.fetch_history_page -
+    both _scan_wetrakr_session's resumable loop and sync_wetrakr_history's
+    in-memory loop call this per page, so a pre-request budget check and
+    accurate post-request accounting (every real request counted,
+    including an internal CONCURRENCY_LIMIT retry - see wetrakr.py's
+    _request docstring) happen in exactly one place rather than being
+    reimplemented - and potentially drifting out of sync - per caller.
+    Wrapped in _call_with_refresh for the same 401-triggers-a-refresh
+    handling every other WeTrakr/Trakt/Simkl fetch already gets."""
+    cfg = InstanceConfig.load()
+    _ensure_wetrakr_budget(account, cfg)
+
+    def fetch():
+        return wetrakr.fetch_history_page(
+            account.get_access_token(), client_id, cursor=cursor, start_at=start_at,
+            on_request=lambda: _record_wetrakr_request(account, cfg),
+        )
+
+    return _call_with_refresh(account, wetrakr, client_id, client_secret, fetch)
+
+
 def _check_wetrakr_plan(account, client_id, force=False):
     """Refreshes account.wetrakr_plan from GET /plan-usage. Cached for
     about a day (routine sync just lets the cache ride), but force=True
@@ -1055,7 +1089,11 @@ def _check_wetrakr_plan(account, client_id, force=False):
     if not force and account.wetrakr_plan_checked_at:
         if timezone.now() - account.wetrakr_plan_checked_at < timedelta(days=1):
             return account.wetrakr_plan
-    usage = wetrakr.get_plan_usage(account.get_access_token(), client_id)
+    cfg = InstanceConfig.load()
+    _ensure_wetrakr_budget(account, cfg)
+    usage = wetrakr.get_plan_usage(
+        account.get_access_token(), client_id, on_request=lambda: _record_wetrakr_request(account, cfg),
+    )
     account.wetrakr_plan = usage.get("plan") or ""
     account.wetrakr_plan_checked_at = timezone.now()
     account.save(update_fields=["wetrakr_plan", "wetrakr_plan_checked_at"])

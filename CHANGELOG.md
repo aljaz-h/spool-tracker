@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.146.1] - 2026-10-17
+
+### Fixed
+
+- WeTrakr's self-tracked daily request quota (see 0.146.0) only ever
+  recorded one request per sync run, no matter how many pages that run
+  actually fetched - a routine sync or full import that spanned several
+  pages was silently undercounting its real usage against the ceiling
+  the whole proactive-pacing mechanism exists to respect. Every page
+  fetch, and the `/plan-usage` check, now checks and records the quota
+  individually, same as the Import Review scan path already did.
+
 ## [0.146.0] - 2026-10-17
 
 ### Added

@@ -7750,9 +7750,9 @@ class SyncWetrakrHistoryTaskTests(TestCase):
             encrypted_access_token=crypto.encrypt("tok"), wetrakr_plan="vip",
         )
 
-    @patch("tracker.integrations.wetrakr.fetch_all_history")
-    def test_quota_pause_mid_sync_does_not_advance_last_synced_at(self, mock_fetch_all):
-        mock_fetch_all.side_effect = wetrakr.WeTrakrQuotaError("QUOTA_EXCEEDED", "nope")
+    @patch("tracker.integrations.wetrakr.fetch_history_page")
+    def test_quota_pause_mid_sync_does_not_advance_last_synced_at(self, mock_fetch_page):
+        mock_fetch_page.side_effect = wetrakr.WeTrakrQuotaError("QUOTA_EXCEEDED", "nope")
         self.account.last_synced_at = _tz.now() - timedelta(days=1)
         self.account.save(update_fields=["last_synced_at"])
         original = self.account.last_synced_at
@@ -7762,24 +7762,55 @@ class SyncWetrakrHistoryTaskTests(TestCase):
         self.account.refresh_from_db()
         self.assertEqual(self.account.last_synced_at, original)
 
-    @patch("tracker.integrations.wetrakr.fetch_all_history")
-    def test_quota_pause_mid_sync_writes_a_paused_synclog_not_a_failed_one(self, mock_fetch_all):
-        mock_fetch_all.side_effect = wetrakr.WeTrakrQuotaError("QUOTA_EXCEEDED", "nope")
+    @patch("tracker.integrations.wetrakr.fetch_history_page")
+    def test_quota_pause_mid_sync_writes_a_paused_synclog_not_a_failed_one(self, mock_fetch_page):
+        mock_fetch_page.side_effect = wetrakr.WeTrakrQuotaError("QUOTA_EXCEEDED", "nope")
 
         tasks.sync_wetrakr_history(self.profile.id)
 
         log = SyncLog.objects.get(profile=self.profile, provider=ExternalAccount.Provider.WETRAKR)
         self.assertEqual(log.status, SyncLog.Status.PAUSED)
 
-    @patch("tracker.integrations.wetrakr.fetch_all_history")
-    def test_successful_sync_advances_last_synced_at(self, mock_fetch_all):
-        mock_fetch_all.return_value = []
+    @patch("tracker.integrations.wetrakr.fetch_history_page")
+    def test_successful_sync_advances_last_synced_at(self, mock_fetch_page):
+        mock_fetch_page.return_value = ([], None)
         before = _tz.now()
 
         tasks.sync_wetrakr_history(self.profile.id)
 
         self.account.refresh_from_db()
         self.assertGreaterEqual(self.account.last_synced_at, before)
+
+    @patch("tracker.integrations.wetrakr.requests.request")
+    def test_each_page_fetched_is_counted_against_the_quota_not_just_one_per_sync(self, mock_request):
+        """Regression test for a real bug: sync_wetrakr_history used to
+        record exactly one request per task invocation no matter how many
+        pages its internal fetch loop actually issued, silently
+        undercounting real usage against the daily ceiling this whole
+        mechanism exists to respect. Mocked at the raw requests.request
+        level (not fetch_history_page) specifically so the real
+        on_request accounting callback - wired through _request -
+        actually fires, the same way it does against the live API; each
+        of the 3 pages below must cost its own counted request."""
+        def page_response(page, page_count):
+            resp = Mock()
+            resp.status_code = 200
+            resp.json.return_value = []
+            resp.headers = {"X-Pagination-Page-Count": str(page_count)}
+            resp.raise_for_status = Mock()
+            return resp
+
+        mock_request.side_effect = [
+            page_response(1, 2),  # movies page 1 of 2
+            page_response(2, 2),  # movies page 2 of 2 -> falls through to episodes
+            page_response(1, 1),  # episodes page 1 of 1 -> done
+        ]
+
+        tasks.sync_wetrakr_history(self.profile.id)
+
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.wetrakr_quota_count, 3)
+        self.assertEqual(mock_request.call_count, 3)
 
 
 class TransferTrackingWetrakrPausedStateTests(TestCase):

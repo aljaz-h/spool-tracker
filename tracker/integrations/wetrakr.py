@@ -157,16 +157,33 @@ class WeTrakrQuotaError(requests.HTTPError):
 _DAY_SCALE_ERROR_CODES = {"QUOTA_EXCEEDED", "APP_QUOTA_EXCEEDED", "APP_USER_QUOTA_EXCEEDED"}
 
 
-def _request(method, path, access_token, client_id, **kwargs):
+def _request(method, path, access_token, client_id, on_request=None, **kwargs):
     """requests.request against API_BASE + path, aware of WeTrakr's 429
     error codes. CONCURRENCY_LIMIT (or any 429 without a recognized
     day-scale code) sleeps for Retry-After (default/parse-failure: 1s,
     capped at 5s, same bounds as tenrai.py's _get) and retries exactly
     once - mirrors tenrai.py's _throttle/_get pattern. Any of the three
-    day-scale codes raises WeTrakrQuotaError immediately, no retry."""
+    day-scale codes raises WeTrakrQuotaError immediately, no retry.
+
+    on_request: an optional zero-arg callback invoked once per actual
+    outbound HTTP attempt made here (the initial request, and again if
+    the CONCURRENCY_LIMIT retry above fires) - this module has no
+    knowledge of Spool's own quota counters (kept decoupled, same
+    separation trakt.py's fetch functions have from tasks.py's state),
+    so the caller (tasks.py) passes in whatever it needs to record each
+    spent request against ExternalAccount.wetrakr_quota_count/
+    InstanceConfig.wetrakr_app_quota_count - see tasks._record_wetrakr_request.
+    Both the proactive pre-check (budget still available?) and this
+    post-request accounting matter: the pre-check is what makes self-
+    pacing *proactive*, but without this callback a retried request (or
+    any call site that doesn't itself loop with its own counting) would
+    silently go unrecorded, undercounting real usage against the daily
+    ceiling this whole mechanism exists to respect."""
     url = f"{API_BASE}{path}"
     headers = _headers(access_token, client_id)
     resp = requests.request(method, url, headers=headers, timeout=15, **kwargs)
+    if on_request:
+        on_request()
     if resp.status_code == 429:
         error_code = None
         try:
@@ -183,6 +200,8 @@ def _request(method, path, access_token, client_id, **kwargs):
         logger.warning("WeTrakr rate-limited us (%s), retrying %s in %.1fs", error_code, path, min(delay, 5.0))
         time.sleep(min(delay, 5.0))
         resp = requests.request(method, url, headers=headers, timeout=15, **kwargs)
+        if on_request:
+            on_request()
         if resp.status_code == 429:
             error_code = None
             try:
@@ -194,15 +213,15 @@ def _request(method, path, access_token, client_id, **kwargs):
     return resp
 
 
-def get_plan_usage(access_token, client_id):
+def get_plan_usage(access_token, client_id, on_request=None):
     """GET /plan-usage - {"plan": "free"|"vip"|"patron", "tier": ...,
     "tiers": [...], "features": [...]}. Requires the user's own bearer
     token (per WeTrakr's docs, this is an "oauth"-scoped endpoint, not a
     client-id-only one). Called once up front by a new scan (see
     tasks._check_wetrakr_plan) so Spool knows the account's real daily
     budget before starting a potentially-large pull, not just after
-    discovering it via a 429."""
-    resp = _request("GET", "/plan-usage", access_token, client_id)
+    discovering it via a 429. on_request: see _request's own docstring."""
+    resp = _request("GET", "/plan-usage", access_token, client_id, on_request=on_request)
     return resp.json()
 
 
@@ -212,7 +231,7 @@ def _parse_watched_at(item):
     return parse_datetime(item.get("watched_at") or "")
 
 
-def fetch_history_page(access_token, client_id, cursor=None, limit=200, start_at=None):
+def fetch_history_page(access_token, client_id, cursor=None, limit=200, start_at=None, on_request=None):
     """One page of watched history, from either of WeTrakr's two
     target-scoped endpoints (GET /sync/tracking/watched/history/movies
     and .../episodes - WeTrakr splits what Trakt's /sync/history returns
@@ -232,8 +251,14 @@ def fetch_history_page(access_token, client_id, cursor=None, limit=200, start_at
     be paused/resumed.
 
     start_at: a datetime - when given, only history after that point is
-    requested (incremental sync, used by routine sync's fetch_all_history
-    below). None means a full history pull.
+    requested (incremental sync, used by routine daily sync). None means
+    a full history pull.
+
+    on_request: see _request's own docstring - both tasks._scan_wetrakr_session
+    and tasks.sync_wetrakr_history call this page-at-a-time (routine sync
+    loops it in memory, no resumability needed for an already-small
+    incremental delta) so every real request either one makes, including
+    this function's own retry, is counted the same way.
 
     Follows the same X-Pagination-Page-Count response-header pagination
     convention Trakt documents (unverified against a live WeTrakr
@@ -254,7 +279,10 @@ def fetch_history_page(access_token, client_id, cursor=None, limit=200, start_at
         params["start_at"] = _format_trakt_datetime(start_at)
     params["page"] = page
 
-    resp = _request("GET", f"/sync/tracking/watched/history/{target}", access_token, client_id, params=params)
+    resp = _request(
+        "GET", f"/sync/tracking/watched/history/{target}", access_token, client_id,
+        on_request=on_request, params=params,
+    )
     batch = resp.json()
     item_type = "movie" if target == "movies" else "episode"
     items = [{**raw, "type": item_type} for raw in batch]
@@ -270,28 +298,6 @@ def fetch_history_page(access_token, client_id, cursor=None, limit=200, start_at
     return items, None
 
 
-def fetch_all_history(access_token, client_id, start_at=None, max_pages=500):
-    """Convenience wrapper for routine (already-incremental, normally-
-    small) daily sync, which doesn't need pause/resume - loops
-    fetch_history_page with no quota handling of its own. If a
-    WeTrakrQuotaError is raised mid-loop it propagates straight out;
-    tasks.sync_wetrakr_history's caller is what decides not to advance
-    last_synced_at in that case (see that function's own docstring).
-    max_pages is a hard safety bound, same reasoning as trakt.fetch_history's
-    own - two targets x 500 pages x 200 items is far beyond any real
-    personal watch history."""
-    items = []
-    cursor = None
-    pages_fetched = 0
-    while pages_fetched < max_pages:
-        page_items, cursor = fetch_history_page(access_token, client_id, cursor=cursor, start_at=start_at)
-        items.extend(page_items)
-        pages_fetched += 1
-        if cursor is None:
-            break
-    return items
-
-
 def _get_or_create_title(media_type, name, year, wetrakr_id, tmdb_id=None):
     """Thin wrapper over tracker.title_matching.apply_title_match - same
     shared matching every other provider (and the Import Review pipeline's
@@ -304,8 +310,9 @@ def _get_or_create_title(media_type, name, year, wetrakr_id, tmdb_id=None):
 
 
 def upsert_history_items(profile, items, labels_out=None):
-    """items: a list from fetch_all_history() (or the accumulated pages
-    from a resumed Import Review scan). Mirrors trakt.upsert_history_items
+    """items: a list accumulated from one or more fetch_history_page()
+    calls - routine sync's own in-memory loop, or the accumulated pages
+    from a resumed Import Review scan. Mirrors trakt.upsert_history_items
     exactly - same dedup key (profile, title, episode, watched_at), same
     downstream batching - just keyed off a "wetrakr" id instead of a
     "trakt" one. See that function's own docstring for the full
