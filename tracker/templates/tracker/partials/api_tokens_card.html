@@ -9,12 +9,17 @@
   x-data="{ show: false }" per <div>, not one shared boolean like the old
   single-token card used) since up to 5 rows now each need their own.
 {% endcomment %}
-<div id="api-tokens-card" class="settings-panel">
-  <h3 class="text-lg mb-1">Custom Player</h3>
-  <div class="text-ink-dim text-xs mb-3">
-    Bring your own player or script - point it at the
-    <a href="https://github.com/aljaz-h/spool-tracker/blob/master/docs/SCROBBLE_API.md" target="_blank" rel="noopener" class="underline hover:text-base-content">Scrobble API</a>
-    with one of these tokens instead of waiting on a built-in integration. Up to {{ max_api_tokens }} tokens, one per app or device.
+<div id="api-tokens-card" class="surface p-5">
+  <div class="flex items-start gap-4 mb-4">
+    <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "key" "w-7 h-7" %}</div>
+    <div class="min-w-0 flex-1">
+      <h3 class="font-semibold text-[15px]">Custom Player</h3>
+      <div class="text-[13px] text-ink-dim mt-0.5">
+        Bring your own player or script - point it at the
+        <a href="https://github.com/aljaz-h/spool-tracker/blob/master/docs/SCROBBLE_API.md" target="_blank" rel="noopener" class="underline hover:text-base-content">Scrobble API</a>
+        with one of these tokens instead of waiting on a built-in integration. Up to {{ max_api_tokens }} tokens, one per app or device.
+      </div>
+    </div>
   </div>
 
   {% for token in api_tokens %}

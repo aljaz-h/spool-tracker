@@ -8,7 +8,33 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
-## [0.148.0] - 2026-10-20
+## [0.149.0] - 2026-10-20
+
+### Changed
+
+- Extended the Import & Export card redesign to the rest of Settings:
+  Preferences, Notifications, Advanced, Server Integrations and
+  Maintenance are now each a list of cards with an icon badge, title and
+  description, instead of plain text headers. Server Integrations splits
+  what used to be grouped multi-field panels (Movie & TV data; Trakt,
+  Simkl & WeTrakr; Cloud backups) into one card per provider, each with
+  that provider's real logo and a status chip, matching Import & Export
+  and Connected Apps exactly.
+
+### Fixed
+
+- A vendored icon with its own internal SVG ids (Google Drive's gradient
+  mark) rendered blank whenever it appeared twice on the same page at
+  once - which it now legitimately does, since Server Integrations and
+  Import & Export's Automatic Backups both show it and Alpine's tabs keep
+  every tab's markup in the DOM, just hidden. Two elements sharing one id
+  is invalid SVG; the browser resolved both copies' `url(#id)` references
+  to whichever one appeared first, leaving the other's mask empty. The
+  `{% icon %}` tag now suffixes any ids a vendored SVG defines with a
+  counter unique to that render, so repeats of the same icon never
+  collide - a no-op for the common case, since most icons define none.
+
+
 
 ### Changed
 
