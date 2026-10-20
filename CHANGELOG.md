@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.147.0] - 2026-10-20
+
+### Added
+
+- Optional [Sentry](https://sentry.io) integration (`SENTRY_DSN`) for
+  error tracking and performance tracing in production. Off by default —
+  leave `SENTRY_DSN` unset and nothing is sent anywhere. Covers gunicorn,
+  the Celery worker, and Celery beat. `SENTRY_TRACES_SAMPLE_RATE` (default
+  `0`) controls what fraction of requests/tasks get a full performance
+  trace (view time + DB query spans) — the thing that actually shows
+  what's slow, not just that something was. See `docs/CONFIGURATION.md`.
+
 ## [0.146.1] - 2026-10-17
 
 ### Fixed

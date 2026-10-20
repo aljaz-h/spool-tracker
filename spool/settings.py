@@ -431,3 +431,33 @@ if SILK_ENABLED:
     # SILK_ENABLED's own comment above).
     SILKY_PYTHON_PROFILER = True
     SILKY_PYTHON_PROFILER_BINARY = True
+
+
+# Sentry (error tracking + performance tracing) - opt-in, same reasoning as
+# SILK_ENABLED above: off unless SENTRY_DSN is actually set, so an install
+# that hasn't signed up for Sentry pays no import/init cost and sends
+# nothing anywhere. Initialized here (not per-process in wsgi.py/celery.py)
+# so it's live for gunicorn workers, the Celery worker, and Celery beat
+# alike - every process that imports this settings module gets it.
+SENTRY_DSN = env("SENTRY_DSN", default="")
+if SENTRY_DSN:
+    import sentry_sdk
+
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        environment=env("SENTRY_ENVIRONMENT", default="production"),
+        release=(BASE_DIR / "VERSION").read_text().strip(),
+        # Fraction of requests/tasks to capture a full performance trace
+        # for (view time + DB query spans) - 0 means errors only. Traces
+        # are what actually answers "what's slowing the site down", so
+        # this is worth turning up (e.g. 0.2) once error reporting alone
+        # is confirmed working; left at 0 by default since it's extra
+        # volume against Sentry's free-tier quota that an install hasn't
+        # necessarily opted into yet.
+        traces_sample_rate=env.float("SENTRY_TRACES_SAMPLE_RATE", default=0.0),
+        # Off by default - this is a self-hosted personal media tracker;
+        # request data sent to Sentry (a third-party service) shouldn't
+        # include cookies/usernames/IPs unless an operator deliberately
+        # wants that level of detail for debugging.
+        send_default_pii=env.bool("SENTRY_SEND_DEFAULT_PII", default=False),
+    )
