@@ -12,7 +12,7 @@
       history.replaceState({}, '', url);
     },
   }"
-  :class="tab === 'logs' ? 'max-w-7xl' : 'max-w-5xl'"
+  :class="(tab === 'logs' || tab === 'data') ? 'max-w-7xl' : 'max-w-5xl'"
 >
 
   <div class="page-head">
@@ -397,13 +397,15 @@
         </div>
 
         {% comment %}
-          One contained row per provider: monogram, name + what it does,
-          connection state on the right, then (once connected) the
-          account, last sync and schedule controls underneath.
+          One contained row per provider: real brand mark, name + what it
+          does, connection state on the right, then (once connected) the
+          account, last sync and schedule controls underneath. A provider
+          not set up on this server shows its mark desaturated, same
+          treatment as Import & Export's cards.
         {% endcomment %}
         <div class="surface p-5">
           <div class="flex items-start gap-4">
-            <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none text-[15px] font-bold text-ink-dim" aria-hidden="true">T</div>
+            <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none {% if "trakt" in connected_providers or trakt_configured %}text-trakt{% else %}grayscale text-ink-faint{% endif %}" aria-hidden="true">{% icon "trakt" "w-7 h-7" %}</div>
             <div class="min-w-0 flex-1">
               <div class="font-semibold text-[15px]">Trakt</div>
               <div class="text-[13px] text-ink-dim mt-0.5">Sync watched history, ratings &amp; lists</div>
@@ -425,7 +427,7 @@
 
         <div class="surface p-5">
           <div class="flex items-start gap-4">
-            <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none text-[15px] font-bold text-ink-dim" aria-hidden="true">S</div>
+            <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none {% if "simkl" in connected_providers or simkl_configured %}text-simkl{% else %}grayscale text-ink-faint{% endif %}" aria-hidden="true">{% icon "simkl" "w-7 h-7" %}</div>
             <div class="min-w-0 flex-1">
               <div class="font-semibold text-[15px]">Simkl</div>
               <div class="text-[13px] text-ink-dim mt-0.5">Import history &amp; anime progress</div>
@@ -447,7 +449,7 @@
 
         <div class="surface p-5">
           <div class="flex items-start gap-4">
-            <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none text-[15px] font-bold text-ink-dim" aria-hidden="true">W</div>
+            <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none {% if "wetrakr" in connected_providers or wetrakr_configured %}text-ink-dim{% else %}grayscale text-ink-faint{% endif %}" aria-hidden="true">{% icon "wetrakr" "w-7 h-7" %}</div>
             <div class="min-w-0 flex-1">
               <div class="font-semibold text-[15px]">WeTrakr</div>
               <div class="text-[13px] text-ink-dim mt-0.5">Sync watched history &amp; ratings</div>
@@ -469,7 +471,7 @@
 
         <div class="surface p-5">
           <div class="flex items-start gap-4">
-            <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none text-[15px] font-bold text-ink-dim" aria-hidden="true">N</div>
+            <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none" aria-hidden="true">{% icon "nuvio" "w-7 h-7" %}</div>
             <div class="min-w-0 flex-1">
               <div class="font-semibold text-[15px]">Nuvio</div>
               <div class="text-[13px] text-ink-dim mt-0.5">Sync watch history &amp; continue-watching progress</div>
@@ -542,38 +544,62 @@
       </div>
 
       {# ==================== IMPORT & EXPORT ==================== #}
-      <div x-show="tab === 'data'" x-cloak class="flex flex-col gap-5 max-w-2xl">
+      <div x-show="tab === 'data'" x-cloak class="flex flex-col gap-7">
         {% include "tracker/partials/transfer_activity.html" %}
-        <div class="settings-panel">
-          <h3 class="text-lg mb-1">Import Data</h3>
-          <div class="text-ink-dim text-xs mb-3.5">Upload an export from any tracker as a CSV, JSON, or zip file — including Trakt's own "Export now" zip.</div>
-          <form method="post" action="{% url 'import_csv' %}" enctype="multipart/form-data" class="flex items-center gap-2" x-data="{ fileName: null }">
-            {% csrf_token %}
-            <label class="flex-1 flex items-stretch h-8 rounded-lg border border-line bg-base-100 overflow-hidden cursor-pointer hover:border-primary transition-colors">
-              <span class="flex items-center px-3 text-xs font-semibold bg-base-300 text-ink-dim flex-none">Choose File</span>
-              <span class="flex items-center px-3 text-xs text-ink-faint truncate" x-text="fileName || 'No file chosen'"></span>
-              <input type="file" name="csv_file" accept=".csv,.json,.zip,text/csv,application/json,application/zip" required class="hidden" @change="fileName = $event.target.files[0]?.name || null">
-            </label>
-            <button type="submit" class="btn btn-sm btn-soft">Upload</button>
-          </form>
+
+        <div>
+          <div class="mb-4">
+            <h3 class="text-lg font-semibold">Import Data</h3>
+            <p class="text-sm text-ink-dim mt-1">Bring your watch history, ratings and lists in from another tracker, or restore a Spool backup.</p>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {% include "tracker/partials/import_source_card.html" with icon="trakt" icon_color="text-trakt" title="Trakt" subtitle="Watch history, ratings & lists" provider="trakt" configured=trakt_configured connect_url_name="trakt_connect" upload_label="Upload Trakt ZIP" upload_accept=".zip,.csv" %}
+            {% include "tracker/partials/import_source_card.html" with icon="simkl" icon_color="text-simkl" title="Simkl" subtitle="Movies, TV & anime, with drop states" provider="simkl" configured=simkl_configured connect_url_name="simkl_connect" upload_label="Upload VIP Export" upload_accept=".zip,.csv" %}
+            {% include "tracker/partials/import_source_card.html" with icon="wetrakr" title="WeTrakr" subtitle="Watch history & ratings" provider="wetrakr" configured=wetrakr_configured connect_url_name="wetrakr_connect" %}
+            {% include "tracker/partials/import_source_card.html" with icon="nuvio" title="Nuvio" subtitle="History & continue-watching progress" provider="nuvio" nuvio=True configured=True connected=nuvio_connection %}
+            {% include "tracker/partials/import_source_card.html" with icon="download" title="Spool Native Backup" subtitle="Restore a full Spool backup JSON" upload_label="Restore Database" upload_accept=".json" always_available=True %}
+            {% include "tracker/partials/import_source_card.html" with icon="upload" title="Other Tracker" subtitle="Any other CSV, JSON, or ZIP export" upload_label="Upload File" upload_accept=".csv,.json,.zip" always_available=True %}
+          </div>
+
+          <div class="text-[12.5px] text-ink-faint mt-5 mb-2">Coming soon</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {% include "tracker/partials/import_source_card.html" with icon="tmdb" icon_color="text-tmdb" title="TMDB" subtitle="Favorites & watchlist sync" coming_soon=True %}
+            {% include "tracker/partials/import_source_card.html" with icon="imdb" icon_color="text-imdb" title="IMDb" subtitle="Ratings & watchlist CSV" coming_soon=True %}
+            {% include "tracker/partials/import_source_card.html" with icon="letterboxd" icon_color="text-letterboxd" title="Letterboxd" subtitle="Watched films, diary & ratings" coming_soon=True %}
+            {% include "tracker/partials/import_source_card.html" with icon="mdblist" icon_color="text-mdblist" title="MDBList" subtitle="Dynamic lists & collections" coming_soon=True %}
+            {% include "tracker/partials/import_source_card.html" with icon="tv-time" icon_color="text-tvtime" title="TV Time" subtitle="Liberator / browser export" coming_soon=True %}
+            {% include "tracker/partials/import_source_card.html" with icon="myanimelist" icon_color="text-mal" title="MyAnimeList" subtitle="Anime list & ratings" coming_soon=True %}
+          </div>
         </div>
 
-        <div class="settings-panel">
-          <h3 class="text-lg mb-1">Export Data</h3>
-          <div class="text-ink-dim text-xs mb-3">Download everything you've watched, rated, or added to a list.</div>
-          <div class="flex flex-wrap gap-2">
-            <a href="{% url 'export_spool_backup' %}" class="btn btn-sm btn-primary">Export full backup (JSON)</a>
-            <a href="{% url 'export_csv' %}" class="btn btn-sm btn-soft">Export as CSV</a>
-            <a href="{% url 'export_trakt_json' %}" class="btn btn-sm btn-soft">Export as Trakt JSON</a>
+        <div>
+          <div class="mb-4">
+            <h3 class="text-lg font-semibold">Export Data</h3>
+            <p class="text-sm text-ink-dim mt-1">Your data, your rules — everything you track belongs to you, portable on open standards.</p>
           </div>
-          <div class="text-ink-dim text-xs mt-2.5">The full backup includes your history, ratings and every list (Watchlist included) and can be imported back here. CSV and Trakt JSON carry watch history only.</div>
+          <div class="surface p-5">
+            <div class="flex items-start gap-4">
+              <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "shield" "w-7 h-7" %}</div>
+              <div class="min-w-0 flex-1">
+                <div class="font-semibold text-[15px]">Download everything</div>
+                <div class="text-[13px] text-ink-dim mt-0.5">Everything you've watched, rated, or added to a list.</div>
+                <div class="flex flex-wrap gap-2 mt-3">
+                  <a href="{% url 'export_spool_backup' %}" class="btn btn-sm btn-primary">{% icon "download" "w-3.5 h-3.5" %}Export full backup (JSON)</a>
+                  <a href="{% url 'export_csv' %}" class="btn btn-sm btn-soft">Export as CSV</a>
+                  <a href="{% url 'export_trakt_json' %}" class="btn btn-sm btn-soft">Export as Trakt JSON</a>
+                </div>
+                <div class="text-[12px] text-ink-faint mt-2.5">The full backup includes your history, ratings and every list (Watchlist included) and can be imported back here. CSV and Trakt JSON carry watch history only.</div>
+              </div>
+            </div>
+          </div>
         </div>
 
         {% include "tracker/partials/settings_backups.html" %}
       </div>
 
       {# ==================== DANGER ZONE ==================== #}
-      <div x-show="tab === 'danger'" x-cloak class="rounded-xl border border-error/25 p-5 max-w-2xl">
+      <div x-show="tab === 'danger'" x-cloak class="rounded-xl border border-error/25 bg-error/5 p-5 max-w-2xl">
         <h3 class="text-lg text-error mb-1">Danger Zone</h3>
         <div class="text-ink-dim text-xs mb-3.5">These actions are permanent and can't be undone.</div>
 
@@ -595,7 +621,7 @@
           </div>
           <form method="post" action="{% url 'clear_watch_history' %}" onsubmit="return confirm('Clear your entire watch history? This deletes every watch event and rating - permanently. Your lists and watchlist stay as they are.');">
             {% csrf_token %}
-            <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content flex-none whitespace-nowrap">Clear history</button>
+            <button type="submit" class="btn btn-sm bg-error/10 text-error border-none hover:bg-error/20 flex-none whitespace-nowrap">Clear history</button>
           </form>
         </div>
 
@@ -607,7 +633,7 @@
             </div>
             <form method="post" action="{% url 'disconnect_and_wipe_provider' 'trakt' %}" onsubmit="return confirm('Disconnect Trakt and remove watch history for titles matched via Trakt? This is permanent.');">
               {% csrf_token %}
-              <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content flex-none whitespace-nowrap">Disconnect &amp; wipe</button>
+              <button type="submit" class="btn btn-sm bg-error/10 text-error border-none hover:bg-error/20 flex-none whitespace-nowrap">Disconnect &amp; wipe</button>
             </form>
           </div>
         {% endif %}
@@ -620,7 +646,7 @@
             </div>
             <form method="post" action="{% url 'disconnect_and_wipe_provider' 'simkl' %}" onsubmit="return confirm('Disconnect Simkl and remove watch history for titles matched via Simkl? This is permanent.');">
               {% csrf_token %}
-              <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content flex-none whitespace-nowrap">Disconnect &amp; wipe</button>
+              <button type="submit" class="btn btn-sm bg-error/10 text-error border-none hover:bg-error/20 flex-none whitespace-nowrap">Disconnect &amp; wipe</button>
             </form>
           </div>
         {% endif %}
@@ -633,7 +659,7 @@
             </div>
             <form method="post" action="{% url 'disconnect_and_wipe_provider' 'wetrakr' %}" onsubmit="return confirm('Disconnect WeTrakr and remove watch history for titles matched via WeTrakr? This is permanent.');">
               {% csrf_token %}
-              <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content flex-none whitespace-nowrap">Disconnect &amp; wipe</button>
+              <button type="submit" class="btn btn-sm bg-error/10 text-error border-none hover:bg-error/20 flex-none whitespace-nowrap">Disconnect &amp; wipe</button>
             </form>
           </div>
         {% endif %}
@@ -646,7 +672,7 @@
             </div>
             <form method="post" action="{% url 'disconnect_and_wipe_provider' 'nuvio' %}" onsubmit="return confirm('Disconnect Nuvio and remove watch history for titles matched via Nuvio? This is permanent.');">
               {% csrf_token %}
-              <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content flex-none whitespace-nowrap">Disconnect &amp; wipe</button>
+              <button type="submit" class="btn btn-sm bg-error/10 text-error border-none hover:bg-error/20 flex-none whitespace-nowrap">Disconnect &amp; wipe</button>
             </form>
           </div>
         {% endif %}
@@ -662,7 +688,7 @@
           {% if can_delete_own_account %}
             <form method="post" action="{% url 'delete_own_account' %}" onsubmit="return confirm('Permanently delete your account? This deletes your entire watch history, lists, and login - this cannot be undone.');">
               {% csrf_token %}
-              <button type="submit" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content flex-none whitespace-nowrap">Delete my account</button>
+              <button type="submit" class="btn btn-sm bg-error/10 text-error border-none hover:bg-error/20 flex-none whitespace-nowrap">Delete my account</button>
             </form>
           {% else %}
             <button type="button" disabled class="btn btn-sm btn-outline border-error/30 text-error/40 cursor-not-allowed flex-none whitespace-nowrap">Delete my account</button>

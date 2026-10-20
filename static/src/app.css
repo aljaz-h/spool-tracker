@@ -70,10 +70,14 @@
 
   --color-imdb: #f5c518;
   --color-rt: #fa5a3d;
-  --color-trakt: #ed4a50;
+  --color-trakt: #9f42c6;
   --color-mal: #2e51a2;
   --color-metacritic: #ffcc33;
   --color-tmdb: #01b4e4;
+  --color-mdblist: #4284ca;
+  --color-tvtime: #ffd400;
+  --color-simkl: #000000;
+  --color-letterboxd: #202830;
 
   /* Flatter radius scale than Tailwind's defaults: posters/buttons/inputs
      sit at 8px, cards at 10-12px, nothing rounder than 14px except true

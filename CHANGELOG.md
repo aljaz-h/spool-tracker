@@ -8,6 +8,25 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.148.0] - 2026-10-20
+
+### Changed
+
+- Redesigned Settings → Import & Export: each source (Trakt, Simkl,
+  WeTrakr, Nuvio, Spool's own backup format, and a generic CSV/JSON/ZIP
+  catch-all) is now its own card with the provider's real logo, a status
+  chip, and inline actions, instead of one bare upload box. Unconfigured
+  providers say so plainly ("ask your server owner to set up X") and show
+  their mark desaturated rather than just disabling a button silently.
+  IMDb, TMDB, Letterboxd, MDBList, TV Time and MyAnimeList are listed as
+  "Coming soon" with their real marks, laying groundwork without
+  pretending they're supported yet. Automatic Backups and Export Data got
+  the same card treatment, with real icons for Google Drive, Dropbox,
+  WebDAV and Server folder. Connected Apps' provider rows now show the
+  same real logos instead of plain letter monograms. Danger Zone's nav
+  entry and its destructive buttons now read as red at a glance instead
+  of blending into the rest of the sidebar/panel.
+
 ## [0.147.0] - 2026-10-20
 
 ### Added

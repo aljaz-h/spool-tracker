@@ -1,117 +1,129 @@
 {% load icons %}
-{# context: backup_rows (from views._backup_card_context), backup_frequencies, any_backup_enabled. Settings → Import & Export's "Automatic backups" card - each profile sets up its own destinations; every run uploads the same file "Export full backup" downloads. #}
-<div class="settings-panel" id="backups">
-  <div class="flex items-start justify-between gap-3 mb-1">
-    <h3 class="text-lg">Automatic Backups</h3>
-    {% if any_backup_enabled %}<span class="chip chip-success">On</span>{% else %}<span class="chip">Off</span>{% endif %}
-  </div>
-  <div class="text-ink-dim text-xs mb-3.5">Save a full backup (history, ratings and every list) on a schedule. Only your own data is backed up; each backup can be imported back above.</div>
-
-  {% for row in backup_rows %}
-    {% with d=row.destination kind=row.kind %}
-    <div class="py-3.5 border-t border-line" x-data="{ open: false }">
-      <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <div class="flex-1 min-w-[14rem]">
-          <div class="text-sm font-semibold flex items-center gap-2">
-            {{ row.label }}
-            {% if kind == "webdav" %}<span class="text-ink-faint font-normal text-xs">NAS, Nextcloud, Synology&hellip;</span>{% endif %}
-          </div>
-          <div class="text-xs text-ink-dim mt-0.5">
-            {% if not d %}
-              {% if row.available %}Not set up{% else %}Not available on this server yet{% endif %}
-            {% elif d.in_progress %}
-              <span class="text-primary">Backing up now&hellip;</span>
-            {% elif not d.enabled %}
-              Paused
-            {% else %}
-              {{ d.get_frequency_display }}{% if d.keep_last %} &middot; keeps the last {{ d.keep_last }}{% endif %}
-              {% if d.last_success_at %} &middot; last backup {{ d.last_success_at|timesince }} ago{% else %} &middot; no backup yet{% endif %}
-            {% endif %}
-            {% if d.account_label %} &middot; {{ d.account_label }}{% endif %}
-            {% if d.kind == "webdav" %} &middot; <span class="font-mono">{{ d.url|truncatechars:48 }}</span>{% endif %}
-            {% if d.kind == "folder" %} &middot; <span class="font-mono">backups/{{ d.folder|default:"" }}</span>{% endif %}
-          </div>
-          {% if d.last_error %}<div class="text-xs text-error mt-1">Last attempt failed: {{ d.last_error }}</div>{% endif %}
-        </div>
-        {% if d %}
-          <form method="post" action="{% url 'backup_run_now' kind %}" class="flex-none">
-            {% csrf_token %}
-            <button type="submit" class="btn btn-sm btn-soft">Back up now</button>
-          </form>
-          <button type="button" @click="open = !open" :aria-expanded="open" class="btn btn-sm btn-ghost flex-none">Edit</button>
-        {% elif row.available %}
-          <button type="button" @click="open = !open" :aria-expanded="open" class="btn btn-sm btn-soft flex-none">Set up</button>
-        {% endif %}
-      </div>
-
-      {% if not row.available and not d %}
-        <div class="text-[12px] text-ink-faint mt-1">The server owner can turn this on from their admin settings.</div>
-      {% endif %}
-
-      <div x-show="open" x-cloak class="mt-3">
-        {% if kind == "gdrive" or kind == "dropbox" %}
-          {% if d %}
-            <form method="post" action="{% url 'backup_destination_save' kind %}" class="flex flex-wrap items-end gap-2">
-              {% csrf_token %}
-              {% include "tracker/partials/settings_backup_schedule.html" %}
-              <button type="submit" class="btn btn-sm btn-primary">Save</button>
-              <a href="{% url 'backup_connect' kind %}" class="btn btn-sm btn-ghost">Reconnect</a>
-            </form>
-          {% else %}
-            <form method="get" action="{% url 'backup_connect' kind %}" class="flex flex-wrap items-end gap-2">
-              {% include "tracker/partials/settings_backup_schedule.html" %}
-              <button type="submit" class="btn btn-sm btn-primary">Connect {{ row.label }}</button>
-            </form>
-            <div class="text-[12px] text-ink-faint mt-2">Backups go into a "Spool Backups" folder.{% if kind == "gdrive" %} Spool can only see files it created there.{% endif %}</div>
-          {% endif %}
-        {% else %}
-          <form method="post" action="{% url 'backup_destination_save' kind %}" class="space-y-2.5">
-            {% csrf_token %}
-            {% if kind == "webdav" %}
-              <div>
-                <label class="block text-xs text-ink-dim mb-1" for="backup-webdav-url">Folder address</label>
-                <input id="backup-webdav-url" type="url" name="url" required value="{{ d.url|default:'' }}" placeholder="https://nas.local/remote.php/dav/files/me/Spool" class="input input-sm w-full font-mono">
-                {% if not profile.is_owner %}<div class="text-[12px] text-ink-faint mt-1">Must be reachable from the internet - only the server owner can back up to addresses on the local network.</div>{% endif %}
-              </div>
-              <div class="grid sm:grid-cols-2 gap-2.5">
-                <div>
-                  <label class="block text-xs text-ink-dim mb-1" for="backup-webdav-user">Username</label>
-                  <input id="backup-webdav-user" type="text" name="username" value="{{ d.username|default:'' }}" autocomplete="off" class="input input-sm w-full">
-                </div>
-                <div>
-                  <label class="block text-xs text-ink-dim mb-1" for="backup-webdav-pass">Password or app password</label>
-                  <input id="backup-webdav-pass" type="password" name="password" autocomplete="new-password" placeholder="{% if d.encrypted_secret %}•••• leave blank to keep{% endif %}" class="input input-sm w-full">
-                </div>
-              </div>
-            {% else %}
-              <div>
-                <label class="block text-xs text-ink-dim mb-1" for="backup-folder">Subfolder</label>
-                <input id="backup-folder" type="text" name="folder" value="{{ d.folder|default:profile.display_name }}" maxlength="100" class="input input-sm w-full">
-                <div class="text-[12px] text-ink-faint mt-1">Inside the server's backup folder - point that at a NAS share to keep copies off this machine.</div>
-              </div>
-            {% endif %}
-            <div class="flex flex-wrap items-end gap-2">
-              {% include "tracker/partials/settings_backup_schedule.html" %}
-              <button type="submit" class="btn btn-sm btn-primary">{% if d %}Save{% else %}Turn on{% endif %}</button>
-            </div>
-          </form>
-        {% endif %}
-
-        {% if d %}
-          <div class="flex items-center gap-4 mt-3 text-xs">
-            <form method="post" action="{% url 'backup_destination_save' kind %}">
-              {% csrf_token %}
-              <input type="hidden" name="enabled" value="{% if d.enabled %}0{% else %}1{% endif %}">
-              <button type="submit" class="text-ink-dim hover:text-base-content underline">{% if d.enabled %}Pause backups{% else %}Resume backups{% endif %}</button>
-            </form>
-            <form method="post" action="{% url 'backup_destination_delete' kind %}" onsubmit="return confirm('Stop backing up to {{ row.label|escapejs }}? Backups already saved there are kept.');">
-              {% csrf_token %}
-              <button type="submit" class="text-ink-faint hover:text-error underline">Remove</button>
-            </form>
-          </div>
-        {% endif %}
-      </div>
+{# context: backup_rows (from views._backup_card_context), backup_frequencies, any_backup_enabled. Settings → Import & Export's "Automatic backups" card - each profile sets up its own destinations; every run uploads the same file "Export full backup" downloads. Same surface-card visual language as the Connected Apps tab's provider rows. #}
+<div>
+  <div class="mb-4" id="backups">
+    <div class="flex items-center justify-between gap-3">
+      <h3 class="text-lg font-semibold">Automatic Backups</h3>
+      {% if any_backup_enabled %}<span class="chip chip-success">On</span>{% else %}<span class="chip">Off</span>{% endif %}
     </div>
-    {% endwith %}
-  {% endfor %}
+    <p class="text-sm text-ink-dim mt-1">Save a full backup (history, ratings and every list) on a schedule. Only your own data is backed up; each backup can be imported back above.</p>
+  </div>
+
+  <div class="flex flex-col gap-4">
+    {% for row in backup_rows %}
+      {% with d=row.destination kind=row.kind %}
+      <div class="surface p-5" x-data="{ open: false }">
+        <div class="flex items-start gap-4">
+          <div class="w-10 h-10 rounded-lg {% if kind != "dropbox" %}bg-base-300{% endif %} flex items-center justify-center flex-none overflow-hidden {% if not row.available %}grayscale opacity-60{% endif %} {% if kind == "webdav" or kind == "folder" %}text-ink-dim{% endif %}" aria-hidden="true">
+            {% if kind == "gdrive" %}{% icon "google-drive" "w-5 h-5" %}
+            {% elif kind == "dropbox" %}{% icon "dropbox" "w-full h-full" %}
+            {% elif kind == "webdav" %}{% icon "cloud" "w-5 h-5" %}
+            {% else %}{% icon "server" "w-5 h-5" %}{% endif %}
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="font-semibold text-[15px] flex items-center gap-2 flex-wrap">
+              {{ row.label }}
+              {% if kind == "webdav" %}<span class="text-ink-faint font-normal text-xs">NAS, Nextcloud, Synology&hellip;</span>{% endif %}
+            </div>
+            <div class="text-[13px] text-ink-dim mt-0.5">
+              {% if not d %}
+                {% if row.available %}Not set up{% else %}Not available on this server yet{% endif %}
+              {% elif d.in_progress %}
+                <span class="text-primary">Backing up now&hellip;</span>
+              {% elif not d.enabled %}
+                Paused
+              {% else %}
+                {{ d.get_frequency_display }}{% if d.keep_last %} &middot; keeps the last {{ d.keep_last }}{% endif %}
+                {% if d.last_success_at %} &middot; last backup {{ d.last_success_at|timesince }} ago{% else %} &middot; no backup yet{% endif %}
+              {% endif %}
+              {% if d.account_label %} &middot; {{ d.account_label }}{% endif %}
+              {% if d.kind == "webdav" %} &middot; <span class="font-mono">{{ d.url|truncatechars:48 }}</span>{% endif %}
+              {% if d.kind == "folder" %} &middot; <span class="font-mono">backups/{{ d.folder|default:"" }}</span>{% endif %}
+            </div>
+            {% if d.last_error %}<div class="text-xs text-error mt-1">Last attempt failed: {{ d.last_error }}</div>{% endif %}
+            {% if not row.available and not d %}
+              <div class="text-[12px] text-ink-faint mt-1">The server owner can turn this on from their admin settings.</div>
+            {% endif %}
+
+            <div x-show="open" x-cloak class="mt-3">
+              {% if kind == "gdrive" or kind == "dropbox" %}
+                {% if d %}
+                  <form method="post" action="{% url 'backup_destination_save' kind %}" class="flex flex-wrap items-end gap-2">
+                    {% csrf_token %}
+                    {% include "tracker/partials/settings_backup_schedule.html" %}
+                    <button type="submit" class="btn btn-sm btn-primary">Save</button>
+                    <a href="{% url 'backup_connect' kind %}" class="btn btn-sm btn-ghost">Reconnect</a>
+                  </form>
+                {% else %}
+                  <form method="get" action="{% url 'backup_connect' kind %}" class="flex flex-wrap items-end gap-2">
+                    {% include "tracker/partials/settings_backup_schedule.html" %}
+                    <button type="submit" class="btn btn-sm btn-primary">Connect {{ row.label }}</button>
+                  </form>
+                  <div class="text-[12px] text-ink-faint mt-2">Backups go into a "Spool Backups" folder.{% if kind == "gdrive" %} Spool can only see files it created there.{% endif %}</div>
+                {% endif %}
+              {% else %}
+                <form method="post" action="{% url 'backup_destination_save' kind %}" class="space-y-2.5">
+                  {% csrf_token %}
+                  {% if kind == "webdav" %}
+                    <div>
+                      <label class="block text-xs text-ink-dim mb-1" for="backup-webdav-url">Folder address</label>
+                      <input id="backup-webdav-url" type="url" name="url" required value="{{ d.url|default:'' }}" placeholder="https://nas.local/remote.php/dav/files/me/Spool" class="input input-sm w-full font-mono">
+                      {% if not profile.is_owner %}<div class="text-[12px] text-ink-faint mt-1">Must be reachable from the internet - only the server owner can back up to addresses on the local network.</div>{% endif %}
+                    </div>
+                    <div class="grid sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label class="block text-xs text-ink-dim mb-1" for="backup-webdav-user">Username</label>
+                        <input id="backup-webdav-user" type="text" name="username" value="{{ d.username|default:'' }}" autocomplete="off" class="input input-sm w-full">
+                      </div>
+                      <div>
+                        <label class="block text-xs text-ink-dim mb-1" for="backup-webdav-pass">Password or app password</label>
+                        <input id="backup-webdav-pass" type="password" name="password" autocomplete="new-password" placeholder="{% if d.encrypted_secret %}•••• leave blank to keep{% endif %}" class="input input-sm w-full">
+                      </div>
+                    </div>
+                  {% else %}
+                    <div>
+                      <label class="block text-xs text-ink-dim mb-1" for="backup-folder">Subfolder</label>
+                      <input id="backup-folder" type="text" name="folder" value="{{ d.folder|default:profile.display_name }}" maxlength="100" class="input input-sm w-full">
+                      <div class="text-[12px] text-ink-faint mt-1">Inside the server's backup folder - point that at a NAS share to keep copies off this machine.</div>
+                    </div>
+                  {% endif %}
+                  <div class="flex flex-wrap items-end gap-2">
+                    {% include "tracker/partials/settings_backup_schedule.html" %}
+                    <button type="submit" class="btn btn-sm btn-primary">{% if d %}Save{% else %}Turn on{% endif %}</button>
+                  </div>
+                </form>
+              {% endif %}
+
+              {% if d %}
+                <div class="flex items-center gap-4 mt-3 text-xs">
+                  <form method="post" action="{% url 'backup_destination_save' kind %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="enabled" value="{% if d.enabled %}0{% else %}1{% endif %}">
+                    <button type="submit" class="text-ink-dim hover:text-base-content underline">{% if d.enabled %}Pause backups{% else %}Resume backups{% endif %}</button>
+                  </form>
+                  <form method="post" action="{% url 'backup_destination_delete' kind %}" onsubmit="return confirm('Stop backing up to {{ row.label|escapejs }}? Backups already saved there are kept.');">
+                    {% csrf_token %}
+                    <button type="submit" class="text-ink-faint hover:text-error underline">Remove</button>
+                  </form>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="flex-none flex items-center gap-2">
+            {% if d %}
+              <form method="post" action="{% url 'backup_run_now' kind %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-soft">Back up now</button>
+              </form>
+              <button type="button" @click="open = !open" :aria-expanded="open" class="btn btn-sm btn-ghost">Edit</button>
+            {% elif row.available %}
+              <button type="button" @click="open = !open" :aria-expanded="open" class="btn btn-sm btn-soft">Set up</button>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endwith %}
+    {% endfor %}
+  </div>
 </div>

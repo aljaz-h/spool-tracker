@@ -1,0 +1,75 @@
+{% load icons %}
+{% comment %}
+  context: (icon, or monogram) + title, subtitle, and one of:
+  - coming_soon=True - greyed out, non-interactive.
+  - always_available=True + upload_label/upload_accept - just a file upload (Spool backup, generic CSV/JSON/ZIP).
+  - provider + configured + connect_url_name (+ optional upload_label/upload_accept) - OAuth connect, optionally with a file upload too (Trakt/Simkl/WeTrakr).
+  - nuvio=True + connected - Nuvio's email/password connect form instead of OAuth.
+  icon_color is the provider's real brand color token (e.g. "text-trakt") - every provider here has a vendored vector mark, monogram is only the fallback for one with neither (none currently).
+  Same visual language as the Connected Apps tab's provider rows (surface card, w-10 h-10 badge, text-[15px] title).
+  Reuses the same generic {% url 'import_csv' %} endpoint every upload button already posts to - the backend auto-detects the file's format, these buttons just pick which extensions to suggest and what to call the action.
+{% endcomment %}
+<div class="{% if coming_soon %}rounded-xl bg-base-100 border border-line p-4 opacity-50{% else %}surface p-5{% endif %}">
+  <div class="flex items-start gap-4">
+    <div class="{% if coming_soon %}w-9 h-9{% else %}w-10 h-10{% endif %} rounded-lg bg-base-300 flex items-center justify-center flex-none text-[15px] font-bold {% if coming_soon or provider and not nuvio and not configured and provider not in connected_providers %}text-ink-faint grayscale opacity-60{% else %}{{ icon_color|default:"text-ink-dim" }}{% endif %}" aria-hidden="true">
+      {% if monogram %}{{ monogram }}{% else %}{% icon icon "w-7 h-7" %}{% endif %}
+    </div>
+    <div class="min-w-0 flex-1">
+      <div class="flex items-center gap-2 flex-wrap">
+        <div class="font-semibold text-[15px]">{{ title }}</div>
+        {% if coming_soon %}<span class="chip flex-none">Coming soon</span>{% endif %}
+        {% if not coming_soon and provider and provider in connected_providers %}<span class="chip chip-success flex-none">&#10003; Connected</span>{% endif %}
+        {% if nuvio and connected %}<span class="chip chip-success flex-none">&#10003; Connected</span>{% endif %}
+      </div>
+      <div class="text-[13px] text-ink-dim mt-0.5">{{ subtitle }}</div>
+
+      {% if not coming_soon %}
+        {% if nuvio %}
+          {% if not connected %}
+            <form method="post" action="{% url 'nuvio_connect_submit' %}" class="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 mt-3">
+              {% csrf_token %}
+              <input type="email" name="email" placeholder="Nuvio email" required class="input input-sm w-full">
+              <input type="password" name="password" placeholder="Nuvio password" required class="input input-sm w-full">
+              <button type="submit" class="btn btn-sm btn-soft">Connect</button>
+              <div class="sm:col-span-3 text-[12px] text-ink-faint">Stores an encrypted token, never your password. Uses an undocumented Nuvio API that could change or break without notice.</div>
+            </form>
+          {% else %}
+            <div class="text-[13px] text-base-content/85 mt-1.5">{{ connected.email }}{% if connected.nuvio_profile_name %} <span class="text-ink-faint">&middot;</span> {{ connected.nuvio_profile_name }}{% endif %}</div>
+          {% endif %}
+        {% elif provider %}
+          <div class="flex flex-wrap gap-2 mt-3">
+            {% if provider in connected_providers %}
+              <a href="{% url 'settings' %}?tab=connected_apps" class="btn btn-sm btn-ghost">Manage</a>
+            {% elif configured %}
+              <a href="{% url connect_url_name %}" class="btn btn-sm btn-primary">Connect Account</a>
+            {% else %}
+              <button type="button" disabled class="btn btn-sm btn-disabled">Connect Account</button>
+            {% endif %}
+            {% if upload_label %}
+              <form method="post" action="{% url 'import_csv' %}" enctype="multipart/form-data" x-data="{ fileName: null }">
+                {% csrf_token %}
+                <label class="btn btn-sm btn-soft cursor-pointer">
+                  {% icon "upload" "w-3.5 h-3.5" %}<span x-text="fileName || '{{ upload_label }}'"></span>
+                  <input type="file" name="csv_file" accept="{{ upload_accept }}" required class="hidden" @change="fileName = $event.target.files[0]?.name || null; $el.closest('form').requestSubmit()">
+                </label>
+              </form>
+            {% endif %}
+          </div>
+          {% if not configured and provider not in connected_providers %}
+            <div class="text-[12px] text-ink-faint mt-2">Not available yet &mdash; ask your server owner to set up {{ title }} first.</div>
+          {% endif %}
+        {% elif always_available %}
+          <form method="post" action="{% url 'import_csv' %}" enctype="multipart/form-data" class="flex flex-wrap items-center gap-2 mt-3" x-data="{ fileName: null }">
+            {% csrf_token %}
+            <label class="flex-1 min-w-[10rem] flex items-stretch h-8 rounded-lg border border-line bg-base-100 overflow-hidden cursor-pointer hover:border-primary transition-colors">
+              <span class="flex items-center px-3 text-xs font-semibold bg-base-300 text-ink-dim flex-none">Choose File</span>
+              <span class="flex items-center px-3 text-xs text-ink-faint truncate" x-text="fileName || 'No file chosen'"></span>
+              <input type="file" name="csv_file" accept="{{ upload_accept }}" required class="hidden" @change="fileName = $event.target.files[0]?.name || null">
+            </label>
+            <button type="submit" class="btn btn-sm btn-soft flex-none">{{ upload_label }}</button>
+          </form>
+        {% endif %}
+      {% endif %}
+    </div>
+  </div>
+</div>

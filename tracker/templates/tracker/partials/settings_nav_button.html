@@ -1,8 +1,12 @@
 {% load icons %}
-{# context: key (tab identifier), label (display text), icon (icon name) - one entry in Settings' section nav; same quiet treatment as the app sidebar (muted, amber icon + faint wash when active). #}
+{# context: key (tab identifier), label (display text), icon (icon name) - one entry in Settings' section nav; same quiet treatment as the app sidebar (muted, amber icon + faint wash when active). The "danger" entry gets a gentle red tone instead of the usual amber, even at rest, so it reads apart from the rest of the nav at a glance. #}
 <button
   type="button" @click="setTab('{{ key }}')"
   class="flex items-center gap-2.5 text-left px-3 h-9 rounded-lg text-[13.5px] font-medium whitespace-nowrap"
+  {% if key == "danger" %}
+  :class="tab === '{{ key }}' ? 'bg-error/10 text-error [&>svg]:text-error' : 'text-error/70 [&>svg]:text-error/70 hover:bg-error/5 hover:text-error hover:[&>svg]:text-error'"
+  {% else %}
   :class="tab === '{{ key }}' ? 'bg-primary/10 text-base-content [&>svg]:text-primary' : 'text-ink-dim hover:bg-white/[0.04] hover:text-base-content'"
+  {% endif %}
   :aria-current="tab === '{{ key }}' ? 'page' : null"
 >{% icon icon "w-4 h-4 flex-none" %}{{ label }}</button>
