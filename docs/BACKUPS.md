@@ -70,18 +70,37 @@ The credentials go in **Settings → Server Integrations** (or in `.env` as
 
 **Google Drive**
 
-1. In Google Cloud Console, create a project and enable the **Google Drive API**.
-2. On the OAuth consent screen, add the scope
-   `https://www.googleapis.com/auth/drive.file`. This scope only lets Spool see
-   files it created itself, and it needs no Google verification.
-3. Set **Publishing status** to *In production*. In *Testing* mode, Google
-   expires the connection after 7 days.
-4. Create an OAuth client of type **Web application**. Add the redirect URI
-   `https://<your spool>/settings/backups/gdrive/callback/`.
+1. In Google Cloud Console, create a project, then separately go to **APIs &
+   Services → Library**, search **Google Drive API**, and click **Enable**.
+   This is its own step, not something creating OAuth credentials does for
+   you — skip it and the OAuth connect flow itself still succeeds, but every
+   backup then fails with `Google Drive API has not been used in project
+   ... or it is disabled (HTTP 403)`, which only shows up later on the Logs
+   tab, not at connect time.
+2. On the OAuth consent screen (**Branding**/**Audience** pages), add the
+   scope `https://www.googleapis.com/auth/drive.file` and fill in app name +
+   support email. This scope only lets Spool see files it created itself.
+3. Leave **Publishing status** as *Testing* and, under **Audience → Test
+   users**, add the Google account(s) that will actually connect. Anyone not
+   listed gets an "Access blocked" / `Error 403: access_denied` page.
+   Publishing to *Production* instead avoids that allowlist, but
+   `drive.file` is a sensitive scope, so production mode shows every
+   connecting user Google's "unverified app" warning screen unless you go
+   through full verification — not worth it for a handful of household
+   accounts. Testing mode's refresh tokens expire after 7 days of *no use*,
+   but Spool's own recurring backup schedule uses the token at least weekly,
+   so in practice it never actually goes idle long enough to expire.
+4. Create an OAuth client (**Clients** page) of type **Web application**.
+   Add the exact redirect URI
+   `https://<your spool>/settings/backups/gdrive/callback/` — the bare
+   domain isn't enough, Google requires an exact path match.
 
 Backups go into a **Spool Backups** folder in the account's Drive.
 
 **Dropbox**
+
+Simpler than Google here - there's no separate "enable the API" step and no
+test-user allowlist blocking anyone from connecting.
 
 1. At dropbox.com/developers/apps, create an app with **Scoped access** and an
    **App folder**.
