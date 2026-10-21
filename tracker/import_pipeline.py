@@ -61,7 +61,8 @@ COMMIT_CHUNK_SIZE = 200
 FILE_SOURCES = (ImportSession.Source.CSV, ImportSession.Source.JSON, ImportSession.Source.ZIP)
 KNOWN_PROVIDERS = (
     ImportSession.Source.TRAKT, ImportSession.Source.SIMKL, ImportSession.Source.NUVIO,
-    ImportSession.Source.WETRAKR,
+    ImportSession.Source.WETRAKR, ImportSession.Source.IMDB, ImportSession.Source.MAL,
+    ImportSession.Source.TVTIME,
 )
 
 
@@ -468,6 +469,7 @@ WATCH_EVENT_SOURCE_BY_PROVIDER = {
     ImportSession.Source.SIMKL: WatchEvent.Source.SIMKL,
     ImportSession.Source.NUVIO: WatchEvent.Source.NUVIO,
     ImportSession.Source.WETRAKR: WatchEvent.Source.WETRAKR,
+    ImportSession.Source.MAL: WatchEvent.Source.MAL,
 }
 
 

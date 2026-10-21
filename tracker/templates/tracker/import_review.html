@@ -50,7 +50,7 @@
       {% if restored %}
         <div class="surface p-5 mb-6 text-sm">Lists restored: <span class="font-semibold">{{ restored.lists }}</span> list{{ restored.lists|pluralize }}, <span class="font-semibold">{{ restored.items }}</span> title{{ restored.items|pluralize }} added.</div>
       {% elif bl and session.status != "completed" %}
-        <div class="surface p-5 mb-6 text-sm">This backup also contains <span class="font-semibold">{{ bl.lists }}</span> list{{ bl.lists|pluralize }} ({{ bl.items }} title{{ bl.items|pluralize }}, Watchlist included) &mdash; they're restored when you import. Titles already on a list are left as they are.</div>
+        <div class="surface p-5 mb-6 text-sm">This import also adds <span class="font-semibold">{{ bl.lists }}</span> list{{ bl.lists|pluralize }} ({{ bl.items }} title{{ bl.items|pluralize }}, Watchlist included) &mdash; restored when you import. Titles already on a list are left as they are.</div>
       {% endif %}
     {% endwith %}
 

@@ -10,17 +10,21 @@ from django.core.management import call_command
 from django.utils import timezone
 
 from . import (
+    backup,
     completion,
     csv_import,
+    imdb_import,
     import_pipeline,
     instance_config,
+    letterboxd_import,
     notifications,
     release_sync,
     selectors,
+    tvtime_import,
     update_check,
     version,
 )
-from .integrations import mdblist, nuvio, simkl, tmdb, trakt, wetrakr
+from .integrations import mdblist, myanimelist, nuvio, simkl, tmdb, tmdb_account, trakt, wetrakr
 from .models import (
     DataLog,
     ExternalAccount,
@@ -275,6 +279,73 @@ def sync_wetrakr_history(profile_id):
     return created
 
 
+@shared_task
+def sync_tmdb_lists(profile_id):
+    """Routine re-sync - TMDB has no watched-history feed at all (see
+    tracker/integrations/tmdb_account.py's own module docstring), so
+    unlike every other sync_<provider>_history task above, this only
+    ever re-fetches favorites+watchlist and adds what's new - no
+    fetch_history-equivalent call exists for TMDB to make here."""
+    try:
+        account = ExternalAccount.objects.select_related("profile").get(
+            profile_id=profile_id, provider=ExternalAccount.Provider.TMDB
+        )
+    except ExternalAccount.DoesNotExist:
+        logger.info("sync_tmdb_lists: profile %s has no TMDB account connected", profile_id)
+        return 0
+
+    api_key = instance_config.get_tmdb_api_key()
+
+    def fetch_and_upsert():
+        labels = []
+        lists_data = tmdb_account.fetch_lists(api_key, account.get_access_token(), account.tmdb_account_id)
+        created = tmdb_account.upsert_lists(account.profile, lists_data, labels_out=labels)
+        return created, labels
+
+    created = _run_sync(account.profile, ExternalAccount.Provider.TMDB, fetch_and_upsert)
+    account.last_synced_at = timezone.now()
+    account.save(update_fields=["last_synced_at"])
+    logger.info("sync_tmdb_lists: profile %s, %d items added", profile_id, created)
+    return created
+
+
+@shared_task
+def sync_mal_history(profile_id):
+    """Routine re-sync - same shape as sync_trakt_history above, but
+    always re-fetches the whole anime list (MAL's API has no
+    incremental "since" param the way Trakt's /sync/history does) and
+    splits the result between upsert_normalized_items (history) and
+    upsert_watchlist (plan_to_watch) - see myanimelist.normalize_items'
+    own docstring for why both read from the same normalized list
+    rather than two independent fetches."""
+    try:
+        account = ExternalAccount.objects.select_related("profile").get(
+            profile_id=profile_id, provider=ExternalAccount.Provider.MAL
+        )
+    except ExternalAccount.DoesNotExist:
+        logger.info("sync_mal_history: profile %s has no MyAnimeList account connected", profile_id)
+        return 0
+
+    client_id, client_secret = instance_config.get_mal_credentials()
+
+    def fetch_and_upsert():
+        labels = []
+        entries = myanimelist.fetch_anime_list(account.get_access_token())
+        history_items, watchlist_entry = myanimelist.normalize_items(entries)
+        created = myanimelist.upsert_normalized_items(account.profile, history_items, labels_out=labels)
+        created += myanimelist.upsert_watchlist(account.profile, watchlist_entry, labels_out=labels)
+        return created, labels
+
+    def do_sync():
+        return _call_with_refresh(account, myanimelist, client_id, client_secret, fetch_and_upsert)
+
+    created = _run_sync(account.profile, ExternalAccount.Provider.MAL, do_sync)
+    account.last_synced_at = timezone.now()
+    account.save(update_fields=["last_synced_at"])
+    logger.info("sync_mal_history: profile %s, %d items added", profile_id, created)
+    return created
+
+
 def _scan_trakt_session(session):
     """Fetches this profile's full Trakt history (same trakt.fetch_history
     call routine sync uses, including its own 401-triggers-a-refresh
@@ -414,6 +485,132 @@ def _scan_wetrakr_session(session):
     import_pipeline.scan_normalized_items(session, normalized)
 
 
+def _scan_tmdb_session(session):
+    """TMDB has no watched-history at all (see tracker/integrations/
+    tmdb_account.py's own module docstring) - first connect goes
+    straight to the lists-only review path IMDb/Letterboxd's own
+    watchlist-only scan already established (backup_lists/
+    backup_lists_data, see _scan_imdb_session below), with zero history
+    candidates ever produced - scan_normalized_items is still called
+    (with an empty list) so this session reaches READY the same way
+    every other source's scan does, not a special-cased shortcut."""
+    account = ExternalAccount.objects.select_related("profile").get(
+        profile=session.profile, provider=ExternalAccount.Provider.TMDB
+    )
+    api_key = instance_config.get_tmdb_api_key()
+    lists_data = tmdb_account.fetch_lists(api_key, account.get_access_token(), account.tmdb_account_id)
+    session.source_metadata = {
+        **session.source_metadata,
+        "backup_lists": backup.list_summary({"lists": lists_data}),
+        "backup_lists_data": lists_data,
+    }
+    session.save(update_fields=["source_metadata"])
+    import_pipeline.scan_normalized_items(session, [])
+
+
+def _scan_mal_session(session):
+    """First-connect scan - fetches the whole anime list (no
+    incremental fetch exists, same as sync_mal_history above) and
+    hands normalize_items' own history_items to the normal source-
+    agnostic scan_normalized_items, exactly like _scan_trakt_session.
+    Unlike Trakt, a MAL session can ALSO carry a plan_to_watch
+    watchlist, so this stashes backup_lists/backup_lists_data too when
+    there is one - same dual history-plus-lists shape
+    _scan_letterboxd_session already established for a source that can
+    produce both at once."""
+    account = ExternalAccount.objects.select_related("profile").get(
+        profile=session.profile, provider=ExternalAccount.Provider.MAL
+    )
+    client_id, client_secret = instance_config.get_mal_credentials()
+    entries = _call_with_refresh(
+        account, myanimelist, client_id, client_secret,
+        lambda: myanimelist.fetch_anime_list(account.get_access_token()),
+    )
+    history_items, watchlist_entry = myanimelist.normalize_items(entries)
+    if watchlist_entry is not None:
+        session.source_metadata = {
+            **session.source_metadata,
+            "backup_lists": backup.list_summary({"lists": [watchlist_entry]}),
+            "backup_lists_data": [watchlist_entry],
+        }
+        session.save(update_fields=["source_metadata"])
+    import_pipeline.scan_normalized_items(session, history_items)
+
+
+def _scan_imdb_session(session):
+    """IMDb CSV import has no live data behind it at all (see
+    tracker/imdb_import.py's own module docstring) - this just reads
+    back the file the upload view already validated and staged, using
+    the same "path on source_metadata" convention file sources use, so
+    scan_import_session's own cleanup (removes session.source_metadata
+    ["path"] once scanning is done) applies here for free. "imdb_kind"
+    (set by the upload view from imdb_import.detect_file_kind) picks
+    which of IMDb's two export shapes this session actually is - a
+    ratings export becomes real history candidates through the normal
+    scan_normalized_items path; a watchlist export has no watch event
+    in it at all, so it piggybacks on the exact same backup_lists/
+    backup_lists_data mechanism a Spool JSON backup's own lists use
+    (see import_pipeline.scan_file_import and _commit_candidates) -
+    scanned with zero normalized items, reviewed as "N lists restored"
+    instead of a history summary."""
+    path = session.source_metadata["path"]
+    kind = session.source_metadata.get("imdb_kind")
+    if kind == "watchlist":
+        with open(path, "rb") as f:
+            entry = imdb_import.parse_watchlist(f)
+        session.source_metadata = {
+            **session.source_metadata,
+            "backup_lists": backup.list_summary({"lists": [entry]}),
+            "backup_lists_data": [entry],
+        }
+        session.save(update_fields=["source_metadata"])
+        import_pipeline.scan_normalized_items(session, [])
+    else:
+        with open(path, "rb") as f:
+            normalized = imdb_import.parse_ratings(f)
+        import_pipeline.scan_normalized_items(session, normalized)
+
+
+def _scan_letterboxd_session(session):
+    """Letterboxd ZIP import - see tracker/letterboxd_import.py's own
+    module docstring. Unlike IMDb's two-separate-uploads shape, one
+    Letterboxd export zip can carry both watch history AND a watchlist
+    at once, so this session can end up with real history candidates
+    AND a lists-restore banner together - the review page already
+    supports showing both (built for a Spool backup's own JSON import
+    doing exactly the same thing)."""
+    path = session.source_metadata["path"]
+    normalized, watchlist_entry = letterboxd_import.parse_zip(path)
+    if watchlist_entry is not None:
+        session.source_metadata = {
+            **session.source_metadata,
+            "backup_lists": backup.list_summary({"lists": [watchlist_entry]}),
+            "backup_lists_data": [watchlist_entry],
+        }
+        session.save(update_fields=["source_metadata"])
+    import_pipeline.scan_normalized_items(session, normalized)
+
+
+def _scan_tvtime_session(session):
+    """TV Time Liberator CSV import - see tracker/tvtime_import.py's own
+    module docstring. Same dual history-plus-watchlist shape
+    _scan_letterboxd_session already established: episode/movie rows
+    become real history candidates, and any show/movie Liberator marks
+    as still-to-watch is stashed as a backup_lists/backup_lists_data
+    watchlist entry."""
+    path = session.source_metadata["path"]
+    with open(path, "rb") as f:
+        normalized, watchlist_entry = tvtime_import.parse_csv(f)
+    if watchlist_entry is not None:
+        session.source_metadata = {
+            **session.source_metadata,
+            "backup_lists": backup.list_summary({"lists": [watchlist_entry]}),
+            "backup_lists_data": [watchlist_entry],
+        }
+        session.save(update_fields=["source_metadata"])
+    import_pipeline.scan_normalized_items(session, normalized)
+
+
 # session.source values with a scan implementation wired in - dispatched
 # by scan_import_session below.
 SCAN_HANDLERS = {
@@ -421,6 +618,11 @@ SCAN_HANDLERS = {
     ImportSession.Source.SIMKL: _scan_simkl_session,
     ImportSession.Source.NUVIO: _scan_nuvio_session,
     ImportSession.Source.WETRAKR: _scan_wetrakr_session,
+    ImportSession.Source.TMDB: _scan_tmdb_session,
+    ImportSession.Source.MAL: _scan_mal_session,
+    ImportSession.Source.IMDB: _scan_imdb_session,
+    ImportSession.Source.LETTERBOXD: _scan_letterboxd_session,
+    ImportSession.Source.TVTIME: _scan_tvtime_session,
 }
 
 

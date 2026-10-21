@@ -8,6 +8,47 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.150.0] - 2026-10-21
+
+### Added
+
+- Import & Export can now bring in IMDb ratings/watchlist CSV exports and
+  Letterboxd ZIP exports (watched history, ratings and watchlist), with
+  no account connection or API key needed - just upload the file. IMDb
+  and Letterboxd titles match existing library titles via IMDb id or
+  fuzzy name+year, the same way every other import source does, so
+  re-importing or importing from a second source never creates
+  duplicates. IMDb ratings use the "Date Rated" as the watched date
+  (IMDb's export has no separate watched date) and skip anything without
+  episode-level data - individual TV episode ratings (no season/episode
+  number in the export) and whole-series ratings (Spool can only store a
+  rating against one specific episode) - with a clear explanation in the
+  Import Review list rather than a generic error. See
+  docs/IMPORTING.md for the full breakdown of what is and isn't
+  importable from each source.
+- TMDB can now be connected as an account, syncing favorites and
+  watchlist (movies and TV) the same way Trakt/Simkl/WeTrakr sync
+  history - TMDB has no watched-history data of its own, so this only
+  ever adds to lists, never creates watch events.
+- MyAnimeList can now be connected as an account, syncing your anime
+  list (status, score and episode progress) into watch history and the
+  Watchlist. MAL only reports a cumulative episodes-watched count per
+  show rather than which specific episodes, so Spool fills in the
+  earliest N episodes in season/episode order to match it.
+- Import & Export can now bring in a TV Time Liberator CSV export
+  (movies, episodes and followed shows) - TV Time itself shut down in
+  2026, so this is for migrating a historical export, not a live
+  connection. Shows still missing an episode are added to the
+  Watchlist; everything else matches by IMDb id or fuzzy name+year like
+  every other file-based import source.
+
+### Fixed
+
+- Settings -> Logs' "Connect" filter was missing WeTrakr, TMDB and
+  MyAnimeList connect events (only Trakt/Simkl/Nuvio were ever added to
+  it) - filtering logs to "Connect" now covers every provider that can
+  be connected.
+
 ## [0.149.0] - 2026-10-20
 
 ### Changed

@@ -2,7 +2,7 @@
 
 # Importing your data
 
-## Connecting Trakt / Simkl / WeTrakr / Nuvio
+## Connecting Trakt / Simkl / WeTrakr / Nuvio / TMDB / MyAnimeList
 
 ### Trakt / Simkl / WeTrakr
 
@@ -91,6 +91,54 @@ docs, and unverified against a live account from this environment. It
 could change or break without notice; a failed sync shows up in
 Settings & Import → Logs with whatever error the API actually returned.
 
+### TMDB
+
+TMDB works differently from Trakt/Simkl/WeTrakr above: there's no separate
+app/redirect URI to register at all. If `TMDB_API_KEY` is already set (the
+same key the Movies & TV / Anime / Calendar pages already use — see
+[Configuration](CONFIGURATION.md)), connecting your TMDB account from
+Settings & Import → Connect just works — TMDB's own auth flow takes a
+callback URL as a plain request parameter rather than a pre-registered one,
+so there's nothing to configure on themoviedb.org beyond the API key you
+probably already have.
+
+TMDB has no watched-history data of its own — only favorites and a
+watchlist (movies and TV). Connecting syncs both into Spool the same way a
+backup's own lists restore: new items are added, nothing already on a list
+is touched, and items already in your library are matched by TMDB id
+directly (no fuzzy matching needed, since every item already carries one).
+A daily background sync keeps both lists up to date afterward; the first
+connection reviews what's about to be added before anything's written, the
+same **Import Review** page every other source uses.
+
+### MyAnimeList
+
+1. Register an application at
+   [myanimelist.net/apiconfig](https://myanimelist.net/apiconfig).
+2. Set the app's redirect URI to exactly what Spool will send (see the
+   Trakt/Simkl/WeTrakr redirect URI notes above for the reverse-proxy vs.
+   direct-host distinction — it's `/import/mal/callback/` here).
+3. Put the client ID/secret in `.env` as `MAL_CLIENT_ID` / `MAL_CLIENT_SECRET`
+   and restart the web service: `docker compose up -d --force-recreate web`
+4. Settings & Import → Connect.
+
+MyAnimeList's anime list carries a status (watching/completed/on
+hold/dropped/plan to watch), a score, and a cumulative episodes-watched
+count — but not *which* episodes, unlike Trakt/Simkl. Spool fills in the
+earliest episodes in season/episode order up to that count, matched against
+TMDB; a show that can't be matched to a TMDB series at all is skipped rather
+than guessed at. "Plan to watch" goes on the Watchlist instead of becoming
+watch history. MAL's access tokens last an hour and refresh tokens a month —
+if a connection sits completely idle for longer than that, it'll need
+reconnecting.
+
+**Caveat:** same caveat as Nuvio above — MyAnimeList's own API documentation
+pages weren't reachable while building this (they returned an error to
+direct requests), so the OAuth flow and list-endpoint shape were built
+against third-party reference clients rather than the primary source. Do a
+small test sync first and spot-check a few titles before trusting a full
+import.
+
 ## Importing a CSV, JSON, or ZIP file
 
 Settings & Import → CSV file. Works with a `.csv`, `.json`, or `.zip` file
@@ -119,6 +167,55 @@ Titles are matched the same way Trakt/Simkl/WeTrakr/Nuvio's own sync
 matches them (provider id → TMDB id → fuzzy name/year → reuse across
 providers), so importing a title already pulled in via Trakt/Simkl/WeTrakr
 sync — or reviewing the same file twice — won't create duplicates.
+
+## Importing from IMDb, Letterboxd, or TV Time
+
+None of the three has a public API Spool can sync against, so these all
+work by uploading an export file you download yourself — same Import
+Review flow as above (nothing written until you confirm), just with
+dedicated buttons in Settings & Import since none of their formats are
+the generic CSV shape.
+
+**IMDb** — imdb.com/list/ratings for your ratings export, imdb.com/watchlist
+for your watchlist export; each has its own **Export** button. Upload
+either CSV under **Import & Export**'s IMDb card — which one it is gets
+detected from its columns automatically, no need to pick.
+
+IMDb's ratings export is the only "watched" signal it has at all — there's
+no separate watched-but-not-rated history to import, because IMDb doesn't
+track or export one. A rating's own "Date Rated" is used as the watched
+date (the closest thing available; it's when you rated it, not necessarily
+when you watched it). An individual episode rating is skipped, not guessed
+at — the export has no season/episode number to place it correctly.
+Watchlist rows go onto your Spool Watchlist, matched by their IMDb id when
+available for an accurate TMDB/poster match, name+year otherwise.
+
+**Letterboxd** — Settings → Import & Export → **Export your data**
+downloads one zip containing `watched.csv`, `ratings.csv`, `diary.csv` and
+`watchlist.csv`. Upload the whole zip under the Letterboxd card. `watched.csv`
+(real watch history — every film marked watched, rated or not) is merged
+with `ratings.csv` by title+year to attach a rating where one exists
+(Letterboxd's 0.5–5★ scale is doubled onto Spool's 1–10); `watchlist.csv`
+goes onto your Spool Watchlist. Letterboxd is films-only, so everything
+imports as a movie. None of Letterboxd's own export rows carry a stable,
+public film id (`Letterboxd URI` is a private per-account short link, not
+one), so matching is always by title+year — same fuzzy-match limitation a
+generic CSV import already has.
+
+**TV Time** — TV Time itself shut down on 2026-07-15, so this is for
+migrating a historical export, not an ongoing sync. TV Time never had its
+own data-export feature; the export comes from
+[Liberator](https://github.com/Hobo-Ware/tv-time-liberator), a third-party
+browser extension (add it, sign into TV Time, click its icon, download the
+CSV). Upload that CSV under the TV Time card.
+
+Liberator's export carries real per-episode watch history (exact season
+and episode numbers, not a guess) and per-movie/episode ratings, plus
+which shows and movies you're still mid-way through — those go onto your
+Spool Watchlist, the rest become History. Matched by IMDb id when the
+export has one for a row, name+year otherwise — Liberator also exports a
+TVDB id, but Spool has nothing to match a TVDB id against, so that column
+is unused.
 
 ## Posters
 

@@ -49,6 +49,17 @@ duplicated logic already did):
 
 from dataclasses import dataclass
 
+# provider_id for these two is whatever a user-uploaded file says it is -
+# nothing stops a CSV/zip row from claiming any id at all, unlike every
+# other provider here, whose id comes from that provider's own
+# authenticated API response for the exact item it says it is (just as
+# trustworthy as a tmdb_id given directly). Only for these two does
+# landing on an existing Title via a plain name+year fuzzy match - which
+# confirms nothing about provider_id itself - need the extra
+# resolved_via_direct_id gate below before trusting it enough to write
+# onto a Title every profile on the instance shares.
+_UNVERIFIED_FILE_PROVIDERS = {"imdb", "tvtime"}
+
 
 @dataclass
 class TitleMatch:
@@ -59,6 +70,7 @@ class TitleMatch:
     existing_title: object | None  # Title or None
     needs_provider_id_backfill: bool  # existing_title found but missing this provider's own id
     needs_tmdb_backfill: bool  # existing_title found but missing a tmdb id this match resolved
+    resolved_via_direct_id: bool  # match came from tmdb_id/imdb_id, not a name+year fuzzy guess
     tmdb_id: str | None
     tmdb_kind: str | None
     resolved_name: str
@@ -102,6 +114,12 @@ def resolve_title_match(
             existing_title=existing,
             needs_provider_id_backfill=False,
             needs_tmdb_backfill=bool(tmdb_id) and not existing.external_ids.get("tmdb"),
+            # This Title is already keyed by provider_id itself - under the
+            # invariant Step 4 below maintains (an unverified-file-provider's
+            # id is only ever written when actually confirmed), that could
+            # only have happened if it was verified at write time, so this
+            # shortcut doesn't need to re-verify anything to stay safe.
+            resolved_via_direct_id=True,
             tmdb_id=str(tmdb_id) if tmdb_id else existing.external_ids.get("tmdb"),
             tmdb_kind=tmdb_kind if tmdb_id else existing.external_ids.get("tmdb_kind"),
             resolved_name=existing.name,
@@ -173,8 +191,28 @@ def resolve_title_match(
         if existing:
             return TitleMatch(
                 existing_title=existing,
-                needs_provider_id_backfill=bool(provider_id) and existing.external_ids.get(provider) != str(provider_id),
+                # Only ever fills in a MISSING id, same as needs_tmdb_backfill
+                # above - never overwrites one that's already there. For
+                # IMDb/TV Time specifically (_UNVERIFIED_FILE_PROVIDERS),
+                # also requires this match to have actually verified
+                # provider_id against TMDB (resolved_via_direct_id - tmdb_id
+                # given directly, or imdb_id confirmed via find_by_imdb_id)
+                # rather than landing on this Title purely through a plain
+                # name+year fuzzy search, which confirms nothing about
+                # whether provider_id itself is even real - without this, one
+                # malformed/wrong-id row in an uploaded file could still get
+                # its unverified id permanently trusted onto a Title every
+                # profile on the instance shares. Every other provider here
+                # gets its id from that provider's own authenticated API for
+                # this exact item, just as trustworthy as a direct tmdb_id -
+                # no extra gate needed, same as before this id ever existed.
+                needs_provider_id_backfill=(
+                    bool(provider_id)
+                    and not existing.external_ids.get(provider)
+                    and (resolved_via_direct_id or provider not in _UNVERIFIED_FILE_PROVIDERS)
+                ),
                 needs_tmdb_backfill=False,
+                resolved_via_direct_id=resolved_via_direct_id,
                 tmdb_id=matched_tmdb_id,
                 tmdb_kind=matched_tmdb_kind,
                 resolved_name=existing.name,
@@ -189,6 +227,7 @@ def resolve_title_match(
         existing_title=None,
         needs_provider_id_backfill=False,
         needs_tmdb_backfill=False,
+        resolved_via_direct_id=resolved_via_direct_id,
         tmdb_id=matched_tmdb_id,
         tmdb_kind=matched_tmdb_kind,
         resolved_name=resolved_name,
@@ -232,7 +271,14 @@ def apply_title_match(
             title.save(update_fields=["external_ids"])
         return title
 
-    external_ids = {provider: str(provider_id)} if provider_id else {}
+    # Same unverified-file-provider gate as the cross-provider-reuse
+    # backfill above - a brand new Title is "shared data" too (the next
+    # import, possibly from a different profile, trusts Step 1's exact-id
+    # shortcut above it without re-verifying anything), so IMDb/TV Time's
+    # own id only ever gets attached when this match actually confirmed
+    # it against TMDB, never from a bare, unconfirmed file row.
+    store_provider_id = provider_id and (match.resolved_via_direct_id or provider not in _UNVERIFIED_FILE_PROVIDERS)
+    external_ids = {provider: str(provider_id)} if store_provider_id else {}
     if match.tmdb_id:
         external_ids["tmdb"] = match.tmdb_id
         external_ids["tmdb_kind"] = match.tmdb_kind

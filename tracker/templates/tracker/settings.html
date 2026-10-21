@@ -513,6 +513,50 @@
 
         <div class="surface p-5">
           <div class="flex items-start gap-4">
+            <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none {% if "tmdb" in connected_providers or tmdb_configured %}text-tmdb{% else %}grayscale text-ink-faint{% endif %}" aria-hidden="true">{% icon "tmdb" "w-7 h-7" %}</div>
+            <div class="min-w-0 flex-1">
+              <div class="font-semibold text-[15px]">TMDB</div>
+              <div class="text-[13px] text-ink-dim mt-0.5">Sync favorites &amp; watchlist (movies &amp; TV)</div>
+            </div>
+            {% if "tmdb" in connected_providers %}
+              <span class="chip chip-success flex-none">&#10003; Connected</span>
+            {% elif tmdb_configured %}
+              <a href="{% url 'tmdb_connect' %}" class="btn btn-sm btn-primary flex-none">Connect</a>
+            {% else %}
+              <button type="button" disabled data-tooltip="Ask your server owner to set this up first" class="btn btn-sm btn-disabled spool-tooltip flex-none">Connect</button>
+            {% endif %}
+          </div>
+          {% if "tmdb" in connected_providers %}
+            <div class="sm:pl-14">{% include "tracker/partials/sync_schedule_form.html" with provider="tmdb" account=external_accounts.tmdb %}</div>
+          {% elif not tmdb_configured %}
+            <div class="text-[13px] text-ink-faint mt-3 sm:pl-14">Not available yet - ask your server owner to set up a TMDB API key first.</div>
+          {% endif %}
+        </div>
+
+        <div class="surface p-5">
+          <div class="flex items-start gap-4">
+            <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none {% if "mal" in connected_providers or mal_configured %}text-mal{% else %}grayscale text-ink-faint{% endif %}" aria-hidden="true">{% icon "myanimelist" "w-7 h-7" %}</div>
+            <div class="min-w-0 flex-1">
+              <div class="font-semibold text-[15px]">MyAnimeList</div>
+              <div class="text-[13px] text-ink-dim mt-0.5">Sync anime list, progress &amp; ratings</div>
+            </div>
+            {% if "mal" in connected_providers %}
+              <span class="chip chip-success flex-none">&#10003; Connected</span>
+            {% elif mal_configured %}
+              <a href="{% url 'mal_connect' %}" class="btn btn-sm btn-primary flex-none">Connect</a>
+            {% else %}
+              <button type="button" disabled data-tooltip="Ask your server owner to set this up first" class="btn btn-sm btn-disabled spool-tooltip flex-none">Connect</button>
+            {% endif %}
+          </div>
+          {% if "mal" in connected_providers %}
+            <div class="sm:pl-14">{% include "tracker/partials/sync_schedule_form.html" with provider="mal" account=external_accounts.mal %}</div>
+          {% elif not mal_configured %}
+            <div class="text-[13px] text-ink-faint mt-3 sm:pl-14">Not available yet - ask your server owner to set up MyAnimeList first.</div>
+          {% endif %}
+        </div>
+
+        <div class="surface p-5">
+          <div class="flex items-start gap-4">
             <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none" aria-hidden="true">{% icon "nuvio" "w-7 h-7" %}</div>
             <div class="min-w-0 flex-1">
               <div class="font-semibold text-[15px]">Nuvio</div>
@@ -604,19 +648,19 @@
             {% include "tracker/partials/import_source_card.html" with icon="trakt" icon_color="text-trakt" title="Trakt" subtitle="Watch history, ratings & lists" provider="trakt" configured=trakt_configured connect_url_name="trakt_connect" upload_label="Upload Trakt ZIP" upload_accept=".zip,.csv" %}
             {% include "tracker/partials/import_source_card.html" with icon="simkl" icon_color="text-simkl" title="Simkl" subtitle="Movies, TV & anime, with drop states" provider="simkl" configured=simkl_configured connect_url_name="simkl_connect" upload_label="Upload VIP Export" upload_accept=".zip,.csv" %}
             {% include "tracker/partials/import_source_card.html" with icon="wetrakr" title="WeTrakr" subtitle="Watch history & ratings" provider="wetrakr" configured=wetrakr_configured connect_url_name="wetrakr_connect" %}
+            {% include "tracker/partials/import_source_card.html" with icon="tmdb" icon_color="text-tmdb" title="TMDB" subtitle="Favorites & watchlist sync" provider="tmdb" configured=tmdb_configured connect_url_name="tmdb_connect" %}
+            {% include "tracker/partials/import_source_card.html" with icon="myanimelist" icon_color="text-mal" title="MyAnimeList" subtitle="Anime list, progress & ratings" provider="mal" configured=mal_configured connect_url_name="mal_connect" %}
             {% include "tracker/partials/import_source_card.html" with icon="nuvio" title="Nuvio" subtitle="History & continue-watching progress" provider="nuvio" nuvio=True configured=True connected=nuvio_connection %}
-            {% include "tracker/partials/import_source_card.html" with icon="download" title="Spool Native Backup" subtitle="Restore a full Spool backup JSON" upload_label="Restore Database" upload_accept=".json" always_available=True %}
-            {% include "tracker/partials/import_source_card.html" with icon="upload" title="Other Tracker" subtitle="Any other CSV, JSON, or ZIP export" upload_label="Upload File" upload_accept=".csv,.json,.zip" always_available=True %}
+            {% include "tracker/partials/import_source_card.html" with icon="imdb" icon_color="text-imdb" title="IMDb" subtitle="Ratings & watchlist only — IMDb has no watch-history export" upload_label="Upload IMDb CSV" upload_accept=".csv" upload_url_name="import_imdb" always_available=True %}
+            {% include "tracker/partials/import_source_card.html" with icon="letterboxd" icon_color="text-letterboxd" title="Letterboxd" subtitle="Watched films, ratings & watchlist" upload_label="Upload Letterboxd ZIP" upload_accept=".zip" upload_url_name="import_letterboxd" always_available=True %}
+            {% include "tracker/partials/import_source_card.html" with icon="tv-time" icon_color="text-tvtime" title="TV Time" subtitle="Liberator export — watched history & watchlist" upload_label="Upload Liberator CSV" upload_accept=".csv" upload_url_name="import_tvtime" always_available=True %}
+            {% include "tracker/partials/import_source_card.html" with icon="download" title="Spool Native Backup" subtitle="Restore a full Spool backup JSON" upload_label="Restore Database" upload_accept=".json" upload_url_name="import_csv" always_available=True %}
+            {% include "tracker/partials/import_source_card.html" with icon="upload" title="Other Tracker" subtitle="Any other CSV, JSON, or ZIP export" upload_label="Upload File" upload_accept=".csv,.json,.zip" upload_url_name="import_csv" always_available=True %}
           </div>
 
           <div class="text-[12.5px] text-ink-faint mt-5 mb-2">Coming soon</div>
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {% include "tracker/partials/import_source_card.html" with icon="tmdb" icon_color="text-tmdb" title="TMDB" subtitle="Favorites & watchlist sync" coming_soon=True %}
-            {% include "tracker/partials/import_source_card.html" with icon="imdb" icon_color="text-imdb" title="IMDb" subtitle="Ratings & watchlist CSV" coming_soon=True %}
-            {% include "tracker/partials/import_source_card.html" with icon="letterboxd" icon_color="text-letterboxd" title="Letterboxd" subtitle="Watched films, diary & ratings" coming_soon=True %}
             {% include "tracker/partials/import_source_card.html" with icon="mdblist" icon_color="text-mdblist" title="MDBList" subtitle="Dynamic lists & collections" coming_soon=True %}
-            {% include "tracker/partials/import_source_card.html" with icon="tv-time" icon_color="text-tvtime" title="TV Time" subtitle="Liberator / browser export" coming_soon=True %}
-            {% include "tracker/partials/import_source_card.html" with icon="myanimelist" icon_color="text-mal" title="MyAnimeList" subtitle="Anime list & ratings" coming_soon=True %}
           </div>
         </div>
 
@@ -705,6 +749,19 @@
               <div class="text-xs text-ink-dim">Disconnects WeTrakr and removes watch history for titles matched via WeTrakr.</div>
             </div>
             <form method="post" action="{% url 'disconnect_and_wipe_provider' 'wetrakr' %}" onsubmit="return confirm('Disconnect WeTrakr and remove watch history for titles matched via WeTrakr? This is permanent.');">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm bg-error/10 text-error border-none hover:bg-error/20 flex-none whitespace-nowrap">Disconnect &amp; wipe</button>
+            </form>
+          </div>
+        {% endif %}
+
+        {% if "mal" in connected_providers %}
+          <div class="flex flex-wrap justify-between items-center gap-2 py-3.5 border-b border-error/20">
+            <div>
+              <div class="font-semibold text-[13.5px]">Disconnect &amp; wipe MyAnimeList</div>
+              <div class="text-xs text-ink-dim">Disconnects MyAnimeList and removes watch history for titles matched via MyAnimeList.</div>
+            </div>
+            <form method="post" action="{% url 'disconnect_and_wipe_provider' 'mal' %}" onsubmit="return confirm('Disconnect MyAnimeList and remove watch history for titles matched via MyAnimeList? This is permanent.');">
               {% csrf_token %}
               <button type="submit" class="btn btn-sm bg-error/10 text-error border-none hover:bg-error/20 flex-none whitespace-nowrap">Disconnect &amp; wipe</button>
             </form>
@@ -824,7 +881,7 @@
         {# ==================== ADMIN: SERVER INTEGRATIONS ==================== #}
         <div
           x-show="tab === 'server_integrations'" x-cloak
-          x-data="{ showTraktSecret: false, showSimklSecret: false, showWetrakrSecret: false, showTmdb: false, showMdblist: false, showSsoSecret: false, showGoogleSecret: false, showDropboxSecret: false }"
+          x-data="{ showTraktSecret: false, showSimklSecret: false, showWetrakrSecret: false, showMalSecret: false, showTmdb: false, showMdblist: false, showSsoSecret: false, showGoogleSecret: false, showDropboxSecret: false }"
           class="flex flex-col gap-4 max-w-3xl min-w-0"
         >
           <div class="mb-1">
@@ -1006,6 +1063,45 @@
                 <button
                   type="submit" formaction="{% url 'test_provider_credentials' 'wetrakr' %}"
                   data-tooltip="Makes a live request to WeTrakr using the values above (without saving them) - only confirms the client ID is live, since WeTrakr doesn't check the secret outside the OAuth flow"
+                  class="btn btn-sm btn-soft shrink-0 spool-tooltip"
+                >Test</button>
+                </div>
+              </div>
+            </div>
+        </div>
+
+        <div class="surface p-5">
+          <div class="flex items-start gap-4 mb-4">
+            <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none text-mal">{% icon "myanimelist" "w-7 h-7" %}</div>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <h3 class="font-semibold text-[15px]">MyAnimeList</h3>
+                {% if mal_configured %}<span class="chip chip-success">&#10003; configured</span>{% else %}<span class="chip">not configured</span>{% endif %}
+              </div>
+              <div class="text-[13px] text-ink-dim mt-0.5">Lets profiles connect their MyAnimeList account to import and sync their anime list.</div>
+            </div>
+            {% if mal_configured %}
+              <button type="submit" formaction="{% url 'clear_instance_config_field' 'mal' %}" onclick="return confirm('Clear the stored MyAnimeList client ID and secret? Spool will fall back to the server .env values, if any.');" class="text-[12px] text-ink-faint hover:text-error underline flex-none">Clear</button>
+            {% endif %}
+          </div>
+            <div class="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs text-ink-dim mb-1" for="si-mal_client_id">Client ID</label>
+                <input type="text" id="si-mal_client_id" name="mal_client_id" value="{{ integration_field_values.mal_client_id|default:'' }}" @keydown.enter.prevent placeholder="{% if mal_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono">
+              </div>
+              <div>
+                <label class="block text-xs text-ink-dim mb-1" for="si-mal_client_secret">Client secret</label>
+                <div class="flex gap-1.5">
+                <div class="relative flex-1 min-w-0">
+                  <input :type="showMalSecret ? 'text' : 'password'" id="si-mal_client_secret" name="mal_client_secret" value="{{ integration_field_values.mal_client_secret|default:'' }}" @keydown.enter.prevent placeholder="{% if mal_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
+                  <button type="button" @click="showMalSecret = !showMalSecret" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                    <span x-show="!showMalSecret">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                    <span x-show="showMalSecret" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                  </button>
+                </div>
+                <button
+                  type="submit" formaction="{% url 'test_provider_credentials' 'mal' %}"
+                  data-tooltip="Makes a live request to MyAnimeList using the values above (without saving them) - only confirms the client ID is live, since MyAnimeList only checks the secret during the OAuth flow"
                   class="btn btn-sm btn-soft shrink-0 spool-tooltip"
                 >Test</button>
                 </div>

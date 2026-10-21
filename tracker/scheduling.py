@@ -13,6 +13,8 @@ _TASK_NAME = {
     ExternalAccount.Provider.SIMKL: "tracker.tasks.sync_simkl_history",
     ExternalAccount.Provider.NUVIO: "tracker.tasks.sync_nuvio_history",
     ExternalAccount.Provider.WETRAKR: "tracker.tasks.sync_wetrakr_history",
+    ExternalAccount.Provider.TMDB: "tracker.tasks.sync_tmdb_lists",
+    ExternalAccount.Provider.MAL: "tracker.tasks.sync_mal_history",
 }
 
 

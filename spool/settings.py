@@ -321,6 +321,8 @@ SIMKL_CLIENT_ID = env("SIMKL_CLIENT_ID", default="")
 SIMKL_CLIENT_SECRET = env("SIMKL_CLIENT_SECRET", default="")
 WETRAKR_CLIENT_ID = env("WETRAKR_CLIENT_ID", default="")
 WETRAKR_CLIENT_SECRET = env("WETRAKR_CLIENT_SECRET", default="")
+MAL_CLIENT_ID = env("MAL_CLIENT_ID", default="")
+MAL_CLIENT_SECRET = env("MAL_CLIENT_SECRET", default="")
 TMDB_API_KEY = env("TMDB_API_KEY", default="")
 MDBLIST_API_KEY = env("MDBLIST_API_KEY", default="")
 

@@ -418,7 +418,7 @@ def parse_file(path, kind, mapping=None, limit=None):
     return parse_zip_file(path, limit=limit)
 
 
-def _get_or_create_title(media_type, name, year, trakt_id=None, tmdb_id=None, tmdb_kind=None):
+def _get_or_create_title(media_type, name, year, trakt_id=None, tmdb_id=None, tmdb_kind=None, imdb_id=None):
     """trakt_id/tmdb_id: present for rows sourced from Trakt-shaped
     JSON/zip imports - Trakt's own ids.trakt/ids.tmdb (see
     _row_from_trakt_item). tmdb_id is checked first (same
@@ -432,8 +432,12 @@ def _get_or_create_title(media_type, name, year, trakt_id=None, tmdb_id=None, tm
     found via trakt_id or the name/year fallback that's missing a tmdb
     link gets backfilled with this row's tmdb_id too, same resync-
     backfills-missing-data pattern nuvio.py's upsert_history_items uses
-    for its own source marker. CSV rows and generic JSON rows carry
-    neither id (see module docstring)."""
+    for its own source marker. imdb_id: an IMDb "tt..." const, present
+    for IMDb-sourced watchlist rows (see tracker/imdb_import.py) -
+    tried via tmdb.find_by_imdb_id only when no tmdb_id was already
+    resolved, same priority order title_matching.resolve_title_match
+    uses for history rows. Plain CSV rows and generic JSON rows carry
+    none of these (see module docstring)."""
     from tracker.media_kinds import tmdb_kind_for
 
     # tmdb_kind: "movie" for an anime film (see tracker/media_kinds.py).
@@ -445,6 +449,16 @@ def _get_or_create_title(media_type, name, year, trakt_id=None, tmdb_id=None, tm
                 title.external_ids = {**title.external_ids, "trakt": str(trakt_id)}
                 title.save(update_fields=["external_ids"])
             return title
+    if not tmdb_id and imdb_id:
+        from tracker.integrations import tmdb as tmdb_integration
+
+        search_type = MediaType.MOVIE if kind == "movie" else media_type
+        found = tmdb_integration.find_by_imdb_id(imdb_id, search_type)
+        if found:
+            tmdb_id, kind = found["id"], found["kind"]
+            title = Title.objects.filter(external_ids__tmdb=str(tmdb_id), external_ids__tmdb_kind=kind).first()
+            if title:
+                return title
     if trakt_id:
         # Not filtered by media_type - see the tmdb_id lookup above/
         # nuvio.py's own _get_or_create_title docstring for why a title

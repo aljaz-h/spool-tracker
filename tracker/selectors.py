@@ -131,7 +131,18 @@ def invalidate_profile_stats_cache(profile_id):
 # the panel shows one "Connect" option, not three.
 LOG_ACTION_TYPES = [
     ("sync", "Sync", None),
-    ("connect", "Connect", [DataLog.Action.TRAKT_CONNECT, DataLog.Action.SIMKL_CONNECT, DataLog.Action.NUVIO_CONNECT]),
+    (
+        "connect",
+        "Connect",
+        [
+            DataLog.Action.TRAKT_CONNECT,
+            DataLog.Action.SIMKL_CONNECT,
+            DataLog.Action.NUVIO_CONNECT,
+            DataLog.Action.WETRAKR_CONNECT,
+            DataLog.Action.TMDB_CONNECT,
+            DataLog.Action.MAL_CONNECT,
+        ],
+    ),
     ("disconnect", "Disconnect", [DataLog.Action.DISCONNECT]),
     ("import", "Import", [DataLog.Action.IMPORT]),
     ("export", "Export", [DataLog.Action.EXPORT]),

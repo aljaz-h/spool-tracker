@@ -2,12 +2,11 @@
 {% comment %}
   context: (icon, or monogram) + title, subtitle, and one of:
   - coming_soon=True - greyed out, non-interactive.
-  - always_available=True + upload_label/upload_accept - just a file upload (Spool backup, generic CSV/JSON/ZIP).
+  - always_available=True + upload_label/upload_accept/upload_url_name - just a file upload (Spool backup and generic CSV/JSON/ZIP both post to import_csv's auto-detecting endpoint; IMDb/Letterboxd have their own dedicated endpoints - see tracker/imdb_import.py and tracker/letterboxd_import.py for why their formats need real parsing instead).
   - provider + configured + connect_url_name (+ optional upload_label/upload_accept) - OAuth connect, optionally with a file upload too (Trakt/Simkl/WeTrakr).
   - nuvio=True + connected - Nuvio's email/password connect form instead of OAuth.
   icon_color is the provider's real brand color token (e.g. "text-trakt") - every provider here has a vendored vector mark, monogram is only the fallback for one with neither (none currently).
   Same visual language as the Connected Apps tab's provider rows (surface card, w-10 h-10 badge, text-[15px] title).
-  Reuses the same generic {% url 'import_csv' %} endpoint every upload button already posts to - the backend auto-detects the file's format, these buttons just pick which extensions to suggest and what to call the action.
 {% endcomment %}
 <div class="{% if coming_soon %}rounded-xl bg-base-100 border border-line p-4 opacity-50{% else %}surface p-5{% endif %}">
   <div class="flex items-start gap-4">
@@ -59,7 +58,7 @@
             <div class="text-[12px] text-ink-faint mt-2">Not available yet &mdash; ask your server owner to set up {{ title }} first.</div>
           {% endif %}
         {% elif always_available %}
-          <form method="post" action="{% url 'import_csv' %}" enctype="multipart/form-data" class="flex flex-wrap items-center gap-2 mt-3" x-data="{ fileName: null }">
+          <form method="post" action="{% url upload_url_name %}" enctype="multipart/form-data" class="flex flex-wrap items-center gap-2 mt-3" x-data="{ fileName: null }">
             {% csrf_token %}
             <label class="flex-1 min-w-[10rem] flex items-stretch h-8 rounded-lg border border-line bg-base-100 overflow-hidden cursor-pointer hover:border-primary transition-colors">
               <span class="flex items-center px-3 text-xs font-semibold bg-base-300 text-ink-dim flex-none">Choose File</span>

@@ -19,10 +19,10 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
-from . import achievements, completion, crypto, csv_import, episode_matching, import_pipeline, instance_config, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, title_matching, totp, update_check, views
+from . import achievements, completion, crypto, csv_import, episode_matching, imdb_import, import_pipeline, instance_config, letterboxd_import, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, title_matching, totp, tvtime_import, update_check, views
 from django.utils import timezone as _tz
 from .watchlists import ensure_watchlist
-from .integrations import anifiller, mdblist, nuvio, scrobble, simkl, tenrai, tmdb, trakt, wetrakr
+from .integrations import anifiller, mdblist, myanimelist, nuvio, scrobble, simkl, tenrai, tmdb, tmdb_account, trakt, wetrakr
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
@@ -6274,6 +6274,47 @@ class TitleMatchingResolveTests(TestCase):
         self.assertEqual(match.existing_title.pk, existing.pk)
         self.assertFalse(match.needs_provider_id_backfill)
 
+    def test_cross_provider_reuse_never_overwrites_an_already_stored_provider_id(self):
+        # Security regression: provider_id for imdb/tvtime comes straight
+        # from an uploaded file, resolved to this Title only via a plain
+        # name+year fuzzy match (no verification that THIS id belongs to
+        # THIS title) - a mismatched id must never clobber one a previous,
+        # independently-verified import already stored, or one upload
+        # could silently poison a Title every profile on the instance
+        # shares. Only a genuinely MISSING id is ever backfilled (see
+        # needs_tmdb_backfill's identical "only if missing" rule above).
+        existing = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Already Tracked", year=2020,
+            external_ids={"imdb": "tt0133093", "tmdb": "100", "tmdb_kind": "movie"},
+        )
+        with patch("tracker.integrations.tmdb.get_full_details", return_value=None):
+            match = title_matching.resolve_title_match(MediaType.MOVIE, "imdb", "tt9999999", tmdb_id=100)
+        self.assertEqual(match.existing_title.pk, existing.pk)
+        self.assertFalse(match.needs_provider_id_backfill)
+        existing.refresh_from_db()
+        self.assertEqual(existing.external_ids["imdb"], "tt0133093")  # untouched
+
+    def test_cross_provider_reuse_via_fuzzy_match_never_backfills_an_unverified_id(self):
+        # Security regression: landing on an existing Title through a
+        # plain name+year fuzzy search (no id-based verification at all)
+        # must not be enough to trust provider_id, even when that Title
+        # currently has no id for this provider at all - find_match only
+        # confirms the NAME matched, nothing about whether provider_id
+        # itself is real. Only a match resolved via a direct id (tmdb_id
+        # given, or imdb_id confirmed through find_by_imdb_id) verifies
+        # provider_id enough to write it onto a Title every profile shares.
+        existing = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fuzzy Matched", year=2020,
+            external_ids={"tmdb": "100", "tmdb_kind": "movie"},
+        )
+        with patch("tracker.integrations.tmdb.find_match", return_value={"id": 100, "kind": "movie", "poster_url": None}):
+            with patch("tracker.integrations.tmdb.get_full_details", return_value=None):
+                match = title_matching.resolve_title_match(
+                    MediaType.MOVIE, "imdb", "tt_unverified", name="Fuzzy Matched", year=2020
+                )
+        self.assertEqual(match.existing_title.pk, existing.pk)
+        self.assertFalse(match.needs_provider_id_backfill)
+
 
 class ApplyTitleMatchTests(TestCase):
     """title_matching.apply_title_match() - the write-performing wrapper
@@ -6284,6 +6325,31 @@ class ApplyTitleMatchTests(TestCase):
             title = title_matching.apply_title_match(MediaType.MOVIE, "trakt", "1", name="New Movie", year=2020)
         self.assertEqual(title.name, "New Movie")
         self.assertEqual(title.external_ids, {"trakt": "1"})
+
+    def test_new_title_from_an_unverified_file_provider_via_fuzzy_match_gets_no_provider_id(self):
+        # Security regression: an IMDb/TV Time row whose own claimed id
+        # was never actually confirmed by TMDB (a fuzzy name+year search,
+        # not find_by_imdb_id) must not get that id attached to the Title
+        # it creates - that stored id becomes a trusted shortcut for every
+        # FUTURE import (resolve_title_match's Step 1), so an unconfirmed
+        # id written here could make a later, unrelated upload wrongly
+        # match onto this Title. The resolved tmdb id (which Spool's own
+        # search genuinely did confirm) is kept either way.
+        with patch("tracker.integrations.tmdb.find_match", return_value={"id": 55, "kind": "movie", "poster_url": None}):
+            with patch("tracker.integrations.tmdb.get_full_details", return_value=None):
+                title = title_matching.apply_title_match(MediaType.MOVIE, "imdb", "tt_unverified", name="Some Movie", year=2020)
+        self.assertEqual(title.external_ids, {"tmdb": "55", "tmdb_kind": "movie"})
+        self.assertNotIn("imdb", title.external_ids)
+
+    def test_new_title_from_an_unverified_file_provider_via_direct_id_keeps_the_id(self):
+        # The safe counterpart - imdb_id confirmed via find_by_imdb_id
+        # (resolved_via_direct_id=True) is trustworthy enough to keep.
+        with patch("tracker.integrations.tmdb.find_by_imdb_id", return_value={"id": 55, "kind": "movie", "poster_url": None}):
+            with patch("tracker.integrations.tmdb.get_full_details", return_value=None):
+                title = title_matching.apply_title_match(
+                    MediaType.MOVIE, "imdb", "tt0133093", name="The Matrix", year=1999, imdb_id="tt0133093"
+                )
+        self.assertEqual(title.external_ids["imdb"], "tt0133093")
 
     def test_backfills_a_missing_tmdb_id_onto_an_existing_title(self):
         existing = Title.objects.create(media_type=MediaType.MOVIE, name="Backfill Me", year=2020, external_ids={"trakt": "5"})
@@ -26737,3 +26803,1342 @@ class WebDAVAddressCheckTests(TestCase):
             thread.join(timeout=5)
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(received["host_header"], f"spool-tracker-does-not-exist.invalid:{port}")
+
+
+class ImdbImportParsingTests(TestCase):
+    """imdb_import.detect_file_kind/parse_ratings/parse_watchlist - pure
+    parsing, no DB/network involved. Column names and sample values are
+    taken from real IMDb ratings.csv/watchlist.csv exports."""
+
+    RATINGS_HEADER = "Const,Your Rating,Date Rated,Title,Original Title,URL,Title Type,IMDb Rating,Runtime (mins),Year,Genres,Num Votes,Release Date,Directors"
+    WATCHLIST_HEADER = "Position,Const,Created,Modified,Description,Title,Original Title,URL,Title Type,IMDb Rating,Runtime (mins),Year,Genres,Num Votes,Release Date,Directors,Your Rating,Date Rated"
+
+    def _file(self, text):
+        return io.BytesIO(text.encode())
+
+    def test_detect_file_kind(self):
+        self.assertEqual(imdb_import.detect_file_kind(self.RATINGS_HEADER.split(",")), "ratings")
+        self.assertEqual(imdb_import.detect_file_kind(self.WATCHLIST_HEADER.split(",")), "watchlist")
+        self.assertIsNone(imdb_import.detect_file_kind(["Title", "Year"]))
+
+    def test_movie_rating_row(self):
+        text = self.RATINGS_HEADER + '\ntt35538033,9,2026-09-18,"Resident Evil","Resident Evil",https://www.imdb.com/title/tt35538033,Movie,7.6,94,2026,"Horror",111578,"2026-09-18","Zach Cregger"\n'
+        rows = imdb_import.parse_ratings(self._file(text))
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertIsNone(row["error"])
+        self.assertEqual(row["media_type"], MediaType.MOVIE)
+        self.assertEqual(row["title_name"], "Resident Evil")
+        self.assertEqual(row["year"], 2026)
+        self.assertEqual(row["rating"], 9)
+        self.assertEqual(row["watched_at"].date().isoformat(), "2026-09-18")
+        self.assertEqual(row["source_external_ids"], {"imdb": "tt35538033"})
+
+    def test_tv_series_rating_is_an_explained_error_not_a_history_item(self):
+        # A WatchEvent needs a specific episode - IMDb's rating is for
+        # the whole series, so there's nowhere in Spool's model to put
+        # it (see imdb_import.py's own docstring).
+        text = self.RATINGS_HEADER + '\ntt26545992,7,2026-08-16,"Lanterns","Lanterns",https://www.imdb.com/title/tt26545992,TV Series,7.8,60,2026,"Drama",81787,"2026-08-16",\n'
+        rows = imdb_import.parse_ratings(self._file(text))
+        self.assertEqual(len(rows), 1)
+        self.assertIsNotNone(rows[0]["error"])
+        self.assertIn("whole TV series", rows[0]["error"])
+
+    def test_tv_episode_type_is_skipped_with_a_clear_reason(self):
+        text = self.RATINGS_HEADER + '\ntt1,8,2026-01-01,"Some Episode","Some Episode",https://x,TV Episode,8.0,45,2026,"Drama",100,"2026-01-01",\n'
+        rows = imdb_import.parse_ratings(self._file(text))
+        self.assertIsNotNone(rows[0]["error"])
+        self.assertIn("isn't supported", rows[0]["error"])
+
+    def test_missing_rating_is_an_error(self):
+        text = self.RATINGS_HEADER + '\ntt1,,2026-01-01,"No Rating","No Rating",https://x,Movie,8.0,100,2026,"Drama",100,"2026-01-01",\n'
+        rows = imdb_import.parse_ratings(self._file(text))
+        self.assertEqual(rows[0]["error"], "no rating on this row")
+
+    def test_unparseable_date_is_an_error(self):
+        text = self.RATINGS_HEADER + '\ntt1,8,not-a-date,"Bad Date","Bad Date",https://x,Movie,8.0,100,2026,"Drama",100,"2026-01-01",\n'
+        rows = imdb_import.parse_ratings(self._file(text))
+        self.assertIsNotNone(rows[0]["error"])
+
+    def test_watchlist_items_carry_position_and_imdb_id(self):
+        text = (
+            self.WATCHLIST_HEADER
+            + '\n1,tt0068646,2026-10-21,2026-10-21,,"The Godfather","The Godfather",https://x,Movie,9.2,175,1972,"Crime",2266836,1972-03-24,"Coppola",,\n'
+            + '2,tt0071562,2026-10-21,2026-10-21,,"The Godfather Part II","The Godfather Part II",https://x,Movie,9.0,202,1974,"Crime",1520269,1974-12-18,"Coppola",,\n'
+        )
+        entry = imdb_import.parse_watchlist(self._file(text))
+        self.assertTrue(entry["is_watchlist"])
+        self.assertEqual(len(entry["items"]), 2)
+        first = entry["items"][0]
+        self.assertEqual(first["title"], "The Godfather")
+        self.assertEqual(first["year"], 1972)
+        self.assertEqual(first["position"], 1)
+        self.assertEqual(first["ids"], {"imdb": "tt0068646"})
+        self.assertEqual(first["media_type"], MediaType.MOVIE)
+
+    def test_watchlist_skips_unsupported_title_types_silently(self):
+        text = (
+            self.WATCHLIST_HEADER
+            + '\n1,tt1,2026-01-01,2026-01-01,,"Some Episode","Some Episode",https://x,TV Episode,8.0,45,2026,"Drama",100,"2026-01-01","",,\n'
+        )
+        entry = imdb_import.parse_watchlist(self._file(text))
+        self.assertEqual(entry["items"], [])
+
+
+class LetterboxdImportParsingTests(TestCase):
+    """letterboxd_import.parse_zip - merging watched.csv with ratings.csv
+    by (name, year), and watchlist.csv into a restore_lists-shaped list.
+    Column names/sample values are taken from a real Letterboxd export."""
+
+    def _zip(self, files):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            for name, content in files.items():
+                zf.writestr(name, content)
+        path = tempfile.NamedTemporaryFile(suffix=".zip", delete=False).name
+        with open(path, "wb") as f:
+            f.write(buf.getvalue())
+        return path
+
+    def test_watched_merged_with_rating(self):
+        path = self._zip(
+            {
+                "watched.csv": "Date,Name,Year,Letterboxd URI\n2026-10-22,Resident Evil,2026,https://boxd.it/x\n",
+                "ratings.csv": "Date,Name,Year,Letterboxd URI,Rating\n2026-10-22,Resident Evil,2026,https://boxd.it/x,4\n",
+            }
+        )
+        normalized, watchlist_entry = letterboxd_import.parse_zip(path)
+        self.assertIsNone(watchlist_entry)
+        self.assertEqual(len(normalized), 1)
+        row = normalized[0]
+        self.assertIsNone(row["error"])
+        self.assertEqual(row["media_type"], MediaType.MOVIE)
+        self.assertEqual(row["title_name"], "Resident Evil")
+        self.assertEqual(row["year"], 2026)
+        self.assertEqual(row["rating"], 8)  # 4 stars * 2 = Spool's 1-10 scale
+        self.assertEqual(row["watched_at"].date().isoformat(), "2026-10-22")
+
+    def test_watched_without_a_rating_has_no_rating(self):
+        path = self._zip(
+            {
+                "watched.csv": "Date,Name,Year,Letterboxd URI\n2026-10-22,Other Mommy,2026,https://boxd.it/x\n",
+                "ratings.csv": "Date,Name,Year,Letterboxd URI,Rating\n",
+            }
+        )
+        normalized, _ = letterboxd_import.parse_zip(path)
+        self.assertIsNone(normalized[0]["rating"])
+
+    def test_half_star_rating_rounds_to_a_whole_spool_rating(self):
+        path = self._zip(
+            {
+                "watched.csv": "Date,Name,Year,Letterboxd URI\n2026-10-22,Half Star,2026,https://boxd.it/x\n",
+                "ratings.csv": "Date,Name,Year,Letterboxd URI,Rating\n2026-10-22,Half Star,2026,https://boxd.it/x,3.5\n",
+            }
+        )
+        normalized, _ = letterboxd_import.parse_zip(path)
+        self.assertEqual(normalized[0]["rating"], 7)
+
+    def test_watchlist_csv_becomes_a_restore_lists_shaped_entry(self):
+        path = self._zip(
+            {
+                "watched.csv": "Date,Name,Year,Letterboxd URI\n",
+                "watchlist.csv": "Date,Name,Year,Letterboxd URI\n2026-10-22,Street Fighter,2026,https://boxd.it/x\n2026-10-22,Carrie,2026,https://boxd.it/y\n",
+            }
+        )
+        normalized, watchlist_entry = letterboxd_import.parse_zip(path)
+        self.assertEqual(normalized, [])
+        self.assertTrue(watchlist_entry["is_watchlist"])
+        self.assertEqual(len(watchlist_entry["items"]), 2)
+        self.assertEqual(watchlist_entry["items"][0]["title"], "Street Fighter")
+        self.assertEqual(watchlist_entry["items"][0]["media_type"], MediaType.MOVIE)
+        self.assertEqual(watchlist_entry["items"][0]["position"], 1)
+
+    def test_missing_date_is_an_error_not_a_crash(self):
+        path = self._zip({"watched.csv": "Date,Name,Year,Letterboxd URI\n,No Date,2026,https://boxd.it/x\n"})
+        normalized, _ = letterboxd_import.parse_zip(path)
+        self.assertIsNotNone(normalized[0]["error"])
+
+    def test_zip_with_only_watchlist_has_no_history(self):
+        path = self._zip({"watchlist.csv": "Date,Name,Year,Letterboxd URI\n2026-10-22,X,2026,https://boxd.it/x\n"})
+        normalized, watchlist_entry = letterboxd_import.parse_zip(path)
+        self.assertEqual(normalized, [])
+        self.assertEqual(len(watchlist_entry["items"]), 1)
+
+    def test_rejects_a_member_whose_declared_uncompressed_size_exceeds_the_cap(self):
+        # Security regression: a small, highly-compressible zip ("zip
+        # bomb") could otherwise unpack a single member into gigabytes -
+        # the view only caps the zip's own compressed size, so this has
+        # to be enforced while parsing. Patching the cap down to avoid
+        # actually writing a huge file just to exercise this path.
+        path = self._zip({"watched.csv": "Date,Name,Year,Letterboxd URI\n2026-10-22,X,2026,https://boxd.it/x\n"})
+        with patch("tracker.letterboxd_import._MAX_MEMBER_SIZE", 10):
+            with self.assertRaises(ValueError):
+                letterboxd_import.parse_zip(path)
+
+    def test_rejects_more_rows_than_the_streaming_cap_even_if_size_looked_fine(self):
+        # Backstop for the size check above, in case a crafted zip's
+        # central-directory size field doesn't match what decompressing
+        # it actually produces.
+        rows = "".join(f"2026-10-22,Film {i},2026,https://boxd.it/{i}\n" for i in range(5))
+        path = self._zip({"watched.csv": "Date,Name,Year,Letterboxd URI\n" + rows})
+        with patch("tracker.letterboxd_import._MAX_ROWS", 2):
+            with self.assertRaises(ValueError):
+                letterboxd_import.parse_zip(path)
+
+
+class ImportImdbUploadViewTests(TestCase):
+    """import_imdb_upload - kind auto-detection from the uploaded CSV's
+    own headers, and the full upload -> scan -> commit path for both an
+    IMDb ratings export (real WatchEvents) and a watchlist export (no
+    WatchEvents at all, just a Watchlist addition via the same
+    backup_lists_data mechanism a Spool JSON backup's own lists use)."""
+
+    RATINGS_HEADER = "Const,Your Rating,Date Rated,Title,Original Title,URL,Title Type,IMDb Rating,Runtime (mins),Year,Genres,Num Votes,Release Date,Directors"
+    WATCHLIST_HEADER = "Position,Const,Created,Modified,Description,Title,Original Title,URL,Title Type,IMDb Rating,Runtime (mins),Year,Genres,Num Votes,Release Date,Directors,Your Rating,Date Rated"
+
+    def setUp(self):
+        user = User.objects.create_user("imdbimporter", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ImdbImporter")
+        self.client.login(username="imdbimporter", password="pass12345")
+
+    def test_non_csv_extension_is_rejected(self):
+        upload = SimpleUploadedFile("ratings.txt", b"not a csv", content_type="text/plain")
+        resp = self.client.post(reverse("import_imdb"), {"csv_file": upload}, follow=True)
+        self.assertRedirects(resp, reverse("settings"))
+        self.assertContains(resp, "isn&#x27;t a .csv file")
+        self.assertFalse(ImportSession.objects.exists())
+
+    def test_unrecognized_csv_is_rejected(self):
+        upload = SimpleUploadedFile("mystery.csv", b"foo,bar\n1,2\n", content_type="text/csv")
+        resp = self.client.post(reverse("import_imdb"), {"csv_file": upload}, follow=True)
+        self.assertRedirects(resp, reverse("settings"))
+        self.assertContains(resp, "doesn&#x27;t look like an IMDb ratings or watchlist export")
+        self.assertFalse(ImportSession.objects.exists())
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    @patch("tracker.integrations.tmdb.find_by_imdb_id", return_value={"id": 999, "kind": "movie", "poster_url": None})
+    def test_ratings_upload_creates_watch_events(self, mock_find_by_imdb_id, mock_details):
+        text = self.RATINGS_HEADER + '\ntt35538033,9,2026-09-18,"Resident Evil","Resident Evil",https://x,Movie,7.6,94,2026,"Horror",111578,"2026-09-18","Zach Cregger"\n'
+        upload = SimpleUploadedFile("ratings.csv", text.encode(), content_type="text/csv")
+        with patch("tracker.views._dispatch_sync_task_safely"):
+            resp = self.client.post(reverse("import_imdb"), {"csv_file": upload})
+        session = ImportSession.objects.get(profile=self.profile)
+        self.assertEqual(session.source, ImportSession.Source.IMDB)
+        self.assertEqual(session.source_metadata["imdb_kind"], "ratings")
+        self.assertRedirects(resp, reverse("import_review", args=[session.id]))
+
+        tasks.scan_import_session(session.id)
+        tasks.commit_import_session(session.id)
+        event = WatchEvent.objects.get(profile=self.profile)
+        self.assertEqual(event.title.name, "Resident Evil")
+        self.assertEqual(event.user_rating, 9)
+        # The imdb id only persists once find_by_imdb_id actually confirmed
+        # it against TMDB - a fuzzy name+year match alone (if this lookup
+        # had come up empty) wouldn't be enough to trust it onto a Title
+        # every profile shares (see TitleMatchingResolveTests).
+        self.assertEqual(event.title.external_ids.get("imdb"), "tt35538033")
+
+    @patch("tracker.integrations.tmdb.find_by_imdb_id", return_value=None)
+    @patch("tracker.integrations.tmdb.find_match", return_value=None)
+    def test_watchlist_upload_adds_to_watchlist_without_any_watch_event(self, mock_find_match, mock_find_by_imdb_id):
+        text = (
+            self.WATCHLIST_HEADER
+            + '\n1,tt0068646,2026-10-21,2026-10-21,,"The Godfather","The Godfather",https://x,Movie,9.2,175,1972,"Crime",2266836,1972-03-24,"Coppola",,\n'
+        )
+        upload = SimpleUploadedFile("watchlist.csv", text.encode(), content_type="text/csv")
+        with patch("tracker.views._dispatch_sync_task_safely"):
+            resp = self.client.post(reverse("import_imdb"), {"csv_file": upload})
+        session = ImportSession.objects.get(profile=self.profile)
+        self.assertEqual(session.source_metadata["imdb_kind"], "watchlist")
+
+        tasks.scan_import_session(session.id)
+        self.assertEqual(session.candidates.count(), 0)
+        tasks.commit_import_session(session.id)
+
+        self.assertFalse(WatchEvent.objects.exists())
+        watchlist = ensure_watchlist(self.profile)
+        self.assertTrue(watchlist.items.filter(title__name="The Godfather").exists())
+
+
+class ImportLetterboxdUploadViewTests(TestCase):
+    """import_letterboxd_upload - zip content validation, and the full
+    upload -> scan -> commit path producing both real WatchEvents (from
+    watched.csv, merged with ratings.csv) and a Watchlist addition
+    (from watchlist.csv) out of the same single zip."""
+
+    def setUp(self):
+        user = User.objects.create_user("letterboxdimporter", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="LetterboxdImporter")
+        self.client.login(username="letterboxdimporter", password="pass12345")
+
+    def _zip_bytes(self, files):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            for name, content in files.items():
+                zf.writestr(name, content)
+        return buf.getvalue()
+
+    def test_non_zip_extension_is_rejected(self):
+        upload = SimpleUploadedFile("export.csv", b"not a zip", content_type="text/csv")
+        resp = self.client.post(reverse("import_letterboxd"), {"csv_file": upload}, follow=True)
+        self.assertRedirects(resp, reverse("settings"))
+        self.assertContains(resp, "isn&#x27;t a .zip file")
+        self.assertFalse(ImportSession.objects.exists())
+
+    def test_zip_without_a_letterboxd_file_inside_is_rejected(self):
+        data = self._zip_bytes({"readme.txt": "hello"})
+        upload = SimpleUploadedFile("export.zip", data, content_type="application/zip")
+        resp = self.client.post(reverse("import_letterboxd"), {"csv_file": upload}, follow=True)
+        self.assertRedirects(resp, reverse("settings"))
+        self.assertContains(resp, "doesn&#x27;t look like a Letterboxd export")
+        self.assertFalse(ImportSession.objects.exists())
+
+    @patch("tracker.integrations.tmdb.find_match", return_value=None)
+    def test_full_export_imports_history_and_watchlist_together(self, mock_find_match):
+        data = self._zip_bytes(
+            {
+                "watched.csv": "Date,Name,Year,Letterboxd URI\n2026-10-22,Resident Evil,2026,https://boxd.it/x\n",
+                "ratings.csv": "Date,Name,Year,Letterboxd URI,Rating\n2026-10-22,Resident Evil,2026,https://boxd.it/x,4\n",
+                "watchlist.csv": "Date,Name,Year,Letterboxd URI\n2026-10-22,Street Fighter,2026,https://boxd.it/y\n",
+            }
+        )
+        upload = SimpleUploadedFile("letterboxd-export.zip", data, content_type="application/zip")
+        with patch("tracker.views._dispatch_sync_task_safely"):
+            resp = self.client.post(reverse("import_letterboxd"), {"csv_file": upload})
+        session = ImportSession.objects.get(profile=self.profile)
+        self.assertEqual(session.source, ImportSession.Source.LETTERBOXD)
+        self.assertRedirects(resp, reverse("import_review", args=[session.id]))
+
+        tasks.scan_import_session(session.id)
+        self.assertEqual(session.candidates.count(), 1)
+        tasks.commit_import_session(session.id)
+
+        event = WatchEvent.objects.get(profile=self.profile)
+        self.assertEqual(event.title.name, "Resident Evil")
+        self.assertEqual(event.user_rating, 8)
+        watchlist = ensure_watchlist(self.profile)
+        self.assertTrue(watchlist.items.filter(title__name="Street Fighter").exists())
+
+
+class TvtimeImportParsingTests(TestCase):
+    """tvtime_import.parse_csv - pure parsing, no DB/network involved.
+    Header and row shapes are taken verbatim from the Liberator browser
+    extension's own CSV serializer source and its passing test fixtures
+    (github.com/Hobo-Ware/tv-time-liberator), not a guessed format."""
+
+    HEADER = "imdb_id,tvdb_id,type,title,season,episode,is_special,is_watched,watched_at,status,is_watchlisted,rating"
+
+    def _file(self, text):
+        return io.BytesIO(text.encode())
+
+    def test_looks_like_tvtime_export(self):
+        self.assertTrue(tvtime_import.looks_like_tvtime_export(self.HEADER.split(",")))
+        self.assertFalse(tvtime_import.looks_like_tvtime_export(["Title", "Year"]))
+
+    def test_watched_rated_movie_row(self):
+        text = self.HEADER + "\ntt0485947,1571,movie,Mr. Nobody,,,false,true,2024-09-13T10:49:37Z,,false,10\n"
+        normalized, watchlist_entry = tvtime_import.parse_csv(self._file(text))
+        self.assertIsNone(watchlist_entry)
+        self.assertEqual(len(normalized), 1)
+        row = normalized[0]
+        self.assertIsNone(row["error"])
+        self.assertEqual(row["media_type"], MediaType.MOVIE)
+        self.assertEqual(row["title_name"], "Mr. Nobody")
+        self.assertEqual(row["rating"], 10)
+        self.assertEqual(row["watched_at"].date().isoformat(), "2024-09-13")
+        self.assertEqual(row["source_external_ids"], {"imdb": "tt0485947"})
+
+    def test_unwatched_movie_row_goes_to_watchlist_not_history(self):
+        # is_watchlisted is literally `watched_at == null` for a movie
+        # row in Liberator's own serializer - no separate flag.
+        text = self.HEADER + "\ntt0133093,169,movie,The Matrix,,,false,false,,,true,\n"
+        normalized, watchlist_entry = tvtime_import.parse_csv(self._file(text))
+        self.assertEqual(normalized, [])
+        self.assertTrue(watchlist_entry["is_watchlist"])
+        self.assertEqual(watchlist_entry["items"][0]["title"], "The Matrix")
+        self.assertEqual(watchlist_entry["items"][0]["type"], "movie")
+
+    def test_episode_row_carries_exact_season_and_episode(self):
+        text = self.HEADER + "\ntt10579918,8815687,episode,Station Eleven,1,1,false,true,2024-09-13T10:50:29.147Z,stopped,false,\n"
+        normalized, _ = tvtime_import.parse_csv(self._file(text))
+        row = normalized[0]
+        self.assertIsNone(row["error"])
+        self.assertEqual(row["media_type"], MediaType.TV)
+        self.assertEqual(row["season"], 1)
+        self.assertEqual(row["episode"], 1)
+
+    def test_episode_row_matches_against_the_shows_own_imdb_id_not_its_own(self):
+        # Confirmed from Liberator's real fixture data: an episode row's
+        # own imdb_id is that EPISODE's IMDb entry (tt10579918), not the
+        # show's (tt10574236, only on the "show" row) - using the wrong
+        # one would feed an episode-level id into show-level matching.
+        text = self.HEADER + (
+            "\ntt10579918,8815687,episode,Station Eleven,1,1,false,true,2024-09-13T10:50:29.147Z,stopped,false,"
+            "\ntt10574236,366529,show,Station Eleven,,,,,,stopped,true,"
+        )
+        normalized, _ = tvtime_import.parse_csv(self._file(text))
+        episode_row = next(r for r in normalized if r["media_type"] == MediaType.TV)
+        self.assertEqual(episode_row["source_external_ids"], {"imdb": "tt10574236"})
+
+    def test_episode_row_with_no_matching_show_row_has_no_imdb_id(self):
+        text = self.HEADER + "\ntt10579918,8815687,episode,Station Eleven,1,1,false,true,2024-09-13T10:50:29.147Z,stopped,false,\n"
+        normalized, _ = tvtime_import.parse_csv(self._file(text))
+        self.assertEqual(normalized[0]["source_external_ids"], {})
+
+    def test_rated_episode_row_carries_the_rating(self):
+        text = self.HEADER + "\ntt15722972,9948523,episode,The Fall of the House of Usher,1,3,false,true,2024-09-13T10:50:58.786Z,continuing,false,8\n"
+        normalized, _ = tvtime_import.parse_csv(self._file(text))
+        self.assertEqual(normalized[0]["rating"], 8)
+
+    def test_imdb_sentinel_negative_one_on_the_show_row_is_treated_as_no_id(self):
+        # Liberator's own fixture data uses the literal string "-1" for
+        # a row with no real IMDb mapping - not a real tt-code.
+        text = self.HEADER + (
+            "\n-1,8885854,episode,Station Eleven,1,9,false,true,2024-09-13T10:50:30.000Z,stopped,false,"
+            "\n-1,366529,show,Station Eleven,,,,,,stopped,true,"
+        )
+        normalized, _ = tvtime_import.parse_csv(self._file(text))
+        self.assertEqual(normalized[0]["source_external_ids"], {})
+
+    def test_show_row_with_unwatched_episodes_goes_on_the_watchlist(self):
+        # is_watchlisted on a "show" row is hasUnwatchedEpisode, not a
+        # literal separate watchlist flag - still-following = watchlist.
+        text = self.HEADER + "\ntt10574236,366529,show,Station Eleven,,,,,,stopped,true,\n"
+        normalized, watchlist_entry = tvtime_import.parse_csv(self._file(text))
+        self.assertEqual(normalized, [])
+        self.assertEqual(watchlist_entry["items"][0]["title"], "Station Eleven")
+        self.assertEqual(watchlist_entry["items"][0]["type"], "show")
+
+    def test_show_row_with_no_unwatched_episodes_is_not_watchlisted(self):
+        text = self.HEADER + "\ntt7366338,360893,show,Chernobyl,,,,,,up_to_date,false,\n"
+        normalized, watchlist_entry = tvtime_import.parse_csv(self._file(text))
+        self.assertEqual(normalized, [])
+        self.assertIsNone(watchlist_entry)
+
+    def test_mixed_real_shaped_file(self):
+        text = self.HEADER + (
+            "\ntt0485947,1571,movie,Mr. Nobody,,,false,true,2024-09-13T10:49:37Z,,false,10"
+            "\ntt0133093,169,movie,The Matrix,,,false,false,,,true,"
+            "\ntt10579918,8815687,episode,Station Eleven,1,1,false,true,2024-09-13T10:50:29.147Z,stopped,false,"
+            "\ntt10574236,366529,show,Station Eleven,,,,,,stopped,true,"
+            "\ntt7366338,360893,show,Chernobyl,,,,,,up_to_date,false,"
+        )
+        normalized, watchlist_entry = tvtime_import.parse_csv(self._file(text))
+        self.assertEqual(len(normalized), 2)  # Mr. Nobody + the one episode
+        self.assertEqual(len(watchlist_entry["items"]), 2)  # The Matrix + Station Eleven
+
+
+class ImportTvtimeUploadViewTests(TestCase):
+    """import_tvtime_upload - header-based format detection, and the
+    full upload -> scan -> commit path producing real per-episode
+    WatchEvents plus a Watchlist addition out of one CSV."""
+
+    HEADER = "imdb_id,tvdb_id,type,title,season,episode,is_special,is_watched,watched_at,status,is_watchlisted,rating"
+
+    def setUp(self):
+        user = User.objects.create_user("tvtimeimporter", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="TvTimeImporter")
+        self.client.login(username="tvtimeimporter", password="pass12345")
+
+    def test_non_csv_extension_is_rejected(self):
+        upload = SimpleUploadedFile("export.txt", b"not a csv", content_type="text/plain")
+        resp = self.client.post(reverse("import_tvtime"), {"csv_file": upload}, follow=True)
+        self.assertRedirects(resp, reverse("settings"))
+        self.assertContains(resp, "isn&#x27;t a .csv file")
+        self.assertFalse(ImportSession.objects.exists())
+
+    def test_unrecognized_csv_is_rejected(self):
+        upload = SimpleUploadedFile("mystery.csv", b"foo,bar\n1,2\n", content_type="text/csv")
+        resp = self.client.post(reverse("import_tvtime"), {"csv_file": upload}, follow=True)
+        self.assertRedirects(resp, reverse("settings"))
+        self.assertContains(resp, "doesn&#x27;t look like a TV Time Liberator export")
+        self.assertFalse(ImportSession.objects.exists())
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    @patch("tracker.integrations.tmdb.find_by_imdb_id", return_value={"id": 999, "kind": "tv", "poster_url": None})
+    def test_full_export_imports_episode_history_rating_and_watchlist(self, mock_find_by_imdb_id, mock_details):
+        text = self.HEADER + (
+            "\ntt15722966,8759048,episode,The Fall of the House of Usher,1,1,false,true,2024-09-13T10:50:57.842Z,continuing,false,"
+            "\ntt15722972,9948523,episode,The Fall of the House of Usher,1,3,false,true,2024-09-13T10:50:58.786Z,continuing,false,8"
+            "\ntt15567174,411021,show,The Fall of the House of Usher,,,,,,continuing,true,"
+        )
+        upload = SimpleUploadedFile("tv-time-liberator.csv", text.encode(), content_type="text/csv")
+        with patch("tracker.views._dispatch_sync_task_safely"):
+            resp = self.client.post(reverse("import_tvtime"), {"csv_file": upload})
+        session = ImportSession.objects.get(profile=self.profile)
+        self.assertEqual(session.source, ImportSession.Source.TVTIME)
+        self.assertRedirects(resp, reverse("import_review", args=[session.id]))
+
+        tasks.scan_import_session(session.id)
+        self.assertEqual(session.candidates.count(), 2)
+        tasks.commit_import_session(session.id)
+
+        events = WatchEvent.objects.filter(profile=self.profile).order_by("episode__episode")
+        self.assertEqual(events.count(), 2)
+        self.assertEqual(events[0].episode.season, 1)
+        self.assertEqual(events[0].episode.episode, 1)
+        self.assertIsNone(events[0].user_rating)
+        self.assertEqual(events[1].episode.episode, 3)
+        self.assertEqual(events[1].user_rating, 8)
+        # The show-level imdb id (from the "show" row, not either
+        # episode row's own episode-level id) persists on the created
+        # Title once find_by_imdb_id actually confirms it against TMDB -
+        # same "only a verified id gets stored" rule as IMDb's own import
+        # (see TitleMatchingResolveTests), on top of the original bug
+        # class caught earlier this session (import_pipeline.
+        # KNOWN_PROVIDERS must include this source or the native id is
+        # matched-on but never stored at all).
+        self.assertEqual(events[0].title.external_ids.get("imdb"), "tt15567174")
+
+        watchlist = ensure_watchlist(self.profile)
+        self.assertTrue(watchlist.items.filter(title__name="The Fall of the House of Usher").exists())
+
+
+class TmdbAccountAuthFlowTests(TestCase):
+    """tracker.integrations.tmdb_account's v3 request-token/session
+    functions - TMDB's own non-OAuth2 account auth flow (see that
+    module's own docstring)."""
+
+    def _response(self, data, status_code=200, headers=None):
+        resp = Mock()
+        resp.status_code = status_code
+        resp.json.return_value = data
+        resp.headers = headers or {}
+        resp.raise_for_status = Mock()
+        if status_code >= 400:
+            resp.raise_for_status.side_effect = requests.HTTPError(response=resp)
+        return resp
+
+    @patch("tracker.integrations.tmdb_account.requests.request")
+    def test_create_request_token_returns_the_token(self, mock_request):
+        mock_request.return_value = self._response({"success": True, "request_token": "abc123"})
+        token = tmdb_account.create_request_token("key")
+        self.assertEqual(token, "abc123")
+        self.assertEqual(mock_request.call_args.args[0], "GET")
+        self.assertEqual(mock_request.call_args.kwargs["params"]["api_key"], "key")
+
+    def test_authenticate_url_embeds_the_token_and_redirect(self):
+        url = tmdb_account.authenticate_url("abc123", "https://example.com/callback")
+        self.assertTrue(url.startswith("https://www.themoviedb.org/authenticate/abc123?"))
+        self.assertIn("redirect_to=https%3A%2F%2Fexample.com%2Fcallback", url)
+
+    @patch("tracker.integrations.tmdb_account.requests.request")
+    def test_create_session_returns_session_id(self, mock_request):
+        mock_request.return_value = self._response({"success": True, "session_id": "sess1"})
+        session_id = tmdb_account.create_session("key", "abc123")
+        self.assertEqual(session_id, "sess1")
+        self.assertEqual(mock_request.call_args.kwargs["json"], {"request_token": "abc123"})
+
+    @patch("tracker.integrations.tmdb_account.requests.request")
+    def test_get_account_id_returns_the_numeric_id(self, mock_request):
+        mock_request.return_value = self._response({"id": 42, "username": "someone"})
+        self.assertEqual(tmdb_account.get_account_id("key", "sess1"), 42)
+
+    @patch("tracker.integrations.tmdb_account.time.sleep")
+    @patch("tracker.integrations.tmdb_account.requests.request")
+    def test_a_429_is_retried_with_backoff_then_succeeds(self, mock_request, mock_sleep):
+        mock_request.side_effect = [
+            self._response({}, status_code=429, headers={"Retry-After": "2"}),
+            self._response({"id": 42}),
+        ]
+        account_id = tmdb_account.get_account_id("key", "sess1")
+        self.assertEqual(account_id, 42)
+        self.assertEqual(mock_request.call_count, 2)
+        mock_sleep.assert_called_once()
+
+    @patch("tracker.integrations.tmdb_account.time.sleep")
+    @patch("tracker.integrations.tmdb_account.requests.request")
+    def test_repeated_429s_eventually_raise(self, mock_request, mock_sleep):
+        mock_request.return_value = self._response({}, status_code=429, headers={"Retry-After": "1"})
+        with self.assertRaises(requests.HTTPError):
+            tmdb_account.get_account_id("key", "sess1")
+        self.assertEqual(mock_request.call_count, tmdb_account._MAX_RETRIES)
+
+
+class TmdbFetchListsTests(TestCase):
+    """tmdb_account.fetch_favorites/fetch_watchlist/fetch_lists -
+    pagination and normalization into tracker.backup.restore_lists'
+    own item shape."""
+
+    def _response(self, data):
+        resp = Mock()
+        resp.status_code = 200
+        resp.json.return_value = data
+        resp.headers = {}
+        resp.raise_for_status = Mock()
+        return resp
+
+    @patch("tracker.integrations.tmdb_account.requests.request")
+    def test_paged_follows_total_pages(self, mock_request):
+        mock_request.side_effect = [
+            self._response({"results": [{"id": 1}], "total_pages": 2}),
+            self._response({"results": [{"id": 2}], "total_pages": 2}),
+        ]
+        items = tmdb_account._paged("/favorite/movies", "key", "sess1", 42)
+        self.assertEqual([i["id"] for i in items], [1, 2])
+        self.assertEqual(mock_request.call_count, 2)
+
+    @patch("tracker.integrations.tmdb_account.requests.request")
+    def test_fetch_lists_returns_favorites_and_watchlist_with_correct_flags(self, mock_request):
+        mock_request.side_effect = [
+            self._response({"results": [{"id": 10, "title": "Fathom", "release_date": "2020-05-01"}], "total_pages": 1}),
+            self._response({"results": [], "total_pages": 1}),
+            self._response({"results": [], "total_pages": 1}),
+            self._response(
+                {"results": [{"id": 20, "name": "Cinder Street", "first_air_date": "2022-01-01"}], "total_pages": 1}
+            ),
+        ]
+        lists = tmdb_account.fetch_lists("key", "sess1", 42)
+        self.assertEqual(lists[0]["name"], "Favorites")
+        self.assertFalse(lists[0]["is_watchlist"])
+        self.assertEqual(lists[0]["items"][0]["ids"], {"tmdb": 10, "tmdb_kind": "movie"})
+        self.assertEqual(lists[0]["items"][0]["year"], 2020)
+        self.assertEqual(lists[1]["name"], "Watchlist")
+        self.assertTrue(lists[1]["is_watchlist"])
+        self.assertEqual(lists[1]["items"][0]["ids"], {"tmdb": 20, "tmdb_kind": "tv"})
+        self.assertEqual(lists[1]["items"][0]["type"], "show")
+
+    @patch("tracker.integrations.tmdb_account.requests.request")
+    def test_items_missing_an_id_or_name_are_skipped(self, mock_request):
+        mock_request.side_effect = [
+            self._response({"results": [{"title": "No ID"}], "total_pages": 1}),
+            self._response({"results": [{"id": 5}], "total_pages": 1}),  # no title/name
+            self._response({"results": [], "total_pages": 1}),
+            self._response({"results": [], "total_pages": 1}),
+        ]
+        lists = tmdb_account.fetch_lists("key", "sess1", 42)
+        self.assertEqual(lists[0]["items"], [])
+
+
+class TmdbUpsertListsTests(TestCase):
+    """tmdb_account.upsert_lists - thin wrapper over backup.restore_lists,
+    the same mechanism IMDb/Letterboxd's own watchlist-only import uses -
+    verifies TMDB's favorites/watchlist items (always carrying a tmdb_id
+    directly) flow through it correctly."""
+
+    def setUp(self):
+        user = User.objects.create_user("tmdblistimporter", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="TmdbListImporter")
+
+    def test_creates_favorites_and_watchlist(self):
+        from tracker.models import WatchList, WatchListItem
+
+        lists_data = [
+            {
+                "name": "Favorites", "is_watchlist": False,
+                "items": [{"type": "movie", "media_type": MediaType.MOVIE, "title": "Fathom", "year": 2020,
+                           "ids": {"tmdb": 10, "tmdb_kind": "movie"}, "position": 0}],
+            },
+            {
+                "name": "Watchlist", "is_watchlist": True,
+                "items": [{"type": "show", "media_type": MediaType.TV, "title": "Cinder Street", "year": 2022,
+                           "ids": {"tmdb": 20, "tmdb_kind": "tv"}, "position": 0}],
+            },
+        ]
+        added = tmdb_account.upsert_lists(self.profile, lists_data)
+        self.assertEqual(added, 2)
+        favorites = WatchList.objects.get(profile=self.profile, name="Favorites")
+        self.assertFalse(favorites.is_watchlist)
+        watchlist = ensure_watchlist(self.profile)
+        self.assertTrue(watchlist.items.filter(title__name="Cinder Street").exists())
+        self.assertTrue(favorites.items.filter(title__name="Fathom").exists())
+
+    def test_resync_does_not_duplicate_items(self):
+        lists_data = [
+            {
+                "name": "Favorites", "is_watchlist": False,
+                "items": [{"type": "movie", "media_type": MediaType.MOVIE, "title": "Fathom", "year": 2020,
+                           "ids": {"tmdb": 10, "tmdb_kind": "movie"}, "position": 0}],
+            },
+        ]
+        tmdb_account.upsert_lists(self.profile, lists_data)
+        added_again = tmdb_account.upsert_lists(self.profile, lists_data)
+        self.assertEqual(added_again, 0)
+
+
+class TmdbOAuthConnectViewTests(TestCase):
+    """oauth_connect's provider == "tmdb" branch - TMDB has no client_id/
+    client_secret pair at all, just the server's existing TMDB API key
+    (see tracker/integrations/tmdb_account.py's own module docstring)."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        # InstanceConfig.load() caches for 5 minutes (see its own
+        # docstring) - a real key saved by some earlier test in the full
+        # suite would otherwise still be "seen" here despite
+        # override_settings, since that cache isn't DB-transaction-
+        # scoped and survives across tests.
+        cache.clear()
+        user = User.objects.create_user("tmdbconnect", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="TmdbConnect")
+        self.client.login(username="tmdbconnect", password="pass12345")
+
+    @override_settings(TMDB_API_KEY="")
+    def test_errors_when_no_tmdb_api_key_is_configured(self):
+        resp = self.client.get(reverse("tmdb_connect"))
+        self.assertRedirects(resp, reverse("settings"))
+
+    @patch("tracker.integrations.tmdb_account.create_request_token")
+    def test_redirects_to_tmdb_authenticate_with_the_request_token_stashed(self, mock_create_token):
+        InstanceConfig.objects.update_or_create(pk=1, defaults={"encrypted_tmdb_api_key": crypto.encrypt("key")})
+        mock_create_token.return_value = "rt123"
+        resp = self.client.get(reverse("tmdb_connect"))
+        self.assertEqual(self.client.session["tmdb_oauth_request_token"], "rt123")
+        self.assertTrue(resp.url.startswith("https://www.themoviedb.org/authenticate/rt123?"))
+
+    @patch("tracker.integrations.tmdb_account.create_request_token")
+    def test_a_request_token_failure_shows_an_error_instead_of_crashing(self, mock_create_token):
+        InstanceConfig.objects.update_or_create(pk=1, defaults={"encrypted_tmdb_api_key": crypto.encrypt("key")})
+        mock_create_token.side_effect = requests.RequestException("boom")
+        resp = self.client.get(reverse("tmdb_connect"))
+        self.assertRedirects(resp, reverse("settings"))
+
+
+class TmdbOAuthCallbackViewTests(TestCase):
+    """oauth_callback's provider == "tmdb" branch (_finish_tmdb_connect) -
+    no code/state round trip at all (see oauth_connect's own tmdb branch),
+    just a stashed request_token exchanged for a session_id+account_id."""
+
+    def setUp(self):
+        user = User.objects.create_user("tmdbcallback", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="TmdbCallback")
+        InstanceConfig.objects.update_or_create(pk=1, defaults={"encrypted_tmdb_api_key": crypto.encrypt("key")})
+        self.client.login(username="tmdbcallback", password="pass12345")
+
+    def test_errors_when_no_request_token_is_in_session(self):
+        resp = self.client.get(reverse("tmdb_callback"))
+        self.assertRedirects(resp, reverse("settings"))
+        log = DataLog.objects.get(profile=self.profile, action=DataLog.Action.TMDB_CONNECT)
+        self.assertEqual(log.status, DataLog.Status.FAILED)
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.tmdb_account.get_account_id")
+    @patch("tracker.integrations.tmdb_account.create_session")
+    def test_new_connection_stores_session_and_account_id_then_routes_to_review(
+        self, mock_create_session, mock_get_account_id, mock_dispatch
+    ):
+        mock_create_session.return_value = "sess1"
+        mock_get_account_id.return_value = 42
+        session = self.client.session
+        session["tmdb_oauth_request_token"] = "rt123"
+        session.save()
+
+        resp = self.client.get(reverse("tmdb_callback"))
+
+        account = ExternalAccount.objects.get(profile=self.profile, provider=ExternalAccount.Provider.TMDB)
+        self.assertEqual(account.get_access_token(), "sess1")
+        self.assertEqual(account.tmdb_account_id, 42)
+        self.assertNotIn("tmdb_oauth_request_token", self.client.session)
+        import_session = ImportSession.objects.get(profile=self.profile, source=ImportSession.Source.TMDB)
+        self.assertRedirects(resp, reverse("import_review", args=[import_session.id]))
+        mock_dispatch.assert_called_once_with(tasks.scan_import_session, [import_session.id])
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.tmdb_account.get_account_id")
+    @patch("tracker.integrations.tmdb_account.create_session")
+    def test_reconnecting_an_existing_account_syncs_immediately_instead_of_reviewing(
+        self, mock_create_session, mock_get_account_id, mock_dispatch
+    ):
+        ExternalAccount.objects.create(profile=self.profile, provider=ExternalAccount.Provider.TMDB)
+        mock_create_session.return_value = "sess2"
+        mock_get_account_id.return_value = 42
+        session = self.client.session
+        session["tmdb_oauth_request_token"] = "rt456"
+        session.save()
+
+        resp = self.client.get(reverse("tmdb_callback"))
+
+        self.assertRedirects(resp, reverse("settings"))
+        self.assertFalse(ImportSession.objects.filter(profile=self.profile, source=ImportSession.Source.TMDB).exists())
+        mock_dispatch.assert_called_once_with(tasks.sync_tmdb_lists, [self.profile.id])
+
+    @patch("tracker.integrations.tmdb_account.create_session")
+    def test_a_denied_or_expired_token_shows_an_error_instead_of_crashing(self, mock_create_session):
+        mock_create_session.side_effect = requests.RequestException("boom")
+        session = self.client.session
+        session["tmdb_oauth_request_token"] = "rt789"
+        session.save()
+        resp = self.client.get(reverse("tmdb_callback"))
+        self.assertRedirects(resp, reverse("settings"))
+        log = DataLog.objects.get(profile=self.profile, action=DataLog.Action.TMDB_CONNECT)
+        self.assertEqual(log.status, DataLog.Status.FAILED)
+
+
+class ScanTmdbSessionTests(TestCase):
+    """tasks._scan_tmdb_session - TMDB has no watched-history at all, so
+    this always routes through the lists-only backup_lists/
+    backup_lists_data mechanism, with zero history candidates."""
+
+    def setUp(self):
+        user = User.objects.create_user("scantmdb", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ScanTmdb")
+        ExternalAccount.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.TMDB, tmdb_account_id=42,
+        )
+        InstanceConfig.objects.update_or_create(pk=1, defaults={"encrypted_tmdb_api_key": crypto.encrypt("key")})
+
+    @patch("tracker.integrations.tmdb_account.fetch_lists")
+    def test_stashes_backup_lists_and_produces_zero_history_candidates(self, mock_fetch_lists):
+        mock_fetch_lists.return_value = [
+            {"name": "Favorites", "is_watchlist": False,
+             "items": [{"type": "movie", "media_type": MediaType.MOVIE, "title": "Fathom", "year": 2020,
+                        "ids": {"tmdb": 10, "tmdb_kind": "movie"}, "position": 0}]},
+            {"name": "Watchlist", "is_watchlist": True, "items": []},
+        ]
+        session = ImportSession.objects.create(profile=self.profile, source=ImportSession.Source.TMDB)
+        tasks.scan_import_session(session.id)
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.READY)
+        self.assertEqual(session.candidates.count(), 0)
+        self.assertEqual(session.source_metadata["backup_lists"], {"lists": 2, "items": 1})
+
+    @patch("tracker.integrations.tmdb_account.fetch_lists")
+    def test_full_review_cycle_restores_both_lists_on_commit(self, mock_fetch_lists):
+        mock_fetch_lists.return_value = [
+            {"name": "Favorites", "is_watchlist": False,
+             "items": [{"type": "movie", "media_type": MediaType.MOVIE, "title": "Fathom", "year": 2020,
+                        "ids": {"tmdb": 10, "tmdb_kind": "movie"}, "position": 0}]},
+            {"name": "Watchlist", "is_watchlist": True,
+             "items": [{"type": "show", "media_type": MediaType.TV, "title": "Cinder Street", "year": 2022,
+                        "ids": {"tmdb": 20, "tmdb_kind": "tv"}, "position": 0}]},
+        ]
+        session = ImportSession.objects.create(profile=self.profile, source=ImportSession.Source.TMDB)
+        tasks.scan_import_session(session.id)
+        tasks.commit_import_session(session.id)
+        session.refresh_from_db()
+        self.assertEqual(session.source_metadata["backup_lists_restored"], {"lists": 2, "items": 2})
+        watchlist = ensure_watchlist(self.profile)
+        self.assertTrue(watchlist.items.filter(title__name="Cinder Street").exists())
+
+
+class SyncTmdbListsTaskTests(TestCase):
+    """tasks.sync_tmdb_lists - routine re-sync, the TMDB equivalent of
+    sync_trakt_history but without any history fetch at all (see that
+    task's own docstring)."""
+
+    def setUp(self):
+        user = User.objects.create_user("synctmdb", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="SyncTmdb")
+        InstanceConfig.objects.update_or_create(pk=1, defaults={"encrypted_tmdb_api_key": crypto.encrypt("key")})
+
+    def test_returns_zero_when_no_account_is_connected(self):
+        self.assertEqual(tasks.sync_tmdb_lists(self.profile.id), 0)
+
+    @patch("tracker.integrations.tmdb_account.fetch_lists")
+    def test_syncs_favorites_and_watchlist_and_advances_last_synced_at(self, mock_fetch_lists):
+        account = ExternalAccount.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.TMDB, tmdb_account_id=42,
+        )
+        mock_fetch_lists.return_value = [
+            {"name": "Favorites", "is_watchlist": False,
+             "items": [{"type": "movie", "media_type": MediaType.MOVIE, "title": "Fathom", "year": 2020,
+                        "ids": {"tmdb": 10, "tmdb_kind": "movie"}, "position": 0}]},
+            {"name": "Watchlist", "is_watchlist": True, "items": []},
+        ]
+        created = tasks.sync_tmdb_lists(self.profile.id)
+        self.assertEqual(created, 1)
+        account.refresh_from_db()
+        self.assertIsNotNone(account.last_synced_at)
+        log = SyncLog.objects.get(profile=self.profile, provider=ExternalAccount.Provider.TMDB)
+        self.assertEqual(log.status, SyncLog.Status.SUCCESS)
+
+    @patch("tracker.integrations.tmdb_account.fetch_lists")
+    def test_resync_only_adds_never_removes(self, mock_fetch_lists):
+        ExternalAccount.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.TMDB, tmdb_account_id=42,
+        )
+        from tracker.models import WatchListItem
+
+        mock_fetch_lists.return_value = [
+            {"name": "Favorites", "is_watchlist": False,
+             "items": [{"type": "movie", "media_type": MediaType.MOVIE, "title": "Fathom", "year": 2020,
+                        "ids": {"tmdb": 10, "tmdb_kind": "movie"}, "position": 0}]},
+            {"name": "Watchlist", "is_watchlist": True, "items": []},
+        ]
+        tasks.sync_tmdb_lists(self.profile.id)
+        # TMDB's side now reports Favorites as empty - a manually-curated
+        # local list isn't a mirror of TMDB's own state, so an item TMDB
+        # no longer reports stays exactly where it is (see
+        # tmdb_account.upsert_lists' own docstring).
+        mock_fetch_lists.return_value = [
+            {"name": "Favorites", "is_watchlist": False, "items": []},
+            {"name": "Watchlist", "is_watchlist": True, "items": []},
+        ]
+        second_run_added = tasks.sync_tmdb_lists(self.profile.id)
+        self.assertEqual(second_run_added, 0)
+        self.assertEqual(WatchListItem.objects.filter(title__name="Fathom").count(), 1)
+
+
+class MyAnimeListAuthFlowTests(TestCase):
+    """tracker.integrations.myanimelist's OAuth2+PKCE functions - MAL's
+    own code_challenge_method=plain quirk (challenge == verifier, no
+    S256) and form-encoded token endpoint (unlike Trakt/WeTrakr's own
+    JSON bodies)."""
+
+    def test_generate_pkce_pair_uses_the_plain_method(self):
+        verifier, challenge = myanimelist.generate_pkce_pair()
+        self.assertEqual(verifier, challenge)
+        self.assertTrue(40 <= len(verifier) <= 128)
+
+    def test_authorize_url_shape(self):
+        url = myanimelist.authorize_url("https://example.com/cb", "st4te", "cid", "chal123")
+        self.assertTrue(url.startswith(myanimelist.AUTHORIZE_URL))
+        self.assertIn("code_challenge=chal123", url)
+        self.assertIn("code_challenge_method=plain", url)
+        self.assertIn("client_id=cid", url)
+
+    @patch("tracker.integrations.myanimelist.requests.post")
+    def test_exchange_code_posts_form_encoded_with_verifier(self, mock_post):
+        resp = Mock()
+        resp.raise_for_status = Mock()
+        resp.json.return_value = {"access_token": "tok"}
+        mock_post.return_value = resp
+        result = myanimelist.exchange_code("authcode", "https://example.com/cb", "cid", "secret", "verifier123")
+        self.assertEqual(result, {"access_token": "tok"})
+        self.assertEqual(mock_post.call_args.args[0], myanimelist.TOKEN_URL)
+        self.assertEqual(mock_post.call_args.kwargs["data"]["code_verifier"], "verifier123")
+        self.assertEqual(mock_post.call_args.kwargs["data"]["grant_type"], "authorization_code")
+        self.assertNotIn("json", mock_post.call_args.kwargs)
+
+    @patch("tracker.integrations.myanimelist.requests.post")
+    def test_refresh_access_token_does_not_send_redirect_uri(self, mock_post):
+        resp = Mock()
+        resp.raise_for_status = Mock()
+        resp.json.return_value = {"access_token": "newtok", "refresh_token": "newrtok"}
+        mock_post.return_value = resp
+        result = myanimelist.refresh_access_token("rtok", "cid", "secret", "https://example.com/cb")
+        self.assertEqual(result["access_token"], "newtok")
+        self.assertNotIn("redirect_uri", mock_post.call_args.kwargs["data"])
+        self.assertEqual(mock_post.call_args.kwargs["data"]["grant_type"], "refresh_token")
+
+    @patch("tracker.integrations.myanimelist.requests.get")
+    def test_test_credentials_uses_the_client_id_header(self, mock_get):
+        resp = Mock()
+        resp.raise_for_status = Mock()
+        mock_get.return_value = resp
+        myanimelist.test_credentials("cid")
+        self.assertEqual(mock_get.call_args.kwargs["headers"], {"X-MAL-CLIENT-ID": "cid"})
+
+
+class MyAnimeListFetchAnimeListTests(TestCase):
+    """myanimelist.fetch_anime_list - follows MAL's own paging.next URL
+    rather than doing offset math on this end."""
+
+    @patch("tracker.integrations.myanimelist.requests.get")
+    def test_follows_paging_next_until_exhausted(self, mock_get):
+        page1 = Mock()
+        page1.raise_for_status = Mock()
+        page1.json.return_value = {
+            "data": [{"node": {"id": 1}}],
+            "paging": {"next": "https://api.myanimelist.net/v2/users/@me/animelist?offset=100"},
+        }
+        page2 = Mock()
+        page2.raise_for_status = Mock()
+        page2.json.return_value = {"data": [{"node": {"id": 2}}], "paging": {}}
+        mock_get.side_effect = [page1, page2]
+        items = myanimelist.fetch_anime_list("tok")
+        self.assertEqual([i["node"]["id"] for i in items], [1, 2])
+        self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(
+            mock_get.call_args_list[1].args[0], "https://api.myanimelist.net/v2/users/@me/animelist?offset=100"
+        )
+
+
+def _mal_match(tmdb_id=None, tmdb_kind=None):
+    from tracker.title_matching import TitleMatch
+
+    return TitleMatch(
+        existing_title=None, needs_provider_id_backfill=False, needs_tmdb_backfill=False,
+        resolved_via_direct_id=bool(tmdb_id),
+        tmdb_id=str(tmdb_id) if tmdb_id else None, tmdb_kind=tmdb_kind, resolved_name="x", resolved_year=2020,
+        poster_url="", genre_names=[], details=None,
+    )
+
+
+class MyAnimeListNormalizeItemsTests(TestCase):
+    """myanimelist.normalize_items - MAL's 5 list statuses collapsing
+    into history items / the watchlist / nothing at all, and the
+    episode-expansion logic that turns a single cumulative
+    num_episodes_watched count into real (season, episode) pairs via
+    TMDB's own season structure (see that module's own docstring)."""
+
+    def _entry(self, mal_id, title, status, progress=0, score=0, year=2020, **status_extra):
+        return {
+            "node": {"id": mal_id, "title": title, "start_season": {"year": year}},
+            "list_status": {"status": status, "num_episodes_watched": progress, "score": score, **status_extra},
+        }
+
+    def test_plan_to_watch_goes_to_watchlist_only(self):
+        entries = [self._entry(1, "Future Watch", "plan_to_watch")]
+        history, watchlist = myanimelist.normalize_items(entries)
+        self.assertEqual(history, [])
+        self.assertEqual(watchlist["items"][0]["title"], "Future Watch")
+        self.assertEqual(watchlist["items"][0]["media_type"], MediaType.ANIME)
+        self.assertEqual(watchlist["items"][0]["ids"], {"mal": "1"})
+
+    def test_zero_progress_watching_produces_nothing(self):
+        entries = [self._entry(1, "Just Added", "watching", progress=0)]
+        history, watchlist = myanimelist.normalize_items(entries)
+        self.assertEqual(history, [])
+        self.assertIsNone(watchlist)
+
+    def test_missing_date_becomes_an_error_row(self):
+        entries = [self._entry(1, "No Date", "completed", progress=1, score=0)]
+        history, _ = myanimelist.normalize_items(entries)
+        self.assertEqual(len(history), 1)
+        self.assertIsNotNone(history[0]["error"])
+
+    def test_missing_id_or_title_is_an_error_row(self):
+        entries = [{"node": {"title": "No Id"}, "list_status": {"status": "completed", "num_episodes_watched": 1}}]
+        history, _ = myanimelist.normalize_items(entries)
+        self.assertEqual(len(history), 1)
+        self.assertIsNotNone(history[0]["error"])
+
+    @patch("tracker.title_matching.resolve_title_match")
+    def test_unmatched_show_with_progress_is_a_single_movie_shaped_watch(self, mock_resolve):
+        mock_resolve.return_value = _mal_match(tmdb_id=None, tmdb_kind=None)
+        entries = [self._entry(1, "Unmatched Film", "completed", progress=1, score=8, finish_date="2024-01-01")]
+        history, watchlist = myanimelist.normalize_items(entries)
+        self.assertIsNone(watchlist)
+        self.assertEqual(len(history), 1)
+        item = history[0]
+        self.assertIsNone(item["error"])
+        self.assertIsNone(item["season"])
+        self.assertIsNone(item["episode"])
+        self.assertEqual(item["rating"], 8)
+        self.assertEqual(item["source_external_ids"], {"mal": "1"})
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.title_matching.resolve_title_match")
+    def test_tv_series_expands_into_one_candidate_per_watched_episode(
+        self, mock_resolve, mock_full_details, mock_season_details
+    ):
+        mock_resolve.return_value = _mal_match(tmdb_id=99, tmdb_kind="tv")
+        mock_full_details.return_value = {"number_of_seasons": 1}
+        mock_season_details.return_value = {
+            "episodes": [
+                {"episode_number": 1, "name": "Ep 1"}, {"episode_number": 2, "name": "Ep 2"},
+                {"episode_number": 3, "name": "Ep 3"},
+            ]
+        }
+        entries = [self._entry(5, "Some Series", "watching", progress=2, score=7, finish_date="2024-03-01")]
+        history, _ = myanimelist.normalize_items(entries)
+        self.assertEqual(len(history), 2)
+        self.assertEqual([h["episode"] for h in history], [1, 2])
+        self.assertEqual([h["season"] for h in history], [1, 1])
+        # Rating only on the last watched episode, not every one.
+        self.assertIsNone(history[0]["rating"])
+        self.assertEqual(history[1]["rating"], 7)
+        for h in history:
+            self.assertEqual(h["source_external_ids"]["tmdb"], "99")
+            self.assertEqual(h["source_external_ids"]["tmdb_kind"], "tv")
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.title_matching.resolve_title_match")
+    def test_progress_beyond_tmdbs_known_episodes_is_capped_not_errored(
+        self, mock_resolve, mock_full_details, mock_season_details
+    ):
+        mock_resolve.return_value = _mal_match(tmdb_id=99, tmdb_kind="tv")
+        mock_full_details.return_value = {"number_of_seasons": 1}
+        mock_season_details.return_value = {"episodes": [{"episode_number": 1, "name": "Ep 1"}]}
+        entries = [self._entry(5, "Short Series", "completed", progress=50, score=0, finish_date="2024-01-01")]
+        history, _ = myanimelist.normalize_items(entries)
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["episode"], 1)
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.title_matching.resolve_title_match")
+    def test_tv_match_with_no_tmdb_season_data_becomes_an_error_row(self, mock_resolve, mock_full_details):
+        mock_resolve.return_value = _mal_match(tmdb_id=99, tmdb_kind="tv")
+        mock_full_details.return_value = None
+        entries = [self._entry(5, "No Season Data", "completed", progress=3, score=0, finish_date="2024-01-01")]
+        history, _ = myanimelist.normalize_items(entries)
+        self.assertEqual(len(history), 1)
+        self.assertIsNotNone(history[0]["error"])
+
+    def test_best_date_prefers_finish_date_over_updated_at(self):
+        d = myanimelist._best_date({"finish_date": "2024-05-01", "updated_at": "2024-06-01T00:00:00+00:00"})
+        self.assertEqual(d.date().isoformat(), "2024-05-01")
+
+    def test_best_date_falls_back_to_updated_at(self):
+        d = myanimelist._best_date({"updated_at": "2024-06-01T12:00:00+00:00"})
+        self.assertEqual(d.year, 2024)
+        self.assertEqual(d.month, 6)
+
+    def test_best_date_returns_none_when_nothing_parses(self):
+        self.assertIsNone(myanimelist._best_date({}))
+
+
+class MyAnimeListUpsertNormalizedItemsTests(TestCase):
+    """myanimelist.upsert_normalized_items - the apply_title_match-
+    based write path routine sync uses, mirroring import_pipeline.
+    _commit_one's own dedup/rating-on-create logic."""
+
+    def setUp(self):
+        user = User.objects.create_user("malupsert", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="MalUpsert")
+
+    @patch("tracker.title_matching.apply_title_match")
+    def test_creates_watch_events_for_movie_shaped_items(self, mock_apply):
+        title = Title.objects.create(media_type=MediaType.ANIME, name="Film", year=2020)
+        mock_apply.return_value = title
+        watched_at = _tz.now()
+        history_items = [{
+            "media_type": MediaType.ANIME, "title_name": "Film", "year": 2020, "season": None, "episode": None,
+            "watched_at": watched_at, "rating": 8, "source_external_ids": {"mal": "1"}, "source_row": 1, "error": None,
+        }]
+        labels = []
+        created = myanimelist.upsert_normalized_items(self.profile, history_items, labels_out=labels)
+        self.assertEqual(created, 1)
+        event = WatchEvent.objects.get(profile=self.profile, title=title)
+        self.assertEqual(event.user_rating, 8)
+        self.assertEqual(event.source, WatchEvent.Source.MAL)
+        self.assertEqual(labels, ["Film"])
+
+    @patch("tracker.title_matching.apply_title_match")
+    def test_resync_does_not_duplicate_the_same_watch(self, mock_apply):
+        title = Title.objects.create(media_type=MediaType.ANIME, name="Film", year=2020)
+        mock_apply.return_value = title
+        watched_at = _tz.now()
+        history_items = [{
+            "media_type": MediaType.ANIME, "title_name": "Film", "year": 2020, "season": None, "episode": None,
+            "watched_at": watched_at, "rating": None, "source_external_ids": {"mal": "1"}, "source_row": 1,
+            "error": None,
+        }]
+        myanimelist.upsert_normalized_items(self.profile, history_items)
+        second = myanimelist.upsert_normalized_items(self.profile, history_items)
+        self.assertEqual(second, 0)
+        self.assertEqual(WatchEvent.objects.filter(profile=self.profile, title=title).count(), 1)
+
+    @patch("tracker.title_matching.apply_title_match")
+    def test_episode_items_create_episode_scoped_events(self, mock_apply):
+        title = Title.objects.create(media_type=MediaType.ANIME, name="Series", year=2020)
+        mock_apply.return_value = title
+        watched_at = _tz.now()
+        history_items = [{
+            "media_type": MediaType.ANIME, "title_name": "Series", "year": 2020, "season": 1, "episode": 1,
+            "watched_at": watched_at, "rating": None,
+            "source_external_ids": {"mal": "1", "tmdb": "99", "tmdb_kind": "tv"},
+            "source_row": 1, "error": None,
+        }]
+        created = myanimelist.upsert_normalized_items(self.profile, history_items)
+        self.assertEqual(created, 1)
+        event = WatchEvent.objects.get(profile=self.profile, title=title)
+        self.assertEqual(event.episode.season, 1)
+        self.assertEqual(event.episode.episode, 1)
+
+    def test_error_items_are_skipped(self):
+        history_items = [{
+            "media_type": None, "title_name": "Bad", "year": None, "season": None, "episode": None,
+            "watched_at": None, "rating": None, "source_external_ids": {}, "source_row": 1, "error": "boom",
+        }]
+        self.assertEqual(myanimelist.upsert_normalized_items(self.profile, history_items), 0)
+
+
+class MyAnimeListUpsertWatchlistTests(TestCase):
+    """myanimelist.upsert_watchlist - thin wrapper over backup.
+    restore_lists, same convention tmdb_account.upsert_lists uses."""
+
+    def setUp(self):
+        user = User.objects.create_user("malwatchlist", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="MalWatchlist")
+
+    def test_none_entry_adds_nothing(self):
+        self.assertEqual(myanimelist.upsert_watchlist(self.profile, None), 0)
+
+    def test_adds_items_to_the_watchlist(self):
+        entry = {
+            "is_watchlist": True,
+            "items": [{
+                "type": "show", "media_type": MediaType.ANIME, "title": "Plan To Watch", "year": 2021,
+                "ids": {"mal": "7"}, "position": 0,
+            }],
+        }
+        added = myanimelist.upsert_watchlist(self.profile, entry)
+        self.assertEqual(added, 1)
+        watchlist = ensure_watchlist(self.profile)
+        self.assertTrue(watchlist.items.filter(title__name="Plan To Watch").exists())
+
+
+class MyAnimeListPkceOAuthFlowTests(TestCase):
+    """oauth_connect/oauth_callback's provider == "mal" branches - MAL
+    needs PKCE, but only the "plain" method (see myanimelist.py's own
+    module docstring), unlike WeTrakr's S256."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("malpkce", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="MalPkce")
+        InstanceConfig.objects.update_or_create(
+            pk=1, defaults={"mal_client_id": "mcid", "encrypted_mal_client_secret": crypto.encrypt("msecret")},
+        )
+        self.client.login(username="malpkce", password="pass12345")
+
+    def test_oauth_connect_stores_a_code_verifier_equal_to_the_challenge(self):
+        resp = self.client.get(reverse("mal_connect"))
+        self.assertIn("mal_oauth_verifier", self.client.session)
+        self.assertTrue(resp.url.startswith(myanimelist.AUTHORIZE_URL))
+        self.assertIn("code_challenge_method=plain", resp.url)
+        verifier = self.client.session["mal_oauth_verifier"]
+        self.assertIn(f"code_challenge={verifier}", resp.url)
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.myanimelist.exchange_code")
+    def test_oauth_callback_passes_the_stored_verifier_to_exchange_code(self, mock_exchange, mock_dispatch):
+        mock_exchange.return_value = {"access_token": "tok", "refresh_token": "rtok", "expires_in": 3600}
+        session = self.client.session
+        session["mal_oauth_state"] = "abc123"
+        session["mal_oauth_verifier"] = "the-verifier"
+        session.save()
+
+        self.client.get(reverse("mal_callback"), {"code": "authcode", "state": "abc123"})
+
+        mock_exchange.assert_called_once()
+        self.assertEqual(mock_exchange.call_args.args[-1], "the-verifier")
+        self.assertNotIn("mal_oauth_verifier", self.client.session)
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.myanimelist.exchange_code")
+    def test_new_connection_creates_review_session_instead_of_syncing(self, mock_exchange, mock_dispatch):
+        mock_exchange.return_value = {"access_token": "tok", "refresh_token": "rtok", "expires_in": 3600}
+        session = self.client.session
+        session["mal_oauth_state"] = "abc123"
+        session["mal_oauth_verifier"] = "the-verifier"
+        session.save()
+
+        resp = self.client.get(reverse("mal_callback"), {"code": "authcode", "state": "abc123"})
+
+        account = ExternalAccount.objects.get(profile=self.profile, provider=ExternalAccount.Provider.MAL)
+        self.assertEqual(account.get_access_token(), "tok")
+        import_session = ImportSession.objects.get(profile=self.profile, source=ImportSession.Source.MAL)
+        self.assertRedirects(resp, reverse("import_review", args=[import_session.id]))
+        mock_dispatch.assert_called_once_with(tasks.scan_import_session, [import_session.id])
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.myanimelist.exchange_code")
+    def test_reconnecting_an_existing_account_syncs_immediately(self, mock_exchange, mock_dispatch):
+        ExternalAccount.objects.create(profile=self.profile, provider=ExternalAccount.Provider.MAL)
+        mock_exchange.return_value = {"access_token": "tok2", "refresh_token": "rtok2", "expires_in": 3600}
+        session = self.client.session
+        session["mal_oauth_state"] = "abc123"
+        session["mal_oauth_verifier"] = "the-verifier"
+        session.save()
+
+        resp = self.client.get(reverse("mal_callback"), {"code": "authcode", "state": "abc123"})
+
+        self.assertRedirects(resp, reverse("settings"))
+        self.assertFalse(ImportSession.objects.filter(profile=self.profile, source=ImportSession.Source.MAL).exists())
+        mock_dispatch.assert_called_once_with(tasks.sync_mal_history, [self.profile.id])
+
+
+class ScanMalSessionTests(TestCase):
+    """tasks._scan_mal_session - fetches the whole anime list and scans
+    it through the normal history pipeline, stashing a watchlist too
+    when there's a plan_to_watch entry (the dual history+lists shape
+    _scan_letterboxd_session already established)."""
+
+    def setUp(self):
+        user = User.objects.create_user("scanmal", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ScanMal")
+        account = ExternalAccount.objects.create(profile=self.profile, provider=ExternalAccount.Provider.MAL)
+        account.set_access_token("tok")
+        account.save(update_fields=["encrypted_access_token"])
+        InstanceConfig.objects.update_or_create(
+            pk=1, defaults={"mal_client_id": "cid", "encrypted_mal_client_secret": crypto.encrypt("secret")},
+        )
+
+    @patch("tracker.title_matching.resolve_title_match")
+    @patch("tracker.integrations.myanimelist.fetch_anime_list")
+    def test_history_and_watchlist_both_produced_in_one_scan(self, mock_fetch, mock_resolve):
+        mock_resolve.return_value = _mal_match(tmdb_id=None, tmdb_kind=None)
+        mock_fetch.return_value = [
+            {"node": {"id": 1, "title": "Finished Film", "start_season": {"year": 2020}},
+             "list_status": {"status": "completed", "num_episodes_watched": 1, "score": 9,
+                              "finish_date": "2024-01-01"}},
+            {"node": {"id": 2, "title": "Future Watch", "start_season": {"year": 2021}},
+             "list_status": {"status": "plan_to_watch", "num_episodes_watched": 0, "score": 0}},
+        ]
+        session = ImportSession.objects.create(profile=self.profile, source=ImportSession.Source.MAL)
+        tasks.scan_import_session(session.id)
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.READY)
+        self.assertEqual(session.candidates.count(), 1)
+        self.assertEqual(session.source_metadata["backup_lists"], {"lists": 1, "items": 1})
+
+    @patch("tracker.title_matching.apply_title_match")
+    @patch("tracker.title_matching.resolve_title_match")
+    @patch("tracker.integrations.myanimelist.fetch_anime_list")
+    def test_full_review_cycle_commits_history_and_restores_watchlist(self, mock_fetch, mock_resolve, mock_apply):
+        mock_resolve.return_value = _mal_match(tmdb_id=None, tmdb_kind=None)
+        title = Title.objects.create(media_type=MediaType.ANIME, name="Finished Film", year=2020)
+        mock_apply.return_value = title
+        mock_fetch.return_value = [
+            {"node": {"id": 1, "title": "Finished Film", "start_season": {"year": 2020}},
+             "list_status": {"status": "completed", "num_episodes_watched": 1, "score": 9,
+                              "finish_date": "2024-01-01"}},
+            {"node": {"id": 2, "title": "Future Watch", "start_season": {"year": 2021}},
+             "list_status": {"status": "plan_to_watch", "num_episodes_watched": 0, "score": 0}},
+        ]
+        session = ImportSession.objects.create(profile=self.profile, source=ImportSession.Source.MAL)
+        tasks.scan_import_session(session.id)
+        tasks.commit_import_session(session.id)
+        session.refresh_from_db()
+        self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title=title).exists())
+        watchlist = ensure_watchlist(self.profile)
+        self.assertTrue(watchlist.items.filter(title__name="Future Watch").exists())
+
+
+class SyncMalHistoryTaskTests(TestCase):
+    """tasks.sync_mal_history - routine re-sync, always a full re-fetch
+    (MAL's API has no incremental "since" param)."""
+
+    def setUp(self):
+        user = User.objects.create_user("syncmal", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="SyncMal")
+        InstanceConfig.objects.update_or_create(
+            pk=1, defaults={"mal_client_id": "cid", "encrypted_mal_client_secret": crypto.encrypt("secret")},
+        )
+
+    def test_returns_zero_when_no_account_is_connected(self):
+        self.assertEqual(tasks.sync_mal_history(self.profile.id), 0)
+
+    @patch("tracker.title_matching.apply_title_match")
+    @patch("tracker.title_matching.resolve_title_match")
+    @patch("tracker.integrations.myanimelist.fetch_anime_list")
+    def test_syncs_history_and_watchlist_and_advances_last_synced_at(self, mock_fetch, mock_resolve, mock_apply):
+        account = ExternalAccount.objects.create(profile=self.profile, provider=ExternalAccount.Provider.MAL)
+        mock_resolve.return_value = _mal_match(tmdb_id=None, tmdb_kind=None)
+        title = Title.objects.create(media_type=MediaType.ANIME, name="Finished Film", year=2020)
+        mock_apply.return_value = title
+        mock_fetch.return_value = [
+            {"node": {"id": 1, "title": "Finished Film", "start_season": {"year": 2020}},
+             "list_status": {"status": "completed", "num_episodes_watched": 1, "score": 9,
+                              "finish_date": "2024-01-01"}},
+            {"node": {"id": 2, "title": "Future Watch", "start_season": {"year": 2021}},
+             "list_status": {"status": "plan_to_watch", "num_episodes_watched": 0, "score": 0}},
+        ]
+        created = tasks.sync_mal_history(self.profile.id)
+        self.assertEqual(created, 2)
+        account.refresh_from_db()
+        self.assertIsNotNone(account.last_synced_at)
+        log = SyncLog.objects.get(profile=self.profile, provider=ExternalAccount.Provider.MAL)
+        self.assertEqual(log.status, SyncLog.Status.SUCCESS)
+
+    @patch("tracker.integrations.myanimelist.fetch_anime_list")
+    def test_a_401_triggers_a_refresh_then_retries(self, mock_fetch):
+        account = ExternalAccount.objects.create(
+            profile=self.profile, provider=ExternalAccount.Provider.MAL, redirect_uri="https://example.com/cb",
+        )
+        account.set_refresh_token("oldrtok")
+        account.save(update_fields=["encrypted_refresh_token"])
+        resp_401 = Mock()
+        resp_401.status_code = 401
+        mock_fetch.side_effect = [requests.HTTPError(response=resp_401), []]
+        with patch("tracker.integrations.myanimelist.refresh_access_token") as mock_refresh:
+            mock_refresh.return_value = {"access_token": "newtok", "refresh_token": "newrtok", "expires_in": 3600}
+            created = tasks.sync_mal_history(self.profile.id)
+        self.assertEqual(created, 0)
+        account.refresh_from_db()
+        self.assertEqual(account.get_access_token(), "newtok")

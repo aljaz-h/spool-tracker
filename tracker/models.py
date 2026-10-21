@@ -479,6 +479,7 @@ class WatchEvent(models.Model):
         SIMKL = "simkl", "Simkl"
         TRAKT = "trakt", "Trakt"
         WETRAKR = "wetrakr", "WeTrakr"
+        MAL = "mal", "MyAnimeList"
         WEBHOOK = "webhook", "Scrobble API"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="watch_events")
@@ -805,6 +806,20 @@ class ExternalAccount(models.Model):
         # Logs tab without a parallel provider enum.
         NUVIO = "nuvio", "Nuvio"
         WETRAKR = "wetrakr", "WeTrakr"
+        # TMDB has no OAuth2 of its own - this account's "tokens" are a
+        # v3 request-token-flow session_id (see tracker/integrations/
+        # tmdb_account.py), stored via the same encrypted_access_token/
+        # get_access_token()/set_access_token() every OAuth2 provider
+        # above uses, even though it isn't technically an OAuth token.
+        TMDB = "tmdb", "TMDB"
+        # MyAnimeList - standard OAuth2 + PKCE (see tracker/integrations/
+        # myanimelist.py), using the same encrypted_access_token/
+        # encrypted_refresh_token/token_expires_at/redirect_uri fields
+        # every other OAuth2 provider above already has - MAL needs no
+        # provider-specific field of its own the way TMDB/WeTrakr do.
+        # Short code ("mal", not "myanimelist") to fit this field's own
+        # max_length=10 below.
+        MAL = "mal", "MyAnimeList"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="external_accounts")
     provider = models.CharField(max_length=10, choices=Provider.choices)
@@ -859,6 +874,12 @@ class ExternalAccount(models.Model):
     wetrakr_plan_checked_at = models.DateTimeField(null=True, blank=True)
     wetrakr_quota_date = models.DateField(null=True, blank=True)
     wetrakr_quota_count = models.PositiveIntegerField(default=0)
+    # TMDB only - every /account/{account_id}/favorite|watchlist/* call
+    # needs this numeric id, and TMDB gives no way to look it up except
+    # GET /account?session_id=... (see tmdb_account.get_account_id) -
+    # fetched once right after create_session and cached here rather
+    # than re-fetched on every sync.
+    tmdb_account_id = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -971,6 +992,8 @@ class InstanceConfig(models.Model):
     encrypted_simkl_client_secret = models.TextField(blank=True, default="")
     wetrakr_client_id = models.CharField(max_length=255, blank=True)
     encrypted_wetrakr_client_secret = models.TextField(blank=True, default="")
+    mal_client_id = models.CharField(max_length=255, blank=True)
+    encrypted_mal_client_secret = models.TextField(blank=True, default="")
     encrypted_tmdb_api_key = models.TextField(blank=True, default="")
     encrypted_mdblist_api_key = models.TextField(blank=True, default="")
     # Self-tracked daily request counter for WeTrakr's app-wide quota (one
@@ -1103,6 +1126,18 @@ class InstanceConfig(models.Model):
 
         self.encrypted_wetrakr_client_secret = crypto.encrypt(plaintext) if plaintext else ""
 
+    def get_mal_client_secret(self):
+        if not self.encrypted_mal_client_secret:
+            return ""
+        from . import crypto
+
+        return crypto.decrypt(self.encrypted_mal_client_secret)
+
+    def set_mal_client_secret(self, plaintext):
+        from . import crypto
+
+        self.encrypted_mal_client_secret = crypto.encrypt(plaintext) if plaintext else ""
+
     def get_tmdb_api_key(self):
         if not self.encrypted_tmdb_api_key:
             return ""
@@ -1230,6 +1265,8 @@ class DataLog(models.Model):
         SIMKL_CONNECT = "simkl_connect", "Simkl Connect"
         NUVIO_CONNECT = "nuvio_connect", "Nuvio Connect"
         WETRAKR_CONNECT = "wetrakr_connect", "WeTrakr Connect"
+        TMDB_CONNECT = "tmdb_connect", "TMDB Connect"
+        MAL_CONNECT = "mal_connect", "MyAnimeList Connect"
         MERGE_DUPLICATES = "merge_duplicates", "Merge Duplicate Titles"
         BACKFILL_POSTERS = "backfill_posters", "Backfill Posters"
         BACKFILL_GENRES = "backfill_genres", "Backfill Genres"
@@ -1374,6 +1411,11 @@ class ImportSession(models.Model):
         SIMKL = "simkl", "Simkl"
         NUVIO = "nuvio", "Nuvio"
         WETRAKR = "wetrakr", "WeTrakr"
+        TMDB = "tmdb", "TMDB"
+        MAL = "mal", "MyAnimeList"
+        IMDB = "imdb", "IMDb"
+        LETTERBOXD = "letterboxd", "Letterboxd"
+        TVTIME = "tvtime", "TV Time"
         CSV = "csv", "CSV"
         JSON = "json", "JSON"
         ZIP = "zip", "ZIP"

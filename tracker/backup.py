@@ -157,7 +157,7 @@ def restore_lists(profile, data, labels_out=None):
             tmdb_kind = ids.get("tmdb_kind") or ("movie" if item.get("type") == "movie" else "tv")
             title = _get_or_create_title(
                 media_type, str(item["title"])[:TITLE_MAX_LENGTH], _safe_int(item.get("year")),
-                ids.get("trakt"), ids.get("tmdb"), tmdb_kind,
+                ids.get("trakt"), ids.get("tmdb"), tmdb_kind, imdb_id=ids.get("imdb"),
             )
             _, created = WatchListItem.objects.get_or_create(
                 watchlist=watchlist, title=title,

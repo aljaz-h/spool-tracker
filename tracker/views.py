@@ -45,8 +45,10 @@ from . import (
     completion,
     crypto,
     csv_import,
+    imdb_import,
     import_pipeline,
     instance_config,
+    letterboxd_import,
     ratelimit,
     recommendations,
     rewatches,
@@ -54,8 +56,9 @@ from . import (
     selectors,
     tasks,
     totp,
+    tvtime_import,
 )
-from .integrations import anifiller, mdblist, nuvio, simkl, tenrai, tmdb, trakt, wetrakr
+from .integrations import anifiller, mdblist, myanimelist, nuvio, simkl, tenrai, tmdb, tmdb_account, trakt, wetrakr
 from .watchlists import WATCHLIST_NAME, ensure_watchlist
 from .models import (
     AVATAR_COLOR_CHOICES,
@@ -4210,6 +4213,7 @@ def _settings_page_context(request, profile):
                 "profiles": Profile.objects.select_related("user").all(),
                 "cfg": InstanceConfig.load(),
                 "tmdb_configured": bool(instance_config.get_tmdb_api_key()),
+                "mal_configured": bool(instance_config.get_mal_credentials()[0]),
                 "mdblist_configured": bool(instance_config.get_mdblist_api_key()),
                 "sso_shared_secret_configured": bool(instance_config.get_spool_wrapped_config()[1]),
                 "service_api_keys": ServiceAPIKey.objects.all(),
@@ -4337,13 +4341,15 @@ _INSTANCE_CONFIG_FIELDS = [
     "trakt_client_id", "trakt_client_secret",
     "simkl_client_id", "simkl_client_secret",
     "wetrakr_client_id", "wetrakr_client_secret",
+    "mal_client_id", "mal_client_secret",
     "tmdb_api_key", "mdblist_api_key",
     "spool_wrapped_url", "sso_shared_secret",
     "google_client_id", "google_client_secret",
     "dropbox_app_key", "dropbox_app_secret",
 ]
 _INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES = {
-    "trakt": "Trakt", "simkl": "Simkl", "wetrakr": "WeTrakr", "tmdb": "TMDB", "mdblist": "MDBList",
+    "trakt": "Trakt", "simkl": "Simkl", "wetrakr": "WeTrakr", "mal": "MyAnimeList",
+    "tmdb": "TMDB", "mdblist": "MDBList",
 }
 _INSTANCE_CONFIG_CLEARABLE = {**_INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES, "gdrive": "Google Drive", "dropbox": "Dropbox"}
 
@@ -4379,7 +4385,7 @@ def save_instance_config(request):
     # a field) - a blank field only ever means the admin didn't type a
     # replacement.
     for field in [
-        "trakt_client_id", "simkl_client_id", "wetrakr_client_id",
+        "trakt_client_id", "simkl_client_id", "wetrakr_client_id", "mal_client_id",
         "spool_wrapped_url", "google_client_id", "dropbox_app_key",
     ]:
         value = request.POST.get(field, "").strip()
@@ -4392,6 +4398,7 @@ def save_instance_config(request):
         ("trakt_client_secret", cfg.set_trakt_client_secret),
         ("simkl_client_secret", cfg.set_simkl_client_secret),
         ("wetrakr_client_secret", cfg.set_wetrakr_client_secret),
+        ("mal_client_secret", cfg.set_mal_client_secret),
         ("tmdb_api_key", cfg.set_tmdb_api_key),
         ("mdblist_api_key", cfg.set_mdblist_api_key),
         ("sso_shared_secret", cfg.set_sso_shared_secret),
@@ -4437,6 +4444,9 @@ def clear_instance_config_field(request, provider):
     elif provider == "wetrakr":
         cfg.wetrakr_client_id = ""
         cfg.set_wetrakr_client_secret("")
+    elif provider == "mal":
+        cfg.mal_client_id = ""
+        cfg.set_mal_client_secret("")
     elif provider == "tmdb":
         cfg.set_tmdb_api_key("")
     else:
@@ -4471,6 +4481,9 @@ def test_provider_credentials(request, provider):
     elif provider == "wetrakr":
         credential = request.POST.get("wetrakr_client_id", "").strip() or instance_config.get_wetrakr_credentials()[0]
         caveat = " (this only confirms the client ID is live - WeTrakr only checks the secret during the OAuth flow, not here)"
+    elif provider == "mal":
+        credential = request.POST.get("mal_client_id", "").strip() or instance_config.get_mal_credentials()[0]
+        caveat = " (this only confirms the client ID is live - MyAnimeList only checks the secret during the OAuth flow, not here)"
     elif provider == "mdblist":
         credential = request.POST.get("mdblist_api_key", "").strip() or instance_config.get_mdblist_api_key()
         caveat = ""
@@ -4489,6 +4502,8 @@ def test_provider_credentials(request, provider):
             simkl.test_credentials(credential)
         elif provider == "wetrakr":
             wetrakr.test_credentials(credential)
+        elif provider == "mal":
+            myanimelist.test_credentials(credential)
         elif provider == "mdblist":
             mdblist.test_api_key(credential)
         elif not tmdb.test_api_key(credential):
@@ -5583,7 +5598,7 @@ def export_spool_backup(request):
 PROVIDER_MODULES = {"trakt": trakt, "simkl": simkl}
 SYNC_TASKS = {
     "trakt": tasks.sync_trakt_history, "simkl": tasks.sync_simkl_history, "nuvio": tasks.sync_nuvio_history,
-    "wetrakr": tasks.sync_wetrakr_history,
+    "wetrakr": tasks.sync_wetrakr_history, "tmdb": tasks.sync_tmdb_lists, "mal": tasks.sync_mal_history,
 }
 # Providers whose FIRST connection goes through Import Review instead of
 # an immediate sync (see oauth_callback) - grows as Simkl/Nuvio's own
@@ -5591,7 +5606,7 @@ SYNC_TASKS = {
 # missing here keeps today's connect-triggers-immediate-sync behavior
 # unchanged, so half-wiring this set never leaves a provider connecting
 # into a review session with no scan implementation behind it.
-IMPORT_REVIEW_PROVIDERS = {"trakt", "simkl", "nuvio", "wetrakr"}
+IMPORT_REVIEW_PROVIDERS = {"trakt", "simkl", "nuvio", "wetrakr", "tmdb", "mal"}
 
 
 @login_required
@@ -5599,6 +5614,35 @@ def oauth_connect(request, provider):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
+    if provider == "tmdb":
+        # TMDB has no client_id/client_secret pair at all - its v3
+        # request-token flow (see tracker/integrations/tmdb_account.py's
+        # own module docstring) just needs *a* valid TMDB API key, the
+        # exact same one catalog lookups already use, so this branches
+        # out before the generic client_id lookup below rather than
+        # trying to make get_credentials() return something client_id-
+        # shaped for a provider that doesn't have one.
+        api_key = instance_config.get_tmdb_api_key()
+        if not api_key:
+            messages.error(
+                request,
+                "TMDB isn't configured on this server — set a TMDB API key under "
+                "Settings → Server Integrations, or via TMDB_API_KEY in the "
+                "environment and restart.",
+            )
+            return redirect("settings")
+        redirect_uri = request.build_absolute_uri(reverse("tmdb_callback"))
+        try:
+            request_token = tmdb_account.create_request_token(api_key)
+        except requests.RequestException:
+            messages.error(request, "Couldn't start the TMDB connection — please try again.")
+            return redirect("settings")
+        # Survives only this one connect->approve->callback round trip -
+        # read back and popped in oauth_callback below, never persisted
+        # anywhere past that, same lifetime as wetrakr's own PKCE
+        # verifier just below.
+        request.session["tmdb_oauth_request_token"] = request_token
+        return redirect(tmdb_account.authenticate_url(request_token, redirect_uri))
     client_id, _ = instance_config.get_credentials(provider)
     if not client_id:
         messages.error(
@@ -5621,6 +5665,14 @@ def oauth_connect(request, provider):
         code_verifier, code_challenge = wetrakr.generate_pkce_pair()
         request.session["wetrakr_oauth_verifier"] = code_verifier
         return redirect(wetrakr.authorize_url(redirect_uri, state, client_id, code_challenge))
+    if provider == "mal":
+        # MyAnimeList also requires PKCE, but only supports the "plain"
+        # method (challenge == verifier, no S256 - see
+        # myanimelist.generate_pkce_pair) - same stash-in-session/read-
+        # back-in-callback lifetime as WeTrakr's own verifier above.
+        code_verifier, code_challenge = myanimelist.generate_pkce_pair()
+        request.session["mal_oauth_verifier"] = code_verifier
+        return redirect(myanimelist.authorize_url(redirect_uri, state, client_id, code_challenge))
     return redirect(PROVIDER_MODULES[provider].authorize_url(redirect_uri, state, client_id))
 
 
@@ -5628,7 +5680,69 @@ CONNECT_ACTIONS = {
     "trakt": DataLog.Action.TRAKT_CONNECT,
     "simkl": DataLog.Action.SIMKL_CONNECT,
     "wetrakr": DataLog.Action.WETRAKR_CONNECT,
+    "tmdb": DataLog.Action.TMDB_CONNECT,
+    "mal": DataLog.Action.MAL_CONNECT,
 }
+
+
+def _finish_tmdb_connect(request, profile):
+    """oauth_callback's tmdb branch - a separate function the way Nuvio's
+    own _finish_nuvio_connect is, since TMDB's callback carries none of
+    the code/state GET params the shared OAuth2 flow above checks for
+    (no state round trip at all - see oauth_connect's own tmdb branch
+    for why that's safe here) and TMDB's "tokens" are a session_id +
+    account_id, not an access/refresh token pair."""
+    request_token = request.session.pop("tmdb_oauth_request_token", None)
+    if not request_token:
+        DataLog.objects.create(
+            profile=profile, action=DataLog.Action.TMDB_CONNECT, provider="tmdb", status=DataLog.Status.FAILED,
+            error_message="Connection request expired or was invalid.",
+        )
+        messages.error(request, "That connection request expired or was invalid — please try connecting again.")
+        return redirect("settings")
+
+    api_key = instance_config.get_tmdb_api_key()
+    try:
+        # create_session fails outright if the user denied the request
+        # or the token's since expired - there's no separate "approved"
+        # flag to check before this (see tmdb_account.py's own docstring).
+        session_id = tmdb_account.create_session(api_key, request_token)
+        account_id = tmdb_account.get_account_id(api_key, session_id)
+    except requests.RequestException as e:
+        # TMDB's v3 endpoints take api_key as a query param, which
+        # RequestException's own str() echoes back via the request URL -
+        # log the status code only, never the raw exception text, so the
+        # key never ends up readable in DataLog.
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        DataLog.objects.create(
+            profile=profile, action=DataLog.Action.TMDB_CONNECT, provider="tmdb", status=DataLog.Status.FAILED,
+            error_message=f"TMDB request failed (HTTP {status})" if status else "TMDB request failed",
+        )
+        messages.error(request, "Couldn't complete the TMDB connection — please try again.")
+        return redirect("settings")
+
+    account, created = ExternalAccount.objects.get_or_create(profile=profile, provider="tmdb")
+    account.set_access_token(session_id)
+    account.tmdb_account_id = account_id
+    account.save(update_fields=["encrypted_access_token", "tmdb_account_id"])
+    scheduling.ensure_periodic_task(account)
+    DataLog.objects.create(
+        profile=profile, action=DataLog.Action.TMDB_CONNECT, provider="tmdb", status=DataLog.Status.SUCCESS,
+        detail="connected",
+    )
+
+    if created and "tmdb" in IMPORT_REVIEW_PROVIDERS:
+        session = ImportSession.objects.create(
+            profile=profile, source="tmdb", status=ImportSession.Status.SCANNING,
+            expires_at=timezone.now() + IMPORT_SESSION_EXPIRY,
+        )
+        _dispatch_sync_task_safely(tasks.scan_import_session, [session.id])
+        messages.success(request, "Connected to TMDB — review what to import.")
+        return redirect("import_review", session_id=session.id)
+
+    _dispatch_sync_task_safely(SYNC_TASKS["tmdb"], [profile.id])
+    messages.success(request, "Connected to TMDB — syncing your lists now.")
+    return redirect("settings")
 
 
 @login_required
@@ -5636,6 +5750,8 @@ def oauth_callback(request, provider):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
+    if provider == "tmdb":
+        return _finish_tmdb_connect(request, profile)
     connect_action = CONNECT_ACTIONS[provider]
 
     expected_state = request.session.pop(f"{provider}_oauth_state", None)
@@ -5662,6 +5778,9 @@ def oauth_callback(request, provider):
         if provider == "wetrakr":
             code_verifier = request.session.pop("wetrakr_oauth_verifier", None)
             token_data = wetrakr.exchange_code(code, redirect_uri, client_id, client_secret, code_verifier)
+        elif provider == "mal":
+            code_verifier = request.session.pop("mal_oauth_verifier", None)
+            token_data = myanimelist.exchange_code(code, redirect_uri, client_id, client_secret, code_verifier)
         else:
             token_data = PROVIDER_MODULES[provider].exchange_code(code, redirect_uri, client_id, client_secret)
     except requests.RequestException as e:
@@ -6267,6 +6386,142 @@ def import_csv_commit(request):
     return redirect("import_review", session_id=session.id)
 
 
+@login_required
+@require_POST
+def import_imdb_upload(request):
+    """IMDb's export format is fixed (unlike the generic CSV path, there's
+    no ambiguous column to map), so this skips straight from upload to a
+    staged ImportSession + scan task - no preview/remap step at all, the
+    same one-step shape Trakt/Simkl's own OAuth-connect import uses."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        return redirect("settings")
+    upload = request.FILES.get("csv_file")
+    if not upload:
+        messages.error(request, "Choose a file first.")
+        return redirect("settings")
+    if upload.size > MAX_CSV_IMPORT_SIZE:
+        messages.error(request, f'"{upload.name}" is too large — please upload a file under 50MB.')
+        return redirect("settings")
+    if not upload.name.lower().endswith(".csv"):
+        messages.error(request, f'"{upload.name}" isn\'t a .csv file.')
+        return redirect("settings")
+
+    os.makedirs(CSV_IMPORT_DIR, exist_ok=True)
+    path = os.path.join(CSV_IMPORT_DIR, f"{uuid.uuid4().hex}.csv")
+    with open(path, "wb") as f:
+        for chunk in upload.chunks():
+            f.write(chunk)
+
+    with open(path, "rb") as f:
+        headers = csv_import.open_csv_reader(f).fieldnames or []
+    kind = imdb_import.detect_file_kind(headers)
+    if kind is None:
+        os.remove(path)
+        messages.error(request, f'"{upload.name}" doesn\'t look like an IMDb ratings or watchlist export.')
+        return redirect("settings")
+
+    session = ImportSession.objects.create(
+        profile=profile, source=ImportSession.Source.IMDB, status=ImportSession.Status.SCANNING,
+        source_filename=upload.name,
+        source_metadata={"path": path, "imdb_kind": kind},
+        expires_at=timezone.now() + IMPORT_SESSION_EXPIRY,
+    )
+    _dispatch_sync_task_safely(tasks.scan_import_session, [session.id])
+    return redirect("import_review", session_id=session.id)
+
+
+@login_required
+@require_POST
+def import_letterboxd_upload(request):
+    """Same one-step upload shape as import_imdb_upload above - the zip's
+    own contents (which of watched.csv/ratings.csv/watchlist.csv it has)
+    decide what gets imported, nothing for the user to configure first."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        return redirect("settings")
+    upload = request.FILES.get("csv_file")
+    if not upload:
+        messages.error(request, "Choose a file first.")
+        return redirect("settings")
+    if upload.size > MAX_CSV_IMPORT_SIZE:
+        messages.error(request, f'"{upload.name}" is too large — please upload a file under 50MB.')
+        return redirect("settings")
+    if not upload.name.lower().endswith(".zip"):
+        messages.error(request, f'"{upload.name}" isn\'t a .zip file — export your data from Letterboxd\'s Settings → Import & Export first.')
+        return redirect("settings")
+
+    os.makedirs(CSV_IMPORT_DIR, exist_ok=True)
+    path = os.path.join(CSV_IMPORT_DIR, f"{uuid.uuid4().hex}.zip")
+    with open(path, "wb") as f:
+        for chunk in upload.chunks():
+            f.write(chunk)
+
+    try:
+        with zipfile.ZipFile(path) as zf:
+            names = {n.lower() for n in zf.namelist()}
+    except zipfile.BadZipFile:
+        os.remove(path)
+        messages.error(request, f'"{upload.name}" doesn\'t look like a valid zip file.')
+        return redirect("settings")
+    if not ({"watched.csv", "ratings.csv", "watchlist.csv"} & names):
+        os.remove(path)
+        messages.error(request, f'"{upload.name}" doesn\'t look like a Letterboxd export — no watched.csv, ratings.csv, or watchlist.csv found inside.')
+        return redirect("settings")
+
+    session = ImportSession.objects.create(
+        profile=profile, source=ImportSession.Source.LETTERBOXD, status=ImportSession.Status.SCANNING,
+        source_filename=upload.name,
+        source_metadata={"path": path},
+        expires_at=timezone.now() + IMPORT_SESSION_EXPIRY,
+    )
+    _dispatch_sync_task_safely(tasks.scan_import_session, [session.id])
+    return redirect("import_review", session_id=session.id)
+
+
+@login_required
+@require_POST
+def import_tvtime_upload(request):
+    """Same one-step upload shape as import_imdb_upload/
+    import_letterboxd_upload above - a TV Time Liberator export's fixed
+    column set (tracker/tvtime_import.py) needs no remap step either."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        return redirect("settings")
+    upload = request.FILES.get("csv_file")
+    if not upload:
+        messages.error(request, "Choose a file first.")
+        return redirect("settings")
+    if upload.size > MAX_CSV_IMPORT_SIZE:
+        messages.error(request, f'"{upload.name}" is too large — please upload a file under 50MB.')
+        return redirect("settings")
+    if not upload.name.lower().endswith(".csv"):
+        messages.error(request, f'"{upload.name}" isn\'t a .csv file.')
+        return redirect("settings")
+
+    os.makedirs(CSV_IMPORT_DIR, exist_ok=True)
+    path = os.path.join(CSV_IMPORT_DIR, f"{uuid.uuid4().hex}.csv")
+    with open(path, "wb") as f:
+        for chunk in upload.chunks():
+            f.write(chunk)
+
+    with open(path, "rb") as f:
+        headers = csv_import.open_csv_reader(f).fieldnames or []
+    if not tvtime_import.looks_like_tvtime_export(headers):
+        os.remove(path)
+        messages.error(request, f'"{upload.name}" doesn\'t look like a TV Time Liberator export.')
+        return redirect("settings")
+
+    session = ImportSession.objects.create(
+        profile=profile, source=ImportSession.Source.TVTIME, status=ImportSession.Status.SCANNING,
+        source_filename=upload.name,
+        source_metadata={"path": path},
+        expires_at=timezone.now() + IMPORT_SESSION_EXPIRY,
+    )
+    _dispatch_sync_task_safely(tasks.scan_import_session, [session.id])
+    return redirect("import_review", session_id=session.id)
+
+
 def _get_import_session_or_404(request, session_id):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
@@ -6663,6 +6918,14 @@ def _session_progress(session):
     if session.status == Status.READY:
         return None, f"Ready to review - {session.total_items:,} items"
     if session.status == Status.COMPLETED:
+        restored = session.source_metadata.get("backup_lists_restored")
+        if not session.imported_items and restored:
+            # A list-only session (an IMDb/Letterboxd watchlist, a Spool
+            # backup with no new history) has nothing to say "Imported 0"
+            # about - that reads as if the import did nothing, when it
+            # added real list items. See _import_log_detail's own
+            # identical check for the Logs page's fuller version of this.
+            return None, f"{restored['lists']:,} list{'s' if restored['lists'] != 1 else ''} restored ({restored['items']:,} titles added)"
         return None, f"Imported {session.imported_items:,}" + (f", {session.skipped_items + session.failed_items:,} skipped" if session.skipped_items + session.failed_items else "")
     if session.status == Status.FAILED:
         return None, f"Failed - {session.error_message[:120] or 'unknown error'}"

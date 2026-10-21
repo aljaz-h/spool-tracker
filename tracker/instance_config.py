@@ -33,6 +33,14 @@ def get_wetrakr_credentials():
     )
 
 
+def get_mal_credentials():
+    cfg = InstanceConfig.load()
+    return (
+        cfg.mal_client_id or settings.MAL_CLIENT_ID,
+        cfg.get_mal_client_secret() or settings.MAL_CLIENT_SECRET,
+    )
+
+
 def get_credentials(provider):
     if provider == "trakt":
         return get_trakt_credentials()
@@ -40,6 +48,8 @@ def get_credentials(provider):
         return get_simkl_credentials()
     if provider == "wetrakr":
         return get_wetrakr_credentials()
+    if provider == "mal":
+        return get_mal_credentials()
     raise ValueError(f"unknown provider: {provider!r}")
 
 
