@@ -26,12 +26,32 @@ _FOLD_WIDTH = 73  # octets per content line before a CRLF+space continuation (RF
 _DEFAULT_RUNTIME_MINUTES = 30
 
 
+# Every C0/DEL control character except \n (0x0A) - \r is normalized into
+# \n before this runs, and \n itself is escaped to the literal two-char
+# sequence "\n" afterward, so stripping it here would silently delete an
+# intentional line break instead.
+_CONTROL_CHARS = "".join(chr(c) for c in range(0x20) if c != 0x0A) + chr(0x7F)
+_STRIP_CONTROL_CHARS = str.maketrans("", "", _CONTROL_CHARS)
+
+
 def _escape_text(value):
     """RFC 5545 §3.3.11 TEXT escaping - backslash first, then the rest,
     so an already-escaped backslash from one of the later substitutions
-    never gets escaped a second time."""
+    never gets escaped a second time. Security: a raw \\r (alone, or as
+    part of a \\r\\n pair) is normalized to \\n *before* escaping - title/
+    episode names ultimately come from TMDB, not something this profile
+    typed, but Titles are shared across every profile on the instance,
+    so one profile's data still ends up in another's feed; left
+    unescaped, a literal CRLF would terminate this content line early
+    and let its own bytes inject a new, attacker-controlled iCalendar
+    property into the file. Every other C0/DEL control character is
+    stripped outright (RFC 5545 TEXT excludes them all, tab included -
+    not worth preserving in a one-line SUMMARY)."""
     return (
-        value.replace("\\", "\\\\")
+        value.replace("\r\n", "\n")
+        .replace("\r", "\n")
+        .translate(_STRIP_CONTROL_CHARS)
+        .replace("\\", "\\\\")
         .replace(";", "\\;")
         .replace(",", "\\,")
         .replace("\n", "\\n")

@@ -58,6 +58,7 @@ account.
 - Trakt / Simkl / WeTrakr OAuth connect, Nuvio email/password connect, + a daily background sync job - a large first WeTrakr import that outlasts the free plan's daily quota pauses and resumes automatically, never gets stuck or fails
 - [Automatic backups](docs/BACKUPS.md) per profile, on a schedule, to WebDAV (Nextcloud/NAS), Google Drive, or Dropbox — plus a one-off full export/import
 - A generic [Scrobble API](docs/SCROBBLE_API.md) for any player/script, and a read-only [Reports API](docs/REPORTS_API.md) for external services like spool-wrapped
+- [Push notifications](docs/NOTIFICATIONS.md) to Discord/Slack/Telegram/Pushover/Teams/Webex via Apprise, self-service per profile, mirroring a subset of the in-app bell
 
 ## Get started
 
@@ -80,6 +81,7 @@ instead.
 | 🔗 **[Importing your data](docs/IMPORTING.md)** | Connecting Trakt/Simkl/WeTrakr/Nuvio, CSV import, posters, duplicate-title cleanup. |
 | 📡 **[Scrobble API](docs/SCROBBLE_API.md)** | A generic webhook for any player or script to report watches directly - no per-app integration needed. |
 | 📊 **[Reports API](docs/REPORTS_API.md)** | Read-only watch-history access for external services like spool-wrapped, opt-in per profile. |
+| 🔔 **[Push notifications](docs/NOTIFICATIONS.md)** | Mirror the bell to Discord/Slack/Telegram/Pushover/Teams/Webex via Apprise - which notifications, which services, and why not the rest of Apprise's catalog. |
 | 💾 **[Backups](docs/BACKUPS.md)** | Full export/import, and scheduled automatic backups to a server folder, WebDAV, Google Drive, or Dropbox. |
 | 🛠️ **[Updating & rollback](docs/MAINTENANCE.md)** | Updating, rolling back a bad release, raw database backup. |
 | ⚠️ **[Known limitations](docs/LIMITATIONS.md)** | What's unverified, out of scope, or not built yet. |

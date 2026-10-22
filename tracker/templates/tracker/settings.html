@@ -454,31 +454,82 @@
       </div>
 
       {# ==================== NOTIFICATIONS ==================== #}
-      <div x-show="tab === 'notifications'" x-cloak class="max-w-2xl">
+      {% comment %}
+        One form spans both cards below (persists all five fields
+        together, see views.save_notifications) - hx-trigger="change"
+        only, never "submit", which is what lets the "Send test" button
+        inside it fall through to its own native (non-htmx) submission
+        via formaction instead of being intercepted, landing on
+        test_push_notification as an ordinary POST+redirect so Django's
+        messages framework can show the result as a normal toast after
+        the page reloads. That also means this form needs a real
+        csrf_token field for the first time on this page - every other
+        save so far has relied on base.html's global htmx X-CSRFToken
+        header injection, which only ever applies to htmx-intercepted
+        requests, never a native form submission like this one.
+      {% endcomment %}
+      <form
+        x-show="tab === 'notifications'" x-cloak
+        method="post" action="{% url 'save_notifications' %}"
+        hx-post="{% url 'save_notifications' %}" hx-trigger="change" hx-swap="none"
+        class="max-w-2xl flex flex-col gap-5"
+      >
+        {% csrf_token %}
         <div class="surface p-5">
           <div class="flex items-start gap-4 mb-4">
             <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "bell" "w-7 h-7" %}</div>
             <div class="min-w-0 flex-1">
               <h3 class="font-semibold text-[15px]">Notifications</h3>
-              <div class="text-[13px] text-ink-dim mt-0.5">In-app only for now - no email or push.</div>
+              <div class="text-[13px] text-ink-dim mt-0.5">What shows up in your bell.</div>
             </div>
           </div>
-        <form hx-post="{% url 'save_notifications' %}" hx-trigger="change" hx-swap="none" class="flex flex-col gap-3">
-          <label class="flex items-center justify-between gap-3 cursor-pointer">
-            <span class="text-[13.5px]">New episode/season alerts for what you're watching</span>
-            <input type="checkbox" name="notify_new_releases" class="checkbox checkbox-sm" {% if profile.notify_new_releases %}checked{% endif %}>
-          </label>
-          <label class="flex items-center justify-between gap-3 cursor-pointer">
-            <span class="text-[13.5px]">Calendar reminders for upcoming releases</span>
-            <input type="checkbox" name="notify_upcoming_releases" class="checkbox checkbox-sm" {% if profile.notify_upcoming_releases %}checked{% endif %}>
-          </label>
-          <label class="flex items-center justify-between gap-3 cursor-pointer">
-            <span class="text-[13.5px] flex items-center gap-2">Trakt/Simkl/Nuvio sync failures<span class="spool-spinner" aria-hidden="true"></span></span>
-            <input type="checkbox" name="notify_sync_failures" class="checkbox checkbox-sm" {% if profile.notify_sync_failures %}checked{% endif %}>
-          </label>
-        </form>
+          <div class="flex flex-col gap-3">
+            <label class="flex items-center justify-between gap-3 cursor-pointer">
+              <span class="text-[13.5px]">New episode/season alerts for what you're watching</span>
+              <input type="checkbox" name="notify_new_releases" class="checkbox checkbox-sm" {% if profile.notify_new_releases %}checked{% endif %}>
+            </label>
+            <label class="flex items-center justify-between gap-3 cursor-pointer">
+              <span class="text-[13.5px]">Calendar reminders for upcoming releases</span>
+              <input type="checkbox" name="notify_upcoming_releases" class="checkbox checkbox-sm" {% if profile.notify_upcoming_releases %}checked{% endif %}>
+            </label>
+            <label class="flex items-center justify-between gap-3 cursor-pointer">
+              <span class="text-[13.5px] flex items-center gap-2">Trakt/Simkl/Nuvio sync failures<span class="spool-spinner" aria-hidden="true"></span></span>
+              <input type="checkbox" name="notify_sync_failures" class="checkbox checkbox-sm" {% if profile.notify_sync_failures %}checked{% endif %}>
+            </label>
+          </div>
         </div>
-      </div>
+
+        <div class="surface p-5">
+          <div class="flex items-start gap-4 mb-4">
+            <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "send" "w-7 h-7" %}</div>
+            <div class="min-w-0 flex-1">
+              <h3 class="font-semibold text-[15px]">Push Notifications</h3>
+              <div class="text-[13px] text-ink-dim mt-0.5">
+                Mirror the alerts above out to Discord, Slack, Telegram, Pushover, Microsoft Teams or Webex Teams via
+                <a href="https://github.com/caronc/apprise" target="_blank" rel="noopener" class="underline hover:text-base-content">Apprise</a>
+                - no server setup needed, just paste a URL. Only these hosted services for now, not Apprise's full catalog (self-hosted
+                targets and email aren't supported yet - every URL here runs the server itself, so this is deliberately limited to
+                services with a fixed address, not one a URL could point anywhere). Doesn't cover import/backup progress either - those
+                stay in-app only.
+              </div>
+            </div>
+          </div>
+          <div class="flex flex-col gap-3">
+            <label class="flex items-center justify-between gap-3 cursor-pointer">
+              <span class="text-[13.5px]">Enable push notifications</span>
+              <input type="checkbox" name="push_notifications_enabled" class="checkbox checkbox-sm" {% if profile.push_notifications_enabled %}checked{% endif %}>
+            </label>
+            <div>
+              <div class="text-[12px] text-ink-dim mb-1">Apprise URL(s), one per line - discord://, slack://, tgram://, pover://, o365://, wxteams:// only</div>
+              <textarea
+                name="push_notification_urls" rows="3" placeholder="discord://webhook_id/webhook_token&#10;tgram://bot_token/chat_id"
+                class="w-full bg-base-300 rounded-lg px-3.5 py-2 text-sm font-mono"
+              >{{ profile.push_notification_urls }}</textarea>
+            </div>
+            <button type="submit" formaction="{% url 'test_push_notification' %}" class="btn btn-sm btn-soft self-start">Send test</button>
+          </div>
+        </div>
+      </form>
 
       {# ==================== CONNECTED APPS ==================== #}
       <div x-show="tab === 'connected_apps'" x-cloak class="flex flex-col gap-4 max-w-3xl">

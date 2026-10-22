@@ -8,20 +8,44 @@
       <h1 class="page-title">Calendar</h1>
       <p class="page-subtitle">New episodes, season premieres and releases from what you're watching and your watchlists.</p>
     </div>
+    {% comment %}
+      fixed + JS-clamped left/top (togglePanel), not a plain CSS
+      absolute right-0 - this button sits at the end of page-head's own
+      flex-wrap row until the title/subtitle text is short enough to
+      share a line with it, so its own position moves around a lot
+      between viewport widths (flush right next to the title on a wide
+      screen, flush left on its own row once the page wraps). A
+      static "right-0, sm:left-auto" pairing can't reliably react to
+      that - same JS-position-clamping pattern topbar.html's own
+      notification/profile dropdowns already use, for the same reason.
+    {% endcomment %}
     <div
-      class="relative" x-data="{ open: false }"
+      class="relative" x-data="{
+        open: false,
+        togglePanel(button) {
+          this.open = !this.open;
+          if (!this.open) return;
+          this.$nextTick(() => {
+            const rect = button.getBoundingClientRect();
+            const panel = this.$refs.panel;
+            const width = 320;
+            panel.style.left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)) + 'px';
+            panel.style.top = (rect.bottom + 8) + 'px';
+          });
+        },
+      }"
       @click.outside="open = false" @keydown.escape.window="open = false"
     >
       <button
-        type="button" @click="open = !open" :aria-expanded="open.toString()" aria-haspopup="true"
+        type="button" @click="togglePanel($el)" :aria-expanded="open.toString()" aria-haspopup="true"
         hx-get="{% url 'calendar_subscribe_panel' %}" hx-target="#calendar-subscribe-content" hx-swap="innerHTML" hx-trigger="click once"
         class="btn btn-sm btn-outline gap-1.5"
       >
         {% icon "calendar-days" "w-3.5 h-3.5" %} Subscribe
       </button>
       <div
-        x-cloak :class="{'spool-popover-open': open}"
-        class="spool-popover menu-surface absolute right-0 top-full mt-2 w-[320px] max-w-[calc(100vw-2rem)] z-40 overflow-hidden"
+        x-ref="panel" x-show="open" x-cloak :class="{'spool-popover-open': open}"
+        class="spool-popover menu-surface fixed w-[320px] max-w-[calc(100vw-1rem)] z-40 overflow-hidden"
       >
         <div id="calendar-subscribe-content">
           <div class="px-3 py-8 text-center text-ink-faint text-xs">Loading&hellip;</div>

@@ -75,3 +75,16 @@ class TrackerConfig(AppConfig):
             sender=ImportSession,
             dispatch_uid="import_session_transfer_tracking",
         )
+
+        # A newly-created Notification (not import_status/backup_status -
+        # see notifications.on_notification_saved's own docstring) also
+        # goes out through Apprise (tracker/push.py) for any profile
+        # that's configured it.
+        from .models import Notification
+        from .notifications import on_notification_saved
+
+        post_save.connect(
+            on_notification_saved,
+            sender=Notification,
+            dispatch_uid="notification_push_dispatch",
+        )

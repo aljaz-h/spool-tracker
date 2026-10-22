@@ -148,6 +148,18 @@ class Profile(models.Model):
     notify_new_releases = models.BooleanField(default=True)
     notify_upcoming_releases = models.BooleanField(default=True)
     notify_sync_failures = models.BooleanField(default=True)
+    # Settings → Notifications "Push notifications" card - mirrors
+    # whatever already reaches the in-app bell out through Apprise
+    # (tracker/push.py) to a fixed allowlist of hosted services
+    # (Discord/Slack/Telegram/Pushover/Teams/Webex - see push.py's own
+    # docstring for why it's that list and not Apprise's full catalog),
+    # for the subset of Notification.Kind values that are genuinely
+    # one-shot events (see tracker/apps.py's push-dispatch signal) -
+    # never import_status/backup_status, which stay in-app only. One
+    # Apprise URL per line; a separate master toggle from "has URLs
+    # configured" so delivery can be paused without losing them.
+    push_notification_urls = models.TextField(blank=True, default="")
+    push_notifications_enabled = models.BooleanField(default=False)
     # Settings → Security - optional per-profile TOTP two-factor auth
     # (see tracker/totp.py). totp_secret gets written as soon as setup
     # starts (so the QR code shown stays stable across page reloads

@@ -50,6 +50,7 @@ from . import (
     import_pipeline,
     instance_config,
     letterboxd_import,
+    push,
     ratelimit,
     recommendations,
     rewatches,
@@ -5336,18 +5337,84 @@ def save_privacy(request):
 @login_required
 @require_POST
 def save_notifications(request):
-    """All three toggles submit together (one form, hx-trigger=change) -
-    same reasoning as save_appearance bundling its own fields, except
-    here every field really is a plain checkbox so there's no per-field
-    "was this key present at all" branching to do."""
+    """All toggles (and the push-notification card's textarea/master
+    switch) submit together (one form, hx-trigger=change) - same
+    reasoning as save_appearance bundling its own fields. A <textarea>'s
+    own "change" event only fires on blur, not per keystroke, so
+    push_notification_urls doesn't need its own debounce/separate form
+    to avoid saving on every character typed.
+
+    push_notification_urls only ever persists the subset that passes
+    push.validate_urls's scheme allowlist - silently, not a rejected-
+    save error: this endpoint's hx-swap="none" response body is never
+    shown to the user (see toasts.html's own docstring - a
+    messages.error() here would be set but never rendered, since
+    nothing re-renders the page after this response), so there's no way
+    to surface *which* URL got dropped and why from here. "Send test"
+    is the real feedback loop for that - a full page redirect, so its
+    own messages.error() actually shows - and it runs the exact same
+    validate_urls check, same wording, before ever sending anything."""
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
     profile.notify_new_releases = bool(request.POST.get("notify_new_releases"))
     profile.notify_upcoming_releases = bool(request.POST.get("notify_upcoming_releases"))
     profile.notify_sync_failures = bool(request.POST.get("notify_sync_failures"))
-    profile.save(update_fields=["notify_new_releases", "notify_upcoming_releases", "notify_sync_failures"])
+    profile.push_notifications_enabled = bool(request.POST.get("push_notifications_enabled"))
+    valid_urls, _errors = push.validate_urls(request.POST.get("push_notification_urls", ""))
+    profile.push_notification_urls = "\n".join(valid_urls)
+    profile.save(
+        update_fields=[
+            "notify_new_releases", "notify_upcoming_releases", "notify_sync_failures",
+            "push_notifications_enabled", "push_notification_urls",
+        ]
+    )
     return HttpResponse(status=204)
+
+
+@login_required
+@require_POST
+def test_push_notification(request):
+    """Push notifications card's "Send test" button - fires immediately
+    and synchronously (the person is sitting there waiting on an
+    answer, not something to queue through Celery), against whatever is
+    currently in the textarea rather than what's saved, so this works
+    mid-edit without a save round-trip first - same "test what's in the
+    form, not what's in the database" convention test_provider_credentials
+    uses. Mutates a throwaway, unsaved copy of push_notification_urls on
+    the profile instance rather than widening push.send()'s own
+    signature just for this one caller.
+
+    Scheme-allowlist rejections (push.validate_urls) get a specific,
+    named error - unlike an actual delivery failure below, which stays
+    deliberately generic (never reveals *why* a target failed - network
+    unreachable vs. service down vs. bad credentials would all read
+    identically, so this button can't become a reachability oracle for
+    probing internal hosts). Naming the URL/scheme here is safe either
+    way: it's a pure, local, pre-network string check against Spool's
+    own supported-service list, not something that depends on - or
+    reveals anything about - what's actually reachable from the server."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    raw_urls = request.POST.get("push_notification_urls", "")
+    if not raw_urls.strip():
+        messages.error(request, "Add at least one Apprise URL first.")
+        return redirect(f"{reverse('settings')}?tab=notifications")
+    valid_urls, errors = push.validate_urls(raw_urls)
+    if errors:
+        supported = ", ".join(sorted(set(push.ALLOWED_SCHEMES.values())))
+        for error in errors:
+            messages.error(request, f"{error} Supported: {supported}.")
+        if not valid_urls:
+            return redirect(f"{reverse('settings')}?tab=notifications")
+    profile.push_notification_urls = "\n".join(valid_urls)
+    ok = push.send(profile, title="Spool test notification", message="If you can see this, push notifications are working.")
+    if ok:
+        messages.success(request, "Test notification sent - check your configured service(s).")
+    else:
+        messages.error(request, "Couldn't deliver a test notification - double-check the URL(s) above.")
+    return redirect(f"{reverse('settings')}?tab=notifications")
 
 
 def _notifications_badge_oob(request, profile):

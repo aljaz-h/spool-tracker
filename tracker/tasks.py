@@ -18,6 +18,7 @@ from . import (
     instance_config,
     letterboxd_import,
     notifications,
+    push,
     release_sync,
     selectors,
     tvtime_import,
@@ -897,6 +898,30 @@ def check_for_new_version():
     logger.info("check_for_new_version: v%s available, %d notification(s) created", latest, created)
     _log_system_datalog(DataLog.Action.UPDATE_CHECK, created, detail=f"v{latest} available.")
     return created
+
+
+@shared_task
+def send_push_notification(notification_id):
+    """Dispatched by apps.py's post_save signal on Notification - the
+    one place that actually calls tracker/push.py's send(), so a bad or
+    revoked Apprise URL just logs a warning here and moves on rather
+    than retrying forever or raising into Celery/Sentry - this is
+    best-effort delivery, not a guaranteed-delivery queue; the in-app
+    bell row is still there either way. Re-checks push_notifications_enabled/
+    push_notification_urls here too, not just at dispatch time - a
+    profile could have turned push off, or the Notification/profile
+    could be gone entirely, in the window between the signal firing and
+    this actually running."""
+    try:
+        note = Notification.objects.select_related("profile").get(id=notification_id)
+    except Notification.DoesNotExist:
+        return
+    profile = note.profile
+    if not profile.push_notifications_enabled or not profile.push_notification_urls.strip():
+        return
+    ok = push.send(profile, title=note.get_kind_display(), message=note.message, url=note.link or None)
+    if not ok:
+        logger.warning("send_push_notification: delivery failed for notification %s", notification_id)
 
 
 @shared_task

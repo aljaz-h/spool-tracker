@@ -8,6 +8,29 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.153.0] - 2026-10-22
+
+### Added
+
+- Settings → Notifications has a new "Push notifications" card: add one
+  Apprise URL per line (Discord, Slack, Telegram, Pushover, Microsoft
+  Teams or Webex Teams) and new releases, upcoming releases, sync
+  failures, system updates and recommendation activity are mirrored out
+  through it, with a "Send test" button to check it works. Deliberately
+  limited to those six hosted services rather than Apprise's full
+  catalog - every other scheme (`ntfy://`, `mailto://`, `matrix://`,
+  generic webhooks, ...) lets the URL's own host be anything at all,
+  which is a server-side request forgery risk, not a hypothetical one.
+
+### Fixed
+
+- The Calendar page's "Subscribe" button could render its panel
+  off-screen on mobile.
+- A raw `\r`/`\r\n` in a shared Title's name could terminate an
+  iCalendar content line early and inject an unescaped property into
+  someone else's calendar feed.
+- Settings' backup-restore links pointed at a stale tab location.
+
 ## [0.152.0] - 2026-10-22
 
 ### Added

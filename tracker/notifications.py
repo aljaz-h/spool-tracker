@@ -1,5 +1,7 @@
-"""In-app notification generation - no email/push, just Notification rows
-a profile sees in the header bell. tracker/tasks.py's generate_release_notifications
+"""In-app notification generation - every Notification row a profile
+sees in the header bell starts here (or in transfer_tracking.py/
+recommendations.py/tasks.check_for_new_version for the kinds this module
+doesn't itself create). tracker/tasks.py's generate_release_notifications
 periodic task drives the two release-based kinds, and its own
 generate_watchlist_stale_notifications task drives the watchlist-nudge
 kind; _run_sync's failure path calls notify_sync_failure directly
@@ -8,6 +10,12 @@ itself for the same reason completion.py and
 rewatches.py are their own modules - the "who's eligible + what does this
 dedupe on" logic is substantial enough to want its own tests without
 Celery task machinery in the way.
+
+on_notification_saved (bottom of this file) is this module's other job:
+tracker/apps.py's post_save signal receiver, mirroring a subset of
+Notification rows out through tracker/push.py's Apprise delivery -
+in-app-only no longer tells the whole story, see that function's own
+docstring for exactly which kinds and why.
 """
 
 from datetime import timedelta
@@ -15,7 +23,7 @@ from datetime import timedelta
 from django.db.models import Q
 from django.utils import timezone
 
-from . import selectors
+from . import push, selectors
 from .models import Notification, Profile, ReleaseSchedule, WatchListItem
 
 # How close to "now" a release has to be to notify on it at all - a
@@ -216,3 +224,30 @@ def notify_sync_failure(profile, provider, error_message):
         kind=Notification.Kind.SYNC_FAILED,
         message=f"{provider.title()} sync failed: {error_message[:200]}",
     )
+
+
+def on_notification_saved(sender, instance, created, raw=False, **kwargs):
+    """tracker/apps.py's post_save receiver for Notification - dispatches
+    tracker/push.py's Apprise delivery (via tasks.send_push_notification)
+    for the subset of kinds that's actually a one-shot event (see
+    push.PUSH_ELIGIBLE_KINDS's own docstring for exactly which, and why
+    import_status/backup_status are deliberately excluded - both are
+    rewritten in place via a queryset .update() for their useful
+    finished/failed state, which never reaches this receiver at all,
+    .update() doesn't fire post_save). created=True only - every
+    in-scope kind is a single Notification.objects.create()/
+    get_or_create() call, never updated afterward, so a later .save() on
+    the same row (none of these kinds have one today, but if that ever
+    changed) still wouldn't double-push. Module-level, not a closure -
+    see apps.py's own comment on why that matters for a weakly-
+    referenced signal receiver."""
+    if not created or raw:
+        return
+    if instance.kind not in push.PUSH_ELIGIBLE_KINDS:
+        return
+    profile = instance.profile
+    if not profile.push_notifications_enabled or not profile.push_notification_urls.strip():
+        return
+    from . import tasks
+
+    tasks.send_push_notification.delay(instance.id)

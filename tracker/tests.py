@@ -6,8 +6,9 @@ import tempfile
 import zipfile
 from datetime import date as _date
 from datetime import timedelta
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
+import apprise
 import pyotp
 import requests
 from itsdangerous import URLSafeTimedSerializer
@@ -19,7 +20,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
-from . import achievements, completion, crypto, csv_import, episode_matching, ical, imdb_import, import_pipeline, instance_config, letterboxd_import, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, title_matching, totp, tvtime_import, update_check, views
+from . import achievements, completion, crypto, csv_import, episode_matching, ical, imdb_import, import_pipeline, instance_config, letterboxd_import, notifications, push, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, title_matching, totp, tvtime_import, update_check, views
 from django.utils import timezone as _tz
 from .watchlists import ensure_watchlist
 from .integrations import anifiller, fanart, mdblist, myanimelist, nuvio, scrobble, simkl, tenrai, tmdb, tmdb_account, trakt, tvmaze, wetrakr
@@ -3520,6 +3521,23 @@ class IcalBuildFeedTests(TestCase):
         out = ical.build_feed(self.profile, [release])
         self.assertIn("Comma\\, Semicolon\\; Back\\\\slash", out)
 
+    def test_crlf_in_a_title_cannot_inject_a_new_content_line(self):
+        # Security regression: Titles are shared across every profile on
+        # the instance, so a raw \r\n in one (TMDB data isn't fully
+        # sanitized) must not terminate this content line early and let
+        # its own bytes become a new, unescaped iCalendar property.
+        from django.utils import timezone
+
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Evil\r\nX-INJECTED:evil", year=2026
+        )
+        release = ReleaseSchedule.objects.create(
+            title=title, release_type=ReleaseSchedule.ReleaseType.MOVIE_RELEASE, release_date=timezone.now()
+        )
+        out = ical.build_feed(self.profile, [release])
+        self.assertNotIn("\r\nX-INJECTED", out)
+        self.assertIn("Evil\\nX-INJECTED:evil", out)
+
     def test_long_lines_are_folded(self):
         from django.utils import timezone
 
@@ -4232,6 +4250,389 @@ class SaveNotificationsViewTests(TestCase):
         self.client.logout()
         resp = self.client.post(reverse("save_notifications"), {"notify_new_releases": "on"})
         self.assertNotEqual(resp.status_code, 200)
+
+    def test_saves_push_notification_fields(self):
+        # validate_urls persists Apprise's own *normalized* .url() for
+        # each accepted line (safe to re-instantiate later - see
+        # push.py's own docstring), not the raw input verbatim, so this
+        # checks containment rather than exact equality.
+        self.client.post(
+            reverse("save_notifications"),
+            {
+                "push_notifications_enabled": "on",
+                "push_notification_urls": "discord://webhook_id/webhook_token\n"
+                "tgram://123456789:AAHfakeTokenForTests1234567890abc/987654321",
+            },
+        )
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.push_notifications_enabled)
+        saved = self.profile.push_notification_urls
+        self.assertIn("discord://webhook_id/webhook_token", saved)
+        self.assertIn("tgram://123456789", saved)
+
+    def test_save_silently_drops_a_disallowed_scheme(self):
+        # See save_notifications's own docstring for why this is a quiet
+        # filter, not a rejected-save error - this endpoint's hx-swap
+        # response is never shown to the user, so "Send test" is the
+        # real place a profile discovers and fixes a bad URL.
+        self.client.post(
+            reverse("save_notifications"),
+            {"push_notification_urls": "json://192.168.1.50/hook\ndiscord://webhook_id/webhook_token"},
+        )
+        self.profile.refresh_from_db()
+        self.assertNotIn("json", self.profile.push_notification_urls)
+        self.assertTrue(self.profile.push_notification_urls.startswith("discord://webhook_id/webhook_token"))
+
+    def test_push_toggle_off_when_omitted(self):
+        self.profile.push_notifications_enabled = True
+        self.profile.save(update_fields=["push_notifications_enabled"])
+        self.client.post(reverse("save_notifications"), {})
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.push_notifications_enabled)
+
+
+class PushValidateUrlsTests(TestCase):
+    """tracker.push.validate_urls/ALLOWED_SCHEMES - the strict scheme
+    allowlist that replaced an earlier, rejected connection-level SSRF
+    guard (see push.py's own module docstring for why: DNS rebinding
+    between check and connect, several Apprise transports like mailto's
+    SMTP never going through requests.Session.send at all, and the
+    concurrency-unsafety of a global monkeypatch around one send()) -
+    and that itself replaced a naive per-candidate urlsplit(candidate)
+    .scheme check, which a single comma-smuggled string could bypass
+    (see test_comma_smuggled_second_url_is_rejected_not_just_its_scheme
+    below)."""
+
+    # One realistic, well-formed example per allowed scheme - Apprise's
+    # own per-plugin regexes reject a placeholder like "token/target"
+    # for several of these (tgram's bot_token in particular), so a
+    # generic template can't stand in here the way it could under the
+    # old scheme-string-only check.
+    EXAMPLE_URLS = {
+        "discord": "discord://webhook_id/webhook_token",
+        "slack": "slack://TokenA/TokenB/TokenC/",
+        "tgram": "tgram://123456789:AAHfakeTokenForTests1234567890abc/987654321",
+        "pover": "pover://user_key@app_token",
+        "o365": "o365://outlook/my-tenant-id/my-client-id-123/my-client-secret-abc",
+        "wxteams": "wxteams://api_key/",
+        "webex": "webex://api_key/",
+    }
+
+    def test_every_allowlisted_scheme_passes(self):
+        self.assertEqual(set(self.EXAMPLE_URLS), set(push.ALLOWED_SCHEMES))
+        valid, errors = push.validate_urls("\n".join(self.EXAMPLE_URLS.values()))
+        self.assertEqual(len(valid), len(self.EXAMPLE_URLS))
+        self.assertEqual(errors, [])
+
+    def test_comma_smuggled_second_url_is_rejected_not_just_its_scheme(self):
+        # Apprise's own multi-URL parsing can derive MORE real URLs from
+        # a single candidate string than a naive urlsplit(candidate)
+        # .scheme check would ever see - that check would only look at
+        # "discord" here and let the whole line through, silently
+        # carrying the smuggled metadata-endpoint target into
+        # client.add() too. parse_urls() asks Apprise itself how many
+        # URLs it derives from the string; anything other than exactly
+        # one is rejected outright, before instantiation even happens.
+        valid, errors = push.validate_urls("discord://valid/webhook, http://169.254.169.254/")
+        self.assertEqual(valid, [])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("more than one URL", errors[0])
+
+    def test_a_generic_webhook_scheme_is_rejected(self):
+        valid, errors = push.validate_urls("json://192.168.1.50:8123/webhook")
+        self.assertEqual(valid, [])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("json", errors[0])
+
+    def test_self_hosted_look_alike_services_are_rejected(self):
+        # ntfy and matrix are both real, named Apprise services - and
+        # both rejected anyway, since both let the URL's own host be
+        # anything at all (self-hostable by design), the exact shape of
+        # risk this allowlist exists to close off. Confirmed by reading
+        # each plugin's own source (see push.py's docstring), not
+        # assumed from the service's name/branding.
+        for url in ("ntfy://ntfy.sh/mytopic", "matrix://user:pass@my-homeserver.example.com/#room"):
+            valid, errors = push.validate_urls(url)
+            self.assertEqual(valid, [], f"{url} should have been rejected")
+            self.assertEqual(len(errors), 1)
+
+    def test_mailto_is_rejected(self):
+        valid, errors = push.validate_urls("mailto://user:pass@smtp.example.com")
+        self.assertEqual(valid, [])
+        self.assertEqual(len(errors), 1)
+
+    def test_a_cloud_metadata_targeting_generic_url_is_rejected(self):
+        # The sharpest-edged case this whole allowlist exists to stop -
+        # confirms it's blocked by scheme alone, with no network/DNS
+        # involved in the check at all.
+        valid, errors = push.validate_urls("json://169.254.169.254/latest/meta-data/")
+        self.assertEqual(valid, [])
+
+    def test_mixed_valid_and_invalid_urls_splits_correctly(self):
+        valid, errors = push.validate_urls(
+            "discord://webhook_id/webhook_token\nntfy://ntfy.sh/topic\n"
+            "tgram://123456789:AAHfakeTokenForTests1234567890abc/987654321"
+        )
+        self.assertEqual(len(valid), 2)
+        self.assertTrue(valid[0].startswith("discord://webhook_id/webhook_token"))
+        self.assertTrue(valid[1].startswith("tgram://123456789"))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("ntfy", errors[0])
+
+    def test_blank_input_returns_nothing_and_no_errors(self):
+        valid, errors = push.validate_urls("   \n  \n")
+        self.assertEqual(valid, [])
+        self.assertEqual(errors, [])
+
+
+class PushSendTests(TestCase):
+    """tracker.push.send() - the Apprise wrapper, allowlist-filtered."""
+
+    def setUp(self):
+        user = User.objects.create_user("pushsenduser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="PushSendUser")
+
+    def test_empty_urls_returns_false_without_calling_apprise(self):
+        self.profile.push_notification_urls = "   \n  \n"
+        with patch("tracker.push.apprise.Apprise") as mock_apprise:
+            result = push.send(self.profile, "Title", "Message")
+        self.assertFalse(result)
+        mock_apprise.assert_not_called()
+
+    # The remaining tests below need apprise.Apprise.instantiate() (the
+    # real object-identity validation step - see push.py's docstring) to
+    # actually run, so unlike test_empty_urls_returns_false_without_
+    # calling_apprise above, they can't mock out the whole Apprise class
+    # (that would mock instantiate() too, and every candidate would get
+    # rejected as "not an allowed type"). Instead they patch only
+    # Apprise.notify - the one call that's a real outbound request -
+    # with autospec=True so the mock still receives the real, bound
+    # Apprise instance as its first arg, which is harmless and purely
+    # local to inspect (iterating it lists its added plugin objects;
+    # nothing here makes a network call).
+
+    def test_disallowed_scheme_is_silently_excluded_from_the_send(self):
+        # Defense in depth, not the primary feedback mechanism (that's
+        # the Settings save/test views, which call validate_urls
+        # directly for a visible error) - something with a bad scheme
+        # that ends up stored some other way still never reaches Apprise.
+        self.profile.push_notification_urls = "json://192.168.1.50/hook\ndiscord://webhook_id/webhook_token"
+        with patch.object(apprise.Apprise, "notify", autospec=True, return_value=True) as mock_notify:
+            push.send(self.profile, "Title", "Message")
+        client = mock_notify.call_args.args[0]
+        added = list(client)
+        self.assertEqual(len(added), 1)
+        self.assertEqual(type(added[0]), apprise.plugins.N_MGR["discord"])
+
+    def test_adds_every_configured_url_and_calls_notify(self):
+        self.profile.push_notification_urls = (
+            " discord://webhook_id/webhook_token \n\n "
+            "tgram://123456789:AAHfakeTokenForTests1234567890abc/987654321 \n"
+        )
+        with patch.object(apprise.Apprise, "notify", autospec=True, return_value=True) as mock_notify:
+            result = push.send(self.profile, "My Title", "My Message")
+        client = mock_notify.call_args.args[0]
+        added = list(client)
+        self.assertEqual(len(added), 2)
+        self.assertEqual(type(added[0]), apprise.plugins.N_MGR["discord"])
+        self.assertEqual(type(added[1]), apprise.plugins.N_MGR["tgram"])
+        mock_notify.assert_called_once()
+        self.assertEqual(mock_notify.call_args.kwargs["title"], "My Title")
+        self.assertEqual(mock_notify.call_args.kwargs["body"], "My Message")
+        self.assertTrue(result)
+
+    def test_comma_smuggled_url_never_reaches_apprise_add(self):
+        # End-to-end version of PushValidateUrlsTests's equivalent check:
+        # since the whole line is rejected (not just its smuggled second
+        # half), not even the legitimate-looking first part is ever
+        # added - safer than partially trusting a line Apprise itself
+        # parsed as more than one URL. Nothing gets added, so send()
+        # returns False before Apprise.notify is ever reached at all.
+        self.profile.push_notification_urls = "discord://valid/webhook, http://169.254.169.254/"
+        with patch.object(apprise.Apprise, "notify", autospec=True, return_value=True) as mock_notify:
+            result = push.send(self.profile, "Title", "Message")
+        mock_notify.assert_not_called()
+        self.assertFalse(result)
+
+    def test_url_param_appended_to_body(self):
+        self.profile.push_notification_urls = "discord://webhook_id/webhook_token"
+        with patch.object(apprise.Apprise, "notify", autospec=True, return_value=True) as mock_notify:
+            push.send(self.profile, "Title", "Message body", url="https://spool.example/titles/1/")
+        self.assertIn("https://spool.example/titles/1/", mock_notify.call_args.kwargs["body"])
+
+
+class NotificationPushSignalTests(TestCase):
+    """apps.py's post_save receiver (notifications.on_notification_saved) -
+    dispatches tracker.tasks.send_push_notification.delay for an in-scope
+    Kind, created=True, with push configured+enabled; stays silent
+    otherwise."""
+
+    def setUp(self):
+        user = User.objects.create_user("signaluser", password="pass12345")
+        self.profile = Profile.objects.create(
+            user=user, display_name="SignalUser",
+            push_notifications_enabled=True, push_notification_urls="json://a.example.com/hook",
+        )
+
+    def test_dispatches_for_an_in_scope_kind(self):
+        with patch("tracker.tasks.send_push_notification.delay") as mock_delay:
+            note = Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="failed")
+        mock_delay.assert_called_once_with(note.id)
+
+    def test_does_not_dispatch_for_import_status(self):
+        with patch("tracker.tasks.send_push_notification.delay") as mock_delay:
+            Notification.objects.create(profile=self.profile, kind=Notification.Kind.IMPORT_STATUS, message="scanning")
+        mock_delay.assert_not_called()
+
+    def test_does_not_dispatch_for_backup_status(self):
+        with patch("tracker.tasks.send_push_notification.delay") as mock_delay:
+            Notification.objects.create(profile=self.profile, kind=Notification.Kind.BACKUP_STATUS, message="backing up")
+        mock_delay.assert_not_called()
+
+    def test_does_not_dispatch_when_push_disabled(self):
+        self.profile.push_notifications_enabled = False
+        self.profile.save(update_fields=["push_notifications_enabled"])
+        with patch("tracker.tasks.send_push_notification.delay") as mock_delay:
+            Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="failed")
+        mock_delay.assert_not_called()
+
+    def test_does_not_dispatch_when_no_urls_configured(self):
+        self.profile.push_notification_urls = "   "
+        self.profile.save(update_fields=["push_notification_urls"])
+        with patch("tracker.tasks.send_push_notification.delay") as mock_delay:
+            Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="failed")
+        mock_delay.assert_not_called()
+
+    def test_does_not_dispatch_on_update_only(self):
+        with patch("tracker.tasks.send_push_notification.delay"):
+            note = Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="failed")
+        with patch("tracker.tasks.send_push_notification.delay") as mock_delay:
+            note.message = "failed again"
+            note.save(update_fields=["message"])
+        mock_delay.assert_not_called()
+
+    def test_queryset_update_never_fires_the_signal(self):
+        # The exact reason import_status/backup_status are out of scope -
+        # confirms the assumption this whole design rests on.
+        with patch("tracker.tasks.send_push_notification.delay"):
+            note = Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="failed")
+        with patch("tracker.tasks.send_push_notification.delay") as mock_delay:
+            Notification.objects.filter(id=note.id).update(message="rewritten in place")
+        mock_delay.assert_not_called()
+
+
+class SendPushNotificationTaskTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("tasksenduser", password="pass12345")
+        self.profile = Profile.objects.create(
+            user=user, display_name="TaskSendUser",
+            push_notifications_enabled=True, push_notification_urls="json://a.example.com/hook",
+        )
+        # This profile already has push enabled+configured, so creating
+        # this Notification for real would fire apps.py's own signal and
+        # dispatch a REAL Celery .delay() call (no broker reachable in
+        # tests) - that's the exact thing this test class exists to
+        # test directly and synchronously instead, so the signal's own
+        # dispatch needs to stay mocked out here, in setUp.
+        with patch("tracker.tasks.send_push_notification.delay"):
+            self.note = Notification.objects.create(
+                profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="Sync failed", link="/settings/"
+            )
+
+    def test_calls_push_send_with_notification_fields(self):
+        with patch("tracker.tasks.push.send", return_value=True) as mock_send:
+            tasks.send_push_notification(self.note.id)
+        mock_send.assert_called_once_with(self.profile, title=self.note.get_kind_display(), message="Sync failed", url="/settings/")
+
+    def test_missing_notification_is_a_clean_noop(self):
+        with patch("tracker.tasks.push.send") as mock_send:
+            tasks.send_push_notification(999999)
+        mock_send.assert_not_called()
+
+    def test_noop_when_push_disabled_by_the_time_it_runs(self):
+        self.profile.push_notifications_enabled = False
+        self.profile.save(update_fields=["push_notifications_enabled"])
+        with patch("tracker.tasks.push.send") as mock_send:
+            tasks.send_push_notification(self.note.id)
+        mock_send.assert_not_called()
+
+    def test_logs_a_warning_on_failed_delivery_without_raising(self):
+        with patch("tracker.tasks.push.send", return_value=False):
+            tasks.send_push_notification(self.note.id)  # must not raise
+
+
+class TestPushNotificationViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("testpushuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="TestPushUser")
+        self.client.login(username="testpushuser", password="pass12345")
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.post(reverse("test_push_notification"), {"push_notification_urls": "discord://webhook_id/webhook_token"})
+        self.assertNotEqual(resp.status_code, 200)
+
+    def test_empty_urls_shows_an_error_without_calling_push(self):
+        with patch("tracker.views.push.send") as mock_send:
+            resp = self.client.post(reverse("test_push_notification"), {"push_notification_urls": "   "}, follow=True)
+        mock_send.assert_not_called()
+        self.assertContains(resp, "Add at least one Apprise URL first")
+
+    def test_disallowed_scheme_shows_a_specific_named_error_without_calling_push(self):
+        # Unlike a genuine delivery failure (kept deliberately generic,
+        # see test_generic_delivery_failure_message_does_not_reveal_why
+        # below), naming the exact URL/scheme here is safe - it's a pure
+        # local string check against Spool's own supported-service list,
+        # not something that depends on or reveals network reachability.
+        with patch("tracker.views.push.send") as mock_send:
+            resp = self.client.post(
+                reverse("test_push_notification"), {"push_notification_urls": "json://192.168.1.50/hook"}, follow=True
+            )
+        mock_send.assert_not_called()
+        self.assertContains(resp, "json")
+        self.assertContains(resp, "unsupported scheme")
+        self.assertContains(resp, "Discord")  # the "Supported: ..." list
+
+    def test_mix_of_valid_and_invalid_urls_tests_only_the_valid_ones(self):
+        with patch("tracker.views.push.send", return_value=True) as mock_send:
+            resp = self.client.post(
+                reverse("test_push_notification"),
+                {"push_notification_urls": "json://192.168.1.50/hook\ndiscord://webhook_id/webhook_token"},
+                follow=True,
+            )
+        sent_profile = mock_send.call_args.args[0]
+        self.assertTrue(sent_profile.push_notification_urls.startswith("discord://webhook_id/webhook_token"))
+        self.assertContains(resp, "unsupported scheme")  # still warned about the dropped one
+        self.assertContains(resp, "Test notification sent")  # and still tested what was left
+
+    def test_uses_the_submitted_value_not_the_saved_one(self):
+        # The whole point - testing works mid-edit, before Save.
+        self.assertEqual(self.profile.push_notification_urls, "")
+        with patch("tracker.views.push.send", return_value=True) as mock_send:
+            self.client.post(reverse("test_push_notification"), {"push_notification_urls": "discord://webhook_id/webhook_token"})
+        sent_profile = mock_send.call_args.args[0]
+        self.assertTrue(sent_profile.push_notification_urls.startswith("discord://webhook_id/webhook_token"))
+        # And never persisted just from testing.
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.push_notification_urls, "")
+
+    def test_success_message_on_successful_delivery(self):
+        with patch("tracker.views.push.send", return_value=True):
+            resp = self.client.post(
+                reverse("test_push_notification"), {"push_notification_urls": "discord://webhook_id/webhook_token"}, follow=True
+            )
+        self.assertContains(resp, "Test notification sent")
+
+    def test_generic_delivery_failure_message_does_not_reveal_why(self):
+        # Security: an allowlisted-scheme URL that still fails to
+        # deliver (bad token, service down, ...) must read identically
+        # regardless of the real reason - no distinguishing detail to
+        # use as an oracle.
+        with patch("tracker.views.push.send", return_value=False):
+            resp = self.client.post(
+                reverse("test_push_notification"), {"push_notification_urls": "discord://webhook_id/webhook_token"}, follow=True
+            )
+        self.assertContains(resp, "Couldn&#x27;t deliver a test notification")
 
 
 class NotificationsPanelViewTests(TestCase):

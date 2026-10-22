@@ -161,7 +161,7 @@ def on_import_session_saved(sender, instance, created=False, update_fields=None,
 
 
 def backup_link():
-    return f"{reverse('settings')}?tab=data#backups"
+    return f"{reverse('settings')}?tab=backups"
 
 
 def start_backup(destination, notify=False):

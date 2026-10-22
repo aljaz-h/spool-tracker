@@ -418,6 +418,20 @@ LOGGING = {
             "level": "ERROR",
             "propagate": False,
         },
+        # Apprise (tracker/push.py) logs the fully-reconstructed target
+        # URL - webhook/bot token and all - at DEBUG, unredacted (its own
+        # "Loaded <service> URL" line masks credentials, but the later
+        # "<service> POST URL" line it logs right before actually sending
+        # does not). Root is INFO by default, which already suppresses
+        # this, but that's one env var away from being DEBUG for an
+        # unrelated reason - pinned here explicitly so a push
+        # notification's URL can never end up in a log file regardless
+        # of whatever root ends up set to.
+        "apprise": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
+        },
     },
 }
 

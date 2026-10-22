@@ -169,6 +169,7 @@ urlpatterns = [
     path("settings/api-tokens/<int:pk>/delete/", views.delete_api_token, name="delete_api_token"),
     path("settings/privacy/", views.save_privacy, name="save_privacy"),
     path("settings/notifications/", views.save_notifications, name="save_notifications"),
+    path("settings/notifications/test-push/", views.test_push_notification, name="test_push_notification"),
     path("settings/integrations/", views.save_instance_config, name="save_instance_config"),
     path(
         "settings/integrations/test/<str:provider>/",
