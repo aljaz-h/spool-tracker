@@ -19,7 +19,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
-from . import achievements, completion, crypto, csv_import, episode_matching, imdb_import, import_pipeline, instance_config, letterboxd_import, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, title_matching, totp, tvtime_import, update_check, views
+from . import achievements, completion, crypto, csv_import, episode_matching, ical, imdb_import, import_pipeline, instance_config, letterboxd_import, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, title_matching, totp, tvtime_import, update_check, views
 from django.utils import timezone as _tz
 from .watchlists import ensure_watchlist
 from .integrations import anifiller, fanart, mdblist, myanimelist, nuvio, scrobble, simkl, tenrai, tmdb, tmdb_account, trakt, tvmaze, wetrakr
@@ -3435,6 +3435,209 @@ class CalendarRefreshReleasesViewTests(TestCase):
         self.client.logout()
         resp = self.client.post(reverse("calendar_refresh_releases"))
         self.assertEqual(resp.status_code, 302)
+
+
+class CalendarFeedTokenTests(TestCase):
+    """Profile.get_or_create_calendar_feed_token/regenerate_calendar_feed_token -
+    the lazily-minted secret the .ics subscription URL is keyed on."""
+
+    def setUp(self):
+        user = User.objects.create_user("icaltoken", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="IcalToken")
+
+    def test_lazily_creates_a_token_on_first_call(self):
+        self.assertIsNone(self.profile.calendar_feed_token)
+        token = self.profile.get_or_create_calendar_feed_token()
+        self.assertEqual(len(token), 64)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.calendar_feed_token, token)
+
+    def test_second_call_returns_the_same_token(self):
+        first = self.profile.get_or_create_calendar_feed_token()
+        second = self.profile.get_or_create_calendar_feed_token()
+        self.assertEqual(first, second)
+
+    def test_regenerate_replaces_the_token(self):
+        first = self.profile.get_or_create_calendar_feed_token()
+        second = self.profile.regenerate_calendar_feed_token()
+        self.assertNotEqual(first, second)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.calendar_feed_token, second)
+
+    def test_multiple_profiles_can_go_without_a_token_at_once(self):
+        # Regression: calendar_feed_token is unique - two profiles that
+        # have never opened the Subscribe panel must both be able to
+        # stay null rather than colliding on a shared "" value.
+        other_user = User.objects.create_user("icaltoken2", password="pass12345")
+        other = Profile.objects.create(user=other_user, display_name="IcalToken2")
+        self.assertIsNone(self.profile.calendar_feed_token)
+        self.assertIsNone(other.calendar_feed_token)
+
+
+class IcalBuildFeedTests(TestCase):
+    """tracker.ical.build_feed - the .ics text itself."""
+
+    def setUp(self):
+        user = User.objects.create_user("icalbuild", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="IcalBuild")
+
+    def test_timed_event_uses_airstamp_derived_utc_datetime(self):
+        from datetime import datetime, timezone as dt_timezone
+
+        title = Title.objects.create(media_type=MediaType.TV, name="Exact Time Show", year=2024)
+        episode = Episode.objects.create(title=title, season=1, episode=2, name="Ep Two", runtime_minutes=45)
+        release = ReleaseSchedule.objects.create(
+            title=title, episode=episode, release_type=ReleaseSchedule.ReleaseType.EPISODE,
+            release_date=datetime(2026, 11, 3, 21, 0, tzinfo=dt_timezone.utc), has_exact_time=True,
+        )
+        out = ical.build_feed(self.profile, [release])
+        self.assertIn("DTSTART:20261103T210000Z", out)
+        self.assertIn("DTEND:20261103T214500Z", out)  # +45min runtime
+        self.assertIn("SUMMARY:Exact Time Show - S01E02 - Ep Two", out)
+
+    def test_untimed_event_is_all_day_not_fake_midnight(self):
+        from datetime import datetime
+
+        from django.utils import timezone
+
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Dated Only Movie", year=2026)
+        release = ReleaseSchedule.objects.create(
+            title=title, release_type=ReleaseSchedule.ReleaseType.MOVIE_RELEASE,
+            release_date=timezone.make_aware(datetime(2026, 12, 25, 0, 0)), has_exact_time=False,
+        )
+        out = ical.build_feed(self.profile, [release])
+        self.assertIn("DTSTART;VALUE=DATE:20261225", out)
+        self.assertIn("DTEND;VALUE=DATE:20261226", out)
+        self.assertNotIn("DTSTART:", out)  # never the timed form for this row
+
+    def test_special_characters_in_title_are_escaped(self):
+        from django.utils import timezone
+
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Comma, Semicolon; Back\\slash", year=2026)
+        release = ReleaseSchedule.objects.create(
+            title=title, release_type=ReleaseSchedule.ReleaseType.MOVIE_RELEASE, release_date=timezone.now()
+        )
+        out = ical.build_feed(self.profile, [release])
+        self.assertIn("Comma\\, Semicolon\\; Back\\\\slash", out)
+
+    def test_long_lines_are_folded(self):
+        from django.utils import timezone
+
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="X" * 200, year=2026)
+        release = ReleaseSchedule.objects.create(
+            title=title, release_type=ReleaseSchedule.ReleaseType.MOVIE_RELEASE, release_date=timezone.now()
+        )
+        out = ical.build_feed(self.profile, [release])
+        for line in out.split("\r\n"):
+            self.assertLessEqual(len(line), 73)
+
+    def test_uid_is_stable_across_rebuilds(self):
+        from django.utils import timezone
+
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Stable Uid", year=2026)
+        release = ReleaseSchedule.objects.create(
+            title=title, release_type=ReleaseSchedule.ReleaseType.MOVIE_RELEASE, release_date=timezone.now()
+        )
+        first = ical.build_feed(self.profile, [release])
+        second = ical.build_feed(self.profile, [release])
+        uid_line = next(line for line in first.split("\r\n") if line.startswith("UID:"))
+        self.assertIn(uid_line, second)
+
+    def test_url_included_only_when_base_url_given(self):
+        from django.utils import timezone
+
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Linked Movie", year=2026)
+        release = ReleaseSchedule.objects.create(
+            title=title, release_type=ReleaseSchedule.ReleaseType.MOVIE_RELEASE, release_date=timezone.now()
+        )
+        without = ical.build_feed(self.profile, [release])
+        self.assertNotIn("URL:", without)
+        withit = ical.build_feed(self.profile, [release], base_url="https://spool.example.com")
+        self.assertIn(f"URL:https://spool.example.com{reverse('title_detail', args=[title.pk])}", withit)
+
+    def test_empty_releases_still_produces_a_valid_wrapper(self):
+        out = ical.build_feed(self.profile, [])
+        self.assertTrue(out.startswith("BEGIN:VCALENDAR\r\n"))
+        self.assertTrue(out.endswith("END:VCALENDAR\r\n"))
+        self.assertNotIn("BEGIN:VEVENT", out)
+
+
+class CalendarFeedViewTests(TestCase):
+    """views.calendar_feed - the actual .ics endpoint an external
+    calendar app polls, with no login (the token in the URL is the
+    auth)."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("icalview", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="IcalView")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Feed Movie", year=2026)
+        self.release = ReleaseSchedule.objects.create(
+            title=self.title, release_type=ReleaseSchedule.ReleaseType.MOVIE_RELEASE,
+            release_date=timezone.now() + timedelta(days=3),
+        )
+        watchlist, _ = WatchList.objects.get_or_create(profile=self.profile, is_watchlist=True, defaults={"name": "Watchlist"})
+        WatchListItem.objects.create(watchlist=watchlist, title=self.title)
+
+    def test_bad_token_404s(self):
+        resp = self.client.get("/calendar/feed/not-a-real-token.ics")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_valid_token_returns_the_feed_unauthenticated(self):
+        # Deliberately no self.client.login() here - this is the whole
+        # point of a subscription URL.
+        token = self.profile.get_or_create_calendar_feed_token()
+        resp = self.client.get(f"/calendar/feed/{token}.ics")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["Content-Type"], "text/calendar; charset=utf-8")
+        self.assertIn(b"Feed Movie", resp.content)
+
+    def test_only_shows_this_profiles_own_releases(self):
+        from django.utils import timezone
+
+        other_user = User.objects.create_user("icalview2", password="pass12345")
+        other = Profile.objects.create(user=other_user, display_name="IcalView2")
+        other_title = Title.objects.create(media_type=MediaType.MOVIE, name="Other Profiles Movie", year=2026)
+        ReleaseSchedule.objects.create(
+            title=other_title, release_type=ReleaseSchedule.ReleaseType.MOVIE_RELEASE,
+            release_date=timezone.now() + timedelta(days=3),
+        )
+        other_watchlist, _ = WatchList.objects.get_or_create(profile=other, is_watchlist=True, defaults={"name": "Watchlist"})
+        WatchListItem.objects.create(watchlist=other_watchlist, title=other_title)
+        token = self.profile.get_or_create_calendar_feed_token()
+        resp = self.client.get(f"/calendar/feed/{token}.ics")
+        self.assertIn(b"Feed Movie", resp.content)
+        self.assertNotIn(b"Other Profiles Movie", resp.content)
+
+
+class CalendarSubscribePanelViewTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("icalpanel", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="IcalPanel")
+        self.client.login(username="icalpanel", password="pass12345")
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.get(reverse("calendar_subscribe_panel"))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_shows_the_feed_url(self):
+        resp = self.client.get(reverse("calendar_subscribe_panel"))
+        self.profile.refresh_from_db()
+        self.assertIsNotNone(self.profile.calendar_feed_token)
+        self.assertContains(resp, f"/calendar/feed/{self.profile.calendar_feed_token}.ics")
+
+    def test_regenerate_changes_the_url_and_requires_post(self):
+        self.client.get(reverse("calendar_subscribe_panel"))
+        self.profile.refresh_from_db()
+        old_token = self.profile.calendar_feed_token
+        resp = self.client.get(reverse("calendar_feed_regenerate"))
+        self.assertEqual(resp.status_code, 405)
+        resp = self.client.post(reverse("calendar_feed_regenerate"))
+        self.profile.refresh_from_db()
+        self.assertNotEqual(self.profile.calendar_feed_token, old_token)
+        self.assertContains(resp, f"/calendar/feed/{self.profile.calendar_feed_token}.ics")
 
 
 class UpNextBroadeningTests(TestCase):
@@ -27054,7 +27257,7 @@ class ScheduledBackupTests(TestCase):
         self.assertIn(("DELETE", f"https://dav.example/Spool/{prefix}2020-01-01-0000.json"), calls)
 
     def test_settings_shows_the_backups_card(self):
-        resp = self.client.get(reverse("settings") + "?tab=data")
+        resp = self.client.get(reverse("settings") + "?tab=backups")
         self.assertContains(resp, "Automatic Backups")
         self.assertContains(resp, "Server folder")
         self.assertContains(resp, "Not available on this server yet")  # Drive/Dropbox not configured

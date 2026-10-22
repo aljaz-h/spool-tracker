@@ -8,6 +8,26 @@
       <h1 class="page-title">Calendar</h1>
       <p class="page-subtitle">New episodes, season premieres and releases from what you're watching and your watchlists.</p>
     </div>
+    <div
+      class="relative" x-data="{ open: false }"
+      @click.outside="open = false" @keydown.escape.window="open = false"
+    >
+      <button
+        type="button" @click="open = !open" :aria-expanded="open.toString()" aria-haspopup="true"
+        hx-get="{% url 'calendar_subscribe_panel' %}" hx-target="#calendar-subscribe-content" hx-swap="innerHTML" hx-trigger="click once"
+        class="btn btn-sm btn-outline gap-1.5"
+      >
+        {% icon "calendar-days" "w-3.5 h-3.5" %} Subscribe
+      </button>
+      <div
+        x-cloak :class="{'spool-popover-open': open}"
+        class="spool-popover menu-surface absolute right-0 top-full mt-2 w-[320px] max-w-[calc(100vw-2rem)] z-40 overflow-hidden"
+      >
+        <div id="calendar-subscribe-content">
+          <div class="px-3 py-8 text-center text-ink-faint text-xs">Loading&hellip;</div>
+        </div>
+      </div>
+    </div>
   </div>
 
   {% comment %}

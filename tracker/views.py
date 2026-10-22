@@ -45,6 +45,7 @@ from . import (
     completion,
     crypto,
     csv_import,
+    ical,
     imdb_import,
     import_pipeline,
     instance_config,
@@ -3330,6 +3331,64 @@ def calendar_refresh_releases(request):
         raise Http404
     _dispatch_release_sync_safely()
     return HttpResponse(status=204)
+
+
+def _calendar_feed_url(request, profile):
+    token = profile.get_or_create_calendar_feed_token()
+    return request.build_absolute_uri(reverse("calendar_feed", args=[token]))
+
+
+def _calendar_subscribe_panel_context(request, profile):
+    return {"feed_url": _calendar_feed_url(request, profile)}
+
+
+@login_required
+def calendar_subscribe_panel(request):
+    """Calendar page's "Subscribe" dropdown contents - lazily mints this
+    profile's feed token on first open (see
+    Profile.get_or_create_calendar_feed_token) rather than at profile
+    creation, same as every other self-service token in this app."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    return render(request, "tracker/partials/calendar_subscribe_panel.html", _calendar_subscribe_panel_context(request, profile))
+
+
+@login_required
+@require_POST
+def calendar_feed_regenerate(request):
+    """Rotates this profile's feed URL - the old one 404s the moment
+    this returns (see Profile.regenerate_calendar_feed_token), same
+    contract as regenerate_api_token."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    profile.regenerate_calendar_feed_token()
+    messages.success(request, "New calendar feed URL generated - update it wherever you'd subscribed before.")
+    return render(request, "tracker/partials/calendar_subscribe_panel.html", _calendar_subscribe_panel_context(request, profile))
+
+
+def calendar_feed(request, token):
+    """The actual .ics subscription endpoint a calendar app polls - no
+    @login_required, deliberately: an external app fetching this
+    periodically has no Spool session to send, so the token in the URL
+    itself stands in for login (same "the secret in the URL is the
+    auth" shape as a webcal:// feed from any other service). Scoped to
+    exactly what that profile's own in-app Calendar (type=all,
+    source=all) shows them - a subscription has no notion of "this
+    month" the way the page's own grid does, so this is everything from
+    a short lookback through however far out ReleaseSchedule reaches,
+    same default window selectors.calendar_releases itself uses for the
+    agenda sidebar when start/end aren't given."""
+    profile = get_object_or_404(Profile, calendar_feed_token=token)
+    releases = selectors.calendar_releases(
+        profile, media_type=None, source="all", start=timezone.now() - timedelta(days=AGENDA_LOOKBACK_DAYS)
+    )
+    base_url = request.build_absolute_uri("/").rstrip("/")
+    body = ical.build_feed(profile, releases, base_url=base_url)
+    response = HttpResponse(body, content_type="text/calendar; charset=utf-8")
+    response["Content-Disposition"] = 'inline; filename="spool-calendar.ics"'
+    return response
 
 
 LIST_PERIODS = {"today", "yesterday", "7", "30", "365"}
@@ -6797,7 +6856,7 @@ def _backup_card_context(request, profile):
 
 
 def _redirect_to_backups():
-    return redirect(f"{reverse('settings')}?tab=data#backups")
+    return redirect(f"{reverse('settings')}?tab=backups")
 
 
 def _apply_backup_schedule(destination, post):

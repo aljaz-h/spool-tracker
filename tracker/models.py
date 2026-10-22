@@ -193,6 +193,16 @@ class Profile(models.Model):
     # last watched something. Touched by middleware.LastSeenMiddleware,
     # throttled there to avoid a DB write on every single request.
     last_seen_at = models.DateTimeField(null=True, blank=True)
+    # Calendar page's "Subscribe" button - the secret in the .ics feed
+    # URL (views.calendar_feed) that stands in for login, since an
+    # external calendar app fetching that URL periodically has no Spool
+    # session to send. null (not "") so multiple profiles can go
+    # un-generated at once without colliding on a shared unique "" value -
+    # lazily created the first time the Subscribe panel is opened (see
+    # get_or_create_calendar_feed_token), not at profile-creation time,
+    # same "only exists once actually needed" idiom ApiToken's own
+    # tokens already use.
+    calendar_feed_token = models.CharField(max_length=64, null=True, blank=True, unique=True)
 
     class Meta:
         ordering = ["display_name"]
@@ -206,6 +216,31 @@ class Profile(models.Model):
         onto Django's own superuser flag instead of inventing new schema
         for a distinction Django auth already expresses."""
         return self.user.is_superuser
+
+    @staticmethod
+    def _generate_calendar_feed_token():
+        """secrets.token_hex(32) (64 hex chars, matches max_length) -
+        same generation idiom as ApiToken.generate_value(), with the same
+        retry-on-collision correctness even though an accidental
+        collision is astronomically unlikely."""
+        while True:
+            token = secrets.token_hex(32)
+            if not Profile.objects.filter(calendar_feed_token=token).exists():
+                return token
+
+    def get_or_create_calendar_feed_token(self):
+        if not self.calendar_feed_token:
+            self.calendar_feed_token = self._generate_calendar_feed_token()
+            self.save(update_fields=["calendar_feed_token"])
+        return self.calendar_feed_token
+
+    def regenerate_calendar_feed_token(self):
+        """Settings/Calendar's "Regenerate" action - the old URL stops
+        working the moment this returns, same contract as
+        ApiToken.regenerate()."""
+        self.calendar_feed_token = self._generate_calendar_feed_token()
+        self.save(update_fields=["calendar_feed_token"])
+        return self.calendar_feed_token
 
 
 class ApiToken(models.Model):

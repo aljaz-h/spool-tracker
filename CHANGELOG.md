@@ -8,6 +8,28 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.152.0] - 2026-10-22
+
+### Added
+
+- Calendar now has a "Subscribe" button offering a personal .ics feed
+  URL - add it to Google Calendar, Apple Calendar or Outlook as a
+  subscription and it stays in sync with what's on your own Calendar
+  page (watching + watchlists). No login needed to fetch it - the URL
+  itself is the secret, same as any other calendar subscription link -
+  with a regenerate option if it ever leaks. TVmaze-enriched episodes
+  carry their exact airtime; everything else is a plain all-day event
+  rather than a misleading midnight time.
+
+### Changed
+
+- Settings' sidebar is now grouped into Personal (Account, Preferences,
+  Notifications), Data (Connected Apps, Import & Export, Backups, API &
+  Sharing) and, for the server owner, Server (Profiles, Integrations,
+  Maintenance, Activity Log, Logs) - each collapsible, expanded by
+  default. Security and Danger Zone stay as their own top-level items.
+  Backups is now its own tab instead of living inside Import & Export.
+
 ## [0.151.0] - 2026-10-22
 
 ### Added

@@ -1,0 +1,31 @@
+{% load icons %}
+{# context: feed_url - swappable via hx-target="#calendar-subscribe-panel" on regenerate, same shape as api_tokens_card.html's own token row. #}
+<div id="calendar-subscribe-panel" class="p-3.5" x-data="{ copied: false }">
+  <div class="text-[12.5px] text-ink-dim mb-2.5">
+    Add this URL to Google Calendar, Apple Calendar or Outlook as a subscription -
+    it stays in sync with what's on your own Calendar page (watching + watchlists), no further setup needed.
+  </div>
+  <div class="flex items-center gap-1.5">
+    <input
+      type="text" readonly value="{{ feed_url }}" onclick="this.select()"
+      aria-label="Calendar subscription URL"
+      class="flex-1 min-w-0 bg-base-300 rounded-lg px-2.5 py-1.5 text-[12px] font-mono text-ink-dim focus:outline-none cursor-text"
+    >
+    <button
+      type="button"
+      @click="navigator.clipboard?.writeText('{{ feed_url|escapejs }}'); copied = true; setTimeout(() => copied = false, 1500)"
+      class="btn btn-sm flex-none" x-text="copied ? 'Copied' : 'Copy'"
+    >Copy</button>
+  </div>
+  <form
+    hx-post="{% url 'calendar_feed_regenerate' %}"
+    hx-target="#calendar-subscribe-panel" hx-swap="outerHTML"
+    onsubmit="return confirm('Generate a new calendar URL? The old one will stop working anywhere it was already added.');"
+    class="mt-2.5"
+  >
+    {% csrf_token %}
+    <button type="submit" class="text-[12px] text-ink-faint hover:text-base-content inline-flex items-center gap-1">
+      {% icon "refresh-cw" "w-3 h-3" %} Generate a new URL
+    </button>
+  </form>
+</div>

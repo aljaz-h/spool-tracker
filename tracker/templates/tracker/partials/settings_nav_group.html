@@ -1,0 +1,10 @@
+{% load icons %}
+{# context: group (openGroups key), label - a collapsible section header for Settings' nav (desktop sidebar and mobile dropdown both use this). Expanded by default (see settings.html's own openGroups default) so grouping tidies the list without hiding anything on first visit - collapsing is there for a returning viewer who already knows where things are. #}
+<button
+  type="button" @click.stop="toggleGroup('{{ group }}')"
+  :aria-expanded="openGroups.{{ group }}.toString()"
+  class="w-full flex items-center justify-between gap-2 px-3 pt-5 pb-1 text-[12.5px] font-semibold text-ink-faint hover:text-ink-dim"
+>
+  <span>{{ label }}</span>
+  <span class="flex-none transition-transform" :class="openGroups.{{ group }} ? 'rotate-180' : ''">{% icon "chevron-down" "w-3 h-3" %}</span>
+</button>

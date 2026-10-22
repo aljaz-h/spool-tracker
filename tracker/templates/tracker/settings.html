@@ -11,6 +11,13 @@
       url.searchParams.set('tab', t);
       history.replaceState({}, '', url);
     },
+    // Nav groups - expanded by default (grouping tidies the list, it
+    // shouldn't also hide anything on a first visit), collapsible from
+    // there for a returning viewer who already knows where things are.
+    // Not synced to the active tab on load since nothing starts closed -
+    // there's nothing to auto-expand.
+    openGroups: { personal: true, data: true, server: true },
+    toggleGroup(g) { this.openGroups[g] = !this.openGroups[g]; },
   }"
   :class="(tab === 'logs' || tab === 'data') ? 'max-w-7xl' : 'max-w-5xl'"
 >
@@ -33,18 +40,20 @@
   {% endif %}
 
   {% comment %}
-    Below lg:, the 8 (13 for an owner) tabs above get a dropdown-style
-    switcher instead of the desktop sidebar (still rendered below, just
-    hidden here via lg:hidden/hidden lg:flex on each) - a horizontal
-    scroll strip was the previous mobile treatment, confirmed live to be
-    a real problem once there were this many tabs to fit: no visible
-    affordance that more tabs exist past whatever the viewport happened
-    to fit, so most of them were only reachable by a viewer who already
-    guessed to swipe. `labels` duplicates each tab's label alongside the
+    Below lg:, the tabs above get a dropdown-style switcher instead of
+    the desktop sidebar (still rendered below, just hidden here via
+    lg:hidden/hidden lg:flex on each) - a horizontal scroll strip was
+    the previous mobile treatment, confirmed live to be a real problem
+    once there were this many tabs to fit: no visible affordance that
+    more tabs exist past whatever the viewport happened to fit, so most
+    of them were only reachable by a viewer who already guessed to
+    swipe. `labels` duplicates each tab's label alongside the
     settings_nav_button.html includes below (both need to exist - this
     one to show the *current* tab's name on the trigger button without
     round-tripping the tab key through the server) - update both
-    together when adding/renaming a tab.
+    together when adding/renaming a tab. Grouped the same way as the
+    desktop sidebar below (see its own comment for the grouping
+    rationale) - keep both in sync.
   {% endcomment %}
   <div
     class="lg:hidden mb-4"
@@ -52,8 +61,8 @@
       mobileNavOpen: false,
       labels: {
         account: 'Account', security: 'Security', preferences: 'Preferences',
-        notifications: 'Notifications', connected_apps: 'Connected Apps', advanced: 'Advanced',
-        data: 'Import &amp; Export', danger: 'Danger Zone'
+        notifications: 'Notifications', connected_apps: 'Connected Apps', advanced: 'API &amp; Sharing',
+        data: 'Import &amp; Export', backups: 'Backups', danger: 'Danger Zone'
         {% if profile.is_owner %}
         , profiles: 'Profiles', server_integrations: 'Server Integrations', maintenance: 'Maintenance',
         activity_log: 'Activity Log', logs: 'Logs'
@@ -72,46 +81,86 @@
       <span class="text-ink-faint flex-none transition-transform" :class="mobileNavOpen ? 'rotate-180' : ''">{% icon "chevron-down" "w-4 h-4" %}</span>
     </button>
     <div x-show="mobileNavOpen" x-cloak @click="mobileNavOpen = false" class="mt-1.5 flex flex-col gap-0.5 menu-surface p-1.5">
-      {% include "tracker/partials/settings_nav_button.html" with key="account" label="Account" icon="user" %}
+      {% include "tracker/partials/settings_nav_group.html" with group="personal" label="Personal" %}
+      <div x-show="openGroups.personal" x-cloak class="flex flex-col gap-0.5">
+        {% include "tracker/partials/settings_nav_button.html" with key="account" label="Account" icon="user" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="preferences" label="Preferences" icon="settings" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="notifications" label="Notifications" icon="bell" %}
+      </div>
+
       {% include "tracker/partials/settings_nav_button.html" with key="security" label="Security" icon="shield" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="preferences" label="Preferences" icon="settings" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="notifications" label="Notifications" icon="bell" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="connected_apps" label="Connected Apps" icon="plug" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="advanced" label="Advanced" icon="layout-dashboard" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="data" label="Import &amp; Export" icon="upload" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="danger" label="Danger Zone" icon="triangle-alert" %}
+
+      {% include "tracker/partials/settings_nav_group.html" with group="data" label="Data" %}
+      <div x-show="openGroups.data" x-cloak class="flex flex-col gap-0.5">
+        {% include "tracker/partials/settings_nav_button.html" with key="connected_apps" label="Connected Apps" icon="plug" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="data" label="Import &amp; Export" icon="upload" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="backups" label="Backups" icon="cloud" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="advanced" label="API &amp; Sharing" icon="layout-dashboard" %}
+      </div>
 
       {% if profile.is_owner %}
-        <div class="text-[12.5px] font-semibold text-ink-faint px-3 pt-2.5 pb-1">Admin</div>
-        {% include "tracker/partials/settings_nav_button.html" with key="profiles" label="Profiles" icon="users" %}
-        {% include "tracker/partials/settings_nav_button.html" with key="server_integrations" label="Server Integrations" icon="key" %}
-        {% include "tracker/partials/settings_nav_button.html" with key="maintenance" label="Maintenance" icon="refresh-cw" %}
-        {% include "tracker/partials/settings_nav_button.html" with key="activity_log" label="Activity Log" icon="history" %}
-        {% include "tracker/partials/settings_nav_button.html" with key="logs" label="Logs" icon="list-checks" %}
+        {% include "tracker/partials/settings_nav_group.html" with group="server" label="Server" %}
+        <div x-show="openGroups.server" x-cloak class="flex flex-col gap-0.5">
+          {% include "tracker/partials/settings_nav_button.html" with key="profiles" label="Profiles" icon="users" %}
+          {% include "tracker/partials/settings_nav_button.html" with key="server_integrations" label="Integrations" icon="key" %}
+          {% include "tracker/partials/settings_nav_button.html" with key="maintenance" label="Maintenance" icon="refresh-cw" %}
+          {% include "tracker/partials/settings_nav_button.html" with key="activity_log" label="Activity Log" icon="history" %}
+          {% include "tracker/partials/settings_nav_button.html" with key="logs" label="Logs" icon="list-checks" %}
+        </div>
       {% endif %}
+
+      <div class="pt-3">
+        {% include "tracker/partials/settings_nav_button.html" with key="danger" label="Danger Zone" icon="triangle-alert" %}
+      </div>
     </div>
   </div>
 
   <div class="flex flex-col lg:flex-row gap-10 items-start">
 
+    {% comment %}
+      Grouped into Personal/Data/(owner-only) Server, each collapsible
+      (settings_nav_group.html, openGroups in the root x-data above) -
+      expanded by default, so grouping tidies up a sidebar that had
+      grown to 13 flat entries without hiding anything on a first visit.
+      Security and Danger Zone stay standalone, outside any group -
+      Security for quick access to account protection regardless of
+      which group a viewer last had open, Danger Zone for its existing
+      "always easy to find, never accidentally buried" placement at the
+      very bottom. Mirrored in the mobile dropdown above - keep both in
+      sync when adding/renaming/moving a tab.
+    {% endcomment %}
     <nav class="hidden lg:flex w-[200px] flex-none lg:sticky lg:top-20 flex-col gap-0.5" aria-label="Settings sections">
-      {% include "tracker/partials/settings_nav_button.html" with key="account" label="Account" icon="user" %}
+      {% include "tracker/partials/settings_nav_group.html" with group="personal" label="Personal" %}
+      <div x-show="openGroups.personal" x-cloak class="flex flex-col gap-0.5">
+        {% include "tracker/partials/settings_nav_button.html" with key="account" label="Account" icon="user" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="preferences" label="Preferences" icon="settings" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="notifications" label="Notifications" icon="bell" %}
+      </div>
+
       {% include "tracker/partials/settings_nav_button.html" with key="security" label="Security" icon="shield" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="preferences" label="Preferences" icon="settings" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="notifications" label="Notifications" icon="bell" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="connected_apps" label="Connected Apps" icon="plug" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="advanced" label="Advanced" icon="layout-dashboard" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="data" label="Import &amp; Export" icon="upload" %}
-      {% include "tracker/partials/settings_nav_button.html" with key="danger" label="Danger Zone" icon="triangle-alert" %}
+
+      {% include "tracker/partials/settings_nav_group.html" with group="data" label="Data" %}
+      <div x-show="openGroups.data" x-cloak class="flex flex-col gap-0.5">
+        {% include "tracker/partials/settings_nav_button.html" with key="connected_apps" label="Connected Apps" icon="plug" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="data" label="Import &amp; Export" icon="upload" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="backups" label="Backups" icon="cloud" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="advanced" label="API &amp; Sharing" icon="layout-dashboard" %}
+      </div>
 
       {% if profile.is_owner %}
-        <div class="text-[12.5px] font-semibold text-ink-faint px-3 pt-5 pb-1">Admin</div>
-        {% include "tracker/partials/settings_nav_button.html" with key="profiles" label="Profiles" icon="users" %}
-        {% include "tracker/partials/settings_nav_button.html" with key="server_integrations" label="Server Integrations" icon="key" %}
-        {% include "tracker/partials/settings_nav_button.html" with key="maintenance" label="Maintenance" icon="refresh-cw" %}
-        {% include "tracker/partials/settings_nav_button.html" with key="activity_log" label="Activity Log" icon="history" %}
-        {% include "tracker/partials/settings_nav_button.html" with key="logs" label="Logs" icon="list-checks" %}
+        {% include "tracker/partials/settings_nav_group.html" with group="server" label="Server" %}
+        <div x-show="openGroups.server" x-cloak class="flex flex-col gap-0.5">
+          {% include "tracker/partials/settings_nav_button.html" with key="profiles" label="Profiles" icon="users" %}
+          {% include "tracker/partials/settings_nav_button.html" with key="server_integrations" label="Integrations" icon="key" %}
+          {% include "tracker/partials/settings_nav_button.html" with key="maintenance" label="Maintenance" icon="refresh-cw" %}
+          {% include "tracker/partials/settings_nav_button.html" with key="activity_log" label="Activity Log" icon="history" %}
+          {% include "tracker/partials/settings_nav_button.html" with key="logs" label="Logs" icon="list-checks" %}
+        </div>
       {% endif %}
+
+      <div class="pt-3">
+        {% include "tracker/partials/settings_nav_button.html" with key="danger" label="Danger Zone" icon="triangle-alert" %}
+      </div>
     </nav>
 
     <div class="flex-1 min-w-0 w-full">
@@ -685,7 +734,10 @@
             </div>
           </div>
         </div>
+      </div>
 
+      {# ==================== BACKUPS ==================== #}
+      <div x-show="tab === 'backups'" x-cloak class="flex flex-col gap-7">
         {% include "tracker/partials/settings_backups.html" %}
       </div>
 
