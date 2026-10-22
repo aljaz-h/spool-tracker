@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.153.1] - 2026-10-22
+
+### Fixed
+
+- The Celery worker would shut down entirely (relying on Docker to
+  restart it) on any brief Redis connection blip, instead of just
+  reconnecting - a setting meant to stop a *web request* from hanging
+  when Redis was briefly unreachable was being applied to the
+  long-running worker process too.
+- The nightly release sync did 2-3 database queries per episode in a
+  season instead of a handful per season, flagged by Sentry as an N+1
+  query on `sync_title_release`.
+
 ## [0.153.0] - 2026-10-22
 
 ### Added

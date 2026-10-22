@@ -98,27 +98,79 @@ def _upsert_season_episodes(title, season_number, season_data, tvmaze_episode_ti
     exact (season, episode) has a TVmaze-sourced instant, that replaces
     TMDB's date-only release_dt and has_exact_time is set True - otherwise
     TMDB's date stands, same as before TVmaze existed. Returns how many
-    rows were touched."""
+    dated episodes were processed (whether or not either row actually
+    changed - same "touched" meaning release_sync.sync_title_releases'
+    own docstring already promises).
+
+    Batched into a handful of queries rather than one get_or_create +
+    one update_or_create per episode (Sentry flagged the per-episode
+    version as an N+1 - a 20+ episode season fired 60+ round trips for
+    one title, nightly, across the whole library). Safe to bulk_create/
+    bulk_update here specifically because nothing else in this codebase
+    listens for a post_save/pre_save signal on Episode or ReleaseSchedule
+    (confirmed - bulk operations skip both, unlike get_or_create/
+    update_or_create, which this would silently break if that ever
+    changed)."""
     tvmaze_episode_times = tvmaze_episode_times or {}
-    touched = 0
+    dated = {}
     for ep_data in season_data.get("episodes") or []:
         number = ep_data.get("episode_number")
         release_dt = _parse_tmdb_date(ep_data.get("air_date"))
         if number is None or not release_dt:
             continue
-        episode, _ = Episode.objects.get_or_create(
-            title=title, season=season_number, episode=number, defaults={"name": ep_data.get("name") or ""}
+        dated[number] = (ep_data.get("name") or "", release_dt)
+    if not dated:
+        return 0
+
+    episodes_by_number = {
+        e.episode: e
+        for e in Episode.objects.filter(title=title, season=season_number, episode__in=dated)
+    }
+    to_create_episodes = [
+        Episode(title=title, season=season_number, episode=number, name=name)
+        for number, (name, _) in dated.items()
+        if number not in episodes_by_number
+    ]
+    if to_create_episodes:
+        Episode.objects.bulk_create(to_create_episodes)
+        episodes_by_number.update({e.episode: e for e in to_create_episodes})
+
+    schedules_by_key = {
+        (rs.episode_id, rs.release_type): rs
+        for rs in ReleaseSchedule.objects.filter(
+            title=title, episode_id__in=[episodes_by_number[number].id for number in dated]
         )
+    }
+
+    to_create_schedules = []
+    to_update_schedules = []
+    for number, (_, release_dt) in dated.items():
+        episode = episodes_by_number[number]
         release_type = (
             ReleaseSchedule.ReleaseType.SEASON_PREMIERE if number == 1 else ReleaseSchedule.ReleaseType.EPISODE
         )
         exact_dt = tvmaze_episode_times.get((season_number, number))
-        ReleaseSchedule.objects.update_or_create(
-            title=title, episode=episode, release_type=release_type,
-            defaults={"release_date": exact_dt or release_dt, "has_exact_time": exact_dt is not None},
-        )
-        touched += 1
-    return touched
+        final_dt = exact_dt or release_dt
+        has_exact = exact_dt is not None
+        existing = schedules_by_key.get((episode.id, release_type))
+        if existing is None:
+            to_create_schedules.append(
+                ReleaseSchedule(
+                    title=title, episode=episode, release_type=release_type,
+                    release_date=final_dt, has_exact_time=has_exact,
+                )
+            )
+        else:
+            existing.release_date = final_dt
+            existing.has_exact_time = has_exact
+            to_update_schedules.append(existing)
+
+    if to_create_schedules:
+        ReleaseSchedule.objects.bulk_create(to_create_schedules)
+    if to_update_schedules:
+        ReleaseSchedule.objects.bulk_update(to_update_schedules, ["release_date", "has_exact_time"])
+
+    return len(dated)
 
 
 def _sync_tv_release(title, tmdb_id, details, skip_tvmaze=False):

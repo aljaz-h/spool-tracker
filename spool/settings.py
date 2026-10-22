@@ -245,8 +245,26 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # retry=False does not override (that only skips retrying the publish
 # once connected). Confirmed by reproducing the hang locally with no
 # Redis running before adding this.
-CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = False
-CELERY_BROKER_CONNECTION_RETRY = False
+#
+# This settings module is also what the actual `celery -A spool worker`
+# process loads (spool/celery.py's app.config_from_object), not just
+# Django's own gunicorn/manage.py processes - for a long-running worker,
+# "don't retry a dropped broker connection" means its one persistent
+# connection to Redis is gone for good the instant Redis blips, so it
+# shuts itself down entirely (seen in production as a FATAL Sentry
+# event: "...Shutting down..."), relying on Docker's restart policy to
+# bring it back - every in-flight task lost, and every periodic job
+# silently not running for however long that takes. A worker is exactly
+# the opposite case from the request-path one above: there's no caller
+# waiting on a response to hang, so retrying forever is the right
+# default, same as a plain `celery worker` ships with out of the box.
+# sys.argv (not an env var some deploys might forget to set) is what
+# distinguishes the two - `celery -A spool worker ...` always has
+# "worker" as a bare argv token; manage.py/gunicorn/`celery ... beat`
+# never do.
+_IS_CELERY_WORKER = "worker" in sys.argv
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = _IS_CELERY_WORKER
+CELERY_BROKER_CONNECTION_RETRY = _IS_CELERY_WORKER
 CELERY_BROKER_CONNECTION_TIMEOUT = 3
 CELERY_BROKER_TRANSPORT_OPTIONS = {"socket_connect_timeout": 3, "socket_timeout": 3}
 
