@@ -4479,6 +4479,22 @@ class PushSendTests(TestCase):
         self.assertIn("everyone", body)
         self.assertIn("12345", body)
 
+    def test_defuses_every_at_and_angle_bracket_not_just_known_trigger_words(self):
+        # A fixed-keyword regex (an earlier version of this fix) misses
+        # anything it doesn't already know to look for - Teams/Webex's
+        # own @-mention markup was never enumerated, and a trailing \b
+        # word-boundary guess about exactly how a platform delimits a
+        # trigger is itself a gap (flagged by two separate review
+        # rounds). Defusing every '@'/'<' unconditionally can't miss a
+        # syntax it never tried to recognize.
+        self.profile.set_push_notification_urls("discord://webhook_id/webhook_token")
+        with patch.object(apprise.Apprise, "notify", autospec=True, return_value=True) as mock_notify:
+            push.send(self.profile, "Title", "@everyonetest <at>Everyone</at>")
+        body = mock_notify.call_args.kwargs["body"]
+        self.assertNotIn("@everyonetest", body)
+        self.assertNotIn("<at>", body)
+        self.assertIn("everyonetest", body)
+
 
 class NotificationPushSignalTests(TestCase):
     """apps.py's post_save receiver (notifications.on_notification_saved) -

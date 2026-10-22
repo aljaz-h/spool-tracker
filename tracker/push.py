@@ -67,7 +67,6 @@ itself already uses for its own "eligibility logic vs the thing it
 triggers" separation.
 """
 
-import re
 from urllib.parse import urlsplit
 
 import apprise
@@ -75,12 +74,6 @@ import apprise.plugins as apprise_plugins
 import apprise.utils.parse as apprise_parse
 
 from .models import Notification
-
-# Discord's @everyone/@here and <@user>/<@&role>/<#channel> mention
-# syntax, and Slack's <!here>/<!channel>/<!everyone>/<@U123> syntax -
-# matched so _defuse_mentions (see send()) can break each one with an
-# invisible character before it ever reaches a real webhook.
-_MENTION_PATTERN = re.compile(r"@(?:everyone|here)\b|<[@#!]", re.IGNORECASE)
 
 
 def _defuse_mentions(text):
@@ -90,12 +83,26 @@ def _defuse_mentions(text):
     stored and shown as-is in the in-app bell, but here it's about to
     leave the app through *this* profile's own configured webhook, so
     one profile typing "@everyone" (or Discord's raw <@&roleid> mention
-    syntax) into a reply must not actually page an entire external
-    Discord/Slack channel. Breaks the trigger with a zero-width space
-    rather than stripping it outright - the text still reads the same to
-    a human, it just stops matching the exact prefix Discord/Slack's own
-    parsers require."""
-    return _MENTION_PATTERN.sub(lambda m: m.group(0)[0] + "​" + m.group(0)[1:], text)
+    syntax, or Slack's <!channel>, or whatever Teams/Webex's own
+    @-mention markup turns out to be) must not actually page an entire
+    external channel.
+
+    Previously matched a fixed set of known trigger keywords
+    (@everyone/@here, <@/<#/<!) with a regex - two rounds of review
+    correctly called that out as an incomplete blocklist: a trailing
+    \\b word-boundary assumption about exactly how each platform's own
+    parser delimits a mention is a guess, and the pattern never covered
+    Teams/Webex's own mention syntax at all (nothing on this list was
+    ever read from either plugin's source - unlike ALLOWED_SCHEMES's
+    hosts, which was). Defusing every single '@' and '<' instead - not
+    just ones that look like a known trigger - needs no such guess: it
+    cannot miss a trigger syntax this module doesn't know about, because
+    it doesn't try to recognize one at all. Breaks each with a
+    zero-width space rather than stripping it outright - the text still
+    reads the same to a human, it just stops matching whatever exact
+    prefix any platform's own parser requires."""
+    return text.replace("@", "@​").replace("<", "<​")
+
 
 # The only Notification.Kind values this ever fires for - every one of
 # these is created via a single Notification.objects.create()/
