@@ -8,6 +8,26 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.151.0] - 2026-10-22
+
+### Added
+
+- Fanart.tv artwork support: title detail pages now show a transparent
+  clearlogo over the backdrop instead of plain text where Fanart has
+  one, and prefer Fanart's own backdrop over TMDB's when available.
+  Optional - needs a free personal API key (Server Integrations), and
+  TMDB's own poster/backdrop stay the fallback everywhere Fanart has
+  nothing.
+- TVmaze supplements TMDB's date-only TV air dates with an exact
+  airtime and timezone, so the dashboard's Up Next card and the
+  Calendar's agenda sidebar can show "Today · 9:00 PM" instead of just
+  a date, using each profile's own 12h/24h time preference. No API key
+  needed, movies are unaffected (TVmaze has no movie data), and the
+  nightly sync stays cheap via TVmaze's own bulk "updated shows"
+  endpoint rather than re-checking every tracked show individually.
+  TVmaze is now credited alongside TMDB/Jikan/AniFiller in the site
+  footer, per its CC BY-SA license.
+
 ## [0.150.0] - 2026-10-21
 
 ### Added

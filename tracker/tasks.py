@@ -24,7 +24,7 @@ from . import (
     update_check,
     version,
 )
-from .integrations import mdblist, myanimelist, nuvio, simkl, tmdb, tmdb_account, trakt, wetrakr
+from .integrations import fanart, mdblist, myanimelist, nuvio, simkl, tmdb, tmdb_account, trakt, tvmaze, wetrakr
 from .models import (
     DataLog,
     ExternalAccount,
@@ -36,6 +36,7 @@ from .models import (
     Profile,
     SyncLog,
     Title,
+    TitleFanartCache,
     TitleRatingsCache,
 )
 
@@ -750,7 +751,7 @@ def resume_paused_wetrakr_imports():
 
 
 @shared_task
-def sync_title_release(title_id):
+def sync_title_release(title_id, skip_tvmaze=False):
     """Per-title release sync, fanned out by sync_release_schedules
     (below) instead of being called in a loop there - each call does one
     blocking TMDB request (see release_sync.sync_title_releases), so
@@ -759,6 +760,11 @@ def sync_title_release(title_id):
     parallel instead of serializing every one of them inside a single
     task. Silently no-ops if the title's gone by the time this runs
     (e.g. a rare merge/dedupe race) rather than erroring the task.
+
+    skip_tvmaze: see sync_release_schedules' own bulk /updates/shows
+    check below - decided once, up front, per title, rather than each
+    fanned-out task independently re-checking (and re-requesting) the
+    same bulk endpoint.
 
     Also re-validates completion (completion.resync_completed_profiles)
     for this exact title - see that function's own docstring for why:
@@ -773,7 +779,7 @@ def sync_title_release(title_id):
         title = Title.objects.get(pk=title_id)
     except Title.DoesNotExist:
         return 0
-    touched = release_sync.sync_title_releases(title)
+    touched = release_sync.sync_title_releases(title, skip_tvmaze=skip_tvmaze)
     completion.resync_completed_profiles(title)
     return touched
 
@@ -810,12 +816,36 @@ def sync_release_schedules():
     generate_release_notifications. Instance-wide, not per-account - no
     SyncLog row (that model is Trakt/Simkl-account-shaped), logged to
     DataLog instead (see _log_system_datalog) so Settings > Logs shows
-    what got queued, not just the usual task logger."""
-    titles = list(selectors.titles_needing_release_sync().values_list("id", "name"))
-    for title_id, _name in titles:
-        sync_title_release.delay(title_id)
+    what got queued, not just the usual task logger.
+
+    Also makes ONE tvmaze.get_updates(since="day") call up front - the
+    cheap bulk "what changed today" check (see tvmaze.py's own module
+    docstring) - and uses it to decide, per title, whether this run's
+    TVmaze episode-time fetch can be skipped (see
+    release_sync._sync_tv_release's skip_tvmaze param): a title whose
+    cached TVmaze show either isn't in today's updates at all, or is
+    there with the same timestamp already cached, has nothing new to
+    fetch. Doing this once here rather than letting every fanned-out
+    sync_title_release task independently call the same bulk endpoint
+    keeps this to one extra request regardless of library size. A
+    TVmaze outage/empty response just means nothing gets skipped this
+    run (tvmaze.get_updates already swallows its own failures into {}),
+    never that the TMDB-based sync below is blocked by it."""
+    titles = list(selectors.titles_needing_release_sync().select_related("tvmaze_cache"))
+    updates = tvmaze.get_updates(since="day")
+    for title in titles:
+        skip = False
+        cache = getattr(title, "tvmaze_cache", None)
+        if cache is not None and cache.tvmaze_id is not None:
+            current_ts = updates.get(str(cache.tvmaze_id))
+            if current_ts is None or current_ts == cache.last_update_timestamp:
+                skip = True
+            else:
+                cache.last_update_timestamp = current_ts
+                cache.save(update_fields=["last_update_timestamp"])
+        sync_title_release.delay(title.id, skip_tvmaze=skip)
     logger.info("sync_release_schedules: queued %d title(s) for release sync", len(titles))
-    _log_system_datalog(DataLog.Action.RELEASE_SYNC, len(titles), [name for _id, name in titles])
+    _log_system_datalog(DataLog.Action.RELEASE_SYNC, len(titles), [t.name for t in titles])
     return len(titles)
 
 
@@ -1161,6 +1191,80 @@ def queue_due_mdblist_refreshes():
     count = 0
     for title_id in due_ids:
         fetch_mdblist_ratings.delay(title_id)
+        count += 1
+    return count
+
+
+@shared_task
+def fetch_fanart_images(title_id, force=False):
+    """Populates/refreshes TitleFanartCache for one title - queued lazily
+    by views._fanart_context the first time its detail page is actually
+    viewed, or by queue_due_fanart_refreshes once its next_refresh_at has
+    passed. Never called synchronously from a request, same reasoning as
+    fetch_mdblist_ratings above - this makes a real network call (and, for
+    a TV/anime title with no tvdb_id resolved yet, two). force=True (the
+    admin "Refresh now" action, if ever added) re-fetches regardless of
+    next_refresh_at. No quota gate - Fanart.tv has no documented day-scale
+    quota, just the 429 backoff already handled inside fanart.py itself."""
+    try:
+        title = Title.objects.get(pk=title_id)
+    except Title.DoesNotExist:
+        return
+
+    tmdb_id = title.external_ids.get("tmdb")
+    if not tmdb_id:
+        return
+
+    api_key = instance_config.get_fanart_api_key()
+    if not api_key:
+        # No key configured - still leaves a fetch_attempted=False row
+        # behind so this doesn't get re-dispatched on every single view
+        # of this title; a key added later needs queue_due_fanart_refreshes'
+        # own sweep (or another view, once this row's cheap "try again
+        # soon" window below has passed) to pick it up.
+        TitleFanartCache.objects.update_or_create(
+            title=title, defaults={"next_refresh_at": timezone.now() + timedelta(hours=6)}
+        )
+        return
+
+    tmdb_media_type = tmdb.media_type_for(title)
+    if tmdb_media_type == "movie":
+        images = fanart.extract_movie_images(fanart.get_movie_images(api_key, tmdb_id))
+    else:
+        tvdb_id = tmdb.get_tv_external_ids(tmdb_id)["tvdb_id"]
+        images = (
+            fanart.extract_show_images(fanart.get_show_images(api_key, tvdb_id))
+            if tvdb_id
+            else {"clearlogo_url": None, "clearart_url": None, "backdrop_url": None, "season_banners": {}}
+        )
+
+    TitleFanartCache.objects.update_or_create(
+        title=title,
+        defaults={
+            "clearlogo_url": images.get("clearlogo_url") or "",
+            "clearart_url": images.get("clearart_url") or "",
+            "backdrop_url": images.get("backdrop_url") or "",
+            "season_banners": images.get("season_banners") or {},
+            "fetch_attempted": True,
+            "last_fetched_at": timezone.now(),
+            "next_refresh_at": timezone.now() + timedelta(days=django_settings.FANART_REFRESH_DAYS),
+        },
+    )
+
+
+@shared_task
+def queue_due_fanart_refreshes():
+    """Daily beat job (see scheduling.ensure_fanart_refresh_task) - only
+    ever queues titles whose own next_refresh_at has actually passed,
+    same shape as queue_due_mdblist_refreshes above, just on a daily
+    rather than hourly cadence since Fanart's own FANART_REFRESH_DAYS
+    default (30 days) is measured in weeks, not days."""
+    due_ids = TitleFanartCache.objects.filter(next_refresh_at__lte=timezone.now()).values_list(
+        "title_id", flat=True
+    )[:200]
+    count = 0
+    for title_id in due_ids:
+        fetch_fanart_images.delay(title_id)
         count += 1
     return count
 

@@ -45,7 +45,7 @@
           </div>
           <span class="min-w-0 flex-1 text-[13px] truncate {% if group.date == today %}text-base-content font-medium{% else %}text-ink-dim{% endif %} group-hover:text-base-content">{{ rs.title.name }}</span>
           <span class="flex-none text-[12.5px] {% if rs.episode %}font-mono{% endif %} text-ink-faint">
-            {% if rs.episode %}S{{ rs.episode.season }} E{{ rs.episode.episode }}{% else %}{{ rs.get_release_type_display }}{% endif %}
+            {% if rs.episode %}S{{ rs.episode.season }} E{{ rs.episode.episode }}{% else %}{{ rs.get_release_type_display }}{% endif %}{% if rs.has_exact_time %} <span class="font-sans text-ink-dim">&middot; {{ rs.release_date|time:time_format_str }}</span>{% endif %}
           </span>
         </a>
       {% endfor %}

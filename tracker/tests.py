@@ -22,7 +22,7 @@ from django_celery_beat.models import PeriodicTask
 from . import achievements, completion, crypto, csv_import, episode_matching, imdb_import, import_pipeline, instance_config, letterboxd_import, notifications, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, title_matching, totp, tvtime_import, update_check, views
 from django.utils import timezone as _tz
 from .watchlists import ensure_watchlist
-from .integrations import anifiller, mdblist, myanimelist, nuvio, scrobble, simkl, tenrai, tmdb, tmdb_account, trakt, wetrakr
+from .integrations import anifiller, fanart, mdblist, myanimelist, nuvio, scrobble, simkl, tenrai, tmdb, tmdb_account, trakt, tvmaze, wetrakr
 from .models import (
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
@@ -45,7 +45,9 @@ from .models import (
     ServiceAPIKey,
     SyncLog,
     Title,
+    TitleFanartCache,
     TitleRatingsCache,
+    TitleTvmazeCache,
     WatchEvent,
     WatchList,
     WatchListItem,
@@ -2077,9 +2079,14 @@ class SyncReleaseSchedulesTaskTests(TestCase):
         WatchProgress.objects.create(profile=self.profile, title=watched, status=WatchProgress.Status.COMPLETED)
         Title.objects.create(media_type=MediaType.MOVIE, name="Untouched", year=2020, external_ids={"tmdb": "2"})
 
-        with patch("tracker.tasks.sync_title_release.delay") as mock_delay:
+        with (
+            patch("tracker.tasks.tvmaze.get_updates", return_value={}),
+            patch("tracker.tasks.sync_title_release.delay") as mock_delay,
+        ):
             queued = tasks.sync_release_schedules()
-        mock_delay.assert_called_once_with(watched.id)
+        # skip_tvmaze=False: this title has no TitleTvmazeCache row yet (see
+        # SyncReleaseSchedulesTvmazeSkipTests for the skip-decision itself).
+        mock_delay.assert_called_once_with(watched.id, skip_tvmaze=False)
         self.assertEqual(queued, 1)
 
     def test_queues_every_title_in_scope(self):
@@ -2091,11 +2098,14 @@ class SyncReleaseSchedulesTaskTests(TestCase):
             WatchProgress.objects.create(profile=self.profile, title=title, status=WatchProgress.Status.COMPLETED)
             titles.append(title)
 
-        with patch("tracker.tasks.sync_title_release.delay") as mock_delay:
+        with (
+            patch("tracker.tasks.tvmaze.get_updates", return_value={}),
+            patch("tracker.tasks.sync_title_release.delay") as mock_delay,
+        ):
             queued = tasks.sync_release_schedules()
         self.assertEqual(queued, 3)
         for title in titles:
-            mock_delay.assert_any_call(title.id)
+            mock_delay.assert_any_call(title.id, skip_tvmaze=False)
 
     def test_logs_the_queued_titles_to_the_owners_datalog(self):
         owner = User.objects.create_superuser("releaseowner", password="pass12345")
@@ -2104,7 +2114,10 @@ class SyncReleaseSchedulesTaskTests(TestCase):
             media_type=MediaType.MOVIE, name="Watched", year=2020, external_ids={"tmdb": "1"}
         )
         WatchProgress.objects.create(profile=self.profile, title=title, status=WatchProgress.Status.COMPLETED)
-        with patch("tracker.tasks.sync_title_release.delay"):
+        with (
+            patch("tracker.tasks.tvmaze.get_updates", return_value={}),
+            patch("tracker.tasks.sync_title_release.delay"),
+        ):
             tasks.sync_release_schedules()
         log = DataLog.objects.get(action=DataLog.Action.RELEASE_SYNC)
         self.assertEqual(log.profile, owner_profile)
@@ -2120,7 +2133,7 @@ class SyncTitleReleaseTaskTests(TestCase):
         with patch("tracker.tasks.release_sync.sync_title_releases", return_value=1) as mock_sync:
             with patch("tracker.tasks.completion.resync_completed_profiles") as mock_resync:
                 touched = tasks.sync_title_release(title.id)
-        mock_sync.assert_called_once_with(title)
+        mock_sync.assert_called_once_with(title, skip_tvmaze=False)
         mock_resync.assert_called_once_with(title)
         self.assertEqual(touched, 1)
 
@@ -18392,7 +18405,10 @@ class MdblistRatingsContextTests(TestCase):
     def test_missing_cache_queues_a_fetch_and_shows_no_mdblist_pills(self, mock_details, mock_credits, mock_similar, mock_dispatch):
         mock_details.return_value = self._details()
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        mock_dispatch.assert_called_once_with(tasks.fetch_mdblist_ratings, [self.title.pk])
+        # assert_any_call, not assert_called_once_with - this same render
+        # also dispatches tasks.fetch_fanart_images for the same title
+        # (see FanartContextTests), a second, unrelated dispatch.
+        mock_dispatch.assert_any_call(tasks.fetch_mdblist_ratings, [self.title.pk])
         self.assertEqual(resp.context["mdblist_ratings"], [])
         self.assertTrue(resp.context["mdblist_pending"])
         self.assertContains(resp, "hx-trigger=\"every 3s\"")
@@ -18424,7 +18440,13 @@ class MdblistRatingsContextTests(TestCase):
             next_refresh_at=timezone.now() + timedelta(days=1),
         )
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        mock_dispatch.assert_not_called()
+        # Scoped to MDBList's own task specifically - this same render also
+        # dispatches tasks.fetch_fanart_images for the same title (no
+        # TitleFanartCache row exists in this test), an unrelated dispatch
+        # this test isn't about (see FanartContextTests for that one).
+        self.assertNotIn(
+            tasks.fetch_mdblist_ratings, [call.args[0] for call in mock_dispatch.call_args_list]
+        )
         self.assertEqual(resp.context["mdblist_ratings"], [{"label": "IMDb", "icon": "imdb", "icon_class": "text-imdb", "display": "8.1", "unit": "/10"}])
         self.assertFalse(resp.context["mdblist_pending"])
         # The specific polling attribute, not a bare "hx-trigger" substring
@@ -18450,7 +18472,9 @@ class MdblistRatingsContextTests(TestCase):
             next_refresh_at=timezone.now() - timedelta(hours=1),
         )
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        mock_dispatch.assert_called_once_with(tasks.fetch_mdblist_ratings, [self.title.pk])
+        # assert_any_call - see test_missing_cache_queues_a_fetch's own
+        # comment above on why not assert_called_once_with here.
+        mock_dispatch.assert_any_call(tasks.fetch_mdblist_ratings, [self.title.pk])
         self.assertEqual(resp.context["mdblist_ratings"][0]["display"], "8.1")
 
     @patch("tracker.views._dispatch_sync_task_safely")
@@ -18571,6 +18595,764 @@ class EnsureMdblistRefreshTaskTests(TestCase):
         scheduling.ensure_mdblist_refresh_task()
         scheduling.ensure_mdblist_refresh_task()
         self.assertEqual(PeriodicTask.objects.filter(name=scheduling.MDBLIST_REFRESH_TASK_NAME).count(), 1)
+
+
+class FanartImagePickingTests(TestCase):
+    """fanart.best_image/_best_of/extract_movie_images/extract_show_images -
+    pure functions, no network/DB, so tested directly rather than through
+    the task (see FetchFanartImagesTaskTests below for that)."""
+
+    def test_prefers_english_over_other_languages_regardless_of_likes(self):
+        entries = [
+            {"url": "https://x/de.png", "lang": "de", "likes": "50"},
+            {"url": "https://x/en.png", "lang": "en", "likes": "3"},
+        ]
+        self.assertEqual(fanart.best_image(entries), "https://x/en.png")
+
+    def test_treats_blank_lang_the_same_as_english(self):
+        entries = [
+            {"url": "https://x/de.png", "lang": "de", "likes": "50"},
+            {"url": "https://x/textless.png", "lang": "", "likes": "3"},
+        ]
+        self.assertEqual(fanart.best_image(entries), "https://x/textless.png")
+
+    def test_picks_highest_likes_within_the_preferred_language_group(self):
+        entries = [
+            {"url": "https://x/low.png", "lang": "en", "likes": "2"},
+            {"url": "https://x/high.png", "lang": "en", "likes": "10"},
+        ]
+        self.assertEqual(fanart.best_image(entries), "https://x/high.png")
+
+    def test_falls_back_to_highest_likes_overall_when_no_english_entry_exists(self):
+        entries = [
+            {"url": "https://x/de.png", "lang": "de", "likes": "2"},
+            {"url": "https://x/fr.png", "lang": "fr", "likes": "9"},
+        ]
+        self.assertEqual(fanart.best_image(entries), "https://x/fr.png")
+
+    def test_missing_or_non_numeric_likes_treated_as_zero_not_an_error(self):
+        entries = [
+            {"url": "https://x/a.png", "lang": "en"},
+            {"url": "https://x/b.png", "lang": "en", "likes": "not-a-number"},
+            {"url": "https://x/c.png", "lang": "en", "likes": "1"},
+        ]
+        self.assertEqual(fanart.best_image(entries), "https://x/c.png")
+
+    def test_empty_or_missing_field_returns_none(self):
+        self.assertIsNone(fanart.best_image([]))
+        self.assertIsNone(fanart.best_image(None))
+
+    def test_extract_movie_images_prefers_hd_variant_over_plain(self):
+        raw = {
+            "hdmovielogo": [{"url": "https://x/hd.png", "lang": "en", "likes": "1"}],
+            "movielogo": [{"url": "https://x/sd.png", "lang": "en", "likes": "99"}],
+        }
+        self.assertEqual(fanart.extract_movie_images(raw)["clearlogo_url"], "https://x/hd.png")
+
+    def test_extract_movie_images_falls_back_to_plain_when_no_hd_variant(self):
+        raw = {"movielogo": [{"url": "https://x/sd.png", "lang": "en", "likes": "1"}]}
+        self.assertEqual(fanart.extract_movie_images(raw)["clearlogo_url"], "https://x/sd.png")
+
+    def test_extract_movie_images_combines_background_and_4k_background(self):
+        raw = {
+            "moviebackground": [{"url": "https://x/sd-bg.png", "lang": "en", "likes": "1"}],
+            "movie4kbackground": [{"url": "https://x/4k-bg.png", "lang": "en", "likes": "9"}],
+        }
+        self.assertEqual(fanart.extract_movie_images(raw)["backdrop_url"], "https://x/4k-bg.png")
+
+    def test_extract_movie_images_handles_a_completely_empty_response(self):
+        self.assertEqual(
+            fanart.extract_movie_images({}),
+            {"clearlogo_url": None, "clearart_url": None, "backdrop_url": None},
+        )
+        self.assertEqual(
+            fanart.extract_movie_images(None),
+            {"clearlogo_url": None, "clearart_url": None, "backdrop_url": None},
+        )
+
+    def test_extract_show_images_prefers_hdtvlogo_over_clearlogo(self):
+        raw = {
+            "hdtvlogo": [{"url": "https://x/hd.png", "lang": "en", "likes": "1"}],
+            "clearlogo": [{"url": "https://x/sd.png", "lang": "en", "likes": "99"}],
+        }
+        self.assertEqual(fanart.extract_show_images(raw)["clearlogo_url"], "https://x/hd.png")
+
+    def test_extract_show_images_season_banners_keyed_by_season_number(self):
+        raw = {
+            "seasonbanner": [
+                {"url": "https://x/s1.png", "lang": "en", "likes": "5", "season": "1"},
+                {"url": "https://x/s1-alt.png", "lang": "en", "likes": "1", "season": "1"},
+                {"url": "https://x/s2.png", "lang": "en", "likes": "1", "season": "2"},
+                {"url": "https://x/all.png", "lang": "en", "likes": "99", "season": "all"},
+                {"url": "https://x/noseason.png", "lang": "en", "likes": "99"},
+            ]
+        }
+        self.assertEqual(
+            fanart.extract_show_images(raw)["season_banners"],
+            {"1": "https://x/s1.png", "2": "https://x/s2.png"},
+        )
+
+    def test_extract_show_images_handles_a_completely_empty_response(self):
+        self.assertEqual(
+            fanart.extract_show_images({}),
+            {"clearlogo_url": None, "clearart_url": None, "backdrop_url": None, "season_banners": {}},
+        )
+
+
+class TmdbGetTvExternalIdsTests(TestCase):
+    def _response(self, json_data, status_code=200):
+        resp = Mock()
+        resp.status_code = status_code
+        resp.json.return_value = json_data
+        resp.ok = status_code < 400
+        resp.raise_for_status = Mock() if status_code < 400 else Mock(side_effect=requests.HTTPError())
+        return resp
+
+    def setUp(self):
+        cfg = InstanceConfig.load()
+        cfg.set_tmdb_api_key("a-real-key")
+        cfg.save()
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_returns_both_ids_from_the_response(self, mock_get):
+        mock_get.return_value = self._response({"tvdb_id": 121361, "imdb_id": "tt1520211"})
+        self.assertEqual(tmdb.get_tv_external_ids(1402), {"tvdb_id": 121361, "imdb_id": "tt1520211"})
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_missing_fields_come_back_none(self, mock_get):
+        mock_get.return_value = self._response({})
+        self.assertEqual(tmdb.get_tv_external_ids(1402), {"tvdb_id": None, "imdb_id": None})
+
+    @override_settings(TMDB_API_KEY="")
+    def test_no_api_key_returns_empty_without_a_request(self):
+        cfg = InstanceConfig.load()
+        cfg.set_tmdb_api_key("")
+        cfg.save()
+        with patch("tracker.integrations.tmdb.requests.get") as mock_get:
+            self.assertEqual(tmdb.get_tv_external_ids(1402), {"tvdb_id": None, "imdb_id": None})
+            mock_get.assert_not_called()
+
+    def test_no_tmdb_id_returns_empty_without_a_request(self):
+        with patch("tracker.integrations.tmdb.requests.get") as mock_get:
+            self.assertEqual(tmdb.get_tv_external_ids(None), {"tvdb_id": None, "imdb_id": None})
+            mock_get.assert_not_called()
+
+    @patch("tracker.integrations.tmdb.requests.get")
+    def test_request_failure_returns_empty(self, mock_get):
+        mock_get.return_value = self._response({}, status_code=500)
+        self.assertEqual(tmdb.get_tv_external_ids(1402), {"tvdb_id": None, "imdb_id": None})
+
+
+class FetchFanartImagesTaskTests(TestCase):
+    def setUp(self):
+        cfg = InstanceConfig.load()
+        cfg.set_fanart_api_key("a-real-key")
+        cfg.save()
+
+    def test_no_op_without_a_tmdb_id(self):
+        untracked = Title.objects.create(media_type=MediaType.MOVIE, name="No TMDB", year=2020)
+        with patch("tracker.integrations.fanart.get_movie_images") as mock_get:
+            tasks.fetch_fanart_images(untracked.pk)
+            mock_get.assert_not_called()
+        self.assertFalse(TitleFanartCache.objects.filter(title=untracked).exists())
+
+    def test_no_api_key_leaves_a_stub_row_and_never_calls_fanart(self):
+        cfg = InstanceConfig.load()
+        cfg.set_fanart_api_key("")
+        cfg.save()
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fight Club", year=1999, external_ids={"tmdb": "550"}
+        )
+        with patch("tracker.integrations.fanart.get_movie_images") as mock_get:
+            tasks.fetch_fanart_images(title.pk)
+            mock_get.assert_not_called()
+        cache = TitleFanartCache.objects.get(title=title)
+        self.assertFalse(cache.fetch_attempted)
+
+    @patch("tracker.integrations.fanart.get_movie_images")
+    def test_movie_populates_the_cache_from_extracted_images(self, mock_get):
+        from django.utils import timezone
+
+        mock_get.return_value = {
+            "hdmovielogo": [{"url": "https://x/logo.png", "lang": "en", "likes": "5"}],
+            "moviebackground": [{"url": "https://x/bg.png", "lang": "en", "likes": "5"}],
+        }
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fight Club", year=1999, external_ids={"tmdb": "550"}
+        )
+        tasks.fetch_fanart_images(title.pk)
+        mock_get.assert_called_once_with("a-real-key", "550")
+        cache = TitleFanartCache.objects.get(title=title)
+        self.assertEqual(cache.clearlogo_url, "https://x/logo.png")
+        self.assertEqual(cache.backdrop_url, "https://x/bg.png")
+        self.assertTrue(cache.fetch_attempted)
+        self.assertIsNotNone(cache.last_fetched_at)
+        self.assertGreater(cache.next_refresh_at, timezone.now() + timedelta(days=20))
+
+    @patch("tracker.integrations.fanart.get_show_images")
+    @patch("tracker.integrations.tmdb.get_tv_external_ids", return_value={"tvdb_id": 121361, "imdb_id": "tt1"})
+    def test_tv_resolves_tvdb_id_then_fetches_show_images(self, mock_tvdb_id, mock_get_show):
+        mock_get_show.return_value = {
+            "hdtvlogo": [{"url": "https://x/logo.png", "lang": "en", "likes": "5"}],
+            "seasonbanner": [{"url": "https://x/s1.png", "lang": "en", "likes": "5", "season": "1"}],
+        }
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="Chernobyl", year=2019, external_ids={"tmdb": "87108", "tmdb_kind": "tv"}
+        )
+        tasks.fetch_fanart_images(title.pk)
+        mock_tvdb_id.assert_called_once_with("87108")
+        mock_get_show.assert_called_once_with("a-real-key", 121361)
+        cache = TitleFanartCache.objects.get(title=title)
+        self.assertEqual(cache.clearlogo_url, "https://x/logo.png")
+        self.assertEqual(cache.season_banners, {"1": "https://x/s1.png"})
+
+    @patch("tracker.integrations.fanart.get_show_images")
+    @patch("tracker.integrations.tmdb.get_tv_external_ids", return_value={"tvdb_id": None, "imdb_id": None})
+    def test_tv_with_no_resolvable_tvdb_id_never_calls_fanart(self, mock_tvdb_id, mock_get_show):
+        title = Title.objects.create(
+            media_type=MediaType.TV, name="No TVDB", year=2019, external_ids={"tmdb": "1", "tmdb_kind": "tv"}
+        )
+        tasks.fetch_fanart_images(title.pk)
+        mock_get_show.assert_not_called()
+        cache = TitleFanartCache.objects.get(title=title)
+        self.assertTrue(cache.fetch_attempted)
+        self.assertEqual(cache.clearlogo_url, "")
+
+    @patch("tracker.integrations.fanart.get_movie_images")
+    def test_updates_an_existing_cache_row_rather_than_duplicating(self, mock_get):
+        mock_get.return_value = {}
+        title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fight Club", year=1999, external_ids={"tmdb": "550"}
+        )
+        TitleFanartCache.objects.create(title=title, clearlogo_url="https://x/old.png")
+        tasks.fetch_fanart_images(title.pk)
+        self.assertEqual(TitleFanartCache.objects.filter(title=title).count(), 1)
+        cache = TitleFanartCache.objects.get(title=title)
+        self.assertEqual(cache.clearlogo_url, "")  # this fetch found nothing - overwrites the stale url
+
+
+class QueueDueFanartRefreshesTaskTests(TestCase):
+    def setUp(self):
+        self.title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Due Title", year=2020, external_ids={"tmdb": "1"}
+        )
+
+    @patch("tracker.tasks.fetch_fanart_images.delay")
+    def test_only_queues_rows_past_their_next_refresh_at(self, mock_delay):
+        from django.utils import timezone
+
+        due = TitleFanartCache.objects.create(title=self.title, next_refresh_at=timezone.now() - timedelta(hours=1))
+        not_due_title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Not Due", year=2020, external_ids={"tmdb": "2"}
+        )
+        TitleFanartCache.objects.create(title=not_due_title, next_refresh_at=timezone.now() + timedelta(hours=1))
+
+        count = tasks.queue_due_fanart_refreshes()
+
+        self.assertEqual(count, 1)
+        mock_delay.assert_called_once_with(due.title_id)
+
+    @patch("tracker.tasks.fetch_fanart_images.delay")
+    def test_caps_at_200_per_run(self, mock_delay):
+        from django.utils import timezone
+
+        past = timezone.now() - timedelta(hours=1)
+        for i in range(205):
+            t = Title.objects.create(media_type=MediaType.MOVIE, name=f"T{i}", year=2020, external_ids={"tmdb": str(i + 100)})
+            TitleFanartCache.objects.create(title=t, next_refresh_at=past)
+        count = tasks.queue_due_fanart_refreshes()
+        self.assertEqual(count, 200)
+
+
+class EnsureFanartRefreshTaskTests(TestCase):
+    def test_creates_periodic_task(self):
+        scheduling.ensure_fanart_refresh_task()
+        task = PeriodicTask.objects.get(name=scheduling.FANART_REFRESH_TASK_NAME)
+        self.assertEqual(task.task, "tracker.tasks.queue_due_fanart_refreshes")
+        self.assertTrue(task.enabled)
+
+    def test_idempotent(self):
+        scheduling.ensure_fanart_refresh_task()
+        scheduling.ensure_fanart_refresh_task()
+        self.assertEqual(PeriodicTask.objects.filter(name=scheduling.FANART_REFRESH_TASK_NAME).count(), 1)
+
+
+class FanartContextTests(TestCase):
+    """views._fanart_context, exercised through title_detail - the only
+    thing that ever populates TitleFanartCache. Same shape as
+    MdblistRatingsContextTests above, minus the self-polling "pending"
+    flag this feature doesn't need (see _fanart_context's own docstring)."""
+
+    def setUp(self):
+        user = User.objects.create_user("fanartviewer", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="FanartViewer")
+        self.client.login(username="fanartviewer", password="pass12345")
+        self.title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
+        )
+        for name, default in (
+            ("get_director", None), ("get_watch_providers", []), ("get_season_details", None),
+            ("get_trailer", None), ("get_backdrops", []),
+        ):
+            patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _details(self, **overrides):
+        base = {
+            "tmdb_id": 42, "media_type": "movie", "name": "Fathom", "year": "2020",
+            "overview": "A movie.", "tagline": "", "genres": ["Drama"], "runtime": 100,
+            "number_of_seasons": None, "number_of_episodes": None,
+            "backdrop_url": "https://tmdb/bg.png", "poster_url": None, "vote_average": 7.4,
+            "vote_count": 100, "original_language": "en", "status": None,
+        }
+        base.update(overrides)
+        return base
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_missing_cache_queues_a_fetch_and_falls_back_to_tmdb_backdrop(self, mock_details, mock_credits, mock_similar, mock_dispatch):
+        mock_details.return_value = self._details()
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        mock_dispatch.assert_any_call(tasks.fetch_fanart_images, [self.title.pk])
+        self.assertEqual(resp.context["display_backdrop_url"], "https://tmdb/bg.png")
+        self.assertIsNone(resp.context["display_clearlogo_url"])
+        self.assertContains(resp, "Fathom")  # plain <h1> fallback, no clearlogo cached yet
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_no_tmdb_id_never_queues_anything(self, mock_details, mock_credits, mock_similar, mock_dispatch):
+        untracked = Title.objects.create(media_type=MediaType.MOVIE, name="No TMDB", year=2021)
+        self.client.get(reverse("title_detail", args=[untracked.pk]))
+        for call in mock_dispatch.call_args_list:
+            self.assertNotEqual(call.args[0], tasks.fetch_fanart_images)
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_fresh_cache_does_not_queue_and_prefers_fanart_backdrop_and_clearlogo(self, mock_details, mock_credits, mock_similar, mock_dispatch):
+        from django.utils import timezone
+
+        mock_details.return_value = self._details()
+        TitleFanartCache.objects.create(
+            title=self.title,
+            clearlogo_url="https://fanart/logo.png",
+            backdrop_url="https://fanart/bg.png",
+            fetch_attempted=True,
+            next_refresh_at=timezone.now() + timedelta(days=10),
+        )
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        for call in mock_dispatch.call_args_list:
+            self.assertNotEqual(call.args[0], tasks.fetch_fanart_images)
+        self.assertEqual(resp.context["display_backdrop_url"], "https://fanart/bg.png")
+        self.assertEqual(resp.context["display_clearlogo_url"], "https://fanart/logo.png")
+        self.assertContains(resp, "https://fanart/logo.png")
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_stale_cache_still_shows_cached_data_while_requeuing(self, mock_details, mock_credits, mock_similar, mock_dispatch):
+        from django.utils import timezone
+
+        mock_details.return_value = self._details()
+        TitleFanartCache.objects.create(
+            title=self.title,
+            clearlogo_url="https://fanart/logo.png",
+            fetch_attempted=True,
+            next_refresh_at=timezone.now() - timedelta(days=1),
+        )
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        mock_dispatch.assert_any_call(tasks.fetch_fanart_images, [self.title.pk])
+        self.assertEqual(resp.context["display_clearlogo_url"], "https://fanart/logo.png")
+
+
+class SettingsFanartCardTests(TestCase):
+    """Server Integrations' Fanart.tv card - save/clear/test round trip
+    through the same generic provider-credential views every other
+    single-api-key provider (TMDB/MDBList) already uses."""
+
+    def setUp(self):
+        owner_user = User.objects.create_user("fanartowner", password="pass12345", is_superuser=True)
+        Profile.objects.create(user=owner_user, display_name="FanartOwner")
+        self.client.login(username="fanartowner", password="pass12345")
+
+    def test_owner_can_save_fanart_key(self):
+        self.client.post(reverse("save_instance_config"), {"fanart_api_key": "new-fanart-key"})
+        cfg = InstanceConfig.load()
+        self.assertEqual(cfg.get_fanart_api_key(), "new-fanart-key")
+
+    def test_blank_fanart_key_does_not_clear_existing_value(self):
+        cfg = InstanceConfig.load()
+        cfg.set_fanart_api_key("existing-key")
+        cfg.save()
+        self.client.post(reverse("save_instance_config"), {"fanart_api_key": ""})
+        cfg.refresh_from_db()
+        self.assertEqual(cfg.get_fanart_api_key(), "existing-key")
+
+    def test_clear_blanks_the_stored_key(self):
+        cfg = InstanceConfig.load()
+        cfg.set_fanart_api_key("existing-key")
+        cfg.save()
+        self.client.post(reverse("clear_instance_config_field", args=["fanart"]))
+        cfg.refresh_from_db()
+        self.assertEqual(cfg.get_fanart_api_key(), "")
+
+    def _response(self, json_data, status_code=200):
+        resp = Mock()
+        resp.status_code = status_code
+        resp.json.return_value = json_data
+        resp.ok = status_code < 400
+        resp.raise_for_status = Mock() if status_code < 400 else Mock(side_effect=requests.HTTPError())
+        return resp
+
+    @patch("tracker.integrations.fanart.requests.get")
+    def test_test_connection_success(self, mock_get):
+        mock_get.return_value = self._response({"name": "Fight Club"})
+        resp = self.client.post(reverse("test_provider_credentials", args=["fanart"]), {"fanart_api_key": "abc"}, follow=True)
+        self.assertContains(resp, "Fanart.tv connection succeeded")
+
+    @patch("tracker.integrations.fanart.requests.get")
+    def test_test_connection_failure_reports_the_status_code(self, mock_get):
+        mock_get.return_value = self._response({}, status_code=401)
+        resp = self.client.post(reverse("test_provider_credentials", args=["fanart"]), {"fanart_api_key": "bad"}, follow=True)
+        self.assertContains(resp, "Fanart.tv connection failed")
+        self.assertContains(resp, "401")
+
+
+class TvmazeIntegrationTests(TestCase):
+    """tracker.integrations.tvmaze - lookup_by_imdb/get_episodes/
+    get_updates, and _get's 429-retry/throttle. No API key needed for
+    any of this (TVmaze's free tier takes none)."""
+
+    def _response(self, json_data, status_code=200):
+        resp = Mock()
+        resp.status_code = status_code
+        resp.json.return_value = json_data
+        resp.headers = {}
+        return resp
+
+    def test_lookup_by_imdb_returns_the_show_on_a_followed_redirect(self):
+        # requests.get follows TVmaze's 301 lookup redirect on its own and
+        # hands back the final show JSON with status 200 - nothing here
+        # needs to handle the redirect itself.
+        with patch("tracker.integrations.tvmaze.requests.get", return_value=self._response({"id": 1, "name": "Under the Dome"})):
+            show = tvmaze.lookup_by_imdb("tt1553656")
+        self.assertEqual(show["id"], 1)
+
+    def test_lookup_by_imdb_returns_none_on_a_404(self):
+        with patch("tracker.integrations.tvmaze.requests.get", return_value=self._response({}, status_code=404)):
+            self.assertIsNone(tvmaze.lookup_by_imdb("tt0000000"))
+
+    def test_lookup_by_imdb_without_an_id_makes_no_request(self):
+        with patch("tracker.integrations.tvmaze.requests.get") as mock_get:
+            self.assertIsNone(tvmaze.lookup_by_imdb(None))
+            mock_get.assert_not_called()
+
+    def test_get_episodes_returns_the_list(self):
+        episodes = [{"id": 1, "season": 1, "number": 1, "airstamp": "2013-06-25T02:00:00+00:00"}]
+        with patch("tracker.integrations.tvmaze.requests.get", return_value=self._response(episodes)):
+            self.assertEqual(tvmaze.get_episodes(1), episodes)
+
+    def test_get_episodes_returns_empty_list_on_failure(self):
+        with patch("tracker.integrations.tvmaze.requests.get", return_value=self._response({}, status_code=500)):
+            self.assertEqual(tvmaze.get_episodes(1), [])
+
+    def test_get_episodes_without_an_id_makes_no_request(self):
+        with patch("tracker.integrations.tvmaze.requests.get") as mock_get:
+            self.assertEqual(tvmaze.get_episodes(None), [])
+            mock_get.assert_not_called()
+
+    def test_get_updates_returns_the_dict(self):
+        updates = {"1": 1789071819, "2": 1789071820}
+        with patch("tracker.integrations.tvmaze.requests.get", return_value=self._response(updates)):
+            self.assertEqual(tvmaze.get_updates(), updates)
+
+    def test_get_updates_returns_empty_dict_on_failure(self):
+        with patch("tracker.integrations.tvmaze.requests.get", side_effect=requests.ConnectionError()):
+            self.assertEqual(tvmaze.get_updates(), {})
+
+    @patch("tracker.integrations.tvmaze.time.sleep")
+    def test_get_retries_once_on_a_429_then_returns_the_retry_response(self, mock_sleep):
+        rate_limited = self._response({}, status_code=429)
+        ok = self._response({"id": 1})
+        with patch("tracker.integrations.tvmaze.requests.get", side_effect=[rate_limited, ok]) as mock_get:
+            show = tvmaze.lookup_by_imdb("tt1553656")
+        self.assertEqual(show["id"], 1)
+        self.assertEqual(mock_get.call_count, 2)
+        mock_sleep.assert_called_once()
+
+    @patch("tracker.integrations.tvmaze.time.sleep")
+    def test_throttle_is_a_no_op_under_the_real_test_settings(self, mock_sleep):
+        for _ in range(tvmaze._MAX_REQUESTS_PER_SECOND + 5):
+            tvmaze._throttle()
+        mock_sleep.assert_not_called()
+
+
+class ReleaseSyncTvmazeEnrichmentTests(TestCase):
+    """release_sync._sync_tv_release's TVmaze enrichment: an exact
+    airstamp replaces TMDB's date-only release_date and sets
+    has_exact_time, a title/episode TVmaze has nothing for falls back to
+    today's TMDB-only behavior unchanged, skip_tvmaze bypasses the
+    TVmaze fetch entirely, and the mapping is only ever resolved once."""
+
+    def _tv_details(self, next_episode):
+        return {
+            "name": "Silo", "year": "2023", "overview": "", "tagline": "", "genres": [],
+            "runtime": None, "number_of_seasons": 2, "number_of_episodes": 10,
+            "backdrop_url": None, "poster_url": None, "vote_average": 7.0, "vote_count": 100,
+            "original_language": "en", "status": "Returning Series",
+            "release_date": None, "next_episode_to_air": next_episode,
+        }
+
+    def _season(self, episodes):
+        return {
+            "episodes": [
+                {"episode_number": num, "name": name, "air_date": air_date, "still_url": None, "runtime": None, "vote_average": None}
+                for num, air_date, name in episodes
+            ]
+        }
+
+    def test_exact_airstamp_replaces_the_tmdb_date_and_sets_has_exact_time(self):
+        title = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99"})
+        next_ep = {"air_date": "2026-08-08", "season_number": 1, "episode_number": 1, "name": "Ep1"}
+        season = self._season([(1, "2026-08-08", "Ep1")])
+        with (
+            patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(next_ep)),
+            patch("tracker.release_sync.tmdb.get_season_details", return_value=season),
+            patch("tracker.release_sync.tmdb.get_tv_external_ids", return_value={"tvdb_id": 1, "imdb_id": "tt1"}),
+            patch("tracker.release_sync.tvmaze.lookup_by_imdb", return_value={"id": 42, "updated": 1000}),
+            patch(
+                "tracker.release_sync.tvmaze.get_episodes",
+                return_value=[{"season": 1, "number": 1, "airstamp": "2026-08-09T01:00:00+00:00"}],
+            ),
+        ):
+            release_sync.sync_title_releases(title)
+        row = ReleaseSchedule.objects.get(title=title)
+        self.assertTrue(row.has_exact_time)
+        self.assertEqual(row.release_date.isoformat(), "2026-08-09T01:00:00+00:00")
+        cache = TitleTvmazeCache.objects.get(title=title)
+        self.assertEqual(cache.tvmaze_id, 42)
+        self.assertEqual(cache.last_update_timestamp, 1000)
+
+    def test_no_tvmaze_match_falls_back_to_tmdb_date_unchanged(self):
+        title = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99"})
+        next_ep = {"air_date": "2026-08-08", "season_number": 1, "episode_number": 1, "name": "Ep1"}
+        season = self._season([(1, "2026-08-08", "Ep1")])
+        with (
+            patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(next_ep)),
+            patch("tracker.release_sync.tmdb.get_season_details", return_value=season),
+            patch("tracker.release_sync.tmdb.get_tv_external_ids", return_value={"tvdb_id": None, "imdb_id": None}),
+            patch("tracker.release_sync.tvmaze.lookup_by_imdb", return_value=None) as mock_lookup,
+        ):
+            release_sync.sync_title_releases(title)
+        mock_lookup.assert_not_called()  # no imdb_id resolved at all, nothing to look up
+        row = ReleaseSchedule.objects.get(title=title)
+        self.assertFalse(row.has_exact_time)
+        self.assertEqual(_tz.localtime(row.release_date).date().isoformat(), "2026-08-08")
+        cache = TitleTvmazeCache.objects.get(title=title)
+        self.assertIsNone(cache.tvmaze_id)
+
+    def test_episode_tvmaze_has_nothing_for_falls_back_to_tmdb_date(self):
+        title = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99"})
+        next_ep = {"air_date": "2026-08-08", "season_number": 1, "episode_number": 1, "name": "Ep1"}
+        season = self._season([(1, "2026-08-08", "Ep1")])
+        with (
+            patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(next_ep)),
+            patch("tracker.release_sync.tmdb.get_season_details", return_value=season),
+            patch("tracker.release_sync.tmdb.get_tv_external_ids", return_value={"tvdb_id": 1, "imdb_id": "tt1"}),
+            patch("tracker.release_sync.tvmaze.lookup_by_imdb", return_value={"id": 42, "updated": 1000}),
+            patch("tracker.release_sync.tvmaze.get_episodes", return_value=[]),
+        ):
+            release_sync.sync_title_releases(title)
+        row = ReleaseSchedule.objects.get(title=title)
+        self.assertFalse(row.has_exact_time)
+        self.assertEqual(_tz.localtime(row.release_date).date().isoformat(), "2026-08-08")
+
+    def test_skip_tvmaze_bypasses_the_fetch_entirely(self):
+        title = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99"})
+        next_ep = {"air_date": "2026-08-08", "season_number": 1, "episode_number": 1, "name": "Ep1"}
+        season = self._season([(1, "2026-08-08", "Ep1")])
+        with (
+            patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(next_ep)),
+            patch("tracker.release_sync.tmdb.get_season_details", return_value=season),
+            patch("tracker.release_sync.tmdb.get_tv_external_ids") as mock_ext_ids,
+        ):
+            release_sync.sync_title_releases(title, skip_tvmaze=True)
+        mock_ext_ids.assert_not_called()
+        self.assertFalse(TitleTvmazeCache.objects.filter(title=title).exists())
+        row = ReleaseSchedule.objects.get(title=title)
+        self.assertFalse(row.has_exact_time)
+
+    def test_the_imdb_lookup_only_ever_happens_once(self):
+        title = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99"})
+        next_ep = {"air_date": "2026-08-08", "season_number": 1, "episode_number": 1, "name": "Ep1"}
+        season = self._season([(1, "2026-08-08", "Ep1")])
+        with (
+            patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(next_ep)),
+            patch("tracker.release_sync.tmdb.get_season_details", return_value=season),
+            patch("tracker.release_sync.tmdb.get_tv_external_ids", return_value={"tvdb_id": 1, "imdb_id": "tt1"}) as mock_ext_ids,
+            patch("tracker.release_sync.tvmaze.lookup_by_imdb", return_value={"id": 42, "updated": 1000}),
+            patch("tracker.release_sync.tvmaze.get_episodes", return_value=[]),
+        ):
+            release_sync.sync_title_releases(title)
+            release_sync.sync_title_releases(title)
+        mock_ext_ids.assert_called_once()
+
+    def test_backfilled_previous_season_also_gets_tvmaze_times(self):
+        from django.utils import timezone
+
+        title = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99"})
+        # Both season 2 dates relative to "now" (not hardcoded, unlike the
+        # pre-existing non-TVmaze version of this same scenario) so the
+        # premiere-date-within-BACKFILL_PREVIOUS_SEASON_WITHIN_DAYS check
+        # can't flip based on which sandbox date "today" happens to be -
+        # episode 2 must stay later than episode 1 for min() to correctly
+        # pick episode 1 as "the premiere".
+        recent_premiere = (timezone.now() - timedelta(days=10)).date().isoformat()
+        ep2_date = (timezone.now() + timedelta(days=5)).date().isoformat()
+        next_ep = {"air_date": ep2_date, "season_number": 2, "episode_number": 2, "name": "Ep2"}
+        season_2 = self._season([(1, recent_premiere, "Premiere"), (2, ep2_date, "Ep2")])
+        season_1 = self._season([(1, "2026-01-01", "S1E1")])
+
+        def fake_season_details(tmdb_id, season_number):
+            return season_2 if season_number == 2 else season_1
+
+        with (
+            patch("tracker.release_sync.tmdb.get_full_details", return_value=self._tv_details(next_ep)),
+            patch("tracker.release_sync.tmdb.get_season_details", side_effect=fake_season_details),
+            patch("tracker.release_sync.tmdb.get_tv_external_ids", return_value={"tvdb_id": 1, "imdb_id": "tt1"}),
+            patch("tracker.release_sync.tvmaze.lookup_by_imdb", return_value={"id": 42, "updated": 1000}),
+            patch(
+                "tracker.release_sync.tvmaze.get_episodes",
+                return_value=[{"season": 1, "number": 1, "airstamp": "2026-01-01T20:00:00+00:00"}],
+            ),
+        ):
+            release_sync.sync_title_releases(title)
+        s1_row = ReleaseSchedule.objects.get(title=title, episode__season=1, episode__episode=1)
+        self.assertTrue(s1_row.has_exact_time)
+
+
+class SyncReleaseSchedulesTvmazeSkipTests(TestCase):
+    """tasks.sync_release_schedules' own bulk /updates/shows check -
+    decides skip_tvmaze per title before fanning sync_title_release out,
+    rather than every fanned-out task re-checking the same endpoint."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("tvmazeskip", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="TvmazeSkip")
+
+    def _title(self, name="Silo"):
+        title = Title.objects.create(media_type=MediaType.TV, name=name, year=2023, external_ids={"tmdb": "99"})
+        WatchListItem.objects.create(watchlist=ensure_watchlist(self.profile), title=title)
+        return title
+
+    def test_never_looked_up_does_not_skip(self):
+        title = self._title()
+        with (
+            patch("tracker.tasks.tvmaze.get_updates", return_value={}),
+            patch("tracker.tasks.sync_title_release.delay") as mock_delay,
+        ):
+            tasks.sync_release_schedules()
+        mock_delay.assert_called_once_with(title.id, skip_tvmaze=False)
+
+    def test_cached_id_absent_from_todays_updates_skips(self):
+        title = self._title()
+        TitleTvmazeCache.objects.create(title=title, tvmaze_id=42, fetch_attempted=True, last_update_timestamp=1000)
+        with (
+            patch("tracker.tasks.tvmaze.get_updates", return_value={}),
+            patch("tracker.tasks.sync_title_release.delay") as mock_delay,
+        ):
+            tasks.sync_release_schedules()
+        mock_delay.assert_called_once_with(title.id, skip_tvmaze=True)
+
+    def test_cached_id_present_with_the_same_timestamp_skips(self):
+        title = self._title()
+        TitleTvmazeCache.objects.create(title=title, tvmaze_id=42, fetch_attempted=True, last_update_timestamp=1000)
+        with (
+            patch("tracker.tasks.tvmaze.get_updates", return_value={"42": 1000}),
+            patch("tracker.tasks.sync_title_release.delay") as mock_delay,
+        ):
+            tasks.sync_release_schedules()
+        mock_delay.assert_called_once_with(title.id, skip_tvmaze=True)
+
+    def test_cached_id_with_a_changed_timestamp_does_not_skip_and_updates_the_cache(self):
+        title = self._title()
+        cache = TitleTvmazeCache.objects.create(title=title, tvmaze_id=42, fetch_attempted=True, last_update_timestamp=1000)
+        with (
+            patch("tracker.tasks.tvmaze.get_updates", return_value={"42": 2000}),
+            patch("tracker.tasks.sync_title_release.delay") as mock_delay,
+        ):
+            tasks.sync_release_schedules()
+        mock_delay.assert_called_once_with(title.id, skip_tvmaze=False)
+        cache.refresh_from_db()
+        self.assertEqual(cache.last_update_timestamp, 2000)
+
+    def test_cached_id_is_none_does_not_skip(self):
+        # Looked up, no TVmaze match at all - nothing to compare, but
+        # also nothing extra to fetch either way, so this just falls
+        # through to the normal (harmless, no-op) path.
+        title = self._title()
+        TitleTvmazeCache.objects.create(title=title, tvmaze_id=None, fetch_attempted=True)
+        with (
+            patch("tracker.tasks.tvmaze.get_updates", return_value={}),
+            patch("tracker.tasks.sync_title_release.delay") as mock_delay,
+        ):
+            tasks.sync_release_schedules()
+        mock_delay.assert_called_once_with(title.id, skip_tvmaze=False)
+
+
+class UpNextExactTimeTests(TestCase):
+    """selectors.up_next's new "exact_time" key - None for the ordinary
+    TMDB-date-only case (has_exact_time=False), a formatted local time
+    string respecting the profile's own 12h/24h preference otherwise.
+    _when_label's own "TODAY"/"TOMORROW" contract (dashboard.html's own
+    exact string match) is untouched either way."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("upnextexact", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="UpNextExact")
+
+    def _release(self, title, release_date, has_exact_time):
+        episode = Episode.objects.create(title=title, season=1, episode=1)
+        return ReleaseSchedule.objects.create(
+            title=title, episode=episode, release_type=ReleaseSchedule.ReleaseType.EPISODE,
+            release_date=release_date, has_exact_time=has_exact_time,
+        )
+
+    def test_no_exact_time_for_a_tmdb_date_only_release(self):
+        title = Title.objects.create(media_type=MediaType.TV, name="Dated Only", year=2023)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at=_tz.now())
+        self._release(title, _tz.now() + timedelta(days=1), has_exact_time=False)
+        item = next(i for i in selectors.up_next(self.profile, limit=10) if i["title"] == title)
+        self.assertIsNone(item["exact_time"])
+        self.assertEqual(item["when"], "TOMORROW")
+
+    def test_exact_time_formatted_in_the_profiles_12h_preference(self):
+        self.profile.time_format = Profile.TimeFormat.H12
+        self.profile.save()
+        title = Title.objects.create(media_type=MediaType.TV, name="Exact Time", year=2023)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at=_tz.now())
+        release_dt = _tz.localtime(_tz.now()).replace(hour=21, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        self._release(title, release_dt, has_exact_time=True)
+        item = next(i for i in selectors.up_next(self.profile, limit=10) if i["title"] == title)
+        self.assertIn("9:00", item["exact_time"])
+        self.assertIn("PM", item["exact_time"].upper())
+
+    def test_exact_time_formatted_in_the_profiles_24h_preference(self):
+        self.profile.time_format = Profile.TimeFormat.H24
+        self.profile.save()
+        title = Title.objects.create(media_type=MediaType.TV, name="Exact Time 24h", year=2023)
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at=_tz.now())
+        release_dt = _tz.localtime(_tz.now()).replace(hour=21, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        self._release(title, release_dt, has_exact_time=True)
+        item = next(i for i in selectors.up_next(self.profile, limit=10) if i["title"] == title)
+        self.assertEqual(item["exact_time"], "21:00")
 
 
 class TitleMarkSeasonWatchedTests(TestCase):

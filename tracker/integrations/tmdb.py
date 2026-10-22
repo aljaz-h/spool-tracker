@@ -131,6 +131,48 @@ def find_by_imdb_id(imdb_id, media_type):
     return None
 
 
+def get_tv_external_ids(tmdb_id):
+    """TMDB's /tv/{id}/external_ids - the only way to get a show's TheTVDB
+    id (Fanart.tv's TV endpoint is keyed by that instead of tmdb_id, see
+    tracker/integrations/fanart.py's own module docstring) and IMDb id
+    (needed to resolve a show's TVmaze id, see
+    tracker/integrations/tvmaze.py's own module docstring) - both come
+    back in this one response, so both integrations share this single
+    call rather than each making their own. A separate, additive call
+    rather than folding into get_full_details' own append_to_response -
+    that function's return shape is already relied on by many callers
+    with an extensively-documented contract, and this is only ever
+    needed once per title, the first time Fanart/TVmaze data is fetched
+    for it. Returns {"tvdb_id": int|None, "imdb_id": str|None} - both
+    None if no api key, no tmdb id, TMDB has nothing, or the request
+    fails (a movie has no such endpoint at all - this is TV-only, never
+    call it for a movie)."""
+    empty = {"tvdb_id": None, "imdb_id": None}
+    api_key = _api_key()
+    if not api_key or not tmdb_id:
+        return empty
+    try:
+        resp = requests.get(
+            f"{API_BASE}/tv/{tmdb_id}/external_ids", params={"api_key": api_key}, timeout=10
+        )
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        # Not exc_info=True (the rest of this module's own established
+        # convention, e.g. find_match/find_by_imdb_id/_list_request above) -
+        # api_key travels as a query param on every TMDB call here, and a
+        # full traceback echoes the request URL straight into this logger,
+        # which is a pre-existing issue across this whole file worth its
+        # own cleanup pass; this one new call avoids repeating it.
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        logger.warning("TMDB external_ids lookup failed for tv:%s (HTTP %s, %s)", tmdb_id, status, type(e).__name__)
+        return empty
+    try:
+        data = resp.json()
+    except ValueError:
+        return empty
+    return {"tvdb_id": data.get("tvdb_id"), "imdb_id": data.get("imdb_id")}
+
+
 def get_movie_details(tmdb_id):
     """Returns {"runtime": int|None} or None on failure. Routed through
     _list_request (same 6h cache as every other TMDB lookup here) since

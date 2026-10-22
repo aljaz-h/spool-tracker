@@ -58,7 +58,7 @@ from . import (
     totp,
     tvtime_import,
 )
-from .integrations import anifiller, mdblist, myanimelist, nuvio, simkl, tenrai, tmdb, tmdb_account, trakt, wetrakr
+from .integrations import anifiller, fanart, mdblist, myanimelist, nuvio, simkl, tenrai, tmdb, tmdb_account, trakt, wetrakr
 from .watchlists import WATCHLIST_NAME, ensure_watchlist
 from .models import (
     AVATAR_COLOR_CHOICES,
@@ -80,6 +80,7 @@ from .models import (
     Recommendation,
     ServiceAPIKey,
     Title,
+    TitleFanartCache,
     TitleRatingsCache,
     WatchEvent,
     WatchList,
@@ -679,18 +680,27 @@ def search(request):
     return render(request, "tracker/search.html", context)
 
 
-def _title_display(title, details):
+def _title_display(title, details, fanart_images=None):
     """Unifies the tracked (real Title row, TMDB details optional) and
     preview (no Title row, TMDB details required) cases into one flat set
     of display values, computed here rather than via template-side
     `|default:` chains - those still evaluate their fallback argument even
     when unused, and Django's test client's stricter template rendering
     raises on any attribute access against a None title, unlike normal
-    (production) rendering, which just silently swallows it."""
+    (production) rendering, which just silently swallows it.
+
+    fanart_images: _fanart_context(title)'s own dict, or None for the
+    preview path (no local Title row yet, so nothing to look up - see
+    title_preview's own call site). display_backdrop_url prefers Fanart's
+    backdrop (nicer, no logo baked in) over TMDB's own when one's
+    cached, falling back to TMDB's exactly as before this existed."""
+    fanart_images = fanart_images or {}
     return {
         "display_name": (details or {}).get("name") or (title.name if title else "Untitled"),
         "display_year": (details or {}).get("year") or (title.year if title else None),
         "display_poster_url": (details or {}).get("poster_url") or (title.poster_url if title else None),
+        "display_backdrop_url": fanart_images.get("backdrop_url") or (details or {}).get("backdrop_url"),
+        "display_clearlogo_url": fanart_images.get("clearlogo_url"),
     }
 
 
@@ -1064,6 +1074,34 @@ def _mdblist_ratings_context(title):
     return {"mdblist_ratings": _mdblist_pills(cache.ratings), "mdblist_pending": False}
 
 
+def _fanart_context(title):
+    """Fanart.tv's transparent clearlogo/clearart/backdrop for the detail
+    hero (see _title_display/title_detail.html) - lazily populated the
+    first time this title is viewed, same shape/reasoning as
+    _mdblist_ratings_context above (never fetched synchronously in this
+    request - see tasks.fetch_fanart_images's own docstring). Returns
+    whatever's already cached (possibly stale, shown anyway) while any
+    needed background refresh runs; {} with nothing cached yet (first
+    view, or no tmdb id to look up at all) - unlike MDBList's ratings
+    pills, there's no self-polling partial for this, so no separate
+    "pending" flag is needed: the logo/backdrop just quietly appears on
+    a later page load once the background fetch lands."""
+    if not title.external_ids.get("tmdb"):
+        return {}
+    cache = TitleFanartCache.objects.filter(title=title).first()
+    if cache is None:
+        _dispatch_sync_task_safely(tasks.fetch_fanart_images, [title.pk])
+        return {}
+    if cache.next_refresh_at is None or cache.next_refresh_at <= timezone.now():
+        _dispatch_sync_task_safely(tasks.fetch_fanart_images, [title.pk])
+    return {
+        "clearlogo_url": cache.clearlogo_url or None,
+        "clearart_url": cache.clearart_url or None,
+        "backdrop_url": cache.backdrop_url or None,
+        "season_banners": cache.season_banners,
+    }
+
+
 def _mdblist_ratings_display(title):
     """Read-only counterpart to _mdblist_ratings_context, for
     title_rating_pills_partial's self-poll re-renders - checks the
@@ -1336,6 +1374,7 @@ def title_detail(request, pk):
 
     local_context = selectors.title_local_context(profile, title)
     collection_context = _collection_context(details) if tmdb_id else {"collection_name": None, "collection_parts": []}
+    fanart_images = _fanart_context(title)
     context = {
         "profile": profile,
         "title": title,
@@ -1351,7 +1390,7 @@ def title_detail(request, pk):
         "is_preview": False,
         "preview_media_type": None,
         "preview_tmdb_id": None,
-        **_title_display(title, details),
+        **_title_display(title, details, fanart_images),
         **local_context,
         **episode_context,
         **_recommend_context(profile, title),
@@ -3195,6 +3234,10 @@ def calendar_view(request):
         # month switcher now living in calendar.html's filter row - see
         # that template's comment for why.
         "is_htmx_partial": bool(request.headers.get("HX-Request")),
+        # calendar_sidebar.html's own TVmaze-exact-time display (see
+        # release_sync.py) - same profile-preference pattern
+        # history_tile.html already uses.
+        "time_format_str": _time_format_str(profile),
     }
     if profile is not None:
         # The grid is scoped to the specific month being viewed (not just
@@ -4215,6 +4258,7 @@ def _settings_page_context(request, profile):
                 "tmdb_configured": bool(instance_config.get_tmdb_api_key()),
                 "mal_configured": bool(instance_config.get_mal_credentials()[0]),
                 "mdblist_configured": bool(instance_config.get_mdblist_api_key()),
+                "fanart_configured": bool(instance_config.get_fanart_api_key()),
                 "sso_shared_secret_configured": bool(instance_config.get_spool_wrapped_config()[1]),
                 "service_api_keys": ServiceAPIKey.objects.all(),
                 "django_version": ".".join(map(str, django.VERSION[:3])),
@@ -4342,14 +4386,14 @@ _INSTANCE_CONFIG_FIELDS = [
     "simkl_client_id", "simkl_client_secret",
     "wetrakr_client_id", "wetrakr_client_secret",
     "mal_client_id", "mal_client_secret",
-    "tmdb_api_key", "mdblist_api_key",
+    "tmdb_api_key", "mdblist_api_key", "fanart_api_key",
     "spool_wrapped_url", "sso_shared_secret",
     "google_client_id", "google_client_secret",
     "dropbox_app_key", "dropbox_app_secret",
 ]
 _INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES = {
     "trakt": "Trakt", "simkl": "Simkl", "wetrakr": "WeTrakr", "mal": "MyAnimeList",
-    "tmdb": "TMDB", "mdblist": "MDBList",
+    "tmdb": "TMDB", "mdblist": "MDBList", "fanart": "Fanart.tv",
 }
 _INSTANCE_CONFIG_CLEARABLE = {**_INSTANCE_CONFIG_PROVIDER_DISPLAY_NAMES, "gdrive": "Google Drive", "dropbox": "Dropbox"}
 
@@ -4401,6 +4445,7 @@ def save_instance_config(request):
         ("mal_client_secret", cfg.set_mal_client_secret),
         ("tmdb_api_key", cfg.set_tmdb_api_key),
         ("mdblist_api_key", cfg.set_mdblist_api_key),
+        ("fanart_api_key", cfg.set_fanart_api_key),
         ("sso_shared_secret", cfg.set_sso_shared_secret),
         ("google_client_secret", cfg.set_google_client_secret),
         ("dropbox_app_secret", cfg.set_dropbox_app_secret),
@@ -4449,6 +4494,8 @@ def clear_instance_config_field(request, provider):
         cfg.set_mal_client_secret("")
     elif provider == "tmdb":
         cfg.set_tmdb_api_key("")
+    elif provider == "fanart":
+        cfg.set_fanart_api_key("")
     else:
         cfg.set_mdblist_api_key("")
     cfg.save()
@@ -4487,6 +4534,9 @@ def test_provider_credentials(request, provider):
     elif provider == "mdblist":
         credential = request.POST.get("mdblist_api_key", "").strip() or instance_config.get_mdblist_api_key()
         caveat = ""
+    elif provider == "fanart":
+        credential = request.POST.get("fanart_api_key", "").strip() or instance_config.get_fanart_api_key()
+        caveat = ""
     else:
         credential = request.POST.get("tmdb_api_key", "").strip() or instance_config.get_tmdb_api_key()
         caveat = ""
@@ -4506,6 +4556,8 @@ def test_provider_credentials(request, provider):
             myanimelist.test_credentials(credential)
         elif provider == "mdblist":
             mdblist.test_api_key(credential)
+        elif provider == "fanart":
+            fanart.test_api_key(credential)
         elif not tmdb.test_api_key(credential):
             raise requests.RequestException("TMDB reported the key as invalid")
     except requests.RequestException as e:

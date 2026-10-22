@@ -6,15 +6,27 @@ a loop). Mirrors trakt.py/simkl.py's Episode.get_or_create idiom for
 creating not-yet-aired episodes, and the same "a lookup failure never
 blocks whatever it's attached to" philosophy tmdb.py's module docstring
 states - a failure here just means this title's schedule doesn't update
-this run, not that the whole batch fails."""
+this run, not that the whole batch fails.
+
+TMDB only ever gives a bare date for a TV episode, no time-of-day or
+timezone (see _parse_tmdb_date) - a TV release's release_date supplements
+that with TVmaze's own airstamp when a matching TVmaze show can be found
+(see _resolve_tvmaze_cache/_tvmaze_episode_times), setting
+ReleaseSchedule.has_exact_time so the Calendar/"Up Next" can show a real
+time instead of just a date. TVmaze has no movie data at all - movies
+only ever get TMDB's date, has_exact_time always False for them. Same
+never-blocks philosophy as everything else here: no TVmaze match, a
+TVmaze outage, or skip_tvmaze=True (see tasks.sync_release_schedules'
+own cheap-nightly-sync check) just means this sync falls back to TMDB's
+date-only release_date, not that the sync fails."""
 
 import logging
 from datetime import datetime, timedelta
 
 from django.utils import timezone
 
-from .integrations import tmdb
-from .models import Episode, ReleaseSchedule
+from .integrations import tmdb, tvmaze
+from .models import Episode, ReleaseSchedule, TitleTvmazeCache
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +49,57 @@ def _parse_tmdb_date(raw):
 BACKFILL_PREVIOUS_SEASON_WITHIN_DAYS = 60
 
 
-def _upsert_season_episodes(title, season_number, season_data):
+def _resolve_tvmaze_cache(title, tmdb_id):
+    """Looks up (once ever) and caches which TVmaze show, if any, matches
+    this title - the IMDb-id lookup only ever runs the first time a TV
+    title's release schedule is synced; every later call just reads the
+    cached row. tasks.sync_release_schedules' own updates-dict check
+    answers a different question - whether the mapped show's EPISODE DATA
+    needs re-fetching this run - the mapping itself, once resolved, never
+    changes, so there's nothing to re-check here on later syncs."""
+    cache, _ = TitleTvmazeCache.objects.get_or_create(title=title)
+    if cache.fetch_attempted:
+        return cache
+    imdb_id = tmdb.get_tv_external_ids(tmdb_id)["imdb_id"]
+    show = tvmaze.lookup_by_imdb(imdb_id) if imdb_id else None
+    cache.tvmaze_id = show.get("id") if show else None
+    cache.last_update_timestamp = show.get("updated") if show else None
+    cache.fetch_attempted = True
+    cache.last_synced_at = timezone.now()
+    cache.save(update_fields=["tvmaze_id", "last_update_timestamp", "fetch_attempted", "last_synced_at"])
+    return cache
+
+
+def _tvmaze_episode_times(tvmaze_id):
+    """{(season, episode): aware_datetime, ...} from every dated episode
+    TVmaze has for this show - one call covers every season at once
+    (unlike TMDB's own per-season endpoint), so _sync_tv_release only
+    ever needs to call this once per sync regardless of how many TMDB
+    seasons it ends up touching."""
+    times = {}
+    for ep in tvmaze.get_episodes(tvmaze_id):
+        season, number, airstamp = ep.get("season"), ep.get("number"), ep.get("airstamp")
+        if season is None or number is None or not airstamp:
+            continue
+        try:
+            times[(season, number)] = datetime.fromisoformat(airstamp)
+        except ValueError:
+            continue
+    return times
+
+
+def _upsert_season_episodes(title, season_number, season_data, tvmaze_episode_times=None):
     """Upserts one ReleaseSchedule row per dated episode in season_data
     (both already-aired and upcoming - TMDB's season endpoint carries air
     dates for the whole season, not just what's left), so a weekly show
     shows every remaining Thursday at once instead of only the single
     next one, and already-aired episodes still populate the calendar's
-    past view. Returns how many rows were touched."""
+    past view. tvmaze_episode_times (see _tvmaze_episode_times): when this
+    exact (season, episode) has a TVmaze-sourced instant, that replaces
+    TMDB's date-only release_dt and has_exact_time is set True - otherwise
+    TMDB's date stands, same as before TVmaze existed. Returns how many
+    rows were touched."""
+    tvmaze_episode_times = tvmaze_episode_times or {}
     touched = 0
     for ep_data in season_data.get("episodes") or []:
         number = ep_data.get("episode_number")
@@ -56,14 +112,16 @@ def _upsert_season_episodes(title, season_number, season_data):
         release_type = (
             ReleaseSchedule.ReleaseType.SEASON_PREMIERE if number == 1 else ReleaseSchedule.ReleaseType.EPISODE
         )
+        exact_dt = tvmaze_episode_times.get((season_number, number))
         ReleaseSchedule.objects.update_or_create(
-            title=title, episode=episode, release_type=release_type, defaults={"release_date": release_dt}
+            title=title, episode=episode, release_type=release_type,
+            defaults={"release_date": exact_dt or release_dt, "has_exact_time": exact_dt is not None},
         )
         touched += 1
     return touched
 
 
-def _sync_tv_release(title, tmdb_id, details):
+def _sync_tv_release(title, tmdb_id, details, skip_tvmaze=False):
     """Picks the season to pull full episode data for - next_episode_to_air's
     season when the show has one still coming, else last_episode_to_air's
     (an ended show or one between seasons still gets its most recent
@@ -72,7 +130,11 @@ def _sync_tv_release(title, tmdb_id, details):
     single one. Also backfills the previous season when this one only
     just started, so a season premiere within the last
     BACKFILL_PREVIOUS_SEASON_WITHIN_DAYS days doesn't leave a hole right
-    before it on the calendar's past view."""
+    before it on the calendar's past view. skip_tvmaze=True (see
+    tasks.sync_release_schedules) skips the TVmaze episode-time fetch
+    entirely for this run - today's TMDB-date-only behavior - used when
+    the nightly bulk updates check already found nothing changed for
+    this show since the last time it was fetched."""
     next_ep = details.get("next_episode_to_air")
     last_ep = details.get("last_episode_to_air")
     anchor = next_ep or last_ep
@@ -80,10 +142,16 @@ def _sync_tv_release(title, tmdb_id, details):
         return 0
     season_number = anchor["season_number"]
 
+    tvmaze_episode_times = {}
+    if not skip_tvmaze:
+        tvmaze_cache = _resolve_tvmaze_cache(title, tmdb_id)
+        if tvmaze_cache.tvmaze_id:
+            tvmaze_episode_times = _tvmaze_episode_times(tvmaze_cache.tvmaze_id)
+
     season_data = tmdb.get_season_details(tmdb_id, season_number)
     if not season_data:
         return 0
-    touched = _upsert_season_episodes(title, season_number, season_data)
+    touched = _upsert_season_episodes(title, season_number, season_data, tvmaze_episode_times)
 
     if season_number > 1:
         episodes = season_data.get("episodes") or []
@@ -93,7 +161,9 @@ def _sync_tv_release(title, tmdb_id, details):
         if premiere_dt and premiere_dt >= timezone.now() - timedelta(days=BACKFILL_PREVIOUS_SEASON_WITHIN_DAYS):
             previous_season_data = tmdb.get_season_details(tmdb_id, season_number - 1)
             if previous_season_data:
-                touched += _upsert_season_episodes(title, season_number - 1, previous_season_data)
+                touched += _upsert_season_episodes(
+                    title, season_number - 1, previous_season_data, tvmaze_episode_times
+                )
 
     return touched
 
@@ -124,12 +194,14 @@ def _sync_movie_release(title, details):
     return 1
 
 
-def sync_title_releases(title):
+def sync_title_releases(title, skip_tvmaze=False):
     """Fetches title's current TMDB details and upserts whatever release
     schedule it implies (a movie's release date, or a TV season's full set
     of dated episodes - see _sync_tv_release). Returns the number of
     ReleaseSchedule rows touched (0 if the title has no TMDB id, TMDB has
-    nothing scheduled, or anything failed)."""
+    nothing scheduled, or anything failed). skip_tvmaze: see
+    _sync_tv_release/tasks.sync_release_schedules - ignored for a movie,
+    which never has TVmaze data to skip."""
     tmdb_id = title.external_ids.get("tmdb")
     if not tmdb_id:
         return 0
@@ -140,7 +212,7 @@ def sync_title_releases(title):
             return 0
         if media_type == "movie":
             return _sync_movie_release(title, details)
-        return _sync_tv_release(title, tmdb_id, details)
+        return _sync_tv_release(title, tmdb_id, details, skip_tvmaze=skip_tvmaze)
     except Exception:
         logger.warning("release_sync: failed for title=%s", title.pk, exc_info=True)
         return 0

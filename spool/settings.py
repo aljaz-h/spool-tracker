@@ -301,6 +301,10 @@ if "test" in sys.argv:
 # would otherwise stall for up to a real second waiting for the throttle
 # window to roll over. Disabled here the same way CACHES is swapped above.
 TENRAI_THROTTLE_ENABLED = "test" not in sys.argv
+# Same reasoning as TENRAI_THROTTLE_ENABLED above, for tvmaze.py's own
+# _throttle - a release_sync test that touches several TV titles in one
+# go has no real TVmaze API to protect either.
+TVMAZE_THROTTLE_ENABLED = "test" not in sys.argv
 
 
 # Third-party API credentials (used by tracker/integrations, §6 of the addendum)
@@ -325,6 +329,13 @@ MAL_CLIENT_ID = env("MAL_CLIENT_ID", default="")
 MAL_CLIENT_SECRET = env("MAL_CLIENT_SECRET", default="")
 TMDB_API_KEY = env("TMDB_API_KEY", default="")
 MDBLIST_API_KEY = env("MDBLIST_API_KEY", default="")
+FANART_API_KEY = env("FANART_API_KEY", default="")
+
+# How long a TitleFanartCache row is trusted before re-fetching (see
+# tasks.fetch_fanart_images) - Fanart.tv artwork is near-static once
+# uploaded, unlike MDBList's ratings, so a single long interval is enough;
+# no popularity-tiered schedule needed.
+FANART_REFRESH_DAYS = env.int("FANART_REFRESH_DAYS", default=30)
 
 # MDBList supplementary-ratings tuning (tracker/tasks.py fetch_mdblist_ratings/
 # _classify_next_refresh) - tunable without a code change since the right

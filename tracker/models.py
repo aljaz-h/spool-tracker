@@ -463,6 +463,60 @@ class TitleRatingsCache(models.Model):
         return f"{self.title} ratings cache"
 
 
+class TitleFanartCache(models.Model):
+    """One row per title, lazily populated the first time its detail page
+    is actually viewed (see views._fanart_context) - same shape/reasoning
+    as TitleRatingsCache above, but for Fanart.tv's transparent artwork
+    instead of MDBList's ratings. Unlike ratings, artwork is near-static
+    once uploaded, so there's no popularity-tiered refresh schedule here -
+    just a single long fixed interval (see tasks.fetch_fanart_images)."""
+
+    title = models.OneToOneField(Title, on_delete=models.CASCADE, related_name="fanart_cache")
+    # Each blank ("") means "fetched, Fanart had nothing usable" - distinct
+    # from fetch_attempted=False below ("never actually called the API
+    # yet"), same convention TitleRatingsCache's own ratings=[] carries.
+    clearlogo_url = models.URLField(blank=True)
+    clearart_url = models.URLField(blank=True)
+    backdrop_url = models.URLField(blank=True)
+    # {"1": "url", "2": "url", ...} - string season-number keys, matching
+    # how Fanart's own seasonbanner field gives them (see
+    # fanart._season_banners). TV/anime only, always {} for a movie.
+    season_banners = models.JSONField(default=dict, blank=True)
+    fetch_attempted = models.BooleanField(default=False)
+    last_fetched_at = models.DateTimeField(null=True, blank=True)
+    next_refresh_at = models.DateTimeField(null=True, blank=True, db_index=True)
+
+    def __str__(self):
+        return f"{self.title} fanart cache"
+
+
+class TitleTvmazeCache(models.Model):
+    """One row per TV title, lazily populated the first time its release
+    schedule is synced (see release_sync._sync_tv_release) - resolves and
+    remembers which TVmaze show (if any) matches this title, so the
+    IMDb-id lookup only ever happens once rather than on every sync.
+    Movies never get a row here - TVmaze has no movie data at all.
+
+    last_update_timestamp is TVmaze's own per-show "updated" field (a
+    Unix timestamp bumped whenever any child item - an episode, an image -
+    changes) - tasks.sync_release_schedules compares this against one
+    bulk /updates/shows call to decide whether this show's episode list
+    even needs re-fetching this run, instead of every tracked show
+    hitting TVmaze on every nightly sync regardless of whether anything
+    changed."""
+
+    title = models.OneToOneField(Title, on_delete=models.CASCADE, related_name="tvmaze_cache")
+    # None means "looked up, TVmaze has no matching show" - distinct from
+    # fetch_attempted=False below ("never actually looked up at all").
+    tvmaze_id = models.PositiveIntegerField(null=True, blank=True)
+    fetch_attempted = models.BooleanField(default=False)
+    last_update_timestamp = models.PositiveBigIntegerField(null=True, blank=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.title} tvmaze cache"
+
+
 class WatchEvent(models.Model):
     """One row = one movie watched, or one episode watched. Single source of
     truth for History, streaks, the heatmap, and stats (spool-product-spec.md §2)."""
@@ -625,6 +679,13 @@ class ReleaseSchedule(models.Model):
     )
     release_type = models.CharField(max_length=20, choices=ReleaseType.choices)
     release_date = models.DateTimeField()
+    # True only for a release_date resolved from TVmaze's own airstamp
+    # (see release_sync.py) - an exact, timezone-correct instant, not
+    # TMDB's date-only fallback (always local midnight, which could in
+    # principle BE a real air time, so this has to be an explicit flag
+    # rather than inferred from the time component). Drives whether the
+    # Calendar/"Up Next" show a real time-of-day or just a date.
+    has_exact_time = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["release_date"]
@@ -996,6 +1057,7 @@ class InstanceConfig(models.Model):
     encrypted_mal_client_secret = models.TextField(blank=True, default="")
     encrypted_tmdb_api_key = models.TextField(blank=True, default="")
     encrypted_mdblist_api_key = models.TextField(blank=True, default="")
+    encrypted_fanart_api_key = models.TextField(blank=True, default="")
     # Self-tracked daily request counter for WeTrakr's app-wide quota (one
     # Spool instance's combined requests across every connected household's
     # WeTrakr account - distinct from each ExternalAccount's own per-user
@@ -1161,6 +1223,18 @@ class InstanceConfig(models.Model):
         from . import crypto
 
         self.encrypted_mdblist_api_key = crypto.encrypt(plaintext) if plaintext else ""
+
+    def get_fanart_api_key(self):
+        if not self.encrypted_fanart_api_key:
+            return ""
+        from . import crypto
+
+        return crypto.decrypt(self.encrypted_fanart_api_key)
+
+    def set_fanart_api_key(self, plaintext):
+        from . import crypto
+
+        self.encrypted_fanart_api_key = crypto.encrypt(plaintext) if plaintext else ""
 
     def get_sso_shared_secret(self):
         if not self.encrypted_sso_shared_secret:

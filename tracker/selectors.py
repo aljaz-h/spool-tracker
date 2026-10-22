@@ -10,6 +10,7 @@ from functools import reduce
 
 from django.db.models import Count, Q, Sum
 from django.db.models.functions import Coalesce, ExtractDay, ExtractHour, ExtractMonth
+from django.template.defaultfilters import time as django_time_filter
 from django.utils import timezone
 
 from . import completion, instance_config
@@ -450,6 +451,14 @@ def continue_watching(profile, media_types=None, limit=8, title_id=None):
     return items
 
 
+def _time_format_str(profile):
+    """Django template `time` filter format string for this profile's
+    12h/24h preference - same helper as views._time_format_str (not
+    imported from there to avoid a views<->selectors circular import;
+    it's a one-line mirror, keep both in sync if this ever changes)."""
+    return "H:i" if profile and profile.time_format == Profile.TimeFormat.H24 else "g:i A"
+
+
 def _when_label(release_date):
     d = timezone.localtime(release_date).date()
     delta = (d - timezone.localdate()).days
@@ -520,11 +529,17 @@ def up_next(profile, limit=3):
                     {
                         "title": rs.title,
                         "release_date": rs.release_date,
+                        # Taken from whichever row happened to be grouped
+                        # first, same as release_date itself already is -
+                        # a batch-dropped group's displayed time is "when
+                        # the drop happens," not an aggregate.
+                        "has_exact_time": rs.has_exact_time,
                         "release_type_display": rs.get_release_type_display(),
                         "episodes": [rs.episode] if rs.episode else [],
                     }
                 )
 
+        time_format_str = _time_format_str(profile)
         items = []
         for group in groups[:limit]:
             episodes = group["episodes"]
@@ -539,6 +554,15 @@ def up_next(profile, limit=3):
                     "title": group["title"],
                     "caption": caption,
                     "when": _when_label(group["release_date"]),
+                    # TVmaze-sourced exact airtime (see release_sync.py) in
+                    # this profile's own 12h/24h preference, or None for
+                    # the (current majority) TMDB-date-only case - see
+                    # dashboard.html's own use of this next to "when".
+                    "exact_time": (
+                        django_time_filter(timezone.localtime(group["release_date"]), time_format_str)
+                        if group["has_exact_time"]
+                        else None
+                    ),
                     "count": len(episodes) or 1,
                 }
             )

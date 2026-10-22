@@ -881,7 +881,7 @@
         {# ==================== ADMIN: SERVER INTEGRATIONS ==================== #}
         <div
           x-show="tab === 'server_integrations'" x-cloak
-          x-data="{ showTraktSecret: false, showSimklSecret: false, showWetrakrSecret: false, showMalSecret: false, showTmdb: false, showMdblist: false, showSsoSecret: false, showGoogleSecret: false, showDropboxSecret: false }"
+          x-data="{ showTraktSecret: false, showSimklSecret: false, showWetrakrSecret: false, showMalSecret: false, showTmdb: false, showMdblist: false, showFanart: false, showSsoSecret: false, showGoogleSecret: false, showDropboxSecret: false }"
           class="flex flex-col gap-4 max-w-3xl min-w-0"
         >
           <div class="mb-1">
@@ -948,6 +948,38 @@
                 <button
                   type="submit" formaction="{% url 'test_provider_credentials' 'mdblist' %}"
                   data-tooltip="Makes a live request to MDBList using the value above (without saving it) - fully validates the key"
+                  class="btn btn-sm btn-soft shrink-0 spool-tooltip"
+                >Test</button>
+            </div>
+        </div>
+
+        <div class="surface p-5">
+          <div class="flex items-start gap-4 mb-4">
+            {# No vendored Fanart.tv brand mark yet - a plain icon stands in rather than a fabricated/guessed logo. #}
+            <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "sparkles" "w-7 h-7" %}</div>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <h3 class="font-semibold text-[15px]">Fanart.tv</h3>
+                {% if fanart_configured %}<span class="chip chip-success">&#10003; configured</span>{% else %}<span class="chip">not configured</span>{% endif %}
+              </div>
+              <div class="text-[13px] text-ink-dim mt-0.5">Optional - adds transparent title logos and better backdrops to a title's page, over TMDB's plain images. Get a free personal key at fanart.tv/get-an-api-key.</div>
+            </div>
+            {% if fanart_configured %}
+              <button type="submit" formaction="{% url 'clear_instance_config_field' 'fanart' %}" onclick="return confirm('Clear the stored Fanart.tv API key? This turns off title logos/better backdrops until a new key is set.');" class="text-[12px] text-ink-faint hover:text-error underline flex-none">Clear</button>
+            {% endif %}
+          </div>
+            <label class="sr-only" for="si-fanart_api_key">Fanart.tv API key</label>
+            <div class="flex gap-1.5">
+                <div class="relative flex-1 min-w-0">
+                  <input :type="showFanart ? 'text' : 'password'" id="si-fanart_api_key" name="fanart_api_key" value="{{ integration_field_values.fanart_api_key|default:'' }}" @keydown.enter.prevent placeholder="{% if fanart_configured %}•••• leave blank to keep{% else %}not set{% endif %}" class="input input-sm w-full font-mono pr-8">
+                  <button type="button" @click="showFanart = !showFanart" tabindex="-1" title="Show/hide" class="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+                    <span x-show="!showFanart">{% icon "eye" "w-3.5 h-3.5" %}</span>
+                    <span x-show="showFanart" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+                  </button>
+                </div>
+                <button
+                  type="submit" formaction="{% url 'test_provider_credentials' 'fanart' %}"
+                  data-tooltip="Makes a live request to Fanart.tv using the value above (without saving it) - fully validates the key"
                   class="btn btn-sm btn-soft shrink-0 spool-tooltip"
                 >Test</button>
             </div>

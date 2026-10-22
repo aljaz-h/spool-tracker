@@ -63,6 +63,11 @@ def get_mdblist_api_key():
     return cfg.get_mdblist_api_key() or settings.MDBLIST_API_KEY
 
 
+def get_fanart_api_key():
+    cfg = InstanceConfig.load()
+    return cfg.get_fanart_api_key() or settings.FANART_API_KEY
+
+
 def get_spool_wrapped_config():
     """(spool_wrapped_url, sso_shared_secret) for the admin dashboard's
     "Manage Wrapped" button (views.manage_wrapped) - no .env fallback like

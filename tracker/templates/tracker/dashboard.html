@@ -155,7 +155,9 @@
                   <div class="text-[14px] font-medium truncate group-hover:text-white">{{ item.title.name }}</div>
                   <div class="text-[13px] text-ink-dim truncate mt-0.5">{% if item.count > 1 %}<span class="text-primary font-semibold">{{ item.count }}&times;</span> {% endif %}{{ item.caption }}</div>
                 </div>
-                <div class="flex-none text-right text-[12.5px] font-semibold tabular-nums {% if item.when == "TODAY" or item.when == "TOMORROW" %}text-primary{% else %}text-ink-dim{% endif %}">{{ item.when|title }}</div>
+                <div class="flex-none text-right text-[12.5px] font-semibold tabular-nums {% if item.when == "TODAY" or item.when == "TOMORROW" %}text-primary{% else %}text-ink-dim{% endif %}">
+                  {{ item.when|title }}{% if item.exact_time %}<div class="font-normal text-ink-faint">{{ item.exact_time }}</div>{% endif %}
+                </div>
               </a>
             {% endfor %}
           </div>

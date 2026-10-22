@@ -54,6 +54,7 @@ RELEASE_NOTIFICATIONS_TASK_NAME = "generate-release-notifications"
 UPDATE_CHECK_TASK_NAME = "check-for-new-version"
 LOG_RETENTION_TASK_NAME = "prune-old-logs"
 MDBLIST_REFRESH_TASK_NAME = "queue-due-mdblist-refreshes"
+FANART_REFRESH_TASK_NAME = "queue-due-fanart-refreshes"
 WATCHLIST_STALE_TASK_NAME = "generate-watchlist-stale-notifications"
 RECLASSIFY_ANIME_TASK_NAME = "reclassify-anime-titles"
 IMPORT_CLEANUP_TASK_NAME = "expire-import-sessions"
@@ -171,6 +172,27 @@ def ensure_reclassify_anime_task(hour=4, minute=30):
         defaults={
             "crontab": schedule,
             "task": "tracker.tasks.reclassify_anime_titles",
+            "args": "[]",
+            "enabled": True,
+        },
+    )
+
+
+def ensure_fanart_refresh_task(hour=3, minute=15):
+    """(Re)creates the daily PeriodicTask that queues only the
+    TitleFanartCache rows whose next_refresh_at has passed (see
+    tasks.queue_due_fanart_refreshes) - daily rather than hourly like
+    ensure_mdblist_refresh_task below, since FANART_REFRESH_DAYS (30 days
+    by default) is measured in weeks, not days, so an hourly sweep would
+    be needless churn for artwork that's near-static once uploaded."""
+    schedule, _ = CrontabSchedule.objects.get_or_create(
+        minute=str(minute), hour=str(hour), day_of_week="*", day_of_month="*", month_of_year="*"
+    )
+    PeriodicTask.objects.update_or_create(
+        name=FANART_REFRESH_TASK_NAME,
+        defaults={
+            "crontab": schedule,
+            "task": "tracker.tasks.queue_due_fanart_refreshes",
             "args": "[]",
             "enabled": True,
         },
