@@ -524,7 +524,7 @@
               <textarea
                 name="push_notification_urls" rows="3" placeholder="discord://webhook_id/webhook_token&#10;tgram://bot_token/chat_id"
                 class="w-full bg-base-300 rounded-lg px-3.5 py-2 text-sm font-mono"
-              >{{ profile.push_notification_urls }}</textarea>
+              >{{ profile.get_push_notification_urls }}</textarea>
             </div>
             <button type="submit" formaction="{% url 'test_push_notification' %}" class="btn btn-sm btn-soft self-start">Send test</button>
           </div>

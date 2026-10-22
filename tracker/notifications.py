@@ -246,7 +246,7 @@ def on_notification_saved(sender, instance, created, raw=False, **kwargs):
     if instance.kind not in push.PUSH_ELIGIBLE_KINDS:
         return
     profile = instance.profile
-    if not profile.push_notifications_enabled or not profile.push_notification_urls.strip():
+    if not profile.push_notifications_enabled or not profile.get_push_notification_urls().strip():
         return
     from . import tasks
 

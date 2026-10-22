@@ -5362,11 +5362,11 @@ def save_notifications(request):
     profile.notify_sync_failures = bool(request.POST.get("notify_sync_failures"))
     profile.push_notifications_enabled = bool(request.POST.get("push_notifications_enabled"))
     valid_urls, _errors = push.validate_urls(request.POST.get("push_notification_urls", ""))
-    profile.push_notification_urls = "\n".join(valid_urls)
+    profile.set_push_notification_urls("\n".join(valid_urls))
     profile.save(
         update_fields=[
             "notify_new_releases", "notify_upcoming_releases", "notify_sync_failures",
-            "push_notifications_enabled", "push_notification_urls",
+            "push_notifications_enabled", "encrypted_push_notification_urls",
         ]
     )
     return HttpResponse(status=204)
@@ -5408,7 +5408,7 @@ def test_push_notification(request):
             messages.error(request, f"{error} Supported: {supported}.")
         if not valid_urls:
             return redirect(f"{reverse('settings')}?tab=notifications")
-    profile.push_notification_urls = "\n".join(valid_urls)
+    profile.set_push_notification_urls("\n".join(valid_urls))
     ok = push.send(profile, title="Spool test notification", message="If you can see this, push notifications are working.")
     if ok:
         messages.success(request, "Test notification sent - check your configured service(s).")

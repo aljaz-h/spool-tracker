@@ -4266,7 +4266,7 @@ class SaveNotificationsViewTests(TestCase):
         )
         self.profile.refresh_from_db()
         self.assertTrue(self.profile.push_notifications_enabled)
-        saved = self.profile.push_notification_urls
+        saved = self.profile.get_push_notification_urls()
         self.assertIn("discord://webhook_id/webhook_token", saved)
         self.assertIn("tgram://123456789", saved)
 
@@ -4280,8 +4280,9 @@ class SaveNotificationsViewTests(TestCase):
             {"push_notification_urls": "json://192.168.1.50/hook\ndiscord://webhook_id/webhook_token"},
         )
         self.profile.refresh_from_db()
-        self.assertNotIn("json", self.profile.push_notification_urls)
-        self.assertTrue(self.profile.push_notification_urls.startswith("discord://webhook_id/webhook_token"))
+        saved = self.profile.get_push_notification_urls()
+        self.assertNotIn("json", saved)
+        self.assertTrue(saved.startswith("discord://webhook_id/webhook_token"))
 
     def test_push_toggle_off_when_omitted(self):
         self.profile.push_notifications_enabled = True
@@ -4393,7 +4394,7 @@ class PushSendTests(TestCase):
         self.profile = Profile.objects.create(user=user, display_name="PushSendUser")
 
     def test_empty_urls_returns_false_without_calling_apprise(self):
-        self.profile.push_notification_urls = "   \n  \n"
+        self.profile.set_push_notification_urls("   \n  \n")
         with patch("tracker.push.apprise.Apprise") as mock_apprise:
             result = push.send(self.profile, "Title", "Message")
         self.assertFalse(result)
@@ -4416,7 +4417,7 @@ class PushSendTests(TestCase):
         # the Settings save/test views, which call validate_urls
         # directly for a visible error) - something with a bad scheme
         # that ends up stored some other way still never reaches Apprise.
-        self.profile.push_notification_urls = "json://192.168.1.50/hook\ndiscord://webhook_id/webhook_token"
+        self.profile.set_push_notification_urls("json://192.168.1.50/hook\ndiscord://webhook_id/webhook_token")
         with patch.object(apprise.Apprise, "notify", autospec=True, return_value=True) as mock_notify:
             push.send(self.profile, "Title", "Message")
         client = mock_notify.call_args.args[0]
@@ -4425,7 +4426,7 @@ class PushSendTests(TestCase):
         self.assertEqual(type(added[0]), apprise.plugins.N_MGR["discord"])
 
     def test_adds_every_configured_url_and_calls_notify(self):
-        self.profile.push_notification_urls = (
+        self.profile.set_push_notification_urls(
             " discord://webhook_id/webhook_token \n\n "
             "tgram://123456789:AAHfakeTokenForTests1234567890abc/987654321 \n"
         )
@@ -4448,17 +4449,35 @@ class PushSendTests(TestCase):
         # added - safer than partially trusting a line Apprise itself
         # parsed as more than one URL. Nothing gets added, so send()
         # returns False before Apprise.notify is ever reached at all.
-        self.profile.push_notification_urls = "discord://valid/webhook, http://169.254.169.254/"
+        self.profile.set_push_notification_urls("discord://valid/webhook, http://169.254.169.254/")
         with patch.object(apprise.Apprise, "notify", autospec=True, return_value=True) as mock_notify:
             result = push.send(self.profile, "Title", "Message")
         mock_notify.assert_not_called()
         self.assertFalse(result)
 
     def test_url_param_appended_to_body(self):
-        self.profile.push_notification_urls = "discord://webhook_id/webhook_token"
+        self.profile.set_push_notification_urls("discord://webhook_id/webhook_token")
         with patch.object(apprise.Apprise, "notify", autospec=True, return_value=True) as mock_notify:
             push.send(self.profile, "Title", "Message body", url="https://spool.example/titles/1/")
         self.assertIn("https://spool.example/titles/1/", mock_notify.call_args.kwargs["body"])
+
+    def test_broadcast_mentions_in_the_body_are_defused(self):
+        # Security: message can be another profile's own free text (a
+        # recommendation reply, see tracker/recommendations.py's
+        # add_reply), not just a string this app wrote itself - it must
+        # not be able to page an entire external Discord/Slack channel
+        # through this profile's own webhook.
+        self.profile.set_push_notification_urls("discord://webhook_id/webhook_token")
+        with patch.object(apprise.Apprise, "notify", autospec=True, return_value=True) as mock_notify:
+            push.send(self.profile, "Title", "@everyone check this out <@&12345> <#67890>")
+        body = mock_notify.call_args.kwargs["body"]
+        self.assertNotIn("@everyone", body)
+        self.assertNotIn("<@&12345>", body)
+        self.assertNotIn("<#67890>", body)
+        # Still readable - the break is an invisible character, not a
+        # stripped/garbled one.
+        self.assertIn("everyone", body)
+        self.assertIn("12345", body)
 
 
 class NotificationPushSignalTests(TestCase):
@@ -4469,10 +4488,9 @@ class NotificationPushSignalTests(TestCase):
 
     def setUp(self):
         user = User.objects.create_user("signaluser", password="pass12345")
-        self.profile = Profile.objects.create(
-            user=user, display_name="SignalUser",
-            push_notifications_enabled=True, push_notification_urls="json://a.example.com/hook",
-        )
+        self.profile = Profile.objects.create(user=user, display_name="SignalUser", push_notifications_enabled=True)
+        self.profile.set_push_notification_urls("json://a.example.com/hook")
+        self.profile.save(update_fields=["encrypted_push_notification_urls"])
 
     def test_dispatches_for_an_in_scope_kind(self):
         with patch("tracker.tasks.send_push_notification.delay") as mock_delay:
@@ -4497,8 +4515,8 @@ class NotificationPushSignalTests(TestCase):
         mock_delay.assert_not_called()
 
     def test_does_not_dispatch_when_no_urls_configured(self):
-        self.profile.push_notification_urls = "   "
-        self.profile.save(update_fields=["push_notification_urls"])
+        self.profile.set_push_notification_urls("   ")
+        self.profile.save(update_fields=["encrypted_push_notification_urls"])
         with patch("tracker.tasks.send_push_notification.delay") as mock_delay:
             Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="failed")
         mock_delay.assert_not_called()
@@ -4524,10 +4542,9 @@ class NotificationPushSignalTests(TestCase):
 class SendPushNotificationTaskTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("tasksenduser", password="pass12345")
-        self.profile = Profile.objects.create(
-            user=user, display_name="TaskSendUser",
-            push_notifications_enabled=True, push_notification_urls="json://a.example.com/hook",
-        )
+        self.profile = Profile.objects.create(user=user, display_name="TaskSendUser", push_notifications_enabled=True)
+        self.profile.set_push_notification_urls("json://a.example.com/hook")
+        self.profile.save(update_fields=["encrypted_push_notification_urls"])
         # This profile already has push enabled+configured, so creating
         # this Notification for real would fire apps.py's own signal and
         # dispatch a REAL Celery .delay() call (no broker reachable in
@@ -4601,20 +4618,20 @@ class TestPushNotificationViewTests(TestCase):
                 follow=True,
             )
         sent_profile = mock_send.call_args.args[0]
-        self.assertTrue(sent_profile.push_notification_urls.startswith("discord://webhook_id/webhook_token"))
+        self.assertTrue(sent_profile.get_push_notification_urls().startswith("discord://webhook_id/webhook_token"))
         self.assertContains(resp, "unsupported scheme")  # still warned about the dropped one
         self.assertContains(resp, "Test notification sent")  # and still tested what was left
 
     def test_uses_the_submitted_value_not_the_saved_one(self):
         # The whole point - testing works mid-edit, before Save.
-        self.assertEqual(self.profile.push_notification_urls, "")
+        self.assertEqual(self.profile.get_push_notification_urls(), "")
         with patch("tracker.views.push.send", return_value=True) as mock_send:
             self.client.post(reverse("test_push_notification"), {"push_notification_urls": "discord://webhook_id/webhook_token"})
         sent_profile = mock_send.call_args.args[0]
-        self.assertTrue(sent_profile.push_notification_urls.startswith("discord://webhook_id/webhook_token"))
+        self.assertTrue(sent_profile.get_push_notification_urls().startswith("discord://webhook_id/webhook_token"))
         # And never persisted just from testing.
         self.profile.refresh_from_db()
-        self.assertEqual(self.profile.push_notification_urls, "")
+        self.assertEqual(self.profile.get_push_notification_urls(), "")
 
     def test_success_message_on_successful_delivery(self):
         with patch("tracker.views.push.send", return_value=True):

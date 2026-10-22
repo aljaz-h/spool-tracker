@@ -917,7 +917,7 @@ def send_push_notification(notification_id):
     except Notification.DoesNotExist:
         return
     profile = note.profile
-    if not profile.push_notifications_enabled or not profile.push_notification_urls.strip():
+    if not profile.push_notifications_enabled or not profile.get_push_notification_urls().strip():
         return
     ok = push.send(profile, title=note.get_kind_display(), message=note.message, url=note.link or None)
     if not ok:

@@ -157,8 +157,11 @@ class Profile(models.Model):
     # one-shot events (see tracker/apps.py's push-dispatch signal) -
     # never import_status/backup_status, which stay in-app only. One
     # Apprise URL per line; a separate master toggle from "has URLs
-    # configured" so delivery can be paused without losing them.
-    push_notification_urls = models.TextField(blank=True, default="")
+    # configured" so delivery can be paused without losing them. Stored
+    # encrypted - these are live webhook/bot-token credentials, same
+    # sensitivity class as encrypted_access_token above, not something
+    # to leave in plaintext in a DB dump/backup.
+    encrypted_push_notification_urls = models.TextField(blank=True, default="")
     push_notifications_enabled = models.BooleanField(default=False)
     # Settings → Security - optional per-profile TOTP two-factor auth
     # (see tracker/totp.py). totp_secret gets written as soon as setup
@@ -253,6 +256,18 @@ class Profile(models.Model):
         self.calendar_feed_token = self._generate_calendar_feed_token()
         self.save(update_fields=["calendar_feed_token"])
         return self.calendar_feed_token
+
+    def get_push_notification_urls(self):
+        if not self.encrypted_push_notification_urls:
+            return ""
+        from . import crypto
+
+        return crypto.decrypt(self.encrypted_push_notification_urls)
+
+    def set_push_notification_urls(self, plaintext):
+        from . import crypto
+
+        self.encrypted_push_notification_urls = crypto.encrypt(plaintext) if plaintext else ""
 
 
 class ApiToken(models.Model):

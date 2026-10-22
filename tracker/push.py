@@ -67,6 +67,7 @@ itself already uses for its own "eligibility logic vs the thing it
 triggers" separation.
 """
 
+import re
 from urllib.parse import urlsplit
 
 import apprise
@@ -74,6 +75,27 @@ import apprise.plugins as apprise_plugins
 import apprise.utils.parse as apprise_parse
 
 from .models import Notification
+
+# Discord's @everyone/@here and <@user>/<@&role>/<#channel> mention
+# syntax, and Slack's <!here>/<!channel>/<!everyone>/<@U123> syntax -
+# matched so _defuse_mentions (see send()) can break each one with an
+# invisible character before it ever reaches a real webhook.
+_MENTION_PATTERN = re.compile(r"@(?:everyone|here)\b|<[@#!]", re.IGNORECASE)
+
+
+def _defuse_mentions(text):
+    """A body/title passed to send() can contain another profile's own
+    free text, not just this server's fixed strings - a recommendation
+    reply (tracker/recommendations.py's add_reply, up to 160 chars) is
+    stored and shown as-is in the in-app bell, but here it's about to
+    leave the app through *this* profile's own configured webhook, so
+    one profile typing "@everyone" (or Discord's raw <@&roleid> mention
+    syntax) into a reply must not actually page an entire external
+    Discord/Slack channel. Breaks the trigger with a zero-width space
+    rather than stripping it outright - the text still reads the same to
+    a human, it just stops matching the exact prefix Discord/Slack's own
+    parsers require."""
+    return _MENTION_PATTERN.sub(lambda m: m.group(0)[0] + "​" + m.group(0)[1:], text)
 
 # The only Notification.Kind values this ever fires for - every one of
 # these is created via a single Notification.objects.create()/
@@ -123,8 +145,8 @@ _ALLOWED_CLASSES = {apprise_plugins.N_MGR[scheme] for scheme in ALLOWED_SCHEMES}
 
 
 def _urls(raw):
-    """profile.push_notification_urls (one Apprise URL per line) -> a
-    clean list, blank lines and surrounding whitespace dropped."""
+    """profile.get_push_notification_urls() (one Apprise URL per line) ->
+    a clean list, blank lines and surrounding whitespace dropped."""
     return [line.strip() for line in (raw or "").splitlines() if line.strip()]
 
 
@@ -147,7 +169,7 @@ def _instantiate_if_allowed(candidate):
 
 
 def validate_urls(raw):
-    """raw: profile.push_notification_urls (or the Settings form's
+    """raw: profile.get_push_notification_urls() (or the Settings form's
     submitted-but-maybe-unsaved value) -> (valid_urls, errors).
     valid_urls are each allowed candidate's own normalized .url() string
     (safe to persist and to re-instantiate later - verified to round-
@@ -191,9 +213,14 @@ def send(profile, title, message, url=None):
     "clickable link" parameter (a handful of individual services support
     one via their own target-URL query params, not a runtime argument),
     so this just appends it to the message body, which every service
-    renders as plain text at minimum."""
+    renders as plain text at minimum.
+
+    title/message are defused of Discord/Slack broadcast-mention syntax
+    (see _defuse_mentions) before being sent - message in particular can
+    be another profile's own free text (a recommendation reply), not
+    just a fixed string this app wrote itself."""
     objects = []
-    for candidate in _urls(profile.push_notification_urls):
+    for candidate in _urls(profile.get_push_notification_urls()):
         obj, _error = _instantiate_if_allowed(candidate)
         if obj is not None:
             objects.append(obj)
@@ -202,5 +229,7 @@ def send(profile, title, message, url=None):
     client = apprise.Apprise()
     for obj in objects:
         client.add(obj)
+    title = _defuse_mentions(title)
+    message = _defuse_mentions(message)
     body = f"{message}\n{url}" if url else message
     return bool(client.notify(title=title, body=body, body_format=apprise.NotifyFormat.TEXT))
