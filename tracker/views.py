@@ -3388,9 +3388,11 @@ def calendar_feed(request, token):
     # Calendar apps poll every few minutes to hours and each poll would
     # otherwise run the calendar query. Keyed by token, so regenerating
     # the token orphans the old entry; base_url is in the key since it's
-    # baked into the body.
+    # baked into the body. The token is hashed because the key gets logged
+    # when the cache is unreachable, and the token is the feed's secret.
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
     body = selectors._cache_get_or_set(
-        f"ical:{token}:{base_url}",
+        f"ical:{token_hash}:{base_url}",
         CALENDAR_FEED_TTL,
         lambda: ical.build_feed(
             profile,
