@@ -8,6 +8,27 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.154.0] - 2026-10-23
+
+### Added
+
+- The calendar (.ics) feed is now cached per subscription URL for 15
+  minutes and sends an ETag, so calendar apps polling it get a quick
+  "not modified" instead of re-running the calendar query each time.
+- TMDB failures are cached for 60 seconds, and concurrent requests for
+  the same uncached TMDB call now wait for one fetch instead of all
+  hitting TMDB at once, so an outage no longer makes every page load
+  wait out the full timeout.
+
+### Changed
+
+- TMDB responses are cached for different lengths depending on how
+  often they change: searches 15 minutes, watch providers 12 hours,
+  movie details/credits/people/collections 24 hours, genres 7 days.
+  TV details and seasons stay at 6 hours since airing shows change.
+- Added a test that fails if a new `stats:*` cache key isn't cleared
+  when watch history changes.
+
 ## [0.153.1] - 2026-10-22
 
 ### Fixed

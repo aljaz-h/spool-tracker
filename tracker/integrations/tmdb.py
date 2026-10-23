@@ -307,6 +307,20 @@ AVAILABILITY_CHOICES = {
 }
 
 _CACHE_TTL = 6 * 3600  # trending/popular lists don't need to be fresher than this
+_FAILURE_TTL = 60  # failed upstream call: short, so recovery is noticed fast
+_LOCK_TTL = 15  # a crashed holder can't block a key longer than this
+_LOCK_WAIT = 3  # how long a losing worker waits for the winner's result
+
+# First match wins; unmatched paths use _CACHE_TTL. tv/{id} and season
+# endpoints are deliberately absent - airing shows change.
+_TTL_RULES = [
+    (re.compile(r"^search/"), 15 * 60),
+    (re.compile(r"watch/providers"), 12 * 3600),
+    (re.compile(r"^genre/"), 7 * 86400),
+    (re.compile(r"^(movie|tv)/\d+/(credits|recommendations|videos|images)$"), 24 * 3600),
+    (re.compile(r"^(person|collection)/\d+"), 24 * 3600),
+    (re.compile(r"^movie/\d+$"), 24 * 3600),
+]
 
 # TMDB returns 20 results per page - too little to fill a wide grid (barely
 # 2 rows at desktop widths). discover() merges this many consecutive TMDB
@@ -321,8 +335,19 @@ def _cache_key(path, params):
     return "tmdb:" + hashlib.sha1(f"{path}:{normalized}".encode()).hexdigest()
 
 
-def _list_request(path, params=None, api_key=None):
-    """api_key lets a caller resolve it once and pass it through, rather
+def _ttl_for(path):
+    """Cache lifetime by endpoint. Anything that can still change for a
+    show/movie that hasn't finished (tv details, season/episode lists,
+    lists, discover) stays at the 6h default - the content type isn't known
+    here, so only endpoints that barely change get longer."""
+    for pattern, ttl in _TTL_RULES:
+        if pattern.search(path):
+            return ttl
+    return _CACHE_TTL
+
+
+def _list_request(path, params=None, api_key=None, ttl=None):
+    """ttl overrides the per-endpoint default from _ttl_for(). api_key lets a caller resolve it once and pass it through, rather
     than each call hitting _api_key()'s own InstanceConfig.load() DB read -
     discover()'s parallel page fetches (below) rely on this so their worker
     threads never touch the DB independently/concurrently, only the
@@ -334,37 +359,79 @@ def _list_request(path, params=None, api_key=None):
         return {"results": [], "total_pages": 0}
     params = params or {}
     key = _cache_key(path, params)
+    fail_key, lock_key = key + ":fail", key + ":lock"
+    empty = {"results": [], "total_pages": 0}
 
     # A down/unreachable cache backend should degrade to "no caching" for
     # this request, not fail the whole discovery page - same reasoning as
-    # the Celery broker timeout fix elsewhere in this project.
+    # the Celery broker timeout fix elsewhere in this project. One failure
+    # turns the cache off for the rest of this call, so a dead Redis costs
+    # its connect timeout once, not once per get/add/set below.
+    cache_ok = True
     try:
         cached = cache.get(key)
+        if cached is None and cache.get(fail_key):
+            return empty
     except Exception:
         logger.warning("TMDB result cache read failed, continuing without cache", exc_info=True)
-        cached = None
+        cached, cache_ok = None, False
     if cached is not None:
         return cached
+
+    # Request coalescing: gunicorn runs several workers/threads, so a cold
+    # key would otherwise be fetched by all of them at once. Whoever wins
+    # the add() fetches; the rest poll briefly for its result and only
+    # fall through to their own fetch if it never shows up.
+    holds_lock = False
+    if cache_ok:
+        try:
+            holds_lock = cache.add(lock_key, 1, _LOCK_TTL)
+            if not holds_lock:
+                deadline = time.monotonic() + _LOCK_WAIT
+                while time.monotonic() < deadline:
+                    time.sleep(0.1)
+                    cached = cache.get(key)
+                    if cached is not None:
+                        return cached
+                    if cache.get(fail_key):
+                        return empty
+        except Exception:
+            logger.warning("TMDB request lock failed, continuing without coalescing", exc_info=True)
+            cache_ok = False
 
     # DEBUG only (invisible under normal production logging) - a live-call
     # timing trail for diagnosing future regressions without needing to
     # reach for django-silk first.
     start = time.monotonic()
     try:
-        resp = _http_session.get(f"{API_BASE}/{path}", params={"api_key": api_key, **params}, timeout=10)
-        resp.raise_for_status()
-    except requests.RequestException:
-        logger.warning("TMDB list request failed for %s", path, exc_info=True)
-        return {"results": [], "total_pages": 0}
-    logger.debug("TMDB GET %s took %.0fms", path, (time.monotonic() - start) * 1000)
-    data = resp.json()
+        try:
+            resp = _http_session.get(f"{API_BASE}/{path}", params={"api_key": api_key, **params}, timeout=10)
+            resp.raise_for_status()
+        except requests.RequestException:
+            logger.warning("TMDB list request failed for %s", path, exc_info=True)
+            # Negative cache: during an outage every request would
+            # otherwise retry (and wait out the timeout) on its own.
+            if cache_ok:
+                try:
+                    cache.set(fail_key, 1, _FAILURE_TTL)
+                except Exception:
+                    logger.warning("TMDB result cache write failed, continuing without cache", exc_info=True)
+            return empty
+        logger.debug("TMDB GET %s took %.0fms", path, (time.monotonic() - start) * 1000)
+        data = resp.json()
 
-    try:
-        cache.set(key, data, _CACHE_TTL)
-    except Exception:
-        logger.warning("TMDB result cache write failed, continuing without cache", exc_info=True)
-
-    return data
+        if cache_ok:
+            try:
+                cache.set(key, data, ttl if ttl is not None else _ttl_for(path))
+            except Exception:
+                logger.warning("TMDB result cache write failed, continuing without cache", exc_info=True)
+        return data
+    finally:
+        if holds_lock:
+            try:
+                cache.delete(lock_key)
+            except Exception:
+                pass
 
 
 def test_api_key(api_key):

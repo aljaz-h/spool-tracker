@@ -1,5 +1,6 @@
 import calendar as calendar_stdlib
 import csv
+import hashlib
 import json
 import logging
 import os
@@ -3200,6 +3201,7 @@ CALENDAR_TYPES = {"movie": MediaType.MOVIE, "tv": MediaType.TV, "anime": MediaTy
 # ticks by - it stays visible for a while, same idea as History does for
 # anything you've already watched.
 AGENDA_LOOKBACK_DAYS = 30
+CALENDAR_FEED_TTL = 15 * 60
 
 
 @login_required
@@ -3382,13 +3384,30 @@ def calendar_feed(request, token):
     same default window selectors.calendar_releases itself uses for the
     agenda sidebar when start/end aren't given."""
     profile = get_object_or_404(Profile, calendar_feed_token=token)
-    releases = selectors.calendar_releases(
-        profile, media_type=None, source="all", start=timezone.now() - timedelta(days=AGENDA_LOOKBACK_DAYS)
-    )
     base_url = request.build_absolute_uri("/").rstrip("/")
-    body = ical.build_feed(profile, releases, base_url=base_url)
-    response = HttpResponse(body, content_type="text/calendar; charset=utf-8")
-    response["Content-Disposition"] = 'inline; filename="spool-calendar.ics"'
+    # Calendar apps poll every few minutes to hours and each poll would
+    # otherwise run the calendar query. Keyed by token, so regenerating
+    # the token orphans the old entry; base_url is in the key since it's
+    # baked into the body.
+    body = selectors._cache_get_or_set(
+        f"ical:{token}:{base_url}",
+        CALENDAR_FEED_TTL,
+        lambda: ical.build_feed(
+            profile,
+            selectors.calendar_releases(
+                profile, media_type=None, source="all", start=timezone.now() - timedelta(days=AGENDA_LOOKBACK_DAYS)
+            ),
+            base_url=base_url,
+        ),
+    )
+    etag = '"%s"' % hashlib.md5(body.encode()).hexdigest()
+    if request.headers.get("If-None-Match") == etag:
+        response = HttpResponse(status=304)
+    else:
+        response = HttpResponse(body, content_type="text/calendar; charset=utf-8")
+        response["Content-Disposition"] = 'inline; filename="spool-calendar.ics"'
+    response["ETag"] = etag
+    response["Cache-Control"] = f"private, max-age={CALENDAR_FEED_TTL}"
     return response
 
 

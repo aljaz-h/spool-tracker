@@ -29561,3 +29561,74 @@ class SyncMalHistoryTaskTests(TestCase):
         self.assertEqual(created, 0)
         account.refresh_from_db()
         self.assertEqual(account.get_access_token(), "newtok")
+
+
+class StatsCacheInvalidationCoverageTests(TestCase):
+    """invalidate_profile_stats_cache enumerates keys by hand, so a new
+    stats:* variant that nobody adds there would serve stale data."""
+
+    # TTL-only on purpose, see taste_compatibility's docstring.
+    TTL_ONLY = {"taste"}
+
+    def test_every_stats_cache_key_is_invalidated(self):
+        import re
+        from pathlib import Path
+
+        source = Path(selectors.__file__).read_text(encoding="utf-8")
+        used = set(re.findall(r'f"stats:(\w+)', source)) - self.TTL_ONLY
+        with patch("django.core.cache.cache.delete_many") as mock_delete:
+            selectors.invalidate_profile_stats_cache(1)
+        deleted = {k.split(":")[1] for k in mock_delete.call_args[0][0]}
+        self.assertEqual(used - deleted, set(), "stats cache key(s) never invalidated on watch writes")
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class TmdbCachePolicyTests(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    def test_ttl_is_chosen_per_endpoint(self):
+        self.assertEqual(tmdb._ttl_for("search/movie"), 15 * 60)
+        self.assertEqual(tmdb._ttl_for("movie/603"), 24 * 3600)
+        self.assertEqual(tmdb._ttl_for("movie/603/credits"), 24 * 3600)
+        self.assertEqual(tmdb._ttl_for("tv/1399/watch/providers"), 12 * 3600)
+        # airing shows can change, so these keep the 6h default
+        self.assertEqual(tmdb._ttl_for("tv/1399"), tmdb._CACHE_TTL)
+        self.assertEqual(tmdb._ttl_for("tv/1399/season/2"), tmdb._CACHE_TTL)
+
+    @patch("tracker.integrations.tmdb._http_session.get", side_effect=requests.ConnectionError("down"))
+    def test_a_failed_call_is_negatively_cached(self, mock_get):
+        first = tmdb._list_request("movie/1", api_key="k")
+        second = tmdb._list_request("movie/1", api_key="k")
+        self.assertEqual(first, {"results": [], "total_pages": 0})
+        self.assertEqual(second, first)
+        self.assertEqual(mock_get.call_count, 1)
+
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_a_success_is_cached(self, mock_get):
+        mock_get.return_value = Mock(json=lambda: {"id": 1}, raise_for_status=lambda: None)
+        tmdb._list_request("movie/1", api_key="k")
+        tmdb._list_request("movie/1", api_key="k")
+        self.assertEqual(mock_get.call_count, 1)
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class CalendarFeedCacheTests(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        user = User.objects.create_user("icaluser", password="pw")
+        self.profile = Profile.objects.create(user=user, display_name="IcalCache")
+        self.token = self.profile.get_or_create_calendar_feed_token()
+
+    def test_second_poll_with_etag_gets_304_and_skips_the_query(self):
+        url = reverse("calendar_feed", args=[self.token])
+        first = self.client.get(url)
+        self.assertEqual(first.status_code, 200)
+        etag = first["ETag"]
+        with patch("tracker.selectors.calendar_releases", side_effect=AssertionError("should be cached")):
+            second = self.client.get(url, HTTP_IF_NONE_MATCH=etag)
+        self.assertEqual(second.status_code, 304)
