@@ -2697,6 +2697,18 @@ class SendRecommendationViewTests(TestCase):
         self.assertNotContains(resp, "Already watched")
         self.assertContains(resp, "SendRecipient")
 
+    def test_a_private_recipient_looks_the_same_whether_or_not_they_watched_it(self):
+        Profile.objects.filter(pk=self.recipient.pk).update(share_activity=False)
+        url = reverse("send_recommendation", args=[self.title.pk])
+        unwatched = self.client.post(url, {"to_profile_id": self.recipient.pk}).content.decode()
+        Recommendation.objects.all().delete()
+        WatchEvent.objects.create(profile=self.recipient, title=self.title, watched_at="2024-01-01T00:00:00Z")
+        watched = self.client.post(url, {"to_profile_id": self.recipient.pk}).content.decode()
+        self.assertIn('title="Sent"', watched)
+        self.assertEqual(unwatched, watched)
+        # ...and still nothing was actually sent to someone who has watched it
+        self.assertFalse(Recommendation.objects.filter(to_profile=self.recipient).exists())
+
     def test_response_reflects_sent_state(self):
         resp = self.client.post(
             reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk, "all": "1"}

@@ -1458,6 +1458,20 @@ def _recommend_context(profile, title, include_sharers=False):
     }
 
 
+def _recommend_context_after_send(profile, to_profile, title, include_sharers):
+    """_recommend_context for the response to a send. recommendations.send()
+    silently does nothing when the recipient has already watched the title,
+    so a truthful re-render would show "Sent" for some private recipients
+    and a live button for others - telling the sender who has watched it.
+    For a recipient who keeps their activity private the response therefore
+    always reads "Sent"; a sharing recipient's state is visible anyway
+    (their household row), so theirs stays accurate."""
+    context = _recommend_context(profile, title, include_sharers=include_sharers)
+    if not to_profile.share_activity:
+        context["recommended_profile_ids"] = context["recommended_profile_ids"] | {to_profile.pk}
+    return context
+
+
 def _preview_recommend_context(profile):
     """The sidebar "Recommend to" card's context for a not-yet-tracked
     preview title - with no local Title row yet, there's no possible
@@ -1498,13 +1512,14 @@ def send_recommendation(request, pk):
     if to_profile.pk == profile.pk:
         raise Http404
     recommendations.send(profile, to_profile, title, is_blind=request.POST.get("is_blind") == "on")
+    include_sharers = request.POST.get("all") == "1"
     return render(
         request,
         "tracker/partials/recommend_card.html",
         {
             "title": title,
-            "list_all": request.POST.get("all") == "1",
-            **_recommend_context(profile, title, include_sharers=request.POST.get("all") == "1"),
+            "list_all": include_sharers,
+            **_recommend_context_after_send(profile, to_profile, title, include_sharers),
         },
     )
 
@@ -1535,7 +1550,12 @@ def title_preview_send_recommendation(request, media_type, tmdb_id):
     return render(
         request,
         "tracker/partials/recommend_card.html",
-        {"title": title, "is_preview": False, "list_all": True, **_recommend_context(profile, title, include_sharers=True)},
+        {
+            "title": title,
+            "is_preview": False,
+            "list_all": True,
+            **_recommend_context_after_send(profile, to_profile, title, include_sharers=True),
+        },
     )
 
 
