@@ -2685,12 +2685,27 @@ class SendRecommendationViewTests(TestCase):
 
     def test_response_reflects_already_watched_state(self):
         WatchEvent.objects.create(profile=self.recipient, title=self.title, watched_at="2024-01-01T00:00:00Z")
-        resp = self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
+        resp = self.client.post(
+            reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk, "all": "1"}
+        )
         self.assertContains(resp, "Already watched")
 
-    def test_response_reflects_sent_state(self):
+    def test_response_never_reveals_a_private_profiles_watch_state(self):
+        Profile.objects.filter(pk=self.recipient.pk).update(share_activity=False)
+        WatchEvent.objects.create(profile=self.recipient, title=self.title, watched_at="2024-01-01T00:00:00Z")
         resp = self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
+        self.assertNotContains(resp, "Already watched")
+        self.assertContains(resp, "SendRecipient")
+
+    def test_response_reflects_sent_state(self):
+        resp = self.client.post(
+            reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk, "all": "1"}
+        )
         self.assertContains(resp, "Sent")
+
+    def test_response_lists_only_private_housemates_by_default(self):
+        resp = self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
+        self.assertNotContains(resp, "SendRecipient")
 
     def test_invalid_to_profile_404s(self):
         resp = self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": 999999})
@@ -2929,12 +2944,47 @@ class TitleDetailRecommendCardTests(TestCase):
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         self.assertNotContains(resp, "Recommend to")
 
-    def test_card_lists_other_profiles(self):
+    def test_the_title_page_itself_no_longer_has_a_recommend_card(self):
         other_user = User.objects.create_user("cardother", password="pass12345")
         Profile.objects.create(user=other_user, display_name="CardOther")
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertNotContains(resp, 'id="recommend-card"')
+        self.assertContains(resp, 'id="household-panel"')
+
+    def test_private_housemates_are_listed_under_recommend_to_with_no_watch_state(self):
+        other_user = User.objects.create_user("cardother", password="pass12345")
+        other = Profile.objects.create(user=other_user, display_name="CardPrivate", share_activity=False)
+        WatchEvent.objects.create(profile=other, title=self.title, watched_at="2024-01-01T00:00:00Z")
+        resp = self.client.get(reverse("title_household", args=[self.title.pk]))
         self.assertContains(resp, "Recommend to")
-        self.assertContains(resp, "CardOther")
+        self.assertContains(resp, "CardPrivate")
+        self.assertContains(resp, "recommend-blind-toggle")
+        self.assertNotContains(resp, "Already watched")
+
+    def test_sharing_housemates_get_a_row_not_a_recommend_to_entry(self):
+        other_user = User.objects.create_user("cardsharer", password="pass12345")
+        Profile.objects.create(user=other_user, display_name="CardSharer")
+        resp = self.client.get(reverse("title_household", args=[self.title.pk]))
+        self.assertContains(resp, "CardSharer")
+        self.assertContains(resp, "Recommend")  # the row's own button
+        self.assertNotContains(resp, 'id="recommend-card"')
+
+    def test_a_household_where_nobody_shares_still_offers_recommending(self):
+        for name in ("a", "b"):
+            Profile.objects.create(
+                user=User.objects.create_user(f"cardpriv{name}", password="x" * 10),
+                display_name=f"Priv{name}",
+                share_activity=False,
+            )
+        resp = self.client.get(reverse("title_household", args=[self.title.pk]))
+        self.assertContains(resp, "Priva")
+        self.assertContains(resp, "Privb")
+        self.assertContains(resp, 'id="recommend-card"')
+
+    def test_the_activity_tab_says_you_havent_watched_it_yet(self):
+        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertIn("watched this yet.", resp.content.decode())
+        self.assertContains(resp, "Your activity</button>")
 
     def test_card_also_shows_on_a_preview_page(self):
         # Recommending shouldn't require adding the title to a watchlist
@@ -2951,6 +3001,8 @@ class TitleDetailRecommendCardTests(TestCase):
         self.assertContains(resp, "Recommend to")
         self.assertContains(resp, "CardOther2")
         self.assertContains(resp, reverse("title_preview_send_recommendation", args=["movie", 999]))
+        # the Activity tab exists on a preview too, with its empty state
+        self.assertContains(resp, "Activity</button>")
 
 
 class DashboardRecommendationsTests(TestCase):
@@ -10303,12 +10355,6 @@ class ProfilePopupViewTests(TestCase):
         resp = self.client.get(reverse("profile_popup", args=[999999]))
         self.assertEqual(resp.status_code, 404)
 
-    def test_shows_stats_overview_labels_matching_the_main_stats_page(self):
-        resp = self.client.get(reverse("profile_popup", args=[self.target.id]))
-        self.assertContains(resp, "Personal best")
-        self.assertContains(resp, "Movies watched / Shows completed")
-        self.assertContains(resp, "Total watch time")
-
     def test_shows_top_genre_chips(self):
         title = Title.objects.get(name="Watched By Target")
         attach_genres(title, ["Action"])
@@ -10319,37 +10365,187 @@ class ProfilePopupViewTests(TestCase):
         resp = self.client.get(reverse("profile_popup", args=[self.target.id]))
         self.assertContains(resp, reverse("member_stats", args=[self.target.id]))
 
-    def test_shows_last_30_days_and_all_time_instead_of_a_pie_chart(self):
+
+    def test_shows_the_new_figures_and_labels(self):
         resp = self.client.get(reverse("profile_popup", args=[self.target.id]))
-        self.assertContains(resp, "Last 30 days")
+        for label in ("Member since", "Movies", "Shows finished", "Watch time", "Streak", "Full stats", "Recently watched"):
+            self.assertContains(resp, label)
+        self.assertContains(resp, 'aria-labelledby="popup-time-heading"')
+        self.assertContains(resp, 'id="profile-popup-title"')
+
+    def test_the_time_range_switch_uses_pressed_buttons(self):
+        resp = self.client.get(reverse("profile_popup", args=[self.target.id]))
+        self.assertContains(resp, "30 days")
         self.assertContains(resp, "All time")
-        self.assertContains(resp, "Combined")
+        self.assertContains(resp, "aria-pressed")
 
-    def test_last_30_days_also_gets_its_own_combined_row(self):
+    def test_the_split_shows_days_or_hours_never_minutes(self):
         from django.utils import timezone
 
         movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fresh Movie", year=2024, runtime_minutes=120)
         WatchEvent.objects.create(profile=self.target, title=movie, watched_at=timezone.now())
         resp = self.client.get(reverse("profile_popup", args=[self.target.id]))
-        # One "Combined" row under Last 30 days, one under All time.
-        self.assertEqual(resp.content.decode().count("Combined"), 2)
-        self.assertEqual(resp.context["watch_time_breakdown"]["last_30_days"]["combined"]["hours"], 2)
-        self.assertNotContains(resp, "Split by type")
+        self.assertContains(resp, "2 h")
+        self.assertNotContains(resp, "Combined")
+        self.assertNotRegex(resp.content.decode(), r"\d+d \d+h \d+m")
 
-    def test_combined_rows_lead_with_days_and_show_hours_in_parentheses(self):
-        from django.utils import timezone
-
-        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fresh Movie", year=2024, runtime_minutes=120)
-        WatchEvent.objects.create(profile=self.target, title=movie, watched_at=timezone.now())
+    def test_a_private_profile_shows_only_name_and_member_since(self):
+        Profile.objects.filter(pk=self.target.pk).update(share_activity=False)
         resp = self.client.get(reverse("profile_popup", args=[self.target.id]))
-        self.assertContains(resp, "<b>0d</b> <span class=\"text-ink-faint\">(&asymp; 2h)</span>")
+        self.assertContains(resp, "PopupTarget")
+        self.assertContains(resp, "Member since")
+        self.assertContains(resp, "keeps their activity private")
+        body = resp.content.decode()
+        for leaked in ("Watched By Target", "Shows finished", "Taste match", "Watched by both", "Full stats", "Top genres", "Recently watched", "Movies"):
+            self.assertNotIn(leaked, body)
+        self.assertNotIn("movies_watched", resp.context)
+        self.assertNotIn("you_and", resp.context)
+
+    def test_viewing_your_own_profile_works_even_if_you_keep_activity_private(self):
+        viewer = Profile.objects.get(user__username="popupviewer")
+        Profile.objects.filter(pk=viewer.pk).update(share_activity=False)
+        resp = self.client.get(reverse("profile_popup", args=[viewer.pk]))
+        self.assertContains(resp, "Recently watched")
+        self.assertNotIn("you_and", resp.context)
+
+    def test_you_and_section_hides_figures_that_cannot_be_computed(self):
+        resp = self.client.get(reverse("profile_popup", args=[self.target.id]))
+        self.assertNotIn("you_and", resp.context)  # viewer has watched nothing
+        self.assertNotContains(resp, "Taste match")
+
+    def test_you_and_section_shows_match_both_and_shared_genre(self):
+        viewer = Profile.objects.get(user__username="popupviewer")
+        shared = Title.objects.get(name="Watched By Target")
+        attach_genres(shared, ["Comedy"])
+        WatchEvent.objects.create(profile=viewer, title=shared, watched_at="2024-02-01T00:00:00Z")
+        resp = self.client.get(reverse("profile_popup", args=[self.target.id]))
+        self.assertContains(resp, "Taste match")
+        self.assertContains(resp, "Watched by both")
+        self.assertContains(resp, "Shared favourite")
+        self.assertEqual(resp.context["you_and"], {"match": 100, "both": 1, "genre": "Comedy"})
+
+    def test_recently_watched_groups_a_shows_episodes_and_links_to_the_title(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Grouped Show", year=2024)
+        base = _datetime(2026, 10, 1, 20, 0, tzinfo=_tzmod.utc)
+        for i in range(1, 4):
+            ep = Episode.objects.create(title=show, season=1, episode=i)
+            WatchEvent.objects.create(profile=self.target, title=show, episode=ep, watched_at=base + _td(minutes=50 * i))
+        ep = Episode.objects.create(title=show, season=1, episode=4)
+        WatchEvent.objects.create(profile=self.target, title=show, episode=ep, watched_at=base + _td(days=3))
+        resp = self.client.get(reverse("profile_popup", args=[self.target.id]))
+        groups = [g for g in resp.context["recent_groups"] if g["title"] == show]
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0]["detail"], "E1\u2013E4 \u00b7 2 sittings")
+        self.assertContains(resp, reverse("title_detail", args=[show.pk]))
+
+    def test_recently_watched_movie_rows_show_their_rating(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Rated Movie", year=2024)
+        WatchEvent.objects.create(profile=self.target, title=movie, watched_at="2026-10-01T00:00:00Z", user_rating=9)
+        resp = self.client.get(reverse("profile_popup", args=[self.target.id]))
+        self.assertContains(resp, "Movie \u00b7 rated 9 / 10")
+
+    def test_recently_watched_keeps_only_the_newest_few_titles(self):
+        for i in range(8):
+            t = Title.objects.create(media_type=MediaType.MOVIE, name=f"Many {i}", year=2024)
+            WatchEvent.objects.create(profile=self.target, title=t, watched_at=_datetime(2026, 9, 1 + i, tzinfo=_tzmod.utc))
+        groups = selectors.popup_recent_groups(self.target)
+        self.assertEqual(len(groups), selectors.POPUP_RECENT_GROUPS)
+        self.assertEqual(groups[0]["title"].name, "Many 7")
+
+    def test_the_number_of_queries_does_not_grow_with_history_or_housemates(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        viewer = Profile.objects.get(user__username="popupviewer")
+
+        def count():
+            with CaptureQueriesContext(connection) as ctx:
+                selectors.profile_popup_context(viewer, self.target)
+            return len(ctx)
+
+        small = count()
+        for i in range(15):
+            t = Title.objects.create(media_type=MediaType.TV if i % 2 else MediaType.MOVIE, name=f"Bulk {i}", year=2020)
+            attach_genres(t, ["Drama"])
+            ep = Episode.objects.create(title=t, season=1, episode=1) if i % 2 else None
+            WatchEvent.objects.create(profile=self.target, title=t, episode=ep, watched_at=_datetime(2026, 8, 1 + i, tzinfo=_tzmod.utc))
+            WatchEvent.objects.create(profile=viewer, title=t, episode=ep, watched_at=_datetime(2026, 8, 2 + i, tzinfo=_tzmod.utc))
+        for i in range(4):
+            Profile.objects.create(user=User.objects.create_user(f"popupextra{i}", password="x" * 10), display_name=f"Extra{i}")
+        self.assertEqual(count(), small)
+        self.assertLessEqual(small, 25)
+
+    def test_the_dialog_is_labelled_and_modal(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, 'aria-labelledby="profile-popup-title"')
+        self.assertContains(resp, 'aria-modal="true"')
+
+
+class PrivateProfileStatsGateTests(TestCase):
+    """Another profile's Stats/History/heatmap/genre pages (the popup's
+    "Full stats" deep links) honour share_activity: a private profile 404s
+    as if it didn't exist, while you can always see your own."""
+
+    def setUp(self):
+        self.viewer = Profile.objects.create(
+            user=User.objects.create_user("gateviewer", password="pass12345"), display_name="GateViewer"
+        )
+        self.target = Profile.objects.create(
+            user=User.objects.create_user("gatetarget", password="pass12345"), display_name="GateTarget"
+        )
+        self.client.login(username="gateviewer", password="pass12345")
+
+    def urls(self, profile):
+        return [
+            reverse(name, args=[profile.pk])
+            for name in ("member_stats", "member_history", "member_stats_heatmap", "member_stats_genre_breakdown")
+        ]
+
+    def test_a_sharing_profile_is_viewable(self):
+        for url in self.urls(self.target):
+            self.assertEqual(self.client.get(url).status_code, 200, url)
+
+    def test_a_private_profile_404s_on_every_member_page(self):
+        Profile.objects.filter(pk=self.target.pk).update(share_activity=False)
+        for url in self.urls(self.target):
+            self.assertEqual(self.client.get(url).status_code, 404, url)
+
+    def test_you_can_still_open_your_own_member_pages_when_private(self):
+        Profile.objects.filter(pk=self.viewer.pk).update(share_activity=False)
+        for url in self.urls(self.viewer):
+            self.assertEqual(self.client.get(url).status_code, 200, url)
+
+
+class PopupSelectorTests(TestCase):
+    def setUp(self):
+        self.a = Profile.objects.create(user=User.objects.create_user("popsela", password="pass12345"), display_name="A")
+        self.b = Profile.objects.create(user=User.objects.create_user("popselb", password="pass12345"), display_name="B")
+
+    def test_watched_by_both_counts_distinct_titles_not_plays(self):
+        shared = Title.objects.create(media_type=MediaType.MOVIE, name="Both", year=2020)
+        only_a = Title.objects.create(media_type=MediaType.MOVIE, name="OnlyA", year=2020)
+        for p in (self.a, self.b):
+            for day in (1, 2):
+                WatchEvent.objects.create(profile=p, title=shared, watched_at=f"2024-01-0{day}T00:00:00Z")
+        WatchEvent.objects.create(profile=self.a, title=only_a, watched_at="2024-01-03T00:00:00Z")
+        self.assertEqual(selectors.watched_by_both(self.a, self.b), 1)
+        self.assertEqual(selectors.watched_by_both(self.b, self.a), 1)
+
+    def test_watched_by_both_is_zero_with_nothing_in_common(self):
+        self.assertEqual(selectors.watched_by_both(self.a, self.b), 0)
+
+    def test_days_or_hours(self):
+        self.assertEqual(selectors.days_or_hours(0), "0 h")
+        self.assertEqual(selectors.days_or_hours(120), "2 h")
+        self.assertEqual(selectors.days_or_hours(24 * 60), "1 d")
+        self.assertEqual(selectors.days_or_hours(25 * 24 * 60 + 8 * 60), "25 d")
+        self.assertEqual(selectors.days_or_hours(1500 * 60 * 24), "1,500 d")
 
 
 class MemberScopedViewsTests(TestCase):
     """Deep-linking into another household profile's Stats/History from
-    the profile popup's "View full stats" link - read-only, same no-
-    extra-restriction convention as the popup itself (any logged-in
-    profile can view any other profile's stats/history)."""
+    the profile popup's "Full stats" link - read-only, and only for
+    profiles that share their activity (see PrivateProfileStatsGateTests)."""
 
     def setUp(self):
         viewer_user = User.objects.create_user("statsviewer", password="pass12345")
@@ -27354,9 +27550,10 @@ class DashboardRecommendationReplyUiTests(TestCase):
 
 
 class RecommendCardReplyVisibilityTests(TestCase):
-    """recommend_card.html (title_detail's "Recommend to" sidebar) - the
-    only place a sender can currently see anything about a recommendation
-    they sent, so a reply has to surface here."""
+    """The title page's Household view (a row's Recommend control, or the
+    "Recommend to" section for private housemates) - the only place a
+    sender can currently see anything about a recommendation they sent,
+    so a reply has to surface here."""
 
     def setUp(self):
         sender_user = User.objects.create_user("cardreplysender", password="pass12345")
@@ -27368,15 +27565,16 @@ class RecommendCardReplyVisibilityTests(TestCase):
 
     def test_no_reply_yet_shows_the_plain_sent_badge(self):
         Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
-        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, 'title="Sent"')
+        resp = self.client.get(reverse("title_household", args=[self.title.pk]))
+        self.assertContains(resp, "sent: true")
+        self.assertContains(resp, "Sent</span>")
 
     def test_reply_shows_next_to_the_recipient_instead_of_the_plain_badge(self):
         rec = Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
         recommendations.reply(rec, reaction="already_seen", message="never seen anything like it")
-        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        resp = self.client.get(reverse("title_household", args=[self.title.pk]))
         self.assertContains(resp, rec.get_reply_reaction_display())
-        self.assertNotContains(resp, 'title="Sent"')
+        self.assertNotContains(resp, "Sent</span>")
 
 
 class RecommendationReplyEndToEndTests(TestCase):
@@ -27414,7 +27612,7 @@ class RecommendationReplyEndToEndTests(TestCase):
         resp = self.client.get(reverse("notifications_panel"))
         self.assertContains(resp, reverse("title_detail", args=[title.pk]))
 
-        resp = self.client.get(reverse("title_detail", args=[title.pk]))
+        resp = self.client.get(reverse("title_household", args=[title.pk]))
         self.assertContains(resp, "this weekend for sure")
 
 
@@ -29632,3 +29830,426 @@ class CalendarFeedCacheTests(TestCase):
         with patch("tracker.selectors.calendar_releases", side_effect=AssertionError("should be cached")):
             second = self.client.get(url, HTTP_IF_NONE_MATCH=etag)
         self.assertEqual(second.status_code, 304)
+
+
+from datetime import datetime as _datetime, timedelta as _td, timezone as _tzmod  # noqa: E402
+from zoneinfo import ZoneInfo as _ZoneInfo  # noqa: E402
+
+from django.test import SimpleTestCase  # noqa: E402
+
+from . import sittings as _sit  # noqa: E402
+
+_UTC = _tzmod.utc
+
+
+def _p(when, season=1, episode=None, rewatch=False):
+    return _sit.Play(when, season, episode, rewatch)
+
+
+def _eps(start, minutes_between, n, season=1):
+    return [_p(start + _td(minutes=minutes_between * i), season, i + 1) for i in range(n)]
+
+
+class SittingGroupingTests(SimpleTestCase):
+    T0 = _datetime(2026, 6, 3, 21, 5, tzinfo=_UTC)
+
+    def test_a_gap_exactly_at_the_threshold_is_one_sitting(self):
+        plays = [_p(self.T0, episode=1), _p(self.T0 + _sit.SITTING_GAP, episode=2)]
+        self.assertEqual(len(_sit.group_sittings(plays)), 1)
+
+    def test_a_gap_one_second_over_the_threshold_splits(self):
+        plays = [_p(self.T0, episode=1), _p(self.T0 + _sit.SITTING_GAP + _td(seconds=1), episode=2)]
+        self.assertEqual(len(_sit.group_sittings(plays)), 2)
+
+    def test_input_order_does_not_matter(self):
+        plays = [_p(self.T0 + _td(hours=1), episode=2), _p(self.T0, episode=1)]
+        (s,) = _sit.group_sittings(plays)
+        self.assertEqual([p.episode for p in s["plays"]], [1, 2])
+
+    def test_a_sitting_crossing_midnight_stays_one_sitting(self):
+        start = _datetime(2026, 10, 20, 23, 30, tzinfo=_UTC)
+        (s,) = _sit.group_sittings(_eps(start, 45, 4))
+        self.assertNotEqual(s["start"].date(), s["end"].date())
+        self.assertEqual(len(s["plays"]), 4)
+
+    def test_threshold_is_measured_in_real_time_across_a_dst_change(self):
+        ny = _ZoneInfo("America/New_York")
+        # 2026-03-08 01:30 EST -> 07:30 EDT is 5 real hours (clocks jumped).
+        a = _datetime(2026, 3, 8, 1, 30, tzinfo=ny)
+        b = _datetime(2026, 3, 8, 7, 30, tzinfo=ny)
+        self.assertEqual(len(_sit.group_sittings([_p(a, episode=1), _p(b, episode=2)])), 1)
+
+
+class TimelineLayoutTests(SimpleTestCase):
+    NOW = _datetime(2026, 10, 23, 12, 0, tzinfo=_UTC)
+    T0 = _datetime(2026, 6, 3, 21, 5, tzinfo=_UTC)
+
+    def build(self, media_type, plays, tz=_UTC, completed=False, h24=False):
+        return _sit.build_timeline(media_type, plays, tz, self.NOW, completed=completed, h24=h24)
+
+    def test_no_plays_gives_nothing(self):
+        self.assertIsNone(self.build("tv", []))
+
+    def test_tv_layout_thresholds(self):
+        def layout(span):
+            return self.build("tv", [_p(self.T0, episode=1), _p(self.T0 + span, episode=2)])["layout"]
+
+        self.assertEqual(layout(_td(hours=24)), "hours")
+        self.assertEqual(layout(_td(hours=24, seconds=1)), "days")
+        self.assertEqual(layout(_td(days=21)), "days")
+        self.assertEqual(layout(_td(days=21, seconds=1)), "months")
+
+    def test_a_single_tv_play_uses_the_hours_layout(self):
+        self.assertEqual(self.build("anime", [_p(self.T0, episode=1)])["layout"], "hours")
+
+    def test_movie_layouts(self):
+        self.assertEqual(self.build("movie", [_p(self.T0, None, None)])["layout"], "movie-single")
+        two = [_p(self.T0, None, None), _p(self.T0 + _td(days=1), None, None)]
+        self.assertEqual(self.build("movie", two)["layout"], "movie-multi")
+
+    def test_binge_across_midnight_has_a_divider_and_total_label(self):
+        ny = _ZoneInfo("America/New_York")
+        # 20:10 EDT Oct 20 -> 02:34 EDT Oct 21 expressed in UTC
+        start = _datetime(2026, 10, 21, 0, 10, tzinfo=_UTC)
+        tl = self.build("tv", _eps(start, 55, 8), tz=ny, completed=True)
+        self.assertEqual(tl["layout"], "hours")
+        self.assertIsNotNone(tl["midnight"])
+        self.assertEqual(tl["midnight"]["before"], "Tue, Oct 20")
+        self.assertEqual(tl["midnight"]["after"], "Wed, Oct 21")
+        self.assertIn("in one sitting", tl["bracket"]["label"])
+        self.assertEqual(len(tl["blocks"]), 8)
+
+    def test_the_profile_timezone_changes_the_local_day(self):
+        plays = [_p(_datetime(2026, 6, 3, 2, 0, tzinfo=_UTC), episode=1)]
+        utc = self.build("tv", plays)
+        ny = self.build("tv", plays, tz=_ZoneInfo("America/New_York"))
+        self.assertEqual(utc["facts"][0]["value"].split(" · ")[0], "Wed, Jun 3")
+        self.assertEqual(ny["facts"][0]["value"].split(" · ")[0], "Tue, Jun 2")
+
+    def test_24h_time_format(self):
+        plays = [_p(_datetime(2026, 6, 3, 21, 5, tzinfo=_UTC), episode=1)]
+        self.assertIn("21:05", self.build("tv", plays, h24=True)["facts"][0]["value"])
+        self.assertIn("9:05 PM", self.build("tv", plays)["facts"][0]["value"])
+
+    def test_spread_over_months_groups_sittings_and_labels_gaps(self):
+        plays = [
+            _p(_datetime(2026, 6, 3, 21, 5, tzinfo=_UTC), episode=1),
+            _p(_datetime(2026, 6, 9, 21, 30, tzinfo=_UTC), episode=2),
+            _p(_datetime(2026, 6, 9, 23, 5, tzinfo=_UTC), episode=3),
+            _p(_datetime(2026, 7, 22, 20, 3, tzinfo=_UTC), episode=4),
+            _p(_datetime(2026, 9, 14, 21, 42, tzinfo=_UTC), episode=5),
+        ]
+        tl = self.build("tv", plays, completed=True)
+        self.assertEqual(tl["layout"], "months")
+        self.assertEqual(tl["sittings_count"], 4)
+        self.assertEqual([t["label"] for t in tl["ticks"]], ["Jul", "Aug", "Sep"])
+        self.assertTrue(tl["nodes"][-1]["finale"])
+        self.assertEqual([f["label"] for f in tl["facts"]], ["Started", "Finished", "Took", "Longest break"])
+        self.assertEqual(tl["facts"][2]["value"], "103 days")
+
+    def test_sittings_closer_than_the_overlap_threshold_merge_into_one_node(self):
+        plays = [
+            _p(self.T0, episode=1),
+            _p(self.T0 + _td(days=1), episode=2),
+            _p(self.T0 + _td(days=100), episode=3),
+        ]
+        tl = self.build("tv", plays)
+        self.assertEqual(len(tl["nodes"]), 2)
+        self.assertEqual(tl["nodes"][0]["sittings"], 2)
+        self.assertEqual(tl["nodes"][0]["episodes"], "E1–E2")
+
+    def test_days_layout_uses_day_ticks(self):
+        plays = [_p(self.T0, episode=1), _p(self.T0 + _td(days=10), episode=2)]
+        tl = self.build("tv", plays)
+        self.assertEqual(tl["layout"], "days")
+        self.assertRegex(tl["ticks"][0]["label"], r"^Jun \d+$")
+
+    def test_movie_rewatches_collapse_empty_years_and_mark_viewings(self):
+        plays = [
+            _p(_datetime(2022, 3, 14, 20, 40, tzinfo=_UTC), None, None),
+            _p(_datetime(2022, 6, 18, 21, 15, tzinfo=_UTC), None, None, rewatch=True),
+            _p(_datetime(2026, 10, 17, 21, 12, tzinfo=_UTC), None, None, rewatch=True),
+        ]
+        tl = self.build("movie", plays)
+        kinds = [i["kind"] for i in tl["items"]]
+        self.assertEqual(kinds, ["viewing", "gap", "viewing", "gap", "viewing"])
+        gaps = [i for i in tl["items"] if i["kind"] == "gap"]
+        self.assertEqual(gaps[0]["text"], "+3 months")
+        self.assertIsNone(gaps[0]["empty_years"])
+        self.assertEqual(gaps[1]["text"], "+4 yrs 4 mo")
+        self.assertEqual(gaps[1]["empty_years"], "2023 – 2025")
+        viewings = [i for i in tl["items"] if i["kind"] == "viewing"]
+        self.assertEqual([v["rewatch"] for v in viewings], [False, True, True])
+        self.assertEqual([v["year_label"] for v in viewings], [2022, None, 2026])
+        self.assertEqual([f["value"] for f in tl["facts"]][:2], ["3 times", "Mar 14, 2022"])
+
+    def test_a_single_empty_year_is_not_shown_as_a_range(self):
+        plays = [_p(_datetime(2022, 5, 1, tzinfo=_UTC), None, None), _p(_datetime(2024, 5, 1, tzinfo=_UTC), None, None)]
+        gap = [i for i in self.build("movie", plays)["items"] if i["kind"] == "gap"][0]
+        self.assertEqual(gap["empty_years"], "2023")
+
+    def test_plays_list_is_newest_first_with_expandable_sittings(self):
+        plays = _eps(_datetime(2026, 10, 20, 20, 10, tzinfo=_UTC), 55, 8)
+        rows = self.build("tv", plays)["plays_list"]
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows[0]["multiple"])
+        self.assertEqual(rows[0]["episodes"], "E1–E8")
+        self.assertEqual(rows[0]["plays"][0]["episodes"], "E8")
+
+
+class DurationTextTests(SimpleTestCase):
+    def test_took(self):
+        self.assertEqual(_sit.duration_text(_td(minutes=16)), "16 min")
+        self.assertEqual(_sit.duration_text(_td(hours=6, minutes=24)), "6 h 24 min")
+        self.assertEqual(_sit.duration_text(_td(hours=3)), "3 h")
+        self.assertEqual(_sit.duration_text(_td(days=1)), "1 day")
+
+    def test_gaps(self):
+        self.assertEqual(_sit.gap_text(_td(days=3)), "3 days")
+        self.assertEqual(_sit.gap_text(_td(days=42)), "6 weeks")
+        self.assertEqual(_sit.gap_text(_td(days=14)), "2 weeks")
+        self.assertEqual(_sit.gap_text(_td(days=100)), "3 months")
+        self.assertEqual(_sit.gap_text(_td(days=365 * 3)), "3 yrs")
+
+
+from django.utils import timezone as _djtz  # noqa: E402
+
+
+class _HouseholdBase(TestCase):
+    """Four profiles: you (viewer), maya (shares), jon (shares), eli (does
+    NOT share). A 4-episode show."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        self.users = {}
+        self.profiles = {}
+        for name, share in (("you", True), ("maya", True), ("jon", True), ("eli", False)):
+            user = User.objects.create_user(f"hh_{name}", password="pass12345")
+            self.users[name] = user
+            self.profiles[name] = Profile.objects.create(user=user, display_name=name.title(), share_activity=share)
+        self.show = Title.objects.create(media_type=MediaType.TV, name="HH Show", year=2024)
+        self.eps = [Episode.objects.create(title=self.show, season=1, episode=i) for i in range(1, 5)]
+        self.movie = Title.objects.create(media_type=MediaType.MOVIE, name="HH Movie", year=2020)
+        self.client.login(username="hh_you", password="pass12345")
+
+    def watch(self, who, title, episode=None, days_ago=1, rating=None):
+        return WatchEvent.objects.create(
+            profile=self.profiles[who],
+            title=title,
+            episode=episode,
+            watched_at=_djtz.now() - _td(days=days_ago),
+            user_rating=rating,
+        )
+
+
+class HouseholdGatingTests(_HouseholdBase):
+    def test_the_household_ui_needs_another_profile_even_if_nobody_shares(self):
+        self.assertTrue(selectors.household_enabled(self.profiles["you"]))
+        Profile.objects.exclude(pk=self.profiles["you"].pk).update(share_activity=False)
+        # still on: private housemates can still be recommended to
+        self.assertTrue(selectors.household_enabled(self.profiles["you"]))
+        resp = self.client.get(reverse("title_household", args=[self.movie.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="recommend-card"')
+
+    def test_a_single_profile_household_has_no_household_ui(self):
+        for name in ("maya", "jon", "eli"):
+            self.users[name].delete()
+        self.assertFalse(selectors.household_enabled(self.profiles["you"]))
+        self.watch("you", self.movie)
+        resp = self.client.get(reverse("title_detail", args=[self.movie.pk]))
+        self.assertContains(resp, "Your activity")
+        self.assertNotContains(resp, "household-panel")
+        self.assertNotContains(resp, "Household")
+        self.assertEqual(self.client.get(reverse("title_household", args=[self.movie.pk])).status_code, 404)
+
+    def test_the_tab_is_renamed_and_the_switch_shown_when_the_household_shares(self):
+        self.watch("you", self.movie)
+        resp = self.client.get(reverse("title_detail", args=[self.movie.pk]))
+        self.assertContains(resp, 'id="household-panel"')
+        self.assertContains(resp, "Activity</button>")
+        self.assertContains(resp, 'aria-pressed')
+        self.assertNotContains(resp, "Your activity</button>")
+
+    def test_the_household_body_is_lazy_not_part_of_the_title_page(self):
+        self.watch("maya", self.movie)
+        resp = self.client.get(reverse("title_detail", args=[self.movie.pk]))
+        # (the rail's own "Recommend to" card legitimately lists housemates)
+        self.assertNotContains(resp, "Watched by")
+
+    def test_the_household_endpoint_requires_login(self):
+        self.client.logout()
+        resp = self.client.get(reverse("title_household", args=[self.movie.pk]))
+        self.assertEqual(resp.status_code, 302)
+
+
+class HouseholdPrivacyTests(_HouseholdBase):
+    def test_a_profile_that_does_not_share_is_absent_everywhere(self):
+        self.watch("you", self.show, self.eps[0])
+        self.watch("eli", self.show, self.eps[0])
+        self.watch("eli", self.show, self.eps[1], rating=10)
+        data = selectors.title_household(self.profiles["you"], self.show)
+        names = [r["name"] for r in data["rows"]]
+        self.assertNotIn("Eli", names)
+        self.assertEqual(len(data["lanes"]), len(data["rows"]))
+        self.assertNotIn("Eli", [l["row"]["name"] for l in data["lanes"]])
+        # only you (watching) and the two sharing housemates are counted - not Eli
+        self.assertEqual(data["summary"], "1 watching · 2 not started")
+
+    def test_movie_counts_and_average_ignore_a_profile_that_does_not_share(self):
+        self.watch("you", self.movie, rating=9)
+        self.watch("maya", self.movie, rating=7)
+        self.watch("eli", self.movie, rating=1)
+        self.watch("eli", self.movie, rating=1)
+        data = selectors.title_household(self.profiles["you"], self.movie)
+        facts = {f["label"]: f for f in data["summary_facts"]}
+        self.assertEqual(facts["Watched by"]["value"], "2 of 3")
+        self.assertEqual(facts["Household rating"]["value"], "8.0")
+        self.assertEqual(facts["Rewatched"]["value"], "Nobody yet")
+
+    def test_the_viewer_always_sees_themselves_even_if_they_do_not_share(self):
+        Profile.objects.filter(pk=self.profiles["you"].pk).update(share_activity=False)
+        self.profiles["you"].refresh_from_db()
+        data = selectors.title_household(self.profiles["you"], self.movie)
+        self.assertIn("You", [r["name"] for r in data["rows"]])
+
+    def test_a_profile_that_does_not_share_only_appears_as_a_recommend_entry(self):
+        self.watch("eli", self.show, self.eps[0])
+        resp = self.client.get(reverse("title_household", args=[self.show.pk]))
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode()
+        rows, _, recommend = body.partition('id="recommend-card"')
+        self.assertNotIn("Eli", rows)  # no row, lane, count or status
+        self.assertIn("Eli", recommend)  # just a name and a send button
+        self.assertNotIn("Already watched", body)
+        self.assertContains(resp, "Maya")
+
+    def test_only_episode_counts_are_exposed_never_episode_details(self):
+        for i in range(3):
+            self.watch("maya", self.show, self.eps[i], days_ago=3 - i)
+        self.watch("you", self.show, self.eps[0])
+        row = next(r for r in selectors.title_household(self.profiles["you"], self.show)["rows"] if r["name"] == "Maya")
+        self.assertEqual(row["relative"], "Ahead of you")
+        self.assertEqual(row["position"], "E3 of 4")
+
+
+class HouseholdContentTests(_HouseholdBase):
+    def test_tv_rows_status_and_relative_position(self):
+        for i in range(4):
+            self.watch("maya", self.show, self.eps[i], days_ago=10 - i, rating=9 if i == 3 else None)
+        for i in range(2):
+            self.watch("you", self.show, self.eps[i], days_ago=5 - i)
+        self.watch("jon", self.show, self.eps[0], days_ago=2)
+        WatchProgress.objects.create(profile=self.profiles["maya"], title=self.show, status=WatchProgress.Status.COMPLETED)
+        WatchProgress.objects.create(profile=self.profiles["you"], title=self.show, status=WatchProgress.Status.WATCHING)
+        WatchProgress.objects.create(profile=self.profiles["jon"], title=self.show, status=WatchProgress.Status.WATCHING)
+        rows = {r["name"]: r for r in selectors.title_household(self.profiles["you"], self.show)["rows"]}
+        self.assertEqual(list(rows)[0], "You")
+        self.assertEqual(rows["Maya"]["status_label"], "Completed")
+        self.assertEqual(rows["Maya"]["relative"], "Ahead of you")
+        self.assertEqual(rows["Maya"]["rating"], 9)
+        self.assertEqual(rows["Jon"]["relative"], "1 episode behind you")
+        self.assertIsNone(rows["You"]["relative"])
+        self.assertEqual(rows["Jon"]["position"], "E1 of 4")
+
+    def test_a_profile_with_no_progress_gets_recommend(self):
+        self.watch("you", self.show, self.eps[0])
+        resp = self.client.get(reverse("title_household", args=[self.show.pk]))
+        self.assertContains(resp, "Not started")
+        self.assertContains(resp, "Recommend")
+        self.assertContains(resp, reverse("send_recommendation", args=[self.show.pk]))
+
+    def test_movie_rows(self):
+        self.watch("you", self.movie, rating=9, days_ago=900)
+        self.watch("you", self.movie, days_ago=30)
+        self.watch("maya", self.movie, rating=7)
+        from .watchlists import ensure_watchlist as _ew
+
+        WatchListItem.objects.create(watchlist=_ew(self.profiles["jon"]), title=self.movie)
+        rows = {r["name"]: r for r in selectors.title_household(self.profiles["you"], self.movie)["rows"]}
+        self.assertEqual(rows["You"]["viewings"], 2)
+        self.assertEqual(rows["You"]["status_label"], "Watched")
+        self.assertEqual(rows["Jon"]["status_label"], "On watchlist")
+        self.assertFalse(rows["Jon"]["recommend"])
+
+    def test_window_stretches_back_to_the_earliest_play_within_the_cap(self):
+        self.watch("maya", self.show, self.eps[0], days_ago=150)  # ~21 weeks: inside the 26 week cap
+        data = selectors.title_household(self.profiles["you"], self.show)
+        self.assertRegex(data["window"]["label"], r"^Last 2\d weeks")
+        self.watch("jon", self.show, self.eps[0], days_ago=400)  # beyond the cap
+        data = selectors.title_household(self.profiles["you"], self.show)
+        self.assertRegex(data["window"]["label"], r"^Last 26 weeks")
+
+    def test_default_window_is_twelve_weeks(self):
+        self.watch("maya", self.show, self.eps[0], days_ago=3)
+        data = selectors.title_household(self.profiles["you"], self.show)
+        self.assertRegex(data["window"]["label"], r"^Last 1[23] weeks")
+
+
+class HouseholdQueryCountTests(_HouseholdBase):
+    def _seed(self, media_title, per_profile):
+        for who in ("you", "maya", "jon"):
+            for i in range(per_profile):
+                self.watch(who, media_title, self.eps[i] if media_title.media_type == MediaType.TV else None, days_ago=20 - i)
+
+    def test_tv_household_uses_a_fixed_number_of_queries(self):
+        self._seed(self.show, 2)
+        with self.assertNumQueries(5):
+            selectors.title_household(self.profiles["you"], self.show)
+        for name in ("a", "b", "c", "d"):
+            Profile.objects.create(user=User.objects.create_user(f"extra_{name}", password="x" * 10), display_name=name)
+        self._seed(self.show, 4)
+        with self.assertNumQueries(5):
+            selectors.title_household(self.profiles["you"], self.show)
+
+    def test_movie_household_uses_a_fixed_number_of_queries(self):
+        self._seed(self.movie, 2)
+        with self.assertNumQueries(5):
+            selectors.title_household(self.profiles["you"], self.movie)
+        for name in ("a", "b", "c"):
+            Profile.objects.create(user=User.objects.create_user(f"extra_{name}", password="x" * 10), display_name=name)
+        with self.assertNumQueries(5):
+            selectors.title_household(self.profiles["you"], self.movie)
+
+
+class YourActivityCardTests(_HouseholdBase):
+    def test_the_card_renders_a_timeline_and_keeps_its_id(self):
+        for i in range(3):
+            self.watch("you", self.show, self.eps[i], days_ago=40 - i * 15)
+        resp = self.client.get(reverse("title_detail", args=[self.show.pk]))
+        self.assertContains(resp, 'id="history-card"')
+        self.assertContains(resp, "tl-axis")
+        self.assertContains(resp, "All plays")
+
+    def test_movie_watched_once_has_a_single_row_and_a_log_another_link(self):
+        self.watch("you", self.movie)
+        resp = self.client.get(reverse("title_detail", args=[self.movie.pk]))
+        self.assertContains(resp, "Log another viewing")
+        self.assertNotContains(resp, 'class="tl-movie"')
+
+    def test_marking_an_episode_watched_still_swaps_the_card_out_of_band(self):
+        resp = self.client.post(reverse("episode_mark_watched", args=[self.show.pk, 1, 1]), HTTP_HX_REQUEST="true")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="history-card"')
+        self.assertContains(resp, 'hx-swap-oob="true"')
+
+    def test_drop_and_resume_still_return_the_card_for_an_outer_swap(self):
+        self.watch("you", self.show, self.eps[0])
+        WatchProgress.objects.create(profile=self.profiles["you"], title=self.show, status=WatchProgress.Status.WATCHING)
+        resp = self.client.post(reverse("title_drop", args=[self.show.pk]), HTTP_HX_REQUEST="true")
+        self.assertContains(resp, 'id="history-card"')
+        self.assertContains(resp, "Resume watching")
+        self.assertNotContains(resp, 'hx-swap-oob')
+        resp = self.client.post(reverse("title_resume_watching", args=[self.show.pk]), HTTP_HX_REQUEST="true")
+        self.assertContains(resp, "Drop")
+
+    def test_the_profile_timezone_is_used_for_timeline_times(self):
+        Profile.objects.filter(pk=self.profiles["you"].pk).update(timezone="Pacific/Auckland")
+        self.profiles["you"].refresh_from_db()
+        tz = selectors.profile_zoneinfo(self.profiles["you"])
+        self.assertEqual(str(tz), "Pacific/Auckland")
+        Profile.objects.filter(pk=self.profiles["you"].pk).update(timezone="Not/AZone")
+        self.profiles["you"].refresh_from_db()
+        self.assertEqual(str(selectors.profile_zoneinfo(self.profiles["you"])), django_settings.TIME_ZONE)

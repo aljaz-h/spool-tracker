@@ -310,17 +310,7 @@ def profile_popup(request, profile_id):
     if viewer is None:
         raise Http404
     target = get_object_or_404(Profile, pk=profile_id)
-    overview = selectors.stats_overview(target)
-    context = {
-        "target": target,
-        **overview,
-        "watch_time_breakdown": selectors.watch_time_breakdown(target),
-        "top_genres": selectors.top_genres(target, limit=3),
-        "recent_events": selectors.library_history(
-            target, [MediaType.MOVIE, MediaType.TV, MediaType.ANIME], limit=8
-        ),
-    }
-    return render(request, "tracker/partials/profile_popup.html", context)
+    return render(request, "tracker/partials/profile_popup.html", selectors.profile_popup_context(viewer, target))
 
 
 def _discover_int_param(request, name):
@@ -1396,7 +1386,6 @@ def title_detail(request, pk):
         **_title_display(title, details, fanart_images),
         **local_context,
         **episode_context,
-        **_recommend_context(profile, title),
         **_anime_mal_context(title),
         **_mdblist_ratings_context(title),
         **collection_context,
@@ -1424,14 +1413,17 @@ def title_refresh_mdblist_ratings(request, pk):
     return redirect("title_detail", pk=title.pk)
 
 
-def _recommend_context(profile, title):
-    """The sidebar "Recommend to" card's context for a real (already
-    materialized) title - shared by title_detail's own render and
-    send_recommendation/title_preview_send_recommendation's re-render of
-    just that card. Sorts every other profile into exactly one of:
-    already watched it, already has a pending recommendation from this
-    profile, or is a real candidate - so the card can show why a button
-    isn't live instead of just hiding it.
+def _recommend_context(profile, title, include_sharers=False):
+    """The "Recommend to" section's context (it lives under the title
+    page's Household view) for a real, already-materialized title.
+    Normally lists only the housemates who keep their activity private -
+    sharers already have their own row in the household list, with its
+    own Recommend button. include_sharers=True lists everyone (the
+    preview page, which has no household list). Sorts each listed
+    profile into exactly one of: already watched it (only ever shown for
+    a sharer - a private profile's watch state must not leak through
+    this), already has a pending recommendation from this profile, or is
+    a real candidate.
 
     reply_by_profile_id only ever has entries for profiles in
     recommended_profile_ids (a reply implies a pending rec still exists)
@@ -1446,8 +1438,12 @@ def _recommend_context(profile, title):
             "reply_by_profile_id": {},
         }
     other_profiles = list(Profile.objects.exclude(pk=profile.pk).order_by("display_name"))
+    if not include_sharers:
+        other_profiles = [p for p in other_profiles if not p.share_activity]
     already_watched_profile_ids = set(
-        WatchEvent.objects.filter(profile__in=other_profiles, title=title).values_list("profile_id", flat=True)
+        WatchEvent.objects.filter(
+            profile__in=[p for p in other_profiles if p.share_activity], title=title
+        ).values_list("profile_id", flat=True)
     )
     pending_recs = list(
         Recommendation.objects.filter(from_profile=profile, title=title, status=Recommendation.Status.PENDING)
@@ -1481,6 +1477,7 @@ def _preview_recommend_context(profile):
         "already_watched_profile_ids": set(),
         "recommended_profile_ids": set(),
         "reply_by_profile_id": {},
+        "list_all": True,
     }
 
 
@@ -1502,7 +1499,13 @@ def send_recommendation(request, pk):
         raise Http404
     recommendations.send(profile, to_profile, title, is_blind=request.POST.get("is_blind") == "on")
     return render(
-        request, "tracker/partials/recommend_card.html", {"title": title, **_recommend_context(profile, title)}
+        request,
+        "tracker/partials/recommend_card.html",
+        {
+            "title": title,
+            "list_all": request.POST.get("all") == "1",
+            **_recommend_context(profile, title, include_sharers=request.POST.get("all") == "1"),
+        },
     )
 
 
@@ -1532,7 +1535,7 @@ def title_preview_send_recommendation(request, media_type, tmdb_id):
     return render(
         request,
         "tracker/partials/recommend_card.html",
-        {"title": title, "is_preview": False, **_recommend_context(profile, title)},
+        {"title": title, "is_preview": False, "list_all": True, **_recommend_context(profile, title, include_sharers=True)},
     )
 
 
@@ -1806,6 +1809,28 @@ def title_drop(request, pk):
     if request.headers.get("HX-Request"):
         return render(request, "tracker/partials/title_history_card.html", selectors.title_watch_history_context(profile, title))
     return redirect("title_detail", pk=pk)
+
+
+@login_required
+def title_household(request, pk):
+    """Lazy-loaded body of the title page's Household view (HTMX, fetched
+    the first time the viewer opens it). 404s when the household UI isn't
+    on offer at all - the same gate that decides the tab's label - so a
+    single-profile or nobody-shares household has no such endpoint."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or not selectors.household_enabled(profile):
+        raise Http404
+    household = selectors.title_household(profile, title)
+    recommend = _recommend_context(profile, title)
+    can_recommend = bool(recommend["other_profiles"]) or any(
+        r["recommend"] and not r["is_you"] for r in household["rows"]
+    )
+    return render(
+        request,
+        "tracker/partials/title_household.html",
+        {"title": title, "household": household, "can_recommend": can_recommend, **recommend},
+    )
 
 
 @login_required
@@ -2437,6 +2462,7 @@ def title_preview(request, media_type, tmdb_id):
         "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
         "in_list_ids": set(),
         **_preview_recommend_context(profile),
+        "household_enabled": selectors.household_enabled(profile) if profile else False,
         **episode_context,
         **_collection_context(details),
         **media_gallery_context,
@@ -3909,9 +3935,11 @@ def _build_heatmap_grid(counts, year):
 
 def _resolve_stats_profile(request, profile_id):
     """Shared by stats/stats_heatmap/history's optional profile_id kwarg
-    (only present on the member_* URLs) - any other household profile is
-    viewable read-only, same no-extra-restriction convention as the
-    profile popup this deep-links from. profile_id=None (the plain, own-
+    (only present on the member_* URLs) - another household profile is
+    viewable read-only, but only if it shares its activity (the same
+    share_activity switch the profile popup honours); a private profile
+    404s, so it is indistinguishable from one that doesn't exist.
+    profile_id=None (the plain, own-
     profile URLs) preserves the pre-existing "not linked to a profile yet"
     friendly message instead of a 404, unlike the member_* URLs, which
     404 outright if the viewer themselves has no profile."""
@@ -3920,6 +3948,8 @@ def _resolve_stats_profile(request, profile_id):
         if viewer is None:
             raise Http404
         target = get_object_or_404(Profile, pk=profile_id)
+        if target.pk != viewer.pk and not target.share_activity:
+            raise Http404
     else:
         target = viewer
     is_own = target is not None and viewer is not None and target.id == viewer.id

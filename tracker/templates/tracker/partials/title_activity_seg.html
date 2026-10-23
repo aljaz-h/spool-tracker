@@ -1,0 +1,5 @@
+{# The You | Household switch on the title page's activity tab. `view` and setView() live on the title page's own Alpine state (title_detail.html) so the choice is mirrored to the URL hash. #}
+<div class="seg" role="group" aria-label="Activity view">
+  <button type="button" class="seg-item" :aria-pressed="(view === 'you').toString()" @click="setView('you')">You</button>
+  <button type="button" class="seg-item" :aria-pressed="(view === 'household').toString()" @click="setView('household')">Household</button>
+</div>

@@ -4,22 +4,25 @@ the template")."""
 
 import logging
 import operator
+import zoneinfo
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from functools import reduce
 
+from django.conf import settings
 from django.db.models import Count, Q, Sum
 from django.db.models.functions import Coalesce, ExtractDay, ExtractHour, ExtractMonth
 from django.template.defaultfilters import time as django_time_filter
 from django.utils import timezone
 
-from . import completion, instance_config
+from . import completion, household, instance_config, sittings
 from .integrations import tmdb
 from .models import (
     DataLog,
     Episode,
     MediaType,
     Profile,
+    Recommendation,
     ReleaseSchedule,
     Title,
     WatchEvent,
@@ -1571,6 +1574,7 @@ def watch_time_breakdown(profile):
                 minutes = totals[f"{media_type}_minutes"] or 0
                 result[media_type] = {
                     "duration": format_duration(minutes),
+                    "minutes": minutes,
                     "count": totals[f"{media_type}_count"] or 0,
                 }
                 combined_minutes += minutes
@@ -1612,6 +1616,135 @@ def watch_time_breakdown(profile):
         }
 
     return _cache_get_or_set(f"stats:watch_time:{profile.id}", STATS_PAGE_TTL, _compute)
+
+
+def watched_by_both(profile_a, profile_b):
+    """How many distinct titles both profiles have at least one play of -
+    one query (a subquery, not two round trips and a Python intersection)."""
+    return (
+        WatchEvent.objects.filter(
+            profile=profile_b,
+            title_id__in=WatchEvent.objects.filter(profile=profile_a).values("title_id"),
+        )
+        .values("title_id")
+        .distinct()
+        .count()
+    )
+
+
+def days_or_hours(minutes):
+    """Watch time the way the popup shows it - whole days from a day up,
+    else whole hours; never "25d 8h 26m"."""
+    if minutes >= 24 * 60:
+        return f"{round(minutes / 1440):,} d"
+    return f"{round(minutes / 60):,} h"
+
+
+# The popup's "Recently watched" groups the latest plays by title; this many
+# of the newest events are fetched (one query) and the newest few groups kept.
+POPUP_RECENT_WINDOW = 60
+POPUP_RECENT_GROUPS = 4
+
+
+def popup_recent_groups(profile, now=None):
+    """Newest plays grouped by title, newest group first. A show's repeated
+    episodes become one row ("S9E1-E8 · 2 sittings", sittings by the same
+    6-hour rule as the Activity tab); a movie row carries its latest
+    rating. One query."""
+    now = now or timezone.now()
+    events = list(
+        WatchEvent.objects.filter(profile=profile)
+        .select_related("title", "episode")
+        .order_by("-watched_at")[:POPUP_RECENT_WINDOW]
+    )
+    groups, order = {}, []
+    for e in events:
+        if e.title_id not in groups:
+            groups[e.title_id] = []
+            order.append(e.title_id)
+        groups[e.title_id].append(e)
+    rows = []
+    for title_id in order[:POPUP_RECENT_GROUPS]:
+        evs = groups[title_id]
+        title = evs[0].title
+        latest = evs[0].watched_at
+        row = {"title": title, "ago": sittings.ago_text(now - latest), "rating": None, "detail": ""}
+        if title.media_type == MediaType.MOVIE:
+            row["rating"] = next((e.user_rating for e in evs if e.user_rating), None)
+            row["detail"] = "Movie" + (f" · rated {row['rating']} / 10" if row["rating"] else "")
+        else:
+            plays = [
+                sittings.Play(e.watched_at, e.episode.season if e.episode else None, e.episode.episode if e.episode else None)
+                for e in evs
+            ]
+            multi_season = len({p.season for p in plays if p.episode is not None}) > 1
+            n = len(sittings.group_sittings(plays))
+            label = sittings.episodes_label(plays, multi_season)
+            row["detail"] = " · ".join(
+                part for part in (label, f"{n} sitting{'s' if n != 1 else ''}") if part
+            )
+        rows.append(row)
+    return rows
+
+
+def profile_popup_context(viewer, target):
+    """Everything the household profile popup shows. A profile that keeps
+    its activity private (share_activity off) gets only name and member-
+    since - no stats call is made for it at all, so no count, match figure
+    or recent play can leak. A fixed number of queries however much
+    history either profile has."""
+    context = {"target": target, "is_self": viewer.pk == target.pk}
+    if viewer.pk != target.pk and not target.share_activity:
+        context["private"] = True
+        return context
+
+    overview = stats_overview(target)
+    breakdown = watch_time_breakdown(target)
+
+    def split(bucket):
+        types = (MediaType.MOVIE, MediaType.TV, MediaType.ANIME)
+        total = sum(bucket[t].get("minutes", 0) for t in types)
+        rows = []
+        for t, noun in ((MediaType.MOVIE, "film"), (MediaType.TV, "ep"), (MediaType.ANIME, "ep")):
+            minutes = bucket[t].get("minutes", 0)
+            count = bucket[t]["count"]
+            rows.append(
+                {
+                    "type": t,
+                    "label": {"movie": "Movies", "tv": "TV", "anime": "Anime"}[t],
+                    "time": days_or_hours(minutes),
+                    "count": f"{count:,} {noun}{'s' if count != 1 else ''}",
+                    "pct": round(minutes / total * 100, 1) if total else 0,
+                }
+            )
+        return rows if total else []
+
+    context.update(
+        {
+            "movies_watched": overview["movies_watched"],
+            "shows_completed": overview["shows_completed"],
+            "watch_hours": f"{overview['total_watch_hours']:,} h",
+            "current_streak": overview["current_streak"],
+            "longest_streak": overview["longest_streak"],
+            "split_30": split(breakdown["last_30_days"]),
+            "split_all": split(breakdown["all_time"]),
+            "top_genres": top_genres(target, limit=3),
+            "recent_groups": popup_recent_groups(target),
+        }
+    )
+    if not context["is_self"]:
+        taste = taste_compatibility(viewer, target)
+        both = watched_by_both(viewer, target)
+        you_and = {
+            "match": taste["overlap_pct"] if taste else None,
+            "both": both or None,
+            "genre": taste["top_shared_genre"] if taste else None,
+        }
+        # Each figure is hidden when it can't be computed; nothing at all
+        # to show means no section.
+        if any(v is not None for v in you_and.values()):
+            context["you_and"] = you_and
+    return context
 
 
 def format_duration_compact(total_minutes):
@@ -2307,10 +2440,148 @@ def title_watch_history_context(profile, title):
     slice for an out-of-band swap without title_local_context's other,
     unrelated queries (ratings, lists)."""
     progress = WatchProgress.objects.filter(profile=profile, title=title).select_related("current_episode").first()
-    recent_events = list(
-        WatchEvent.objects.filter(profile=profile, title=title).select_related("episode").order_by("-watched_at")[:10]
+    events = list(
+        WatchEvent.objects.filter(profile=profile, title=title)
+        .select_related("episode")
+        .order_by("-watched_at")
     )
-    return {"progress": progress, "recent_events": recent_events}
+    return {
+        "title": title,
+        "progress": progress,
+        "recent_events": events[:10],
+        "history_status": _history_status(title, progress, bool(events)),
+        "timeline": _title_timeline(profile, title, events, progress),
+        "household_enabled": household_enabled(profile),
+    }
+
+
+def title_household(viewer, title):
+    """The title page's Household view: one row per profile that shares
+    its activity (plus the viewer, always) - see household.py. A fixed
+    handful of queries however many profiles there are (profiles, plays,
+    progress, plus episode count for shows or watchlist membership for
+    movies, plus the viewer's pending recommendations), grouped in
+    Python. A profile with share_activity=False is never fetched at all,
+    so it can't leak into a row, a lane, a count or an average."""
+    tz = profile_zoneinfo(viewer)
+    now = timezone.now().astimezone(tz)
+    profiles = list(
+        Profile.objects.filter(Q(pk=viewer.pk) | Q(share_activity=True)).order_by("display_name")
+    )
+    ids = [p.pk for p in profiles]
+
+    plays = {pid: [] for pid in ids}
+    ratings = {}
+    for pid, watched_at, season, episode, is_rewatch, rating in (
+        WatchEvent.objects.filter(title=title, profile_id__in=ids)
+        .order_by("watched_at")
+        .values_list("profile_id", "watched_at", "episode__season", "episode__episode", "is_rewatch", "user_rating")
+    ):
+        plays[pid].append(sittings.Play(watched_at.astimezone(tz), season, episode, is_rewatch))
+        if rating:
+            ratings[pid] = rating
+    status = dict(
+        WatchProgress.objects.filter(title=title, profile_id__in=ids).values_list("profile_id", "status")
+    )
+    recommended, replies = set(), {}
+    reactions = dict(Recommendation.ReplyReaction.choices)
+    for pid, replied_at, reaction, message in Recommendation.objects.filter(
+        from_profile=viewer, title=title, to_profile_id__in=ids, status=Recommendation.Status.PENDING
+    ).values_list("to_profile_id", "replied_at", "reply_reaction", "reply_message"):
+        recommended.add(pid)
+        if replied_at is not None:
+            replies[pid] = {"reaction": reactions.get(reaction, ""), "message": message}
+    is_movie = title.media_type == MediaType.MOVIE
+    on_watchlist = (
+        set(
+            WatchListItem.objects.filter(
+                title=title, watchlist__is_watchlist=True, watchlist__profile_id__in=ids
+            ).values_list("watchlist__profile_id", flat=True)
+        )
+        if is_movie
+        else set()
+    )
+    members = [
+        {
+            "profile": p,
+            "plays": plays[p.pk],
+            "rating": ratings.get(p.pk),
+            "progress_status": status.get(p.pk),
+            "on_watchlist": p.pk in on_watchlist,
+            "recommended": p.pk in recommended,
+            "reply": replies.get(p.pk),
+        }
+        for p in profiles
+    ]
+    if is_movie:
+        return household.build_movie(members, viewer.pk, now)
+    total = Episode.objects.filter(title=title).count() or None
+    return household.build_tv(members, viewer.pk, total, now, tz)
+
+
+def profile_zoneinfo(profile):
+    """The profile's own Settings → Appearance timezone as a tzinfo, or the
+    server's TIME_ZONE when blank/unknown - the same rule
+    middleware.ProfileTimezoneMiddleware applies per request, so timeline
+    times match every other time shown in the app."""
+    for name in (getattr(profile, "timezone", ""), settings.TIME_ZONE):
+        try:
+            if name:
+                return zoneinfo.ZoneInfo(name)
+        except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+            continue
+    return zoneinfo.ZoneInfo("UTC")
+
+
+def household_enabled(profile):
+    """Whether the title page shows the household view (and calls its tab
+    "Activity"): there is at least one other profile to see or recommend
+    to. Whether anyone's *activity* is visible there is a separate matter
+    - profiles with share_activity off only ever appear as a
+    "Recommend to" row. One cheap indexed query."""
+    return Profile.objects.exclude(pk=profile.pk).exists()
+
+
+_HISTORY_TONES = {
+    WatchProgress.Status.COMPLETED: "success",
+    WatchProgress.Status.WATCHING: "info",
+    WatchProgress.Status.DROPPED: "error",
+    WatchProgress.Status.PLANNED: "",
+}
+
+
+def _history_status(title, progress, has_events):
+    """{"label", "tone"} for the Status chip - text always carries the
+    meaning, tone is only the chip colour. Movies read "Watched" rather
+    than "Completed"."""
+    if progress is not None:
+        label = progress.get_status_display()
+        if title.media_type == MediaType.MOVIE and progress.status == WatchProgress.Status.COMPLETED:
+            label = "Watched"
+        return {"label": label, "tone": _HISTORY_TONES.get(progress.status, ""), "status": progress.status}
+    if has_events and title.media_type == MediaType.MOVIE:
+        return {"label": "Watched", "tone": "success", "status": "completed"}
+    return None
+
+
+def _title_timeline(profile, title, events, progress):
+    plays = [
+        sittings.Play(
+            e.watched_at,
+            e.episode.season if e.episode else None,
+            e.episode.episode if e.episode else None,
+            e.is_rewatch,
+        )
+        for e in events
+    ]
+    return sittings.build_timeline(
+        title.media_type,
+        plays,
+        profile_zoneinfo(profile),
+        timezone.now(),
+        completed=progress is not None and progress.status == WatchProgress.Status.COMPLETED,
+        h24=profile.time_format == Profile.TimeFormat.H24,
+    )
 
 
 def title_local_context(profile, title):

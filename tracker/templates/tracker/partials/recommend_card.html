@@ -1,19 +1,18 @@
 {% load icons tracker_extras %}
-{# context: title (Title|None), is_preview (bool), preview_media_type/preview_tmdb_id (when is_preview), other_profiles, already_watched_profile_ids, recommended_profile_ids, reply_by_profile_id #}
+{# context: title (Title|None), is_preview (bool), preview_media_type/preview_tmdb_id (when is_preview), other_profiles, already_watched_profile_ids, recommended_profile_ids, reply_by_profile_id, list_all (bool: every housemate is listed, not just the ones who keep their activity private). Lives at the bottom of the title page's Household view; the "send as mystery" toggle (#recommend-blind-toggle) sits above that view's list. #}
 {% if other_profiles %}
   {% comment %}
     Capped to 4 visible rows + a "+N more" toggle - other_profiles grows
     with the household's friend list, and an always-expanded list here
-    would eventually push every card below it further down the sidebar
-    every time someone new gets added.
+    would eventually push everything below it further down.
   {% endcomment %}
-  <section id="recommend-card" x-data="{ expanded: false }">
-    <div class="flex items-center justify-between mb-2.5">
-      <h2 class="subhead">Recommend to</h2>
-      <label class="flex items-center gap-1.5 text-[12px] text-ink-dim cursor-pointer select-none spool-tooltip" data-tooltip="Recipient sees just a mystery card until they open it">
-        <input type="checkbox" id="recommend-blind-toggle" name="is_blind" class="checkbox checkbox-xs">
-        Send as mystery &#127873;
-      </label>
+  <section id="recommend-card" class="mt-5 pt-5 border-t border-line" x-data="{ expanded: false }">
+    <div class="flex items-start justify-between gap-3 mb-2.5">
+      <div>
+        <h3 class="subhead">Recommend to</h3>
+        {% if not list_all %}<p class="text-[12px] text-ink-dim mt-0.5">Housemates who keep their activity private</p>{% endif %}
+      </div>
+      {% include "tracker/partials/recommend_blind_toggle.html" %}
     </div>
     <div class="flex flex-col gap-2.5">
       {% for op in other_profiles %}
@@ -25,7 +24,7 @@
           {% endif %}
           <div class="flex-1 min-w-0 text-[13px] font-medium truncate">{{ op.display_name }}</div>
           {% if op.id in already_watched_profile_ids %}
-            <span class="text-[12px] text-ink-faint flex-none">Already watched</span>
+            <span class="text-[12px] text-ink-dim flex-none">Already watched</span>
           {% elif op.id in recommended_profile_ids %}
             {% with reply=reply_by_profile_id|get_item:op.id %}
               {% if reply %}
@@ -66,6 +65,7 @@
             >
               {% csrf_token %}
               <input type="hidden" name="to_profile_id" value="{{ op.id }}">
+              {% if list_all %}<input type="hidden" name="all" value="1">{% endif %}
               <button
                 type="submit"
                 title="Recommend to {{ op.display_name }}"
@@ -80,7 +80,7 @@
       <button
         type="button"
         @click="expanded = !expanded"
-        class="mt-2.5 text-[12.5px] font-semibold text-ink-faint hover:text-primary transition-colors cursor-pointer"
+        class="mt-2.5 text-[12.5px] font-semibold text-ink-dim hover:text-primary transition-colors cursor-pointer"
       >
         <span x-show="!expanded">+ {{ other_profiles|length|add:"-4" }} more</span>
         <span x-show="expanded" x-cloak>Show less</span>

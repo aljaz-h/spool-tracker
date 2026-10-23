@@ -54,6 +54,7 @@ account.
 - Recommend a title to a housemate — including an anonymous "mystery" recommendation
 - Anime enrichment via MyAnimeList (score, studio, source, filler/recap episode badges) and automatic season-numbering reconciliation against TMDB — no separate account or API key needed
 - Activity feed across profiles (only shown once a second profile exists)
+- Per-title activity timeline: your plays grouped into sittings (a one-night binge by time of day, a slow watch on a proportional axis, a movie's rewatches over the years), plus a Household view of who else has watched it and how far they are - only profiles that share their activity appear
 - Import Review: CSV/JSON/ZIP file import (with column-mapping) and a first Trakt/Simkl/WeTrakr/Nuvio connection both scan and stage what they'd bring in - filterable, selectable, nothing written until you confirm
 - Trakt / Simkl / WeTrakr OAuth connect, Nuvio email/password connect, + a daily background sync job - a large first WeTrakr import that outlasts the free plan's daily quota pauses and resumes automatically, never gets stuck or fails
 - [Automatic backups](docs/BACKUPS.md) per profile, on a schedule, to WebDAV (Nextcloud/NAS), Google Drive, or Dropbox — plus a one-off full export/import

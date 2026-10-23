@@ -33,16 +33,22 @@
   <div
     x-data="{
       tab: '{% if seasons %}episodes{% else %}overview{% endif %}',
-      tabs: ['overview'{% if seasons %}, 'episodes'{% endif %}{% if director or cast %}, 'cast'{% endif %}{% if not is_preview %}, 'activity'{% endif %}],
+      tabs: ['overview'{% if seasons %}, 'episodes'{% endif %}{% if director or cast %}, 'cast'{% endif %}, 'activity'],
+      view: 'you',
       init() {
         const h = location.hash.slice(1);
         if (/^episode-\d+-\d+$/.test(h)) this.tab = 'episodes';
         else if (h === 'your-rating') this.tab = 'overview';
+        else if (h === 'activity-household' && {{ household_enabled|yesno:'true,false' }}) { this.tab = 'activity'; this.view = 'household'; }
         else if (this.tabs.includes(h)) this.tab = h;
       },
       go(t) {
         this.tab = t;
-        history.replaceState(null, '', '#' + t);
+        history.replaceState(null, '', '#' + t + (t === 'activity' && this.view === 'household' ? '-household' : ''));
+      },
+      setView(v) {
+        this.view = v;
+        history.replaceState(null, '', '#activity' + (v === 'household' ? '-household' : ''));
       },
     }"
   >
@@ -391,9 +397,7 @@
           {% if director or cast %}
             <button type="button" role="tab" class="tab-line" :class="tab === 'cast' && 'is-active'" :aria-selected="(tab === 'cast').toString()" @click="go('cast')">Cast &amp; Crew</button>
           {% endif %}
-          {% if not is_preview %}
-            <button type="button" role="tab" class="tab-line" :class="tab === 'activity' && 'is-active'" :aria-selected="(tab === 'activity').toString()" @click="go('activity')">Your activity</button>
-          {% endif %}
+          <button type="button" role="tab" class="tab-line" :class="tab === 'activity' && 'is-active'" :aria-selected="(tab === 'activity').toString()" @click="go('activity')">{% if household_enabled %}Activity{% else %}Your activity{% endif %}</button>
         </div>
       </nav>
 
@@ -600,11 +604,33 @@
         {% endif %}
 
 
-        {% if not is_preview %}
-          <div x-show="tab === 'activity'" x-cloak role="tabpanel" class="max-w-2xl">
-            {% include "tracker/partials/title_history_card.html" with progress=progress recent_events=recent_events %}
-          </div>
-        {% endif %}
+        <div x-show="tab === 'activity'" x-cloak role="tabpanel" class="max-w-3xl">
+          {% include "tracker/partials/title_history_card.html" with progress=progress recent_events=recent_events %}
+          {% if household_enabled %}
+            <section
+              id="household-panel"
+              class="tl-{% firstof title.media_type preview_media_type %}-c"
+              x-show="view === 'household'"
+              x-cloak
+              {% if not is_preview %}
+                hx-get="{% url 'title_household' title.pk %}"
+                hx-trigger="intersect once"
+                hx-swap="innerHTML"
+              {% endif %}
+            >
+              <div class="flex items-center justify-between gap-3 mb-3">
+                <h2 class="section-title section-title-sm">Household</h2>
+                {% include "tracker/partials/title_activity_seg.html" %}
+              </div>
+              {% if is_preview %}
+                {# Not tracked yet, so nobody has anything to show - just who to recommend it to. #}
+                {% include "tracker/partials/recommend_card.html" %}
+              {% else %}
+                <div class="text-[13px] text-ink-dim" role="status">Loading household&hellip;</div>
+              {% endif %}
+            </section>
+          {% endif %}
+        </div>
       </div>
     </div>
 
@@ -668,8 +694,6 @@
           </div>
         </section>
       {% endif %}
-
-      {% include "tracker/partials/recommend_card.html" %}
 
       {% if similar %}
         <section>

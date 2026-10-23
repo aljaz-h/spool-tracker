@@ -8,6 +8,74 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.156.0] - 2026-10-24
+
+### Changed
+
+- Redesigned the household profile popup. It now opens with "You and
+  <name>" (taste match, titles you've both watched, and your shared
+  favourite genre - each hidden when it can't be worked out), then
+  their movies, shows finished, total watch time and streak as
+  separate figures. "Where their time goes" is a single split bar with
+  a 30 days | All time switch and durations in days or hours, never
+  "25d 8h 26m". "Recently watched" groups plays by title ("S9E1-E8 ·
+  2 sittings", or "Movie · rated 9 / 10"), each row linking to the
+  title. On phones the popup is a bottom sheet with a drag handle.
+- Sections of the popup and the title page's Activity tab (facts,
+  timeline, plays list, household rows) are now separated by hairlines.
+
+### Fixed
+
+- The profile popup ignored the "Share my activity" setting and showed
+  anyone's stats, counts and recent watches to the whole household. A
+  profile that keeps its activity private now shows only its name and
+  member-since date.
+- The "Full stats" pages for another profile (Stats, History and their
+  charts, at `/profile/<id>/stats/` and `/profile/<id>/history/`) had
+  the same gap and could be opened for a private profile by URL. They
+  now return "not found" for one; you can always open your own.
+
+## [0.155.0] - 2026-10-24
+
+### Added
+
+- A redesigned "Your activity" tab on every title page. Your plays are
+  grouped into sittings (plays within 6 hours of each other) and drawn
+  as a timeline that fits what you did: a one-night binge shows blocks
+  by time of day with break labels, a longer watch shows a proportional
+  axis with one circle per sitting (nearby sittings merge) and the gaps
+  between them, and a movie shows each viewing as a first watch or
+  rewatch with the gap between them (empty calendar years are
+  collapsed). A facts row sits above it (started / finished / took /
+  longest break, or viewings / first watched / latest / longest gap) and
+  an "All plays" list is grouped by sitting.
+- A Household view on the same tab, shown only when another profile
+  shares its activity. Shows get a row per profile with status,
+  progress ("E6 of 8"), how far ahead or behind you they are, last
+  watched and rating, plus a timeline of everyone's sittings on one
+  axis; movies get who has watched it, viewings, ratings and a
+  household average. Profiles with "Share my activity" off never get a
+  row, lane, count or average. It loads only when opened. The
+  sub-view is reflected in the URL as `#activity-household`.
+- Recommending now lives in the Household view: a housemate who hasn't
+  watched it has a Recommend button on their row, and housemates who
+  keep their activity private are listed under "Recommend to" (just a
+  name and a send button, no watch state). "Send as mystery" and
+  housemates' replies carried over.
+
+### Changed
+
+- The "Recommend to" card is gone from the title page's side column.
+  This also stops it showing "Already watched" for housemates who keep
+  their activity private.
+- The Activity tab now also appears on titles you haven't tracked yet
+  (it says you haven't watched it, and is where you recommend it), and
+  is called "Activity" instead of "Your activity" whenever the
+  household has another profile. With only one profile nothing about
+  the household or recommending is shown.
+- Timeline times use the profile's own timezone (the server's when
+  blank), matching every other time in the app.
+
 ## [0.154.0] - 2026-10-23
 
 ### Added

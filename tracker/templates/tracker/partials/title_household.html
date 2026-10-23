@@ -1,0 +1,132 @@
+{# context: title, household (household.build_tv()/build_movie() dict), can_recommend, plus the "Recommend to" section's own context (other_profiles, ...). Swapped into #household-panel's innerHTML by HTMX the first time the Household view opens, so it carries its own heading and switch. Only profiles that share their activity (and the viewer) are ever in `household`; the others only appear in the recommend section, with no watch state. #}
+<div class="flex items-center justify-between gap-3 mb-3">
+  <h2 class="section-title section-title-sm">Household</h2>
+  {% include "tracker/partials/title_activity_seg.html" %}
+</div>
+
+{% if can_recommend and not other_profiles %}
+  <div class="flex justify-end mb-3">{% include "tracker/partials/recommend_blind_toggle.html" %}</div>
+{% endif %}
+
+{% if household.kind == "tv" %}
+  <div x-data="{ mode: 'list' }">
+    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-3">
+      <p class="text-[13px] text-ink-dim" x-show="mode === 'list'">{{ household.summary }}</p>
+      <p class="text-[13px] text-ink-dim" x-show="mode === 'timeline'" x-cloak>{{ household.window.label }}</p>
+      <div class="seg" role="group" aria-label="Household layout">
+        <button type="button" class="seg-item" :aria-pressed="(mode === 'list').toString()" @click="mode = 'list'">List</button>
+        <button type="button" class="seg-item" :aria-pressed="(mode === 'timeline').toString()" @click="mode = 'timeline'">Timeline</button>
+      </div>
+    </div>
+
+    <div class="rows divide-y divide-line" x-show="mode === 'list'">
+      {% for row in household.rows %}
+        <div class="grid grid-cols-[auto_minmax(0,1fr)_auto] sm:grid-cols-[auto_minmax(7rem,1fr)_minmax(9rem,1.5fr)_minmax(6.5rem,auto)] items-center gap-x-3 gap-y-2 py-2.5">
+          {% include "tracker/partials/title_household_avatar.html" with profile=row.profile %}
+          <div class="min-w-0">
+            <div class="text-[13.5px] font-semibold truncate">{{ row.name }}</div>
+            <span class="chip{% if row.status_tone %} chip-{{ row.status_tone }}{% endif %}">{{ row.status_label }}</span>
+          </div>
+          <div class="col-span-3 sm:col-span-1 order-last sm:order-none min-w-0">
+            {% if row.status == "not_started" %}
+              <span class="text-[13px] text-ink-dim">Hasn't watched it yet</span>
+            {% else %}
+              {% if row.pct is not None %}
+                <div class="h-1.5 rounded-full bg-base-300 overflow-hidden" role="img" aria-label="{{ row.position }}">
+                  <div class="h-full rounded-full {% if row.status == 'completed' %}bg-success{% elif row.status == 'dropped' %}bg-ink-faint{% else %}bg-primary{% endif %}" style="width:{{ row.pct }}%"></div>
+                </div>
+              {% endif %}
+              <div class="flex justify-between gap-2 mt-1 text-[12px] text-ink-dim">
+                <span class="font-mono">{{ row.position }}</span>
+                <span>{{ row.relative|default:"" }}</span>
+              </div>
+            {% endif %}
+          </div>
+          <div class="text-right text-[12px] text-ink-dim">
+            {% if row.status == "not_started" %}
+              {% if not row.is_you %}{% include "tracker/partials/title_household_recommend.html" %}{% endif %}
+            {% else %}
+              <div>{{ row.last_ago }}</div>
+              {% if row.rating %}<div class="font-semibold text-base-content">Rated {{ row.rating }} / 10</div>{% endif %}
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+
+    <div x-show="mode === 'timeline'" x-cloak>
+      <div class="tl-scroll">
+        <div class="tl-canvas tl-narrow tl-lanes">
+          <div class="tl-lane-ticks" aria-hidden="true">
+            {% for tick in household.window.ticks %}<span class="tl-axis-tick" style="left:{{ tick.left }}%">{{ tick.label }}</span>{% endfor %}
+          </div>
+          <span class="tl-today-label" aria-hidden="true">Today</span>
+          <div class="tl-today" aria-hidden="true"></div>
+          {% for lane in household.lanes %}
+            <div class="tl-lane">
+              <div class="flex items-center gap-2 min-w-0">
+                {% include "tracker/partials/title_household_avatar.html" with profile=lane.row.profile %}
+                <div class="min-w-0">
+                  <div class="text-[13px] font-semibold text-base-content truncate">{{ lane.row.name }}</div>
+                  <div class="text-[11.5px] text-ink-dim truncate">{{ lane.sub }}</div>
+                </div>
+              </div>
+              <div class="tl-lane-track{% if lane.row.status == 'not_started' %} is-empty{% endif %}">
+                {% for node in lane.nodes %}
+                  <div class="tl-node" aria-hidden="true" style="left:{{ node.left }}%; --w:{{ node.width }}%; --s:{{ node.size }}px">{% if node.count > 1 %}{{ node.count }}{% endif %}</div>
+                {% endfor %}
+                {% if lane.note %}<span class="tl-lane-note" style="left:calc({{ lane.note_left }}% + 1.25rem)">{{ lane.note }}</span>{% endif %}
+                {% if lane.row.status == "not_started" and not lane.row.is_you %}
+                  <div class="absolute right-0 top-1/2 -translate-y-1/2 bg-base-100 pl-2">{% include "tracker/partials/title_household_recommend.html" with row=lane.row %}</div>
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+      <p class="mt-3 text-[12px] text-ink-dim">Each circle is one sitting. Its size and number show how many episodes were watched.</p>
+    </div>
+  </div>
+
+{% else %}
+  <dl class="tl-facts mb-5">
+    {% for fact in household.summary_facts %}
+      <div>
+        <dt class="tl-fact-label">{{ fact.label }}</dt>
+        <dd class="tl-fact-value">{{ fact.value }}{% if fact.sub %} <span class="font-normal text-ink-dim">{{ fact.sub }}</span>{% endif %}</dd>
+      </div>
+    {% endfor %}
+  </dl>
+  <div class="rows divide-y divide-line">
+    {% for row in household.rows %}
+      <div class="grid grid-cols-[auto_minmax(0,1fr)_auto] sm:grid-cols-[auto_minmax(7rem,1fr)_minmax(9rem,1.2fr)_4.5rem_minmax(6.5rem,auto)] items-center gap-x-3 gap-y-1 py-2.5">
+        {% include "tracker/partials/title_household_avatar.html" with profile=row.profile %}
+        <div class="min-w-0">
+          <div class="text-[13.5px] font-semibold truncate">{{ row.name }}</div>
+          <span class="chip{% if row.status_tone %} chip-{{ row.status_tone }}{% endif %}">{{ row.status_label }}</span>
+        </div>
+        <div class="col-span-3 sm:col-span-1 order-last sm:order-none text-[12px] text-ink-dim">
+          {% if row.status == "watched" %}
+            <div class="font-semibold text-base-content">{{ row.viewings }} viewing{{ row.viewings|pluralize }}</div>
+            <div>First {{ row.first }}</div>
+          {% elif row.status == "watchlist" %}
+            Wants to watch it
+          {% else %}
+            Hasn't seen it yet
+          {% endif %}
+        </div>
+        <div class="hidden sm:block text-center text-[13px] font-semibold">{% if row.rating %}{{ row.rating }} / 10{% else %}<span class="text-ink-dim font-normal" aria-label="No rating">–</span>{% endif %}</div>
+        <div class="text-right text-[12px] text-ink-dim">
+          {% if row.recommend and not row.is_you %}
+            {% include "tracker/partials/title_household_recommend.html" %}
+          {% else %}
+            {{ row.last_ago|default:"" }}
+            {% if row.rating %}<div class="sm:hidden font-semibold text-base-content">{{ row.rating }} / 10</div>{% endif %}
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{% include "tracker/partials/recommend_card.html" %}

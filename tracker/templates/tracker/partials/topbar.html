@@ -289,11 +289,21 @@
     </form>
   </div>
 
-  <dialog id="profile_popup_modal" class="modal">
-    <div class="modal-box bg-base-200 rounded-2xl p-5">
-      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
-      <div id="profile-popup-content">
-        <div class="py-10 text-center text-ink-faint text-sm">Loading…</div>
+  {# Native modal <dialog>: showModal() traps focus and Escape closes it. On phones it is a bottom sheet (app.css, #profile_popup_modal) whose handle closes on tap or a downward drag. #}
+  <dialog id="profile_popup_modal" class="modal" aria-modal="true" aria-labelledby="profile-popup-title">
+    <div class="modal-box bg-base-200 rounded-2xl p-5 sm:p-6" x-data="{ y0: null, dy: 0 }" :style="dy ? `transform:translateY(${dy}px);transition:none` : ''">
+      <button
+        type="button"
+        class="popup-handle sm:hidden"
+        aria-label="Close"
+        @click="profile_popup_modal.close()"
+        @pointerdown="y0 = $event.clientY; $el.setPointerCapture($event.pointerId)"
+        @pointermove="if (y0 !== null) dy = Math.max(0, $event.clientY - y0)"
+        @pointerup="if (dy > 90) profile_popup_modal.close(); y0 = null; dy = 0"
+        @pointercancel="y0 = null; dy = 0"
+      ></button>
+      <div id="profile-popup-content" aria-live="polite">
+        <div class="py-10 text-center text-ink-dim text-sm">Loading…</div>
       </div>
     </div>
     <form method="dialog" class="modal-backdrop bg-black/70"><button>close</button></form>

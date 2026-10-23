@@ -1,0 +1,6 @@
+{# context: profile. Same avatar the Activity feed uses (image, else a coloured circle with the initial). #}
+{% if profile.avatar_image %}
+  <span class="block w-8 h-8 flex-none rounded-full bg-cover bg-center" style="background-image:url('{{ profile.avatar_image.url }}')" aria-hidden="true"></span>
+{% else %}
+  <span class="flex w-8 h-8 flex-none items-center justify-center rounded-full text-[13px] font-bold text-white" style="background:{{ profile.avatar_color }}" aria-hidden="true">{{ profile.display_name|first|upper }}</span>
+{% endif %}

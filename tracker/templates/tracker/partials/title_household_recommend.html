@@ -1,0 +1,25 @@
+{% load icons %}
+{# context: title, row. Posts to the same endpoint as the "Recommend to" section below the list; the response is ignored (hx-swap="none") and the row flips itself to a "sent" badge. A reply, once there is one, replaces the badge. #}
+<div x-data="{ sent: {{ row.recommended|yesno:'true,false' }} }" class="flex-none">
+  <form
+    x-show="!sent"
+    hx-post="{% url 'send_recommendation' title.pk %}"
+    hx-swap="none"
+    hx-include="#recommend-blind-toggle"
+    @htmx:after-request="if ($event.detail.successful) sent = true"
+  >
+    {% csrf_token %}
+    <input type="hidden" name="to_profile_id" value="{{ row.profile.pk }}">
+    <button type="submit" class="text-[12px] font-semibold text-primary hover:underline">Recommend</button>
+  </form>
+  <span x-show="sent" x-cloak>
+    {% if row.reply %}
+      <span class="flex items-center gap-1 text-[12px] text-success max-w-[140px] spool-tooltip" data-tooltip="{% if row.reply.reaction %}{{ row.reply.reaction }}{% endif %}{% if row.reply.reaction and row.reply.message %} – {% endif %}{% if row.reply.message %}&ldquo;{{ row.reply.message }}&rdquo;{% endif %}">
+        {% icon "check" "w-3.5 h-3.5 flex-none" %}
+        <span class="truncate">{% if row.reply.reaction %}{{ row.reply.reaction }}{% else %}&ldquo;{{ row.reply.message }}&rdquo;{% endif %}</span>
+      </span>
+    {% else %}
+      <span class="flex items-center gap-1 text-[12px] text-success">{% icon "check" "w-3.5 h-3.5" %} Sent</span>
+    {% endif %}
+  </span>
+</div>

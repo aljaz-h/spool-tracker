@@ -1,11 +1,16 @@
-{# context: progress (WatchProgress or None), recent_events (list of WatchEvent, newest first), oob (bool, optional - true when this is being sent as an hx-swap-oob fragment alongside some other response, e.g. episode_mark_watched) #}
-<section id="history-card" {% if oob %}hx-swap-oob="true"{% endif %}>
-  <h2 class="subhead mb-2.5">Your history</h2>
-  {% if progress %}
-    <div class="flex items-center justify-between gap-2 mb-2">
-      <div class="text-[13px]">
-        Status: <span class="font-semibold">{{ progress.get_status_display }}</span>
-        {% if progress.current_episode %}— S{{ progress.current_episode.season }}E{{ progress.current_episode.episode }}{% endif %}
+{# context: title, progress (WatchProgress or None), history_status ({label, tone} or None), timeline (sittings.build_timeline() dict or None), household_enabled (bool), oob (bool, optional - true when this is being sent as an hx-swap-oob fragment alongside some other response, e.g. episode_mark_watched). recent_events is still in the context for callers but the card now renders `timeline`. #}
+<section id="history-card" class="tl-{% firstof title.media_type preview_media_type %}-c" {% if oob %}hx-swap-oob="true"{% endif %} {% if household_enabled %}x-show="view === 'you'"{% endif %}>
+  <div class="flex items-center justify-between gap-3 mb-3">
+    <h2 class="section-title section-title-sm">Your history</h2>
+    {% if household_enabled %}{% include "tracker/partials/title_activity_seg.html" %}{% endif %}
+  </div>
+
+  {% if history_status %}
+    <div class="flex items-center justify-between gap-3 mb-4">
+      <div class="flex items-center gap-2 text-[13px] text-ink-dim">
+        Status
+        <span class="chip{% if history_status.tone %} chip-{{ history_status.tone }}{% endif %}">{{ history_status.label }}</span>
+        {% if progress.current_episode and progress.status == "watching" %}<span class="font-mono">S{{ progress.current_episode.season }}E{{ progress.current_episode.episode }}</span>{% endif %}
       </div>
       {% if progress.status == "dropped" %}
         <button
@@ -22,21 +27,15 @@
           hx-target="#history-card"
           hx-swap="outerHTML"
           hx-confirm="Mark &quot;{{ progress.title.name }}&quot; as dropped? Your watch history stays intact - you can resume any time."
-          class="flex-none text-[12px] font-semibold text-ink-faint hover:text-error"
+          class="flex-none text-[12px] font-semibold text-ink-dim hover:text-error"
         >Drop</button>
       {% endif %}
     </div>
   {% endif %}
-  {% if recent_events %}
-    <div class="rows">
-      {% for event in recent_events %}
-        <div class="flex justify-between items-center gap-3 text-[12.5px] py-1.5">
-          <span class="text-ink-dim">{% if event.episode %}<span class="font-mono">S{{ event.episode.season }}E{{ event.episode.episode }}</span>{% else %}Watched{% endif %}</span>
-          <span class="text-ink-faint">{{ event.watched_at|timesince }} ago</span>
-        </div>
-      {% endfor %}
-    </div>
-  {% elif not progress %}
-    <div class="text-xs text-ink-faint">Not watched yet.</div>
+
+  {% if timeline %}
+    {% include "tracker/partials/title_timeline.html" %}
+  {% elif not history_status %}
+    <div class="text-[13px] text-ink-dim">You haven't watched this yet.</div>
   {% endif %}
 </section>

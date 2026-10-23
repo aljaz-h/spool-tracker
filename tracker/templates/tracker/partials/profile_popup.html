@@ -1,115 +1,93 @@
-{% load tracker_extras %}
-<div class="flex items-center gap-3 mb-5">
-  {% if target.avatar_image %}
-    <div class="w-12 h-12 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ target.avatar_image.url }}')"></div>
+{% load tracker_extras icons %}
+{# context: target, is_self, private (bool, optional), and - unless private - movies_watched, shows_completed, watch_hours, current_streak, longest_streak, split_30/split_all, top_genres, recent_groups, you_and. See selectors.profile_popup_context(). A private profile never gets the stats keys at all. #}
+<div x-data="{ range: 'all' }">
+  <div class="flex items-center gap-3.5">
+    {% if target.avatar_image %}
+      <div class="w-12 h-12 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ target.avatar_image.url }}')" aria-hidden="true"></div>
+    {% else %}
+      <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg font-semibold flex-none" style="background:{{ target.avatar_color }};color:#fff;" aria-hidden="true">{{ target.display_name|first|upper }}</div>
+    {% endif %}
+    <div class="min-w-0 flex-1">
+      <h2 id="profile-popup-title" class="text-lg font-semibold leading-tight truncate">{{ target.display_name }}</h2>
+      <div class="text-[13px] text-ink-dim">Member since {{ target.created_at|date:"F Y" }}</div>
+    </div>
+    {% if not private %}
+      <a href="{% url 'member_stats' target.pk %}" class="flex-none text-[13px] font-semibold text-primary hover:underline">Full stats &rarr;</a>
+    {% endif %}
+    <form method="dialog" class="flex-none">
+      <button class="btn btn-sm btn-circle btn-ghost" aria-label="Close" autofocus>{% icon "x" "w-4 h-4" %}</button>
+    </form>
+  </div>
+
+  {% if private %}
+    <p class="mt-5 pt-5 border-t border-line text-[13px] text-ink-dim">{{ target.display_name }} keeps their activity private.</p>
   {% else %}
-    <div class="w-12 h-12 rounded-full flex items-center justify-center text-base font-semibold flex-none" style="background:{{ target.avatar_color }};color:#fff;">{{ target.display_name|first|upper }}</div>
-  {% endif %}
-  <div>
-    <div class="text-lg font-semibold">{{ target.display_name }}</div>
-    <div class="flex items-center gap-2 text-xs text-ink-dim">
-      <span>{% if target.is_owner %}Owner{% else %}Member{% endif %}</span>
-      <span class="text-ink-faint">&middot;</span>
-      <span>Member since {{ target.created_at|date:"F Y" }}</span>
-    </div>
-  </div>
-</div>
 
-<div class="pb-4 mb-4 border-b border-line">
-  <div class="flex items-baseline gap-2">
-    <span class="figure !text-4xl text-primary">{{ current_streak }}</span>
-    <span class="text-sm text-ink-dim">day streak</span>
-  </div>
-  {% if longest_streak %}
-    <div class="text-[12px] text-ink-faint mt-1.5">Personal best <span class="text-ink-dim underline decoration-dotted underline-offset-2">{{ longest_streak }} days</span></div>
-  {% endif %}
-  <div class="grid grid-cols-2 gap-x-3 gap-y-2.5 mt-4">
-    <div>
-      <div class="text-xl font-bold tabular-nums">{{ movies_watched }} / {{ shows_completed }}</div>
-      <div class="text-[12px] text-ink-dim mt-1">Movies watched / Shows completed</div>
-    </div>
-    <div>
-      <div class="text-xl font-bold tabular-nums">{{ total_watch_hours }}h</div>
-      <div class="text-[12px] text-ink-dim mt-1">Total watch time</div>
-    </div>
-  </div>
-</div>
-
-<div class="grid grid-cols-2 gap-6 pb-4 mb-4 border-b border-line">
-  <div class="min-w-0">
-    <h3 class="text-xs font-semibold mb-3">Last 30 days</h3>
-    <div class="space-y-2.5">
-      <div class="flex justify-between items-baseline gap-2">
-        <span class="text-[12.5px] text-ink-dim">Movies</span>
-        <span class="text-[12.5px] text-right tabular-nums"><b>{{ watch_time_breakdown.last_30_days.movie.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.last_30_days.movie.count }})</span></span>
-      </div>
-      <div class="flex justify-between items-baseline gap-2">
-        <span class="text-[12.5px] text-ink-dim">TV</span>
-        <span class="text-[12.5px] text-right tabular-nums"><b>{{ watch_time_breakdown.last_30_days.tv.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.last_30_days.tv.count }})</span></span>
-      </div>
-      <div class="flex justify-between items-baseline gap-2">
-        <span class="text-[12.5px] text-ink-dim">Anime</span>
-        <span class="text-[12.5px] text-right tabular-nums"><b>{{ watch_time_breakdown.last_30_days.anime.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.last_30_days.anime.count }})</span></span>
-      </div>
-      <div class="flex justify-between items-baseline gap-2 pt-2.5 border-t border-line">
-        <span class="text-[12.5px] text-ink-dim">Combined</span>
-        <span class="text-[12.5px] text-right tabular-nums"><b>{{ watch_time_breakdown.last_30_days.combined.days_rounded }}d</b> <span class="text-ink-faint">(&asymp; {{ watch_time_breakdown.last_30_days.combined.hours_display }})</span></span>
-      </div>
-    </div>
-  </div>
-  <div class="min-w-0">
-    <h3 class="text-xs font-semibold mb-3">All time</h3>
-    <div class="space-y-2.5">
-      <div class="flex justify-between items-baseline gap-2">
-        <span class="text-[12.5px] text-ink-dim">Movies</span>
-        <span class="text-[12.5px] text-right tabular-nums"><b>{{ watch_time_breakdown.all_time.movie.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.all_time.movie.count }})</span></span>
-      </div>
-      <div class="flex justify-between items-baseline gap-2">
-        <span class="text-[12.5px] text-ink-dim">TV</span>
-        <span class="text-[12.5px] text-right tabular-nums"><b>{{ watch_time_breakdown.all_time.tv.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.all_time.tv.count }})</span></span>
-      </div>
-      <div class="flex justify-between items-baseline gap-2">
-        <span class="text-[12.5px] text-ink-dim">Anime</span>
-        <span class="text-[12.5px] text-right tabular-nums"><b>{{ watch_time_breakdown.all_time.anime.duration }}</b> <span class="text-ink-faint">({{ watch_time_breakdown.all_time.anime.count }})</span></span>
-      </div>
-      <div class="flex justify-between items-baseline gap-2 pt-2.5 border-t border-line">
-        <span class="text-[12.5px] text-ink-dim">Combined</span>
-        <span class="text-[12.5px] text-right tabular-nums"><b>{{ total_watch_days_rounded }}d</b> <span class="text-ink-faint">(&asymp; {{ total_watch_hours_display }})</span></span>
-      </div>
-    </div>
-  </div>
-</div>
-
-{% if top_genres %}
-  <div class="mb-4">
-    <div class="text-xs text-ink-dim mb-2">Top genres</div>
-    <div class="flex flex-wrap gap-1.5">
-      {% for g in top_genres %}
-        <span class="px-2.5 py-1 rounded-full bg-base-300 text-[12.5px] font-medium">{{ g.name }}</span>
-      {% endfor %}
-    </div>
-  </div>
-{% endif %}
-
-<div class="text-xs text-ink-dim mb-2">Recently watched</div>
-{% if not recent_events %}
-  <div class="text-ink-faint text-sm py-4 text-center">Nothing watched yet.</div>
-{% else %}
-  <div class="space-y-2">
-    {% for event in recent_events %}
-      <div class="flex items-center gap-2.5 text-[12.5px]">
-        <div class="w-7 h-10 rounded relative overflow-hidden flex-none bg-base-300 {% if not event.title.poster_url %}{{ event.title.pk|gradient_class }}{% endif %}">
-          {% if event.title.poster_url %}
-            <img src="{{ event.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+    {% if you_and %}
+      <section class="mt-5 pt-5 border-t border-line" aria-label="You and {{ target.display_name }}">
+        <h3 class="subhead mb-3">You and {{ target.display_name }}</h3>
+        <dl class="grid grid-cols-3 gap-3">
+          {% if you_and.match is not None %}
+            <div><dd class="text-2xl font-bold tabular-nums leading-none">{{ you_and.match }}%</dd><dt class="text-[12px] text-ink-dim mt-1.5">Taste match</dt></div>
           {% endif %}
-        </div>
-        <div class="min-w-0 flex-1">
-          <div class="truncate font-medium">{{ event.title.name }}{% if event.episode %} — S{{ event.episode.season }}E{{ event.episode.episode }}{% endif %}</div>
-          <div class="text-ink-faint text-[12px]">{{ event.watched_at|timesince }} ago</div>
+          {% if you_and.both %}
+            <div><dd class="text-2xl font-bold tabular-nums leading-none">{{ you_and.both }}</dd><dt class="text-[12px] text-ink-dim mt-1.5">Watched by both</dt></div>
+          {% endif %}
+          {% if you_and.genre %}
+            <div class="min-w-0"><dd class="text-2xl font-bold leading-none truncate">{{ you_and.genre }}</dd><dt class="text-[12px] text-ink-dim mt-1.5">Shared favourite</dt></div>
+          {% endif %}
+        </dl>
+      </section>
+    {% endif %}
+
+    <dl class="mt-5 pt-5 border-t border-line grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-4">
+      <div><dd class="text-xl font-bold tabular-nums leading-none">{{ movies_watched }}</dd><dt class="text-[12px] text-ink-dim mt-1.5">Movies</dt></div>
+      <div><dd class="text-xl font-bold tabular-nums leading-none">{{ shows_completed }}</dd><dt class="text-[12px] text-ink-dim mt-1.5">Shows finished</dt></div>
+      <div><dd class="text-xl font-bold tabular-nums leading-none">{{ watch_hours }}</dd><dt class="text-[12px] text-ink-dim mt-1.5">Watch time</dt></div>
+      <div><dd class="text-xl font-bold tabular-nums leading-none">{{ current_streak }} day{{ current_streak|pluralize }}</dd><dt class="text-[12px] text-ink-dim mt-1.5">Streak{% if longest_streak %} · best {{ longest_streak }}{% endif %}</dt></div>
+    </dl>
+
+    <section class="mt-5 pt-5 border-t border-line" aria-labelledby="popup-time-heading">
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <h3 id="popup-time-heading" class="subhead">Where {% if is_self %}your{% else %}their{% endif %} time goes</h3>
+        <div class="seg" role="group" aria-label="Time range">
+          <button type="button" class="seg-item" :aria-pressed="(range === '30').toString()" @click="range = '30'">30 days</button>
+          <button type="button" class="seg-item" :aria-pressed="(range === 'all').toString()" @click="range = 'all'">All time</button>
         </div>
       </div>
-    {% endfor %}
-  </div>
-{% endif %}
+      <div x-show="range === '30'" x-cloak>{% include "tracker/partials/profile_popup_split.html" with rows=split_30 %}</div>
+      <div x-show="range === 'all'">{% include "tracker/partials/profile_popup_split.html" with rows=split_all %}</div>
+    </section>
 
-<a href="{% url 'member_stats' target.pk %}" class="mt-5 flex items-center justify-center gap-1.5 text-xs font-semibold text-primary hover:underline">View full stats →</a>
+    {% if top_genres %}
+      <section class="mt-5 pt-5 border-t border-line">
+        <h3 class="subhead mb-3">Top genres</h3>
+        <div class="flex flex-wrap gap-2">
+          {% for g in top_genres %}<span class="chip">{{ g.name }}</span>{% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
+    <section class="mt-5 pt-5 border-t border-line">
+      <h3 class="subhead mb-3">Recently watched</h3>
+      {% if recent_groups %}
+        <div class="rows">
+          {% for g in recent_groups %}
+            <a href="{% url 'title_detail' g.title.pk %}" class="flex items-center gap-3 py-1.5 rounded-lg">
+              <div class="poster w-12 aspect-[2/3] flex-none rounded-md overflow-hidden relative {% if not g.title.poster_url %}{{ g.title.pk|gradient_class }}{% endif %}">
+                {% if g.title.poster_url %}<img src="{{ g.title.poster_url|poster_size:'w154' }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">{% endif %}
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="text-[14px] font-semibold truncate">{{ g.title.name }}</div>
+                <div class="text-[12.5px] text-ink-dim truncate">{{ g.detail }}</div>
+              </div>
+              <div class="flex-none text-[12.5px] text-ink-dim">{{ g.ago }}</div>
+            </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="text-[13px] text-ink-dim">Nothing watched yet.</p>
+      {% endif %}
+    </section>
+  {% endif %}
+</div>
