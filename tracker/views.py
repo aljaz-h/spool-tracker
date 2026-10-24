@@ -1445,31 +1445,25 @@ def _recommend_context(profile, title, include_sharers=False):
             profile__in=[p for p in other_profiles if p.share_activity], title=title
         ).values_list("profile_id", flat=True)
     )
-    pending_recs = list(
-        Recommendation.objects.filter(from_profile=profile, title=title, status=Recommendation.Status.PENDING)
-    )
-    recommended_profile_ids = {rec.to_profile_id for rec in pending_recs}
-    reply_by_profile_id = {rec.to_profile_id: rec for rec in pending_recs if rec.replied_at is not None}
+    # A sharing housemate is "Sent" only while the recommendation is still
+    # pending (once they watch it their own state shows instead). A private
+    # one reads "Sent" whenever this sender ever sent it, whatever its
+    # status, so the row never changes - and so never reveals - when they
+    # watch it or whether they already had (see recommendations.send).
+    private_ids = {p.pk for p in other_profiles if not p.share_activity}
+    sent_recs = [
+        rec
+        for rec in Recommendation.objects.filter(from_profile=profile, title=title)
+        if rec.status == Recommendation.Status.PENDING or rec.to_profile_id in private_ids
+    ]
+    recommended_profile_ids = {rec.to_profile_id for rec in sent_recs}
+    reply_by_profile_id = {rec.to_profile_id: rec for rec in sent_recs if rec.replied_at is not None}
     return {
         "other_profiles": other_profiles,
         "already_watched_profile_ids": already_watched_profile_ids,
         "recommended_profile_ids": recommended_profile_ids,
         "reply_by_profile_id": reply_by_profile_id,
     }
-
-
-def _recommend_context_after_send(profile, to_profile, title, include_sharers):
-    """_recommend_context for the response to a send. recommendations.send()
-    silently does nothing when the recipient has already watched the title,
-    so a truthful re-render would show "Sent" for some private recipients
-    and a live button for others - telling the sender who has watched it.
-    For a recipient who keeps their activity private the response therefore
-    always reads "Sent"; a sharing recipient's state is visible anyway
-    (their household row), so theirs stays accurate."""
-    context = _recommend_context(profile, title, include_sharers=include_sharers)
-    if not to_profile.share_activity:
-        context["recommended_profile_ids"] = context["recommended_profile_ids"] | {to_profile.pk}
-    return context
 
 
 def _preview_recommend_context(profile):
@@ -1519,7 +1513,7 @@ def send_recommendation(request, pk):
         {
             "title": title,
             "list_all": include_sharers,
-            **_recommend_context_after_send(profile, to_profile, title, include_sharers),
+            **_recommend_context(profile, title, include_sharers=include_sharers),
         },
     )
 
@@ -1554,7 +1548,7 @@ def title_preview_send_recommendation(request, media_type, tmdb_id):
             "title": title,
             "is_preview": False,
             "list_all": True,
-            **_recommend_context_after_send(profile, to_profile, title, include_sharers=True),
+            **_recommend_context(profile, title, include_sharers=True),
         },
     )
 

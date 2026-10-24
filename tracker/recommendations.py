@@ -26,6 +26,22 @@ def send(from_profile, to_profile, title, is_blind=False):
     straight to the title page whenever a notification carries a title,
     which would give it away instantly otherwise."""
     if WatchEvent.objects.filter(profile=to_profile, title=title).exists():
+        if not to_profile.share_activity:
+            # A recipient who keeps their activity private must look the
+            # same to the sender whether or not they have watched it, now
+            # and on every later render - so the send is still recorded
+            # (already resolved, no notification, never pending on their
+            # side) and the sender's "Sent" doesn't depend on watch state.
+            if not Recommendation.objects.filter(
+                from_profile=from_profile, to_profile=to_profile, title=title
+            ).exists():
+                Recommendation.objects.create(
+                    from_profile=from_profile,
+                    to_profile=to_profile,
+                    title=title,
+                    status=Recommendation.Status.WATCHED,
+                    is_blind=is_blind,
+                )
         return
     _, created = Recommendation.objects.get_or_create(
         from_profile=from_profile,

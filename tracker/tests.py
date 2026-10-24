@@ -2699,15 +2699,36 @@ class SendRecommendationViewTests(TestCase):
 
     def test_a_private_recipient_looks_the_same_whether_or_not_they_watched_it(self):
         Profile.objects.filter(pk=self.recipient.pk).update(share_activity=False)
+        other = Profile.objects.create(
+            user=User.objects.create_user("sendother", password="pass12345"), display_name="SendOther", share_activity=False
+        )
+        WatchEvent.objects.create(profile=other, title=self.title, watched_at="2024-01-01T00:00:00Z")
         url = reverse("send_recommendation", args=[self.title.pk])
-        unwatched = self.client.post(url, {"to_profile_id": self.recipient.pk}).content.decode()
-        Recommendation.objects.all().delete()
+        household = reverse("title_household", args=[self.title.pk])
+
+        for who in (self.recipient, other):  # one unwatched, one watched
+            self.assertContains(self.client.post(url, {"to_profile_id": who.pk}), 'title="Sent"')
+        # reloading the page tells them apart no better than the response did
+        resp = self.client.get(household)
+        body = resp.content.decode()
+        self.assertEqual(body.count('title="Sent"'), 2)
+        self.assertNotIn("Already watched", body)
+
+    def test_nothing_is_delivered_to_a_private_recipient_who_already_watched_it(self):
+        Profile.objects.filter(pk=self.recipient.pk).update(share_activity=False)
         WatchEvent.objects.create(profile=self.recipient, title=self.title, watched_at="2024-01-01T00:00:00Z")
-        watched = self.client.post(url, {"to_profile_id": self.recipient.pk}).content.decode()
-        self.assertIn('title="Sent"', watched)
-        self.assertEqual(unwatched, watched)
-        # ...and still nothing was actually sent to someone who has watched it
-        self.assertFalse(Recommendation.objects.filter(to_profile=self.recipient).exists())
+        self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
+        self.assertFalse(Notification.objects.filter(profile=self.recipient).exists())
+        self.assertFalse(
+            Recommendation.objects.filter(to_profile=self.recipient, status=Recommendation.Status.PENDING).exists()
+        )
+
+    def test_a_private_recipients_sent_state_survives_them_watching_it(self):
+        Profile.objects.filter(pk=self.recipient.pk).update(share_activity=False)
+        self.client.post(reverse("send_recommendation", args=[self.title.pk]), {"to_profile_id": self.recipient.pk})
+        recommendations.mark_title_watched(self.recipient, self.title)  # resolves the pending rec
+        resp = self.client.get(reverse("title_household", args=[self.title.pk]))
+        self.assertContains(resp, 'title="Sent"')
 
     def test_response_reflects_sent_state(self):
         resp = self.client.post(
