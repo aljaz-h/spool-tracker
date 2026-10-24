@@ -70,14 +70,19 @@ def mark_title_watched(profile, title):
     """Resolves every pending Recommendation of this exact title sent TO
     this profile - watching any part of it (a movie, or a single episode
     of a show) fulfills it; "watch this" doesn't require finishing a
-    whole series. Notifies each sender. Cheap when nothing's pending -
-    one query, no writes."""
+    whole series. Notifies each sender - except when this profile keeps its
+    activity private (share_activity off): the recommendation is still
+    resolved, but the sender isn't told, since "X watched it" is exactly
+    the watch state a private profile has chosen not to share. Cheap when
+    nothing's pending - one query, no writes."""
     pending = Recommendation.objects.filter(
         to_profile=profile, title=title, status=Recommendation.Status.PENDING
     ).select_related("from_profile")
     for rec in pending:
         rec.status = Recommendation.Status.WATCHED
         rec.save(update_fields=["status"])
+        if not profile.share_activity:
+            continue
         Notification.objects.create(
             profile=rec.from_profile,
             kind=Notification.Kind.RECOMMENDATION_WATCHED,

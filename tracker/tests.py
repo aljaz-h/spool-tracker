@@ -10514,6 +10514,40 @@ class ProfilePopupViewTests(TestCase):
         self.assertContains(resp, 'aria-modal="true"')
 
 
+class WatchedRecommendationNotificationPrivacyTests(TestCase):
+    """Watching a recommended title tells the sender - unless the watcher
+    keeps their activity private."""
+
+    def setUp(self):
+        self.sender = Profile.objects.create(
+            user=User.objects.create_user("wrnsender", password="pass12345"), display_name="WrnSender"
+        )
+        self.recipient = Profile.objects.create(
+            user=User.objects.create_user("wrnrecipient", password="pass12345"), display_name="WrnRecipient"
+        )
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        self.rec = Recommendation.objects.create(from_profile=self.sender, to_profile=self.recipient, title=self.title)
+
+    def test_a_sharing_recipient_notifies_the_sender(self):
+        recommendations.mark_title_watched(self.recipient, self.title)
+        self.assertEqual(
+            Notification.objects.filter(profile=self.sender, kind=Notification.Kind.RECOMMENDATION_WATCHED).count(), 1
+        )
+
+    def test_a_private_recipient_does_not_notify_the_sender(self):
+        Profile.objects.filter(pk=self.recipient.pk).update(share_activity=False)
+        self.recipient.refresh_from_db()
+        recommendations.mark_title_watched(self.recipient, self.title)
+        self.assertFalse(Notification.objects.filter(profile=self.sender).exists())
+
+    def test_the_recommendation_is_still_resolved_for_a_private_recipient(self):
+        Profile.objects.filter(pk=self.recipient.pk).update(share_activity=False)
+        self.recipient.refresh_from_db()
+        recommendations.mark_title_watched(self.recipient, self.title)
+        self.rec.refresh_from_db()
+        self.assertEqual(self.rec.status, Recommendation.Status.WATCHED)
+
+
 class PrivateProfileStatsGateTests(TestCase):
     """Another profile's Stats/History/heatmap/genre pages (the popup's
     "Full stats" deep links) honour share_activity: a private profile 404s

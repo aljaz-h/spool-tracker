@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.157.1] - 2026-10-24
+
+### Fixed
+
+- You were notified "<name> watched your recommendation" even when that
+  housemate keeps their activity private, which told you they had
+  watched something. The notification is now skipped for private
+  profiles (the recommendation is still marked as watched on their side).
+
 ## [0.157.0] - 2026-10-24
 
 ### Fixed
