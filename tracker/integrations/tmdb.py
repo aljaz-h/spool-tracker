@@ -26,6 +26,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
+from tracker import search_text
+
 logger = logging.getLogger(__name__)
 
 API_BASE = "https://api.themoviedb.org/3"
@@ -470,6 +472,10 @@ def _normalize_result(item, media_type):
         "year": date[:4] if date else None,
         "poster_url": f"{IMAGE_BASE}{poster_path}" if poster_path else None,
         "vote_average": item.get("vote_average"),
+        # Only read by search()'s re-ranking (search_text.match_tier ties
+        # break on popularity; zero-vote entries sink).
+        "vote_count": item.get("vote_count") or 0,
+        "popularity": item.get("popularity") or 0,
         "overview": item.get("overview", ""),
     }
 
@@ -511,6 +517,47 @@ def _autocorrected_query(text):
     return corrected if corrected.lower() != text.lower() else None
 
 
+# search() fires at most this many query spellings (the typed text counts as
+# one, a spelling correction as another) at TMDB.
+MAX_QUERY_VARIANTS = 4
+
+_HYPHENS = re.compile(r"[-\u2010-\u2015]+")
+
+
+def _dedupe_variants(candidates):
+    seen, out = set(), []
+    for candidate in candidates:
+        candidate = " ".join(candidate.split())
+        key = candidate.casefold()
+        if candidate and key not in seen:
+            seen.add(key)
+            out.append(candidate)
+    return out
+
+
+def _query_variants(text):
+    """The other ways a person might have written the same title, so a
+    search finds it however TMDB happens to have it spelled ("spider man",
+    "spider-man" and "spiderman" are one title; so are "fast & furious" and
+    "fast and furious", "pokemon" and "pokémon"). At most MAX_QUERY_VARIANTS,
+    deduplicated, as typed first, then: hyphens read as spaces, words joined
+    by hyphens, spaces removed, accents/punctuation stripped, and "&" <->
+    "and". Pure string work - no network, no dictionary."""
+    typed = " ".join(text.split())
+    if not typed:
+        return []
+    spaced = " ".join(_HYPHENS.sub(" ", typed).split())
+    words = spaced.split()
+    plain = len(words) > 1 and all(w.isalnum() for w in words)
+    candidates = [typed, spaced]
+    if plain:
+        candidates += ["-".join(words), "".join(words)]
+    candidates.append(search_text.normalize(typed))
+    candidates.append(re.sub(r"\s+&\s+", " and ", typed))
+    candidates.append(re.sub(r"\s+and\s+", " & ", typed, flags=re.I))
+    return _dedupe_variants(candidates)[:MAX_QUERY_VARIANTS]
+
+
 def _split_query_year(query):
     """Pulls a trailing 4-digit year off a query like "avengers 2012" - a
     same-named movie and show (or a franchise's several entries) need a
@@ -541,7 +588,26 @@ def _merge_normalized(results, seen, raw_items, media_type):
             results.append(normalized)
 
 
-def search(query, page=1):
+def rank_results(results, queries, primary=None):
+    """Best answer first: exact normalised title match, then title starts
+    with the query, then every query word present (search_text.match_tier,
+    judged against every spelling in `queries`), then TMDB popularity.
+    `primary` is the query exactly as typed: a title that matches *that*
+    exactly outranks one that only matches a variant or the year-stripped
+    text ("Blade Runner 2049" over "Blade Runner" for a search for
+    "Blade Runner 2049"). Entries nobody has voted on sink to the bottom,
+    whatever they match. Stable, so ties keep TMDB's own order."""
+
+    def key(r):
+        tier = search_text.match_tier(queries, r["name"])
+        if primary and search_text.match_tier([primary], r["name"]) == search_text.EXACT:
+            tier = -1
+        return (not r.get("vote_count"), tier, -(r.get("popularity") or 0))
+
+    return sorted(results, key=key)
+
+
+def search(query, page=1, autocorrect=True):
     """The navbar search box's TMDB half - /search/multi covers movies and
     TV in one call (a search box has no natural "which section" context
     the way Discover's per-page tabs do), person results dropped since
@@ -581,10 +647,22 @@ def search(query, page=1):
     own DB read from its own worker thread risks concurrent-SQLite-
     access errors. Fetches happen in parallel; the merge below still
     runs in the exact same fixed order the old sequential code used, so
-    results come out identical regardless of which call finishes first."""
+    results come out identical regardless of which call finishes first.
+
+    Also tries the other spellings of the title (_query_variants - hyphen,
+    no space, no accent, "&" vs "and"), ranks the merged results
+    (rank_results), and reports "corrected_query" when the spelling
+    correction produced the top hit. autocorrect=False skips the spelling
+    correction (the "Search instead for" link)."""
     text, year = _split_query_year(query)
-    corrected_text = _autocorrected_query(text)
-    text_variants = [text, *([corrected_text] if corrected_text else [])]
+    corrected_text = _autocorrected_query(text) if autocorrect else None
+    # The typed text first, a spelling correction second, then the other
+    # spellings of the typed text - capped, so a search never costs more
+    # than MAX_QUERY_VARIANTS distinct queries (each still cached, locked
+    # and negative-cached by _list_request like any other call).
+    text_variants = _dedupe_variants(
+        [text, *([corrected_text] if corrected_text else []), *_query_variants(text)[1:]]
+    )[:MAX_QUERY_VARIANTS]
     api_key = _api_key()
 
     # include_adult=false is already TMDB's own default for every one of
@@ -592,52 +670,67 @@ def search(query, page=1):
     # dependent on TMDB not changing it. Unlike discover(), there's no
     # without_keywords equivalent available on /search/* at all, so this
     # is weaker protection than the browse pages get (see _UNSAFE_KEYWORD_IDS).
-    jobs = [("baseline", "search/multi", {"query": query, "page": page, "include_adult": "false"})]
+    jobs = [("baseline", "search/multi", {"query": query, "page": page, "include_adult": "false"}, text)]
     for variant in text_variants:
         if year:
-            jobs.append(("movie", "search/movie", {"query": variant, "year": year, "page": page, "include_adult": "false"}))
+            jobs.append(("movie", "search/movie", {"query": variant, "year": year, "page": page, "include_adult": "false"}, variant))
             jobs.append(
-                ("tv", "search/tv", {"query": variant, "first_air_date_year": year, "page": page, "include_adult": "false"})
+                ("tv", "search/tv", {"query": variant, "first_air_date_year": year, "page": page, "include_adult": "false"}, variant)
             )
         elif variant != query:
-            # No year: the un-corrected variant equals query, already
-            # covered by the baseline /search/multi job above - only the
-            # corrected variant (if any) needs its own extra lookup.
-            jobs.append(("multi", "search/multi", {"query": variant, "page": page, "include_adult": "false"}))
+            # No year: the as-typed variant equals query, already
+            # covered by the baseline /search/multi job above - every
+            # other variant needs its own extra lookup.
+            jobs.append(("multi", "search/multi", {"query": variant, "page": page, "include_adult": "false"}, variant))
 
     job_results = [None] * len(jobs)
     with ThreadPoolExecutor(max_workers=len(jobs)) as executor:
         future_to_index = {
-            executor.submit(_list_request, path, params, api_key): i for i, (_kind, path, params) in enumerate(jobs)
+            executor.submit(_list_request, path, params, api_key): i for i, (_kind, path, params, _v) in enumerate(jobs)
         }
         for future, index in future_to_index.items():
             job_results[index] = future.result()
 
     data = job_results[0]
     results = [
-        _normalize_result(item, item["media_type"])
+        {**_normalize_result(item, item["media_type"]), "_variant": text}
         for item in (data.get("results") or [])
         if item.get("media_type") in ("movie", "tv")
     ]
     seen = {(r["tmdb_id"], r["media_type"]) for r in results}
 
-    for (kind, _path, _params), result in zip(jobs[1:], job_results[1:]):
+    for (kind, _path, _params, variant), result in zip(jobs[1:], job_results[1:]):
+        before = len(results)
         if kind == "movie":
             _merge_normalized(results, seen, result.get("results") or [], "movie")
         elif kind == "tv":
             _merge_normalized(results, seen, result.get("results") or [], "tv")
-        else:  # "multi" - spelling-corrected variant, no year
+        else:  # "multi" - another spelling of the query, no year
             _merge_normalized(
                 results,
                 seen,
                 (item for item in (result.get("results") or []) if item.get("media_type") in ("movie", "tv")),
                 None,
             )
+        for r in results[before:]:
+            r["_variant"] = variant
 
+    results = rank_results(results, [text, *text_variants], primary=query)
     if year:
         results.sort(key=lambda r: r["year"] != str(year))
 
-    return {"results": results, "total_pages": data.get("total_pages") or 0}
+    # Only worth telling the person when the spelling correction is what
+    # actually produced the top hit ("Showing results for avengers").
+    corrected_query = None
+    if corrected_text and results and results[0]["_variant"] == corrected_text:
+        corrected_query = f"{corrected_text} {year}" if year else corrected_text
+    for r in results:
+        r.pop("_variant", None)
+    return {
+        "results": results,
+        "total_pages": data.get("total_pages") or 0,
+        "corrected_query": corrected_query,
+    }
 
 
 def genres(media_type, api_key=None):

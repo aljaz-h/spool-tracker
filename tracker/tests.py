@@ -30286,3 +30286,350 @@ class YourActivityCardTests(_HouseholdBase):
         Profile.objects.filter(pk=self.profiles["you"].pk).update(timezone="Not/AZone")
         self.profiles["you"].refresh_from_db()
         self.assertEqual(str(selectors.profile_zoneinfo(self.profiles["you"])), django_settings.TIME_ZONE)
+
+
+from tracker import search_text as _st  # noqa: E402
+
+
+class SearchTextTests(SimpleTestCase):
+    def test_normalize(self):
+        self.assertEqual(_st.normalize("Spider-Man"), "spider man")
+        self.assertEqual(_st.normalize("Pokémon: The Movie!"), "pokemon the movie")
+        self.assertEqual(_st.normalize("Fast & Furious"), "fast and furious")
+        self.assertEqual(_st.normalize("Don't  Look   Up"), "dont look up")
+        self.assertEqual(_st.normalize("  "), "")
+        self.assertEqual(_st.normalize("Amélie"), "amelie")
+
+    def test_compact_joins_the_words(self):
+        self.assertEqual(_st.compact("Spider-Man"), "spiderman")
+        self.assertEqual(_st.compact("spider man"), "spiderman")
+
+    def test_match_tiers(self):
+        tier = _st.match_tier
+        self.assertEqual(tier(["spiderman"], "Spider-Man"), _st.EXACT)
+        self.assertEqual(tier(["one punch man"], "One-Punch Man"), _st.EXACT)
+        self.assertEqual(tier(["spider"], "Spider-Man"), _st.PREFIX)
+        self.assertEqual(tier(["man"], "Spider-Man"), _st.ALL_TOKENS)
+        self.assertEqual(tier(["batman"], "Spider-Man"), _st.OTHER)
+        # the best tier across the typed text and its variants wins
+        self.assertEqual(tier(["avangers", "avengers"], "Avengers"), _st.EXACT)
+        # a leading article does not stop a title being an exact match
+        self.assertEqual(tier(["avengers"], "The Avengers"), _st.EXACT)
+        self.assertEqual(tier(["the avengers"], "Avengers"), _st.EXACT)
+        self.assertEqual(tier(["a"], "A"), _st.EXACT)
+
+
+class QueryVariantsTests(SimpleTestCase):
+    def v(self, text):
+        return tmdb._query_variants(text)
+
+    def test_spaces_hyphens_and_compact(self):
+        self.assertEqual(self.v("spider man"), ["spider man", "spider-man", "spiderman"])
+        self.assertEqual(self.v("spider-man"), ["spider-man", "spider man", "spiderman"])
+        self.assertEqual(self.v("one punch man"), ["one punch man", "one-punch-man", "onepunchman"])
+
+    def test_ampersand_and_and(self):
+        self.assertEqual(self.v("fast & furious"), ["fast & furious", "fast and furious"])
+        self.assertIn("fast & furious", self.v("fast and furious"))
+
+    def test_accents_are_stripped(self):
+        self.assertEqual(self.v("pokémon"), ["pokémon", "pokemon"])
+
+    def test_a_single_plain_word_has_no_variants(self):
+        self.assertEqual(self.v("dune"), ["dune"])
+        self.assertEqual(self.v(""), [])
+
+    def test_never_more_than_four_and_never_duplicates(self):
+        for text in ("fast and furious", "Mr. & Mrs. Smith", "the lord of the rings", "spider-man: no way home"):
+            variants = self.v(text)
+            self.assertLessEqual(len(variants), 4, text)
+            self.assertEqual(len({x.casefold() for x in variants}), len(variants), text)
+            self.assertEqual(variants[0], " ".join(text.split()))
+
+    def test_the_typed_text_is_always_first(self):
+        self.assertEqual(self.v("  Spider   Man ")[0], "Spider Man")
+
+
+def _movie(tmdb_id, title, votes=100, popularity=10.0, year="2000"):
+    return {"id": tmdb_id, "media_type": "movie", "title": title, "release_date": f"{year}-01-01",
+            "vote_count": votes, "popularity": popularity, "genre_ids": []}
+
+
+def _tv(tmdb_id, name, votes=100, popularity=10.0, year="2000", anime=False):
+    return {"id": tmdb_id, "media_type": "tv", "name": name, "first_air_date": f"{year}-01-01",
+            "vote_count": votes, "popularity": popularity,
+            "genre_ids": [16] if anime else [], "original_language": "ja" if anime else "en"}
+
+
+class _FakeTmdb:
+    """A stand-in for api.themoviedb.org: answers by the (lower-cased) query
+    text alone, whatever the endpoint, and remembers every call."""
+
+    def __init__(self, table):
+        self.table = {k.lower(): v for k, v in table.items()}
+        self.queries = []
+
+    def __call__(self, url, params=None, timeout=None):
+        query = params["query"]
+        self.queries.append((url.split("/3/")[1], query))
+        resp = Mock()
+        resp.json.return_value = {"results": list(self.table.get(query.lower(), [])), "total_pages": 1}
+        resp.raise_for_status = Mock()
+        return resp
+
+
+@override_settings(
+    TMDB_API_KEY="test-key",
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
+)
+class TmdbGoldenSearchTests(TestCase):
+    """Golden queries against a fake TMDB - no network. A real (in-memory)
+    cache, so the repeat-search test means something."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    def run_search(self, table, query, **kwargs):
+        fake = _FakeTmdb(table)
+        with patch("tracker.integrations.tmdb._http_session.get", side_effect=fake):
+            result = tmdb.search(query, **kwargs)
+        return result, fake
+
+    def ids(self, result):
+        return [r["tmdb_id"] for r in result["results"]]
+
+    def test_spider_man_spelled_three_ways_finds_the_same_title(self):
+        table = {"spider-man": [_movie(557, "Spider-Man", year="2002")], "spiderman": [_movie(557, "Spider-Man", year="2002")]}
+        spaced, _ = self.run_search(table, "spider man")
+        hyphen, _ = self.run_search(table, "spider-man")
+        joined, _ = self.run_search(table, "spiderman")
+        self.assertEqual(self.ids(spaced), [557])
+        self.assertEqual(self.ids(hyphen), [557])
+        self.assertEqual(self.ids(joined), [557])
+
+    def test_one_punch_man_without_hyphens_is_found(self):
+        table = {"one-punch-man": [_tv(63926, "One-Punch Man", year="2015", anime=True)]}
+        result, _ = self.run_search(table, "one punch man")
+        self.assertEqual(self.ids(result), [63926])
+        self.assertTrue(result["results"][0]["is_anime"])
+
+    def test_fast_and_furious_with_and_without_an_ampersand(self):
+        table = {"fast & furious": [_movie(13804, "Fast & Furious", year="2009")],
+                 "fast and furious": [_movie(9799, "The Fast and the Furious", year="2001")]}
+        amp, _ = self.run_search(table, "fast & furious")
+        word, _ = self.run_search(table, "fast and furious")
+        self.assertIn(13804, self.ids(amp))
+        self.assertIn(13804, self.ids(word))
+        self.assertIn(9799, self.ids(amp))
+
+    def test_pokemon_with_and_without_the_accent(self):
+        table = {"pokemon": [_tv(60572, "Pokémon", year="1997", anime=True)]}
+        accented, _ = self.run_search(table, "pokémon")
+        self.assertEqual(self.ids(accented), [60572])
+
+    def test_blade_runner_2049_still_matches_through_the_baseline_query(self):
+        table = {"blade runner 2049": [_movie(335984, "Blade Runner 2049", year="2017")],
+                 "blade runner": [_movie(78, "Blade Runner", year="1982")]}
+        result, fake = self.run_search(table, "Blade Runner 2049")
+        self.assertEqual(self.ids(result)[0], 335984)
+        self.assertIn(("search/multi", "Blade Runner 2049"), fake.queries)  # sent exactly as typed
+
+    def test_a_typo_is_corrected_and_reported(self):
+        table = {"avengers": [_movie(24428, "The Avengers", year="2012", popularity=90), _movie(1, "Avengers Assemble", popularity=5)],
+                 "avangers": [_movie(2, "Avangers", votes=0, popularity=0.1)]}
+        result, _ = self.run_search(table, "avangers")
+        self.assertEqual(result["corrected_query"], "avengers")
+        self.assertEqual(self.ids(result)[0], 24428)
+
+    def test_no_correction_is_reported_for_a_title_that_was_spelled_right(self):
+        result, _ = self.run_search({"dune": [_movie(438631, "Dune", year="2021")]}, "dune")
+        self.assertIsNone(result["corrected_query"])
+
+    def test_autocorrect_can_be_switched_off(self):
+        table = {"avengers": [_movie(24428, "The Avengers")], "avangers": []}
+        result, fake = self.run_search(table, "avangers", autocorrect=False)
+        self.assertEqual(result["results"], [])
+        self.assertIsNone(result["corrected_query"])
+        self.assertNotIn("avengers", [q for _p, q in fake.queries])
+
+    def test_a_search_never_asks_tmdb_for_more_than_four_spellings(self):
+        _, fake = self.run_search({}, "fast and furious")
+        self.assertLessEqual(len({q for _p, q in fake.queries}), 4)
+        _, fake = self.run_search({}, "avangers")
+        self.assertLessEqual(len({q for _p, q in fake.queries}), 4)
+
+    def test_a_repeat_search_is_served_from_the_cache(self):
+        table = {"spider-man": [_movie(557, "Spider-Man")]}
+        _, first = self.run_search(table, "spider man")
+        _, second = self.run_search(table, "spider man")
+        self.assertGreater(len(first.queries), 0)
+        self.assertEqual(second.queries, [])
+
+    def test_ranking_exact_then_prefix_then_all_words_then_popularity(self):
+        table = {"man": [
+            _movie(1, "Iron Man", popularity=99),              # all words
+            _movie(2, "Manhunter", popularity=50),             # prefix
+            _movie(3, "Man on Fire", popularity=40),           # prefix
+            _movie(4, "Man", popularity=1),                    # exact
+            _movie(5, "Man of Steel", popularity=60),          # prefix, most popular
+        ]}
+        result, _ = self.run_search(table, "man")
+        self.assertEqual(self.ids(result), [4, 5, 2, 3, 1])
+
+    def test_results_nobody_voted_on_sink_to_the_bottom(self):
+        table = {"dune": [
+            _movie(1, "Dune Buggy Chase", votes=0, popularity=500),
+            _movie(2, "Dune", votes=0, popularity=0.5),
+            _movie(3, "Dune Messiah", votes=12, popularity=1),
+        ]}
+        result, _ = self.run_search(table, "dune")
+        # the voted entry first even though it is the weaker match; among the
+        # unvoted ones the usual order (exact, then popularity) still applies
+        self.assertEqual(self.ids(result), [3, 2, 1])
+
+    def test_duplicates_across_spellings_are_dropped(self):
+        table = {"spider man": [_movie(557, "Spider-Man")], "spider-man": [_movie(557, "Spider-Man")],
+                 "spiderman": [_movie(557, "Spider-Man"), _tv(557, "Spider-Man")]}
+        result, _ = self.run_search(table, "spider man")
+        keys = [(r["tmdb_id"], r["media_type"]) for r in result["results"]]
+        self.assertEqual(len(keys), len(set(keys)))
+        self.assertIn((557, "movie"), keys)
+        self.assertIn((557, "tv"), keys)  # same id, different namespace: both kept
+
+    def test_the_year_filter_still_pulls_the_matching_year_to_the_front(self):
+        table = {"avengers": [_movie(1, "Avengers", year="1998", popularity=50), _movie(2, "The Avengers", year="2012", popularity=40)]}
+        result, _ = self.run_search(table, "avengers 2012")
+        self.assertEqual(self.ids(result)[0], 2)
+
+
+class LibrarySearchTests(TestCase):
+    def setUp(self):
+        make = lambda mt, name, y=2020: Title.objects.create(media_type=mt, name=name, year=y)
+        self.opm = make(MediaType.ANIME, "One-Punch Man", 2015)
+        self.spider = make(MediaType.MOVIE, "Spider-Man", 2002)
+        self.spider2 = make(MediaType.MOVIE, "Spider-Man: Into the Spider-Verse", 2018)
+        self.poke = make(MediaType.ANIME, "Pokémon", 1997)
+        self.ff = make(MediaType.MOVIE, "Fast & Furious", 2009)
+
+    def names(self, *args, **kwargs):
+        return [t.name for t in selectors.search_library(*args, **kwargs)]
+
+    def test_search_name_is_kept_in_step_by_save(self):
+        self.assertEqual(self.opm.search_name, "one punch man")
+        self.assertEqual(self.poke.search_name, "pokemon")
+        self.opm.name = "One Punch-Man!"
+        self.opm.save(update_fields=["name"])
+        self.opm.refresh_from_db()
+        self.assertEqual(self.opm.search_name, "one punch man")
+        self.assertEqual(Title.objects.get(pk=self.ff.pk).search_name, "fast and furious")
+
+    def test_hyphens_spaces_case_and_accents_do_not_matter(self):
+        for q in ("one punch man", "one-punch man", "ONE PUNCH-MAN", "onepunchman"):
+            self.assertEqual(self.names(q), ["One-Punch Man"], q)
+        for q in ("pokemon", "pokémon", "POKEMON"):
+            self.assertEqual(self.names(q), ["Pokémon"], q)
+
+    def test_spiderman_finds_spider_man(self):
+        for q in ("spiderman", "spider man", "spider-man"):
+            self.assertIn("Spider-Man", self.names(q), q)
+
+    def test_every_word_must_match(self):
+        self.assertEqual(self.names("punch man"), ["One-Punch Man"])
+        self.assertEqual(self.names("one cat"), [])
+        self.assertEqual(self.names("spider verse"), ["Spider-Man: Into the Spider-Verse"])
+
+    def test_ampersand_and_and_are_the_same(self):
+        self.assertEqual(self.names("fast and furious"), ["Fast & Furious"])
+        self.assertEqual(self.names("fast & furious"), ["Fast & Furious"])
+
+    def test_the_type_filter_is_kept(self):
+        self.assertEqual(self.names("man", media_type="movie"), ["Spider-Man", "Spider-Man: Into the Spider-Verse"])
+        self.assertEqual(self.names("man", media_type="anime"), ["One-Punch Man"])
+        self.assertEqual(self.names("man", media_type="tv"), [])
+        self.assertEqual(len(self.names("man", media_type="all")), 3)
+
+    def test_best_match_first(self):
+        self.assertEqual(self.names("spider man")[0], "Spider-Man")  # exact beats the longer title
+
+    def test_empty_or_punctuation_only_queries_match_nothing(self):
+        self.assertEqual(self.names(""), [])
+        self.assertEqual(self.names("!!!"), [])
+
+    def test_the_limit_is_respected(self):
+        for i in range(10):
+            Title.objects.create(media_type=MediaType.MOVIE, name=f"Man {i}", year=2000)
+        self.assertEqual(len(selectors.search_library("man", limit=5)), 5)
+
+    def test_it_is_one_query_however_many_titles_match(self):
+        with self.assertNumQueries(1):
+            selectors.search_library("man")
+        for i in range(30):
+            Title.objects.create(media_type=MediaType.MOVIE, name=f"Man {i}", year=2000)
+        with self.assertNumQueries(1):
+            selectors.search_library("man")
+
+    def test_a_percent_or_underscore_in_the_query_is_not_a_wildcard(self):
+        self.assertEqual(self.names("100%"), [])
+        self.assertEqual(self.names("_"), [])
+
+
+@override_settings(TMDB_API_KEY="test-key")
+class SearchViewImprovementsTests(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        user = User.objects.create_user("searchimp", password="pass12345")
+        Profile.objects.create(user=user, display_name="SearchImp")
+        self.client.login(username="searchimp", password="pass12345")
+
+    def get(self, q, table=None, **extra):
+        fake = _FakeTmdb(table or {})
+        with patch("tracker.integrations.tmdb._http_session.get", side_effect=fake):
+            return self.client.get(reverse("search"), {"q": q, **extra})
+
+    def test_the_library_half_finds_one_punch_man_typed_without_hyphens(self):
+        Title.objects.create(media_type=MediaType.ANIME, name="One-Punch Man", year=2015)
+        resp = self.get("one punch man")
+        self.assertEqual([t.name for t in resp.context["library_results"]], ["One-Punch Man"])
+
+    def test_a_correction_shows_the_banner_with_a_way_back(self):
+        table = {"avengers": [_movie(24428, "The Avengers", year="2012")]}
+        resp = self.get("avangers", table)
+        self.assertEqual(resp.context["corrected_query"], "avengers")
+        self.assertContains(resp, "Showing results for")
+        self.assertContains(resp, "Search instead for")
+        self.assertContains(resp, "autocorrect=0")
+
+    def test_searching_instead_runs_what_was_typed(self):
+        table = {"avengers": [_movie(24428, "The Avengers", year="2012")]}
+        resp = self.get("avangers", table, autocorrect="0")
+        self.assertIsNone(resp.context["corrected_query"])
+        self.assertNotContains(resp, "Showing results for")
+        self.assertEqual(resp.context["tmdb_results"], [])
+
+    def test_no_banner_when_nothing_was_corrected(self):
+        resp = self.get("dune", {"dune": [_movie(438631, "Dune", year="2021")]})
+        self.assertNotContains(resp, "Showing results for")
+        self.assertContains(resp, "Results for")
+
+    def test_the_type_filter_survives_the_search_instead_link(self):
+        table = {"avengers": [_movie(24428, "The Avengers")]}
+        resp = self.get("avangers", table, type="movie")
+        self.assertContains(resp, "type=movie&autocorrect=0")
+
+    def test_library_matches_do_not_add_queries(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        Title.objects.create(media_type=MediaType.MOVIE, name="Man 0", year=2000)
+        self.get("man")  # warm-up: first-request-only queries (session, content types, ...)
+        with CaptureQueriesContext(connection) as small:
+            self.get("man")
+        for i in range(1, 15):
+            Title.objects.create(media_type=MediaType.MOVIE, name=f"Man {i}", year=2000)
+        with CaptureQueriesContext(connection) as large:
+            self.get("man")
+        self.assertEqual(len(large), len(small))

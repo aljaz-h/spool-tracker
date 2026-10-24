@@ -8,6 +8,33 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.157.0] - 2026-10-24
+
+### Fixed
+
+- Search no longer cares how a title is punctuated. "spider man",
+  "spider-man" and "spiderman" now find the same things, "one punch man"
+  finds One-Punch Man, "fast & furious" and "fast and furious" match,
+  and "pokemon" and "pokémon" are the same search. TMDB is asked for up
+  to four spellings of what you typed (the typed text, a spelling
+  correction if there is one, then hyphen / no-space / no-accent /
+  "&" variants), still through the existing cache.
+- The "In your library" half of search missed titles whose punctuation
+  or accents differed from what you typed ("One-Punch Man" for "one
+  punch man"). It now ignores case, accents and punctuation and needs
+  every word you typed. Titles get a new stored `search_name` for this
+  (a migration fills it in for existing titles).
+
+### Changed
+
+- Search results are ranked: an exact title match first, then titles
+  that start with what you typed, then titles containing all your words
+  (ignoring a leading "the"), then by TMDB popularity. Results nobody
+  has voted on go to the bottom. Library matches use the same order.
+- When a spelling correction produced the top result, the page says
+  "Showing results for <corrected> · Search instead for <typed>" and the
+  second part runs the search exactly as typed.
+
 ## [0.156.0] - 2026-10-24
 
 ### Changed

@@ -617,9 +617,12 @@ def search(request):
     watched/list-picker actions) and everything else TMDB has for the
     query that isn't tracked yet (rendered as discover_tile.html preview
     cards, same as Movies & TV/Anime's own discovery grid). Library
-    matching is a plain name__icontains scan - no ranking, no fuzzy
-    matching - which is fine at personal-library scale (typo tolerance and
-    year-qualified matching for the TMDB half live in tmdb.search itself).
+    matching normalises case, accents and punctuation and needs every
+    query word (selectors.search_library); typo tolerance, spelling
+    variants and year-qualified matching for the TMDB half live in
+    tmdb.search itself, and both halves are ranked the same way. When a
+    spelling correction produced the top TMDB hit the page says so and
+    offers the typed text back (?autocorrect=0).
     ?type= (all/movie/tv/anime) filters both sections the same way."""
     profile = Profile.objects.filter(user=request.user).first()
     query = request.GET.get("q", "").strip()
@@ -628,22 +631,28 @@ def search(request):
         selected_type = "all"
     library_results = []
     tmdb_results = []
+    # ?autocorrect=0 is the "Search instead for ..." link - run exactly what
+    # was typed, no spelling correction.
+    autocorrect = request.GET.get("autocorrect") != "0"
     context = {
         "profile": profile,
         "query": query,
         "selected_type": selected_type,
+        "autocorrect": autocorrect,
+        "corrected_query": None,
         "library_results": library_results,
         "tmdb_results": tmdb_results,
         "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
     }
     if query:
-        library_qs = Title.objects.filter(name__icontains=query)
-        if selected_type != "all":
-            library_qs = library_qs.filter(media_type=selected_type)
-        library_results = list(library_qs.order_by("name")[:SEARCH_LIBRARY_LIMIT])
+        library_results = selectors.search_library(
+            query, selected_type, limit=SEARCH_LIBRARY_LIMIT, variants=tmdb._query_variants(query)
+        )
         if profile is not None and library_results:
             context.update(selectors.poster_action_context(profile, library_results))
-        raw_results = tmdb.search(query)["results"]
+        tmdb_response = tmdb.search(query, autocorrect=autocorrect)
+        raw_results = tmdb_response["results"]
+        context["corrected_query"] = tmdb_response.get("corrected_query")
         # A title already in the library shouldn't also show up as a
         # "not tracked yet" TMDB preview card - same per-id
         # already-exists check title_preview itself does

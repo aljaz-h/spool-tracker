@@ -22,12 +22,16 @@
     </div>
   {% else %}
     <div class="flex flex-wrap items-center justify-between gap-3 mb-8">
-      <p class="text-sm text-ink-dim">Results for <span class="text-base-content font-medium">“{{ query }}”</span></p>
+      {% if corrected_query %}
+        <p class="text-sm text-ink-dim">Showing results for <span class="text-base-content font-medium">“{{ corrected_query }}”</span> &middot; <a href="?q={{ query|urlencode }}&type={{ selected_type }}&autocorrect=0" class="text-primary hover:underline">Search instead for “{{ query }}”</a></p>
+      {% else %}
+        <p class="text-sm text-ink-dim">Results for <span class="text-base-content font-medium">“{{ query }}”</span></p>
+      {% endif %}
       <nav class="seg" aria-label="Media type">
-        <a href="?q={{ query|urlencode }}&type=all" class="seg-item {% if selected_type == "all" %}is-active{% endif %}">All</a>
-        <a href="?q={{ query|urlencode }}&type=movie" class="seg-item {% if selected_type == "movie" %}is-active{% endif %}">Movies</a>
-        <a href="?q={{ query|urlencode }}&type=tv" class="seg-item {% if selected_type == "tv" %}is-active{% endif %}">TV</a>
-        <a href="?q={{ query|urlencode }}&type=anime" class="seg-item {% if selected_type == "anime" %}is-active{% endif %}">Anime</a>
+        <a href="?q={{ query|urlencode }}&type=all{% if not autocorrect %}&autocorrect=0{% endif %}" class="seg-item {% if selected_type == "all" %}is-active{% endif %}">All</a>
+        <a href="?q={{ query|urlencode }}&type=movie{% if not autocorrect %}&autocorrect=0{% endif %}" class="seg-item {% if selected_type == "movie" %}is-active{% endif %}">Movies</a>
+        <a href="?q={{ query|urlencode }}&type=tv{% if not autocorrect %}&autocorrect=0{% endif %}" class="seg-item {% if selected_type == "tv" %}is-active{% endif %}">TV</a>
+        <a href="?q={{ query|urlencode }}&type=anime{% if not autocorrect %}&autocorrect=0{% endif %}" class="seg-item {% if selected_type == "anime" %}is-active{% endif %}">Anime</a>
       </nav>
     </div>
 

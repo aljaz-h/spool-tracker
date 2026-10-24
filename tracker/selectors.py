@@ -11,11 +11,12 @@ from functools import reduce
 
 from django.conf import settings
 from django.db.models import Count, Q, Sum
-from django.db.models.functions import Coalesce, ExtractDay, ExtractHour, ExtractMonth
+from django.db.models import Value
+from django.db.models.functions import Coalesce, ExtractDay, ExtractHour, ExtractMonth, Replace
 from django.template.defaultfilters import time as django_time_filter
 from django.utils import timezone
 
-from . import completion, household, instance_config, sittings
+from . import completion, household, instance_config, search_text, sittings
 from .integrations import tmdb
 from .models import (
     DataLog,
@@ -1616,6 +1617,41 @@ def watch_time_breakdown(profile):
         }
 
     return _cache_get_or_set(f"stats:watch_time:{profile.id}", STATS_PAGE_TTL, _compute)
+
+
+# How many name matches the library search pulls (one query) before ranking
+# and trimming to the page's limit.
+LIBRARY_SEARCH_POOL = 200
+
+
+def search_library(query, media_type=None, limit=24, variants=()):
+    """The search page's "In your library" half. Matches against
+    Title.search_name (lowercase, no accents or punctuation - see
+    search_text), so "one punch man" finds "One-Punch Man" and "pokemon"
+    finds "Pokémon": every word of the query must appear in the name, or -
+    for "spiderman" against "Spider-Man" - the query with its spaces
+    removed must appear in the name with its spaces removed. Best match
+    first (exact, then prefix, then all words present - the same tiers as
+    the TMDB half, search_text.match_tier), then by name. One query,
+    whatever the library size. Works the same on SQLite and Postgres (only
+    contains/Replace, no unaccent)."""
+    words = search_text.tokens(query)
+    if not words:
+        return []
+    compact_query = search_text.compact(query)
+    all_words = Q()
+    for word in words:
+        all_words &= Q(search_name__contains=word)
+    qs = (
+        Title.objects.annotate(_compact_name=Replace("search_name", Value(" "), Value("")))
+        .filter(all_words | Q(_compact_name__contains=compact_query))
+    )
+    if media_type and media_type != "all":
+        qs = qs.filter(media_type=media_type)
+    pool = list(qs.order_by("name")[:LIBRARY_SEARCH_POOL])
+    queries = [query, *variants]
+    pool.sort(key=lambda t: (search_text.match_tier(queries, t.name), t.name.lower()))
+    return pool[:limit]
 
 
 def watched_by_both(profile_a, profile_b):

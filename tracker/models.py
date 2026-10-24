@@ -436,6 +436,12 @@ class Title(models.Model):
     cast = models.JSONField(default=list, blank=True)
     directors = models.JSONField(default=list, blank=True)
     writers = models.JSONField(default=list, blank=True)
+    # name, lowercased with accents and punctuation stripped and spaces
+    # collapsed (search_text.normalize) - what the library search matches
+    # against, so "One-Punch Man", "one punch man" and "Pokémon" are found
+    # by what people actually type. Kept in step by save(); SQL can't
+    # strip accents portably (SQLite has no unaccent), hence stored.
+    search_name = models.CharField(max_length=255, blank=True, default="", editable=False)
 
     class Meta:
         ordering = ["name", "year"]
@@ -460,6 +466,15 @@ class Title(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.year})"
+
+    def save(self, *args, **kwargs):
+        from tracker import search_text
+
+        self.search_name = search_text.normalize(self.name)
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None and "name" in update_fields and "search_name" not in update_fields:
+            kwargs["update_fields"] = [*update_fields, "search_name"]
+        super().save(*args, **kwargs)
 
 
 class Episode(models.Model):
