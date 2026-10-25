@@ -1424,6 +1424,19 @@
 
         <div class="surface p-5">
           <div class="flex items-start gap-4 mb-3.5">
+            <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "bar-chart-3" "w-7 h-7" %}</div>
+            <div class="min-w-0 flex-1">
+              <h3 class="font-semibold text-[15px]">Query performance</h3>
+              <div class="text-[13px] text-ink-dim mt-0.5">The slowest database queries since statistics were last reset, from Postgres's own <code>pg_stat_statements</code>.</div>
+            </div>
+          </div>
+          <div id="query-stats" hx-get="{% url 'query_stats_partial' %}" hx-trigger="intersect once" hx-swap="innerHTML">
+            <div class="text-[13px] text-ink-dim" role="status">Loading&hellip;</div>
+          </div>
+        </div>
+
+        <div class="surface p-5">
+          <div class="flex items-start gap-4 mb-3.5">
             <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "refresh-cw" "w-7 h-7" %}</div>
             <div class="min-w-0 flex-1">
               <h3 class="font-semibold text-[15px]">Maintenance</h3>

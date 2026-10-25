@@ -24,3 +24,11 @@ outside `DEBUG=True` on purpose, see its `--help`.
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for what's expected before
 opening a PR (tests, Tailwind rebuild, `VERSION`/`CHANGELOG.md`).
+
+## Finding slow queries
+
+On SQLite there is no query statistics view; use django-silk
+(`SILK_ENABLED=True`, see [CONFIGURATION.md](CONFIGURATION.md)) to see each
+request's SQL and timing. Against Postgres (the Docker setup), Settings →
+Maintenance → Query performance shows the slowest queries and probable
+missing indexes - see [MAINTENANCE.md](MAINTENANCE.md#finding-slow-queries).

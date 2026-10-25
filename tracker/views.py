@@ -5238,6 +5238,44 @@ def _summarize_for_toast(output, max_lines=8):
     return "\n".join(shown) + f"\n... and {len(lines) - max_lines} more line(s) - see the server logs for the full list."
 
 
+def _query_stats_response(request, profile):
+    from django.db import connection
+
+    from tracker import query_stats
+
+    sort = request.POST.get("sort") or request.GET.get("sort")
+    return render(request, "tracker/partials/settings_query_stats.html", query_stats.snapshot(connection, sort))
+
+
+@login_required
+def query_stats_partial(request):
+    """Maintenance tab -> "Query performance": the slowest queries and
+    probable missing indexes from Postgres's own statistics. Lazy-loaded
+    (HTMX) the first time the tab is opened. Owner only - it shows the
+    app's SQL."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or not profile.is_owner:
+        raise Http404
+    return _query_stats_response(request, profile)
+
+
+@login_required
+@require_POST
+def query_stats_reset(request):
+    """Clears pg_stat_statements so the next window starts clean (handy right
+    after a fix). No-op unless the extension is actually ready."""
+    from django.db import connection
+
+    from tracker import query_stats
+
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or not profile.is_owner:
+        raise Http404
+    if query_stats.status(connection) == query_stats.READY:
+        query_stats.reset(connection)
+    return _query_stats_response(request, profile)
+
+
 @login_required
 @require_POST
 def run_merge_duplicates(request):

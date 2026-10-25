@@ -1,0 +1,68 @@
+{# context: query_stats.snapshot() - state, sort, sorts, slow_ms and, when state is "ready", queries and table_scans. Swapped into #query-stats; owner only. #}
+{% if state == "unsupported" %}
+  <p class="text-[13px] text-ink-dim">Query statistics come from Postgres. This install is running on SQLite, which doesn't record them - use <code>SILK_ENABLED</code> (see the docs) to profile queries here instead.</p>
+{% elif state == "error" %}
+  <p class="text-[13px] text-ink-dim">Postgres wouldn't hand over its query statistics - usually because the database user lacks permission to read <code>pg_stat_statements</code>, or the extension is half set up. The details are in the server logs.</p>
+{% elif state == "not_preloaded" %}
+  <p class="text-[13px] text-ink-dim">Postgres isn't collecting query statistics yet. The compose files now start it with <code>shared_preload_libraries=pg_stat_statements</code> - pull the latest compose file and run <code>docker compose up -d</code> (this restarts the database once, which takes a few seconds). Your data isn't touched.</p>
+{% elif state == "no_extension" %}
+  <p class="text-[13px] text-ink-dim">Postgres is set up to collect statistics but the extension hasn't been created in this database. Run <code>python manage.py migrate</code> (or <code>CREATE EXTENSION pg_stat_statements;</code> as a database superuser), then reload this.</p>
+{% else %}
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+    <div class="seg" role="group" aria-label="Sort queries by">
+      {% for key, pair in sorts.items %}
+        <button type="button" class="seg-item" aria-pressed="{% if key == sort %}true{% else %}false{% endif %}"
+                hx-get="{% url 'query_stats_partial' %}?sort={{ key }}" hx-target="#query-stats" hx-swap="innerHTML">{{ pair.1 }}</button>
+      {% endfor %}
+    </div>
+    <form hx-post="{% url 'query_stats_reset' %}" hx-target="#query-stats" hx-swap="innerHTML"
+          hx-confirm="Clear the collected query statistics? The next window starts empty.">
+      {% csrf_token %}
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <button type="submit" class="text-[12.5px] font-semibold text-ink-dim hover:text-error">Reset statistics</button>
+    </form>
+  </div>
+
+  {% if queries %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-[12.5px] min-w-[34rem]">
+        <thead class="text-left text-ink-dim">
+          <tr><th class="pb-2 pr-3 font-medium">Query</th><th class="pb-2 pr-3 font-medium text-right">Avg</th><th class="pb-2 pr-3 font-medium text-right">Calls</th><th class="pb-2 pr-3 font-medium text-right">Total</th><th class="pb-2 font-medium text-right">Cache</th></tr>
+        </thead>
+        <tbody class="divide-y divide-line align-top">
+          {% for q in queries %}
+            <tr>
+              <td class="py-2 pr-3 max-w-[22rem]">
+                <code class="block font-mono text-[11.5px] line-clamp-2 break-all" title="{{ q.query }}">{{ q.query }}</code>
+                {% if q.slow %}<span class="chip chip-error mt-1">Slow &middot; over {{ slow_ms }} ms</span>{% endif %}
+              </td>
+              <td class="py-2 pr-3 text-right tabular-nums whitespace-nowrap {% if q.slow %}text-error font-semibold{% endif %}">{{ q.mean_ms }} ms</td>
+              <td class="py-2 pr-3 text-right tabular-nums">{{ q.calls }}</td>
+              <td class="py-2 pr-3 text-right tabular-nums whitespace-nowrap">{{ q.total_ms }} ms</td>
+              <td class="py-2 text-right tabular-nums">{% if q.cache_hit_pct is not None %}{{ q.cache_hit_pct }}%{% else %}&ndash;{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="text-[13px] text-ink-dim">Nothing recorded yet - use the app for a bit and check back.</p>
+  {% endif %}
+
+  {% if table_scans %}
+    <h4 class="subhead mt-5 mb-2">Possibly missing indexes</h4>
+    <p class="text-[12.5px] text-ink-dim mb-2">Tables Postgres mostly reads start to finish instead of through an index.</p>
+    <div class="overflow-x-auto">
+      <table class="w-full text-[12.5px] min-w-[26rem]">
+        <thead class="text-left text-ink-dim">
+          <tr><th class="pb-2 pr-3 font-medium">Table</th><th class="pb-2 pr-3 font-medium text-right">Rows</th><th class="pb-2 pr-3 font-medium text-right">Full scans</th><th class="pb-2 pr-3 font-medium text-right">Index scans</th><th class="pb-2 font-medium text-right">Rows read</th></tr>
+        </thead>
+        <tbody class="divide-y divide-line">
+          {% for t in table_scans %}
+            <tr><td class="py-1.5 pr-3 font-mono text-[12px]">{{ t.table }}</td><td class="py-1.5 pr-3 text-right tabular-nums">{{ t.rows }}</td><td class="py-1.5 pr-3 text-right tabular-nums">{{ t.seq_scans }}</td><td class="py-1.5 pr-3 text-right tabular-nums">{{ t.index_scans }}</td><td class="py-1.5 text-right tabular-nums">{{ t.rows_read }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+{% endif %}

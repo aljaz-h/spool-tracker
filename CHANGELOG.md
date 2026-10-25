@@ -8,6 +8,26 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.158.0] - 2026-10-25
+
+### Added
+
+- Settings → Maintenance → Query performance (owner only): the slowest
+  database queries by total time, average time or call count, how much of
+  each came from cache, anything averaging over 100 ms flagged, plus the
+  tables Postgres mostly reads start to finish instead of through an
+  index (probable missing indexes), and a "Reset statistics" button. It
+  reads Postgres's `pg_stat_statements`, which the compose files now
+  preload and a new migration creates.
+
+### Changed
+
+- **Upgrade note:** the database service in all three compose files now
+  starts with `shared_preload_libraries=pg_stat_statements`, so the first
+  `docker compose up -d` after updating recreates the database container
+  - a few seconds of downtime while Postgres restarts. Data is untouched
+  (it lives in the `db_data` volume).
+
 ## [0.157.1] - 2026-10-24
 
 ### Fixed

@@ -50,3 +50,29 @@ the [database backup](#backups) taken before you upgraded too.
 ```bash
 docker compose exec db pg_dump -U spool spool > backup.sql
 ```
+
+## Finding slow queries
+
+**Settings → Maintenance → Query performance** (owner only) lists the
+slowest database queries since statistics were last reset - by total time,
+by average time, or by how often they run - with how many of their reads
+came from cache, plus the tables Postgres mostly reads start to finish
+instead of through an index (probable missing indexes). Anything averaging
+over 100 ms is flagged. It reads Postgres's own `pg_stat_statements`
+extension, so it also covers background tasks and the nightly sync, not just
+web requests. "Reset statistics" clears the counters, handy right after a fix
+to see whether it helped.
+
+**Turning it on for an existing install:** the compose files now start the
+database with `shared_preload_libraries=pg_stat_statements` (it has to be
+loaded when Postgres starts), and a migration creates the extension. So
+after `git pull` / a redeploy, `docker compose up -d` recreates the
+database container once. That is a few seconds of downtime while Postgres
+restarts; your data lives in the `db_data` volume and is untouched, but it
+is a good moment to take a [backup](#backups) first. Collection costs
+roughly 1-3% of database time. The panel says what is missing if it is not
+working yet.
+
+On SQLite (the no-Docker dev setup) there is nothing to read; set
+`SILK_ENABLED` (see [CONFIGURATION.md](CONFIGURATION.md)) to profile
+requests and their SQL instead.

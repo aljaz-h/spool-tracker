@@ -30667,3 +30667,199 @@ class SearchViewImprovementsTests(TestCase):
         with CaptureQueriesContext(connection) as large:
             self.get("man")
         self.assertEqual(len(large), len(small))
+
+
+from tracker import query_stats as _qs  # noqa: E402
+
+
+class _FakeCursor:
+    """Answers query_stats' SQL from a script: a list of (substring of the
+    SQL, rows) pairs - the first matching substring wins."""
+
+    def __init__(self, script, log):
+        self.script, self.log, self.rows = script, log, []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params=None):
+        self.log.append((" ".join(sql.split()), params))
+        for needle, rows in self.script:
+            if needle in sql:
+                self.rows = rows
+                return
+        self.rows = []
+
+    def fetchone(self):
+        return self.rows[0] if self.rows else None
+
+    def fetchall(self):
+        return self.rows
+
+
+class _FakeConnection:
+    def __init__(self, script=(), vendor="postgresql"):
+        self.vendor, self.script, self.log = vendor, script, []
+
+    def cursor(self):
+        return _FakeCursor(self.script, self.log)
+
+
+class QueryStatsTests(SimpleTestCase):
+    def test_sqlite_is_unsupported_and_runs_no_sql(self):
+        conn = _FakeConnection(vendor="sqlite")
+        self.assertEqual(_qs.status(conn), _qs.UNSUPPORTED)
+        self.assertEqual(conn.log, [])
+        self.assertEqual(_qs.snapshot(conn)["state"], _qs.UNSUPPORTED)
+
+    def test_status_walks_from_not_preloaded_to_ready(self):
+        preload = lambda value: ("SHOW shared_preload_libraries", [(value,)])
+        self.assertEqual(_qs.status(_FakeConnection([preload("")])), _qs.NOT_PRELOADED)
+        self.assertEqual(_qs.status(_FakeConnection([preload("pg_stat_statements")])), _qs.NO_EXTENSION)
+        ready = _FakeConnection([preload("pg_cron,pg_stat_statements"), ("FROM pg_extension", [(1,)])])
+        self.assertEqual(_qs.status(ready), _qs.READY)
+
+    def test_top_queries_are_shaped_and_slow_ones_flagged(self):
+        rows = [
+            ("SELECT * FROM tracker_watchevent\n   WHERE profile_id = $1", 1200, 96000.4, 80.0, 900.2, 5000, 900, 100),
+            ("SELECT 1", 10, 5.0, 0.5, 1.0, 10, 0, 0),
+        ]
+        conn = _FakeConnection([("FROM pg_stat_statements", rows)])
+        queries = _qs.top_queries(conn, "mean")
+        self.assertEqual(queries[0]["query"], "SELECT * FROM tracker_watchevent WHERE profile_id = $1")
+        self.assertEqual(queries[0]["calls"], 1200)
+        self.assertEqual(queries[0]["mean_ms"], 80.0)
+        self.assertEqual(queries[0]["cache_hit_pct"], 90)
+        self.assertFalse(queries[0]["slow"])
+        self.assertIsNone(queries[1]["cache_hit_pct"])
+        slow = _qs.top_queries(_FakeConnection([("FROM pg_stat_statements", [("SELECT 2", 3, 900.0, 300.0, 400.0, 3, 1, 1)])]))
+        self.assertTrue(slow[0]["slow"])
+
+    def test_the_sort_is_whitelisted_never_interpolated(self):
+        self.assertEqual(_qs.clean_sort("mean"), "mean")
+        self.assertEqual(_qs.clean_sort("1; DROP TABLE tracker_title"), _qs.DEFAULT_SORT)
+        self.assertEqual(_qs.clean_sort(None), _qs.DEFAULT_SORT)
+        conn = _FakeConnection([("FROM pg_stat_statements", [])])
+        _qs.top_queries(conn, "1; DROP TABLE tracker_title")
+        sql = conn.log[0][0]
+        self.assertIn("ORDER BY total_exec_time DESC", sql)
+        self.assertNotIn("DROP", sql)
+
+    def test_table_scans_are_shaped(self):
+        conn = _FakeConnection([("FROM pg_stat_user_tables", [("tracker_watchevent", 500, 9_000_000, 20, 50_000)])])
+        self.assertEqual(
+            _qs.table_scans(conn),
+            [{"table": "tracker_watchevent", "seq_scans": 500, "rows_read": 9_000_000, "index_scans": 20, "rows": 50_000}],
+        )
+
+    def test_snapshot_only_reads_stats_when_ready(self):
+        not_ready = _FakeConnection([("SHOW shared_preload_libraries", [("",)])])
+        self.assertNotIn("queries", _qs.snapshot(not_ready))
+        ready = _FakeConnection([
+            ("SHOW shared_preload_libraries", [("pg_stat_statements",)]),
+            ("FROM pg_extension", [(1,)]),
+            ("FROM pg_stat_statements", [("SELECT 3", 1, 1.0, 1.0, 1.0, 1, 1, 0)]),
+            ("FROM pg_stat_user_tables", []),
+        ])
+        snap = _qs.snapshot(ready, "calls")
+        self.assertEqual(snap["state"], _qs.READY)
+        self.assertEqual(snap["sort"], "calls")
+        self.assertEqual(len(snap["queries"]), 1)
+
+    def test_a_postgres_error_becomes_an_error_state_not_a_crash(self):
+        from django.db import DatabaseError
+
+        class Boom(_FakeConnection):
+            def cursor(self):
+                raise DatabaseError("permission denied for view pg_stat_statements")
+
+        with self.assertLogs("tracker.query_stats", level="WARNING"):
+            snap = _qs.snapshot(Boom())
+        self.assertEqual(snap["state"], _qs.ERROR)
+        self.assertNotIn("queries", snap)
+
+    def test_reset_calls_the_reset_function(self):
+        conn = _FakeConnection()
+        _qs.reset(conn)
+        self.assertIn("pg_stat_statements_reset()", conn.log[0][0])
+
+    def test_our_own_stats_queries_are_excluded(self):
+        conn = _FakeConnection([("FROM pg_stat_statements", [])])
+        _qs.top_queries(conn)
+        sql = conn.log[0][0]
+        self.assertIn("NOT ILIKE '%%pg_stat_statements%%'", sql)
+        self.assertIn("current_database()", sql)
+
+
+class QueryStatsViewTests(TestCase):
+    def setUp(self):
+        self.owner = Profile.objects.create(
+            user=User.objects.create_superuser("qsowner", password="pass12345"), display_name="QsOwner"
+        )
+        self.member = Profile.objects.create(
+            user=User.objects.create_user("qsmember", password="pass12345"), display_name="QsMember"
+        )
+        self.client.login(username="qsowner", password="pass12345")
+
+    def test_the_owner_sees_the_sqlite_explanation(self):
+        self.assertTrue(self.owner.is_owner)
+        resp = self.client.get(reverse("query_stats_partial"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "running on SQLite")
+
+    def test_a_non_owner_gets_a_404(self):
+        self.client.logout()
+        self.client.login(username="qsmember", password="pass12345")
+        self.assertEqual(self.client.get(reverse("query_stats_partial")).status_code, 404)
+        self.assertEqual(self.client.post(reverse("query_stats_reset")).status_code, 404)
+
+    def test_login_is_required(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(reverse("query_stats_partial")).status_code, 302)
+
+    def test_reset_needs_post_and_is_a_safe_no_op_without_postgres(self):
+        self.assertEqual(self.client.get(reverse("query_stats_reset")).status_code, 405)
+        resp = self.client.post(reverse("query_stats_reset"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "running on SQLite")
+
+    def test_the_panel_renders_queries_and_flags_slow_ones(self):
+        snapshot = {
+            "state": "ready", "sort": "mean", "sorts": _qs.SORTS, "slow_ms": 100,
+            "queries": [{"query": "SELECT slow_thing", "calls": 3, "total_ms": 900, "mean_ms": 300.0, "max_ms": 400, "rows": 3, "cache_hit_pct": 80, "slow": True}],
+            "table_scans": [{"table": "tracker_watchevent", "seq_scans": 5, "rows_read": 99, "index_scans": 1, "rows": 2000}],
+        }
+        with patch("tracker.query_stats.snapshot", return_value=snapshot):
+            resp = self.client.get(reverse("query_stats_partial"), {"sort": "mean"})
+        self.assertContains(resp, "SELECT slow_thing")
+        self.assertContains(resp, "over 100 ms")
+        self.assertContains(resp, "Possibly missing indexes")
+        self.assertContains(resp, "tracker_watchevent")
+        self.assertContains(resp, 'aria-pressed="true"')
+
+    def test_the_error_state_points_at_the_logs(self):
+        with patch("tracker.query_stats.snapshot", return_value={"state": "error", "sort": "total", "sorts": _qs.SORTS}):
+            resp = self.client.get(reverse("query_stats_partial"))
+        self.assertContains(resp, "server logs")
+
+    def test_the_not_preloaded_state_says_how_to_fix_it(self):
+        with patch("tracker.query_stats.snapshot", return_value={"state": "not_preloaded", "sort": "total", "sorts": _qs.SORTS}):
+            resp = self.client.get(reverse("query_stats_partial"))
+        self.assertContains(resp, "shared_preload_libraries=pg_stat_statements")
+        self.assertContains(resp, "docker compose up -d")
+
+    def test_the_maintenance_tab_lazy_loads_the_panel(self):
+        resp = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(resp, 'id="query-stats"')
+        self.assertContains(resp, reverse("query_stats_partial"))
+
+    def test_the_compose_files_preload_the_extension(self):
+        from pathlib import Path
+
+        root = Path(django_settings.BASE_DIR)
+        for name in ("docker-compose.yml", "docker-compose.prod.yml", "docker-compose.coolify.yml"):
+            self.assertIn("shared_preload_libraries=pg_stat_statements", (root / name).read_text(encoding="utf-8"), name)
+
