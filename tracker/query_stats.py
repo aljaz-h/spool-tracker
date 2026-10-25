@@ -1,4 +1,4 @@
-"""Settings -> Maintenance "Query performance" - what Postgres itself knows
+"""Settings -> Server "Query performance" - what Postgres itself knows
 about which queries are slow, from the pg_stat_statements extension (the
 slowest query shapes by total or mean time, how often they run, how much of
 their data came from cache) and from pg_stat_user_tables (tables read by
@@ -11,6 +11,7 @@ status() says so. Queries come back from Postgres already normalised
 the panel is owner-only."""
 
 import logging
+import re
 
 from django.db import DatabaseError
 
@@ -34,6 +35,40 @@ DEFAULT_SORT = "total"
 SLOW_MEAN_MS = 100
 # A table is only suspect for seq scans once it has this many rows.
 SEQ_SCAN_MIN_ROWS = 1000
+
+
+_SELECT_LIST = re.compile(r"^(SELECT(?:\s+DISTINCT)?)\s+(.*?)\s+(FROM\s.*)$", re.I | re.S)
+_BREAK_BEFORE = re.compile(
+    r"\s+(FROM|INNER JOIN|LEFT OUTER JOIN|LEFT JOIN|RIGHT JOIN|CROSS JOIN|WHERE|GROUP BY|HAVING|ORDER BY|LIMIT|OFFSET|UNION ALL|UNION|SET|VALUES|RETURNING)\s",
+    re.I,
+)
+_SUMMARY_LENGTH = 170
+# A column list shorter than this is kept in the summary (SELECT COUNT(*) ...).
+_SHORT_COLUMN_LIST = 60
+
+
+def summarize(query, limit=_SUMMARY_LENGTH):
+    """One readable line for a query: whitespace and identifier quotes
+    removed and a long SELECT column list (Django selects every column of
+    every joined table) collapsed to an ellipsis - what is left is the
+    tables, joins and filters, which is what you read to judge a query."""
+    text = " ".join(query.split()).replace('"', "")
+    match = _SELECT_LIST.match(text)
+    if match and len(match.group(2)) > _SHORT_COLUMN_LIST:
+        text = f"{match.group(1)} \u2026 {match.group(3)}"
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "\u2026"
+
+
+def format_sql(query):
+    """The full statement over several lines (a break before each clause,
+    one selected column per line) for the expanded view and for copying."""
+    text = " ".join(query.split())
+    match = _SELECT_LIST.match(text)
+    if match:
+        columns = re.sub(r",\s*", ",\n  ", match.group(2))
+        text = f"{match.group(1)}\n  {columns}\n{match.group(3)}"
+    text = _BREAK_BEFORE.sub(lambda m: f"\n{m.group(1).upper() if m.group(1).islower() else m.group(1)} ", text)
+    return re.sub(r"\s+(AND|OR)\s", lambda m: f"\n  {m.group(1)} ", text)
 
 
 def clean_sort(value):
@@ -90,6 +125,8 @@ def top_queries(connection, sort=DEFAULT_SORT, limit=15):
         result.append(
             {
                 "query": " ".join(query.split()),
+                "summary": summarize(query),
+                "sql": format_sql(query),
                 "calls": calls,
                 "total_ms": round(total_ms or 0),
                 "mean_ms": round(mean_ms or 0, 1),

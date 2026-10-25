@@ -1,5 +1,5 @@
 # Creates the pg_stat_statements extension on Postgres so Settings ->
-# Maintenance -> Query performance has something to read (see
+# Server -> Query performance has something to read (see
 # tracker/query_stats.py). A no-op on SQLite, and it never fails the
 # migration: if the database user may not create extensions, or the
 # extension is not installed, it simply is not created and the panel says

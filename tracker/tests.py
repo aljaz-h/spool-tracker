@@ -30781,6 +30781,42 @@ class QueryStatsTests(SimpleTestCase):
         self.assertEqual(snap["state"], _qs.ERROR)
         self.assertNotIn("queries", snap)
 
+    def test_summarize_collapses_a_long_column_list(self):
+        cols = ", ".join(f'"tracker_datalog"."col{i}"' for i in range(30))
+        sql = f'SELECT {cols} FROM "tracker_datalog" INNER JOIN "tracker_profile" ON ("x"."a" = "y"."b") ORDER BY "tracker_datalog"."created_at" DESC LIMIT 1'
+        summary = _qs.summarize(sql)
+        self.assertTrue(summary.startswith("SELECT \u2026 FROM tracker_datalog INNER JOIN tracker_profile"))
+        self.assertNotIn('"', summary)
+        self.assertNotIn("col7", summary)
+        self.assertLessEqual(len(summary), 170)
+
+    def test_summarize_keeps_a_short_select_list_and_other_statements(self):
+        self.assertEqual(_qs.summarize('SELECT COUNT(*) AS "__count" FROM "tracker_title"'), "SELECT COUNT(*) AS __count FROM tracker_title")
+        self.assertEqual(
+            _qs.summarize('UPDATE "tracker_profile" SET "last_seen_at" = $1 WHERE "tracker_profile"."id" = $2'),
+            "UPDATE tracker_profile SET last_seen_at = $1 WHERE tracker_profile.id = $2",
+        )
+        self.assertTrue(_qs.summarize("SELECT " + "x" * 400).endswith("\u2026"))
+
+    def test_format_sql_puts_each_clause_and_column_on_its_own_line(self):
+        sql = 'SELECT "a"."id", "a"."name", "a"."year" FROM "a" INNER JOIN "b" ON ("a"."id" = "b"."a_id") WHERE "a"."x" = $1 AND "a"."y" = $2 ORDER BY "a"."id" LIMIT 5'
+        formatted = _qs.format_sql(sql)
+        lines = formatted.split("\n")
+        self.assertEqual(lines[0], "SELECT")
+        self.assertIn('  "a"."id",', lines)
+        self.assertTrue(any(line.startswith("FROM ") for line in lines))
+        self.assertTrue(any(line.startswith("INNER JOIN ") for line in lines))
+        self.assertTrue(any(line.startswith("WHERE ") for line in lines))
+        self.assertIn('  AND "a"."y" = $2', lines)
+        self.assertTrue(any(line.startswith("ORDER BY ") for line in lines))
+        self.assertEqual(" ".join(formatted.split()), " ".join(sql.split()))  # nothing lost, only re-flowed
+
+    def test_top_queries_carry_a_summary_and_a_formatted_sql(self):
+        conn = _FakeConnection([("FROM pg_stat_statements", [("SELECT \"a\" FROM \"b\" WHERE \"c\" = $1", 1, 1.0, 1.0, 1.0, 1, 1, 0)])])
+        q = _qs.top_queries(conn)[0]
+        self.assertEqual(q["summary"], "SELECT a FROM b WHERE c = $1")
+        self.assertIn("\nWHERE ", q["sql"])
+
     def test_reset_calls_the_reset_function(self):
         conn = _FakeConnection()
         _qs.reset(conn)
@@ -30829,13 +30865,16 @@ class QueryStatsViewTests(TestCase):
     def test_the_panel_renders_queries_and_flags_slow_ones(self):
         snapshot = {
             "state": "ready", "sort": "mean", "sorts": _qs.SORTS, "slow_ms": 100,
-            "queries": [{"query": "SELECT slow_thing", "calls": 3, "total_ms": 900, "mean_ms": 300.0, "max_ms": 400, "rows": 3, "cache_hit_pct": 80, "slow": True}],
+            "queries": [{"query": "SELECT slow_thing", "summary": "SELECT slow_thing", "sql": "SELECT slow_thing", "calls": 3, "total_ms": 900, "mean_ms": 300.0, "max_ms": 400, "rows": 3, "cache_hit_pct": 80, "slow": True}],
             "table_scans": [{"table": "tracker_watchevent", "seq_scans": 5, "rows_read": 99, "index_scans": 1, "rows": 2000}],
         }
         with patch("tracker.query_stats.snapshot", return_value=snapshot):
             resp = self.client.get(reverse("query_stats_partial"), {"sort": "mean"})
         self.assertContains(resp, "SELECT slow_thing")
-        self.assertContains(resp, "over 100 ms")
+        self.assertContains(resp, "avg over 100 ms")
+        self.assertContains(resp, "Show SQL")
+        self.assertContains(resp, "Copy SQL")
+        self.assertContains(resp, "Copy all as text")
         self.assertContains(resp, "Possibly missing indexes")
         self.assertContains(resp, "tracker_watchevent")
         self.assertContains(resp, 'aria-pressed="true"')
@@ -30851,10 +30890,19 @@ class QueryStatsViewTests(TestCase):
         self.assertContains(resp, "shared_preload_libraries=pg_stat_statements")
         self.assertContains(resp, "docker compose up -d")
 
-    def test_the_maintenance_tab_lazy_loads_the_panel(self):
-        resp = self.client.get(reverse("admin_dashboard"))
-        self.assertContains(resp, 'id="query-stats"')
-        self.assertContains(resp, reverse("query_stats_partial"))
+    def test_it_has_its_own_wide_settings_tab_that_lazy_loads(self):
+        body = self.client.get(reverse("admin_dashboard")).content.decode()
+        self.assertIn("tab === 'query_performance'", body)
+        self.assertIn("setTab('query_performance')", body)
+        self.assertIn("tab === 'query_performance') ? 'max-w-7xl'", body)  # same width as Logs
+        self.assertEqual(body.count('id="query-stats"'), 1)
+        self.assertIn(reverse("query_stats_partial"), body)
+
+    def test_it_is_no_longer_a_card_inside_the_maintenance_tab(self):
+        body = self.client.get(reverse("admin_dashboard")).content.decode()
+        maintenance = body[body.index("x-show=\"tab === 'maintenance'\""):body.index("x-show=\"tab === 'query_performance'\"")]
+        self.assertNotIn("query-stats", maintenance)
+        self.assertIn("Backfill rewatches", maintenance)  # ...and the real maintenance jobs are still there
 
     def test_the_compose_files_preload_the_extension(self):
         from pathlib import Path

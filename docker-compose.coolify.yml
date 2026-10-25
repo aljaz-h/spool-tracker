@@ -64,7 +64,7 @@ services:
     restart: unless-stopped
 
     # pg_stat_statements records every query shape's timing; Settings ->
-    # Maintenance -> Query performance reads it. It has to be preloaded at
+    # Server -> Query performance reads it. It has to be preloaded at
     # server start, so enabling it on an existing install recreates this
     # container once on the next `up -d` (data lives in the db_data volume).
     command:

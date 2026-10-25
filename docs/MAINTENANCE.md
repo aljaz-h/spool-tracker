@@ -53,7 +53,7 @@ docker compose exec db pg_dump -U spool spool > backup.sql
 
 ## Finding slow queries
 
-**Settings → Maintenance → Query performance** (owner only) lists the
+**Settings → Server → Query performance** (owner only) lists the
 slowest database queries since statistics were last reset - by total time,
 by average time, or by how often they run - with how many of their reads
 came from cache, plus the tables Postgres mostly reads start to finish

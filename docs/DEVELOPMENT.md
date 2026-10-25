@@ -30,5 +30,5 @@ opening a PR (tests, Tailwind rebuild, `VERSION`/`CHANGELOG.md`).
 On SQLite there is no query statistics view; use django-silk
 (`SILK_ENABLED=True`, see [CONFIGURATION.md](CONFIGURATION.md)) to see each
 request's SQL and timing. Against Postgres (the Docker setup), Settings →
-Maintenance → Query performance shows the slowest queries and probable
+Server → Query performance shows the slowest queries and probable
 missing indexes - see [MAINTENANCE.md](MAINTENANCE.md#finding-slow-queries).

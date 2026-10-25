@@ -8,6 +8,24 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.158.1] - 2026-10-25
+
+### Changed
+
+- Query performance has its own tab in Settings (Server → Query performance),
+  as wide as the Logs tab, instead of a card squeezed into Maintenance.
+
+### Fixed
+
+- The Query performance panel printed every query's full SQL (Django
+  selects every column of every joined table) in a cramped five-column
+  table, which was unreadable. Each query is now a compact entry: a
+  one-line summary ("SELECT ... FROM tracker_datalog INNER JOIN ..."), its
+  average / calls / total / max / cache figures underneath, and "Show SQL"
+  to expand the full statement over several lines. Each query has a "Copy
+  SQL" button and the panel has "Copy all as text" for pasting the whole
+  list somewhere.
+
 ## [0.158.0] - 2026-10-25
 
 ### Added

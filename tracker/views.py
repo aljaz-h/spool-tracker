@@ -5249,7 +5249,7 @@ def _query_stats_response(request, profile):
 
 @login_required
 def query_stats_partial(request):
-    """Maintenance tab -> "Query performance": the slowest queries and
+    """Settings -> Server -> "Query performance": the slowest queries and
     probable missing indexes from Postgres's own statistics. Lazy-loaded
     (HTMX) the first time the tab is opened. Owner only - it shows the
     app's SQL."""
