@@ -142,12 +142,11 @@ class Profile(models.Model):
     # (selectors.activity_feed). Only ever shown/relevant with >1 profile
     # on the instance, same gating Activity itself already uses.
     share_activity = models.BooleanField(default=True)
-    # Settings → Notifications - each in-app notification source
-    # (tracker/notifications.py) checks its own flag before creating a
-    # Notification row for this profile.
-    notify_new_releases = models.BooleanField(default=True)
-    notify_upcoming_releases = models.BooleanField(default=True)
-    notify_sync_failures = models.BooleanField(default=True)
+    # Settings → Notifications - per notification type, whether it reaches
+    # the in-app bell and/or push: {"digital_release": {"app": true}, ...}.
+    # Only choices that differ from the defaults are stored; the types,
+    # their defaults and the lookups live in tracker/notification_prefs.py.
+    notification_prefs = models.JSONField(default=dict, blank=True)
     # Settings → Notifications "Push notifications" card - mirrors
     # whatever already reaches the in-app bell out through Apprise
     # (tracker/push.py) to a fixed allowlist of hosted services
@@ -749,6 +748,10 @@ class ReleaseSchedule(models.Model):
         EPISODE = "episode", "New episode"
         SEASON_PREMIERE = "season_premiere", "Season premiere"
         MOVIE_RELEASE = "movie_release", "Movie release"
+        # The (US) digital release of a movie - only ever drives the
+        # "now available at home" notification, so selectors that build
+        # the calendar/Up Next leave it out.
+        DIGITAL_RELEASE = "digital_release", "Digital release"
 
     title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="releases")
     episode = models.ForeignKey(
@@ -783,7 +786,8 @@ class ReleaseSchedule(models.Model):
 
 
 class Notification(models.Model):
-    """In-app only (see tracker/notifications.py) - no email/push. Kind
+    """The bell (see tracker/notifications.py); push mirrors it per profile
+    choice (tracker/push.py, tracker/notification_prefs.py). Kind
     determines what title/release_schedule mean: release-based kinds, both
     recommendation kinds, and watchlist_stale always carry title;
     sync_failed and system_update carry neither (title is
@@ -796,6 +800,7 @@ class Notification(models.Model):
     class Kind(models.TextChoices):
         NEW_RELEASE = "new_release", "New release"
         UPCOMING_RELEASE = "upcoming_release", "Upcoming release"
+        DIGITAL_RELEASE = "digital_release", "Digital release"
         SYNC_FAILED = "sync_failed", "Sync failed"
         SYSTEM_UPDATE = "system_update", "System update"
         RECOMMENDATION_RECEIVED = "recommendation_received", "Recommendation received"
@@ -815,6 +820,10 @@ class Notification(models.Model):
     )
     message = models.CharField(max_length=255)
     read = models.BooleanField(default=False)
+    # False for a row kept only so its kind can dedupe (a release already
+    # announced, an update already pushed) when the profile turned the
+    # in-app channel off but still wants push - never shown in the bell.
+    in_app = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     # Where the row links to when it has no title - the Import Review page
     # or Settings' backups card (import_status/backup_status kinds).

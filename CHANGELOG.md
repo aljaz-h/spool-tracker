@@ -8,6 +8,32 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.159.0] - 2026-10-28
+
+### Added
+
+- **Digital release notifications.** A new opt-in notification tells you when
+  a movie on your watchlist becomes available to buy, rent or stream at home
+  (TMDB's US digital release date). It is off by default and skips movies you
+  have already watched.
+- **Choose where each notification goes.** Settings → Notifications is now a
+  table with one row per type and two checkboxes - In app and Push - so you
+  can, for example, get sync failures in both, the watchlist time capsule in
+  the bell only, and digital releases as a push only. Recommendations, the
+  watchlist time capsule, backup results, import results and app updates
+  (server owner) can now be switched off too; before, only new episodes,
+  upcoming reminders and sync failures could.
+- Backup and import results can now be sent as push notifications (a manual
+  backup or import finishing or failing, and the first failure of a scheduled
+  backup). They stay in-app only until you tick Push for them.
+
+### Changed
+
+- The three old notification toggles are carried over into the new table
+  automatically: anything you had turned off stays off, in the bell and in push.
+- Digital release dates are stored with the release schedule but are kept off
+  the calendar, the iCal feed and Up Next.
+
 ## [0.158.2] - 2026-10-28
 
 ### Security

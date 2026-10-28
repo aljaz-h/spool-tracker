@@ -23,7 +23,7 @@ from datetime import timedelta
 from django.db.models import Q
 from django.utils import timezone
 
-from . import push, selectors
+from . import notification_prefs, push, selectors
 from .models import Notification, Profile, ReleaseSchedule, WatchListItem
 
 # How close to "now" a release has to be to notify on it at all - a
@@ -33,6 +33,45 @@ from .models import Notification, Profile, ReleaseSchedule, WatchListItem
 # the other side.
 NEW_RELEASE_WINDOW = timedelta(days=1)
 UPCOMING_RELEASE_WINDOW = timedelta(days=3)
+
+
+def notify(profile, kind, lookup=None, **fields):
+    """The one way to create a Notification: honours the profile's
+    Settings -> Notifications choice for this kind. Returns
+    (notification, created); (None, False) when both channels are off.
+
+    Push-only profiles still get a row - release kinds dedupe on it, and
+    the push task reads its message - but flagged in_app=False and born
+    read, so it never reaches the bell or the unread count. lookup: when
+    given, get_or_create on it (plus profile/kind) instead of create, with
+    fields as the defaults."""
+    in_app, wants_push = notification_prefs.channels(profile, kind)
+    if not (in_app or wants_push):
+        return None, False
+    fields = {**fields, "in_app": in_app}
+    if not in_app:
+        fields["read"] = True
+    if lookup is None:
+        return Notification.objects.create(profile=profile, kind=kind, **fields), True
+    return Notification.objects.get_or_create(profile=profile, kind=kind, **lookup, defaults=fields)
+
+
+def push_wanted(profile, kind):
+    """Push is set up for this profile and they want this kind pushed."""
+    if not profile.push_notifications_enabled or not profile.get_push_notification_urls().strip():
+        return False
+    return notification_prefs.channels(profile, kind)[1]
+
+
+def dispatch_push(notification):
+    """Queues the Apprise delivery for a notification whose final text is
+    already saved - the explicit call for the kinds the post_save receiver
+    skips (see push.PUSH_ELIGIBLE_KINDS)."""
+    if not push_wanted(notification.profile, notification.kind):
+        return
+    from . import tasks
+
+    tasks.send_push_notification.delay(notification.id)
 
 
 def _profiles_watching(title):
@@ -117,9 +156,13 @@ def generate_release_notifications(now=None, labels_out=None):
     need it, same as every other labels_out caller."""
     now = now or timezone.now()
     created = 0
-    releases = ReleaseSchedule.objects.filter(
-        release_date__gte=now - NEW_RELEASE_WINDOW, release_date__lte=now + UPCOMING_RELEASE_WINDOW
-    ).select_related("title", "episode")
+    releases = (
+        ReleaseSchedule.objects.filter(
+            release_date__gte=now - NEW_RELEASE_WINDOW, release_date__lte=now + UPCOMING_RELEASE_WINDOW
+        )
+        .exclude(release_type=ReleaseSchedule.ReleaseType.DIGITAL_RELEASE)
+        .select_related("title", "episode")
+    )
 
     groups = {}
     for release in releases:
@@ -136,7 +179,7 @@ def generate_release_notifications(now=None, labels_out=None):
         label = _release_label(title, episodes, anchor.release_type)
 
         if group["is_new"]:
-            profiles = _profiles_watching(title).filter(notify_new_releases=True)
+            profiles = _profiles_watching(title)
             message = f"Now available: {label}"
             kind = Notification.Kind.NEW_RELEASE
         else:
@@ -145,20 +188,49 @@ def generate_release_notifications(now=None, labels_out=None):
             # else (%-d), so this composes it by hand instead.
             local_date = timezone.localtime(anchor.release_date)
             when = f"{local_date.strftime('%b')} {local_date.day}"
-            profiles = _profiles_tracking(title).filter(notify_upcoming_releases=True)
+            profiles = _profiles_tracking(title)
             message = f"Coming {when}: {label}"
             kind = Notification.Kind.UPCOMING_RELEASE
 
         for profile in profiles:
-            _, made = Notification.objects.get_or_create(
-                profile=profile,
-                kind=kind,
-                release_schedule=anchor,
-                defaults={"title": title, "message": message},
+            _, made = notify(
+                profile, kind, lookup={"release_schedule": anchor}, title=title, message=message
             )
             created += made
             if made and labels_out is not None:
                 labels_out.append(f"{label} ({profile.display_name})")
+    return created
+
+
+def generate_digital_release_notifications(now=None, labels_out=None):
+    """Movies that just became available at home (a DIGITAL_RELEASE row,
+    written by release_sync from TMDB's type-4 date) -> one notification per
+    profile that has the movie on a watchlist and hasn't watched it yet.
+    Same one-day look-back and (profile, kind, release_schedule) dedupe as
+    generate_release_notifications, so nightly reruns are idempotent. Off
+    by default per profile (notification_prefs), so most runs create
+    nothing. Returns the count of newly created rows; labels_out as there."""
+    now = now or timezone.now()
+    created = 0
+    releases = ReleaseSchedule.objects.filter(
+        release_type=ReleaseSchedule.ReleaseType.DIGITAL_RELEASE,
+        release_date__gte=now - NEW_RELEASE_WINDOW,
+        release_date__lte=now,
+    ).select_related("title")
+    for release in releases:
+        title = release.title
+        waiting = _profiles_tracking(title).exclude(watch_events__title=title)
+        for profile in waiting:
+            _, made = notify(
+                profile,
+                Notification.Kind.DIGITAL_RELEASE,
+                lookup={"release_schedule": release},
+                title=title,
+                message=f"Now available digitally: {title.name}",
+            )
+            created += made
+            if made and labels_out is not None:
+                labels_out.append(f"{title.name} ({profile.display_name})")
     return created
 
 
@@ -200,12 +272,14 @@ def generate_watchlist_stale_notifications(now=None, labels_out=None):
         if already_nudged:
             continue
         days = (now - item.added_at).days
-        Notification.objects.create(
-            profile=profile,
-            kind=Notification.Kind.WATCHLIST_STALE,
+        note, _ = notify(
+            profile,
+            Notification.Kind.WATCHLIST_STALE,
             title=item.title,
             message=f'"{item.title.name}" has been on your watchlist for {days} days - still interested?',
         )
+        if note is None:
+            continue
         created += 1
         if labels_out is not None:
             labels_out.append(f"{item.title.name} ({profile.display_name})")
@@ -216,14 +290,13 @@ def notify_sync_failure(profile, provider, error_message):
     """Called from tasks._run_sync's except block - event-driven, not
     part of the periodic scan above, since a failure is already a single
     concrete event with nothing to dedupe against. No-op (returns None)
-    when the profile has this source turned off."""
-    if not profile.notify_sync_failures:
-        return None
-    return Notification.objects.create(
-        profile=profile,
-        kind=Notification.Kind.SYNC_FAILED,
+    when the profile has this source turned off on both channels."""
+    note, _ = notify(
+        profile,
+        Notification.Kind.SYNC_FAILED,
         message=f"{provider.title()} sync failed: {error_message[:200]}",
     )
+    return note
 
 
 def on_notification_saved(sender, instance, created, raw=False, **kwargs):
@@ -245,9 +318,4 @@ def on_notification_saved(sender, instance, created, raw=False, **kwargs):
         return
     if instance.kind not in push.PUSH_ELIGIBLE_KINDS:
         return
-    profile = instance.profile
-    if not profile.push_notifications_enabled or not profile.get_push_notification_urls().strip():
-        return
-    from . import tasks
-
-    tasks.send_push_notification.delay(instance.id)
+    dispatch_push(instance)

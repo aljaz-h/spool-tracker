@@ -107,6 +107,7 @@ def _import_log_detail(session):
 
 
 def sync_import_session(session, status_changed=True):
+    from tracker import notifications
     from tracker.models import DataLog, ImportSession, Notification
 
     log_status, message, notify_unread, finished = _import_state(session)
@@ -132,20 +133,24 @@ def sync_import_session(session, status_changed=True):
 
     note = Notification.objects.filter(import_session=session).order_by("id").first()
     if note is None:
-        Notification.objects.create(
-            profile=session.profile, kind=Notification.Kind.IMPORT_STATUS, import_session=session,
+        note, _ = notifications.notify(
+            session.profile, Notification.Kind.IMPORT_STATUS, import_session=session,
             message=message[:255], link=reverse("import_review", args=[session.id]),
             # The person who just started it is looking at it - only a
             # later change (ready, done, failed) needs their attention.
             read=not notify_unread,
         )
+        if note is not None and notify_unread:
+            notifications.dispatch_push(note)
         return
     updates = {"message": message[:255]}
     if status_changed:
         updates["created_at"] = now  # moves to the top of the bell
-        updates["read"] = not notify_unread
+        updates["read"] = not notify_unread or not note.in_app
     if updates["message"] != note.message or status_changed:
         Notification.objects.filter(id=note.id).update(**updates)
+        if status_changed and notify_unread:
+            notifications.dispatch_push(note)
 
 
 def on_import_session_saved(sender, instance, created=False, update_fields=None, raw=False, **kwargs):
@@ -169,6 +174,7 @@ def start_backup(destination, notify=False):
     in_progress flag, and - for one the user started by hand - a
     "Backing up..." notification the result is written back into.
     Returns (data_log, notification_or_None)."""
+    from tracker import notifications
     from tracker.models import DataLog, Notification
 
     destination.in_progress = True
@@ -179,8 +185,8 @@ def start_backup(destination, notify=False):
     )
     note = None
     if notify:
-        note = Notification.objects.create(
-            profile=destination.profile, kind=Notification.Kind.BACKUP_STATUS, read=True,
+        note, _ = notifications.notify(
+            destination.profile, Notification.Kind.BACKUP_STATUS, read=True,
             message=f"Backing up to {destination.get_kind_display()}…", link=backup_link(),
         )
     return log, note
@@ -190,6 +196,7 @@ def finish_backup(destination, log, ok, message, note=None, previous_error=""):
     """Records a backup's outcome on its DataLog row and notification.
     A scheduled backup only notifies when it starts failing (not on every
     retry of the same failure, and not on routine success)."""
+    from tracker import notifications
     from tracker.models import DataLog, Notification
 
     destination.in_progress = False
@@ -204,10 +211,13 @@ def finish_backup(destination, log, ok, message, note=None, previous_error=""):
     text = f"Backed up to {name}." if ok else f"Backup to {name} failed: {message}"
     if note is not None:
         Notification.objects.filter(id=note.id).update(
-            message=text[:255], read=False, created_at=timezone.now(),
+            message=text[:255], read=not note.in_app, created_at=timezone.now(),
         )
+        notifications.dispatch_push(note)
     elif not ok and not previous_error:
-        Notification.objects.create(
-            profile=destination.profile, kind=Notification.Kind.BACKUP_STATUS,
+        failure, _ = notifications.notify(
+            destination.profile, Notification.Kind.BACKUP_STATUS,
             message=text[:255], link=backup_link(),
         )
+        if failure is not None:
+            notifications.dispatch_push(failure)

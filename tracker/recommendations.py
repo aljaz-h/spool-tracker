@@ -4,6 +4,7 @@ WatchEvent-creation site rather than a signal."""
 
 from django.utils import timezone
 
+from . import notifications
 from .models import Notification, Recommendation, WatchEvent
 
 
@@ -52,15 +53,15 @@ def send(from_profile, to_profile, title, is_blind=False):
     )
     if created:
         if is_blind:
-            Notification.objects.create(
-                profile=to_profile,
-                kind=Notification.Kind.RECOMMENDATION_RECEIVED,
+            notifications.notify(
+                to_profile,
+                Notification.Kind.RECOMMENDATION_RECEIVED,
                 message=f"{from_profile.display_name} sent you a mystery recommendation \U0001f381",
             )
         else:
-            Notification.objects.create(
-                profile=to_profile,
-                kind=Notification.Kind.RECOMMENDATION_RECEIVED,
+            notifications.notify(
+                to_profile,
+                Notification.Kind.RECOMMENDATION_RECEIVED,
                 title=title,
                 message=f"{from_profile.display_name} recommended: {title.name}",
             )
@@ -83,9 +84,9 @@ def mark_title_watched(profile, title):
         rec.save(update_fields=["status"])
         if not profile.share_activity:
             continue
-        Notification.objects.create(
-            profile=rec.from_profile,
-            kind=Notification.Kind.RECOMMENDATION_WATCHED,
+        notifications.notify(
+            rec.from_profile,
+            Notification.Kind.RECOMMENDATION_WATCHED,
             title=title,
             message=f"{profile.display_name} watched your recommendation: {title.name}",
         )
@@ -122,9 +123,9 @@ def reply(rec, reaction="", message=""):
         summary = f'{reaction_label} – "{message}"' if message else reaction_label
     else:
         summary = f'"{message}"'
-    Notification.objects.create(
-        profile=rec.from_profile,
-        kind=Notification.Kind.RECOMMENDATION_REPLIED,
+    notifications.notify(
+        rec.from_profile,
+        Notification.Kind.RECOMMENDATION_REPLIED,
         title=rec.title,
         message=f"{rec.to_profile.display_name} replied {summary} to your recommendation: {rec.title.name}",
     )

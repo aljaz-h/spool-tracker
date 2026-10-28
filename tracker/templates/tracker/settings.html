@@ -482,23 +482,32 @@
             <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "bell" "w-7 h-7" %}</div>
             <div class="min-w-0 flex-1">
               <h3 class="font-semibold text-[15px]">Notifications</h3>
-              <div class="text-[13px] text-ink-dim mt-0.5">What shows up in your bell.</div>
+              <div class="text-[13px] text-ink-dim mt-0.5">Choose what you hear about, and whether it shows in your bell, goes to push, or both.</div>
             </div>
           </div>
-          <div class="flex flex-col gap-3">
-            <label class="flex items-center justify-between gap-3 cursor-pointer">
-              <span class="text-[13.5px]">New episode/season alerts for what you're watching</span>
-              <input type="checkbox" name="notify_new_releases" class="checkbox checkbox-sm" {% if profile.notify_new_releases %}checked{% endif %}>
-            </label>
-            <label class="flex items-center justify-between gap-3 cursor-pointer">
-              <span class="text-[13.5px]">Calendar reminders for upcoming releases</span>
-              <input type="checkbox" name="notify_upcoming_releases" class="checkbox checkbox-sm" {% if profile.notify_upcoming_releases %}checked{% endif %}>
-            </label>
-            <label class="flex items-center justify-between gap-3 cursor-pointer">
-              <span class="text-[13.5px] flex items-center gap-2">Trakt/Simkl/Nuvio sync failures<span class="spool-spinner" aria-hidden="true"></span></span>
-              <input type="checkbox" name="notify_sync_failures" class="checkbox checkbox-sm" {% if profile.notify_sync_failures %}checked{% endif %}>
-            </label>
+          <div class="grid grid-cols-[1fr_auto_auto] items-center gap-x-5 gap-y-1">
+            <div class="text-[11px] uppercase tracking-wide text-ink-faint pb-1">Notify me about</div>
+            <div class="text-[11px] uppercase tracking-wide text-ink-faint pb-1 w-12 text-center">In app</div>
+            <div class="text-[11px] uppercase tracking-wide text-ink-faint pb-1 w-12 text-center">Push</div>
+            {% for group, rows in notification_table %}
+              <div class="col-span-3 text-[12px] font-semibold text-ink-dim pt-3 pb-1">{{ group }}</div>
+              {% for setting, app_on, push_on in rows %}
+                <div class="min-w-0 py-1.5">
+                  <div class="text-[13.5px]">{{ setting.label }}</div>
+                  <div class="text-[12px] text-ink-dim">{{ setting.hint }}</div>
+                </div>
+                <label class="w-12 flex justify-center cursor-pointer py-1.5" aria-label="{{ setting.label }} in the app">
+                  <input type="checkbox" name="{{ setting.key }}__app" class="checkbox checkbox-sm" {% if app_on %}checked{% endif %}>
+                </label>
+                <label class="w-12 flex justify-center cursor-pointer py-1.5 {% if not push_ready %}opacity-50{% endif %}" aria-label="{{ setting.label }} as a push notification">
+                  <input type="checkbox" name="{{ setting.key }}__push" class="checkbox checkbox-sm" {% if push_on %}checked{% endif %}>
+                </label>
+              {% endfor %}
+            {% endfor %}
           </div>
+          {% if not push_ready %}
+            <div class="text-[12px] text-ink-dim mt-3">Push choices are remembered but only take effect once push notifications are set up below.</div>
+          {% endif %}
         </div>
 
         <div class="surface p-5">
@@ -507,12 +516,11 @@
             <div class="min-w-0 flex-1">
               <h3 class="font-semibold text-[15px]">Push Notifications</h3>
               <div class="text-[13px] text-ink-dim mt-0.5">
-                Mirror the alerts above out to Discord, Slack, Telegram, Pushover, Microsoft Teams or Webex Teams via
+                Send the alerts you ticked <em>Push</em> for above to Discord, Slack, Telegram, Pushover, Microsoft Teams or Webex Teams via
                 <a href="https://github.com/caronc/apprise" target="_blank" rel="noopener" class="underline hover:text-base-content">Apprise</a>
                 - no server setup needed, just paste a URL. Only these hosted services for now, not Apprise's full catalog (self-hosted
                 targets and email aren't supported yet - every URL here runs the server itself, so this is deliberately limited to
-                services with a fixed address, not one a URL could point anywhere). Doesn't cover import/backup progress either - those
-                stay in-app only.
+                services with a fixed address, not one a URL could point anywhere).
               </div>
             </div>
           </div>

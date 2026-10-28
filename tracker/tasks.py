@@ -858,6 +858,7 @@ def generate_release_notifications():
     tracker/notifications.py for the actual eligibility/dedupe logic."""
     labels = []
     created = notifications.generate_release_notifications(labels_out=labels)
+    created += notifications.generate_digital_release_notifications(labels_out=labels)
     logger.info("generate_release_notifications: %d notification(s) created", created)
     _log_system_datalog(DataLog.Action.RELEASE_NOTIFICATIONS, created, labels)
     return created
@@ -891,8 +892,8 @@ def check_for_new_version():
     message = f"Spool v{latest} is available (you're on v{version.APP_VERSION})."
     created = 0
     for profile in Profile.objects.filter(user__is_superuser=True):
-        _, made = Notification.objects.get_or_create(
-            profile=profile, kind=Notification.Kind.SYSTEM_UPDATE, message=message
+        _, made = notifications.notify(
+            profile, Notification.Kind.SYSTEM_UPDATE, lookup={"message": message}
         )
         created += made
     logger.info("check_for_new_version: v%s available, %d notification(s) created", latest, created)
@@ -917,7 +918,7 @@ def send_push_notification(notification_id):
     except Notification.DoesNotExist:
         return
     profile = note.profile
-    if not profile.push_notifications_enabled or not profile.get_push_notification_urls().strip():
+    if not notifications.push_wanted(profile, note.kind):
         return
     ok = push.send(profile, title=note.get_kind_display(), message=note.message, url=note.link or None)
     if not ok:

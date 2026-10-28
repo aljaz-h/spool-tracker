@@ -2195,8 +2195,8 @@ class GenerateReleaseNotificationsTests(TestCase):
         self.assertFalse(Notification.objects.filter(kind=Notification.Kind.NEW_RELEASE).exists())
 
     def test_watching_profile_with_the_source_disabled_gets_nothing(self):
-        self.watcher.notify_new_releases = False
-        self.watcher.save(update_fields=["notify_new_releases"])
+        self.watcher.notification_prefs = {"new_release": {"app": False, "push": False}}
+        self.watcher.save(update_fields=["notification_prefs"])
         WatchProgress.objects.create(profile=self.watcher, title=self.title, status=WatchProgress.Status.WATCHING)
         self._release(timedelta(hours=-2))
         notifications.generate_release_notifications(now=self.now)
@@ -2401,8 +2401,8 @@ class NotifySyncFailureTests(TestCase):
         self.assertLessEqual(len(n.message), 255)
 
     def test_disabled_source_creates_nothing(self):
-        self.profile.notify_sync_failures = False
-        self.profile.save(update_fields=["notify_sync_failures"])
+        self.profile.notification_prefs = {"sync_failed": {"app": False, "push": False}}
+        self.profile.save(update_fields=["notification_prefs"])
         result = notifications.notify_sync_failure(self.profile, "trakt", "boom")
         self.assertIsNone(result)
         self.assertFalse(Notification.objects.exists())
@@ -4321,19 +4321,28 @@ class SaveNotificationsViewTests(TestCase):
         self.profile = Profile.objects.create(user=user, display_name="NotifSettingsUser")
         self.client.login(username="notifsettingsuser", password="pass12345")
 
-    def test_all_three_toggles_save_together(self):
+    def test_the_table_saves_each_channel_and_keeps_only_non_defaults(self):
         self.client.post(
             reverse("save_notifications"),
-            {"notify_new_releases": "on", "notify_sync_failures": "on"},  # upcoming omitted = unchecked
+            {
+                # new_release: app on, push off (default is both on)
+                "new_release__app": "on",
+                # upcoming_release: both on = default, stores nothing
+                "upcoming_release__app": "on", "upcoming_release__push": "on",
+                # digital_release: opted in to both (default is both off)
+                "digital_release__app": "on", "digital_release__push": "on",
+            },
         )
         self.profile.refresh_from_db()
-        self.assertTrue(self.profile.notify_new_releases)
-        self.assertFalse(self.profile.notify_upcoming_releases)
-        self.assertTrue(self.profile.notify_sync_failures)
+        prefs = self.profile.notification_prefs
+        self.assertEqual(prefs["new_release"], {"push": False})
+        self.assertNotIn("upcoming_release", prefs)
+        self.assertEqual(prefs["digital_release"], {"app": True, "push": True})
+        self.assertEqual(prefs["sync_failed"], {"app": False, "push": False})  # omitted = both off
 
     def test_requires_login(self):
         self.client.logout()
-        resp = self.client.post(reverse("save_notifications"), {"notify_new_releases": "on"})
+        resp = self.client.post(reverse("save_notifications"), {"new_release__app": "on"})
         self.assertNotEqual(resp.status_code, 200)
 
     def test_saves_push_notification_fields(self):
@@ -6636,8 +6645,8 @@ class SyncLogTests(TestCase):
     def test_failed_sync_creates_no_notification_when_disabled(self, mock_fetch):
         import requests
 
-        self.profile.notify_sync_failures = False
-        self.profile.save(update_fields=["notify_sync_failures"])
+        self.profile.notification_prefs = {"sync_failed": {"app": False, "push": False}}
+        self.profile.save(update_fields=["notification_prefs"])
         mock_fetch.side_effect = requests.RequestException("network broke")
         with self.assertRaises(requests.RequestException):
             tasks.sync_trakt_history(self.profile.id)
@@ -30926,3 +30935,349 @@ class QueryStatsViewTests(TestCase):
         for name in ("docker-compose.yml", "docker-compose.prod.yml", "docker-compose.coolify.yml"):
             self.assertIn("shared_preload_libraries=pg_stat_statements", (root / name).read_text(encoding="utf-8"), name)
 
+
+
+# ---------------------------------------------------------------------------
+# Notification preferences (per type, in-app / push) and digital releases
+# ---------------------------------------------------------------------------
+from tracker import notification_prefs as _np  # noqa: E402
+
+
+class NotificationPrefsLookupTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("prefuser", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="Pref")
+
+    def test_defaults(self):
+        self.assertEqual(_np.channels(self.profile, "new_release"), (True, True))
+        self.assertEqual(_np.channels(self.profile, "backup_status"), (True, False))
+        self.assertEqual(_np.channels(self.profile, "import_status"), (True, False))
+        self.assertEqual(_np.channels(self.profile, "digital_release"), (False, False))
+
+    def test_one_setting_covers_all_three_recommendation_kinds(self):
+        self.profile.notification_prefs = {"recommendations": {"app": False}}
+        for kind in ("recommendation_received", "recommendation_watched", "recommendation_replied"):
+            self.assertEqual(_np.channels(self.profile, kind), (False, True))
+
+    def test_every_notification_kind_belongs_to_a_setting(self):
+        for kind in Notification.Kind.values:
+            self.assertIsNotNone(_np.setting_for_kind(kind), kind)
+
+    def test_app_updates_row_is_for_the_owner_only(self):
+        keys = [s.key for s in _np.visible_settings(self.profile)]
+        self.assertNotIn("system_update", keys)
+        self.user.is_superuser = True
+        self.user.save()
+        self.profile.refresh_from_db()
+        self.assertIn("system_update", [s.key for s in _np.visible_settings(self.profile)])
+
+    def test_a_member_saving_does_not_touch_the_owner_only_row(self):
+        self.profile.notification_prefs = {"system_update": {"app": False}}
+        saved = _np.parse_post(self.profile, {})
+        self.assertEqual(saved["system_update"], {"app": False})
+
+
+class NotifyHelperTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("notifyuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Notify")
+
+    def test_both_channels_off_creates_nothing(self):
+        self.profile.notification_prefs = {"sync_failed": {"app": False, "push": False}}
+        note, created = notifications.notify(self.profile, Notification.Kind.SYNC_FAILED, message="x")
+        self.assertIsNone(note)
+        self.assertFalse(created)
+        self.assertFalse(Notification.objects.exists())
+
+    def test_push_only_keeps_a_hidden_read_row(self):
+        self.profile.notification_prefs = {"sync_failed": {"app": False}}
+        note, _ = notifications.notify(self.profile, Notification.Kind.SYNC_FAILED, message="x")
+        self.assertFalse(note.in_app)
+        self.assertTrue(note.read)
+
+    def test_hidden_rows_stay_out_of_the_bell_and_the_unread_count(self):
+        self.profile.notification_prefs = {"sync_failed": {"app": False}}
+        notifications.notify(self.profile, Notification.Kind.SYNC_FAILED, message="zzpushonly")
+        notifications.notify(self.profile, Notification.Kind.SYSTEM_UPDATE, message="zzinbell")
+        self.client.login(username="notifyuser", password="pass12345")
+        panel = self.client.get(reverse("notifications_panel")).content.decode()
+        self.assertIn("zzinbell", panel)
+        self.assertNotIn("zzpushonly", panel)
+        listing = self.client.get(reverse("notifications_list")).content.decode()
+        self.assertNotIn("zzpushonly", listing)
+        resp = self.client.get(reverse("dashboard"))
+        self.assertEqual(resp.context["unread_notification_count"], 1)
+
+    def test_clear_all_keeps_hidden_dedupe_rows(self):
+        self.profile.notification_prefs = {"sync_failed": {"app": False}}
+        notifications.notify(self.profile, Notification.Kind.SYNC_FAILED, message="zzpushonly")
+        notifications.notify(self.profile, Notification.Kind.SYSTEM_UPDATE, message="zzinbell")
+        self.client.login(username="notifyuser", password="pass12345")
+        self.client.post(reverse("clear_all_notifications"))
+        self.assertEqual(list(Notification.objects.values_list("message", flat=True)), ["zzpushonly"])
+
+    def test_lookup_makes_it_idempotent(self):
+        for _ in range(2):
+            notifications.notify(self.profile, Notification.Kind.SYSTEM_UPDATE, lookup={"message": "v9"})
+        self.assertEqual(Notification.objects.count(), 1)
+
+
+class NotificationPushChannelTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("chanuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Chan", push_notifications_enabled=True)
+        self.profile.set_push_notification_urls("json://a.example.com/hook")
+        self.profile.save(update_fields=["encrypted_push_notification_urls"])
+
+    def _create(self, kind=Notification.Kind.SYNC_FAILED):
+        with patch("tracker.tasks.send_push_notification.delay") as delay:
+            notifications.notify(self.profile, kind, message="m")
+        return delay
+
+    def test_push_follows_the_per_type_choice(self):
+        self.assertTrue(self._create().called)
+        self.profile.notification_prefs = {"sync_failed": {"push": False}}
+        self.assertFalse(self._create().called)
+
+    def test_push_only_still_pushes(self):
+        self.profile.notification_prefs = {"sync_failed": {"app": False}}
+        self.assertTrue(self._create().called)
+
+    def test_the_task_rechecks_the_choice(self):
+        with patch("tracker.tasks.send_push_notification.delay"):
+            note, _ = notifications.notify(self.profile, Notification.Kind.SYNC_FAILED, message="m")
+        self.profile.notification_prefs = {"sync_failed": {"push": False}}
+        self.profile.save(update_fields=["notification_prefs"])
+        with patch("tracker.push.send") as send:
+            tasks.send_push_notification(note.id)
+        send.assert_not_called()
+
+    def test_backups_and_imports_do_not_push_unless_opted_in(self):
+        self.assertFalse(self._create(Notification.Kind.BACKUP_STATUS).called)
+        note = Notification.objects.get(kind=Notification.Kind.BACKUP_STATUS)
+        with patch("tracker.tasks.send_push_notification.delay") as delay:
+            notifications.dispatch_push(note)
+        self.assertFalse(delay.called)
+        note.profile.notification_prefs = {"backup_status": {"push": True}}  # dispatch reads the row's own profile
+        with patch("tracker.tasks.send_push_notification.delay") as delay:
+            notifications.dispatch_push(note)
+        self.assertTrue(delay.called)
+
+    def test_a_manual_backup_pushes_its_result_once_opted_in(self):
+        from tracker.models import BackupDestination
+
+        self.profile.notification_prefs = {"backup_status": {"push": True}}
+        self.profile.save(update_fields=["notification_prefs"])
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        dest = BackupDestination.objects.create(profile=self.profile, kind="folder", folder="x")
+        with override_settings(BACKUP_ROOT=root), patch("tracker.tasks.send_push_notification.delay") as delay:
+            tasks.run_scheduled_backup(dest.id, True)
+        self.assertEqual(delay.call_count, 1)  # the result, not the "Backing up" row
+        note = Notification.objects.get(kind=Notification.Kind.BACKUP_STATUS)
+        self.assertEqual(delay.call_args.args[0], note.id)
+        self.assertEqual(note.message, "Backed up to Server folder.")
+
+    def test_a_scheduled_backup_failure_pushes_when_opted_in(self):
+        from tracker import backup_destinations
+        from tracker.models import BackupDestination
+
+        self.profile.notification_prefs = {"backup_status": {"push": True}}
+        self.profile.save(update_fields=["notification_prefs"])
+        dest = BackupDestination.objects.create(profile=self.profile, kind="folder")
+        with patch.object(
+            backup_destinations.ServerFolder, "upload", side_effect=backup_destinations.BackupError("no space")
+        ), patch("tracker.tasks.send_push_notification.delay") as delay:
+            tasks.run_scheduled_backup(dest.id)
+        self.assertEqual(delay.call_count, 1)
+
+    def test_backups_turned_off_in_app_leave_no_visible_row(self):
+        from tracker import backup_destinations
+        from tracker.models import BackupDestination
+
+        self.profile.notification_prefs = {"backup_status": {"app": False}}
+        self.profile.save(update_fields=["notification_prefs"])
+        dest = BackupDestination.objects.create(profile=self.profile, kind="folder")
+        with patch.object(
+            backup_destinations.ServerFolder, "upload", side_effect=backup_destinations.BackupError("x")
+        ):
+            tasks.run_scheduled_backup(dest.id)
+        self.assertFalse(Notification.objects.filter(in_app=True).exists())
+
+
+class DigitalReleaseNotificationTests(TestCase):
+    def setUp(self):
+        from django.utils import timezone
+
+        user = User.objects.create_user("digiuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Digi")
+        other = User.objects.create_user("digiother", password="pass12345")
+        self.other = Profile.objects.create(user=other, display_name="DigiOther")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2026)
+        self.now = timezone.now()
+        self.watchlist = WatchList.objects.create(profile=self.profile, name="Watchlist", is_watchlist=True)
+        WatchListItem.objects.create(watchlist=self.watchlist, title=self.title)
+        self.profile.notification_prefs = {"digital_release": {"app": True, "push": True}}
+        self.profile.save(update_fields=["notification_prefs"])
+
+    def _digital(self, delta=timedelta(hours=-3)):
+        return ReleaseSchedule.objects.create(
+            title=self.title, release_type=ReleaseSchedule.ReleaseType.DIGITAL_RELEASE, release_date=self.now + delta
+        )
+
+    def test_off_by_default(self):
+        self.profile.notification_prefs = {}
+        self.profile.save(update_fields=["notification_prefs"])
+        self._digital()
+        self.assertEqual(notifications.generate_digital_release_notifications(now=self.now), 0)
+        self.assertFalse(Notification.objects.exists())
+
+    def test_a_watchlisted_movie_notifies_the_profile_that_opted_in(self):
+        release = self._digital()
+        self.assertEqual(notifications.generate_digital_release_notifications(now=self.now), 1)
+        note = Notification.objects.get()
+        self.assertEqual(note.profile, self.profile)
+        self.assertEqual(note.kind, Notification.Kind.DIGITAL_RELEASE)
+        self.assertEqual(note.release_schedule, release)
+        self.assertEqual(note.title, self.title)
+        self.assertIn("Fathom", note.message)
+        self.assertTrue(note.in_app)
+
+    def test_it_runs_once_per_release(self):
+        self._digital()
+        notifications.generate_digital_release_notifications(now=self.now)
+        self.assertEqual(notifications.generate_digital_release_notifications(now=self.now), 0)
+        self.assertEqual(Notification.objects.count(), 1)
+
+    def test_not_for_a_profile_that_already_watched_it(self):
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=self.now)
+        self._digital()
+        self.assertEqual(notifications.generate_digital_release_notifications(now=self.now), 0)
+
+    def test_not_for_a_profile_without_it_on_a_list(self):
+        self.other.notification_prefs = {"digital_release": {"app": True}}
+        self.other.save(update_fields=["notification_prefs"])
+        self._digital()
+        notifications.generate_digital_release_notifications(now=self.now)
+        self.assertFalse(Notification.objects.filter(profile=self.other).exists())
+
+    def test_not_before_the_date_and_not_long_after(self):
+        self._digital(timedelta(days=2))
+        self.assertEqual(notifications.generate_digital_release_notifications(now=self.now), 0)
+        ReleaseSchedule.objects.all().delete()
+        self._digital(timedelta(days=-3))
+        self.assertEqual(notifications.generate_digital_release_notifications(now=self.now), 0)
+
+    def test_pushes_when_push_is_on(self):
+        self.profile.push_notifications_enabled = True
+        self.profile.set_push_notification_urls("json://a.example.com/hook")
+        self.profile.save()
+        self._digital()
+        with patch("tracker.tasks.send_push_notification.delay") as delay:
+            notifications.generate_digital_release_notifications(now=self.now)
+        self.assertTrue(delay.called)
+
+    def test_the_regular_release_scan_ignores_digital_rows(self):
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.WATCHING)
+        self._digital()
+        self.assertEqual(notifications.generate_release_notifications(now=self.now), 0)
+
+    def test_the_nightly_task_includes_it(self):
+        self._digital()
+        self.assertEqual(tasks.generate_release_notifications(), 1)
+
+    def test_calendar_and_up_next_leave_digital_rows_out(self):
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.WATCHING)
+        self._digital(timedelta(days=5))
+        self.assertEqual(list(selectors.up_next(self.profile)), [])
+        self.assertEqual(
+            list(selectors.calendar_releases(self.profile, start=self.now, end=self.now + timedelta(days=30))), []
+        )
+
+
+class SyncDigitalReleaseTests(TestCase):
+    def _details(self, digital):
+        return {
+            "name": "Fathom", "year": "2026", "overview": "", "tagline": "", "genres": [],
+            "runtime": 100, "number_of_seasons": None, "number_of_episodes": None,
+            "backdrop_url": None, "poster_url": None, "vote_average": 7.0, "vote_count": 100,
+            "original_language": "en", "status": "Released",
+            "release_date": "2026-01-01", "digital_release_date": digital, "next_episode_to_air": None,
+        }
+
+    def setUp(self):
+        self.title = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Fathom", year=2026, external_ids={"tmdb": "42"}
+        )
+
+    def _sync(self, digital):
+        with patch("tracker.release_sync.tmdb.get_full_details", return_value=self._details(digital)):
+            return release_sync.sync_title_releases(self.title)
+
+    def test_a_known_digital_date_gets_its_own_row(self):
+        from datetime import date
+
+        from django.utils import timezone
+
+        self.assertEqual(self._sync(date(2026, 2, 3)), 2)
+        row = ReleaseSchedule.objects.get(title=self.title, release_type=ReleaseSchedule.ReleaseType.DIGITAL_RELEASE)
+        self.assertEqual(timezone.localtime(row.release_date).date(), date(2026, 2, 3))
+
+    def test_no_digital_date_means_no_row(self):
+        self.assertEqual(self._sync(None), 1)
+        self.assertFalse(
+            ReleaseSchedule.objects.filter(release_type=ReleaseSchedule.ReleaseType.DIGITAL_RELEASE).exists()
+        )
+
+    def test_resyncing_updates_the_same_row(self):
+        from datetime import date
+
+        from django.utils import timezone
+
+        self._sync(date(2026, 2, 3))
+        self._sync(date(2026, 2, 10))
+        rows = ReleaseSchedule.objects.filter(release_type=ReleaseSchedule.ReleaseType.DIGITAL_RELEASE)
+        self.assertEqual(rows.count(), 1)
+        self.assertEqual(timezone.localtime(rows.get().release_date).date(), date(2026, 2, 10))
+
+    def test_a_digital_date_with_no_theatrical_date_still_syncs(self):
+        from datetime import date
+
+        details = self._details(date(2026, 2, 3))
+        details["release_date"] = None
+        with patch("tracker.release_sync.tmdb.get_full_details", return_value=details):
+            self.assertEqual(release_sync.sync_title_releases(self.title), 1)
+
+
+class NotificationSettingsPageTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("setpage", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="SetPage")
+        self.client.login(username="setpage", password="pass12345")
+
+    def test_the_table_lists_every_type_with_both_channels(self):
+        body = self.client.get(reverse("settings")).content.decode()
+        for setting in _np.visible_settings(self.profile):
+            self.assertIn(f'name="{setting.key}__app"', body)
+            self.assertIn(f'name="{setting.key}__push"', body)
+        self.assertNotIn('name="system_update__app"', body)  # owner only
+
+    def test_stored_choices_are_shown_checked_or_not(self):
+        import re
+
+        self.profile.notification_prefs = {"digital_release": {"app": True}}
+        self.profile.save(update_fields=["notification_prefs"])
+        body = self.client.get(reverse("settings")).content.decode()
+
+        def checked(name):
+            return "checked" in re.search(rf'<input[^>]*name="{name}"[^>]*>', body).group(0)
+
+        self.assertTrue(checked("digital_release__app"))
+        self.assertFalse(checked("digital_release__push"))
+        self.assertTrue(checked("new_release__app"))
+
+    def test_the_legacy_flags_migrate_into_prefs(self):
+        import importlib
+
+        migration = importlib.import_module("tracker.migrations.0074_notification_preferences")
+        self.assertEqual(set(migration.LEGACY.values()), {"new_release", "upcoming_release", "sync_failed"})

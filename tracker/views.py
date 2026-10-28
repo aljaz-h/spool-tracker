@@ -51,6 +51,7 @@ from . import (
     import_pipeline,
     instance_config,
     letterboxd_import,
+    notification_prefs,
     push,
     ratelimit,
     recommendations,
@@ -4355,6 +4356,8 @@ def _settings_page_context(request, profile):
     other_owner_exists = Profile.objects.filter(user__is_superuser=True).exclude(pk=profile.pk).exists()
     context = {
         "profile": profile,
+        "notification_table": notification_prefs.table(profile),
+        "push_ready": bool(profile.push_notifications_enabled and profile.get_push_notification_urls().strip()),
         "connected_providers": set(external_accounts.keys()),
         "external_accounts": external_accounts,
         # Nuvio's connect status is per-viewer, same as Trakt/Simkl's own
@@ -5469,16 +5472,13 @@ def save_notifications(request):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
-    profile.notify_new_releases = bool(request.POST.get("notify_new_releases"))
-    profile.notify_upcoming_releases = bool(request.POST.get("notify_upcoming_releases"))
-    profile.notify_sync_failures = bool(request.POST.get("notify_sync_failures"))
+    profile.notification_prefs = notification_prefs.parse_post(profile, request.POST)
     profile.push_notifications_enabled = bool(request.POST.get("push_notifications_enabled"))
     valid_urls, _errors = push.validate_urls(request.POST.get("push_notification_urls", ""))
     profile.set_push_notification_urls("\n".join(valid_urls))
     profile.save(
         update_fields=[
-            "notify_new_releases", "notify_upcoming_releases", "notify_sync_failures",
-            "push_notifications_enabled", "encrypted_push_notification_urls",
+            "notification_prefs", "push_notifications_enabled", "encrypted_push_notification_urls",
         ]
     )
     return HttpResponse(status=204)
@@ -5535,7 +5535,7 @@ def _notifications_badge_oob(request, profile):
     the panel's own hx-target, and otherwise only ever refreshed by a
     full page reload - updates immediately after mark-as-read/mark-all/
     clear-all (see notification_badge.html's own docstring)."""
-    count = Notification.objects.filter(profile=profile, read=False).count()
+    count = Notification.objects.filter(profile=profile, in_app=True, read=False).count()
     return render_to_string(
         "tracker/partials/notification_badge.html",
         {"unread_notification_count": count, "oob": True},
@@ -5633,7 +5633,7 @@ def _group_notifications_for_panel(items):
 
 def _render_notifications_panel(request, profile):
     items = list(
-        Notification.objects.filter(profile=profile).select_related("title", "release_schedule")[:20]
+        Notification.objects.filter(profile=profile, in_app=True).select_related("title", "release_schedule")[:20]
     )
     context = {"has_notifications": bool(items), "groups": _group_notifications_for_panel(items)}
     response = render(request, "tracker/partials/notifications_panel.html", context)
@@ -5673,7 +5673,7 @@ def notifications_list(request):
     if profile is None:
         raise Http404
     page_obj = Paginator(
-        Notification.objects.filter(profile=profile).select_related("title", "release_schedule"),
+        Notification.objects.filter(profile=profile, in_app=True).select_related("title", "release_schedule"),
         NOTIFICATIONS_LIST_PAGE_SIZE,
     ).get_page(request.GET.get("page"))
     items = list(page_obj.object_list)
@@ -5710,7 +5710,7 @@ def mark_all_notifications_read(request):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
-    Notification.objects.filter(profile=profile, read=False).update(read=True)
+    Notification.objects.filter(profile=profile, in_app=True, read=False).update(read=True)
     if request.headers.get("HX-Request"):
         return _render_notifications_panel(request, profile)
     # notifications_list.html's own "Mark all read" button - a plain
@@ -5730,7 +5730,9 @@ def clear_all_notifications(request):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
-    Notification.objects.filter(profile=profile).delete()
+    # Push-only rows (in_app=False) stay: they are what stops a release
+    # that was already pushed from being pushed again.
+    Notification.objects.filter(profile=profile, in_app=True).delete()
     if request.headers.get("HX-Request"):
         return _render_notifications_panel(request, profile)
     return _safe_next_redirect(request, request.POST, redirect("notifications_list"))

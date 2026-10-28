@@ -59,25 +59,41 @@ Pasting a URL with an unsupported scheme is rejected with a clear
 message naming the URL and what *is* supported — both when you save and
 when you hit **Send test**.
 
-## What gets pushed
+## Choosing what you get, and where
 
-Whatever's already enabled above it on the same page:
+Settings → Notifications has one row per type of notification, each with
+two checkboxes: **In app** (the header bell) and **Push** (the services
+above). They are independent, so you can have sync failures in both,
+the watchlist time capsule in the bell only, or digital releases as a
+push only. Turning both off silences that type completely.
 
-- New episode/season alerts for what you're watching
-- Calendar reminders for upcoming releases
-- Trakt/Simkl/Nuvio sync failures
+| Type | In app | Push |
+|---|---|---|
+| New episodes & seasons | on | on |
+| Upcoming release reminders | on | on |
+| Digital releases | **off** | **off** |
+| Recommendations (received / watched / replied) | on | on |
+| Watchlist time capsule | on | on |
+| Sync failures | on | on |
+| Backups | on | off |
+| Imports | on | off |
+| App updates (server owner only) | on | on |
 
-...plus, unconditionally once push is turned on: a new Spool version
-being available, a watchlist item that's sat untouched for a while, and
-recommendation activity (received/watched/replied) from another
-profile.
+Push only does anything once push is turned on and has a URL saved (the
+card below the table); until then your Push choices are remembered but
+inactive.
 
-**Not covered yet:** import and backup progress notifications. Those
-get rewritten in place as they move through scanning → ready → done
-(so the bell always shows the latest state, even after you've left the
-page) rather than created fresh each time, which doesn't fit this
-mechanism the same way — and you're usually already watching the page
-when you trigger one of those anyway.
+- **Digital releases** tells you when a movie on your watchlist becomes
+  available to buy, rent or stream at home (TMDB's US digital release
+  date). TMDB often has no date until shortly before it happens, so the
+  alert arrives on the day the date passes, and only for movies you have
+  not already watched.
+- **Backups** and **Imports** default to in-app only because you are
+  usually watching them happen. Tick Push to also get the result of a
+  manual backup or import, and the first failure of a scheduled backup,
+  when you are away from the app.
+- A type that is push-only leaves no entry in the bell and does not count
+  towards its unread badge.
 
 ## Testing a URL
 

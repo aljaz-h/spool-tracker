@@ -31,7 +31,7 @@ def active_profile(request):
     if request.user.is_authenticated:
         profile = Profile.objects.select_related("user").filter(user=request.user).first()
         if profile is not None:
-            unread_notification_count = Notification.objects.filter(profile=profile, read=False).count()
+            unread_notification_count = Notification.objects.filter(profile=profile, in_app=True, read=False).count()
             if profile.is_owner:
                 latest_available_version = update_check.available_version()
     all_profiles = Profile.objects.all()

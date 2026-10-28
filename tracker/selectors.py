@@ -517,6 +517,7 @@ def up_next(profile, limit=3):
                 Q(title__watch_progress__profile=profile) | Q(title__watch_events__profile=profile),
                 release_date__gte=timezone.now(),
             )
+            .exclude(release_type=ReleaseSchedule.ReleaseType.DIGITAL_RELEASE)
             .select_related("title", "episode")
             .order_by("release_date")
             .distinct()[: limit * _FETCH_MULTIPLIER]
@@ -940,6 +941,7 @@ def start_watching(profile, media_types, limit=12):
         ReleaseSchedule.objects.filter(
             title_id__in=watchlist_titles.keys(), release_date__gte=cutoff, release_date__lte=timezone.now()
         )
+        .exclude(release_type=ReleaseSchedule.ReleaseType.DIGITAL_RELEASE)
         .order_by("-release_date")
         .values_list("title_id", flat=True)
         .distinct()
@@ -1152,6 +1154,7 @@ def calendar_releases(profile, media_type=None, source="all", start=None, end=No
 
     qs = (
         ReleaseSchedule.objects.filter(scope_q, date_q)
+        .exclude(release_type=ReleaseSchedule.ReleaseType.DIGITAL_RELEASE)
         .select_related("title", "episode")
         .order_by("release_date")
         .distinct()

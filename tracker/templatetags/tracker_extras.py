@@ -195,6 +195,7 @@ def notif_day_label(d):
 _NOTIFICATION_ICON_META = {
     Notification.Kind.NEW_RELEASE: ("calendar-days", "text-primary"),
     Notification.Kind.UPCOMING_RELEASE: ("calendar-days", "text-primary"),
+    Notification.Kind.DIGITAL_RELEASE: ("tv", "text-primary"),
     Notification.Kind.RECOMMENDATION_RECEIVED: ("message-circle", "text-info"),
     Notification.Kind.RECOMMENDATION_WATCHED: ("message-circle", "text-info"),
     Notification.Kind.RECOMMENDATION_REPLIED: ("message-circle", "text-info"),

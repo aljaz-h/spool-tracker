@@ -104,7 +104,7 @@ def _defuse_mentions(text):
     return text.replace("@", "@​").replace("<", "<​")
 
 
-# The only Notification.Kind values this ever fires for - every one of
+# The Notification.Kind values the post_save receiver pushes - every one of
 # these is created via a single Notification.objects.create()/
 # get_or_create() call (a real .save(), so post_save sees it), unlike
 # IMPORT_STATUS/BACKUP_STATUS, which get their *useful* terminal state
@@ -112,16 +112,15 @@ def _defuse_mentions(text):
 # .update() never fires post_save at all, so a signal-based design can
 # only ever see those two kinds' first ("scanning started"/"backing
 # up...") row, typically the least useful moment to push. Covering their
-# real finished/failed state would need an explicit dispatch call at
-# those update() sites instead of relying on this signal - a reasonable
-# follow-up, deliberately not done here. Both are also already something
-# the profile is actively watching happen in the app when they trigger
-# it, not a "fire and forget while I'm away" case the way a release or a
-# sync failure is.
+# real finished/failed state needs an explicit dispatch at those sites
+# instead - notifications.dispatch_push, called from transfer_tracking.py
+# once the final text is saved. Those two default to in-app only, since a
+# manual backup or import is something the profile is watching happen.
 PUSH_ELIGIBLE_KINDS = frozenset(
     {
         Notification.Kind.NEW_RELEASE,
         Notification.Kind.UPCOMING_RELEASE,
+        Notification.Kind.DIGITAL_RELEASE,
         Notification.Kind.SYNC_FAILED,
         Notification.Kind.SYSTEM_UPDATE,
         Notification.Kind.RECOMMENDATION_RECEIVED,

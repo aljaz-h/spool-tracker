@@ -220,10 +220,7 @@ def _sync_tv_release(title, tmdb_id, details, skip_tvmaze=False):
     return touched
 
 
-def _sync_movie_release(title, details):
-    release_dt = _parse_tmdb_date(details.get("release_date"))
-    if not release_dt:
-        return 0
+def _upsert_movie_row(title, release_type, release_dt):
     # episode is always NULL for a movie row, and NULL != NULL under the
     # unique constraint (see ReleaseSchedule's own Meta comment), so this
     # can't rely on update_or_create's constraint-matching - look the row
@@ -232,18 +229,32 @@ def _sync_movie_release(title, details):
     # backfilling aired episodes - a movie added to a list after its own
     # release should still show up on the calendar's past view instead
     # of never getting a row at all.
-    existing = ReleaseSchedule.objects.filter(
-        title=title, release_type=ReleaseSchedule.ReleaseType.MOVIE_RELEASE
-    ).first()
+    existing = ReleaseSchedule.objects.filter(title=title, release_type=release_type).first()
     if existing:
         if existing.release_date != release_dt:
             existing.release_date = release_dt
             existing.save(update_fields=["release_date"])
     else:
-        ReleaseSchedule.objects.create(
-            title=title, release_type=ReleaseSchedule.ReleaseType.MOVIE_RELEASE, release_date=release_dt
-        )
-    return 1
+        ReleaseSchedule.objects.create(title=title, release_type=release_type, release_date=release_dt)
+
+
+def _sync_movie_release(title, details):
+    touched = 0
+    release_dt = _parse_tmdb_date(details.get("release_date"))
+    if release_dt:
+        _upsert_movie_row(title, ReleaseSchedule.ReleaseType.MOVIE_RELEASE, release_dt)
+        touched += 1
+    # The digital (home release) date, when TMDB knows it - a separate row
+    # type that only drives the "now available digitally" notification and
+    # is left out of the calendar and Up Next. TMDB often has no date
+    # until shortly before it happens, so this appears on a later sync.
+    digital = details.get("digital_release_date")
+    if digital:
+        digital_dt = _parse_tmdb_date(str(digital)[:10])  # a date, or its ISO string from a cache
+        if digital_dt:
+            _upsert_movie_row(title, ReleaseSchedule.ReleaseType.DIGITAL_RELEASE, digital_dt)
+            touched += 1
+    return touched
 
 
 def sync_title_releases(title, skip_tvmaze=False):
