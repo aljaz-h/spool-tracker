@@ -1,0 +1,110 @@
+{# context: settings (plan, list_choices, mode_choices, media_choices, order_choices, weekday_rows), setup (bool - the first-time form: lists, mode and free time only). The fields shared by the first-time setup, the sidebar's Plan settings and Settings -> My schedule. Nothing here submits on its own - each home has an Apply/Save button. #}
+{% with plan=settings.plan %}
+<div class="flex flex-col gap-4" x-data="{ mode: '{{ plan.mode }}' }">
+  <div>
+    <div class="sch-eyebrow mb-1.5">{% if setup %}Which lists should it use?{% else %}Pull from{% endif %}</div>
+    <div class="flex flex-wrap gap-1.5">
+      {% for wl, selected, count in settings.list_choices %}
+        <label class="sch-pill cursor-pointer">
+          <input type="checkbox" name="lists" value="{{ wl.id }}" class="hidden peer" {% if selected %}checked{% endif %}>
+          <span class="sch-pill-face">{% if wl.is_shared and wl.profile_id != profile.id %}Shared: {% endif %}{{ wl.name }} <span class="sch-pill-count">{{ count }}</span></span>
+        </label>
+      {% empty %}
+        <span class="text-[12.5px] text-ink-faint">No lists yet.</span>
+      {% endfor %}
+    </div>
+    <p class="text-[11.5px] text-ink-faint mt-1.5" x-show="mode === 'manual'" x-cloak>These are the titles you can pick from when adding to your schedule.</p>
+  </div>
+
+  <div>
+    <div class="sch-eyebrow mb-1.5">{% if setup %}How should it be filled?{% else %}Plan{% endif %}</div>
+    {% if setup %}
+      <div class="grid gap-2 sm:grid-cols-2">
+        {% for value, label in settings.mode_choices %}
+          <label class="sch-mode cursor-pointer">
+            <input type="radio" name="mode" value="{{ value }}" class="hidden peer" x-model="mode" {% if plan.mode == value %}checked{% endif %}>
+            <span class="sch-mode-face">
+              <span class="font-semibold text-[13.5px]">{% if value == "auto" %}Automatic{% else %}I'll add it myself{% endif %}</span>
+              <span class="text-[12px] text-ink-dim leading-snug">{% if value == "auto" %}Fits titles from those lists into your free time for you, and replans what you miss.{% else %}Starts empty. You choose what to watch and when; nothing is added for you.{% endif %}</span>
+            </span>
+          </label>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="seg w-full">
+        {% for value, label in settings.mode_choices %}
+          <label class="seg-item flex-1 justify-center cursor-pointer has-checked:bg-base-300 has-checked:text-base-content">
+            <input type="radio" name="mode" value="{{ value }}" class="hidden" x-model="mode" {% if plan.mode == value %}checked{% endif %}>{{ label }}
+          </label>
+        {% endfor %}
+      </div>
+      <p class="text-[11.5px] text-ink-faint mt-1.5" x-show="mode === 'auto' && '{{ plan.mode }}' === 'manual'" x-cloak>Switching to automatic replans the slots that have not started.</p>
+    {% endif %}
+  </div>
+
+  {% if not setup %}
+    <div x-show="mode === 'auto'">
+      <div class="sch-eyebrow mb-1.5">Media</div>
+      <div class="seg w-full">
+        {% for value, label in settings.media_choices %}
+          <label class="seg-item flex-1 justify-center cursor-pointer has-checked:bg-base-300 has-checked:text-base-content">
+            <input type="radio" name="media" value="{{ value }}" class="hidden" {% if plan.media == value %}checked{% endif %}>{{ label }}
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  <div>
+    <div class="sch-eyebrow mb-1.5">Free days</div>
+    <div class="flex gap-1.5">
+      {% for row in settings.weekday_rows %}
+        <label class="cursor-pointer" title="{{ row.name }}">
+          <input type="checkbox" name="free_days" value="{{ row.index }}" class="hidden peer" {% if row.free %}checked{% endif %}>
+          <span class="sch-daybox">{{ row.name|slice:":1" }}</span>
+        </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div>
+    <div class="sch-eyebrow mb-1.5">Window</div>
+    <div class="flex items-center gap-2">
+      <input type="time" name="window_start" value="{{ plan.window_start|time:'H:i' }}" class="sch-time" aria-label="Free from">
+      <span class="text-ink-dim text-[12px]">to</span>
+      <input type="time" name="window_end" value="{{ plan.window_end|time:'H:i' }}" class="sch-time" aria-label="Free until">
+    </div>
+    {% if not setup %}
+      <details class="mt-2 group">
+        <summary class="text-[12px] text-ink-dim cursor-pointer hover:text-base-content select-none">Different times on some days</summary>
+        <div class="mt-2 flex flex-col gap-1.5">
+          {% for row in settings.weekday_rows %}
+            {% if row.free %}
+              <div class="flex items-center gap-2 text-[12px]">
+                <span class="w-8 text-ink-dim">{{ row.name }}</span>
+                <input type="time" name="day_start_{{ row.index }}" value="{{ row.start }}" class="sch-time" aria-label="{{ row.name }} from">
+                <span class="text-ink-faint">to</span>
+                <input type="time" name="day_end_{{ row.index }}" value="{{ row.end }}" class="sch-time" aria-label="{{ row.name }} until">
+              </div>
+            {% endif %}
+          {% endfor %}
+          <p class="text-[11.5px] text-ink-faint">Leave both blank to use the window above.</p>
+        </div>
+      </details>
+    {% endif %}
+  </div>
+
+  {% if not setup %}
+    <div x-show="mode === 'auto'">
+      <div class="sch-eyebrow mb-1.5">Order</div>
+      <div class="seg w-full">
+        {% for value, label in settings.order_choices %}
+          <label class="seg-item flex-1 justify-center cursor-pointer has-checked:bg-base-300 has-checked:text-base-content">
+            <input type="radio" name="order" value="{{ value }}" class="hidden" {% if plan.order == value %}checked{% endif %}>{{ label }}
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+</div>
+{% endwith %}

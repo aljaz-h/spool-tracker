@@ -1,25 +1,31 @@
 {% load icons %}
 {# context: plan, week/tonight (when plan.enabled), settings, days, start, prev_start/next_start/home_start/is_home, sync_sources, time_format_str. Calendar -> My schedule: swaps itself (outerHTML) on every navigation and settings change. #}
-<div id="schedule-pane">
+<div id="schedule-pane" class="relative" hx-indicator="#schedule-pane">
+  {# Shown while any request from this pane is in flight, so nothing is clicked twice and it is clear something is happening. #}
+  <div class="sch-veil" role="status" aria-live="polite"><span class="sch-veil-pill"><span class="spool-spinner" aria-hidden="true"></span>Updating your schedule&hellip;</span></div>
   {% if not plan.enabled %}
-    <div class="surface p-8 max-w-2xl">
+    <form
+      class="surface p-6 sm:p-8 max-w-2xl" method="post" action="{% url 'schedule_toggle' %}"
+      hx-post="{% url 'schedule_toggle' %}" hx-target="#schedule-pane" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]"
+    >
+      {% csrf_token %}
+      <input type="hidden" name="setup" value="1">
+      <input type="hidden" name="enabled" value="1">
+      <input type="hidden" name="days" value="{{ days }}">
       <div class="sch-eyebrow">My schedule</div>
       <h2 class="text-2xl font-semibold mt-1">A plan for what to watch, and when</h2>
       <p class="text-[14px] text-ink-dim mt-2 leading-relaxed">
-        Turn your lists into an evening-by-evening plan. Tell it which lists to draw from and when you are free, and it fits movies and
-        episodes into those hours using their runtimes. Slots tick themselves off when a matching watch arrives from Trakt, Simkl, Nuvio,
-        the Scrobble API or an import, and anything you miss rolls into the next open slot.
+        Turn your lists into an evening-by-evening plan. Slots tick themselves off when a matching watch arrives from Trakt, Simkl, Nuvio,
+        the Scrobble API or an import. Off by default and just for you; everything below can be changed later.
       </p>
-      <p class="text-[13px] text-ink-faint mt-2">Off by default and just for you. You can change the lists, free days and times afterwards.</p>
-      <button
-        type="button" class="btn btn-primary btn-sm mt-5"
-        hx-post="{% url 'schedule_toggle' %}" hx-vals='{"enabled": "1", "days": "{{ days }}"}'
-        hx-target="#schedule-pane" hx-swap="outerHTML"
-      >Turn on My schedule</button>
-    </div>
+      <div class="mt-5">
+        {% include "tracker/partials/schedule_fields.html" with setup=True %}
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm mt-6">Turn on My schedule</button>
+    </form>
   {% else %}
-    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] items-start">
-      <section class="surface p-4 sm:p-5 min-w-0">
+    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] items-stretch">
+      <section class="surface p-4 sm:p-5 min-w-0 flex flex-col">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <h2 class="sch-heading">
             {% if days == 7 %}Week of {{ week.start_day|date:"j M" }}{% elif days == 1 %}{{ week.start_day|date:"l j M" }}{% else %}{{ week.start_day|date:"j M" }} &ndash; {{ week.end_day|date:"j M" }}{% endif %}
@@ -42,8 +48,10 @@
               <button type="button" class="btn btn-sm btn-ghost btn-square" aria-label="Next"
                 hx-get="{% url 'schedule_pane' %}?days={{ days }}&start={{ next_start|date:'Y-m-d' }}" hx-target="#schedule-pane" hx-swap="outerHTML">{% icon "chevron-right" "w-4 h-4" %}</button>
             </div>
-            <button type="button" class="btn btn-sm btn-primary" title="Throw away the planned slots that have not started and plan them again"
-              hx-post="{% url 'schedule_rebuild' %}" hx-vals='{"days": "{{ days }}", "start": "{{ start|date:"Y-m-d" }}"}' hx-target="#schedule-pane" hx-swap="outerHTML">Rebuild {% if days == 7 %}week{% else %}plan{% endif %}</button>
+            {% if plan.mode == "auto" %}
+              <button type="button" class="btn btn-sm btn-primary" title="Throw away the planned slots that have not started and plan them again"
+                hx-post="{% url 'schedule_rebuild' %}" hx-vals='{"days": "{{ days }}", "start": "{{ start|date:"Y-m-d" }}"}' hx-target="#schedule-pane" hx-swap="outerHTML" hx-disabled-elt="this">Rebuild {% if days == 7 %}week{% else %}plan{% endif %}</button>
+            {% endif %}
           </div>
         </div>
 
@@ -67,6 +75,13 @@
         <div class="surface p-5" id="schedule-tonight-card">
           {% include "tracker/partials/schedule_tonight.html" with target="pane" %}
         </div>
+
+        {% if plan.mode == "manual" %}
+          <div class="surface p-5">
+            <h3 class="sch-eyebrow mb-3">Add to schedule</h3>
+            {% include "tracker/partials/schedule_add.html" %}
+          </div>
+        {% endif %}
 
         <div class="surface p-5">
           <h3 class="sch-eyebrow mb-2.5">Finish line</h3>

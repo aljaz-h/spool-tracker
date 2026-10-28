@@ -1,10 +1,9 @@
-{# context: settings (plan, list_choices, media_choices, order_choices, weekday_rows), variant ("sidebar" - saves live and re-renders the pane; "settings" - the Settings -> Schedule tab, saves quietly), days/start (sidebar only). One form, two homes. #}
-{% with plan=settings.plan %}
+{# context: settings, variant ("sidebar" - Apply re-renders the pane with the replanned week; "settings" - the Settings -> My schedule tab, Save goes back there), days/start (sidebar only). Changes are only sent when Apply/Save is pressed, all at once. #}
 <form
   method="post" action="{% url 'schedule_save' %}"
-  hx-post="{% url 'schedule_save' %}"
-  {% if variant == "sidebar" %}hx-trigger="change delay:500ms" hx-target="#schedule-pane" hx-swap="outerHTML"{% else %}hx-trigger="change" hx-swap="none"{% endif %}
+  {% if variant == "sidebar" %}hx-post="{% url 'schedule_save' %}" hx-target="#schedule-pane" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]"{% endif %}
   class="flex flex-col gap-4"
+  x-data="{ changed: false }" @input="changed = true" @change="changed = true"
 >
   {% csrf_token %}
   {% if variant == "sidebar" %}
@@ -12,79 +11,16 @@
     <input type="hidden" name="start" value="{{ start|date:'Y-m-d' }}">
   {% else %}
     <input type="hidden" name="from" value="settings">
+    <label class="flex items-center justify-between gap-3 cursor-pointer">
+      <span class="text-[13.5px]">Turn on My schedule</span>
+      <input type="checkbox" name="enabled" value="1" class="checkbox checkbox-sm" {% if settings.plan.enabled %}checked{% endif %}>
+    </label>
   {% endif %}
 
-  <div>
-    <div class="sch-eyebrow mb-1.5">Pull from</div>
-    <div class="flex flex-wrap gap-1.5">
-      {% for wl, selected, count in settings.list_choices %}
-        <label class="sch-pill cursor-pointer">
-          <input type="checkbox" name="lists" value="{{ wl.id }}" class="hidden peer" {% if selected %}checked{% endif %}>
-          <span class="sch-pill-face">{% if wl.is_shared and wl.profile_id != profile.id %}Shared: {% endif %}{{ wl.name }} <span class="sch-pill-count">{{ count }}</span></span>
-        </label>
-      {% empty %}
-        <span class="text-[12.5px] text-ink-faint">No lists yet.</span>
-      {% endfor %}
-    </div>
-  </div>
+  {% include "tracker/partials/schedule_fields.html" %}
 
-  <div>
-    <div class="sch-eyebrow mb-1.5">Media</div>
-    <div class="seg w-full">
-      {% for value, label in settings.media_choices %}
-        <label class="seg-item flex-1 justify-center cursor-pointer has-checked:bg-base-300 has-checked:text-base-content">
-          <input type="radio" name="media" value="{{ value }}" class="hidden" {% if plan.media == value %}checked{% endif %}>{{ label }}
-        </label>
-      {% endfor %}
-    </div>
-  </div>
-
-  <div>
-    <div class="sch-eyebrow mb-1.5">Free days</div>
-    <div class="flex gap-1.5">
-      {% for row in settings.weekday_rows %}
-        <label class="cursor-pointer" title="{{ row.name }}">
-          <input type="checkbox" name="free_days" value="{{ row.index }}" class="hidden peer" {% if row.free %}checked{% endif %}>
-          <span class="sch-daybox">{{ row.name|slice:":1" }}</span>
-        </label>
-      {% endfor %}
-    </div>
-  </div>
-
-  <div>
-    <div class="sch-eyebrow mb-1.5">Window</div>
-    <div class="flex items-center gap-2">
-      <input type="time" name="window_start" value="{{ plan.window_start|time:'H:i' }}" class="sch-time" aria-label="Free from">
-      <span class="text-ink-dim text-[12px]">to</span>
-      <input type="time" name="window_end" value="{{ plan.window_end|time:'H:i' }}" class="sch-time" aria-label="Free until">
-    </div>
-    <details class="mt-2 group">
-      <summary class="text-[12px] text-ink-dim cursor-pointer hover:text-base-content select-none">Different times on some days</summary>
-      <div class="mt-2 flex flex-col gap-1.5">
-        {% for row in settings.weekday_rows %}
-          {% if row.free %}
-            <div class="flex items-center gap-2 text-[12px]">
-              <span class="w-8 text-ink-dim">{{ row.name }}</span>
-              <input type="time" name="day_start_{{ row.index }}" value="{{ row.start }}" class="sch-time" aria-label="{{ row.name }} from">
-              <span class="text-ink-faint">to</span>
-              <input type="time" name="day_end_{{ row.index }}" value="{{ row.end }}" class="sch-time" aria-label="{{ row.name }} until">
-            </div>
-          {% endif %}
-        {% endfor %}
-        <p class="text-[11.5px] text-ink-faint">Leave both blank to use the window above.</p>
-      </div>
-    </details>
-  </div>
-
-  <div>
-    <div class="sch-eyebrow mb-1.5">Order</div>
-    <div class="seg w-full">
-      {% for value, label in settings.order_choices %}
-        <label class="seg-item flex-1 justify-center cursor-pointer has-checked:bg-base-300 has-checked:text-base-content">
-          <input type="radio" name="order" value="{{ value }}" class="hidden" {% if plan.order == value %}checked{% endif %}>{{ label }}
-        </label>
-      {% endfor %}
-    </div>
+  <div class="flex items-center gap-3">
+    <button type="submit" class="btn btn-primary btn-sm">{% if variant == "sidebar" %}Apply{% else %}Save{% endif %}</button>
+    <span class="text-[12px] text-primary" x-show="changed" x-cloak>Not applied yet</span>
   </div>
 </form>
-{% endwith %}

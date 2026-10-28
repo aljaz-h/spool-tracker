@@ -31805,9 +31805,18 @@ class ScheduleViewTests(PlannerTestBase):
         self.assertEqual(self.plan.media, "movie")
         self.assertEqual({s.start.astimezone(self.tz).weekday() for s in self.slots(status="planned")}, {1, 3})
 
-    def test_saving_from_the_settings_tab_is_quiet(self):
-        resp = self.client.post(reverse("schedule_save"), {"from": "settings", "free_days": ["2"], "window_start": "19:00", "window_end": "22:00"})
-        self.assertEqual(resp.status_code, 204)
+    def test_saving_from_the_settings_tab_goes_back_there_with_a_message(self):
+        resp = self.client.post(
+            reverse("schedule_save"),
+            {"from": "settings", "enabled": "1", "mode": "manual", "free_days": ["2"], "window_start": "19:00", "window_end": "22:00"},
+        )
+        self.assertRedirects(resp, reverse("settings") + "?tab=schedule", fetch_redirect_response=False)
+        self.plan.refresh_from_db()
+        self.assertTrue(self.plan.enabled)
+        self.assertEqual(self.plan.mode, "manual")
+        self.client.post(reverse("schedule_save"), {"from": "settings", "free_days": ["2"]})
+        self.plan.refresh_from_db()
+        self.assertFalse(self.plan.enabled)  # the unticked switch turns it off
 
     def test_junk_in_the_settings_is_ignored(self):
         self.client.post(
@@ -31857,3 +31866,251 @@ class ScheduleViewTests(PlannerTestBase):
         body = self.client.get(reverse("settings")).content.decode()
         self.assertIn("tab === 'schedule'", body)
         self.assertIn('name="free_days"', body)
+
+
+from pathlib import Path  # noqa: E402
+from django.utils import timezone  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# My schedule: manual plans, first-time setup, Apply, no pointless scrollbar
+# ---------------------------------------------------------------------------
+
+
+class ManualPlanTests(PlannerTestBase):
+    def setUp(self):
+        super().setUp()
+        self.plan.mode = _SchedulePlan.Mode.MANUAL
+        self.plan.save()
+        self.monday_evening = _dt.datetime(2026, 10, 26, 19, 0, tzinfo=self.tz)
+
+    def test_a_manual_plan_is_never_filled_for_you(self):
+        self.add_movie("Heat", 100)
+        _planner.ensure_plan(self.profile, self.now)
+        self.assertEqual(self.slots(), [])
+
+    def test_adding_a_movie(self):
+        movie = self.add_movie("Heat", 100)
+        slot, error = _planner.add_manual_slot(self.profile, self.plan, movie.id, self.monday_evening, now=self.now)
+        self.assertIsNone(error)
+        self.assertEqual(slot.end - slot.start, timedelta(minutes=100))
+        self.assertEqual(slot.title, movie)
+
+    def test_adding_the_next_episodes_of_a_show(self):
+        show = self.add_show("Andor", 1, self.eps(10, runtime=50))
+        self.start_tmdb()
+        self.watch(show, 1)
+        slot, error = _planner.add_manual_slot(self.profile, self.plan, show.id, self.monday_evening, 3, now=self.now)
+        self.assertIsNone(error)
+        self.assertEqual([e.episode for e in slot.episodes.order_by("episode")], [2, 3, 4])
+        self.assertEqual(slot.end - slot.start, timedelta(minutes=150))
+        # the next block carries on after it
+        later, _ = _planner.add_manual_slot(self.profile, self.plan, show.id, self.monday_evening + timedelta(days=1), 1, now=self.now)
+        self.assertEqual([e.episode for e in later.episodes.all()], [5])
+
+    def test_it_refuses_overlaps_the_past_strangers_and_a_movie_twice(self):
+        movie = self.add_movie("Heat", 100)
+        other = self.add_movie("Alien", 100)
+        _planner.add_manual_slot(self.profile, self.plan, movie.id, self.monday_evening, now=self.now)
+        _, error = _planner.add_manual_slot(self.profile, self.plan, other.id, self.monday_evening + timedelta(minutes=30), now=self.now)
+        self.assertIn("overlaps Heat", error)
+        _, error = _planner.add_manual_slot(self.profile, self.plan, other.id, self.now - timedelta(days=1), now=self.now)
+        self.assertIn("passed", error)
+        _, error = _planner.add_manual_slot(self.profile, self.plan, 999999, self.monday_evening, now=self.now)
+        self.assertIn("not on a list", error)
+        _, error = _planner.add_manual_slot(self.profile, self.plan, movie.id, self.monday_evening + timedelta(days=1), now=self.now)
+        self.assertIn("already watched or planned", error)
+
+    def test_an_unreleased_movie_cannot_be_added(self):
+        future = self.add_movie("Future", 100, year=2099)
+        _, error = _planner.add_manual_slot(self.profile, self.plan, future.id, self.monday_evening, now=self.now)
+        self.assertIsNotNone(error)
+
+    def test_skip_removes_a_manual_slot_instead_of_replanning(self):
+        movie = self.add_movie("Heat", 100)
+        slot, _ = _planner.add_manual_slot(self.profile, self.plan, movie.id, self.monday_evening, now=self.now)
+        _planner.skip_slot(self.profile, slot, self.now)
+        self.assertEqual(self.slots(), [])
+
+    def test_a_missed_manual_slot_becomes_history_and_is_not_replanned(self):
+        movie = self.add_movie("Heat", 100)
+        slot, _ = _planner.add_manual_slot(self.profile, self.plan, movie.id, self.monday_evening, now=self.now)
+        _planner.ensure_plan(self.profile, self.now + timedelta(days=2))
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, "moved")
+        self.assertEqual(self.slots(status="planned"), [])
+
+    def test_a_manual_slot_completes_from_a_watch_like_any_other(self):
+        movie = self.add_movie("Heat", 100)
+        slot, _ = _planner.add_manual_slot(self.profile, self.plan, movie.id, self.monday_evening, now=self.now)
+        self.watch(movie)
+        _planner.ensure_plan(self.profile, self.now)
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, "done")
+
+
+class ManualPlanViewTests(PlannerTestBase):
+    def setUp(self):
+        super().setUp()
+        self.client.login(username="planuser", password="pass12345")
+
+    def manual(self):
+        self.plan.mode = _SchedulePlan.Mode.MANUAL
+        self.plan.save()
+
+    def test_the_add_form_only_exists_for_manual_plans(self):
+        self.add_movie("Heat", 100)
+        self.assertNotContains(self.client.get(reverse("schedule_pane")), reverse("schedule_add"))
+        self.manual()
+        body = self.client.get(reverse("schedule_pane")).content.decode()
+        self.assertIn(reverse("schedule_add"), body)
+        self.assertIn("Heat", body)
+        self.assertNotIn(reverse("schedule_rebuild"), body)  # nothing to rebuild by hand
+
+    def test_adding_through_the_form(self):
+        movie = self.add_movie("Heat", 100)
+        self.manual()
+        future = (timezone.now() + timedelta(days=3)).astimezone(self.tz).date()
+        resp = self.client.post(reverse("schedule_add"), {"title": movie.id, "date": future.isoformat(), "time": "20:00", "days": "7"})
+        self.assertEqual(resp.status_code, 200)
+        slot = _ScheduledSlot.objects.get(profile=self.profile)
+        self.assertEqual(slot.title, movie)
+        self.assertEqual(slot.start.astimezone(self.tz).time(), _dt.time(20, 0))
+
+    def test_a_bad_add_explains_itself_and_adds_nothing(self):
+        self.manual()
+        resp = self.client.post(reverse("schedule_add"), {"title": "x", "date": "", "time": ""})
+        self.assertContains(resp, "Choose a title, a day and a time.")
+        self.assertEqual(_ScheduledSlot.objects.count(), 0)
+
+    def test_adding_is_refused_for_an_automatic_plan(self):
+        self.assertEqual(self.client.post(reverse("schedule_add"), {}).status_code, 404)
+
+    def test_the_remove_button_says_remove(self):
+        movie = self.add_movie("Heat", 100)
+        self.manual()
+        _planner.add_manual_slot(self.profile, self.plan, movie.id, timezone.now() + timedelta(days=1), now=timezone.now())
+        self.assertContains(self.client.get(reverse("schedule_pane")), "Remove from the schedule")
+
+
+class ScheduleSetupTests(PlannerTestBase):
+    def setUp(self):
+        super().setUp()
+        self.plan.enabled = False
+        self.plan.save()
+        self.client.login(username="planuser", password="pass12345")
+
+    def test_the_first_screen_asks_for_lists_and_how_to_fill_it(self):
+        self.add_movie("Heat", 100)
+        body = self.client.get(reverse("schedule_pane")).content.decode()
+        self.assertIn("Which lists should it use?", body)
+        self.assertIn("Automatic", body)
+        self.assertIn("I'll add it myself", body)
+        self.assertIn('name="mode"', body)
+        self.assertIn('name="setup"', body)
+
+    def test_setup_saves_the_choices_and_turns_it_on_manual_and_empty(self):
+        other = WatchList.objects.create(profile=self.profile, name="Rainy day")
+        resp = self.client.post(
+            reverse("schedule_toggle"),
+            {"setup": "1", "enabled": "1", "mode": "manual", "lists": [str(other.id)], "free_days": ["5", "6"],
+             "window_start": "14:00", "window_end": "22:00", "days": "7"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.plan.refresh_from_db()
+        self.assertTrue(self.plan.enabled)
+        self.assertEqual(self.plan.mode, "manual")
+        self.assertEqual(self.plan.free_days, [5, 6])
+        self.assertEqual(list(self.plan.source_lists.all()), [other])
+        self.assertContains(resp, "Add to schedule")
+        self.assertEqual(_ScheduledSlot.objects.count(), 0)
+
+    def test_setup_automatic_plans_straight_away(self):
+        self.add_movie("Heat", 100)
+        self.client.post(reverse("schedule_toggle"), {"setup": "1", "enabled": "1", "mode": "auto", "free_days": ["0", "1", "2", "3", "4"], "window_start": "19:00", "window_end": "22:30"})
+        self.assertTrue(_ScheduledSlot.objects.exists())
+
+    def test_turning_it_off_keeps_the_settings(self):
+        self.plan.enabled = True
+        self.plan.free_days = [2]
+        self.plan.save()
+        self.client.post(reverse("schedule_toggle"), {"enabled": "0"})
+        self.plan.refresh_from_db()
+        self.assertFalse(self.plan.enabled)
+        self.assertEqual(self.plan.free_days, [2])
+
+
+class ApplyAndBusyTests(PlannerTestBase):
+    def setUp(self):
+        super().setUp()
+        self.client.login(username="planuser", password="pass12345")
+
+    def test_settings_are_sent_with_an_apply_button_not_on_every_change(self):
+        body = self.client.get(reverse("schedule_pane"), {"days": "7"}).content.decode()
+        form = body[body.index('hx-post="%s"' % reverse("schedule_save")) - 120:]
+        form = form[: form.index("</form>")]
+        self.assertIn(">Apply</button>", form)
+        self.assertNotIn("hx-trigger", form)
+
+    def test_the_pane_shows_a_busy_veil_for_every_request_it_makes(self):
+        body = self.client.get(reverse("schedule_pane")).content.decode()
+        self.assertIn('hx-indicator="#schedule-pane"', body)
+        self.assertIn("sch-veil", body)
+        self.assertIn("Updating your schedule", body)
+        css = (Path(django_settings.BASE_DIR) / "static" / "src" / "app.css").read_text(encoding="utf-8")
+        self.assertIn("#schedule-pane.htmx-request > .sch-veil", css)
+
+    def test_two_requests_in_a_row_do_not_plan_the_same_hours_twice(self):
+        self.add_movie("Heat", 100)
+        self.add_movie("Alien", 100)
+        first = len(self.slots())
+        for _ in range(3):
+            self.client.get(reverse("schedule_pane"))
+        self.client.post(reverse("schedule_rebuild"))
+        self.client.post(reverse("schedule_rebuild"))
+        starts = [s.start for s in self.slots(status="planned")]
+        self.assertEqual(len(starts), len(set(starts)))
+        self.assertGreaterEqual(len(starts), first)
+
+
+class NoPointlessScrollTests(PlannerTestBase):
+    def test_the_grid_leaves_room_for_the_labels_that_hang_over_its_edges(self):
+        week = _planner.week_context(self.profile, self.plan, _dt.date(2026, 10, 26), 7, self.now)
+        hours = week["hours"]
+        self.assertGreaterEqual(hours[0]["top"], _planner.GRID_PAD)
+        # half a label (about 6px) below the last line must still be inside the grid
+        self.assertGreaterEqual(week["grid_height"] - hours[-1]["top"], _planner.GRID_PAD)
+
+    def test_the_card_is_filled_by_the_whole_day_and_opens_on_the_free_time(self):
+        week = _planner.week_context(self.profile, self.plan, _dt.date(2026, 10, 26), 7, self.now)
+        self.assertEqual([h["hour"] for h in week["hours"]], list(range(7, 25)))  # morning to midnight
+        # 19:00-22:30 is what the card should open on
+        self.assertEqual(week["focus_top"], round(12 * _planner.PIXELS_PER_HOUR + _planner.GRID_PAD))
+        self.assertEqual(week["focus_bottom"], round(15.5 * _planner.PIXELS_PER_HOUR + _planner.GRID_PAD))
+
+    def test_something_planned_in_the_small_hours_pulls_the_day_start_earlier(self):
+        movie = self.add_movie("Late", 90)
+        start = _dt.datetime(2026, 10, 27, 2, 0, tzinfo=self.tz)
+        _ScheduledSlot.objects.create(profile=self.profile, title=movie, start=start, end=start + timedelta(minutes=90))
+        week = _planner.week_context(self.profile, self.plan, _dt.date(2026, 10, 26), 7, self.now)
+        self.assertEqual(week["hours"][0]["hour"], 1)
+
+    def test_the_scroller_is_laid_over_a_card_that_matches_the_sidebar_and_draws_no_scrollbar(self):
+        css = (Path(django_settings.BASE_DIR) / "static" / "src" / "app.css").read_text(encoding="utf-8")
+        scroll = css[css.index(".sch-scroll {"):]
+        scroll = scroll[: scroll.index("}")]
+        self.assertIn("position: absolute", scroll)
+        self.assertIn("scrollbar-width: none", scroll)
+        self.assertNotIn("max-height", scroll)
+        self.assertIn("min-height: 34rem", css[css.index(".sch-fill {"):])
+        self.client.login(username="planuser", password="pass12345")
+        body = self.client.get(reverse("schedule_pane")).content.decode()
+        self.assertIn("items-stretch", body)  # the card stretches to the sidebar's height
+        self.assertIn('class="sch-fill"', body)
+
+    def test_slots_tall_enough_get_a_poster(self):
+        self.add_movie("Heat", 100)
+        _planner.fill(self.profile, self.plan, self.now)
+        week = _planner.week_context(self.profile, self.plan, _dt.date(2026, 10, 26), 7, self.now)
+        slots = [s for c in week["columns"] for s in c["slots"]]
+        self.assertTrue(slots)
+        self.assertTrue(all(s["show_poster"] for s in slots if s["height"] >= 46))

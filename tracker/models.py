@@ -1818,8 +1818,15 @@ class SchedulePlan(models.Model):
         LIST = "list", "List order"
         SHUFFLE = "shuffle", "Shuffle"
 
+    class Mode(models.TextChoices):
+        AUTO = "auto", "Automatic"
+        MANUAL = "manual", "Manual"
+
     profile = models.OneToOneField(Profile, on_delete=models.CASCADE, related_name="schedule_plan")
     enabled = models.BooleanField(default=False)
+    # Automatic: the plan fills the free time itself. Manual: only what the
+    # profile adds is planned (the lists are then the pool to pick from).
+    mode = models.CharField(max_length=6, choices=Mode.choices, default=Mode.AUTO)
     # Lists the plan draws from (the profile's own and shared ones).
     source_lists = models.ManyToManyField(WatchList, blank=True, related_name="+")
     media = models.CharField(max_length=5, choices=Media.choices, default=Media.ALL)

@@ -8,6 +8,40 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.161.0] - 2026-10-28
+
+### Added
+
+- **My schedule can be filled by hand.** Setting it up now asks which lists to
+  use and whether it should be **Automatic** (as before) or **Manual**: a manual
+  schedule starts empty, and you add a title, a day and a time (and, for a show,
+  how many episodes) from an "Add to schedule" card. Slots can be removed, and
+  still tick themselves off from your watch history. Switch between the two in
+  Plan settings.
+- A small poster next to each slot in the week view.
+
+### Changed
+
+- Plan settings are no longer applied the moment you tick something. Change what
+  you want and press **Apply** (or **Save** in Settings -> My schedule), so
+  several changes go through together. "Not applied yet" shows while there are
+  unsaved changes.
+- While My schedule is updating, the page dims and shows "Updating your
+  schedule..." and its buttons are disabled, so it is clear something is
+  happening and nothing gets clicked twice.
+
+- The week view now fills its card down to the bottom of the sidebar beside it,
+  instead of ending early with empty space underneath. It shows the whole day
+  from 07:00 (earlier only if something is planned earlier) and opens on your
+  free time; the slots keep their size, and the other hours are a scroll away.
+
+### Fixed
+
+- The week view no longer shows a vertical scrollbar when everything already
+  fits (the edge hour labels were overflowing it by a few pixels).
+- Two requests at once (a double click, or a refresh while it is loading) can no
+  longer plan the same hours twice.
+
 ## [0.160.0] - 2026-10-28
 
 ### Added

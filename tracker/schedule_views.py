@@ -2,11 +2,14 @@
 and the slot buttons. The logic lives in tracker/planner.py; these views
 only parse requests and hand it the profile."""
 
+import datetime
 from datetime import date, timedelta
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.http import Http404, HttpResponse
-from django.shortcuts import get_object_or_404, render
+from django.http import Http404
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.timesince import timesince
 from django.views.decorators.http import require_POST
@@ -58,6 +61,7 @@ def _settings_context(profile, plan):
     day_windows = plan.day_windows or {}
     return {
         "plan": plan,
+        "mode_choices": SchedulePlan.Mode.choices,
         "list_choices": planner.list_choices(profile, plan),
         "media_choices": SchedulePlan.Media.choices,
         "order_choices": SchedulePlan.Order.choices,
@@ -84,7 +88,20 @@ def _parse_start(raw, days, today):
     return start
 
 
-def _pane_context(request, profile):
+def _add_form_context(profile, plan, tz, now):
+    """The manual plan's "Add to schedule" card."""
+    titles = [
+        {"id": item.title_id, "name": item.title.name, "kind": item.title.media_type}
+        for item in planner.candidates(profile, plan, now)
+    ]
+    return {
+        "titles": titles,
+        "date": now.astimezone(tz).date(),
+        "time": plan.window_start.strftime("%H:%M"),
+    }
+
+
+def _pane_context(request, profile, error=""):
     days = DAY_CHOICES.get(request.GET.get("days") or request.POST.get("days") or "7", 7)
     now = timezone.now()
     tz = selectors.profile_zoneinfo(profile)
@@ -110,6 +127,9 @@ def _pane_context(request, profile):
     if plan.enabled:
         context["week"] = planner.week_context(profile, plan, start, days, now)
         context["tonight"] = planner.tonight_context(profile, plan, now)
+        if plan.mode == SchedulePlan.Mode.MANUAL:
+            context["add_form"] = _add_form_context(profile, plan, tz, now)
+            context["add_error"] = error
     return context
 
 
@@ -125,6 +145,8 @@ def _parse_settings(plan, post, profile):
     visible = {str(wl.id): wl for wl, _selected, _count in planner.list_choices(profile, plan)}
     chosen = [visible[i] for i in post.getlist("lists") if i in visible]
     plan.source_lists.set(chosen)
+    if post.get("mode") in SchedulePlan.Mode.values:
+        plan.mode = post["mode"]
     if post.get("media") in SchedulePlan.Media.values:
         plan.media = post["media"]
     if post.get("order") in SchedulePlan.Order.values:
@@ -146,28 +168,35 @@ def _parse_settings(plan, post, profile):
 @login_required
 @require_POST
 def schedule_save(request):
-    """The settings form (sidebar and Settings tab). The sidebar re-renders
-    the pane with the rebuilt plan; the Settings tab just wants a 204."""
+    """The settings form. From the sidebar it re-renders the pane with the
+    replanned week; from the Settings tab it saves (including the on/off
+    switch) and goes back there with a message."""
     profile = _profile(request)
     plan = planner.get_plan(profile)
     _parse_settings(plan, request.POST, profile)
-    planner.invalidate(profile)
     if request.POST.get("from") == "settings":
-        return HttpResponse(status=204)
+        plan.enabled = request.POST.get("enabled") == "1"
+        plan.save(update_fields=["enabled"])
+        planner.invalidate(profile)
+        messages.success(request, "Schedule settings saved.")
+        return redirect(f"{reverse('settings')}?tab=schedule")
+    planner.invalidate(profile)
     return render(request, "tracker/partials/schedule_pane.html", _pane_context(request, profile))
 
 
 @login_required
 @require_POST
 def schedule_toggle(request):
+    """Turns My schedule on or off. The first-time setup form posts its
+    lists, mode and free time along with it (setup=1)."""
     profile = _profile(request)
     plan = planner.get_plan(profile)
+    if request.POST.get("setup"):
+        _parse_settings(plan, request.POST, profile)
     plan.enabled = request.POST.get("enabled") == "1"
     plan.dirty = True
-    plan.save(update_fields=["enabled", "dirty"])
+    plan.save()
     planner.invalidate(profile)
-    if request.POST.get("from") == "settings":
-        return HttpResponse(status=204)
     return render(request, "tracker/partials/schedule_pane.html", _pane_context(request, profile))
 
 
@@ -199,6 +228,33 @@ def schedule_slot_action(request, pk, action):
     if request.POST.get("target") == "tonight":
         return _tonight_response(request, profile)
     return render(request, "tracker/partials/schedule_pane.html", _pane_context(request, profile))
+
+
+@login_required
+@require_POST
+def schedule_add(request):
+    """Manual plans: one block added at a chosen day and time."""
+    profile = _profile(request)
+    plan = planner.get_plan(profile)
+    error = ""
+    if not plan.enabled or plan.mode != SchedulePlan.Mode.MANUAL:
+        raise Http404
+    tz = selectors.profile_zoneinfo(profile)
+    try:
+        title_id = int(request.POST.get("title", ""))
+        day = date.fromisoformat(request.POST.get("date", ""))
+        at = planner.parse_time(request.POST.get("time"))
+        count = int(request.POST.get("count") or 1)
+    except (TypeError, ValueError):
+        title_id = day = at = count = None
+    if not (title_id and day and at):
+        error = "Choose a title, a day and a time."
+    else:
+        _slot, error = planner.add_manual_slot(
+            profile, plan, title_id, datetime.datetime.combine(day, at, tzinfo=tz), count
+        )
+        error = error or ""
+    return render(request, "tracker/partials/schedule_pane.html", _pane_context(request, profile, error))
 
 
 def _tonight_response(request, profile):

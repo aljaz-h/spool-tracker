@@ -557,14 +557,6 @@
               </div>
             </div>
           </div>
-          <form method="post" action="{% url 'schedule_toggle' %}" hx-post="{% url 'schedule_toggle' %}" hx-trigger="change" hx-swap="none">
-            {% csrf_token %}
-            <input type="hidden" name="from" value="settings">
-            <label class="flex items-center justify-between gap-3 cursor-pointer">
-              <span class="text-[13.5px]">Turn on My schedule</span>
-              <input type="checkbox" name="enabled" value="1" class="checkbox checkbox-sm" {% if schedule_settings.plan.enabled %}checked{% endif %}>
-            </label>
-          </form>
         </div>
         <div class="surface p-5">
           {% include "tracker/partials/schedule_settings.html" with settings=schedule_settings variant="settings" %}

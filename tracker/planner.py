@@ -22,12 +22,14 @@ passed, a movie needs to be out. Episodes come from TMDB's (cached)
 season lists, planned in order, skipping anything already watched.
 """
 
+import contextlib
 import datetime
 import logging
 import random
 from datetime import timedelta
 
 from django.core.cache import cache
+from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -65,6 +67,11 @@ ESTIMATE_CACHE_SECONDS = 1800
 FILL_CACHE_SECONDS = 600
 MAX_ESTIMATE_DAYS = 3 * 365
 PIXELS_PER_HOUR = 56
+# Room above the first and below the last hour line, so the half of a label
+# that hangs outside the grid does not make the timeline scroll for nothing.
+GRID_PAD = 10
+# The timeline's first hour, unless something is planned earlier.
+DAY_STARTS_AT = 7
 
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 SYNC_PROVIDERS = (
@@ -457,28 +464,108 @@ def reconcile(profile, now=None):
     return changed
 
 
+@contextlib.contextmanager
+def _plan_lock(plan):
+    """Holds the plan row's lock for the length of a plan/rebuild. Only
+    Postgres has row locks to take (SQLite, the dev/test fallback, locks
+    the whole file and would fail an upgrade from a read outright), so
+    elsewhere this is a plain pass-through."""
+    if connection.vendor != "postgresql":
+        yield plan
+        return
+    with transaction.atomic():
+        yield SchedulePlan.objects.select_for_update().get(pk=plan.pk)
+
+
 def ensure_plan(profile, now=None):
-    """Called before the plan is shown. Does nothing while the plan is off."""
+    """Called before the plan is shown. Does nothing while the plan is off.
+    A manual plan is only reconciled (done / missed), never filled. The
+    plan row is locked while this runs, so two requests at once (a double
+    click, a refresh mid-load) plan one after the other instead of both
+    planning the same hours."""
     plan = get_plan(profile)
     if not plan.enabled:
         return plan
     now = now or timezone.now()
-    changed = reconcile(profile, now)
-    key = f"schedule:fill:{profile.id}"
-    if plan.dirty:
-        plan.dirty = False
-        plan.save(update_fields=["dirty"])
-        rebuild(profile, plan, now)
-        cache.set(key, 1, FILL_CACHE_SECONDS)
-    elif changed or cache.add(key, 1, FILL_CACHE_SECONDS):
-        fill(profile, plan, now)
-        if changed:
+    with _plan_lock(plan) as plan:
+        changed = reconcile(profile, now)
+        key = f"schedule:fill:{profile.id}"
+        if plan.mode == SchedulePlan.Mode.MANUAL:
+            if plan.dirty:
+                plan.dirty = False
+                plan.save(update_fields=["dirty"])
+        elif plan.dirty:
+            plan.dirty = False
+            plan.save(update_fields=["dirty"])
+            rebuild(profile, plan, now)
             cache.set(key, 1, FILL_CACHE_SECONDS)
+        elif changed or cache.add(key, 1, FILL_CACHE_SECONDS):
+            fill(profile, plan, now)
+            if changed:
+                cache.set(key, 1, FILL_CACHE_SECONDS)
     return plan
 
 
 def invalidate(profile):
     cache.delete(f"schedule:fill:{profile.id}")
+
+
+# ---------------------------------------------------------------------------
+# Manual plans
+# ---------------------------------------------------------------------------
+
+
+def add_manual_slot(profile, plan, title_id, start, count=1, now=None):
+    """One block put into the plan by hand: a movie, or the next `count`
+    released, unwatched episodes of a show, starting at `start`. Returns
+    (slot, None) or (None, "what is wrong")."""
+    now = now or timezone.now()
+    item = next((i for i in candidates(profile, plan, now) if i.title_id == title_id), None)
+    if item is None:
+        return None, "That title is not on a list you plan from."
+    if start < now - timedelta(minutes=5):
+        return None, "Pick a time that has not passed."
+    tz = selectors.profile_zoneinfo(profile)
+    planned = list(
+        ScheduledSlot.objects.filter(profile=profile, status=ScheduledSlot.Status.PLANNED).prefetch_related("episodes")
+    )
+    state = _State(profile, [item], planned, now.astimezone(tz).date())
+    title = item.title
+    if state.is_movie(title):
+        block = state.block(item, 10**6)
+        if block is None:
+            return None, "That movie is already watched or planned, or is not out yet."
+        minutes, episodes = block[1], []
+    else:
+        taken = [
+            ep
+            for ep in state.remaining_episodes(title)
+            if (ep["season"], ep["episode"]) not in state.planned_pairs.get(title.id, set())
+        ][: max(1, min(int(count or 1), 6))]
+        if not taken:
+            return None, "Nothing released and unwatched is left to plan for that show."
+        minutes, episodes = sum(e["runtime"] for e in taken), taken
+    end = start + timedelta(minutes=minutes)
+    clash = ScheduledSlot.objects.filter(profile=profile, start__lt=end, end__gt=start).exclude(
+        status=ScheduledSlot.Status.MOVED
+    )
+    if clash.exists():
+        other = clash.select_related("title").first()
+        return None, f"That overlaps {other.title.name} at {other.start.astimezone(tz):%H:%M}."
+    slot = ScheduledSlot.objects.create(profile=profile, title=title, start=start, end=end)
+    if episodes:
+        slot.episodes.set(
+            [
+                Episode.objects.get_or_create(
+                    title=title,
+                    season=e["season"],
+                    episode=e["episode"],
+                    defaults={"name": e["name"][:255], "runtime_minutes": e["runtime"]},
+                )[0]
+                for e in episodes
+            ]
+        )
+    return slot, None
 
 
 # ---------------------------------------------------------------------------
@@ -512,13 +599,15 @@ def mark_slot_watched(profile, slot, now=None):
 def skip_slot(profile, slot, now=None):
     """The manual "skip": the slot is moved on and its titles are planned
     again into a later slot."""
+    plan = get_plan(profile)
+    if plan.mode == SchedulePlan.Mode.MANUAL:
+        # Nothing re-plans a manual schedule, so skipping takes it off.
+        slot.delete()
+        return
     slot.status = ScheduledSlot.Status.MOVED
     slot.save(update_fields=["status"])
     invalidate(profile)
-    now = now or timezone.now()
-    plan = get_plan(profile)
-    # The skipped title goes behind the others for the rest of this plan.
-    fill(profile, plan, now)
+    fill(profile, plan, now or timezone.now())
 
 
 # ---------------------------------------------------------------------------
@@ -603,22 +692,24 @@ def week_context(profile, plan, start_day, days, now=None):
         (v["id"] for v in sorted(views, key=lambda v: v["start"]) if v["status"] == ScheduledSlot.Status.PLANNED and v["end"] > now.astimezone(tz)),
         None,
     )
-    # Hour range: the windows and slots on show, with an hour of margin.
-    minutes_marks = []
+    # The whole day is drawn; the card is as tall as the sidebar beside it
+    # and opens on the free time (focus_top/focus_bottom), so the space is
+    # filled with the hours around it instead of stretching the slots.
+    marks = []
     for day in day_list:
         window = window_for(plan, day.weekday())
         if window:
-            minutes_marks += [window[0].hour * 60 + window[0].minute, window[1].hour * 60 + window[1].minute]
+            marks += [window[0].hour * 60 + window[0].minute, window[1].hour * 60 + window[1].minute]
     for v in views:
-        minutes_marks += [v["start"].hour * 60 + v["start"].minute, v["end"].hour * 60 + v["end"].minute or 24 * 60]
-    first_hour = max(0, (min(minutes_marks) // 60) - 1) if minutes_marks else 17
-    last_hour = min(24, -(-max(minutes_marks) // 60) + 1) if minutes_marks else 23
-    if last_hour - first_hour < 4:
-        last_hour = min(24, first_hour + 4)
+        marks += [v["start"].hour * 60 + v["start"].minute, v["end"].hour * 60 + v["end"].minute or 24 * 60]
+    # From early morning to midnight - the dead small hours only if
+    # something is actually planned in them.
+    first_hour = min(DAY_STARTS_AT, max(0, min(marks) // 60 - 1)) if marks else DAY_STARTS_AT
+    last_hour = 24
     range_minutes = (last_hour - first_hour) * 60
 
     def px(moment_minutes):
-        return round((moment_minutes - first_hour * 60) / 60 * PIXELS_PER_HOUR, 1)
+        return round((moment_minutes - first_hour * 60) / 60 * PIXELS_PER_HOUR + GRID_PAD, 1)
 
     columns = []
     for day in day_list:
@@ -628,6 +719,7 @@ def week_context(profile, plan, start_day, days, now=None):
             v["top"] = px(v["start"].hour * 60 + v["start"].minute)
             v["height"] = max(26.0, round(_minutes(v["end"] - v["start"]) / 60 * PIXELS_PER_HOUR, 1))
             v["is_next"] = v["id"] == next_id
+            v["show_poster"] = v["height"] >= 46
         columns.append(
             {
                 "date": day,
@@ -646,26 +738,15 @@ def week_context(profile, plan, start_day, days, now=None):
     return {
         "columns": columns,
         "hours": [{"hour": h, "top": px(h * 60)} for h in range(first_hour, last_hour + 1)],
-        "grid_height": round(range_minutes / 60 * PIXELS_PER_HOUR, 1),
+        "grid_height": round(range_minutes / 60 * PIXELS_PER_HOUR + 2 * GRID_PAD, 1),
         "now_top": px(now_local.hour * 60 + now_local.minute) if first_hour * 60 <= now_local.hour * 60 + now_local.minute <= last_hour * 60 else None,
         "now_day": today,
-        "scroll_to": _scroll_target(columns, today),
+        "focus_top": round((min(marks) - first_hour * 60) / 60 * PIXELS_PER_HOUR + GRID_PAD) if marks else round(18 * PIXELS_PER_HOUR),
+        "focus_bottom": round((max(marks) - first_hour * 60) / 60 * PIXELS_PER_HOUR + GRID_PAD) if marks else round(23 * PIXELS_PER_HOUR),
         "days": days,
         "start_day": start_day,
         "end_day": day_list[-1],
     }
-
-
-def _scroll_target(columns, today):
-    """Where the timeline should open: today's free window (or its first
-    slot), else the first window shown, so the evening is in view."""
-    ordered = sorted(columns, key=lambda c: c["date"] != today)
-    for column in ordered:
-        tops = [column["window_top"]] if column["window_top"] is not None else []
-        tops += [s["top"] for s in column["slots"]]
-        if tops:
-            return min(tops)
-    return 0
 
 
 def tonight_context(profile, plan, now=None):

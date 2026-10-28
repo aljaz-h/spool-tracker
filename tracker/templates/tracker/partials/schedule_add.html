@@ -1,0 +1,40 @@
+{# context: add_form (titles, date, time), add_error, days, start. A manual plan's "Add to schedule" form: a title from the chosen lists, a day, a time - and for a show, how many episodes. #}
+<form
+  method="post" action="{% url 'schedule_add' %}"
+  hx-post="{% url 'schedule_add' %}" hx-target="#schedule-pane" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]"
+  class="flex flex-col gap-3"
+  x-data="{ kind: '' }"
+>
+  {% csrf_token %}
+  <input type="hidden" name="days" value="{{ days }}">
+  <input type="hidden" name="start" value="{{ start|date:'Y-m-d' }}">
+  {% if add_error %}<div class="text-[12.5px] text-error leading-snug" role="alert">{{ add_error }}</div>{% endif %}
+  {% if add_form.titles %}
+    <label class="block">
+      <span class="sch-eyebrow block mb-1">Title</span>
+      <select name="title" required class="select select-sm w-full bg-base-300" @change="kind = $event.target.selectedOptions[0].dataset.kind">
+        <option value="" data-kind="">Choose&hellip;</option>
+        {% for t in add_form.titles %}<option value="{{ t.id }}" data-kind="{{ t.kind }}">{{ t.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <div class="flex items-end gap-2">
+      <label class="block flex-1 min-w-0">
+        <span class="sch-eyebrow block mb-1">Day</span>
+        <input type="date" name="date" value="{{ add_form.date|date:'Y-m-d' }}" min="{{ add_form.date|date:'Y-m-d' }}" required class="sch-time w-full">
+      </label>
+      <label class="block">
+        <span class="sch-eyebrow block mb-1">From</span>
+        <input type="time" name="time" value="{{ add_form.time }}" required class="sch-time">
+      </label>
+    </div>
+    <label class="block" x-show="kind === 'tv' || kind === 'anime'" x-cloak>
+      <span class="sch-eyebrow block mb-1">Episodes</span>
+      <select name="count" class="select select-sm bg-base-300">
+        {% for n in "123456" %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit" class="btn btn-primary btn-sm self-start">Add</button>
+  {% else %}
+    <p class="text-[12.5px] text-ink-dim leading-snug">Nothing to pick from yet. Add titles to one of the lists above, or choose other lists in Plan settings.</p>
+  {% endif %}
+</form>

@@ -17,8 +17,9 @@ schedule**.
   width between its seven days, so it fits without a sideways scrollbar;
   only a screen too narrow for that scrolls sideways. **Week / 3 days /
   Day** shortens the view (phones open on Day), and the arrows move by a
-  week, or by a day in the shorter views. Scrolling up and down moves
-  through the hours.
+  week, or by a day in the shorter views. The card is as tall as the sidebar
+  beside it and shows the day from 07:00 to midnight, opened on your free
+  time; scrolling up and down reaches any other hour.
 - **Tonight** - a card at the top of the Dashboard's side column and in the
   schedule tab's sidebar: today's remaining blocks, with the time left
   open. After the last block of the day it shows the next day with a plan.
@@ -29,7 +30,23 @@ schedule**.
 - **Settings → My schedule** - the same options as the sidebar's Plan
   settings, plus the on/off switch.
 
-## How the plan is built
+## Setting it up
+
+The first time, My schedule asks which lists to use and whether it should be:
+
+- **Automatic** - it fits titles from those lists into your free time and
+  replans what you miss (below).
+- **Manual** - it starts empty and nothing is added for you. Use **Add to
+  schedule** (a title from your lists, a day and time, and for a show how many
+  episodes) to put things in. A slot you remove is gone; one you do not watch is
+  marked Moved and left as history. Slots still tick themselves off from your
+  watch history.
+
+You can switch later in Plan settings (switching to Automatic replans the slots
+that have not started). Plan settings are applied together with **Apply** (or
+**Save** in Settings -> My schedule).
+
+## How the plan is built (automatic)
 
 1. **Pull from** - the lists to draw from (yours and shared ones). With none
    picked it uses your Watchlist.
