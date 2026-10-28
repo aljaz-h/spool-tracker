@@ -2,11 +2,24 @@
 {% load icons %}
 {% block title %}Calendar · Spool{% endblock %}
 {% block content %}
+<div x-data="{
+  tab: new URLSearchParams(window.location.search).get('tab') === 'schedule' ? 'schedule' : 'releases',
+  setTab(next) {
+    this.tab = next;
+    try { const url = new URL(window.location); url.searchParams.set('tab', next); window.history.replaceState(null, '', url); } catch (e) {}
+  },
+}">
 
   <div class="page-head !mb-6">
     <div>
       <h1 class="page-title">Calendar</h1>
-      <p class="page-subtitle">New episodes, season premieres and releases from what you're watching and your watchlists.</p>
+      <p class="page-subtitle" x-show="tab === 'releases'">New episodes, season premieres and releases from what you're watching and your watchlists.</p>
+      <p class="page-subtitle" x-show="tab === 'schedule'" x-cloak>Your own plan: what to watch tonight, and when you could finish your lists.</p>
+    </div>
+    <div class="flex flex-wrap items-center gap-3">
+    <div class="seg" role="tablist" aria-label="Calendar view">
+      <button type="button" role="tab" class="seg-item" :class="tab === 'releases' && 'is-active'" :aria-selected="tab === 'releases'" @click="setTab('releases')">Releases</button>
+      <button type="button" role="tab" class="seg-item" :class="tab === 'schedule' && 'is-active'" :aria-selected="tab === 'schedule'" @click="setTab('schedule')">My schedule</button>
     </div>
     {% comment %}
       fixed + JS-clamped left/top (togglePanel), not a plain CSS
@@ -20,7 +33,7 @@
       notification/profile dropdowns already use, for the same reason.
     {% endcomment %}
     <div
-      class="relative" x-data="{
+      class="relative" x-show="tab === 'releases'" x-data="{
         open: false,
         togglePanel(button) {
           this.open = !this.open;
@@ -52,8 +65,10 @@
         </div>
       </div>
     </div>
+    </div>
   </div>
 
+  <div x-show="tab === 'releases'">
   {% comment %}
     A three-column grid (1fr / auto / 1fr), not flexbox, so the month
     switcher lands at the row's true center regardless of how much wider
@@ -148,5 +163,22 @@
       if (monthEl && field) field.value = monthEl.dataset.activeMonth;
     });
   </script>
+  </div>
 
+  {% comment %}
+    My schedule: loaded the first time the tab is shown (intersect only
+    fires once the pane is visible), at a width-appropriate number of days
+    unless one was chosen before. The pane then swaps itself on every
+    navigation and settings change - see partials/schedule_pane.html.
+  {% endcomment %}
+  <div x-show="tab === 'schedule'" x-cloak>
+    <div
+      id="schedule-pane" hx-get="{% url 'schedule_pane' %}" hx-trigger="intersect once" hx-swap="outerHTML"
+      hx-vals='js:{days: (() => { try { const saved = localStorage.getItem("spool-schedule-days"); if (saved) return saved; } catch (e) {} return window.innerWidth < 640 ? "1" : (window.innerWidth < 1024 ? "3" : "7"); })()}'
+    >
+      <div class="surface p-8 text-center text-ink-faint text-sm" role="status">Loading your schedule&hellip;</div>
+    </div>
+  </div>
+
+</div>
 {% endblock %}

@@ -1800,3 +1800,332 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     overscroll-behavior: contain;
   }
 }
+
+/* Calendar -> My schedule (tracker/planner.py, partials/schedule_*.html).
+   The week is a CSS grid whose columns share the width (min 5.25rem each),
+   so seven days fit without a sideways scrollbar; .sch-scroll only
+   scrolls sideways when the screen is narrower than that, and always
+   vertically, for the hours. Slot positions are pixel offsets computed
+   server-side from the shown hour range. */
+@layer components {
+  .sch-eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+  }
+  .sch-heading {
+    font-family: var(--font-brand);
+    font-size: 1.5rem;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    line-height: 1.1;
+  }
+  .sch-big {
+    font-family: var(--font-brand);
+    font-size: 2.6rem;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    line-height: 1;
+    color: var(--color-primary);
+  }
+  .sch-scroll {
+    overflow: auto;
+    max-height: min(44rem, 72vh);
+    border-radius: var(--radius-xl);
+    background: var(--color-base-100);
+  }
+  .sch-grid {
+    min-width: calc(2.75rem + var(--sch-days, 7) * 5.25rem);
+  }
+  .sch-head,
+  .sch-body {
+    display: grid;
+    grid-template-columns: 2.75rem repeat(var(--sch-days, 7), minmax(0, 1fr));
+  }
+  .sch-head {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    background: var(--color-base-100);
+  }
+  .sch-day {
+    padding: 0.5rem 0.5rem 0.4rem;
+    min-width: 0;
+  }
+  .sch-day-name {
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+  }
+  .sch-day-num {
+    font-family: var(--font-brand);
+    font-size: 1.5rem;
+    line-height: 1.1;
+  }
+  .sch-day-month {
+    font-size: 0.75rem;
+    color: var(--color-ink-dim);
+  }
+  .sch-day.is-today .sch-day-name,
+  .sch-day.is-today .sch-day-num {
+    color: var(--color-primary);
+  }
+  .sch-day-window {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    line-height: 1.3;
+    color: var(--color-ink-dim);
+  }
+  .sch-body {
+    position: relative;
+  }
+  .sch-axis {
+    position: relative;
+  }
+  .sch-hour-label {
+    position: absolute;
+    right: 0.4rem;
+    transform: translateY(-50%);
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--color-ink-faint);
+  }
+  .sch-col {
+    position: relative;
+    background: var(--color-base-200);
+    margin-left: 2px;
+    border-radius: 6px;
+    min-width: 0;
+  }
+  .sch-col.is-today {
+    background: color-mix(in oklab, var(--color-primary) 5%, var(--color-base-200));
+  }
+  .sch-hour-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: color-mix(in oklab, var(--color-base-content) 6%, transparent);
+  }
+  .sch-window {
+    position: absolute;
+    left: 0;
+    right: 0;
+    border-radius: 6px;
+    background: color-mix(in oklab, var(--color-base-300) 85%, transparent);
+  }
+  .sch-now {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    z-index: 3;
+    background: var(--color-error);
+  }
+  .sch-slot {
+    --sch-c: var(--color-ink-dim);
+    position: absolute;
+    left: 3px;
+    right: 3px;
+    z-index: 2;
+    padding: 0.3rem 0.4rem 0.3rem 0.5rem;
+    border-radius: 8px;
+    border-left: 3px solid var(--sch-c);
+    background: var(--color-base-300);
+    box-shadow: 0 1px 0 rgb(0 0 0 / 0.25);
+    overflow: hidden;
+    font-size: 0.75rem;
+    line-height: 1.25;
+  }
+  .sch-slot[data-kind="movie"] { --sch-c: var(--color-movie); }
+  .sch-slot[data-kind="tv"] { --sch-c: var(--color-tv); }
+  .sch-slot[data-kind="anime"] { --sch-c: var(--color-anime); }
+  .sch-slot.is-next {
+    outline: 1.5px solid var(--sch-c);
+    outline-offset: -1px;
+  }
+  .sch-slot.is-done {
+    opacity: 0.55;
+  }
+  .sch-slot.is-done .sch-slot-title {
+    text-decoration: line-through;
+  }
+  .sch-slot.is-moved {
+    opacity: 0.6;
+    background: repeating-linear-gradient(
+      135deg,
+      var(--color-base-300) 0 6px,
+      color-mix(in oklab, var(--color-base-content) 6%, var(--color-base-300)) 6px 12px
+    );
+  }
+  .sch-tag {
+    float: right;
+    margin-left: 0.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.5625rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .sch-slot-title {
+    display: block;
+    font-weight: 600;
+    color: var(--color-base-content);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sch-slot-title:hover {
+    color: #fff;
+  }
+  .sch-slot-meta {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--color-ink-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sch-slot-actions {
+    position: absolute;
+    right: 0.25rem;
+    bottom: 0.25rem;
+    display: none;
+    gap: 0.25rem;
+  }
+  .sch-slot:hover .sch-slot-actions,
+  .sch-slot:focus-within .sch-slot-actions {
+    display: flex;
+  }
+  .sch-act {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 6px;
+    background: var(--color-base-100);
+    color: var(--color-ink-dim);
+    cursor: pointer;
+  }
+  .sch-act:hover {
+    color: var(--color-base-content);
+    background: color-mix(in oklab, var(--color-base-content) 12%, var(--color-base-100));
+  }
+  .sch-tonight-row {
+    --sch-c: var(--color-ink-dim);
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.55rem 0.6rem;
+    border-radius: 10px;
+    background: var(--color-base-300);
+    border-left: 3px solid var(--sch-c);
+  }
+  .sch-tonight-row[data-kind="movie"] { --sch-c: var(--color-movie); }
+  .sch-tonight-row[data-kind="tv"] { --sch-c: var(--color-tv); }
+  .sch-tonight-row[data-kind="anime"] { --sch-c: var(--color-anime); }
+  .sch-tonight-row.is-done {
+    opacity: 0.55;
+  }
+  .sch-tonight-times {
+    display: flex;
+    flex-direction: column;
+    min-width: 3.1rem;
+    flex: none;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    line-height: 1.35;
+  }
+  .sch-tonight-poster {
+    position: relative;
+    width: 2.25rem;
+    flex: none;
+    aspect-ratio: 2 / 3;
+    border-radius: 5px;
+    overflow: hidden;
+    background: var(--color-base-100);
+  }
+  .sch-tonight-poster img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .sch-open {
+    padding: 0.7rem 0.75rem;
+    border-radius: 10px;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    line-height: 1.45;
+    color: var(--color-ink-faint);
+    background: repeating-linear-gradient(
+      135deg,
+      transparent 0 6px,
+      color-mix(in oklab, var(--color-base-content) 4%, transparent) 6px 12px
+    );
+  }
+  .sch-pill-face {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    height: 1.7rem;
+    padding: 0 0.65rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    background: var(--color-base-300);
+    color: var(--color-ink-dim);
+  }
+  .sch-pill-count {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    color: var(--color-ink-faint);
+  }
+  .sch-pill:hover .sch-pill-face {
+    color: var(--color-base-content);
+  }
+  .sch-pill input:checked + .sch-pill-face {
+    background: color-mix(in oklab, var(--color-primary) 16%, transparent);
+    color: var(--color-primary);
+  }
+  .sch-daybox {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: var(--color-base-300);
+    color: var(--color-ink-faint);
+  }
+  input:checked + .sch-daybox {
+    background: color-mix(in oklab, var(--color-primary) 16%, transparent);
+    color: var(--color-primary);
+  }
+  .sch-time {
+    height: 2rem;
+    padding: 0 0.5rem;
+    border-radius: 8px;
+    background: var(--color-base-300);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    color: var(--color-base-content);
+    color-scheme: dark;
+  }
+  /* A touch screen has no hover, so the slot buttons are always there. */
+  @media (hover: none) {
+    .sch-slot-actions {
+      display: flex;
+    }
+  }
+}

@@ -136,6 +136,19 @@
     </div>
 
     <aside class="min-w-0 max-lg:contents lg:flex lg:flex-col lg:gap-11" aria-label="Up next and household">
+      {# ---- Tonight: today's slice of My schedule (Calendar -> My schedule), only for a profile that turned it on. Loaded after the page so planning never holds the dashboard up. ---- #}
+      {% if schedule_enabled %}
+        <section class="max-lg:order-first">
+          <div class="section-head">
+            <h2 class="section-title">My Schedule</h2>
+            <a href="{% url 'calendar' %}?tab=schedule" class="section-link">Plan &rarr;</a>
+          </div>
+          <div class="surface p-5" hx-get="{% url 'schedule_tonight' %}" hx-trigger="load" hx-swap="innerHTML">
+            <div class="text-[13px] text-ink-faint" role="status">Loading&hellip;</div>
+          </div>
+        </section>
+      {% endif %}
+
       {# ---- Up next: what's about to release for something already tracked. A short dated list, not cards. Below lg the rail dissolves (display: contents) and this moves up to sit straight under Continue Watching. ---- #}
       <section class="max-lg:order-first">
         <div class="section-head">

@@ -31281,3 +31281,579 @@ class NotificationSettingsPageTests(TestCase):
 
         migration = importlib.import_module("tracker.migrations.0074_notification_preferences")
         self.assertEqual(set(migration.LEGACY.values()), {"new_release", "upcoming_release", "sync_failed"})
+
+
+# ---------------------------------------------------------------------------
+# Calendar -> My schedule (planner)
+# ---------------------------------------------------------------------------
+import datetime as _dt  # noqa: E402
+
+from tracker import planner as _planner  # noqa: E402
+from tracker.models import ExternalAccount as _ExternalAccount  # noqa: E402
+from tracker.models import SchedulePlan as _SchedulePlan  # noqa: E402
+from tracker.models import ScheduledSlot as _ScheduledSlot  # noqa: E402
+
+
+def _fake_tmdb(shows):
+    """shows: {tmdb_id: {"seasons": {n: [(episode, air_date_iso, runtime)]}, "runtime": minutes}}"""
+
+    def details(kind, tmdb_id):
+        show = shows.get(str(tmdb_id))
+        if not show:
+            return None
+        last_season = max(show["seasons"])
+        aired = [e for e in show["seasons"][last_season] if e[1] <= "2026-10-26"]
+        return {
+            "number_of_seasons": last_season,
+            "seasons": [(n, len(eps)) for n, eps in sorted(show["seasons"].items())],
+            "episode_runtime": show.get("runtime"),
+            "last_episode_to_air": {"season_number": last_season, "episode_number": aired[-1][0], "air_date": aired[-1][1]}
+            if aired
+            else None,
+            "status": "Returning Series",
+            "number_of_episodes": sum(len(e) for e in show["seasons"].values()),
+        }
+
+    def season(tmdb_id, number):
+        show = shows.get(str(tmdb_id))
+        if not show or number not in show["seasons"]:
+            return None
+        return {
+            "episodes": [
+                {"episode_number": n, "name": f"Ep {n}", "air_date": air, "runtime": rt}
+                for n, air, rt in show["seasons"][number]
+            ]
+        }
+
+    return details, season
+
+
+class PlannerTestBase(TestCase):
+    NOW = None
+
+    def setUp(self):
+
+        self.user = User.objects.create_user("planuser", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="Planner")
+        self.tz = _planner.selectors.profile_zoneinfo(self.profile)
+        # Monday 26 Oct 2026, 10:00 local
+        self.now = _dt.datetime(2026, 10, 26, 10, 0, tzinfo=self.tz)
+        self.plan = _planner.get_plan(self.profile)
+        self.plan.enabled = True
+        self.plan.save()
+        from tracker.watchlists import ensure_watchlist
+
+        self.watchlist = ensure_watchlist(self.profile)
+        self.shows = {}
+        self.patches = []
+
+    def start_tmdb(self):
+        details, season = _fake_tmdb(self.shows)
+        for target, fn in (("tracker.planner.tmdb.get_full_details", details), ("tracker.planner.tmdb.get_season_details", season)):
+            p = patch(target, side_effect=fn)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def add_show(self, name, tmdb_id, episodes, runtime=45, media=MediaType.TV, season=1):
+        title = Title.objects.create(media_type=media, name=name, year=2024, external_ids={"tmdb": str(tmdb_id), "tmdb_kind": "tv"})
+        self.shows[str(tmdb_id)] = {"seasons": {season: episodes}, "runtime": runtime}
+        WatchListItem.objects.create(watchlist=self.watchlist, title=title, position=WatchListItem.objects.count())
+        return title
+
+    def add_movie(self, name, minutes=100, year=2024):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name=name, year=year, runtime_minutes=minutes)
+        WatchListItem.objects.create(watchlist=self.watchlist, title=title, position=WatchListItem.objects.count())
+        return title
+
+    def eps(self, count, start="2026-01-01", runtime=45):
+        return [(n, start, runtime) for n in range(1, count + 1)]
+
+    def slots(self, **filters):
+        return list(_ScheduledSlot.objects.filter(profile=self.profile, **filters).order_by("start"))
+
+    def watch(self, title, episode_no=None, season=1, at=None):
+        episode = None
+        if episode_no is not None:
+            episode, _ = Episode.objects.get_or_create(title=title, season=season, episode=episode_no)
+        return WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=at or self.now)
+
+
+class WindowTests(PlannerTestBase):
+    def test_free_days_and_default_window(self):
+        self.assertEqual(_planner.window_for(self.plan, 0), (_dt.time(19, 0), _dt.time(22, 30)))
+        self.assertIsNone(_planner.window_for(self.plan, 5))  # Saturday is not a free day
+
+    def test_a_per_day_override_wins(self):
+        self.plan.free_days = [5]
+        self.plan.day_windows = {"5": ["14:00", "23:00"]}
+        self.assertEqual(_planner.window_for(self.plan, 5), (_dt.time(14, 0), _dt.time(23, 0)))
+
+    def test_a_backwards_window_is_no_window(self):
+        self.plan.window_start, self.plan.window_end = _dt.time(22, 0), _dt.time(20, 0)
+        self.assertIsNone(_planner.window_for(self.plan, 0))
+
+
+class FillTests(PlannerTestBase):
+    def test_episodes_are_planned_consecutively_inside_the_window(self):
+        show = self.add_show("Andor", 1, self.eps(10, runtime=50))
+        self.start_tmdb()
+        _planner.fill(self.profile, self.plan, self.now)
+        monday = [s for s in self.slots() if s.start.astimezone(self.tz).date() == _dt.date(2026, 10, 26)]
+        slot = monday[0]
+        self.assertEqual(slot.start.astimezone(self.tz).time(), _dt.time(19, 0))
+        self.assertEqual([e.episode for e in slot.episodes.order_by("episode")], [1, 2])  # 100 min block
+        self.assertEqual(slot.end - slot.start, timedelta(minutes=100))
+        self.assertEqual(slot.title, show)
+
+    def test_titles_rotate_between_evenings_and_share_one(self):
+        self.add_show("Andor", 1, self.eps(10, runtime=50))
+        self.add_show("Frieren", 2, self.eps(10, runtime=24), media=MediaType.ANIME)
+        self.start_tmdb()
+        _planner.fill(self.profile, self.plan, self.now)
+        monday = [s for s in self.slots() if s.start.astimezone(self.tz).date() == _dt.date(2026, 10, 26)]
+        self.assertEqual([s.title.name for s in monday][:2], ["Andor", "Frieren"])
+        tuesday = [s for s in self.slots() if s.start.astimezone(self.tz).date() == _dt.date(2026, 10, 27)]
+        self.assertEqual(tuesday[0].episodes.order_by("episode").first().episode, 3)  # continues, not restarts
+
+    def test_nothing_runs_past_the_window_or_overlaps(self):
+        self.add_show("Andor", 1, self.eps(30, runtime=50))
+        self.add_movie("Long One", 100)
+        self.start_tmdb()
+        _planner.fill(self.profile, self.plan, self.now)
+        for day in range(26, 31):
+            day_slots = [s for s in self.slots() if s.start.astimezone(self.tz).date() == _dt.date(2026, 10, day)]
+            for earlier, later in zip(day_slots, day_slots[1:]):
+                self.assertLessEqual(earlier.end, later.start)
+            for s in day_slots:
+                self.assertGreaterEqual(s.start.astimezone(self.tz).time(), _dt.time(19, 0))
+                self.assertLessEqual(s.end.astimezone(self.tz).time(), _dt.time(22, 30))
+
+    def test_free_days_only(self):
+        self.add_show("Andor", 1, self.eps(30, runtime=50))
+        self.start_tmdb()
+        _planner.fill(self.profile, self.plan, self.now)
+        weekdays = {s.start.astimezone(self.tz).weekday() for s in self.slots()}
+        self.assertTrue(weekdays <= {0, 1, 2, 3, 4})
+
+    def test_unreleased_and_watched_episodes_are_left_out(self):
+        episodes = [(1, "2026-01-01", 45), (2, "2026-01-08", 45), (3, "2026-12-01", 45)]
+        show = self.add_show("Silo", 1, episodes)
+        self.start_tmdb()
+        self.watch(show, 1)
+        _planner.fill(self.profile, self.plan, self.now)
+        planned = [(e.season, e.episode) for s in self.slots() for e in s.episodes.all()]
+        self.assertEqual(planned, [(1, 2)])
+
+    def test_an_unreleased_movie_is_not_planned(self):
+        self.add_movie("Future", 100, year=2099)
+        released = self.add_movie("Out Now", 100)
+        self.start_tmdb()
+        _planner.fill(self.profile, self.plan, self.now)
+        self.assertEqual({s.title for s in self.slots()}, {released})
+
+    def test_a_watched_movie_is_not_planned(self):
+        movie = self.add_movie("Seen", 100)
+        self.watch(movie)
+        _planner.fill(self.profile, self.plan, self.now)
+        self.assertEqual(self.slots(), [])
+
+    def test_a_movie_that_does_not_fit_leaves_the_window_open(self):
+        self.add_movie("Epic", 240)
+        _planner.fill(self.profile, self.plan, self.now)
+        self.assertEqual(self.slots(), [])
+
+    def test_media_filter(self):
+        self.add_show("Andor", 1, self.eps(5))
+        self.add_movie("Heat", 100)
+        self.plan.media = _SchedulePlan.Media.MOVIE
+        self.plan.save()
+        self.start_tmdb()
+        _planner.fill(self.profile, self.plan, self.now)
+        self.assertEqual({s.title.name for s in self.slots()}, {"Heat"})
+
+    def test_filling_twice_adds_nothing(self):
+        self.add_show("Andor", 1, self.eps(40, runtime=50))
+        self.start_tmdb()
+        first = _planner.fill(self.profile, self.plan, self.now)
+        self.assertGreater(first, 0)
+        self.assertEqual(_planner.fill(self.profile, self.plan, self.now), 0)
+
+    def test_today_only_plans_from_now(self):
+        self.add_movie("Heat", 100)
+        late = _dt.datetime(2026, 10, 26, 21, 40, tzinfo=self.tz)
+        _planner.fill(self.profile, self.plan, late)
+        today = [s for s in self.slots() if s.start.astimezone(self.tz).date() == late.date()]
+        self.assertEqual(today, [])  # 50 minutes left cannot hold a 100 minute movie
+        self.assertEqual(len(self.slots()), 1)  # it went to the next evening
+
+    def test_the_plan_reaches_two_weeks_out(self):
+        self.add_show("Andor", 1, self.eps(40, runtime=50))
+        self.start_tmdb()
+        _planner.fill(self.profile, self.plan, self.now)
+        last = max(s.start for s in self.slots()).astimezone(self.tz).date()
+        self.assertGreaterEqual(last, _dt.date(2026, 11, 6))
+        self.assertLess(last, _dt.date(2026, 11, 9))
+
+    def test_list_order_follows_the_list_when_asked(self):
+        self.add_movie("Alpha", 60)
+        self.add_movie("Bravo", 60)
+        self.plan.order = _SchedulePlan.Order.LIST
+        self.plan.save()
+        _planner.fill(self.profile, self.plan, self.now)
+        self.assertEqual([s.title.name for s in self.slots()][:2], ["Alpha", "Bravo"])
+
+    def test_sources_can_be_another_list(self):
+        other = WatchList.objects.create(profile=self.profile, name="Rainy day")
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Rain", year=2020, runtime_minutes=90)
+        WatchListItem.objects.create(watchlist=other, title=movie)
+        self.add_movie("Not Picked", 90)
+        self.plan.source_lists.set([other])
+        _planner.fill(self.profile, self.plan, self.now)
+        self.assertEqual({s.title.name for s in self.slots()}, {"Rain"})
+
+
+class ReconcileTests(PlannerTestBase):
+    def planned_movie(self, minutes_after=-30):
+        movie = self.add_movie("Heat", 100)
+        slot = _ScheduledSlot.objects.create(
+            profile=self.profile, title=movie, start=self.now + timedelta(minutes=minutes_after - 100),
+            end=self.now + timedelta(minutes=minutes_after),
+        )
+        return movie, slot
+
+    def test_a_watch_completes_the_slot_whatever_its_time_or_source(self):
+        movie, slot = self.planned_movie()
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=self.now - timedelta(days=3), source="trakt")
+        _planner.reconcile(self.profile, self.now)
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, "done")
+
+    def test_a_missed_slot_waits_for_a_sync_before_it_moves(self):
+        movie, slot = self.planned_movie()
+        account = _ExternalAccount.objects.create(profile=self.profile, provider="trakt", last_synced_at=self.now - timedelta(hours=5))
+        _planner.reconcile(self.profile, self.now)
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, "planned")  # the sync predates the slot ending
+        account.last_synced_at = self.now - timedelta(minutes=5)
+        account.save()
+        _planner.reconcile(self.profile, self.now)
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, "moved")
+
+    def test_a_watch_that_arrives_with_the_sync_wins(self):
+        movie, slot = self.planned_movie()
+        _ExternalAccount.objects.create(profile=self.profile, provider="trakt", last_synced_at=self.now - timedelta(minutes=5))
+        self.watch(movie, at=self.now - timedelta(hours=1))
+        _planner.reconcile(self.profile, self.now)
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, "done")
+
+    def test_without_any_sync_source_a_missed_slot_moves_straight_away(self):
+        movie, slot = self.planned_movie()
+        _planner.reconcile(self.profile, self.now)
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, "moved")
+
+    def test_it_stops_waiting_after_a_day_and_a_half(self):
+        movie = self.add_movie("Heat", 100)
+        slot = _ScheduledSlot.objects.create(
+            profile=self.profile, title=movie, start=self.now - timedelta(hours=40), end=self.now - timedelta(hours=38)
+        )
+        _ExternalAccount.objects.create(profile=self.profile, provider="trakt", last_synced_at=None)
+        _planner.reconcile(self.profile, self.now)
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, "moved")
+
+    def test_a_future_slot_is_left_alone(self):
+        movie, slot = self.planned_movie(minutes_after=600)
+        _planner.reconcile(self.profile, self.now)
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, "planned")
+
+    def test_watching_early_completes_a_future_slot(self):
+        movie, slot = self.planned_movie(minutes_after=600)
+        self.watch(movie)
+        _planner.reconcile(self.profile, self.now)
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, "done")
+
+    def test_a_partly_watched_future_block_shrinks(self):
+        show = self.add_show("Andor", 1, self.eps(5, runtime=50))
+        e1 = Episode.objects.create(title=show, season=1, episode=1, runtime_minutes=50)
+        e2 = Episode.objects.create(title=show, season=1, episode=2, runtime_minutes=50)
+        slot = _ScheduledSlot.objects.create(
+            profile=self.profile, title=show, start=self.now + timedelta(hours=9), end=self.now + timedelta(hours=9, minutes=100)
+        )
+        slot.episodes.set([e1, e2])
+        self.watch(show, 1)
+        _planner.reconcile(self.profile, self.now)
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, "planned")
+        self.assertEqual([e.episode for e in slot.episodes.all()], [2])
+        self.assertEqual(slot.end - slot.start, timedelta(minutes=50))
+
+    def test_a_missed_block_is_planned_again_into_a_later_slot(self):
+        show = self.add_show("Andor", 1, self.eps(10, runtime=50))
+        self.start_tmdb()
+        _planner.fill(self.profile, self.plan, self.now - timedelta(hours=2))
+        first = self.slots()[0]
+        later = self.now + timedelta(days=1)  # Monday evening has passed and nothing was watched
+        _planner.ensure_plan(self.profile, later)
+        first.refresh_from_db()
+        self.assertEqual(first.status, "moved")
+        replanned = [(e.season, e.episode) for s in self.slots(status="planned") for e in s.episodes.all()]
+        self.assertIn((1, 1), replanned)
+
+
+class EnsurePlanTests(PlannerTestBase):
+    def test_nothing_happens_while_the_plan_is_off(self):
+        self.plan.enabled = False
+        self.plan.save()
+        self.add_movie("Heat", 100)
+        _planner.ensure_plan(self.profile, self.now)
+        self.assertEqual(self.slots(), [])
+
+    def test_a_settings_change_replans_what_has_not_started(self):
+        self.add_movie("Heat", 100)
+        self.add_movie("Alien", 100)
+        _planner.ensure_plan(self.profile, self.now)
+        done = self.slots()[0]
+        done.status = "done"
+        done.save()
+        before = set(s.id for s in self.slots(status="planned"))
+        self.plan.refresh_from_db()
+        self.plan.free_days = [1]  # Tuesday only now
+        self.plan.dirty = True
+        self.plan.save()
+        _planner.ensure_plan(self.profile, self.now)
+        done.refresh_from_db()
+        self.assertEqual(done.status, "done")  # history stays
+        planned = self.slots(status="planned")
+        self.assertTrue(planned)
+        self.assertFalse(before & set(s.id for s in planned))
+        self.assertEqual({s.start.astimezone(self.tz).weekday() for s in planned}, {1})
+
+    def test_new_titles_are_picked_up_by_the_next_top_up(self):
+        self.add_movie("Heat", 100)
+        _planner.ensure_plan(self.profile, self.now)
+        count = len(self.slots())
+        self.add_movie("Alien", 100)
+        from django.core.cache import cache
+
+        cache.clear()
+        _planner.ensure_plan(self.profile, self.now)
+        self.assertGreater(len(self.slots()), count)
+
+
+class ButtonTests(PlannerTestBase):
+    def test_marking_a_block_watched_logs_every_episode(self):
+        show = self.add_show("Andor", 1, self.eps(10, runtime=50))
+        self.start_tmdb()
+        _planner.fill(self.profile, self.plan, self.now)
+        slot = self.slots()[0]
+        with patch("tracker.planner.completion.sync_show_completion"), patch("tracker.planner.completion.sync_watchlist_removal"):
+            _planner.mark_slot_watched(self.profile, slot, self.now)
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, "done")
+        self.assertEqual(WatchEvent.objects.filter(profile=self.profile, title=show).count(), 2)
+
+    def test_marking_a_movie_watched(self):
+        movie = self.add_movie("Heat", 100)
+        _planner.fill(self.profile, self.plan, self.now)
+        slot = self.slots()[0]
+        _planner.mark_slot_watched(self.profile, slot, self.now)
+        self.assertEqual(WatchEvent.objects.filter(profile=self.profile, title=movie, episode=None).count(), 1)
+
+    def test_skip_moves_the_slot_and_plans_the_rest_again(self):
+        self.add_movie("Heat", 100)
+        self.add_movie("Alien", 100)
+        _planner.fill(self.profile, self.plan, self.now)
+        slot = self.slots()[0]
+        _planner.skip_slot(self.profile, slot, self.now)
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, "moved")
+        self.assertTrue(any(s.title == slot.title for s in self.slots(status="planned")))
+
+
+class EstimateTests(PlannerTestBase):
+    def test_a_movie_and_the_released_episodes_count_but_not_unaired_ones(self):
+        self.add_movie("Heat", 120)
+        self.add_show("Silo", 1, [(1, "2026-01-01", 40), (2, "2026-01-08", 40), (3, "2099-01-01", 40)], runtime=40)
+        self.start_tmdb()
+        minutes, titles = _planner.remaining_minutes(self.profile, self.plan, self.now)
+        self.assertEqual(titles, 2)
+        self.assertEqual(minutes, 120 + 2 * 40)
+
+    def test_watched_episodes_come_off(self):
+        show = self.add_show("Silo", 1, self.eps(6, runtime=40), runtime=40)
+        self.start_tmdb()
+        self.watch(show, 1)
+        self.watch(show, 2)
+        minutes, _ = _planner.remaining_minutes(self.profile, self.plan, self.now)
+        self.assertEqual(minutes, 4 * 40)
+
+    def test_the_date_follows_the_free_time(self):
+        # 3h of free time on each of Mon-Fri (19:00-22:30 is 210 min); 1000 minutes needs ~5.3 evenings at 90%
+        self.assertEqual(_planner.finish_date(self.plan, 100, self.now, self.tz), _dt.date(2026, 10, 26))
+        later = _planner.finish_date(self.plan, 1000, self.now, self.tz)
+        self.assertEqual(later, _dt.date(2026, 11, 2))
+        self.assertGreater(later, _planner.finish_date(self.plan, 100, self.now, self.tz))
+
+    def test_no_free_days_means_no_date(self):
+        self.plan.free_days = []
+        self.assertIsNone(_planner.finish_date(self.plan, 100, self.now, self.tz))
+
+    def test_estimate_updates_when_something_is_watched(self):
+        from django.test import override_settings
+
+        with override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}):
+            movie = self.add_movie("Heat", 120)
+            first = _planner.estimate(self.profile, self.plan, self.now)
+            self.assertEqual(first["minutes"], 120)
+            self.watch(movie)
+            second = _planner.estimate(self.profile, self.plan, self.now)
+            self.assertTrue(second["empty"])
+
+
+class WeekContextTests(PlannerTestBase):
+    def test_every_requested_day_is_a_column_and_slots_have_positions(self):
+        self.add_movie("Heat", 100)
+        _planner.fill(self.profile, self.plan, self.now)
+        week = _planner.week_context(self.profile, self.plan, _dt.date(2026, 10, 26), 7, self.now)
+        self.assertEqual(len(week["columns"]), 7)
+        self.assertEqual(week["days"], 7)
+        slot = week["columns"][0]["slots"][0]
+        self.assertGreater(slot["height"], 0)
+        self.assertIsNotNone(week["columns"][0]["window"])
+        self.assertIsNone(week["columns"][5]["window"])  # Saturday
+
+    def test_the_next_planned_slot_is_marked(self):
+        self.add_movie("Heat", 100)
+        self.add_movie("Alien", 100)
+        _planner.fill(self.profile, self.plan, self.now)
+        week = _planner.week_context(self.profile, self.plan, _dt.date(2026, 10, 26), 7, self.now)
+        flagged = [s for c in week["columns"] for s in c["slots"] if s["is_next"]]
+        self.assertEqual(len(flagged), 1)
+
+    def test_tonight_lists_todays_remaining_slots_and_the_gap(self):
+        self.add_movie("Heat", 100)
+        _planner.fill(self.profile, self.plan, self.now)
+        tonight = _planner.tonight_context(self.profile, self.plan, self.now)
+        self.assertTrue(tonight["is_today"])
+        self.assertEqual(len(tonight["slots"]), 1)
+        self.assertEqual(tonight["open"]["end"].astimezone(self.tz).time(), _dt.time(22, 30))
+
+
+class ScheduleViewTests(PlannerTestBase):
+    def setUp(self):
+        super().setUp()
+        self.client.login(username="planuser", password="pass12345")
+
+    def test_the_calendar_has_the_tab_and_lazy_loads_the_pane(self):
+        body = self.client.get(reverse("calendar")).content.decode()
+        self.assertIn("My schedule", body)
+        self.assertIn(reverse("schedule_pane"), body)
+
+    def test_off_shows_the_intro_and_nothing_is_planned(self):
+        self.plan.enabled = False
+        self.plan.save()
+        resp = self.client.get(reverse("schedule_pane"))
+        self.assertContains(resp, "Turn on My schedule")
+        self.assertEqual(self.slots(), [])
+
+    def test_turning_it_on_shows_the_week(self):
+        self.plan.enabled = False
+        self.plan.save()
+        self.add_movie("Heat", 100)
+        resp = self.client.post(reverse("schedule_toggle"), {"enabled": "1", "days": "7"})
+        self.assertContains(resp, "sch-grid")
+        self.plan.refresh_from_db()
+        self.assertTrue(self.plan.enabled)
+
+    def test_the_week_shows_slots_and_the_sidebar_cards(self):
+        self.add_movie("Heat", 100)
+        resp = self.client.get(reverse("schedule_pane"), {"days": "7"})
+        self.assertContains(resp, "Heat")
+        self.assertContains(resp, "Plan settings")
+        self.assertContains(resp, "Watch sync")
+        self.assertContains(resp, reverse("schedule_estimate"))
+
+    def test_day_count_is_honoured_and_junk_falls_back_to_a_week(self):
+        for value, columns in (("1", 1), ("3", 3), ("7", 7), ("banana", 7)):
+            resp = self.client.get(reverse("schedule_pane"), {"days": value})
+            import re
+
+            self.assertEqual(len(re.findall(r'class="sch-day( |")', resp.content.decode())), columns, value)
+
+    def test_the_week_columns_share_the_width_instead_of_scrolling(self):
+        from pathlib import Path
+
+        css = (Path(django_settings.BASE_DIR) / "static" / "src" / "app.css").read_text(encoding="utf-8")
+        self.assertIn("repeat(var(--sch-days, 7), minmax(0, 1fr))", css)
+
+    def test_saving_settings_replans(self):
+        self.add_movie("Heat", 100)
+        self.add_movie("Alien", 100)
+        resp = self.client.post(
+            reverse("schedule_save"),
+            {"media": "movie", "order": "list", "free_days": ["1", "3"], "window_start": "18:00", "window_end": "21:00", "days": "7"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.plan.refresh_from_db()
+        self.assertEqual(self.plan.free_days, [1, 3])
+        self.assertEqual(self.plan.window_start, _dt.time(18, 0))
+        self.assertEqual(self.plan.media, "movie")
+        self.assertEqual({s.start.astimezone(self.tz).weekday() for s in self.slots(status="planned")}, {1, 3})
+
+    def test_saving_from_the_settings_tab_is_quiet(self):
+        resp = self.client.post(reverse("schedule_save"), {"from": "settings", "free_days": ["2"], "window_start": "19:00", "window_end": "22:00"})
+        self.assertEqual(resp.status_code, 204)
+
+    def test_junk_in_the_settings_is_ignored(self):
+        self.client.post(
+            reverse("schedule_save"),
+            {"media": "podcast", "order": "x", "free_days": ["9", "x", "2"], "window_start": "nope", "window_end": "22:00", "lists": ["99999"], "from": "settings"},
+        )
+        self.plan.refresh_from_db()
+        self.assertEqual(self.plan.media, "all")
+        self.assertEqual(self.plan.free_days, [2])
+        self.assertEqual(self.plan.window_start, _dt.time(19, 0))
+
+    def test_another_profiles_slot_cannot_be_touched(self):
+        other = Profile.objects.create(user=User.objects.create_user("other", password="x12345678"), display_name="Other")
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Theirs", year=2020, runtime_minutes=90)
+        slot = _ScheduledSlot.objects.create(profile=other, title=movie, start=self.now, end=self.now + timedelta(hours=2))
+        resp = self.client.post(reverse("schedule_slot_action", args=[slot.id, "watched"]))
+        self.assertEqual(resp.status_code, 404)
+        self.assertFalse(WatchEvent.objects.filter(title=movie).exists())
+
+    def test_slot_buttons_work_and_unknown_actions_404(self):
+        movie = self.add_movie("Heat", 100)
+        slot = _ScheduledSlot.objects.create(profile=self.profile, title=movie, start=self.now + timedelta(days=1), end=self.now + timedelta(days=1, hours=2))
+        self.assertEqual(self.client.post(reverse("schedule_slot_action", args=[slot.id, "explode"])).status_code, 404)
+        resp = self.client.post(reverse("schedule_slot_action", args=[slot.id, "watched"]), {"target": "tonight"})
+        self.assertEqual(resp.status_code, 200)
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, "done")
+        self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title=movie).exists())
+
+    def test_the_tonight_card_and_estimate_fragments(self):
+        self.add_movie("Heat", 100)
+        self.assertEqual(self.client.get(reverse("schedule_tonight")).status_code, 200)
+        self.assertEqual(self.client.get(reverse("schedule_estimate")).status_code, 200)
+
+    def test_requires_login(self):
+        self.client.logout()
+        for name in ("schedule_pane", "schedule_tonight", "schedule_estimate"):
+            self.assertNotEqual(self.client.get(reverse(name)).status_code, 200, name)
+
+    def test_dashboard_shows_the_card_only_when_it_is_on(self):
+        self.assertContains(self.client.get(reverse("dashboard")), reverse("schedule_tonight"))
+        self.plan.enabled = False
+        self.plan.save()
+        self.assertNotContains(self.client.get(reverse("dashboard")), reverse("schedule_tonight"))
+
+    def test_settings_has_a_schedule_tab(self):
+        body = self.client.get(reverse("settings")).content.decode()
+        self.assertIn("tab === 'schedule'", body)
+        self.assertIn('name="free_days"', body)

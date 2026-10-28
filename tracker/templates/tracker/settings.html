@@ -61,7 +61,7 @@
       mobileNavOpen: false,
       labels: {
         account: 'Account', security: 'Security', preferences: 'Preferences',
-        notifications: 'Notifications', connected_apps: 'Connected Apps', advanced: 'API &amp; Sharing',
+        notifications: 'Notifications', schedule: 'My schedule', connected_apps: 'Connected Apps', advanced: 'API &amp; Sharing',
         data: 'Import &amp; Export', backups: 'Backups', danger: 'Danger Zone'
         {% if profile.is_owner %}
         , profiles: 'Profiles', server_integrations: 'Server Integrations', maintenance: 'Maintenance',
@@ -86,6 +86,7 @@
         {% include "tracker/partials/settings_nav_button.html" with key="account" label="Account" icon="user" %}
         {% include "tracker/partials/settings_nav_button.html" with key="preferences" label="Preferences" icon="settings" %}
         {% include "tracker/partials/settings_nav_button.html" with key="notifications" label="Notifications" icon="bell" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="schedule" label="My schedule" icon="calendar-days" %}
       </div>
 
       {% include "tracker/partials/settings_nav_button.html" with key="security" label="Security" icon="shield" %}
@@ -136,6 +137,7 @@
         {% include "tracker/partials/settings_nav_button.html" with key="account" label="Account" icon="user" %}
         {% include "tracker/partials/settings_nav_button.html" with key="preferences" label="Preferences" icon="settings" %}
         {% include "tracker/partials/settings_nav_button.html" with key="notifications" label="Notifications" icon="bell" %}
+        {% include "tracker/partials/settings_nav_button.html" with key="schedule" label="My schedule" icon="calendar-days" %}
       </div>
 
       {% include "tracker/partials/settings_nav_button.html" with key="security" label="Security" icon="shield" %}
@@ -540,6 +542,34 @@
           </div>
         </div>
       </form>
+
+      {# ==================== MY SCHEDULE ==================== #}
+      <div x-show="tab === 'schedule'" x-cloak class="max-w-2xl flex flex-col gap-5">
+        <div class="surface p-5">
+          <div class="flex items-start gap-4 mb-4">
+            <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "calendar-days" "w-7 h-7" %}</div>
+            <div class="min-w-0 flex-1">
+              <h3 class="font-semibold text-[15px]">My schedule</h3>
+              <div class="text-[13px] text-ink-dim mt-0.5">
+                A plan for what to watch and when, fitted into the hours you are free. It lives on the
+                <a href="{% url 'calendar' %}?tab=schedule" class="underline hover:text-base-content">Calendar</a>
+                page and as a Tonight card on the Dashboard. Off by default, and only for you.
+              </div>
+            </div>
+          </div>
+          <form method="post" action="{% url 'schedule_toggle' %}" hx-post="{% url 'schedule_toggle' %}" hx-trigger="change" hx-swap="none">
+            {% csrf_token %}
+            <input type="hidden" name="from" value="settings">
+            <label class="flex items-center justify-between gap-3 cursor-pointer">
+              <span class="text-[13.5px]">Turn on My schedule</span>
+              <input type="checkbox" name="enabled" value="1" class="checkbox checkbox-sm" {% if schedule_settings.plan.enabled %}checked{% endif %}>
+            </label>
+          </form>
+        </div>
+        <div class="surface p-5">
+          {% include "tracker/partials/schedule_settings.html" with settings=schedule_settings variant="settings" %}
+        </div>
+      </div>
 
       {# ==================== CONNECTED APPS ==================== #}
       <div x-show="tab === 'connected_apps'" x-cloak class="flex flex-col gap-4 max-w-3xl">

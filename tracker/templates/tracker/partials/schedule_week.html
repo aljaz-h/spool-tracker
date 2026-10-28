@@ -1,0 +1,57 @@
+{% load icons tracker_extras %}
+{# context: week (columns/hours/grid_height/now_top/scroll_to/days), days, start, time_format_str. The TV-guide timeline: one column per day, the free window shaded, slots placed by time. Columns share the width (min 5.25rem each) so the whole week fits without a sideways scrollbar; only a screen too narrow for that scrolls, and the Week / 3 days / Day switch is there for it. Vertical scrolling stays, for the hours. #}
+<div
+  class="sch-scroll" style="--sch-days: {{ week.days }}"
+  x-data x-init="$nextTick(() => { $el.scrollTop = Math.max(0, {{ week.scroll_to }} - 44) })"
+>
+  <div class="sch-grid">
+    <div class="sch-head">
+      <div class="sch-axis-head"></div>
+      {% for col in week.columns %}
+        <div class="sch-day {% if col.is_today %}is-today{% endif %}">
+          <div class="sch-day-name">{{ col.date|date:"D" }}</div>
+          <div class="sch-day-num">{{ col.date|date:"j" }}{% if col.date.day == 1 %} <span class="sch-day-month">{{ col.date|date:"M" }}</span>{% endif %}</div>
+          <div class="sch-day-window">{% if col.window %}{{ col.window.0|time:time_format_str }} to {{ col.window.1|time:time_format_str }}{% else %}Not free{% endif %}</div>
+        </div>
+      {% endfor %}
+    </div>
+
+    <div class="sch-body" style="height: {{ week.grid_height }}px">
+      <div class="sch-axis">
+        {% for h in week.hours %}
+          <div class="sch-hour-label" style="top: {{ h.top }}px">{{ h.hour }}:00</div>
+        {% endfor %}
+      </div>
+      {% for col in week.columns %}
+        <div class="sch-col {% if col.is_today %}is-today{% endif %}">
+          {% for h in week.hours %}<div class="sch-hour-line" style="top: {{ h.top }}px"></div>{% endfor %}
+          {% if col.window %}
+            <div class="sch-window" style="top: {{ col.window_top }}px; height: {{ col.window_height }}px"></div>
+          {% endif %}
+          {% if col.is_today and week.now_top is not None %}<div class="sch-now" style="top: {{ week.now_top }}px"></div>{% endif %}
+          {% for slot in col.slots %}
+            <div
+              class="sch-slot {% if slot.status == 'done' %}is-done{% elif slot.status == 'moved' %}is-moved{% endif %} {% if slot.is_next %}is-next{% endif %}"
+              data-kind="{{ slot.kind }}" style="top: {{ slot.top }}px; height: {{ slot.height }}px"
+            >
+              {% if slot.status == "done" %}<span class="sch-tag text-success">Done</span>
+              {% elif slot.status == "moved" %}<span class="sch-tag text-primary">Moved</span>
+              {% elif slot.waiting %}<span class="sch-tag text-info">Waiting</span>
+              {% elif slot.is_next %}<span class="sch-tag text-primary">Next</span>{% endif %}
+              <a href="{% url 'title_detail' slot.title.pk %}" class="sch-slot-title">{{ slot.title.name }}</a>
+              <div class="sch-slot-meta">{{ slot.start|time:time_format_str }} &middot; {{ slot.label }}{% if slot.height > 70 %} &middot; {{ slot.duration }}{% endif %}</div>
+              {% if slot.actionable %}
+                <div class="sch-slot-actions">
+                  <button type="button" class="sch-act" title="Mark as watched" aria-label="Mark {{ slot.title.name }} as watched"
+                    hx-post="{% url 'schedule_slot_action' slot.id 'watched' %}" hx-vals='{"days": "{{ days }}", "start": "{{ start|date:"Y-m-d" }}"}' hx-target="#schedule-pane" hx-swap="outerHTML">{% icon "check" "w-3.5 h-3.5" %}</button>
+                  <button type="button" class="sch-act" title="Skip - plan it into a later slot" aria-label="Skip {{ slot.title.name }}"
+                    hx-post="{% url 'schedule_slot_action' slot.id 'skip' %}" hx-vals='{"days": "{{ days }}", "start": "{{ start|date:"Y-m-d" }}"}' hx-target="#schedule-pane" hx-swap="outerHTML">{% icon "arrow-left-right" "w-3.5 h-3.5" %}</button>
+                </div>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>

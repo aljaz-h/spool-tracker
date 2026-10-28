@@ -8,6 +8,33 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.160.0] - 2026-10-28
+
+### Added
+
+- **My schedule** - an opt-in planner for what to watch and when. Calendar
+  now has a second tab, **My schedule**: pick the lists to draw from, your
+  free days and times, the media (movies, TV, anime or mixed) and the
+  order, and it fits movies and episodes into your free evenings using their
+  runtimes (shows get consecutive episodes per slot). Off by default and per
+  profile. See docs/SCHEDULE.md.
+  - A week view in the style of a TV guide: one column per day, your free
+    window shaded, slots placed by time. All seven days share the width, so
+    there is no sideways scrollbar unless the screen is genuinely too narrow;
+    **Week / 3 days / Day** and the arrows shorten and move the view (phones
+    open on Day). Vertical scrolling stays for the hours.
+  - A **Tonight** card on the Dashboard and in the schedule's sidebar.
+  - Slots tick themselves off from your real watch history, whichever source
+    reported the watch (Trakt, Simkl, Nuvio, the Scrobble API, an import or
+    Spool itself), matched by title and episode using the watch time. A slot
+    you did not watch moves to the next open slot, but only after your
+    connected sync sources have run and found nothing. **Mark as watched**
+    and **Skip** buttons remain as a fallback.
+  - A **finish line**: when your current lists could be finished at your
+    schedule, counting released episodes and movies only, and updating as
+    you watch, add titles or change your free time.
+  - The same options live in Settings -> My schedule.
+
 ## [0.159.0] - 2026-10-28
 
 ### Added

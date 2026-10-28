@@ -1332,6 +1332,15 @@ def get_full_details(media_type, tmdb_id):
         "runtime": data.get("runtime") if is_movie else None,
         "number_of_seasons": data.get("number_of_seasons") if not is_movie else None,
         "number_of_episodes": data.get("number_of_episodes") if not is_movie else None,
+        # tv only - [(season_number, episode_count), ...] without specials,
+        # and a typical episode's minutes: what the schedule planner's
+        # completion estimate counts remaining released episodes from.
+        "seasons": [] if is_movie else [
+            (sn["season_number"], sn.get("episode_count") or 0)
+            for sn in data.get("seasons") or []
+            if sn.get("season_number")
+        ],
+        "episode_runtime": None if is_movie else next((m for m in data.get("episode_run_time") or [] if m), None),
         "backdrop_url": f"{BACKDROP_BASE}{backdrop_path}" if backdrop_path else None,
         "poster_url": f"{IMAGE_BASE}{poster_path}" if poster_path else None,
         "vote_average": data.get("vote_average"),

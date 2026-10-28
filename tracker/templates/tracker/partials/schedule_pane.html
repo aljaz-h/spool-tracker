@@ -1,0 +1,104 @@
+{% load icons %}
+{# context: plan, week/tonight (when plan.enabled), settings, days, start, prev_start/next_start/home_start/is_home, sync_sources, time_format_str. Calendar -> My schedule: swaps itself (outerHTML) on every navigation and settings change. #}
+<div id="schedule-pane">
+  {% if not plan.enabled %}
+    <div class="surface p-8 max-w-2xl">
+      <div class="sch-eyebrow">My schedule</div>
+      <h2 class="text-2xl font-semibold mt-1">A plan for what to watch, and when</h2>
+      <p class="text-[14px] text-ink-dim mt-2 leading-relaxed">
+        Turn your lists into an evening-by-evening plan. Tell it which lists to draw from and when you are free, and it fits movies and
+        episodes into those hours using their runtimes. Slots tick themselves off when a matching watch arrives from Trakt, Simkl, Nuvio,
+        the Scrobble API or an import, and anything you miss rolls into the next open slot.
+      </p>
+      <p class="text-[13px] text-ink-faint mt-2">Off by default and just for you. You can change the lists, free days and times afterwards.</p>
+      <button
+        type="button" class="btn btn-primary btn-sm mt-5"
+        hx-post="{% url 'schedule_toggle' %}" hx-vals='{"enabled": "1", "days": "{{ days }}"}'
+        hx-target="#schedule-pane" hx-swap="outerHTML"
+      >Turn on My schedule</button>
+    </div>
+  {% else %}
+    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] items-start">
+      <section class="surface p-4 sm:p-5 min-w-0">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <h2 class="sch-heading">
+            {% if days == 7 %}Week of {{ week.start_day|date:"j M" }}{% elif days == 1 %}{{ week.start_day|date:"l j M" }}{% else %}{{ week.start_day|date:"j M" }} &ndash; {{ week.end_day|date:"j M" }}{% endif %}
+          </h2>
+          <div class="flex flex-wrap items-center gap-2">
+            <div class="seg" role="group" aria-label="Days shown">
+              {% for value, label in day_options %}
+                <button
+                  type="button" class="seg-item {% if days|stringformat:'s' == value %}is-active{% endif %}"
+                  hx-get="{% url 'schedule_pane' %}?days={{ value }}&start={{ home_start|date:'Y-m-d' }}" hx-target="#schedule-pane" hx-swap="outerHTML"
+                  @click="try { localStorage.setItem('spool-schedule-days', '{{ value }}') } catch (e) {}"
+                >{{ label }}</button>
+              {% endfor %}
+            </div>
+            <div class="flex items-center gap-1">
+              <button type="button" class="btn btn-sm btn-ghost btn-square" aria-label="Previous"
+                hx-get="{% url 'schedule_pane' %}?days={{ days }}&start={{ prev_start|date:'Y-m-d' }}" hx-target="#schedule-pane" hx-swap="outerHTML">{% icon "chevron-left" "w-4 h-4" %}</button>
+              <button type="button" class="btn btn-sm btn-soft {% if is_home %}pointer-events-none opacity-70{% endif %}"
+                hx-get="{% url 'schedule_pane' %}?days={{ days }}&start={{ home_start|date:'Y-m-d' }}" hx-target="#schedule-pane" hx-swap="outerHTML">{% if days == 7 %}This week{% else %}Today{% endif %}</button>
+              <button type="button" class="btn btn-sm btn-ghost btn-square" aria-label="Next"
+                hx-get="{% url 'schedule_pane' %}?days={{ days }}&start={{ next_start|date:'Y-m-d' }}" hx-target="#schedule-pane" hx-swap="outerHTML">{% icon "chevron-right" "w-4 h-4" %}</button>
+            </div>
+            <button type="button" class="btn btn-sm btn-primary" title="Throw away the planned slots that have not started and plan them again"
+              hx-post="{% url 'schedule_rebuild' %}" hx-vals='{"days": "{{ days }}", "start": "{{ start|date:"Y-m-d" }}"}' hx-target="#schedule-pane" hx-swap="outerHTML">Rebuild {% if days == 7 %}week{% else %}plan{% endif %}</button>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-x-5 gap-y-1 mt-3 mb-3 text-[11.5px] text-ink-dim">
+          <div class="flex items-center gap-3.5">
+            <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-movie"></span>Movie</span>
+            <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-tv"></span>TV</span>
+            <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-anime"></span>Anime</span>
+          </div>
+          <div class="flex items-center gap-3 font-mono text-[10.5px] uppercase tracking-wide">
+            <span><span class="text-success">Done</span> synced</span>
+            <span><span class="text-info">Waiting</span> for sync</span>
+            <span><span class="text-primary">Moved</span> to next slot</span>
+          </div>
+        </div>
+
+        {% include "tracker/partials/schedule_week.html" %}
+      </section>
+
+      <aside class="flex flex-col gap-5 min-w-0">
+        <div class="surface p-5" id="schedule-tonight-card">
+          {% include "tracker/partials/schedule_tonight.html" with target="pane" %}
+        </div>
+
+        <div class="surface p-5">
+          <h3 class="sch-eyebrow mb-2.5">Finish line</h3>
+          <div hx-get="{% url 'schedule_estimate' %}" hx-trigger="load" hx-swap="innerHTML">
+            <div class="text-[13px] text-ink-faint" role="status">Working it out&hellip;</div>
+          </div>
+        </div>
+
+        <div class="surface p-5">
+          <h3 class="sch-eyebrow mb-3">Plan settings</h3>
+          {% include "tracker/partials/schedule_settings.html" with variant="sidebar" %}
+        </div>
+
+        <div class="surface p-5">
+          <h3 class="sch-eyebrow mb-3">Watch sync</h3>
+          {% if sync_sources %}
+            <ul class="flex flex-col gap-1.5 text-[13px]">
+              {% for source in sync_sources %}
+                <li class="flex items-center justify-between gap-3">
+                  <span>{{ source.name }}</span>
+                  <span class="text-ink-dim text-[12px] flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full {% if source.live %}bg-success{% else %}bg-ink-faint{% endif %}"></span>{{ source.detail }}
+                  </span>
+                </li>
+              {% endfor %}
+            </ul>
+            <p class="text-[12px] text-ink-faint mt-3 leading-snug">Slots tick off when a matching watch arrives, by title and episode. A slot you missed is only moved once these have synced and found nothing.</p>
+          {% else %}
+            <p class="text-[13px] text-ink-dim leading-snug">No watch sync connected. Slots tick off when you log the watch in Spool, or with the buttons on a slot.</p>
+          {% endif %}
+        </div>
+      </aside>
+    </div>
+  {% endif %}
+</div>

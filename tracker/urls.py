@@ -1,7 +1,7 @@
 from django.contrib.auth import views as auth_views
 from django.urls import path
 
-from . import views
+from . import schedule_views, views
 
 urlpatterns = [
     path("sw.js", views.service_worker, name="service_worker"),
@@ -129,6 +129,13 @@ urlpatterns = [
     path("history/delete-group/", views.history_delete_group, name="history_delete_group"),
     path("calendar/", views.calendar_view, name="calendar"),
     path("calendar/refresh/", views.calendar_refresh_releases, name="calendar_refresh_releases"),
+    path("calendar/schedule/", schedule_views.schedule_pane, name="schedule_pane"),
+    path("calendar/schedule/save/", schedule_views.schedule_save, name="schedule_save"),
+    path("calendar/schedule/toggle/", schedule_views.schedule_toggle, name="schedule_toggle"),
+    path("calendar/schedule/rebuild/", schedule_views.schedule_rebuild, name="schedule_rebuild"),
+    path("calendar/schedule/tonight/", schedule_views.schedule_tonight, name="schedule_tonight"),
+    path("calendar/schedule/estimate/", schedule_views.schedule_estimate, name="schedule_estimate"),
+    path("calendar/schedule/slot/<int:pk>/<str:action>/", schedule_views.schedule_slot_action, name="schedule_slot_action"),
     path("calendar/subscribe/", views.calendar_subscribe_panel, name="calendar_subscribe_panel"),
     path("calendar/subscribe/regenerate/", views.calendar_feed_regenerate, name="calendar_feed_regenerate"),
     path("calendar/feed/<str:token>.ics", views.calendar_feed, name="calendar_feed"),

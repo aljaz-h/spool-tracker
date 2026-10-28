@@ -1,3 +1,4 @@
+import datetime
 import logging
 import random
 import secrets
@@ -1798,3 +1799,69 @@ class BackupDestination(models.Model):
 
     def __str__(self):
         return f"{self.get_kind_display()} backups for {self.profile}"
+
+
+class SchedulePlan(models.Model):
+    """Calendar -> My schedule: one profile's opt-in viewing plan - where
+    titles are drawn from, when they are free to watch, and how the plan
+    is ordered. The plan itself is the ScheduledSlot rows; tracker/planner.py
+    builds, reconciles and reads them. Off by default."""
+
+    class Media(models.TextChoices):
+        ALL = "all", "Mixed"
+        MOVIE = "movie", "Movies"
+        TV = "tv", "TV"
+        ANIME = "anime", "Anime"
+
+    class Order(models.TextChoices):
+        OLDEST = "oldest", "Oldest first"
+        LIST = "list", "List order"
+        SHUFFLE = "shuffle", "Shuffle"
+
+    profile = models.OneToOneField(Profile, on_delete=models.CASCADE, related_name="schedule_plan")
+    enabled = models.BooleanField(default=False)
+    # Lists the plan draws from (the profile's own and shared ones).
+    source_lists = models.ManyToManyField(WatchList, blank=True, related_name="+")
+    media = models.CharField(max_length=5, choices=Media.choices, default=Media.ALL)
+    # Weekday numbers (Mon=0) that are free to watch.
+    free_days = models.JSONField(default=list, blank=True)
+    window_start = models.TimeField(default=datetime.time(19, 0))
+    window_end = models.TimeField(default=datetime.time(22, 30))
+    # Optional per-weekday override of the window: {"5": ["14:00", "23:00"]}.
+    day_windows = models.JSONField(default=dict, blank=True)
+    order = models.CharField(max_length=7, choices=Order.choices, default=Order.OLDEST)
+    # Set when the settings change, so the next view rebuilds the plan
+    # instead of only topping it up.
+    dirty = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Schedule plan for {self.profile}"
+
+
+class ScheduledSlot(models.Model):
+    """One block of the plan: a movie, or one or more consecutive episodes
+    of a show, at a time. Done is derived from real WatchEvents
+    (planner.reconcile), never from which sync source reported them."""
+
+    class Status(models.TextChoices):
+        PLANNED = "planned", "Planned"
+        DONE = "done", "Done"
+        # Not watched in its slot (or skipped by hand); what is left of it
+        # is planned again into a later slot.
+        MOVED = "moved", "Moved"
+
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="schedule_slots")
+    title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="schedule_slots")
+    episodes = models.ManyToManyField(Episode, blank=True, related_name="schedule_slots")
+    start = models.DateTimeField()
+    end = models.DateTimeField()
+    status = models.CharField(max_length=7, choices=Status.choices, default=Status.PLANNED)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["start"]
+        indexes = [models.Index(fields=["profile", "start"])]
+
+    def __str__(self):
+        return f"{self.title} @ {self.start:%Y-%m-%d %H:%M} ({self.status})"

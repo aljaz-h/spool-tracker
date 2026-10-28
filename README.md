@@ -83,6 +83,7 @@ instead.
 | 📡 **[Scrobble API](docs/SCROBBLE_API.md)** | A generic webhook for any player or script to report watches directly - no per-app integration needed. |
 | 📊 **[Reports API](docs/REPORTS_API.md)** | Read-only watch-history access for external services like spool-wrapped, opt-in per profile. |
 | 🔔 **[Push notifications](docs/NOTIFICATIONS.md)** | Mirror the bell to Discord/Slack/Telegram/Pushover/Teams/Webex via Apprise - which notifications, which services, and why not the rest of Apprise's catalog. |
+| 🗓️ **[My schedule](docs/SCHEDULE.md)** | An opt-in "what should I watch tonight?" planner: your lists fitted into your free evenings, ticked off automatically from your watch history, with a finish-line estimate. |
 | 💾 **[Backups](docs/BACKUPS.md)** | Full export/import, and scheduled automatic backups to a server folder, WebDAV, Google Drive, or Dropbox. |
 | 🛠️ **[Updating & rollback](docs/MAINTENANCE.md)** | Updating, rolling back a bad release, raw database backup. |
 | ⚠️ **[Known limitations](docs/LIMITATIONS.md)** | What's unverified, out of scope, or not built yet. |

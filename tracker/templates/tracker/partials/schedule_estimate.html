@@ -1,0 +1,14 @@
+{# context: plan, estimate (when the plan is on). When the current lists would be finished at the configured pace - released episodes and movies only, recalculated from the live watch history, lists and free time. #}
+{% if not plan.enabled %}
+  <div class="text-[13px] text-ink-dim">Turn on My schedule to see this.</div>
+{% elif estimate.empty %}
+  <div class="sch-big text-success">All caught up</div>
+  <p class="text-[12.5px] text-ink-dim mt-1.5 leading-snug">Everything on these lists that is out has been watched. New episodes and releases count once they air.</p>
+{% elif estimate.no_time %}
+  <div class="text-[13px] text-ink-dim leading-snug">{{ estimate.hours_label }} left to watch, but there are no free days set, so there is no date to give.</div>
+{% else %}
+  <div class="sch-big text-primary">{{ estimate.date|date:"j M Y" }}</div>
+  <p class="text-[12.5px] text-ink-dim mt-1.5 leading-snug">
+    The {{ estimate.titles }} title{{ estimate.titles|pluralize }} on your lists could be finished by then at this schedule &mdash; {{ estimate.hours_label }} still to watch, released episodes and movies only.
+  </p>
+{% endif %}

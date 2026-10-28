@@ -52,10 +52,12 @@ from . import (
     instance_config,
     letterboxd_import,
     notification_prefs,
+    planner,
     push,
     ratelimit,
     recommendations,
     rewatches,
+    schedule_views,
     scheduling,
     selectors,
     tasks,
@@ -82,6 +84,7 @@ from .models import (
     NuvioConnection,
     Profile,
     Recommendation,
+    SchedulePlan,
     ServiceAPIKey,
     Title,
     TitleFanartCache,
@@ -229,6 +232,7 @@ def dashboard(request):
     profile = Profile.objects.filter(user=request.user).first()
     context = {"profile": profile}
     if profile is not None:
+        context["schedule_enabled"] = SchedulePlan.objects.filter(profile=profile, enabled=True).exists()
         stats = selectors.quick_stats(profile)
         # No limit - this is now the full Watching list, not just a
         # "continue watching" teaser, since Movies & TV / Anime becoming
@@ -4357,6 +4361,7 @@ def _settings_page_context(request, profile):
     context = {
         "profile": profile,
         "notification_table": notification_prefs.table(profile),
+        "schedule_settings": schedule_views._settings_context(profile, planner.get_plan(profile)),
         "push_ready": bool(profile.push_notifications_enabled and profile.get_push_notification_urls().strip()),
         "connected_providers": set(external_accounts.keys()),
         "external_accounts": external_accounts,
