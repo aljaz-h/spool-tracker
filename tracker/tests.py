@@ -30366,6 +30366,21 @@ class QueryVariantsTests(SimpleTestCase):
         self.assertEqual(self.v("fast & furious"), ["fast & furious", "fast and furious"])
         self.assertIn("fast & furious", self.v("fast and furious"))
 
+    def test_and_and_ampersand_only_swap_between_words(self):
+        self.assertIn("fast and furious", self.v("fast & furious"))
+        self.assertIn("Fast & Furious", self.v("Fast and Furious"))
+        self.assertIn("rock & roll & more", self.v("rock and roll and more"))
+        self.assertEqual(self.v("and"), ["and"])  # a lone "and" is not between words
+        self.assertNotIn("& furious", self.v("and furious"))
+
+    def test_pathological_whitespace_runs_stay_fast(self):
+        import time
+
+        started = time.perf_counter()
+        for text in (" " * 200_000 + "a and b", "a" + " &" * 50_000, "x" + " and" * 50_000):
+            self.v(text)
+        self.assertLess(time.perf_counter() - started, 2)
+
     def test_accents_are_stripped(self):
         self.assertEqual(self.v("pokémon"), ["pokémon", "pokemon"])
 

@@ -8,6 +8,31 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.158.2] - 2026-10-28
+
+### Security
+
+- Updated Pillow from 12.3.0 to 13.0.0, which fixes all 41 open Dependabot
+  alerts (image-decoding memory-safety bugs - heap overflows, out-of-bounds
+  reads, double frees - plus several decompression-bomb and denial-of-
+  service issues in the TIFF, GIF, PDF, MIC, MSP, BMP and other decoders,
+  and a bundled libopenjp2 fix). Spool only uses Pillow to check that an
+  uploaded profile picture is a real image.
+- Search no longer uses two regular expressions (the "&" / "and" spelling
+  variants) that CodeQL flagged as potentially slow on crafted input; it
+  now uses plain string handling. Behaviour is unchanged.
+- Updated certifi (the trusted-certificate list used for HTTPS requests)
+  to 2026.10.23, which fixes a known vulnerability in the previous pin.
+
+### Changed
+
+- Routine dependency updates (no breaking changes expected): cryptography
+  50.0.2, gunicorn 26.2.0, psycopg 3.3.6, pydantic 2.14.1, django-ninja
+  1.7.1, django-silk 5.6.0, sentry-sdk 2.73.0, apprise 2.1.0, and small
+  bumps to asgiref, idna, charset-normalizer, click, Pygments, tzdata,
+  tzlocal, packaging, prompt_toolkit, pyspellchecker and typing-inspection.
+  Major-version upgrades (Django 6, redis 8) were deliberately left out.
+
 ## [0.158.1] - 2026-10-25
 
 ### Changed

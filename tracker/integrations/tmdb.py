@@ -553,8 +553,14 @@ def _query_variants(text):
     if plain:
         candidates += ["-".join(words), "".join(words)]
     candidates.append(search_text.normalize(typed))
-    candidates.append(re.sub(r"\s+&\s+", " and ", typed))
-    candidates.append(re.sub(r"\s+and\s+", " & ", typed, flags=re.I))
+    # `typed` has single spaces only (collapsed above), so plain string and
+    # word handling does what a regex would - without a regex run over
+    # user input (CodeQL: polynomial regular expression on uncontrolled data).
+    candidates.append(typed.replace(" & ", " and "))
+    parts = typed.split(" ")
+    candidates.append(
+        " ".join("&" if 0 < i < len(parts) - 1 and w.lower() == "and" else w for i, w in enumerate(parts))
+    )
     return _dedupe_variants(candidates)[:MAX_QUERY_VARIANTS]
 
 
