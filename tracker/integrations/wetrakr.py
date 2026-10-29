@@ -242,6 +242,17 @@ def get_plan_usage(access_token, client_id, on_request=None):
     return resp.json()
 
 
+def post_tracking(access_token, client_id, body, on_request=None):
+    """POST /sync/tracking - save watched movies/shows/episodes (many at once,
+    up to 5,000 items a call) and return WeTrakr's Tracking Update object:
+    {"added": {...}, "removed": {...}, "notFound": {...}, "errored": {...}}.
+    on_request: see _request's own docstring. Callers send allow_rewatch=false
+    so re-sending a library never inflates counters - see
+    tracker/wetrakr_push.py."""
+    resp = _request("POST", "/sync/tracking", access_token, client_id, on_request=on_request, json=body)
+    return resp.json()
+
+
 def _parse_watched_at(item):
     from django.utils.dateparse import parse_datetime
 

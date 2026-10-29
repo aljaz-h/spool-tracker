@@ -1021,6 +1021,12 @@ class ExternalAccount(models.Model):
     # connection can never touch their history before they have chosen; the
     # default is PULL only for accounts that already existed.
     sync_direction = models.CharField(max_length=4, choices=SyncDirection.choices, default=SyncDirection.PULL)
+    # Sending Spool's watches out (sync_direction push/both): nothing is sent
+    # until the person has reviewed what would go and confirmed it
+    # (push_confirmed_at), and turning push off clears the confirmation so
+    # the next time asks again. last_pushed_at is when a send last ran.
+    push_confirmed_at = models.DateTimeField(null=True, blank=True)
+    last_pushed_at = models.DateTimeField(null=True, blank=True)
     # Trakt only for now (see trakt.py's fetch_lists/upsert_lists) - Simkl's
     # list-equivalent endpoints are additional unverified surface on top of
     # an already-unverified integration, not worth layering on yet.
@@ -1408,6 +1414,9 @@ class SyncLog(models.Model):
     # human-readable sample for the Logs tab, not a data export.
     imported_titles = models.JSONField(default=list, blank=True)
     error_message = models.TextField(blank=True)
+    # "pull" for every import, "push" for a send out of Spool - the same
+    # fields then describe what was sent (item_count, imported_titles).
+    direction = models.CharField(max_length=4, default="pull")
     started_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
 
@@ -1889,3 +1898,37 @@ class ScheduledSlot(models.Model):
 
     def __str__(self):
         return f"{self.title} @ {self.start:%Y-%m-%d %H:%M} ({self.status})"
+
+
+class PushRecord(models.Model):
+    """What happened to one WatchEvent when Spool sent it to a service
+    (tracker/wetrakr_push.py). The ledger is what makes a send safe to
+    repeat: an event with a record is never sent again, so a daily push
+    only carries what is new, and nothing can be double-counted on the
+    other side."""
+
+    class Status(models.TextChoices):
+        SENT = "sent", "Sent"
+        ALREADY = "already", "Already there"
+        NOT_FOUND = "not_found", "Not found"
+        NO_IDS = "no_ids", "No usable id"
+        SKIPPED = "skipped", "Not sent"
+        ERROR = "error", "Error"
+        FAILED = "failed", "Gave up"
+
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="push_records")
+    provider = models.CharField(max_length=10)
+    watch_event = models.ForeignKey(WatchEvent, on_delete=models.CASCADE, related_name="push_records")
+    status = models.CharField(max_length=10, choices=Status.choices)
+    detail = models.CharField(max_length=255, blank=True)
+    # Failed tries so far: an event that keeps failing is given up on after a
+    # few (FAILED) rather than retried every day forever.
+    attempts = models.PositiveSmallIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["provider", "watch_event"], name="one_push_record_per_event")]
+        indexes = [models.Index(fields=["profile", "provider", "status"])]
+
+    def __str__(self):
+        return f"{self.provider} {self.status}: {self.watch_event_id}"

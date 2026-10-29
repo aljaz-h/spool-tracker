@@ -201,6 +201,22 @@ def direction_choices(provider):
 
 
 @register.filter
+def can_push(provider):
+    """True for a service Spool can send data to."""
+    from tracker import sync_direction
+
+    return sync_direction.supports_push(provider)
+
+
+@register.filter
+def pushes(connection):
+    """True when a connection sends Spool's data out to its service."""
+    from tracker import sync_direction
+
+    return sync_direction.allows_push(connection)
+
+
+@register.filter
 def pulls(connection):
     """True when a connection reads from its service into Spool."""
     from tracker import sync_direction

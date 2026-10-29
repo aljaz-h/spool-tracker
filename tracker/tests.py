@@ -32715,3 +32715,445 @@ class SyncDirectionSettingsCardTests(SyncDirectionFlowBase):
 
         ExternalAccount.objects.create(profile=self.profile, provider="trakt", sync_direction="off")
         self.assertTrue(_pl.sync_caught_up(self.profile, timezone.now() - timedelta(hours=1), timezone.now()))
+
+
+# ---------------------------------------------------------------------------
+# Sending Spool's watches to WeTrakr
+# ---------------------------------------------------------------------------
+from tracker import wetrakr_push as _wp  # noqa: E402
+from tracker.models import PushRecord as _PushRecord  # noqa: E402
+
+
+class WetrakrPushBase(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("pushuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Pusher")
+        self.movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "99"})
+        self.show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "125988"})
+        self.when = timezone.now() - timedelta(days=2)
+
+    def watch_movie(self, title=None, source="", rewatch=False, when=None):
+        return WatchEvent.objects.create(
+            profile=self.profile, title=title or self.movie, watched_at=when or self.when, source=source, is_rewatch=rewatch
+        )
+
+    def watch_episode(self, number, season=1, title=None, source="", rewatch=False):
+        title = title or self.show
+        ep, _ = Episode.objects.get_or_create(title=title, season=season, episode=number)
+        return WatchEvent.objects.create(
+            profile=self.profile, title=title, episode=ep, watched_at=self.when + timedelta(minutes=number),
+            source=source, is_rewatch=rewatch,
+        )
+
+    def run_push(self, post=None, **kwargs):
+        bodies = []
+
+        def default_post(body):
+            bodies.append(body)
+            return {}
+
+        def tracked(body):
+            bodies.append(body)
+            return post(body) if post else {}
+
+        totals = _wp.run(self.profile, tracked, sleep=lambda s: None, **kwargs)
+        return totals, bodies
+
+    def status_of(self, event):
+        return _PushRecord.objects.get(provider="wetrakr", watch_event=event).status
+
+
+class WetrakrPushTitleRefTests(WetrakrPushBase):
+    def test_a_wetrakr_id_is_used_as_it_is(self):
+        self.movie.external_ids = {"wetrakr": "42", "tmdb": "99"}
+        self.assertEqual(_wp.title_ref(self.movie), {"id": 42})
+
+    def test_otherwise_the_external_ids_it_accepts(self):
+        self.movie.external_ids = {"tmdb": "99", "imdb": "tt123", "trakt": "5"}
+        self.assertEqual(_wp.title_ref(self.movie), {"ids": {"tmdb": 99, "imdb": "tt123"}})
+
+    def test_nothing_usable_is_none(self):
+        self.movie.external_ids = {"simkl": "5", "tmdb": "abc"}
+        self.assertIsNone(_wp.title_ref(self.movie))
+
+
+class WetrakrPushPlanTests(WetrakrPushBase):
+    def test_what_is_sent_and_what_is_not(self):
+        sent_movie = self.watch_movie()
+        sent_episode = self.watch_episode(1)
+        echoed = self.watch_movie(title=Title.objects.create(media_type=MediaType.MOVIE, name="Echo", year=2019, external_ids={"tmdb": "7"}), source="wetrakr")
+        rewatch = self.watch_movie(rewatch=True, when=self.when + timedelta(days=1))
+        no_ids = self.watch_movie(title=Title.objects.create(media_type=MediaType.MOVIE, name="Idless", year=2000))
+        whole_show = WatchEvent.objects.create(profile=self.profile, title=self.show, watched_at=self.when)
+        plan = _wp.build_plan(self.profile)
+        self.assertEqual([e.id for e, _r in plan.movies], [sent_movie.id])
+        self.assertEqual([e.id for g in plan.shows.values() for e in g["events"]], [sent_episode.id])
+        skipped = {e.id: (s, d) for e, s, d in plan.skipped}
+        self.assertEqual(skipped[rewatch.id], ("skipped", "rewatch"))
+        self.assertEqual(skipped[no_ids.id][0], "no_ids")
+        self.assertEqual(skipped[whole_show.id], ("skipped", "whole show"))
+        self.assertNotIn(echoed.id, skipped)  # a watch that came from WeTrakr is not even considered
+
+    def test_an_anime_movie_is_sent_as_a_movie(self):
+        anime_movie = Title.objects.create(
+            media_type=MediaType.ANIME, name="Your Name", year=2016, external_ids={"tmdb": "372058", "tmdb_kind": "movie"}
+        )
+        event = self.watch_movie(title=anime_movie)
+        plan = _wp.build_plan(self.profile)
+        self.assertEqual([e.id for e, _r in plan.movies], [event.id])
+
+    def test_other_profiles_watches_are_not_included(self):
+        other = Profile.objects.create(user=User.objects.create_user("pushother", password="x12345678"), display_name="O")
+        WatchEvent.objects.create(profile=other, title=self.movie, watched_at=self.when)
+        self.assertEqual(_wp.build_plan(self.profile).movies, [])
+
+    def test_the_preview_counts_without_sending_anything(self):
+        self.watch_movie()
+        for n in (1, 2, 3):
+            self.watch_episode(n)
+        preview = _wp.preview(self.profile)
+        self.assertEqual((preview["movies"], preview["episodes"], preview["shows"], preview["to_send"]), (1, 3, 1, 4))
+        self.assertTrue(preview["samples"])
+        self.assertFalse(_PushRecord.objects.exists())
+
+
+class WetrakrPushPayloadTests(WetrakrPushBase):
+    def test_a_movie_item(self):
+        event = self.watch_movie(when=_dt.datetime(2026, 3, 4, 20, 30, 15, 123000, tzinfo=_dt.timezone.utc))
+        self.assertEqual(
+            _wp.movie_item(event, {"ids": {"tmdb": 99}}),
+            {"ids": {"tmdb": 99}, "status": "watched", "tracked_at": "2026-03-04T20:30:15.123Z"},
+        )
+
+    def test_episodes_nest_under_their_show_and_season(self):
+        events = [self.watch_episode(1), self.watch_episode(2), self.watch_episode(1, season=2)]
+        group = {"ref": {"ids": {"tmdb": 125988}}}
+        item = _wp.show_item(group, events)
+        self.assertEqual(item["ids"], {"tmdb": 125988})
+        self.assertEqual(item["status"], "watched")
+        self.assertEqual([s["number"] for s in item["seasons"]], [1, 2])
+        self.assertEqual([e["number"] for e in item["seasons"][0]["episodes"]], [1, 2])
+        self.assertTrue(all(e["status"] == "watched" and e["tracked_at"].endswith("Z") for s in item["seasons"] for e in s["episodes"]))
+
+
+class WetrakrPushRunTests(WetrakrPushBase):
+    def test_every_write_is_marked_not_to_count_a_rewatch(self):
+        self.watch_movie()
+        self.watch_episode(1)
+        _totals, bodies = self.run_push()
+        self.assertEqual(len(bodies), 2)
+        self.assertTrue(all(body["allow_rewatch"] is False for body in bodies))
+
+    def test_everything_sent_is_recorded_and_never_sent_again(self):
+        movie, episode = self.watch_movie(), self.watch_episode(1)
+        totals, bodies = self.run_push()
+        self.assertEqual(totals["sent"], 2)
+        self.assertEqual((self.status_of(movie), self.status_of(episode)), ("sent", "sent"))
+        again, more_bodies = self.run_push()
+        self.assertEqual((again["sent"], again["requests"], more_bodies), (0, 0, []))
+
+    def test_new_watches_are_the_only_thing_the_next_run_carries(self):
+        self.watch_movie()
+        self.run_push()
+        newer = self.watch_episode(5)
+        totals, bodies = self.run_push()
+        self.assertEqual(totals["sent"], 1)
+        self.assertEqual(bodies[0]["shows"][0]["seasons"][0]["episodes"][0]["number"], 5)
+        self.assertNotIn("movies", bodies[0])
+
+    def test_movies_go_in_batches_of_100_and_shows_in_batches_of_20(self):
+        for i in range(250):
+            self.watch_movie(title=Title.objects.create(media_type=MediaType.MOVIE, name=f"M{i}", year=2000, external_ids={"tmdb": str(1000 + i)}))
+        for i in range(45):
+            show = Title.objects.create(media_type=MediaType.TV, name=f"S{i}", year=2000, external_ids={"tmdb": str(5000 + i)})
+            self.watch_episode(1, title=show)
+        totals, bodies = self.run_push()
+        movie_bodies = [b for b in bodies if "movies" in b]
+        show_bodies = [b for b in bodies if "shows" in b]
+        self.assertEqual([len(b["movies"]) for b in movie_bodies], [100, 100, 50])
+        self.assertEqual([len(b["shows"]) for b in show_bodies], [20, 20, 5])
+        self.assertEqual(totals["sent"], 295)
+
+    def test_writes_are_spaced_out(self):
+        for i in range(3):
+            self.watch_episode(1, title=Title.objects.create(media_type=MediaType.TV, name=f"S{i}", year=2000, external_ids={"tmdb": str(50 + i)}))
+        slept = []
+        _wp.run(self.profile, lambda body: {}, sleep=slept.append)
+        self.assertEqual(slept, [])  # one request holds all three shows: nothing to wait between
+        for i in range(25):
+            self.watch_episode(1, title=Title.objects.create(media_type=MediaType.TV, name=f"T{i}", year=2000, external_ids={"tmdb": str(90 + i)}))
+        slept.clear()
+        _wp.run(self.profile, lambda body: {}, sleep=slept.append)
+        self.assertEqual(slept, [_wp.SECONDS_BETWEEN_WRITES] * (len(slept)))
+
+    def test_skipped_events_get_their_record_and_cost_no_request(self):
+        rewatch = self.watch_movie(rewatch=True)
+        totals, bodies = self.run_push()
+        self.assertEqual((totals["skipped"], totals["requests"], bodies), (1, 0, []))
+        self.assertEqual(self.status_of(rewatch), "skipped")
+
+    def test_already_watched_there_is_not_an_error(self):
+        event = self.watch_movie()
+        response = {"errored": {"movies": [{"ids": {"tmdb": 99}, "status": "watched", "error": "Already watched!"}]}}
+        totals, _ = self.run_push(post=lambda body: response)
+        self.assertEqual((totals["already"], totals["sent"]), (1, 0))
+        self.assertEqual(self.status_of(event), "already")
+
+    def test_a_title_wetrakr_cannot_find_is_recorded_and_left_alone(self):
+        event = self.watch_movie()
+        response = {"notFound": {"movies": [{"ids": {"tmdb": 99}, "status": "watched"}]}}
+        totals, _ = self.run_push(post=lambda body: response)
+        self.assertEqual(totals["not_found"], 1)
+        self.assertEqual(self.status_of(event), "not_found")
+        self.assertEqual(self.run_push()[0]["requests"], 0)  # not retried every day
+
+    def test_a_refusal_is_retried_and_given_up_on_after_three_tries(self):
+        event = self.watch_movie()
+        response = {"errored": {"movies": [{"ids": {"tmdb": 99}, "error": "Something odd"}]}}
+        for attempt in (1, 2):
+            self.run_push(post=lambda body: response)
+            self.assertEqual(self.status_of(event), "error", attempt)
+        self.run_push(post=lambda body: response)
+        self.assertEqual(self.status_of(event), "failed")
+        self.assertEqual(self.run_push(post=lambda body: response)[0]["requests"], 0)
+
+    def test_only_the_refused_movie_in_a_batch_is_marked(self):
+        good = self.watch_movie()
+        other = Title.objects.create(media_type=MediaType.MOVIE, name="Other", year=2001, external_ids={"tmdb": "55"})
+        bad = self.watch_movie(title=other)
+        response = {"notFound": {"movies": [{"ids": {"tmdb": 55}}]}}
+        self.run_push(post=lambda body: response)
+        self.assertEqual((self.status_of(good), self.status_of(bad)), ("sent", "not_found"))
+
+    def test_a_refusal_that_cannot_be_tied_to_a_show_keeps_the_batch_pending(self):
+        events = [self.watch_episode(1), self.watch_episode(2)]
+        response = {"errored": {"episodes": [{"ids": {"tvdb": 1}, "error": "Mystery"}]}}
+        self.run_push(post=lambda body: response)
+        self.assertEqual({self.status_of(e) for e in events}, {"error"})
+
+    def test_a_show_that_is_already_there_is_marked_for_all_its_episodes(self):
+        events = [self.watch_episode(1), self.watch_episode(2)]
+        response = {"errored": {"shows": [{"ids": {"tmdb": 125988}, "error": "Already watched!"}]}}
+        totals, _ = self.run_push(post=lambda body: response)
+        self.assertEqual({self.status_of(e) for e in events}, {"already"})
+        self.assertEqual(totals["already"], 2)
+
+    def test_a_quota_stop_keeps_what_was_sent_and_the_rest_waits(self):
+        titles = [Title.objects.create(media_type=MediaType.MOVIE, name=f"M{i}", year=2000, external_ids={"tmdb": str(300 + i)}) for i in range(150)]
+        events = [self.watch_movie(title=t) for t in titles]
+        calls = []
+
+        def post(body):
+            calls.append(body)
+            if len(calls) == 2:
+                raise wetrakr.WeTrakrQuotaError("QUOTA_EXCEEDED", "done for today")
+            return {}
+
+        with self.assertRaises(wetrakr.WeTrakrQuotaError):
+            _wp.run(self.profile, post, sleep=lambda s: None)
+        self.assertEqual(_PushRecord.objects.filter(status="sent").count(), 100)
+        totals, bodies = self.run_push()  # the next day
+        self.assertEqual((totals["sent"], len(bodies[0]["movies"])), (50, 50))
+
+    def test_a_request_cap_stops_cleanly(self):
+        for i in range(250):
+            self.watch_movie(title=Title.objects.create(media_type=MediaType.MOVIE, name=f"M{i}", year=2000, external_ids={"tmdb": str(700 + i)}))
+        totals, bodies = self.run_push(max_requests=1)
+        self.assertEqual((totals["sent"], len(bodies)), (100, 1))
+
+
+class WetrakrPushTaskTests(WetrakrPushBase):
+    def setUp(self):
+        super().setUp()
+        self.account = ExternalAccount.objects.create(profile=self.profile, provider="wetrakr", sync_direction="push")
+        self.account.set_access_token("tok")
+        self.account.save()
+
+    def confirm(self):
+        self.account.push_confirmed_at = timezone.now()
+        self.account.save(update_fields=["push_confirmed_at"])
+
+    @patch("tracker.integrations.wetrakr.post_tracking", return_value={})
+    def test_nothing_is_sent_before_the_person_confirms(self, mock_post):
+        self.watch_movie()
+        self.assertEqual(tasks.push_wetrakr_history(self.profile.id), 0)
+        self.assertEqual(tasks.sync_wetrakr_history(self.profile.id), 0)
+        mock_post.assert_not_called()
+
+    @patch("tracker.integrations.wetrakr.post_tracking", return_value={})
+    def test_a_confirmed_push_sends_logs_and_counts_the_requests(self, mock_post):
+        self.watch_movie()
+        self.confirm()
+        self.assertEqual(tasks.push_wetrakr_history(self.profile.id), 1)
+        self.assertEqual(mock_post.call_args.args[:2], ("tok", django_settings.WETRAKR_CLIENT_ID or ""))
+        log = SyncLog.objects.get(profile=self.profile)
+        self.assertEqual((log.direction, log.status, log.item_count), ("push", "success", 1))
+        self.account.refresh_from_db()
+        self.assertIsNotNone(self.account.last_pushed_at)
+        self.assertEqual(self.account.wetrakr_quota_count, 0)  # post_tracking itself is mocked: no real request to count
+
+    @patch("tracker.integrations.wetrakr.post_tracking")
+    def test_the_daily_quota_pauses_the_send_quietly(self, mock_post):
+        self.watch_movie()
+        self.confirm()
+        mock_post.side_effect = wetrakr.WeTrakrQuotaError("QUOTA_EXCEEDED", "limit")
+        self.assertEqual(tasks.push_wetrakr_history(self.profile.id), 0)
+        log = SyncLog.objects.get(profile=self.profile)
+        self.assertEqual(log.status, "paused")
+        self.assertFalse(Notification.objects.filter(profile=self.profile).exists())
+
+    @patch("tracker.integrations.wetrakr.post_tracking", return_value={})
+    @patch("tracker.integrations.wetrakr.fetch_history_page")
+    def test_push_only_never_reads_from_wetrakr(self, mock_fetch, mock_post):
+        self.watch_movie()
+        self.confirm()
+        tasks.sync_wetrakr_history(self.profile.id)
+        mock_fetch.assert_not_called()
+        mock_post.assert_called_once()
+
+    @patch("tracker.integrations.wetrakr.post_tracking", return_value={})
+    @patch("tracker.integrations.wetrakr.fetch_history_page", return_value=([], None))
+    def test_both_ways_reads_then_sends(self, mock_fetch, mock_post):
+        self.account.sync_direction = "both"
+        self.account.save()
+        self.watch_movie()
+        self.confirm()
+        tasks.sync_wetrakr_history(self.profile.id)
+        mock_fetch.assert_called()
+        mock_post.assert_called_once()
+
+    @patch("tracker.integrations.wetrakr.post_tracking", return_value={})
+    @patch("tracker.integrations.wetrakr.fetch_history_page", return_value=([], None))
+    def test_import_only_never_sends(self, mock_fetch, mock_post):
+        self.account.sync_direction = "pull"
+        self.account.push_confirmed_at = timezone.now()
+        self.account.save()
+        self.watch_movie()
+        tasks.sync_wetrakr_history(self.profile.id)
+        mock_post.assert_not_called()
+
+    def test_what_wetrakr_sent_us_is_not_sent_back(self):
+        self.watch_movie(source="wetrakr")
+        self.confirm()
+        with patch("tracker.integrations.wetrakr.post_tracking") as mock_post:
+            tasks.push_wetrakr_history(self.profile.id)
+        mock_post.assert_not_called()
+
+    def test_a_push_connection_keeps_its_daily_schedule(self):
+        scheduling.ensure_periodic_task(self.account)
+        beat = _PeriodicTask.objects.get(name=scheduling.sync_periodic_task_name(self.account))
+        self.assertTrue(beat.enabled)
+        self.account.sync_direction = "off"
+        scheduling.ensure_periodic_task(self.account)
+        beat.refresh_from_db()
+        self.assertFalse(beat.enabled)
+
+
+class WetrakrPushViewTests(WetrakrPushBase):
+    def setUp(self):
+        super().setUp()
+        self.client.login(username="pushuser", password="pass12345")
+        self.account = ExternalAccount.objects.create(profile=self.profile, provider="wetrakr", sync_direction="push")
+        scheduling.ensure_periodic_task(self.account)
+
+    def test_wetrakr_offers_the_send_options(self):
+        values = [v for v, _l, _h in _sd.choices_for("wetrakr")]
+        self.assertEqual(values, ["pull", "push", "both", "off"])
+
+    def test_the_help_text_spells_the_service_right(self):
+        helps = " ".join(h for _v, _l, h in _sd.choices_for("wetrakr"))
+        self.assertIn("WeTrakr", helps)
+        self.assertNotIn("Wetrakr", helps)
+
+    def test_the_preview_shows_what_would_go_and_that_nothing_has(self):
+        self.watch_movie()
+        self.watch_episode(1)
+        body = self.client.get(reverse("push_preview", args=["wetrakr"])).content.decode()
+        self.assertIn("Nothing has left Spool yet", body)
+        self.assertIn("Fathom", body)
+        self.assertIn("Send to WeTrakr", body)
+        self.assertIn("never sent back", body)
+        self.assertFalse(_PushRecord.objects.exists())
+        self.account.refresh_from_db()
+        self.assertIsNone(self.account.push_confirmed_at)
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_confirming_turns_it_on_and_starts_the_first_send(self, mock_dispatch):
+        resp = self.client.post(reverse("push_preview", args=["wetrakr"]))
+        self.assertEqual(resp.status_code, 302)
+        self.account.refresh_from_db()
+        self.assertIsNotNone(self.account.push_confirmed_at)
+        mock_dispatch.assert_called_once_with(tasks.push_wetrakr_history, [self.profile.id])
+
+    def test_the_preview_is_only_for_a_connection_that_sends(self):
+        self.account.sync_direction = "pull"
+        self.account.save()
+        resp = self.client.get(reverse("push_preview", args=["wetrakr"]), follow=True)
+        self.assertContains(resp, "is not set to send data from Spool")
+
+    def test_a_service_that_cannot_be_pushed_to_is_a_404(self):
+        ExternalAccount.objects.create(profile=self.profile, provider="trakt")
+        self.assertEqual(self.client.get(reverse("push_preview", args=["trakt"])).status_code, 404)
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_send_now_needs_the_confirmation_first(self, mock_dispatch):
+        resp = self.client.post(reverse("push_now", args=["wetrakr"]))
+        self.assertRedirects(resp, reverse("push_preview", args=["wetrakr"]), fetch_redirect_response=False)
+        mock_dispatch.assert_not_called()
+        self.account.push_confirmed_at = timezone.now()
+        self.account.save()
+        self.client.post(reverse("push_now", args=["wetrakr"]))
+        mock_dispatch.assert_called_once_with(tasks.push_wetrakr_history, [self.profile.id])
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_choosing_to_send_on_the_card_goes_to_the_preview(self, mock_dispatch):
+        self.account.sync_direction = "off"
+        self.account.save()
+        resp = self.client.post(reverse("save_sync_direction", args=["wetrakr"]), {"sync_direction": "push"})
+        self.assertRedirects(resp, reverse("push_preview", args=["wetrakr"]), fetch_redirect_response=False)
+        mock_dispatch.assert_not_called()  # nothing goes before it is confirmed
+
+    def test_turning_sending_off_takes_the_confirmation_with_it(self):
+        self.account.push_confirmed_at = timezone.now()
+        self.account.save()
+        self.client.post(reverse("save_sync_direction", args=["wetrakr"]), {"sync_direction": "pull"})
+        self.account.refresh_from_db()
+        self.assertIsNone(self.account.push_confirmed_at)
+        self.client.post(reverse("save_sync_direction", args=["wetrakr"]), {"sync_direction": "push"})
+        self.account.refresh_from_db()
+        self.assertIsNone(self.account.push_confirmed_at)  # asks again
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_setup_choosing_to_send_goes_to_the_preview_and_both_imports_first(self, mock_dispatch):
+        self.account.sync_direction = "off"
+        self.account.save()
+        resp = self.client.post(reverse("sync_direction_setup", args=["wetrakr"]), {"sync_direction": "push"})
+        self.assertRedirects(resp, reverse("push_preview", args=["wetrakr"]), fetch_redirect_response=False)
+        resp = self.client.post(reverse("sync_direction_setup", args=["wetrakr"]), {"sync_direction": "both"})
+        session = ImportSession.objects.get(profile=self.profile, source="wetrakr")
+        self.assertRedirects(resp, reverse("import_review", args=[session.id]), fetch_redirect_response=False)
+
+    def test_the_card_asks_for_a_review_then_offers_send_now(self):
+        body = self.client.get(reverse("settings")).content.decode()
+        self.assertIn("Nothing is sent until you have reviewed it", body)
+        self.assertIn(reverse("push_preview", args=["wetrakr"]), body)
+        self.account.push_confirmed_at = timezone.now()
+        self.account.save()
+        body = self.client.get(reverse("settings")).content.decode()
+        self.assertIn(reverse("push_now", args=["wetrakr"]), body)
+        self.assertIn(reverse("save_sync_schedule", args=["wetrakr"]), body)  # push-only still has its daily schedule
+        self.assertNotIn(reverse("trigger_manual_sync", args=["wetrakr"]), body)  # but nothing to import
+
+    def test_other_profiles_cannot_see_or_confirm_your_send(self):
+        self.client.logout()
+        other = User.objects.create_user("pushsnoop", password="pass12345")
+        Profile.objects.create(user=other, display_name="Snoop")
+        self.client.login(username="pushsnoop", password="pass12345")
+        self.assertEqual(self.client.get(reverse("push_preview", args=["wetrakr"])).status_code, 404)
+        self.assertEqual(self.client.post(reverse("push_preview", args=["wetrakr"])).status_code, 404)
+
+    def test_the_logs_call_a_send_a_send_and_an_import_a_sync(self):
+        SyncLog.objects.create(profile=self.profile, provider="wetrakr", status="success", direction="push", item_count=3)
+        SyncLog.objects.create(profile=self.profile, provider="wetrakr", status="success", item_count=5)
+        actions = {e["action"] for e in selectors.combined_logs(1).object_list}
+        self.assertEqual(actions, {"Send · WeTrakr", "Sync · WeTrakr"})

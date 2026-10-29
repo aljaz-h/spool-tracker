@@ -1,0 +1,50 @@
+{% extends "tracker/base.html" %}
+{% block title %}Send to {{ provider_name }} · Spool{% endblock %}
+{% block content %}
+  {# context: provider, provider_name, preview (wetrakr_push.preview()), confirmed, direction. What a send to a service would do, before anything is sent. #}
+  <div class="max-w-xl mx-auto py-6">
+    <div class="sch-eyebrow">{{ provider_name }}</div>
+    <h1 class="text-2xl font-semibold mt-1">What will be sent</h1>
+    <p class="text-[14px] text-ink-dim mt-2 leading-relaxed">
+      Nothing has left Spool yet. This is exactly what the first send would do, worked out from your watch history{% if confirmed %}; sending is already on, so this is what is still waiting{% endif %}.
+    </p>
+
+    <div class="surface p-5 mt-5">
+      <div class="grid grid-cols-3 gap-3 text-center">
+        <div><div class="sch-big">{{ preview.movies }}</div><div class="text-[12px] text-ink-dim mt-1">movie{{ preview.movies|pluralize }}</div></div>
+        <div><div class="sch-big">{{ preview.episodes }}</div><div class="text-[12px] text-ink-dim mt-1">episode{{ preview.episodes|pluralize }}</div></div>
+        <div><div class="sch-big">{{ preview.shows }}</div><div class="text-[12px] text-ink-dim mt-1">show{{ preview.shows|pluralize }}</div></div>
+      </div>
+      {% if preview.samples %}
+        <div class="sch-eyebrow mt-5 mb-1.5">For example</div>
+        <ul class="text-[13px] text-ink-dim flex flex-col gap-0.5">
+          {% for name in preview.samples %}<li class="truncate">{{ name }}</li>{% endfor %}
+        </ul>
+      {% else %}
+        <p class="text-[13px] text-ink-dim mt-4">There is nothing waiting to be sent right now. Turning sending on means new watches are sent from now on.</p>
+      {% endif %}
+    </div>
+
+    <div class="surface p-5 mt-4 text-[13px] text-ink-dim leading-relaxed flex flex-col gap-1.5">
+      <div class="font-semibold text-base-content text-[13.5px]">What stays safe</div>
+      <div>&bull; Anything your {{ provider_name }} account has already watched is left alone, so nothing is counted twice.</div>
+      <div>&bull; Watches that came from {{ provider_name }} are never sent back to it.</div>
+      <div>&bull; Each watch is sent once; the daily send only carries what is new.</div>
+      {% if preview.rewatches %}<div>&bull; {{ preview.rewatches }} rewatch{{ preview.rewatches|pluralize:",es" }} will not be sent ({{ provider_name }} logs a title once).</div>{% endif %}
+      {% if preview.no_ids %}<div>&bull; {{ preview.no_ids }} watch{{ preview.no_ids|pluralize:",es" }} cannot be sent because {{ provider_name }} cannot identify the title.</div>{% endif %}
+      {% if preview.other_skipped %}<div>&bull; {{ preview.other_skipped }} whole-show watch{{ preview.other_skipped|pluralize:",es" }} will not be sent.</div>{% endif %}
+      {% if preview.sent_before %}<div>&bull; {{ preview.sent_before }} watch{{ preview.sent_before|pluralize:",es" }} {{ preview.sent_before|pluralize:"has,have" }} already been sent.</div>{% endif %}
+      {% if preview.failed %}<div class="text-warning">&bull; {{ preview.failed }} watch{{ preview.failed|pluralize:",es" }} failed repeatedly and {{ preview.failed|pluralize:"was,were" }} given up on.</div>{% endif %}
+    </div>
+
+    {% if not confirmed %}
+      <form method="post" action="{% url 'push_preview' provider %}" class="flex items-center gap-3 mt-5">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-primary btn-sm">{% if preview.to_send %}Send to {{ provider_name }}{% else %}Turn on sending{% endif %}</button>
+        <a href="{% url 'settings' %}?tab=connected_apps" class="text-[13px] text-ink-dim hover:text-base-content">Not now</a>
+      </form>
+    {% else %}
+      <div class="mt-5"><a href="{% url 'settings' %}?tab=connected_apps" class="btn btn-sm btn-soft">Back to Connected Apps</a></div>
+    {% endif %}
+  </div>
+{% endblock %}

@@ -63,6 +63,7 @@ from . import (
     show_progress,
     sync_direction,
     tasks,
+    wetrakr_push,
     totp,
     tvtime_import,
 )
@@ -6445,6 +6446,68 @@ def save_sync_schedule(request, provider):
     return redirect("settings")
 
 
+def _forget_push_confirmation(connection):
+    """Sending needs the person's go-ahead, and the go-ahead goes away with
+    the setting: turning sending off (or never having it on) leaves the next
+    time to be reviewed again."""
+    if hasattr(connection, "push_confirmed_at") and not sync_direction.allows_push(connection):
+        connection.push_confirmed_at = None
+
+
+PUSH_MODULES = {"wetrakr": wetrakr_push}
+PUSH_TASKS = {"wetrakr": tasks.push_wetrakr_history}
+
+
+def _push_connection(request, provider):
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or provider not in PUSH_MODULES:
+        raise Http404
+    return profile, get_object_or_404(ExternalAccount, profile=profile, provider=provider)
+
+
+@login_required
+def push_preview(request, provider):
+    """What would be sent to a service, before anything is: counts and a few
+    examples, worked out from the database alone. Confirming turns the send
+    on (and runs the first one); nothing has left Spool until then."""
+    profile, account = _push_connection(request, provider)
+    if not sync_direction.allows_push(account):
+        messages.error(request, f"{_provider_name(provider)} is not set to send data from Spool.")
+        return redirect(f"{reverse('settings')}?tab=connected_apps")
+    if request.method == "POST":
+        account.push_confirmed_at = timezone.now()
+        account.save(update_fields=["push_confirmed_at"])
+        scheduling.ensure_periodic_task(account)
+        _dispatch_sync_task_safely(PUSH_TASKS[provider], [profile.id])
+        messages.success(
+            request, f"Sending to {_provider_name(provider)} started. New watches follow on the daily schedule."
+        )
+        return redirect(f"{reverse('settings')}?tab=connected_apps")
+    return render(
+        request,
+        "tracker/push_preview.html",
+        {
+            "provider": provider,
+            "provider_name": _provider_name(provider),
+            "preview": PUSH_MODULES[provider].preview(profile),
+            "confirmed": account.push_confirmed_at is not None,
+            "direction": account.sync_direction,
+        },
+    )
+
+
+@login_required
+@require_POST
+def push_now(request, provider):
+    profile, account = _push_connection(request, provider)
+    if not sync_direction.allows_push(account) or account.push_confirmed_at is None:
+        messages.error(request, f"Review what will be sent to {_provider_name(provider)} first.")
+        return redirect("push_preview", provider=provider)
+    _dispatch_sync_task_safely(PUSH_TASKS[provider], [profile.id])
+    messages.success(request, f"Sending to {_provider_name(provider)} started - check back in a moment.")
+    return redirect(f"{reverse('settings')}?tab=connected_apps")
+
+
 @login_required
 def sync_direction_setup(request, provider):
     """The first thing a new connection asks: what may it do? Importing
@@ -6461,12 +6524,16 @@ def sync_direction_setup(request, provider):
             messages.error(request, "Choose one of the options.")
             return redirect("sync_direction_setup", provider=provider)
         connection.sync_direction = chosen
-        connection.save(update_fields=["sync_direction"])
+        _forget_push_confirmation(connection)
+        connection.save(update_fields=["sync_direction", "push_confirmed_at"] if hasattr(connection, "push_confirmed_at") else ["sync_direction"])
         scheduling.ensure_periodic_task(connection)
         if sync_direction.allows_pull(connection) and provider in IMPORT_REVIEW_PROVIDERS:
             session = _start_import_review(profile, provider)
             messages.success(request, f"Connected to {_provider_name(provider)} - review what to import.")
             return redirect("import_review", session_id=session.id)
+        if sync_direction.allows_push(connection):
+            messages.success(request, f"{_provider_name(provider)} is connected - review what Spool will send before anything goes.")
+            return redirect("push_preview", provider=provider)
         messages.success(request, f"{_provider_name(provider)} is connected and set to \"{connection.get_sync_direction_display()}\".")
         return redirect("settings")
     return render(
@@ -6497,7 +6564,8 @@ def save_sync_direction(request, provider):
         messages.error(request, "Choose one of the options.")
         return redirect("settings")
     connection.sync_direction = chosen
-    connection.save(update_fields=["sync_direction"])
+    _forget_push_confirmation(connection)
+    connection.save(update_fields=["sync_direction", "push_confirmed_at"] if hasattr(connection, "push_confirmed_at") else ["sync_direction"])
     scheduling.ensure_periodic_task(connection)
     if not sync_direction.allows_pull(connection):
         for session in ImportSession.objects.filter(
@@ -6509,6 +6577,8 @@ def save_sync_direction(request, provider):
             session.save(update_fields=["status", "completed_at"])
             import_pipeline.discard_session(session)
     messages.success(request, f"{_provider_name(provider)} is now set to \"{connection.get_sync_direction_display()}\".")
+    if sync_direction.allows_push(connection) and connection.push_confirmed_at is None:
+        return redirect("push_preview", provider=provider)
     return redirect(f"{reverse('settings')}?tab=connected_apps")
 
 

@@ -1279,7 +1279,7 @@ def combined_logs(
     entries = [
         {
             "profile": log.profile,
-            "action": f"Sync · {log.get_provider_display()}",
+            "action": f"{'Send' if log.direction == 'push' else 'Sync'} · {log.get_provider_display()}",
             "status": log.status,
             "item_count": log.item_count,
             "detail": "",

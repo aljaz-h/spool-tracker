@@ -55,7 +55,26 @@ changeable any time:
   in either direction, so connecting can never touch your Spool history.
   The schedule and the Sync now / Review full import buttons are hidden.
 - **Send from Spool** and **Both ways** appear only for a service Spool can
-  send data to. None can yet.
+  send data to. That is **WeTrakr** (see below); the others import only.
+
+**Sending to WeTrakr.** Choose *Send from Spool* (or *Both ways*) on the WeTrakr
+card and Spool shows a **preview first**: how many movies, episodes and shows
+it would send, with examples. Nothing leaves Spool until you confirm it there;
+after that the daily sync (and **Send now**) carries only what is new. Your
+watch history is what is sent, and these rules keep it safe:
+
+- Anything your WeTrakr account has already watched is left alone (Spool uses
+  WeTrakr's "do not re-count" mode), so a full re-send can never inflate your
+  counts.
+- Watches that came *from* WeTrakr are never sent back to it.
+- Each watch is sent once - Spool remembers what it sent. Rewatches and
+  whole-show watches are not sent (WeTrakr logs a title once), and a title
+  WeTrakr cannot identify from its ids is skipped.
+- A send that hits WeTrakr's daily request limit simply carries on the next
+  day. Sends are logged in Settings -> Logs as "Send · WeTrakr".
+
+Turning sending off clears the go-ahead, so turning it on again asks to review
+first.
 
 Accounts connected before this setting existed keep importing exactly as
 before. Switching a service to "not syncing" stops its scheduled sync and

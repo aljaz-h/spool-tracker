@@ -25,6 +25,7 @@ from . import (
     tvtime_import,
     update_check,
     version,
+    wetrakr_push,
 )
 from .integrations import fanart, mdblist, myanimelist, nuvio, simkl, tmdb, tmdb_account, trakt, tvmaze, wetrakr
 from .models import (
@@ -79,7 +80,7 @@ def _call_with_refresh(account, provider_module, client_id, client_secret, call)
         return call()
 
 
-def _run_sync(profile, provider, fetch_and_upsert):
+def _run_sync(profile, provider, fetch_and_upsert, direction="pull"):
     """Wraps a sync call with a SyncLog row - records when it ran,
     whether it succeeded/failed, and (imported_titles, capped at
     models.IMPORTED_TITLES_LOG_CAP) a sample of what was actually
@@ -90,7 +91,7 @@ def _run_sync(profile, provider, fetch_and_upsert):
     on-401 (this way each attempt builds its own fresh list). Re-raises
     on failure after recording it, so the sync still shows up as failed
     in Celery's own tracking/logs too, not just silently swallowed."""
-    log = SyncLog.objects.create(profile=profile, provider=provider)
+    log = SyncLog.objects.create(profile=profile, provider=provider, direction=direction)
     try:
         created, labels = fetch_and_upsert()
     except wetrakr.WeTrakrQuotaError as e:
@@ -264,10 +265,24 @@ def sync_wetrakr_history(profile_id):
         logger.info("sync_wetrakr_history: profile %s has no WeTrakr account connected", profile_id)
         return 0
 
-    if not sync_direction.allows_pull(account):
-        logger.info("sync_wetrakr_history: profile %s has WeTrakr set to %s - not reading from it", profile_id, account.sync_direction)
+    pulls = sync_direction.allows_pull(account)
+    pushes = sync_direction.allows_push(account) and account.push_confirmed_at is not None
+    if not pulls and not pushes:
+        logger.info(
+            "sync_wetrakr_history: profile %s has WeTrakr set to %s - nothing to do", profile_id, account.sync_direction
+        )
         return 0
 
+    created = 0
+    if pulls:
+        created = _pull_wetrakr(account, profile_id)
+    if pushes:
+        _push_wetrakr(account)
+    return created
+
+
+def _pull_wetrakr(account, profile_id):
+    """The incremental import half of sync_wetrakr_history."""
     sync_start = timezone.now()
     client_id, client_secret = instance_config.get_wetrakr_credentials()
 
@@ -296,6 +311,56 @@ def sync_wetrakr_history(profile_id):
     account.save(update_fields=["last_synced_at"])
     logger.info("sync_wetrakr_history: profile %s, %d new watch events", profile_id, created)
     return created
+
+
+def _push_wetrakr(account):
+    """The send half: Spool's watches that WeTrakr does not have yet (see
+    tracker/wetrakr_push.py). Budget-checked and counted per request like
+    every other WeTrakr call; a daily quota ends the run quietly (PAUSED) and
+    the rest is sent on the next one."""
+    client_id, client_secret = instance_config.get_wetrakr_credentials()
+    cfg = InstanceConfig.load()
+
+    def post(body):
+        _ensure_wetrakr_budget(account, cfg)
+
+        def call():
+            return wetrakr.post_tracking(
+                account.get_access_token(), client_id, body, on_request=lambda: _record_wetrakr_request(account, cfg)
+            )
+
+        return _call_with_refresh(account, wetrakr, client_id, client_secret, call)
+
+    def send():
+        totals = wetrakr_push.run(account.profile, post)
+        return totals["sent"], totals["labels"]
+
+    try:
+        sent = _run_sync(account.profile, ExternalAccount.Provider.WETRAKR, send, direction="push")
+    except wetrakr.WeTrakrQuotaError:
+        logger.info("push_wetrakr: profile %s paused on quota", account.profile_id)
+        return 0
+    account.last_pushed_at = timezone.now()
+    account.save(update_fields=["last_pushed_at"])
+    logger.info("push_wetrakr: profile %s, %d watches sent", account.profile_id, sent)
+    return sent
+
+
+@shared_task
+def push_wetrakr_history(profile_id):
+    """"Send now" (and the confirmation of a first send): only the send half,
+    and only for an account that is set to send and whose first send has been
+    confirmed."""
+    try:
+        account = ExternalAccount.objects.select_related("profile").get(
+            profile_id=profile_id, provider=ExternalAccount.Provider.WETRAKR
+        )
+    except ExternalAccount.DoesNotExist:
+        return 0
+    if not sync_direction.allows_push(account) or account.push_confirmed_at is None:
+        logger.info("push_wetrakr_history: profile %s has not confirmed sending to WeTrakr", profile_id)
+        return 0
+    return _push_wetrakr(account)
 
 
 @shared_task

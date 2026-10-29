@@ -41,6 +41,25 @@
       </form>
     </div>
   </div>
+  {% endif %}
+  {% if provider|can_push and account|pushes %}
+  <div class="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+    {% if account.push_confirmed_at %}
+      <div class="text-[13px] text-ink-dim">Last sent: {% if account.last_pushed_at %}{{ account.last_pushed_at|timesince }} ago{% else %}not yet{% endif %}</div>
+      <div class="flex gap-1.5">
+        <a href="{% url 'push_preview' provider %}" class="btn btn-xs btn-soft">What is pending</a>
+        <form method="post" action="{% url 'push_now' provider %}">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-xs btn-soft">Send now</button>
+        </form>
+      </div>
+    {% else %}
+      <div class="text-[13px] text-warning">Nothing is sent until you have reviewed it.</div>
+      <a href="{% url 'push_preview' provider %}" class="btn btn-xs btn-primary">Review what will be sent</a>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% if account|pulls or account|pushes %}
   <form method="post" action="{% url 'save_sync_schedule' provider %}" class="flex items-center gap-1.5 flex-wrap">
     {% csrf_token %}
     <span class="text-[12px] text-ink-dim">Sync every</span>

@@ -9,16 +9,18 @@ picks (views.sync_direction_setup), so the choice always comes before the
 first read.
 
 PUSH_PROVIDERS lists the services Spool can send data to. Only those offer
-the PUSH and BOTH options; the rest offer pull and off. Today none can - the
-choice is there ready for them.
+the PUSH and BOTH options; the rest offer pull and off. Today that is WeTrakr.
 """
 
 from .models import SyncDirection
 
 PULL, PUSH, BOTH, OFF = SyncDirection.PULL, SyncDirection.PUSH, SyncDirection.BOTH, SyncDirection.OFF
 
-# Services Spool is able to send data to. Add one here when its push exists.
-PUSH_PROVIDERS = frozenset()
+# Services Spool is able to send data to (watch history, so far). Add one here
+# when its push exists.
+PUSH_PROVIDERS = frozenset({"wetrakr"})
+
+NAMES = {"trakt": "Trakt", "simkl": "Simkl", "wetrakr": "WeTrakr", "nuvio": "Nuvio", "tmdb": "TMDB", "mal": "MyAnimeList"}
 
 HELP = {
     PULL: "New watches, ratings and lists come from {name} into Spool, on the schedule below. Nothing is sent back.",
@@ -43,7 +45,7 @@ def supports_push(provider):
 def choices_for(provider):
     """[(value, label, help)] for the options this service offers, with the
     safe ones first."""
-    name = "Nuvio" if provider == "nuvio" else provider.title() if provider != "mal" else "MyAnimeList"
+    name = NAMES.get(provider, provider.title())
     values = [PULL, OFF]
     if supports_push(provider):
         values = [PULL, PUSH, BOTH, OFF]

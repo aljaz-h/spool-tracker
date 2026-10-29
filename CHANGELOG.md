@@ -8,6 +8,24 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.164.0] - 2026-10-29
+
+### Added
+
+- **Send your watch history from Spool to WeTrakr.** On the WeTrakr card (and
+  when connecting) you can now choose *Send from Spool* or *Both ways*. Spool
+  first shows a preview - how many movies, episodes and shows it would send,
+  with examples - and nothing leaves until you confirm it. After that the daily
+  sync, or **Send now**, sends only what is new.
+  - Safe to repeat: WeTrakr is asked not to re-count anything the account has
+    already watched, and Spool records what it sent, so nothing is counted twice.
+  - Watches that came from WeTrakr are never sent back to it; rewatches,
+    whole-show watches and titles WeTrakr cannot identify are not sent.
+  - Respects WeTrakr's limits: writes are paced, and a send that hits the daily
+    request limit carries on the next day without losing its place.
+  - Turning sending off clears the go-ahead, so it asks again next time.
+  - Sends show up in Settings -> Logs as "Send · WeTrakr".
+
 ## [0.163.0] - 2026-10-29
 
 ### Added
