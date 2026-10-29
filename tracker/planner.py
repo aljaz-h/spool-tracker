@@ -33,7 +33,7 @@ from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from . import completion, recommendations, rewatches, selectors
+from . import completion, recommendations, rewatches, selectors, show_progress
 from .integrations import tmdb
 from .models import (
     Episode,
@@ -789,17 +789,6 @@ def tonight_context(profile, plan, now=None):
     return None
 
 
-def _aired_episode_count(details):
-    last = details.get("last_episode_to_air") or {}
-    if last.get("season_number") and last.get("episode_number"):
-        season_counts = dict(details.get("seasons") or [])
-        before = sum(count for number, count in season_counts.items() if number < last["season_number"])
-        return before + last["episode_number"]
-    if (details.get("status") or "") in ("Ended", "Canceled"):
-        return details.get("number_of_episodes") or 0
-    return 0
-
-
 def remaining_minutes(profile, plan, now=None):
     """(minutes, titles counted) still to watch across the plan's lists:
     released episodes and movies only - nothing unaired or upcoming."""
@@ -818,7 +807,7 @@ def remaining_minutes(profile, plan, now=None):
         details = tmdb.get_full_details(tmdb.media_type_for(title), tmdb_id) if tmdb_id else None
         if not details:
             continue
-        aired = _aired_episode_count(details)
+        aired = show_progress.aired_episode_count(details)
         watched = (
             WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=False)
             .values("episode__season", "episode__episode")

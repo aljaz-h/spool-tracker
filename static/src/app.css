@@ -2219,3 +2219,63 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     background: color-mix(in oklab, var(--color-primary) 8%, var(--color-base-300));
   }
 }
+
+/* Title page watch progress (partials/title_progress_card.html): a bar that
+   fills with the share of released episodes watched, with the time watched
+   on the filled side and the time left on the other. */
+@layer components {
+  .sprog {
+    --sprog-c: var(--color-tv);
+    position: relative;
+    overflow: hidden;
+    border-radius: 12px;
+    background: color-mix(in oklab, var(--color-base-300) 88%, transparent);
+  }
+  .sprog[data-kind="anime"] { --sprog-c: var(--color-anime); }
+  .sprog.is-complete { --sprog-c: var(--color-success); }
+  .sprog-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: color-mix(in oklab, var(--sprog-c) 62%, var(--color-base-300));
+    transition: width 0.45s ease;
+  }
+  .sprog.is-complete .sprog-fill {
+    background: color-mix(in oklab, var(--sprog-c) 34%, var(--color-base-300));
+  }
+  .sprog-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.55rem 0.85rem;
+  }
+  .sprog-side {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.2;
+  }
+  .sprog-side-right {
+    align-items: flex-end;
+    text-align: right;
+  }
+  .sprog-pct {
+    font-size: 1.2rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: #fff;
+  }
+  .sprog-label {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #fff;
+  }
+  .sprog-sub {
+    font-size: 0.78rem;
+    color: color-mix(in oklab, #fff 82%, transparent);
+    white-space: nowrap;
+  }
+}

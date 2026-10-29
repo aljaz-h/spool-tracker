@@ -1,0 +1,27 @@
+{% load tracker_extras %}
+{# context: title, suffix ("-d" under the poster on desktop, "-m" under the buttons on phones - two places, so each has its own id), wrap_class, show_progress (show_progress.build() dict or None), oob (bool, optional - sent as an hx-swap-oob fragment after a watch change so it never goes stale). Watch progress for a show/anime: percent of the RELEASED episodes watched, time watched, time left, episode counts. The wrapper is always rendered so an out-of-band swap always has something to replace. #}
+<div id="show-progress{{ suffix }}" class="{{ wrap_class }}" {% if oob %}hx-swap-oob="true"{% endif %}>
+  {% if show_progress %}
+    <div
+      class="sprog {% if show_progress.complete %}is-complete{% endif %}" data-kind="{{ title.media_type }}"
+      role="group" aria-label="Watch progress" title="Released episodes only"
+    >
+      <div class="sprog-fill" style="width: {{ show_progress.percent }}%"></div>
+      <div class="sprog-row">
+        <div class="sprog-side">
+          <span class="sprog-pct">{{ show_progress.percent }}%</span>
+          <span class="sprog-sub">{{ show_progress.watched_minutes|runtime_hm }} &middot; {{ show_progress.watched }} ep</span>
+        </div>
+        <div class="sprog-side sprog-side-right">
+          {% if show_progress.complete %}
+            <span class="sprog-label">All caught up</span>
+          {% else %}
+            <span class="sprog-label">Left</span>
+            <span class="sprog-sub">{{ show_progress.left_minutes|runtime_hm }} &middot; {{ show_progress.left }} ep</span>
+          {% endif %}
+        </div>
+      </div>
+      <span class="sr-only">{{ show_progress.watched }} of {{ show_progress.total }} released episodes watched, {{ show_progress.percent }} percent{% if not show_progress.complete %}, {{ show_progress.left_minutes|runtime_hm }} left{% endif %}.</span>
+    </div>
+  {% endif %}
+</div>

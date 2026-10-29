@@ -8,6 +8,23 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.162.0] - 2026-10-29
+
+### Added
+
+- **Watch progress on the title page** for TV shows and anime. On desktop it
+  sits under the poster at the poster's width (the poster is a little larger
+  now); on phones it is under the action buttons. A bar fills with how much of the series you have watched:
+  the percentage (e.g. 21%), the time already watched and episodes done on the
+  filled side, and the time still to go and episodes left on the other
+  ("LEFT 177h 28m · 368 ep"). Only released episodes count, so an episode that
+  has not aired is in neither the total nor the time left. It follows your
+  watch history however a watch arrives (the buttons here, Trakt, Simkl,
+  Nuvio, the Scrobble API, imports), updates straight away when you mark
+  episodes watched or unwatched, and turns green with "All caught up" when
+  you are level with what has aired. Time watched uses each episode's own
+  runtime where it is known, otherwise the show's typical episode length.
+
 ## [0.161.0] - 2026-10-28
 
 ### Added

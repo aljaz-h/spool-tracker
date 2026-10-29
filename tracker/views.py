@@ -60,6 +60,7 @@ from . import (
     schedule_views,
     scheduling,
     selectors,
+    show_progress,
     tasks,
     totp,
     tvtime_import,
@@ -1409,6 +1410,7 @@ def title_detail(request, pk):
     if profile is not None and discover_items:
         context.update(selectors.discover_action_context(profile, discover_items))
     context["star_fill"] = _star_fill(context["latest_rating"])
+    context["show_progress"] = show_progress.build(profile, title, details) if profile else None
     return render(request, "tracker/title_detail.html", context)
 
 
@@ -1718,11 +1720,30 @@ def _history_card_oob(request, profile, title):
     """Appended to an HTMX response body alongside the watched-button
     fragment so the detail page's "Your history" card (status + recent
     plays, see title_history_card.html) reflects a watch/unwatch
-    immediately instead of going stale until a full reload."""
+    immediately instead of going stale until a full reload. The progress
+    card under the hero's buttons rides along, for the same reason."""
     return render_to_string(
         "tracker/partials/title_history_card.html",
         {**selectors.title_watch_history_context(profile, title), "oob": True},
         request=request,
+    ) + _show_progress_oob(request, profile, title)
+
+
+def _show_progress_context(profile, title):
+    tmdb_id = title.external_ids.get("tmdb")
+    details = tmdb.get_full_details(tmdb.media_type_for(title), tmdb_id) if tmdb_id else None
+    return {"show_progress": show_progress.build(profile, title, details), "title": title}
+
+
+def _show_progress_oob(request, profile, title):
+    if title.media_type == MediaType.MOVIE:
+        return ""
+    context = {**_show_progress_context(profile, title), "oob": True}
+    return "".join(
+        render_to_string(
+            "tracker/partials/title_progress_card.html", {**context, "suffix": suffix, "wrap_class": wrap_class}, request=request
+        )
+        for suffix, wrap_class in (("-d", "hidden lg:block mt-4"), ("-m", "mt-5 max-w-md lg:hidden"))
     )
 
 

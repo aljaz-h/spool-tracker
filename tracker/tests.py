@@ -32114,3 +32114,185 @@ class NoPointlessScrollTests(PlannerTestBase):
         slots = [s for c in week["columns"] for s in c["slots"]]
         self.assertTrue(slots)
         self.assertTrue(all(s["show_poster"] for s in slots if s["height"] >= 46))
+
+
+# ---------------------------------------------------------------------------
+# Title page watch progress (show_progress)
+# ---------------------------------------------------------------------------
+from tracker import show_progress as _sp  # noqa: E402
+
+
+def _show_details(seasons, last, runtime=45, status="Returning Series", total=None):
+    return {
+        "media_type": "tv",
+        "seasons": seasons,
+        "last_episode_to_air": {"season_number": last[0], "episode_number": last[1]} if last else None,
+        "episode_runtime": runtime,
+        "status": status,
+        "number_of_episodes": total if total is not None else sum(c for _, c in seasons),
+    }
+
+
+class AiredEpisodeCountTests(TestCase):
+    def test_counts_whole_seasons_before_the_last_aired_one_plus_its_episode(self):
+        details = _show_details([(1, 10), (2, 10), (3, 12)], last=(3, 4))
+        self.assertEqual(_sp.aired_episode_count(details), 24)
+
+    def test_a_show_that_has_not_started_has_none(self):
+        self.assertEqual(_sp.aired_episode_count(_show_details([(1, 8)], last=None)), 0)
+
+    def test_an_ended_show_without_a_last_episode_counts_everything(self):
+        self.assertEqual(_sp.aired_episode_count(_show_details([(1, 8)], last=None, status="Ended")), 8)
+
+
+class ShowProgressBuildTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("sproguser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Sprog")
+        self.title = Title.objects.create(media_type=MediaType.TV, name="Andor", year=2022)
+        self.details = _show_details([(1, 12), (2, 12)], last=(2, 6), runtime=50)  # 18 aired of 24
+
+    def watch(self, season, number, runtime=None, times=1):
+        ep, _ = Episode.objects.get_or_create(title=self.title, season=season, episode=number, defaults={"runtime_minutes": runtime})
+        for _ in range(times):
+            WatchEvent.objects.create(profile=self.profile, title=self.title, episode=ep, watched_at=timezone.now())
+
+    def test_percent_time_and_episode_counts_follow_the_released_episodes_only(self):
+        for n in range(1, 10):
+            self.watch(1, n)
+        card = _sp.build(self.profile, self.title, self.details)
+        self.assertEqual(card["total"], 18)  # the 6 unaired ones are not in it
+        self.assertEqual(card["watched"], 9)
+        self.assertEqual(card["left"], 9)
+        self.assertEqual(card["percent"], 50)
+        self.assertEqual(card["watched_minutes"], 9 * 50)
+        self.assertEqual(card["left_minutes"], 9 * 50)
+        self.assertFalse(card["complete"])
+
+    def test_a_rewatch_does_not_count_twice(self):
+        self.watch(1, 1, times=3)
+        self.assertEqual(_sp.build(self.profile, self.title, self.details)["watched"], 1)
+
+    def test_known_episode_runtimes_are_used_for_the_time_watched(self):
+        self.watch(1, 1, runtime=58)
+        self.watch(1, 2)  # runtime unknown: the show's typical 50
+        self.assertEqual(_sp.build(self.profile, self.title, self.details)["watched_minutes"], 58 + 50)
+
+    def test_an_unreleased_watched_episode_is_left_out(self):
+        self.watch(1, 1)
+        self.watch(2, 9)  # beyond the last aired episode (S2E6)
+        self.assertEqual(_sp.build(self.profile, self.title, self.details)["watched"], 1)
+
+    def test_specials_are_left_out(self):
+        self.watch(1, 1)
+        self.watch(0, 1)
+        self.assertEqual(_sp.build(self.profile, self.title, self.details)["watched"], 1)
+
+    def test_everything_released_watched_is_complete(self):
+        for s, n in [(1, i) for i in range(1, 13)] + [(2, i) for i in range(1, 7)]:
+            self.watch(s, n)
+        card = _sp.build(self.profile, self.title, self.details)
+        self.assertEqual((card["percent"], card["left"], card["left_minutes"]), (100, 0, 0))
+        self.assertTrue(card["complete"])
+
+    def test_nothing_watched_and_not_tracked_shows_no_card(self):
+        self.assertIsNone(_sp.build(self.profile, self.title, self.details))
+
+    def test_a_tracked_show_with_nothing_watched_starts_at_zero(self):
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.PLANNED)
+        card = _sp.build(self.profile, self.title, self.details)
+        self.assertEqual((card["percent"], card["watched"], card["left"]), (0, 0, 18))
+
+    def test_movies_and_unknown_titles_have_none(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Heat", year=1995)
+        self.assertIsNone(_sp.build(self.profile, movie, self.details))
+        self.assertIsNone(_sp.build(self.profile, self.title, None))
+
+    def test_another_profiles_watches_do_not_count(self):
+        other = Profile.objects.create(user=User.objects.create_user("sprogother", password="x12345678"), display_name="O")
+        ep = Episode.objects.create(title=self.title, season=1, episode=1)
+        WatchEvent.objects.create(profile=other, title=self.title, episode=ep, watched_at=timezone.now())
+        self.assertIsNone(_sp.build(self.profile, self.title, self.details))
+
+    def test_the_typical_runtime_falls_back_to_local_episodes_then_a_default(self):
+        self.details["episode_runtime"] = None
+        Episode.objects.create(title=self.title, season=1, episode=1, runtime_minutes=40)
+        Episode.objects.create(title=self.title, season=1, episode=2, runtime_minutes=60)
+        self.watch(1, 3)
+        self.assertEqual(_sp.build(self.profile, self.title, self.details)["watched_minutes"], 50)
+        anime = Title.objects.create(media_type=MediaType.ANIME, name="Frieren", year=2023)
+        ep = Episode.objects.create(title=anime, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=anime, episode=ep, watched_at=timezone.now())
+        card = _sp.build(self.profile, anime, {**self.details, "episode_runtime": None})
+        self.assertEqual(card["watched_minutes"], 24)
+
+
+class ShowProgressPageTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("sprogpage", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="SprogPage")
+        self.client.login(username="sprogpage", password="pass12345")
+        self.title = Title.objects.create(media_type=MediaType.TV, name="One Pace", year=2020)
+        self.card = {
+            "percent": 21, "watched": 100, "total": 468, "left": 368,
+            "watched_minutes": 47 * 60 + 29, "left_minutes": 177 * 60 + 28, "complete": False,
+        }
+
+    @patch("tracker.views.show_progress.build")
+    def test_the_card_shows_percent_time_watched_time_left_and_counts(self, mock_build):
+        mock_build.return_value = self.card
+        body = self.client.get(reverse("title_detail", args=[self.title.pk])).content.decode()
+        self.assertIn('id="show-progress-d"', body)  # under the poster on desktop
+        self.assertIn('id="show-progress-m"', body)  # under the buttons on phones
+        self.assertIn("21%", body)
+        self.assertIn("47h 29m", body)
+        self.assertIn("100 ep", body)
+        self.assertIn("177h 28m", body)
+        self.assertIn("368 ep", body)
+        self.assertIn("100 of 468 released episodes watched", body)
+        self.assertIn("width: 21%", body)
+
+    @patch("tracker.views.show_progress.build")
+    def test_a_finished_show_says_so(self, mock_build):
+        mock_build.return_value = {**self.card, "percent": 100, "left": 0, "left_minutes": 0, "complete": True}
+        self.assertContains(self.client.get(reverse("title_detail", args=[self.title.pk])), "All caught up")
+
+    @patch("tracker.views.show_progress.build", return_value=None)
+    def test_no_card_when_there_is_nothing_to_show(self, mock_build):
+        body = self.client.get(reverse("title_detail", args=[self.title.pk])).content.decode()
+        self.assertNotIn('class="sprog', body)
+
+    def test_a_movie_page_has_no_card(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Heat", year=1995)
+        self.assertNotIn('class="sprog', self.client.get(reverse("title_detail", args=[movie.pk])).content.decode())
+
+    @patch("tracker.views.show_progress.build")
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_a_watch_change_refreshes_the_card_out_of_band(self, mock_season, mock_details, mock_tv, mock_build):
+        mock_build.return_value = self.card
+        mock_season.return_value = {"episodes": [{"episode_number": 1, "name": "Ep1", "still_url": None, "air_date": None, "runtime": 40, "vote_average": None}]}
+        resp = self.client.post(reverse("title_mark_season_watched", args=[self.title.pk, 1]))
+        body = resp.content.decode()
+        for suffix in ("-d", "-m"):  # both places are refreshed
+            at = body.index(f'id="show-progress{suffix}"')
+            self.assertIn('hx-swap-oob="true"', body[at : at + 200])
+        self.assertIn("21%", body)
+
+    @patch("tracker.views.show_progress.build")
+    def test_desktop_puts_it_under_the_poster_and_phones_under_the_buttons(self, mock_build):
+        mock_build.return_value = self.card
+        body = self.client.get(reverse("title_detail", args=[self.title.pk])).content.decode()
+        desktop, phone = body.index('id="show-progress-d"'), body.index('id="show-progress-m"')
+        self.assertLess(body.index('class="poster '), desktop)  # after the poster
+        self.assertLess(desktop, body.index('class="min-w-0 lg:pt-2'))  # before the title column
+        self.assertGreater(phone, body.index('title-actions'))  # after the action buttons
+        self.assertIn("hidden lg:block", body[desktop - 10 : desktop + 120])
+        self.assertIn("lg:hidden", body[phone - 10 : phone + 120])
+        self.assertIn("lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)]", body)  # a bigger poster
+
+    def test_the_bar_fills_to_the_percent_and_uses_the_media_colour(self):
+        css = (Path(django_settings.BASE_DIR) / "static" / "src" / "app.css").read_text(encoding="utf-8")
+        self.assertIn(".sprog-fill", css)
+        self.assertIn('.sprog[data-kind="anime"]', css)

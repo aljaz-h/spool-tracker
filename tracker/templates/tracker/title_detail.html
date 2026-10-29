@@ -62,13 +62,17 @@
     </div>
 
     <div class="page relative pt-[150px] sm:pt-[220px] lg:pt-10 pb-8 lg:pb-12">
-      <div class="grid grid-cols-[100px_minmax(0,1fr)] sm:grid-cols-[160px_minmax(0,1fr)] lg:grid-cols-[250px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)] gap-x-4 sm:gap-x-8 lg:gap-x-11 gap-y-5 items-end lg:items-start">
+      <div class="grid grid-cols-[100px_minmax(0,1fr)] sm:grid-cols-[160px_minmax(0,1fr)] lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)] gap-x-4 sm:gap-x-8 lg:gap-x-11 gap-y-5 items-end lg:items-start">
         <div class="lg:row-span-2">
           <div class="poster rounded-xl shadow-[0_24px_60px_rgba(0,0,0,0.6)] {% if not display_poster_url %}{{ poster_seed|gradient_class }}{% endif %}">
             {% if display_poster_url %}
               <img src="{{ display_poster_url|poster_size:"w500" }}" alt="{{ display_name }} poster" class="absolute inset-0">
             {% endif %}
           </div>
+          {# Desktop: the watch progress sits under the poster at its width. Phones get the same card under the buttons instead (below). #}
+          {% if not is_preview and title.media_type != "movie" %}
+            {% include "tracker/partials/title_progress_card.html" with suffix="-d" wrap_class="hidden lg:block mt-4" %}
+          {% endif %}
         </div>
 
         <div class="min-w-0 lg:pt-2 lg:max-w-[920px]">
@@ -326,14 +330,8 @@
             {% endif %}
           </div>
 
-          {% if not is_preview and totals and totals.watched %}
-            <div class="mt-5 max-w-sm">
-              <div class="flex items-baseline justify-between gap-3 text-[13px]">
-                <span class="text-ink-dim"><b class="font-semibold text-base-content tabular-nums">{{ totals.watched }}</b> of {{ totals.total }} episodes watched</span>
-                <span class="tabular-nums text-ink-dim">{{ totals.percent }}%</span>
-              </div>
-              <div class="progress-track mt-2"><div class="progress-fill {% if totals.percent >= 100 %}!bg-success{% endif %}" style="width: {{ totals.percent }}%"></div></div>
-            </div>
+          {% if not is_preview and title.media_type != "movie" %}
+            {% include "tracker/partials/title_progress_card.html" with suffix="-m" wrap_class="mt-5 max-w-md lg:hidden" %}
           {% endif %}
 
           {% if cast %}
