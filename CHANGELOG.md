@@ -8,6 +8,29 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.162.1] - 2026-10-29
+
+### Fixed
+
+- **WeTrakr sync now matches WeTrakr's real API.** It was written without access
+  to the API and could not have worked. Checked against WeTrakr's published
+  reference:
+  - Every request now sends the app's client ID (`wetrakr-api-key`) and
+    `wetrakr-api-version`; without them WeTrakr answered 401 to everything,
+    including "Test connection".
+  - Watch history is now read in WeTrakr's real shape (the WeTrakr id is the
+    media object's `id`, episodes carry `season_number` with their show nested
+    inside). Before, every play would have been skipped as invalid.
+  - Incremental sync asks for `from_date` (it sent a parameter WeTrakr does not
+    know, so each daily sync re-downloaded the whole history and burned quota).
+  - The token refresh sends only what WeTrakr asks for, and pages are capped at
+    WeTrakr's maximum of 100.
+  - The default app-wide daily request pause is now 900 (it assumed 16,000; a
+    develop key is 1,000-2,000). Raise `WETRAKR_APP_QUOTA_PAUSE_AT` once you have
+    a production key.
+- The docs now say that your WeTrakr app needs Spool's callback URL added as a
+  redirect URI (a new app only has the out-of-band one).
+
 ## [0.162.0] - 2026-10-29
 
 ### Added

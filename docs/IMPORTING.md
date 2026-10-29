@@ -9,7 +9,11 @@
 1. Register an application with the provider:
    - Trakt: create an app at Trakt's API settings page.
    - Simkl: create an app at Simkl's developer settings page.
-   - WeTrakr: create an app at `wetrakr.com/profile/settings/api`.
+   - WeTrakr: get an app at `wetrakr.com/profile/settings/api` (apps are
+     added on request during their testing phase - ask on their Discord). It
+     lists your `client_id` and `client_secret`. A new app may only have
+     `urn:ietf:wg:oauth:2.0:oob` as its redirect URI, which Spool cannot use:
+     edit the app and add Spool's callback below as well.
 2. Set the app's redirect URI to exactly what Spool will send — scheme,
    host, port, and trailing slash all have to match character-for-character,
    since OAuth2 redirect URIs are matched exactly, not just by origin:
@@ -45,13 +49,19 @@
 follows each provider's documented API shape, but the history-sync response
 parsing — especially Simkl's and WeTrakr's — was written against
 documentation rather than a live account, since this project was built
-without real developer credentials to test against. Do a small test sync
-first and spot-check a few titles/episodes before trusting a full history
-import.
+without real developer credentials to test against (WeTrakr's was last
+checked against its published API reference on 29 October 2026). Do a small
+test sync first and spot-check a few titles/episodes before trusting a full
+history import.
 
 **WeTrakr's daily quota:** WeTrakr's free plan caps a connected account at
-1000 API requests/day (reset at midnight UTC) — VIP/patron accounts aren't
-capped the same way. Spool checks which plan an account is on right before
+1000 API requests/day (reset at midnight UTC) — VIP accounts get 50,000. On
+top of that your **app key** has its own daily budget shared by every account
+connected to your Spool: a develop key is small (1,000-2,000 requests a day,
+whichever your app's page on WeTrakr shows), a production key gets 300 per
+connected user (minimum 2,000) and is granted on request. Spool paces itself
+to 900 a day by default; once you have a production key, raise
+`WETRAKR_APP_QUOTA_PAUSE_AT` in `.env` to match. Spool checks which plan an account is on right before
 a scan starts, and self-paces to stay under a free account's limit rather
 than racing it. If a first-time import is large enough that it can't finish
 within one day's quota, it **pauses automatically partway through** — Import

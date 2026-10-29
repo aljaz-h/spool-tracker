@@ -8176,51 +8176,221 @@ class ScanNuvioSessionTests(TestCase):
 
 
 class WetrakrNormalizeHistoryItemTests(TestCase):
-    """wetrakr.normalize_history_item - mirrors TraktNormalizeHistoryItemTests,
-    keyed off a "wetrakr" id instead of "trakt"."""
+    """wetrakr.normalize_history_item against the documented play shape
+    (GET /sync/tracking/watched/history/{movies|episodes}): the WeTrakr id
+    is the media object's top-level `id`, `ids` holds external ids only, an
+    episode play nests its show inside `episode`, and the season is
+    `season_number`."""
 
     def test_movie_item(self):
         item = {
-            "id": 555, "type": "movie", "watched_at": "2024-01-05T20:30:00.000Z",
-            "movie": {"title": "Fathom", "year": 2020, "ids": {"wetrakr": 42, "tmdb": 99}},
+            "id": "play-555", "type": "movie", "watched_at": "2024-01-05T20:30:00.000Z",
+            "movie": {"id": 42, "title": "Fathom", "release_date": "2020-07-17T12:00:00.000Z", "ids": {"tmdb": 99, "imdb": "tt1"}},
         }
         normalized = wetrakr.normalize_history_item(item, 1)
         self.assertIsNone(normalized["error"])
         self.assertEqual(normalized["media_type"], MediaType.MOVIE)
         self.assertEqual(normalized["title_name"], "Fathom")
+        self.assertEqual(normalized["year"], 2020)
         self.assertEqual(normalized["source_external_ids"], {"wetrakr": "42", "tmdb": "99"})
-        self.assertEqual(normalized["source_row"], 555)
+        self.assertEqual(normalized["source_row"], "play-555")
 
     def test_episode_item(self):
         item = {
-            "type": "episode", "watched_at": "2024-01-05T20:30:00.000Z",
-            "show": {"title": "Silo", "year": 2023, "ids": {"wetrakr": 7}},
-            "episode": {"season": 1, "number": 2},
+            "id": "play-9", "type": "episode", "watched_at": "2024-01-05T20:30:00.000Z",
+            "episode": {
+                "id": 700, "season_number": 1, "number": 2, "title": "Hanna",
+                "show": {"id": 7, "title": "Silo", "first_air_date": "2023-05-05T12:00:00.000Z", "ids": {"tmdb": 125988}},
+            },
         }
         normalized = wetrakr.normalize_history_item(item, 3)
         self.assertIsNone(normalized["error"])
         self.assertEqual(normalized["media_type"], MediaType.TV)
-        self.assertEqual(normalized["season"], 1)
-        self.assertEqual(normalized["episode"], 2)
-        self.assertEqual(normalized["source_row"], 3)
+        self.assertEqual(normalized["title_name"], "Silo")
+        self.assertEqual(normalized["year"], 2023)
+        self.assertEqual((normalized["season"], normalized["episode"]), (1, 2))
+        self.assertEqual(normalized["source_external_ids"], {"wetrakr": "7", "tmdb": "125988"})
+        self.assertEqual(normalized["source_row"], "play-9")
 
-    def test_movie_missing_wetrakr_id_is_an_error(self):
-        item = {"type": "movie", "watched_at": "2024-01-05T20:30:00.000Z", "movie": {"title": "No Id", "ids": {}}}
-        normalized = wetrakr.normalize_history_item(item, 1)
-        self.assertIsNotNone(normalized["error"])
+    def test_a_missing_year_is_left_for_the_title_matcher(self):
+        item = {"id": "p", "type": "movie", "watched_at": "2024-01-05T20:30:00.000Z", "movie": {"id": 1, "title": "X", "ids": {}}}
+        self.assertIsNone(wetrakr.normalize_history_item(item, 1)["year"])
 
-    def test_episode_missing_season_or_number_is_an_error(self):
+    def test_movie_missing_its_id_is_an_error(self):
+        item = {"type": "movie", "watched_at": "2024-01-05T20:30:00.000Z", "movie": {"title": "No Id", "ids": {"tmdb": 1}}}
+        self.assertIsNotNone(wetrakr.normalize_history_item(item, 1)["error"])
+
+    def test_episode_missing_show_id_season_or_number_is_an_error(self):
+        base = {"type": "episode", "watched_at": "2024-01-05T20:30:00.000Z"}
+        for episode in (
+            {"season_number": 1, "number": 2, "show": {"title": "Silo"}},  # no show id
+            {"number": 2, "show": {"id": 7}},  # no season
+            {"season_number": 1, "show": {"id": 7}},  # no number
+            {"season_number": 1, "number": 2},  # no show at all
+        ):
+            self.assertIsNotNone(wetrakr.normalize_history_item({**base, "episode": episode}, 1)["error"], episode)
+
+    def test_the_old_trakt_shape_is_not_accepted(self):
         item = {
             "type": "episode", "watched_at": "2024-01-05T20:30:00.000Z",
-            "show": {"title": "Silo", "ids": {"wetrakr": 7}}, "episode": {"season": 1},
+            "show": {"title": "Silo", "ids": {"wetrakr": 7}}, "episode": {"season": 1, "number": 2},
         }
-        normalized = wetrakr.normalize_history_item(item, 1)
-        self.assertIsNotNone(normalized["error"])
+        self.assertIsNotNone(wetrakr.normalize_history_item(item, 1)["error"])
 
     def test_unparseable_watched_at_is_an_error(self):
-        item = {"type": "movie", "watched_at": "not a date", "movie": {"title": "X", "ids": {"wetrakr": 1}}}
-        normalized = wetrakr.normalize_history_item(item, 1)
-        self.assertIsNotNone(normalized["error"])
+        item = {"type": "movie", "watched_at": "not a date", "movie": {"id": 1, "title": "X", "ids": {}}}
+        self.assertIsNotNone(wetrakr.normalize_history_item(item, 1)["error"])
+
+    def test_unknown_item_type_is_an_error(self):
+        item = {"type": "show", "watched_at": "2024-01-05T20:30:00.000Z"}
+        self.assertIsNotNone(wetrakr.normalize_history_item(item, 1)["error"])
+
+
+class WetrakrUpsertHistoryItemsTests(TestCase):
+    """The live sync's writer, fed the documented play shape."""
+
+    def setUp(self):
+        user = User.objects.create_user("wtupsert", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="WtUpsert")
+
+    def _movie(self, play_id="p1", when="2024-01-05T20:30:00.000Z"):
+        return {
+            "id": play_id, "type": "movie", "watched_at": when,
+            "movie": {"id": 42, "title": "Fathom", "release_date": "2020-07-17T12:00:00.000Z", "ids": {"tmdb": 99, "imdb": "tt1"}},
+        }
+
+    def _episode(self, play_id="p2", number=2, when="2024-01-06T20:30:00.000Z"):
+        return {
+            "id": play_id, "type": "episode", "watched_at": when,
+            "episode": {
+                "season_number": 1, "number": number, "title": "Hanna",
+                "show": {"id": 7, "title": "Silo", "first_air_date": "2023-05-05T12:00:00.000Z", "ids": {"tmdb": 125988}},
+            },
+        }
+
+    def test_movies_and_episodes_are_written_with_the_wetrakr_source(self):
+        created = wetrakr.upsert_history_items(self.profile, [self._movie(), self._episode()])
+        self.assertEqual(created, 2)
+        movie = WatchEvent.objects.get(profile=self.profile, episode__isnull=True)
+        self.assertEqual(movie.title.name, "Fathom")
+        self.assertEqual(movie.title.external_ids.get("wetrakr"), "42")
+        self.assertEqual(movie.source, WatchEvent.Source.WETRAKR)
+        episode_event = WatchEvent.objects.get(profile=self.profile, episode__isnull=False)
+        self.assertEqual((episode_event.episode.season, episode_event.episode.episode), (1, 2))
+        self.assertEqual(episode_event.episode.name, "Hanna")
+        self.assertEqual(episode_event.title.external_ids.get("wetrakr"), "7")
+
+    def test_a_replay_of_the_same_page_creates_nothing_new(self):
+        wetrakr.upsert_history_items(self.profile, [self._movie(), self._episode()])
+        self.assertEqual(wetrakr.upsert_history_items(self.profile, [self._movie(), self._episode()]), 0)
+        self.assertEqual(WatchEvent.objects.filter(profile=self.profile).count(), 2)
+
+    def test_the_external_ids_are_handed_to_the_title_matcher(self):
+        with patch("tracker.integrations.wetrakr._get_or_create_title") as mock_title:
+            mock_title.return_value = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+            wetrakr.upsert_history_items(self.profile, [self._movie()])
+        args = mock_title.call_args.args
+        self.assertEqual(args, (MediaType.MOVIE, "Fathom", 2020, 42, 99, "tt1"))
+
+    def test_invalid_items_are_skipped_not_fatal(self):
+        bad = {"type": "episode", "watched_at": "2024-01-05T20:30:00.000Z", "episode": {"season_number": 1}}
+        self.assertEqual(wetrakr.upsert_history_items(self.profile, [bad, self._movie()]), 1)
+
+
+class WetrakrRequestHeadersTests(TestCase):
+    """The API answers 401 MISSING_API_KEY unless the app key travels on
+    every request, and wants the API version header next to it."""
+
+    def _ok(self, body=None):
+        resp = Mock()
+        resp.status_code = 200
+        resp.json.return_value = body if body is not None else {}
+        resp.headers = {"X-Pagination-Page-Count": "1"}
+        resp.raise_for_status = Mock()
+        return resp
+
+    def test_headers_carry_the_key_version_and_a_user_agent(self):
+        headers = wetrakr._headers("tok", "my-client-id")
+        self.assertEqual(headers["wetrakr-api-key"], "my-client-id")
+        self.assertEqual(headers["wetrakr-api-version"], "1")
+        self.assertEqual(headers["Authorization"], "Bearer tok")
+        self.assertTrue(headers["User-Agent"].startswith("Spool/"))
+        self.assertEqual(headers["Content-Type"], "application/json")
+
+    def test_no_bearer_header_without_a_token(self):
+        self.assertNotIn("Authorization", wetrakr._headers(None, "my-client-id"))
+
+    @patch("tracker.integrations.wetrakr.requests.request")
+    def test_every_api_call_sends_them(self, mock_request):
+        mock_request.return_value = self._ok([])
+        wetrakr.fetch_history_page("tok", "my-client-id")
+        wetrakr.get_plan_usage("tok", "my-client-id")
+        for call in mock_request.call_args_list:
+            self.assertEqual(call.kwargs["headers"]["wetrakr-api-key"], "my-client-id")
+            self.assertEqual(call.kwargs["headers"]["wetrakr-api-version"], "1")
+            self.assertEqual(call.kwargs["headers"]["Authorization"], "Bearer tok")
+
+    @patch("tracker.integrations.wetrakr.requests.get")
+    def test_the_connection_test_sends_the_key(self, mock_get):
+        mock_get.return_value = self._ok()
+        wetrakr.test_credentials("my-client-id")
+        self.assertEqual(mock_get.call_args.kwargs["headers"]["wetrakr-api-key"], "my-client-id")
+        self.assertNotIn("Authorization", mock_get.call_args.kwargs["headers"])
+
+    @patch("tracker.integrations.wetrakr.requests.post")
+    def test_the_code_exchange_sends_the_key_the_version_and_the_verifier(self, mock_post):
+        mock_post.return_value = self._ok({"access_token": "a"})
+        wetrakr.exchange_code("the-code", "https://x/cb", "my-client-id", "the-secret", "the-verifier")
+        self.assertEqual(mock_post.call_args.kwargs["headers"]["wetrakr-api-version"], "1")
+        self.assertEqual(mock_post.call_args.kwargs["headers"]["wetrakr-api-key"], "my-client-id")
+        body = mock_post.call_args.kwargs["json"]
+        self.assertEqual(body["code_verifier"], "the-verifier")
+        self.assertEqual(body["code"], "the-code")
+
+    @patch("tracker.integrations.wetrakr.requests.post")
+    def test_the_refresh_grant_sends_only_the_refresh_token(self, mock_post):
+        mock_post.return_value = self._ok({"access_token": "a", "refresh_token": "r2"})
+        data = wetrakr.refresh_access_token("old-refresh", "my-client-id", "the-secret", "https://x/cb")
+        self.assertEqual(mock_post.call_args.kwargs["json"], {"refresh_token": "old-refresh"})
+        self.assertEqual(mock_post.call_args.kwargs["headers"]["wetrakr-api-version"], "1")
+        self.assertEqual(data["refresh_token"], "r2")
+
+
+class WetrakrHistoryRequestParamsTests(TestCase):
+    def _ok(self):
+        resp = Mock()
+        resp.status_code = 200
+        resp.json.return_value = []
+        resp.headers = {"X-Pagination-Page-Count": "1"}
+        resp.raise_for_status = Mock()
+        return resp
+
+    @patch("tracker.integrations.wetrakr.requests.request")
+    def test_an_incremental_sync_asks_with_from_date_not_start_at(self, mock_request):
+        from datetime import datetime, timezone as tz
+
+        mock_request.return_value = self._ok()
+        wetrakr.fetch_history_page("tok", "cid", start_at=datetime(2026, 10, 1, 4, 30, 15, tzinfo=tz.utc))
+        params = mock_request.call_args.kwargs["params"]
+        self.assertEqual(params["from_date"], "2026-10-01T04:30:15.000Z")
+        self.assertNotIn("start_at", params)
+
+    @patch("tracker.integrations.wetrakr.requests.request")
+    def test_a_full_pull_sends_no_date(self, mock_request):
+        mock_request.return_value = self._ok()
+        wetrakr.fetch_history_page("tok", "cid")
+        self.assertNotIn("from_date", mock_request.call_args.kwargs["params"])
+
+    @patch("tracker.integrations.wetrakr.requests.request")
+    def test_the_page_size_never_exceeds_the_documented_maximum(self, mock_request):
+        mock_request.return_value = self._ok()
+        wetrakr.fetch_history_page("tok", "cid", limit=500)
+        self.assertEqual(mock_request.call_args.kwargs["params"]["limit"], 100)
+        wetrakr.fetch_history_page("tok", "cid")
+        self.assertEqual(mock_request.call_args.kwargs["params"]["limit"], 100)
+
+    def test_the_develop_key_quota_default_is_not_the_old_guess(self):
+        self.assertLessEqual(django_settings.WETRAKR_APP_QUOTA_PAUSE_AT, 2000)
 
 
 class WetrakrRequestErrorHandlingTests(TestCase):

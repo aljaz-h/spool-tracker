@@ -377,10 +377,13 @@ MDBLIST_QUOTA_PAUSE_AT = env.int("MDBLIST_QUOTA_PAUSE_AT", default=950)
 # accounts are never proactively paused against this - WeTrakr doesn't
 # publish their real ceiling, so only reactive 429 handling applies to
 # them (see tracker/tasks.py's _wetrakr_account_budget_ok). The app-wide
-# ceiling (18,600/day, shared across every connected account on this
-# instance) gets its own, separate margin.
+# ceiling is per app key and shared by every connected account on this
+# instance: a develop key is small (1,000-2,000/day, whichever the app's
+# settings page on WeTrakr shows), a production key gets 300 per connected
+# user (minimum 2,000) - raise WETRAKR_APP_QUOTA_PAUSE_AT to match once you
+# have one. The default keeps a develop key safe.
 WETRAKR_FREE_QUOTA_PAUSE_AT = env.int("WETRAKR_FREE_QUOTA_PAUSE_AT", default=900)
-WETRAKR_APP_QUOTA_PAUSE_AT = env.int("WETRAKR_APP_QUOTA_PAUSE_AT", default=16000)
+WETRAKR_APP_QUOTA_PAUSE_AT = env.int("WETRAKR_APP_QUOTA_PAUSE_AT", default=900)
 
 
 # Transport security - all opt-in via env var, defaulting to Django's own

@@ -1,43 +1,45 @@
 """WeTrakr OAuth2 (PKCE) + history sync.
 
-Implemented against WeTrakr's own public API docs (api.wetrakr.com) - a
-brand-new, Trakt-shaped REST API (OAuth2 + PKCE, catalog/scrobble/sync
-endpoints under the same naming conventions Trakt uses). This environment
-has no real WeTrakr developer app credentials to exercise it against, so
-every network-calling function here is unverified against the live API -
-same caveat trakt.py's own module docstring carries, for the same reason.
-upsert_history_items()/normalize_history_item() are pure data-shuffling
-with no network dependency and *are* verified, via unit tests against a
-fixture modeled on WeTrakr's documented response shape.
+Written against WeTrakr's public API documentation (https://api.wetrakr.com):
+a Trakt-shaped REST API - OAuth2 + PKCE, with its own conventions that this
+module follows exactly:
 
-Two things WeTrakr does differently from Trakt, both load-bearing here:
+- Every request carries the app's client_id in a `wetrakr-api-key` header
+  and `wetrakr-api-version: 1`; a request that acts on a user also carries
+  that user's `Authorization: Bearer` token. Without the key header the API
+  answers 401 MISSING_API_KEY (_headers adds them all, in one place). A
+  descriptive User-Agent is sent too - their edge blocks anonymous HTTP
+  library defaults.
+- Watched history comes one row per play from
+  GET /sync/tracking/watched/history/{movies|episodes}, newest first, at
+  most 100 per page, paged with page/limit and X-Pagination-* headers.
+  `from_date` limits it to plays added or moved since a date (incremental
+  sync). A play carries its own `id` and `watched_at`, and either a compact
+  `movie`, or an `episode` (season_number, number) with its `show` nested
+  inside - the WeTrakr id is each media object's top-level `id`, and `ids`
+  holds only EXTERNAL ids (tmdb, imdb, tvdb, ...). There is no `year`
+  field: it is derived from release_date / first_air_date when present, and
+  otherwise resolved from TMDB by the title matcher.
+- Token exchange needs PKCE (generate_pkce_pair/authorize_url/
+  exchange_code); the refresh grant takes only the refresh token and
+  rotates it (refresh_access_token's signature still matches trakt.py's, so
+  tasks._call_with_refresh works against this module unchanged). Access
+  tokens last 7 days, refresh tokens 180.
+- Limits (see docs/IMPORTING.md): a daily request quota per connected user
+  (free plan 1,000/day, resets at UTC midnight) plus a daily quota for the
+  whole app key (a develop key is small - 1,000-2,000/day across every
+  connected account). There are no X-RateLimit-* headers; the only signal is
+  a 429 whose JSON body carries one of QUOTA_EXCEEDED / APP_QUOTA_EXCEEDED /
+  APP_USER_QUOTA_EXCEEDED (a day-scale ceiling - NOT retried here, raised as
+  WeTrakrQuotaError so the caller can pause and resume later) or
+  CONCURRENCY_LIMIT (retried once with Retry-After). See tracker/tasks.py's
+  quota bookkeeping (_wetrakr_account_budget_ok etc.) and _scan_wetrakr_session.
 
-1. PKCE: the authorization-code exchange needs a code_verifier/
-   code_challenge pair (generate_pkce_pair/authorize_url/exchange_code),
-   not just client_id/client_secret. The refresh grant doesn't need PKCE
-   - refresh_access_token's signature matches trakt.py's exactly, so
-   tasks._call_with_refresh works against this module unchanged.
-
-2. A daily API request quota per connected user (free plan: 1000/day,
-   reset at UTC midnight) plus an app-wide quota shared across every
-   account connected to this Spool instance (18,600/day). There are no
-   X-RateLimit-* response headers on this API at all - the only signal is
-   a 429 with a JSON body carrying one of four error codes:
-   CONCURRENCY_LIMIT (a short per-minute window - retried once here,
-   transparently, same as tenrai.py's _throttle/_get pattern) or
-   QUOTA_EXCEEDED / APP_QUOTA_EXCEEDED / APP_USER_QUOTA_EXCEEDED (a
-   day-scale ceiling - NOT retried here; raised as WeTrakrQuotaError so
-   the caller can pause and resume later, since "sleep and retry" makes
-   no sense for something that only resets at midnight). See
-   tracker/tasks.py's quota bookkeeping (_wetrakr_account_budget_ok etc.)
-   and _scan_wetrakr_session for how a WeTrakrQuotaError actually pauses
-   a sync/scan.
-
-Before relying on this in production: confirm the exact field names in a
-real response with valid credentials, confirm the pagination cursor shape
-documented below against a live account, and confirm whether CONCURRENCY_LIMIT's
-429 actually carries a usable Retry-After header (assumed here, matching
-what WeTrakr's own docs say, not independently observed).
+Checked against the documentation, not yet against a live account: the
+network-calling functions here follow the documented contract, and the
+pure parsing (upsert_history_items/normalize_history_item) is covered by
+unit tests built from the documented response shape. The one thing worth
+confirming on first use with real credentials is an actual history page.
 """
 
 import base64
@@ -49,12 +51,18 @@ from urllib.parse import urlencode
 
 import requests
 
+from tracker import version
+
 logger = logging.getLogger(__name__)
 
 AUTHORIZE_URL = "https://wetrakr.com/oauth/authorize"
 TOKEN_URL = "https://api.wetrakr.com/oauth/token"
 TOKEN_REFRESH_URL = "https://api.wetrakr.com/oauth/token/refresh"
 API_BASE = "https://api.wetrakr.com"
+API_VERSION = "1"
+# Plays per page: the documented maximum for the regular (non-compact) history.
+HISTORY_PAGE_SIZE = 100
+USER_AGENT = f"Spool/{version.APP_VERSION} (+https://github.com/aljaz-h/spool-tracker)"
 
 # Resumable fetch_history_page walks these two target resources in order -
 # see that function's own docstring for why a single cursor string encodes
@@ -97,6 +105,7 @@ def exchange_code(code, redirect_uri, client_id, client_secret, code_verifier):
             "code_verifier": code_verifier,
             "grant_type": "authorization_code",
         },
+        headers=_headers(None, client_id),
         timeout=10,
     )
     resp.raise_for_status()
@@ -104,20 +113,18 @@ def exchange_code(code, redirect_uri, client_id, client_secret, code_verifier):
 
 
 def refresh_access_token(refresh_token, client_id, client_secret, redirect_uri):
-    """WeTrakr's refresh grant - signature matches trakt.refresh_access_token
-    exactly (no PKCE verifier needed here) so tasks._call_with_refresh works
-    against this module with zero changes. redirect_uri is accepted for
-    signature compatibility but WeTrakr's refresh grant may not actually
-    require it the way Trakt's does - harmless to send either way."""
+    """WeTrakr's refresh grant - takes only the refresh token (the app is
+    identified by the key header) and returns a new access token plus a
+    ROTATED refresh token (`refresh_token`, also sent as `new_refresh_token`);
+    the old one stops working after a short grace window, so the caller
+    must store the new one - tasks._refresh_account_token does. The
+    signature matches trakt.refresh_access_token so
+    tasks._call_with_refresh works against this module with zero changes;
+    client_secret/redirect_uri are accepted for that and not sent."""
     resp = requests.post(
         TOKEN_REFRESH_URL,
-        json={
-            "refresh_token": refresh_token,
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "redirect_uri": redirect_uri,
-            "grant_type": "refresh_token",
-        },
+        json={"refresh_token": refresh_token},
+        headers=_headers(None, client_id),
         timeout=10,
     )
     resp.raise_for_status()
@@ -125,18 +132,28 @@ def refresh_access_token(refresh_token, client_id, client_secret, redirect_uri):
 
 
 def _headers(access_token, client_id):
-    return {
+    """Every WeTrakr request: the app key and API version on all of them, the
+    user's bearer token when it acts on a user (None for the public/token
+    endpoints), and a User-Agent that names this app."""
+    headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {access_token}",
+        "wetrakr-api-key": client_id or "",
+        "wetrakr-api-version": API_VERSION,
+        "User-Agent": USER_AGENT,
     }
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
+    return headers
 
 
 def test_credentials(client_id):
-    """Settings' "Test connection" button. WeTrakr's /search/trending is
-    assumed public (no user auth) the same way Trakt's /movies/trending
-    is - unverified. Raises requests.RequestException on failure, same
-    contract as trakt.test_credentials."""
-    resp = requests.get(f"{API_BASE}/search/trending", params={"limit": 1}, timeout=10)
+    """Settings' "Test connection" button. /search/trending is a public
+    read, so the app key alone is enough (and a wrong key answers 401/403).
+    Raises requests.RequestException on failure, same contract as
+    trakt.test_credentials."""
+    resp = requests.get(
+        f"{API_BASE}/search/trending", params={"limit": 1}, headers=_headers(None, client_id), timeout=10
+    )
     resp.raise_for_status()
 
 
@@ -231,7 +248,9 @@ def _parse_watched_at(item):
     return parse_datetime(item.get("watched_at") or "")
 
 
-def fetch_history_page(access_token, client_id, cursor=None, limit=200, start_at=None, on_request=None):
+def fetch_history_page(
+    access_token, client_id, cursor=None, limit=HISTORY_PAGE_SIZE, start_at=None, on_request=None
+):
     """One page of watched history, from either of WeTrakr's two
     target-scoped endpoints (GET /sync/tracking/watched/history/movies
     and .../episodes - WeTrakr splits what Trakt's /sync/history returns
@@ -250,9 +269,11 @@ def fetch_history_page(access_token, client_id, cursor=None, limit=200, start_at
     module's own top-of-file docstring point 2 for why that shape can't
     be paused/resumed.
 
-    start_at: a datetime - when given, only history after that point is
-    requested (incremental sync, used by routine daily sync). None means
-    a full history pull.
+    start_at: a datetime - when given, only plays added or moved since that
+    point are requested (sent as `from_date`; incremental sync, used by
+    routine daily sync). None means a full history pull. A play that was
+    deleted does not appear in a from_date read - the account's
+    last_tracking_removed_at (GET /sync/last_activities) moves instead.
 
     on_request: see _request's own docstring - both tasks._scan_wetrakr_session
     and tasks.sync_wetrakr_history call this page-at-a-time (routine sync
@@ -260,24 +281,19 @@ def fetch_history_page(access_token, client_id, cursor=None, limit=200, start_at
     incremental delta) so every real request either one makes, including
     this function's own retry, is counted the same way.
 
-    Follows the same X-Pagination-Page-Count response-header pagination
-    convention Trakt documents (unverified against a live WeTrakr
-    account) - if WeTrakr's actual pagination shape differs, a sync
-    should fail loudly via SyncLog rather than silently under/over-
-    fetching, same expectation trakt.py's own fetch_history docstring
-    sets."""
+    Paged with the documented X-Pagination-Page-Count response header
+    (the maximum page size is 100; a larger limit is capped, not rejected)."""
     if cursor is None:
         target, page = _HISTORY_TARGETS[0], 1
     else:
         target, _, page_str = cursor.partition(":")
         page = int(page_str)
 
-    params = {"limit": limit}
+    params = {"limit": min(int(limit), HISTORY_PAGE_SIZE), "page": page}
     if start_at is not None:
         from .trakt import _format_trakt_datetime
 
-        params["start_at"] = _format_trakt_datetime(start_at)
-    params["page"] = page
+        params["from_date"] = _format_trakt_datetime(start_at)
 
     resp = _request(
         "GET", f"/sync/tracking/watched/history/{target}", access_token, client_id,
@@ -298,7 +314,7 @@ def fetch_history_page(access_token, client_id, cursor=None, limit=200, start_at
     return items, None
 
 
-def _get_or_create_title(media_type, name, year, wetrakr_id, tmdb_id=None):
+def _get_or_create_title(media_type, name, year, wetrakr_id, tmdb_id=None, imdb_id=None):
     """Thin wrapper over tracker.title_matching.apply_title_match - same
     shared matching every other provider (and the Import Review pipeline's
     commit step) uses, so a title WeTrakr reports never forks a duplicate
@@ -306,7 +322,48 @@ def _get_or_create_title(media_type, name, year, wetrakr_id, tmdb_id=None):
     _get_or_create_title for the full rationale."""
     from tracker.title_matching import apply_title_match
 
-    return apply_title_match(media_type, "wetrakr", wetrakr_id, name=name, year=year, tmdb_id=tmdb_id)
+    return apply_title_match(
+        media_type, "wetrakr", wetrakr_id, name=name, year=year, tmdb_id=tmdb_id, imdb_id=imdb_id
+    )
+
+
+def _year_of(date_string):
+    """The year of an ISO date string ("2023-11-02T12:00:00.000Z"), or None."""
+    head = (date_string or "")[:4]
+    return int(head) if head.isdigit() else None
+
+
+def _extract_play(item):
+    """One fetch_history_page item -> (play, error). play is a dict of what
+    both the live sync (upsert_history_items) and the Import Review scan
+    (normalize_history_item) need - they share this so they always agree on
+    which raw items are valid:
+    {media_type, wetrakr_id, name, year, season, episode, episode_name, ids}.
+    A movie play carries a compact `movie`; an episode play an `episode`
+    with its `show` nested in it (see the module docstring)."""
+    from tracker.models import MediaType
+
+    if item.get("type") == "movie":
+        movie = item.get("movie") or {}
+        if movie.get("id") is None:
+            return None, "missing WeTrakr movie id"
+        return {
+            "media_type": MediaType.MOVIE, "wetrakr_id": movie["id"], "name": movie.get("title") or "Untitled",
+            "year": _year_of(movie.get("release_date")), "season": None, "episode": None, "episode_name": "",
+            "ids": movie.get("ids") or {},
+        }, None
+    if item.get("type") == "episode":
+        episode = item.get("episode") or {}
+        show = episode.get("show") or {}
+        season, number = episode.get("season_number"), episode.get("number")
+        if show.get("id") is None or season is None or number is None:
+            return None, "missing show id or episode season/number"
+        return {
+            "media_type": MediaType.TV, "wetrakr_id": show["id"], "name": show.get("title") or "Untitled",
+            "year": _year_of(show.get("first_air_date")), "season": season, "episode": number,
+            "episode_name": episode.get("title") or "", "ids": show.get("ids") or {},
+        }, None
+    return None, f"unrecognized item type {item.get('type')!r}"
 
 
 def upsert_history_items(profile, items, labels_out=None):
@@ -321,7 +378,7 @@ def upsert_history_items(profile, items, labels_out=None):
     from django.utils.dateparse import parse_datetime
 
     from tracker import completion, recommendations, rewatches
-    from tracker.models import Episode, MediaType, Title, WatchEvent
+    from tracker.models import Episode, Title, WatchEvent
 
     created = 0
     touched_movies = set()
@@ -331,32 +388,21 @@ def upsert_history_items(profile, items, labels_out=None):
         watched_at = parse_datetime(item.get("watched_at", ""))
         if watched_at is None:
             continue
-
-        if item.get("type") == "movie":
-            m = item.get("movie") or {}
-            ids = m.get("ids") or {}
-            if "wetrakr" not in ids:
-                continue
-            title = _get_or_create_title(
-                MediaType.MOVIE, m.get("title", "Untitled"), m.get("year"), ids["wetrakr"], ids.get("tmdb")
-            )
+        play, _error = _extract_play(item)
+        if play is None:
+            continue
+        ids = play["ids"]
+        title = _get_or_create_title(
+            play["media_type"], play["name"], play["year"], play["wetrakr_id"], ids.get("tmdb"), ids.get("imdb")
+        )
+        if play["episode"] is None:
             episode = None
             touched_movies.add(title.id)
-        elif item.get("type") == "episode":
-            s = item.get("show") or {}
-            e = item.get("episode") or {}
-            ids = s.get("ids") or {}
-            if "wetrakr" not in ids or "season" not in e or "number" not in e:
-                continue
-            title = _get_or_create_title(
-                MediaType.TV, s.get("title", "Untitled"), s.get("year"), ids["wetrakr"], ids.get("tmdb")
-            )
+        else:
             episode, _ = Episode.objects.get_or_create(
-                title=title, season=e["season"], episode=e["number"], defaults={"name": e.get("title") or ""}
+                title=title, season=play["season"], episode=play["episode"], defaults={"name": play["episode_name"]}
             )
             touched_shows.add(title.id)
-        else:
-            continue
 
         existing = WatchEvent.objects.filter(
             profile=profile, title=title, episode=episode, watched_at=watched_at
@@ -394,42 +440,25 @@ def upsert_history_items(profile, items, labels_out=None):
 def normalize_history_item(item, index):
     """Converts one fetch_history_page item into the common Import
     Review candidate shape (see tracker/import_pipeline.py's own module
-    docstring) - mirrors upsert_history_items' own field extraction/
-    validation exactly, same invariant trakt.normalize_history_item
+    docstring) - extracts fields through the same _extract_play as
+    upsert_history_items, same invariant trakt.normalize_history_item
     documents, for the same reason (scan and routine sync must always
     agree on which raw items are valid)."""
-    from tracker.models import MediaType
-
     source_row = item.get("id") or index
     watched_at = _parse_watched_at(item)
     if watched_at is None:
         return _history_item_error(source_row, "unparseable watched_at")
-
-    if item.get("type") == "movie":
-        m = item.get("movie") or {}
-        ids = m.get("ids") or {}
-        if "wetrakr" not in ids:
-            return _history_item_error(source_row, "missing WeTrakr id")
-        return _history_item(
-            source_row, MediaType.MOVIE, m.get("title") or "Untitled", m.get("year"), None, None, watched_at, ids
-        )
-
-    if item.get("type") == "episode":
-        s = item.get("show") or {}
-        e = item.get("episode") or {}
-        ids = s.get("ids") or {}
-        if "wetrakr" not in ids or "season" not in e or "number" not in e:
-            return _history_item_error(source_row, "missing show id or episode season/number")
-        return _history_item(
-            source_row, MediaType.TV, s.get("title") or "Untitled", s.get("year"),
-            e.get("season"), e.get("number"), watched_at, ids,
-        )
-
-    return _history_item_error(source_row, f"unrecognized item type {item.get('type')!r}")
+    play, error = _extract_play(item)
+    if play is None:
+        return _history_item_error(source_row, error)
+    return _history_item(
+        source_row, play["media_type"], play["name"], play["year"], play["season"], play["episode"],
+        watched_at, play["wetrakr_id"], play["ids"],
+    )
 
 
-def _history_item(source_row, media_type, title_name, year, season, episode, watched_at, ids):
-    source_external_ids = {"wetrakr": str(ids["wetrakr"])}
+def _history_item(source_row, media_type, title_name, year, season, episode, watched_at, wetrakr_id, ids):
+    source_external_ids = {"wetrakr": str(wetrakr_id)}
     if ids.get("tmdb"):
         source_external_ids["tmdb"] = str(ids["tmdb"])
     return {
