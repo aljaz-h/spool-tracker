@@ -13,7 +13,7 @@ migration/env step or breaking an existing workflow.
 ### Added
 
 - The title logo (Fanart.tv) now appears by itself the first time you open a movie, show or anime, instead of needing a page refresh - the heading polls for it like the rating pills do, and gives up after about 30 seconds.
-- On desktop, a plain "Name · Movie/TV/Anime · Year" line sits under the poster, above the action tiles.
+- On desktop, a plain "Name · Movie/TV/Anime · Year" line sits under the poster, above the action tiles, and replaces the small kind/year line above the heading (phones keep that one).
 
 ### Changed
 
