@@ -1,0 +1,30 @@
+{% extends "tracker/base.html" %}
+{% block title %}Connect {{ provider_name }} · Spool{% endblock %}
+{% block content %}
+  {# context: provider, provider_name, choices ([(value, label, help)]), current. Asked right after a service is connected, before anything is read or sent. #}
+  <div class="max-w-xl mx-auto py-6">
+    <div class="sch-eyebrow">{{ provider_name }} connected</div>
+    <h1 class="text-2xl font-semibold mt-1">What should Spool do with it?</h1>
+    <p class="text-[14px] text-ink-dim mt-2 leading-relaxed">
+      Nothing has been read from {{ provider_name }} yet and nothing has been changed in your Spool history. You decide here, and you can change it any time on the service's card in Settings.
+    </p>
+    <form method="post" action="{% url 'sync_direction_setup' provider %}" class="mt-6 flex flex-col gap-2.5">
+      {% csrf_token %}
+      {% for value, label, help in choices %}
+        <label class="dir-choice cursor-pointer">
+          <input type="radio" name="sync_direction" value="{{ value }}" class="hidden peer" {% if forloop.first %}checked{% endif %}>
+          <span class="dir-choice-face">
+            <span class="font-semibold text-[14px]">{{ label }}</span>
+            <span class="text-[12.5px] text-ink-dim leading-snug">{{ help }}</span>
+            {% if value == "pull" %}<span class="text-[12px] text-ink-faint leading-snug">You pick what to bring in on a review page first; nothing is added until you confirm.</span>{% endif %}
+          </span>
+        </label>
+      {% endfor %}
+      {% if not can_push %}<p class="text-[12px] text-ink-faint mt-1">Sending data from Spool to {{ provider_name }} is not available yet.</p>{% endif %}
+      <div class="flex items-center gap-3 mt-3">
+        <button type="submit" class="btn btn-primary btn-sm">Continue</button>
+        <a href="{% url 'settings' %}?tab=connected_apps" class="text-[13px] text-ink-dim hover:text-base-content">Decide later</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

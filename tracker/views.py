@@ -61,6 +61,7 @@ from . import (
     scheduling,
     selectors,
     show_progress,
+    sync_direction,
     tasks,
     totp,
     tvtime_import,
@@ -5927,6 +5928,32 @@ SYNC_TASKS = {
 IMPORT_REVIEW_PROVIDERS = {"trakt", "simkl", "nuvio", "wetrakr", "tmdb", "mal"}
 
 
+def _begin_direction_choice(request, connection, provider):
+    """A brand new connection does nothing until the person has said what
+    it may do: it starts "not syncing" (so nothing can read or change
+    their history before they choose) and goes straight to the choice."""
+    connection.sync_direction = sync_direction.OFF
+    connection.save(update_fields=["sync_direction"])
+    scheduling.ensure_periodic_task(connection)
+    messages.success(request, f"Connected to {_provider_name(provider)} - choose what Spool should do with it.")
+    return redirect("sync_direction_setup", provider=provider)
+
+
+def _provider_name(provider):
+    return {"mal": "MyAnimeList", "nuvio": "Nuvio", "wetrakr": "WeTrakr"}.get(provider, provider.title())
+
+
+def _start_import_review(profile, provider):
+    """The scan that precedes a reviewed import: nothing is written until
+    the person confirms it on the Import Review page."""
+    session = ImportSession.objects.create(
+        profile=profile, source=provider, status=ImportSession.Status.SCANNING,
+        expires_at=timezone.now() + IMPORT_SESSION_EXPIRY,
+    )
+    _dispatch_sync_task_safely(tasks.scan_import_session, [session.id])
+    return session
+
+
 @login_required
 def oauth_connect(request, provider):
     profile = Profile.objects.filter(user=request.user).first()
@@ -6049,17 +6076,14 @@ def _finish_tmdb_connect(request, profile):
         detail="connected",
     )
 
-    if created and "tmdb" in IMPORT_REVIEW_PROVIDERS:
-        session = ImportSession.objects.create(
-            profile=profile, source="tmdb", status=ImportSession.Status.SCANNING,
-            expires_at=timezone.now() + IMPORT_SESSION_EXPIRY,
-        )
-        _dispatch_sync_task_safely(tasks.scan_import_session, [session.id])
-        messages.success(request, "Connected to TMDB — review what to import.")
-        return redirect("import_review", session_id=session.id)
+    if created:
+        return _begin_direction_choice(request, account, "tmdb")
 
-    _dispatch_sync_task_safely(SYNC_TASKS["tmdb"], [profile.id])
-    messages.success(request, "Connected to TMDB — syncing your lists now.")
+    if sync_direction.allows_pull(account):
+        _dispatch_sync_task_safely(SYNC_TASKS["tmdb"], [profile.id])
+        messages.success(request, "Reconnected to TMDB — syncing your lists now.")
+    else:
+        messages.success(request, f"Reconnected to TMDB. It is set to \"{account.get_sync_direction_display()}\".")
     return redirect("settings")
 
 
@@ -6131,14 +6155,8 @@ def oauth_callback(request, provider):
         profile=profile, action=connect_action, provider=provider, status=DataLog.Status.SUCCESS, detail="connected"
     )
 
-    if created and provider in IMPORT_REVIEW_PROVIDERS:
-        session = ImportSession.objects.create(
-            profile=profile, source=provider, status=ImportSession.Status.SCANNING,
-            expires_at=timezone.now() + IMPORT_SESSION_EXPIRY,
-        )
-        _dispatch_sync_task_safely(tasks.scan_import_session, [session.id])
-        messages.success(request, f"Connected to {provider.title()} — review what to import.")
-        return redirect("import_review", session_id=session.id)
+    if created:
+        return _begin_direction_choice(request, account, provider)
 
     # The connection itself (the ExternalAccount row above) must succeed
     # independently of the broker being reachable right now. Confirmed by
@@ -6148,8 +6166,11 @@ def oauth_callback(request, provider):
     # so config alone doesn't bound this — a hard thread-join timeout
     # does. Worst case, a broker hiccup costs nothing worse than "today's
     # sync happens on the next daily beat run instead of immediately."
-    _dispatch_sync_task_safely(SYNC_TASKS[provider], [profile.id])
-    messages.success(request, f"Connected to {provider.title()} — syncing your history now.")
+    if sync_direction.allows_pull(account):
+        _dispatch_sync_task_safely(SYNC_TASKS[provider], [profile.id])
+        messages.success(request, f"Reconnected to {provider.title()} — syncing your history now.")
+    else:
+        messages.success(request, f"Reconnected to {provider.title()}. It is set to \"{account.get_sync_direction_display()}\".")
     return redirect("settings")
 
 
@@ -6186,17 +6207,14 @@ def _finish_nuvio_connect(request, profile, email, refresh_token, nuvio_profile)
         detail="connected",
     )
 
-    if created and "nuvio" in IMPORT_REVIEW_PROVIDERS:
-        session = ImportSession.objects.create(
-            profile=profile, source="nuvio", status=ImportSession.Status.SCANNING,
-            expires_at=timezone.now() + IMPORT_SESSION_EXPIRY,
-        )
-        _dispatch_sync_task_safely(tasks.scan_import_session, [session.id])
-        messages.success(request, "Connected to Nuvio — review what to import.")
-        return redirect("import_review", session_id=session.id)
+    if created:
+        return _begin_direction_choice(request, connection, "nuvio")
 
-    _dispatch_sync_task_safely(SYNC_TASKS["nuvio"], [profile.id])
-    messages.success(request, "Connected to Nuvio — syncing your history now.")
+    if sync_direction.allows_pull(connection):
+        _dispatch_sync_task_safely(SYNC_TASKS["nuvio"], [profile.id])
+        messages.success(request, "Reconnected to Nuvio — syncing your history now.")
+    else:
+        messages.success(request, f"Reconnected to Nuvio. It is set to \"{connection.get_sync_direction_display()}\".")
     return redirect("settings")
 
 
@@ -6428,6 +6446,73 @@ def save_sync_schedule(request, provider):
 
 
 @login_required
+def sync_direction_setup(request, provider):
+    """The first thing a new connection asks: what may it do? Importing
+    goes through Import Review (nothing is written until it is confirmed);
+    "connected, not syncing" leaves Spool untouched. Reachable only for a
+    service that is connected."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    connection = _get_provider_account(profile, provider)
+    if request.method == "POST":
+        chosen = request.POST.get("sync_direction", "")
+        if not sync_direction.is_valid_for(provider, chosen):
+            messages.error(request, "Choose one of the options.")
+            return redirect("sync_direction_setup", provider=provider)
+        connection.sync_direction = chosen
+        connection.save(update_fields=["sync_direction"])
+        scheduling.ensure_periodic_task(connection)
+        if sync_direction.allows_pull(connection) and provider in IMPORT_REVIEW_PROVIDERS:
+            session = _start_import_review(profile, provider)
+            messages.success(request, f"Connected to {_provider_name(provider)} - review what to import.")
+            return redirect("import_review", session_id=session.id)
+        messages.success(request, f"{_provider_name(provider)} is connected and set to \"{connection.get_sync_direction_display()}\".")
+        return redirect("settings")
+    return render(
+        request,
+        "tracker/sync_direction_setup.html",
+        {
+            "provider": provider,
+            "provider_name": _provider_name(provider),
+            "choices": sync_direction.choices_for(provider),
+            "current": connection.sync_direction,
+            "can_push": sync_direction.supports_push(provider),
+        },
+    )
+
+
+@login_required
+@require_POST
+def save_sync_direction(request, provider):
+    """The direction control on a connected service's card. Switching to
+    anything that does not read from the service stops its scheduled sync
+    and abandons a review that has not been imported yet."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    connection = _get_provider_account(profile, provider)
+    chosen = request.POST.get("sync_direction", "")
+    if not sync_direction.is_valid_for(provider, chosen):
+        messages.error(request, "Choose one of the options.")
+        return redirect("settings")
+    connection.sync_direction = chosen
+    connection.save(update_fields=["sync_direction"])
+    scheduling.ensure_periodic_task(connection)
+    if not sync_direction.allows_pull(connection):
+        for session in ImportSession.objects.filter(
+            profile=profile, source=provider,
+            status__in=(ImportSession.Status.SCANNING, ImportSession.Status.READY, ImportSession.Status.PAUSED),
+        ):
+            session.status = ImportSession.Status.CANCELLED
+            session.completed_at = timezone.now()
+            session.save(update_fields=["status", "completed_at"])
+            import_pipeline.discard_session(session)
+    messages.success(request, f"{_provider_name(provider)} is now set to \"{connection.get_sync_direction_display()}\".")
+    return redirect(f"{reverse('settings')}?tab=connected_apps")
+
+
+@login_required
 @require_POST
 def trigger_manual_sync(request, provider):
     """Settings & Import's "Sync now" button - dispatches the same Celery
@@ -6441,7 +6526,10 @@ def trigger_manual_sync(request, provider):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
-    _get_provider_account(profile, provider)
+    account = _get_provider_account(profile, provider)
+    if not sync_direction.allows_pull(account):
+        messages.error(request, f"Importing from {_provider_name(provider)} is turned off for this connection.")
+        return redirect("settings")
     _dispatch_sync_task_safely(SYNC_TASKS[provider], [profile.id])
     messages.success(request, f"{provider.title()} sync started - check back in a moment.")
     return redirect("settings")
@@ -6464,7 +6552,10 @@ def trigger_import_review(request, provider):
         raise Http404
     if provider not in IMPORT_REVIEW_PROVIDERS:
         raise Http404
-    _get_provider_account(profile, provider)
+    account = _get_provider_account(profile, provider)
+    if not sync_direction.allows_pull(account):
+        messages.error(request, f"Importing from {_provider_name(provider)} is turned off for this connection.")
+        return redirect("settings")
     # A real scan finishes in seconds for Trakt/Simkl/Nuvio, so a second
     # click landing before the first one's done was never a practical
     # concern for them - but a WeTrakr pull can sit PAUSED for up to a

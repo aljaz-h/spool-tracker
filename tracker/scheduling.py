@@ -40,7 +40,9 @@ def ensure_periodic_task(account):
             "crontab": schedule,
             "task": _TASK_NAME[account.provider],
             "args": f"[{account.profile_id}]",
-            "enabled": True,
+            # Only a connection that reads from the service has a daily
+            # sync to run (sync_direction).
+            "enabled": account.sync_direction in ("pull", "both"),
         },
     )
 

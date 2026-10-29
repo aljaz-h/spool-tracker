@@ -1,4 +1,5 @@
-{# context: provider (str), account (ExternalAccount) #}
+{# context: provider (str), account (ExternalAccount or NuvioConnection). The direction control comes first: a service that is not importing has no schedule or sync buttons to show. #}
+{% load tracker_extras %}
 <div class="mt-4 pt-4 border-t border-line">
   {% if provider == "wetrakr" %}
     <div class="flex items-center gap-2 mb-1.5 flex-wrap">
@@ -12,6 +13,19 @@
       {% endif %}
     </div>
   {% endif %}
+  {% direction_choices provider as direction_options %}
+  <form method="post" action="{% url 'save_sync_direction' provider %}" class="mb-2.5" x-data="{ changed: false }" @change="changed = true">
+    {% csrf_token %}
+    <div class="flex items-center gap-1.5 flex-wrap">
+      <span class="text-[12px] text-ink-dim">Sync</span>
+      <select name="sync_direction" class="select select-xs bg-base-300" aria-label="What {{ provider|title }} may do">
+        {% for value, label, help in direction_options %}<option value="{{ value }}" {% if account.sync_direction == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+      <button type="submit" class="btn btn-xs btn-soft" x-show="changed" x-cloak>Save</button>
+    </div>
+    {% for value, label, help in direction_options %}{% if account.sync_direction == value %}<p class="text-[12px] text-ink-faint mt-1 leading-snug">{{ help }}</p>{% endif %}{% endfor %}
+  </form>
+  {% if account|pulls %}
   <div class="flex items-center justify-between gap-2 mb-1.5">
     <div class="text-[13px] text-ink-dim">
       Last synced: {% if account.last_synced_at %}{{ account.last_synced_at|timesince }} ago{% else %}never{% endif %}
@@ -41,6 +55,9 @@
       </label>
     {% endif %}
   </form>
+  {% else %}
+    <div class="text-[13px] text-ink-dim mb-1.5">Last synced: {% if account.last_synced_at %}{{ account.last_synced_at|timesince }} ago{% else %}never{% endif %}</div>
+  {% endif %}
   <form method="post" action="{% url 'disconnect_provider' provider %}" onsubmit="return confirm('Disconnect {{ provider|title }}? Future syncs stop; history already imported stays.');" class="mt-1.5">
     {% csrf_token %}
     <button type="submit" class="text-[12px] text-ink-faint hover:text-error">Disconnect</button>

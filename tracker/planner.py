@@ -411,9 +411,9 @@ def sync_caught_up(profile, since, now):
     if now - since >= ROLL_AFTER:
         return True
     stamps = list(
-        ExternalAccount.objects.filter(profile=profile, provider__in=SYNC_PROVIDERS).values_list("last_synced_at", flat=True)
+        ExternalAccount.objects.filter(profile=profile, provider__in=SYNC_PROVIDERS, sync_direction__in=("pull", "both")).values_list("last_synced_at", flat=True)
     )
-    stamps += list(NuvioConnection.objects.filter(profile=profile, sync_enabled=True).values_list("last_synced_at", flat=True))
+    stamps += list(NuvioConnection.objects.filter(profile=profile, sync_direction__in=("pull", "both")).values_list("last_synced_at", flat=True))
     return all(stamp is not None and stamp >= since for stamp in stamps)
 
 

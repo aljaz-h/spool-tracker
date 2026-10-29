@@ -21,6 +21,7 @@ from . import (
     push,
     release_sync,
     selectors,
+    sync_direction,
     tvtime_import,
     update_check,
     version,
@@ -132,6 +133,10 @@ def sync_trakt_history(profile_id):
         logger.info("sync_trakt_history: profile %s has no Trakt account connected", profile_id)
         return 0
 
+    if not sync_direction.allows_pull(account):
+        logger.info("sync_trakt_history: profile %s has Trakt set to %s - not reading from it", profile_id, account.sync_direction)
+        return 0
+
     # Captured before the fetch, not after - so anything Trakt records
     # between now and this task finishing is still >= this value and gets
     # picked up by the *next* sync rather than falling in a gap.
@@ -168,6 +173,10 @@ def sync_simkl_history(profile_id):
         logger.info("sync_simkl_history: profile %s has no Simkl account connected", profile_id)
         return 0
 
+    if not sync_direction.allows_pull(account):
+        logger.info("sync_simkl_history: profile %s has Simkl set to %s - not reading from it", profile_id, account.sync_direction)
+        return 0
+
     client_id, client_secret = instance_config.get_simkl_credentials()
 
     def fetch_and_upsert():
@@ -193,9 +202,13 @@ def sync_nuvio_history(profile_id):
     this profile's own SyncLog row without affecting any other profile's
     already-independent task run."""
     try:
-        connection = NuvioConnection.objects.select_related("profile").get(profile_id=profile_id, sync_enabled=True)
+        connection = NuvioConnection.objects.select_related("profile").get(profile_id=profile_id)
     except NuvioConnection.DoesNotExist:
-        logger.info("sync_nuvio_history: profile %s has no active Nuvio connection", profile_id)
+        logger.info("sync_nuvio_history: profile %s has no Nuvio connection", profile_id)
+        return 0
+
+    if not sync_direction.allows_pull(connection):
+        logger.info("sync_nuvio_history: profile %s has Nuvio set to %s - not reading from it", profile_id, connection.sync_direction)
         return 0
 
     def fetch_and_upsert():
@@ -251,6 +264,10 @@ def sync_wetrakr_history(profile_id):
         logger.info("sync_wetrakr_history: profile %s has no WeTrakr account connected", profile_id)
         return 0
 
+    if not sync_direction.allows_pull(account):
+        logger.info("sync_wetrakr_history: profile %s has WeTrakr set to %s - not reading from it", profile_id, account.sync_direction)
+        return 0
+
     sync_start = timezone.now()
     client_id, client_secret = instance_config.get_wetrakr_credentials()
 
@@ -296,6 +313,10 @@ def sync_tmdb_lists(profile_id):
         logger.info("sync_tmdb_lists: profile %s has no TMDB account connected", profile_id)
         return 0
 
+    if not sync_direction.allows_pull(account):
+        logger.info("sync_tmdb_lists: profile %s has TMDB set to %s - not reading from it", profile_id, account.sync_direction)
+        return 0
+
     api_key = instance_config.get_tmdb_api_key()
 
     def fetch_and_upsert():
@@ -326,6 +347,10 @@ def sync_mal_history(profile_id):
         )
     except ExternalAccount.DoesNotExist:
         logger.info("sync_mal_history: profile %s has no MyAnimeList account connected", profile_id)
+        return 0
+
+    if not sync_direction.allows_pull(account):
+        logger.info("sync_mal_history: profile %s has MyAnimeList set to %s - not reading from it", profile_id, account.sync_direction)
         return 0
 
     client_id, client_secret = instance_config.get_mal_credentials()
@@ -745,6 +770,13 @@ def resume_paused_wetrakr_imports():
     )
     count = 0
     for session in paused:
+        account = ExternalAccount.objects.filter(
+            profile_id=session.profile_id, provider=ExternalAccount.Provider.WETRAKR
+        ).first()
+        # A connection switched to "not syncing" (or gone) has no business
+        # carrying on with a pull.
+        if account is None or not sync_direction.allows_pull(account):
+            continue
         scan_import_session.delay(session.id)
         count += 1
     logger.info("resume_paused_wetrakr_imports: resumed %d paused session(s)", count)

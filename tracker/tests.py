@@ -7505,7 +7505,7 @@ class SyncNuvioHistoryTaskTests(TestCase):
     @patch("tracker.integrations.nuvio.fetch_watched_items")
     @patch("tracker.integrations.nuvio.refresh_access_token")
     def test_disabled_connection_is_skipped(self, mock_refresh, mock_watched, mock_progress):
-        self.conn_a.sync_enabled = False
+        self.conn_a.sync_direction = "off"
         self.conn_a.save()
         self.assertEqual(tasks.sync_nuvio_history(self.profile_a.id), 0)
         mock_refresh.assert_not_called()
@@ -7700,10 +7700,9 @@ class OAuthConnectImportReviewTests(TestCase):
 
         resp = self.client.get(reverse("trakt_callback"), {"code": "authcode", "state": "abc123"})
 
-        import_session = ImportSession.objects.get(profile=self.profile, source=ImportSession.Source.TRAKT)
-        self.assertEqual(import_session.status, ImportSession.Status.SCANNING)
-        self.assertRedirects(resp, reverse("import_review", args=[import_session.id]))
-        mock_dispatch.assert_called_once_with(tasks.scan_import_session, [import_session.id])
+        self.assertRedirects(resp, reverse("sync_direction_setup", args=["trakt"]))
+        self.assertFalse(ImportSession.objects.filter(profile=self.profile, source="trakt").exists())  # nothing is scanned until they choose
+        mock_dispatch.assert_not_called()
         self.assertTrue(ExternalAccount.objects.filter(profile=self.profile, provider="trakt").exists())
 
     @patch("tracker.views._dispatch_sync_task_safely")
@@ -7731,10 +7730,9 @@ class OAuthConnectImportReviewTests(TestCase):
 
         resp = self.client.get(reverse("simkl_callback"), {"code": "authcode", "state": "abc123"})
 
-        import_session = ImportSession.objects.get(profile=self.profile, source=ImportSession.Source.SIMKL)
-        self.assertEqual(import_session.status, ImportSession.Status.SCANNING)
-        self.assertRedirects(resp, reverse("import_review", args=[import_session.id]))
-        mock_dispatch.assert_called_once_with(tasks.scan_import_session, [import_session.id])
+        self.assertRedirects(resp, reverse("sync_direction_setup", args=["simkl"]))
+        self.assertFalse(ImportSession.objects.filter(profile=self.profile, source="simkl").exists())  # nothing is scanned until they choose
+        mock_dispatch.assert_not_called()
 
     @patch("tracker.views._dispatch_sync_task_safely")
     @patch("tracker.integrations.simkl.exchange_code")
@@ -7803,9 +7801,8 @@ class WetrakrPkceOAuthFlowTests(TestCase):
 
         resp = self.client.get(reverse("wetrakr_callback"), {"code": "authcode", "state": "abc123"})
 
-        import_session = ImportSession.objects.get(profile=self.profile, source=ImportSession.Source.WETRAKR)
-        self.assertEqual(import_session.status, ImportSession.Status.SCANNING)
-        self.assertRedirects(resp, reverse("import_review", args=[import_session.id]))
+        self.assertRedirects(resp, reverse("sync_direction_setup", args=["wetrakr"]))
+        self.assertFalse(ImportSession.objects.filter(profile=self.profile, source="wetrakr").exists())  # nothing is scanned until they choose
 
     @patch("tracker.integrations.trakt.exchange_code")
     def test_trakt_connect_is_unaffected_by_the_wetrakr_branch(self, mock_exchange):
@@ -9734,9 +9731,9 @@ class NuvioConnectViewTests(TestCase):
         self.assertEqual(connection.email, "me@nuvio.tv")
         self.assertEqual(connection.nuvio_profile_id, 0)
         self.assertEqual(connection.get_refresh_token(), "rt")
-        import_session = ImportSession.objects.get(profile=self.profile, source=ImportSession.Source.NUVIO)
-        self.assertRedirects(resp, reverse("import_review", args=[import_session.id]))
-        mock_dispatch.assert_called_once_with(views.tasks.scan_import_session, [import_session.id])
+        self.assertRedirects(resp, reverse("sync_direction_setup", args=["nuvio"]))
+        self.assertFalse(ImportSession.objects.filter(profile=self.profile, source="nuvio").exists())  # nothing is scanned until they choose
+        mock_dispatch.assert_not_called()
         log = DataLog.objects.exclude(action=DataLog.Action.IMPORT).get(profile=self.profile)
         self.assertEqual(log.action, DataLog.Action.NUVIO_CONNECT)
         self.assertEqual(log.status, DataLog.Status.SUCCESS)
@@ -9803,8 +9800,8 @@ class NuvioConnectViewTests(TestCase):
         self.assertEqual(connection.nuvio_profile_name, "Kids")
         self.assertEqual(connection.get_refresh_token(), "rt")
         self.assertNotIn("nuvio_connect_pending", self.client.session)
-        import_session = ImportSession.objects.get(profile=self.profile, source=ImportSession.Source.NUVIO)
-        self.assertRedirects(resp, reverse("import_review", args=[import_session.id]))
+        self.assertRedirects(resp, reverse("sync_direction_setup", args=["nuvio"]))
+        self.assertFalse(ImportSession.objects.filter(profile=self.profile, source="nuvio").exists())  # nothing is scanned until they choose
 
     def test_select_profile_without_pending_state_redirects_to_settings(self):
         resp = self.client.get(reverse("nuvio_select_profile"), follow=True)
@@ -27308,6 +27305,16 @@ class ResumePausedWetrakrImportsTaskTests(TestCase):
     def setUp(self):
         user = User.objects.create_user("resumesweep", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="ResumeSweep")
+        ExternalAccount.objects.create(profile=self.profile, provider=ExternalAccount.Provider.WETRAKR)
+
+    @patch("tracker.tasks.scan_import_session.delay")
+    def test_a_paused_session_whose_account_was_disconnected_is_not_resumed(self, mock_delay):
+        ExternalAccount.objects.filter(profile=self.profile).delete()
+        ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.WETRAKR, status=ImportSession.Status.PAUSED,
+        )
+        self.assertEqual(tasks.resume_paused_wetrakr_imports(), 0)
+        mock_delay.assert_not_called()
 
     @patch("tracker.tasks.scan_import_session.delay")
     def test_redispatches_every_paused_wetrakr_session(self, mock_delay):
@@ -29393,9 +29400,9 @@ class TmdbOAuthCallbackViewTests(TestCase):
         self.assertEqual(account.get_access_token(), "sess1")
         self.assertEqual(account.tmdb_account_id, 42)
         self.assertNotIn("tmdb_oauth_request_token", self.client.session)
-        import_session = ImportSession.objects.get(profile=self.profile, source=ImportSession.Source.TMDB)
-        self.assertRedirects(resp, reverse("import_review", args=[import_session.id]))
-        mock_dispatch.assert_called_once_with(tasks.scan_import_session, [import_session.id])
+        self.assertRedirects(resp, reverse("sync_direction_setup", args=["tmdb"]))
+        self.assertFalse(ImportSession.objects.filter(profile=self.profile, source="tmdb").exists())  # nothing is scanned until they choose
+        mock_dispatch.assert_not_called()
 
     @patch("tracker.views._dispatch_sync_task_safely")
     @patch("tracker.integrations.tmdb_account.get_account_id")
@@ -29875,9 +29882,9 @@ class MyAnimeListPkceOAuthFlowTests(TestCase):
 
         account = ExternalAccount.objects.get(profile=self.profile, provider=ExternalAccount.Provider.MAL)
         self.assertEqual(account.get_access_token(), "tok")
-        import_session = ImportSession.objects.get(profile=self.profile, source=ImportSession.Source.MAL)
-        self.assertRedirects(resp, reverse("import_review", args=[import_session.id]))
-        mock_dispatch.assert_called_once_with(tasks.scan_import_session, [import_session.id])
+        self.assertRedirects(resp, reverse("sync_direction_setup", args=["mal"]))
+        self.assertFalse(ImportSession.objects.filter(profile=self.profile, source="mal").exists())  # nothing is scanned until they choose
+        mock_dispatch.assert_not_called()
 
     @patch("tracker.views._dispatch_sync_task_safely")
     @patch("tracker.integrations.myanimelist.exchange_code")
@@ -32466,3 +32473,245 @@ class ShowProgressPageTests(TestCase):
         css = (Path(django_settings.BASE_DIR) / "static" / "src" / "app.css").read_text(encoding="utf-8")
         self.assertIn(".sprog-fill", css)
         self.assertIn('.sprog[data-kind="anime"]', css)
+
+
+# ---------------------------------------------------------------------------
+# Sync direction: what a connected service may do with a profile's data
+# ---------------------------------------------------------------------------
+from tracker import sync_direction as _sd  # noqa: E402
+from django_celery_beat.models import PeriodicTask as _PeriodicTask  # noqa: E402
+
+
+class SyncDirectionModuleTests(TestCase):
+    def test_a_service_that_cannot_be_written_to_offers_pull_and_off(self):
+        self.assertEqual([v for v, _l, _h in _sd.choices_for("trakt")], ["pull", "off"])
+        self.assertEqual([v for v, _l, _h in _sd.choices_for("nuvio")], ["pull", "off"])
+
+    def test_push_options_appear_only_for_services_that_can_push(self):
+        with patch.object(_sd, "PUSH_PROVIDERS", frozenset({"wetrakr"})):
+            self.assertEqual([v for v, _l, _h in _sd.choices_for("wetrakr")], ["pull", "push", "both", "off"])
+            self.assertEqual([v for v, _l, _h in _sd.choices_for("trakt")], ["pull", "off"])
+            self.assertTrue(_sd.is_valid_for("wetrakr", "push"))
+            self.assertFalse(_sd.is_valid_for("trakt", "push"))
+
+    def test_help_text_names_the_service(self):
+        helps = [h for _v, _l, h in _sd.choices_for("mal")]
+        self.assertTrue(all("{name}" not in h for h in helps))
+        self.assertTrue(any("MyAnimeList" in h for h in helps))
+
+    def test_which_directions_read_and_which_send(self):
+        account = ExternalAccount(provider="trakt")
+        for direction, pulls, pushes in (("pull", True, False), ("push", False, True), ("both", True, True), ("off", False, False)):
+            account.sync_direction = direction
+            self.assertEqual((_sd.allows_pull(account), _sd.allows_push(account)), (pulls, pushes), direction)
+
+    def test_existing_connections_keep_pulling_by_default(self):
+        self.assertEqual(ExternalAccount._meta.get_field("sync_direction").default, "pull")
+        self.assertEqual(NuvioConnection._meta.get_field("sync_direction").default, "pull")
+
+
+class SyncDirectionFlowBase(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("dirflow", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="DirFlow")
+        self.client.login(username="dirflow", password="pass12345")
+
+    def account(self, provider="trakt", direction="pull"):
+        account = ExternalAccount.objects.create(profile=self.profile, provider=provider, sync_direction=direction)
+        scheduling.ensure_periodic_task(account)
+        return account
+
+    def beat(self, account):
+        return _PeriodicTask.objects.get(name=scheduling.sync_periodic_task_name(account))
+
+
+class FirstConnectionAsksFirstTests(SyncDirectionFlowBase):
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.trakt.exchange_code")
+    def test_a_new_connection_starts_off_and_goes_to_the_choice(self, mock_exchange, mock_dispatch):
+        mock_exchange.return_value = {"access_token": "tok", "refresh_token": "rtok", "expires_in": 3600}
+        session = self.client.session
+        session["trakt_oauth_state"] = "abc"
+        session.save()
+        resp = self.client.get(reverse("trakt_callback"), {"code": "c", "state": "abc"})
+        self.assertRedirects(resp, reverse("sync_direction_setup", args=["trakt"]))
+        account = ExternalAccount.objects.get(profile=self.profile, provider="trakt")
+        self.assertEqual(account.sync_direction, "off")
+        self.assertFalse(self.beat(account).enabled)  # no daily sync before they choose
+        mock_dispatch.assert_not_called()
+        self.assertFalse(ImportSession.objects.exists())
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.trakt.exchange_code")
+    def test_reconnecting_respects_the_choice_already_made(self, mock_exchange, mock_dispatch):
+        self.account("trakt", "off")
+        mock_exchange.return_value = {"access_token": "tok", "refresh_token": "rtok", "expires_in": 3600}
+        session = self.client.session
+        session["trakt_oauth_state"] = "abc"
+        session.save()
+        self.client.get(reverse("trakt_callback"), {"code": "c", "state": "abc"})
+        mock_dispatch.assert_not_called()  # it is off, so nothing is read on reconnect either
+        self.assertEqual(ExternalAccount.objects.get(profile=self.profile, provider="trakt").sync_direction, "off")
+
+
+class SyncDirectionSetupPageTests(SyncDirectionFlowBase):
+    def test_the_page_explains_nothing_has_happened_and_offers_the_choices(self):
+        self.account("trakt", "off")
+        body = self.client.get(reverse("sync_direction_setup", args=["trakt"])).content.decode()
+        self.assertIn("What should Spool do with it?", body)
+        self.assertIn("Nothing has been read from Trakt yet", body)
+        self.assertIn("Import into Spool", body)
+        self.assertIn("Connected, not syncing", body)
+        self.assertNotIn("Send from Spool", body)  # trakt cannot be pushed to yet
+        self.assertIn("not available yet", body)
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_choosing_import_starts_a_review_and_turns_the_schedule_on(self, mock_dispatch):
+        account = self.account("trakt", "off")
+        resp = self.client.post(reverse("sync_direction_setup", args=["trakt"]), {"sync_direction": "pull"})
+        session = ImportSession.objects.get(profile=self.profile, source="trakt")
+        self.assertRedirects(resp, reverse("import_review", args=[session.id]), fetch_redirect_response=False)
+        mock_dispatch.assert_called_once_with(tasks.scan_import_session, [session.id])
+        account.refresh_from_db()
+        self.assertEqual(account.sync_direction, "pull")
+        self.assertTrue(self.beat(account).enabled)
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_choosing_not_to_sync_scans_and_changes_nothing(self, mock_dispatch):
+        account = self.account("trakt", "off")
+        resp = self.client.post(reverse("sync_direction_setup", args=["trakt"]), {"sync_direction": "off"})
+        self.assertRedirects(resp, reverse("settings"), fetch_redirect_response=False)
+        mock_dispatch.assert_not_called()
+        self.assertFalse(ImportSession.objects.exists())
+        self.assertFalse(self.beat(account).enabled)
+
+    def test_an_option_the_service_does_not_offer_is_refused(self):
+        self.account("trakt", "off")
+        resp = self.client.post(reverse("sync_direction_setup", args=["trakt"]), {"sync_direction": "push"})
+        self.assertRedirects(resp, reverse("sync_direction_setup", args=["trakt"]), fetch_redirect_response=False)
+        self.assertEqual(ExternalAccount.objects.get(profile=self.profile, provider="trakt").sync_direction, "off")
+
+    def test_an_unconnected_service_is_a_404_and_login_is_required(self):
+        self.assertEqual(self.client.get(reverse("sync_direction_setup", args=["trakt"])).status_code, 404)
+        self.account("trakt", "off")
+        self.client.logout()
+        self.assertNotEqual(self.client.get(reverse("sync_direction_setup", args=["trakt"])).status_code, 200)
+
+    def test_nuvio_gets_the_same_choice(self):
+        NuvioConnection.objects.create(profile=self.profile, email="a@b.c", nuvio_profile_id=0, sync_direction="off")
+        self.assertContains(self.client.get(reverse("sync_direction_setup", args=["nuvio"])), "Nuvio connected")
+
+
+class SaveSyncDirectionTests(SyncDirectionFlowBase):
+    def test_switching_to_off_stops_the_schedule_and_abandons_a_review(self):
+        account = self.account("trakt", "pull")
+        review = ImportSession.objects.create(
+            profile=self.profile, source="trakt", status=ImportSession.Status.READY,
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+        self.client.post(reverse("save_sync_direction", args=["trakt"]), {"sync_direction": "off"})
+        account.refresh_from_db()
+        review.refresh_from_db()
+        self.assertEqual(account.sync_direction, "off")
+        self.assertFalse(self.beat(account).enabled)
+        self.assertEqual(review.status, ImportSession.Status.CANCELLED)
+
+    def test_switching_back_to_import_turns_the_schedule_on_without_syncing_by_itself(self):
+        account = self.account("trakt", "off")
+        with patch("tracker.views._dispatch_sync_task_safely") as mock_dispatch:
+            self.client.post(reverse("save_sync_direction", args=["trakt"]), {"sync_direction": "pull"})
+        account.refresh_from_db()
+        self.assertEqual(account.sync_direction, "pull")
+        self.assertTrue(self.beat(account).enabled)
+        mock_dispatch.assert_not_called()
+
+    def test_push_cannot_be_chosen_for_a_service_that_cannot_push(self):
+        account = self.account("trakt", "pull")
+        self.client.post(reverse("save_sync_direction", args=["trakt"]), {"sync_direction": "both"})
+        account.refresh_from_db()
+        self.assertEqual(account.sync_direction, "pull")
+
+    def test_only_your_own_connection_can_be_changed(self):
+        other = Profile.objects.create(user=User.objects.create_user("dirother", password="x12345678"), display_name="O")
+        ExternalAccount.objects.create(profile=other, provider="trakt", sync_direction="pull")
+        self.assertEqual(self.client.post(reverse("save_sync_direction", args=["trakt"]), {"sync_direction": "off"}).status_code, 404)
+        self.assertEqual(ExternalAccount.objects.get(profile=other).sync_direction, "pull")
+
+    def test_requires_post_and_login(self):
+        self.account("trakt")
+        self.assertEqual(self.client.get(reverse("save_sync_direction", args=["trakt"])).status_code, 405)
+        self.client.logout()
+        self.assertNotEqual(self.client.post(reverse("save_sync_direction", args=["trakt"]), {"sync_direction": "off"}).status_code, 200)
+
+
+class SyncDirectionGatesTests(SyncDirectionFlowBase):
+    def test_sync_now_and_review_import_are_refused_when_not_importing(self):
+        self.account("trakt", "off")
+        with patch("tracker.views._dispatch_sync_task_safely") as mock_dispatch:
+            resp = self.client.post(reverse("trigger_manual_sync", args=["trakt"]), follow=True)
+            self.assertContains(resp, "turned off for this connection")
+            resp = self.client.post(reverse("trigger_import_review", args=["trakt"]), follow=True)
+            self.assertContains(resp, "turned off for this connection")
+        mock_dispatch.assert_not_called()
+        self.assertFalse(ImportSession.objects.exists())
+
+    def test_sync_now_still_works_when_importing(self):
+        self.account("trakt", "pull")
+        with patch("tracker.views._dispatch_sync_task_safely") as mock_dispatch:
+            self.client.post(reverse("trigger_manual_sync", args=["trakt"]))
+        mock_dispatch.assert_called_once()
+
+    def test_every_scheduled_sync_task_reads_nothing_when_off_or_push_only(self):
+        cases = (
+            ("trakt", tasks.sync_trakt_history, "tracker.integrations.trakt.fetch_history"),
+            ("simkl", tasks.sync_simkl_history, "tracker.integrations.simkl.fetch_history"),
+            ("wetrakr", tasks.sync_wetrakr_history, "tracker.integrations.wetrakr.fetch_history_page"),
+            ("mal", tasks.sync_mal_history, "tracker.integrations.myanimelist.fetch_anime_list"),
+            ("tmdb", tasks.sync_tmdb_lists, "tracker.integrations.tmdb_account.fetch_lists"),
+        )
+        for provider, task, target in cases:
+            for direction in ("off", "push"):
+                ExternalAccount.objects.filter(profile=self.profile).delete()
+                ExternalAccount.objects.create(profile=self.profile, provider=provider, sync_direction=direction)
+                with patch(target) as mock_fetch:
+                    self.assertEqual(task(self.profile.id), 0, (provider, direction))
+                mock_fetch.assert_not_called()
+                self.assertFalse(SyncLog.objects.filter(profile=self.profile).exists())
+
+    @patch("tracker.integrations.nuvio.refresh_access_token")
+    def test_nuvio_reads_nothing_when_off(self, mock_refresh):
+        NuvioConnection.objects.create(profile=self.profile, email="a@b.c", nuvio_profile_id=0, sync_direction="off")
+        self.assertEqual(tasks.sync_nuvio_history(self.profile.id), 0)
+        mock_refresh.assert_not_called()
+
+    @patch("tracker.tasks.scan_import_session.delay")
+    def test_a_paused_wetrakr_import_is_not_resumed_for_a_connection_that_stopped_importing(self, mock_delay):
+        ExternalAccount.objects.create(profile=self.profile, provider="wetrakr", sync_direction="off")
+        ImportSession.objects.create(
+            profile=self.profile, source="wetrakr", status=ImportSession.Status.PAUSED,
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+        self.assertEqual(tasks.resume_paused_wetrakr_imports(), 0)
+        mock_delay.assert_not_called()
+        ExternalAccount.objects.filter(profile=self.profile).update(sync_direction="pull")
+        self.assertEqual(tasks.resume_paused_wetrakr_imports(), 1)
+
+
+class SyncDirectionSettingsCardTests(SyncDirectionFlowBase):
+    def test_the_card_has_the_control_and_hides_importing_controls_when_off(self):
+        self.account("trakt", "pull")
+        body = self.client.get(reverse("settings")).content.decode()
+        self.assertIn(reverse("save_sync_direction", args=["trakt"]), body)
+        self.assertIn(reverse("trigger_manual_sync", args=["trakt"]), body)
+        ExternalAccount.objects.filter(profile=self.profile).update(sync_direction="off")
+        body = self.client.get(reverse("settings")).content.decode()
+        self.assertIn(reverse("save_sync_direction", args=["trakt"]), body)
+        self.assertNotIn(reverse("trigger_manual_sync", args=["trakt"]), body)
+        self.assertNotIn(reverse("save_sync_schedule", args=["trakt"]), body)
+        self.assertIn(reverse("disconnect_provider", args=["trakt"]), body)  # still disconnectable
+
+    def test_the_planner_only_waits_for_connections_that_import(self):
+        from tracker import planner as _pl
+
+        ExternalAccount.objects.create(profile=self.profile, provider="trakt", sync_direction="off")
+        self.assertTrue(_pl.sync_caught_up(self.profile, timezone.now() - timedelta(hours=1), timezone.now()))

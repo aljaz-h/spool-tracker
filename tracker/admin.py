@@ -101,4 +101,4 @@ class NuvioConnectionAdmin(admin.ModelAdmin):
     # No token field here (or exposed on the change form beyond its raw
     # ciphertext, since encryption happens before it ever reaches the
     # DB) - matches ExternalAccountAdmin's own list_display choice above.
-    list_display = ("profile", "email", "nuvio_profile_id", "sync_enabled", "connected_at", "last_synced_at")
+    list_display = ("profile", "email", "nuvio_profile_id", "sync_direction", "connected_at", "last_synced_at")

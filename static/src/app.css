@@ -2279,3 +2279,24 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     white-space: nowrap;
   }
 }
+
+/* Sync direction: the choice cards on the first-connection page. */
+@layer components {
+  .dir-choice-face {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0.85rem 1rem;
+    border-radius: 12px;
+    background: var(--color-base-200);
+    outline: 2px solid transparent;
+    outline-offset: -2px;
+  }
+  .dir-choice:hover .dir-choice-face {
+    background: color-mix(in oklab, var(--color-base-content) 5%, var(--color-base-200));
+  }
+  .dir-choice input:checked + .dir-choice-face {
+    outline-color: var(--color-primary);
+    background: color-mix(in oklab, var(--color-primary) 7%, var(--color-base-200));
+  }
+}

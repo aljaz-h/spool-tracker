@@ -939,6 +939,18 @@ class Recommendation(models.Model):
         return f"{self.from_profile} recommended {self.title} to {self.to_profile}"
 
 
+class SyncDirection(models.TextChoices):
+    """What a connected service is allowed to do with this profile's Spool
+    data (tracker/sync_direction.py). PULL is how every connection has
+    always behaved; OFF keeps the connection but does nothing; PUSH and
+    BOTH are for the services Spool can send data to."""
+
+    PULL = "pull", "Import into Spool"
+    PUSH = "push", "Send from Spool"
+    BOTH = "both", "Both ways"
+    OFF = "off", "Connected, not syncing"
+
+
 class ExternalAccount(models.Model):
     """OAuth connection state for Trakt/Simkl — Settings (this step) needs
     to display real connect/connected status, and the sync jobs (build
@@ -1004,6 +1016,11 @@ class ExternalAccount(models.Model):
     sync_interval_days = models.PositiveSmallIntegerField(default=1)
     sync_hour = models.PositiveSmallIntegerField(default=4, validators=[MaxValueValidator(23)])
     sync_minute = models.PositiveSmallIntegerField(default=0, validators=[MaxValueValidator(59)])
+    # What this connection may do (SyncDirection). A new connection starts
+    # OFF until the person picks one (views.sync_direction_setup), so a
+    # connection can never touch their history before they have chosen; the
+    # default is PULL only for accounts that already existed.
+    sync_direction = models.CharField(max_length=4, choices=SyncDirection.choices, default=SyncDirection.PULL)
     # Trakt only for now (see trakt.py's fetch_lists/upsert_lists) - Simkl's
     # list-equivalent endpoints are additional unverified surface on top of
     # an already-unverified integration, not worth layering on yet.
@@ -1093,7 +1110,7 @@ class NuvioConnection(models.Model):
     encrypted_refresh_token = models.TextField()
     nuvio_profile_id = models.PositiveSmallIntegerField()
     nuvio_profile_name = models.CharField(max_length=100, blank=True)
-    sync_enabled = models.BooleanField(default=True)
+    sync_direction = models.CharField(max_length=4, choices=SyncDirection.choices, default=SyncDirection.PULL)
     connected_at = models.DateTimeField(auto_now_add=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_interval_days = models.PositiveSmallIntegerField(default=1)

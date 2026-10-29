@@ -35,7 +35,7 @@ def _sync_sources(profile):
     """The "Watch sync" card: where watches arrive from and how recently."""
     rows = []
     now = timezone.now()
-    for account in ExternalAccount.objects.filter(profile=profile, provider__in=planner.SYNC_PROVIDERS):
+    for account in ExternalAccount.objects.filter(profile=profile, provider__in=planner.SYNC_PROVIDERS, sync_direction__in=("pull", "both")):
         rows.append(
             {
                 "name": account.get_provider_display(),
@@ -43,7 +43,7 @@ def _sync_sources(profile):
                 "live": account.last_synced_at is not None,
             }
         )
-    nuvio = NuvioConnection.objects.filter(profile=profile, sync_enabled=True).first()
+    nuvio = NuvioConnection.objects.filter(profile=profile, sync_direction__in=("pull", "both")).first()
     if nuvio:
         rows.append(
             {

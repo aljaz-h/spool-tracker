@@ -35,15 +35,32 @@
      through, consistently.
 3. Put the client ID/secret in `.env` and restart the web service:
    `docker compose up -d --force-recreate web`
-4. Settings & Import → Connect. A daily background sync (04:00 server time)
-   keeps a connected account's history up to date afterward. The first
-   connection doesn't import anything by itself — it scans your history
-   and takes you to **Import Review** (the same page CSV/JSON/ZIP imports
-   use) to select what to bring in before anything's written. Reconnecting
-   an already-connected account skips review and syncs immediately, same
-   as it always has; **Review full import** (next to **Sync now** once
-   connected) runs another reviewed import on demand without touching the
-   scheduled sync.
+4. Settings & Import → Connect. Connecting does **not** start reading your
+   history: it first asks what Spool may do with the account (below). If you
+   choose to import, a scan takes you to **Import Review** (the same page
+   CSV/JSON/ZIP imports use) to select what to bring in before anything's
+   written, and a daily background sync (04:00 server time, adjustable)
+   keeps the history up to date afterward. Reconnecting an already-connected
+   account skips review and syncs immediately if it is set to import, same
+   as it always has; **Review full import** (next to **Sync now**) runs
+   another reviewed import on demand without touching the scheduled sync.
+
+**Sync direction.** Every connected service has a **Sync** setting on its
+card in Settings → Connected Apps, chosen when you first connect and
+changeable any time:
+
+- **Import into Spool** - what Spool has always done: new watches, ratings
+  and lists are pulled in on the schedule. Nothing is sent back.
+- **Connected, not syncing** - the account stays connected but nothing moves
+  in either direction, so connecting can never touch your Spool history.
+  The schedule and the Sync now / Review full import buttons are hidden.
+- **Send from Spool** and **Both ways** appear only for a service Spool can
+  send data to. None can yet.
+
+Accounts connected before this setting existed keep importing exactly as
+before. Switching a service to "not syncing" stops its scheduled sync and
+abandons an import review that was not yet confirmed; what was already
+imported stays.
 
 **Caveat:** the OAuth flow itself (authorization redirect, token exchange)
 follows each provider's documented API shape, but the history-sync response

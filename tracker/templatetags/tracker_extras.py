@@ -192,6 +192,22 @@ def notif_day_label(d):
 # a utility class it finds spelled out somewhere in scanned source, the
 # same reason _GRADIENTS above stores complete class fragments rather
 # than raw hex values for a template to reassemble.
+@register.simple_tag
+def direction_choices(provider):
+    """[(value, label, help)] the sync-direction control offers for a service."""
+    from tracker import sync_direction
+
+    return sync_direction.choices_for(provider)
+
+
+@register.filter
+def pulls(connection):
+    """True when a connection reads from its service into Spool."""
+    from tracker import sync_direction
+
+    return sync_direction.allows_pull(connection)
+
+
 _NOTIFICATION_ICON_META = {
     Notification.Kind.NEW_RELEASE: ("calendar-days", "text-primary"),
     Notification.Kind.UPCOMING_RELEASE: ("calendar-days", "text-primary"),

@@ -8,6 +8,27 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.163.0] - 2026-10-29
+
+### Added
+
+- **Choose what each connected service may do.** Every connected app (Trakt,
+  Simkl, WeTrakr, Nuvio, MyAnimeList, TMDB) now has a **Sync** setting on its card
+  in Settings -> Connected Apps: **Import into Spool**, or **Connected, not
+  syncing**. A brand new connection now asks first - nothing is read from the
+  service, and nothing in your Spool history changes, until you pick (importing
+  still goes through Import Review before anything is written). "Not syncing"
+  keeps the account connected without a schedule, and its Sync now / Review
+  full import buttons are hidden. The setting is ready for sending data from
+  Spool to a service as well; those options appear per service once that
+  service's push exists.
+
+### Changed
+
+- Connections that already existed keep importing exactly as before. Nuvio's old
+  on/off flag became this setting (off stays off).
+- Reconnecting a service that is set to "not syncing" no longer starts a sync.
+
 ## [0.162.1] - 2026-10-29
 
 ### Fixed
