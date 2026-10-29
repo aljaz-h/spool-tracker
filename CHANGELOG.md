@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.166.0] - 2026-10-29
+
+### Added
+
+- The title logo (Fanart.tv) now appears by itself the first time you open a movie, show or anime, instead of needing a page refresh - the heading polls for it like the rating pills do, and gives up after about 30 seconds.
+- On desktop, a plain "Name · Movie/TV/Anime · Year" line sits under the poster, above the action tiles.
+
+### Changed
+
+- The title logo is a little larger.
+
 ## [0.165.0] - 2026-10-29
 
 ### Changed

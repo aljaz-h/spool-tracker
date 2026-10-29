@@ -20048,6 +20048,40 @@ class FanartContextTests(TestCase):
         self.assertEqual(resp.context["display_clearlogo_url"], "https://fanart/logo.png")
 
 
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_first_view_polls_for_the_logo_then_stops(self, mock_details, mock_credits, mock_similar, mock_dispatch):
+        from django.utils import timezone
+
+        mock_details.return_value = self._details()
+        url = reverse("title_hero_heading_partial", args=[self.title.pk])
+        page = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(page, f'hx-get="{url}?n=0"')
+        # the caption under the poster: name, kind, year
+        self.assertContains(page, "Fathom</span> · Movie · 2020")
+
+        poll = self.client.get(url + "?n=0")
+        self.assertContains(poll, "hx-trigger")  # still nothing cached, keeps polling
+        self.assertContains(poll, "?n=1")
+
+        TitleFanartCache.objects.create(
+            title=self.title, clearlogo_url="https://fanart/logo.png", fetch_attempted=True,
+            next_refresh_at=timezone.now() + timedelta(days=10),
+        )
+        done = self.client.get(url + "?n=1")
+        self.assertContains(done, "https://fanart/logo.png")
+        self.assertNotContains(done, "hx-trigger")
+        mock_dispatch.assert_any_call(tasks.fetch_fanart_images, [self.title.pk])
+
+    @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
+    def test_the_poll_gives_up_after_a_few_tries(self, _details):
+        url = reverse("title_hero_heading_partial", args=[self.title.pk])
+        self.assertNotContains(self.client.get(url + "?n=99"), "hx-trigger")
+        self.assertNotContains(self.client.get(url + "?n=junk"), "hx-trigger")
+
+
 class SettingsFanartCardTests(TestCase):
     """Server Integrations' Fanart.tv card - save/clear/test round trip
     through the same generic provider-credential views every other

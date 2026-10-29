@@ -1115,7 +1115,7 @@ def _fanart_context(title):
     cache = TitleFanartCache.objects.filter(title=title).first()
     if cache is None:
         _dispatch_sync_task_safely(tasks.fetch_fanart_images, [title.pk])
-        return {}
+        return {"fanart_pending": True}
     if cache.next_refresh_at is None or cache.next_refresh_at <= timezone.now():
         _dispatch_sync_task_safely(tasks.fetch_fanart_images, [title.pk])
     return {
@@ -1124,6 +1124,36 @@ def _fanart_context(title):
         "backdrop_url": cache.backdrop_url or None,
         "season_banners": cache.season_banners,
     }
+
+
+FANART_POLL_TRIES = 10  # x 3s: how long the hero heading waits for a first-time logo fetch
+
+
+@login_required
+def title_hero_heading_partial(request, pk):
+    """partials/title_hero_heading.html's self-poll target: re-renders the
+    hero heading once the background Fanart fetch queued by the first view
+    has landed, so the logo appears without a page reload. Read-only (never
+    re-dispatches the fetch) and gives up after FANART_POLL_TRIES."""
+    title = get_object_or_404(Title, pk=pk)
+    try:
+        tries = int(request.GET.get("n", 0)) + 1
+    except ValueError:
+        tries = FANART_POLL_TRIES
+    cache = TitleFanartCache.objects.filter(title=title).first()
+    pending = cache is None and bool(title.external_ids.get("tmdb")) and tries < FANART_POLL_TRIES
+    fanart_images = {"clearlogo_url": cache.clearlogo_url or None} if cache else {}
+    tmdb_id = title.external_ids.get("tmdb")
+    details = tmdb.get_full_details(tmdb.media_type_for(title), tmdb_id) if tmdb_id else None
+    context = {
+        "title": title,
+        "page_media_type": title.media_type,
+        "fanart_pending": pending,
+        "fanart_tries": tries,
+        **_title_display(title, details, fanart_images),
+        **_anime_mal_context(title),
+    }
+    return render(request, "tracker/partials/title_hero_heading.html", context)
 
 
 def _mdblist_ratings_display(title):
@@ -1415,6 +1445,7 @@ def title_detail(request, pk):
         "preview_media_type": None,
         "preview_tmdb_id": None,
         **_title_display(title, details, fanart_images),
+        "fanart_pending": bool(fanart_images.get("fanart_pending")),
         **local_context,
         **episode_context,
         **_anime_mal_context(title),

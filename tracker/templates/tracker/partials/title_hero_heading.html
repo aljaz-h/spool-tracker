@@ -1,0 +1,30 @@
+{% load tracker_extras %}
+{# context: page_media_type, display_name, display_year, display_clearlogo_url, mal_title_japanese, title (tracked only), fanart_pending, fanart_tries #}
+{% comment %}
+  The hero heading: kind/year line, then the Fanart.tv clearlogo when one is cached, else the plain title. The first time a title is opened the logo is still being fetched in the background, so while fanart_pending this polls title_hero_heading_partial and swaps the logo in by itself (same idea as the rating pills). Gives up after a handful of tries in case the fetch never lands.
+{% endcomment %}
+<div
+  id="hero-heading"
+  class="min-w-0 lg:pt-2 lg:max-w-[920px] max-lg:order-2"
+  {% if fanart_pending %}hx-get="{% url 'title_hero_heading_partial' title.pk %}?n={{ fanart_tries|default:0 }}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}
+>
+  <div class="flex items-center gap-2 text-[12.5px] font-semibold tracking-[0.06em] uppercase text-primary">
+    <span class="type-dot {{ page_media_type|media_dot_class }}"></span>
+    {% if page_media_type == "movie" %}Movie{% elif page_media_type == "anime" %}Anime{% else %}TV Series{% endif %}{% if display_year %}<span class="text-ink-dim font-medium normal-case tracking-normal">&middot; {{ display_year }}</span>{% endif %}
+  </div>
+  {% if display_clearlogo_url %}
+    {# Transparent title logo standing in for the text title; the text stays (sr-only) for screen readers. #}
+    <img
+      src="{{ display_clearlogo_url }}" alt="{{ display_name }}"
+      class="mt-3 max-h-[72px] sm:max-h-[108px] lg:max-h-[132px] max-w-[92%] sm:max-w-[500px] lg:max-w-[580px] object-contain object-left drop-shadow-[0_6px_28px_rgba(0,0,0,0.55)]"
+    >
+    <h1 class="sr-only">{{ display_name }}</h1>
+  {% else %}
+    <h1 class="mt-2 {% if display_name|length > 40 %}text-[1.25rem] sm:text-[1.875rem] lg:text-[2.375rem]{% else %}text-[1.5rem] sm:text-[2.375rem] lg:text-[3rem]{% endif %} font-bold leading-[1.05] tracking-[-0.025em] text-white text-balance">
+      {{ display_name }}
+    </h1>
+  {% endif %}
+  {% if mal_title_japanese %}
+    <div class="text-ink-dim text-[13px] sm:text-sm mt-1.5">{{ mal_title_japanese }}</div>
+  {% endif %}
+</div>

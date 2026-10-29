@@ -71,6 +71,8 @@
             {% endif %}
           </div>
           <div class="max-lg:order-3 max-lg:col-span-2 lg:mt-3">
+          {# Desktop only: the name, kind and year in plain text under the poster - the big heading up top is often the Fanart logo, which can be hard to read as a name. #}
+          <div class="hidden lg:block mb-3 text-[13px] leading-snug text-ink-dim"><span class="font-semibold text-base-content">{{ display_name }}</span> · {% if page_media_type == "movie" %}Movie{% elif page_media_type == "anime" %}Anime{% else %}TV{% endif %}{% if display_year %} · {{ display_year }}{% endif %}</div>
           {% comment %}
               Main actions. Movies get the single watched control; shows get
               title_tv_watched_button.html (season/whole-show bulk actions,
@@ -260,34 +262,7 @@
           </div>
         </div>
 
-        <div class="min-w-0 lg:pt-2 lg:max-w-[920px] max-lg:order-2">
-          <div class="flex items-center gap-2 text-[12.5px] font-semibold tracking-[0.06em] uppercase text-primary">
-            <span class="type-dot {{ page_media_type|media_dot_class }}"></span>
-            {% if page_media_type == "movie" %}Movie{% elif page_media_type == "anime" %}Anime{% else %}TV Series{% endif %}{% if display_year %}<span class="text-ink-dim font-medium normal-case tracking-normal">· {{ display_year }}</span>{% endif %}
-          </div>
-          {% if display_clearlogo_url %}
-            {% comment %}
-              Fanart.tv transparent title logo, standing in for the plain
-              text title below (Plex/Jellyfin/Emby convention) - capped
-              so an oversized upload can't blow out the hero, and the
-              text title stays in the DOM (sr-only) for screen readers/
-              the page title rather than disappearing outright.
-            {% endcomment %}
-            <img
-              src="{{ display_clearlogo_url }}" alt="{{ display_name }}"
-              class="mt-3 max-h-[56px] sm:max-h-[84px] lg:max-h-[104px] max-w-[88%] sm:max-w-[420px] lg:max-w-[480px] object-contain object-left drop-shadow-[0_6px_28px_rgba(0,0,0,0.55)]"
-            >
-            <h1 class="sr-only">{{ display_name }}</h1>
-          {% else %}
-            <h1 class="mt-2 {% if display_name|length > 40 %}text-[1.25rem] sm:text-[1.875rem] lg:text-[2.375rem]{% else %}text-[1.5rem] sm:text-[2.375rem] lg:text-[3rem]{% endif %} font-bold leading-[1.05] tracking-[-0.025em] text-white text-balance">
-              {{ display_name }}
-            </h1>
-          {% endif %}
-          {% if mal_title_japanese %}
-            {# MyAnimeList's native title (views._anime_jikan_context) - anime only. #}
-            <div class="text-ink-dim text-[13px] sm:text-sm mt-1.5">{{ mal_title_japanese }}</div>
-          {% endif %}
-        </div>
+        {% include "tracker/partials/title_hero_heading.html" %}
 
         <div class="col-span-2 lg:col-span-1 lg:col-start-2 min-w-0 lg:max-w-[920px] max-lg:order-4">
           {% comment %}
