@@ -11,6 +11,9 @@ CSV and Trakt-JSON exports leave out.
          "items": [{"type": "movie"|"show", "media_type", "title", "year",
                     "ids": {"tmdb", "tmdb_kind", "trakt"}, "position",
                     "added_at"}]}
+      ],
+      "season_ratings": [
+        {"media_type", "title", "year", "ids": {...}, "season", "rating"}
       ]
     }
 
@@ -48,7 +51,7 @@ def _ids(title):
 def build_backup(profile):
     """The full backup dict for one profile - history (with ratings) and
     every list it owns, the Watchlist included."""
-    from tracker.models import MediaType, WatchEvent, WatchList
+    from tracker.models import MediaType, SeasonRating, WatchEvent, WatchList
     from tracker.version import APP_VERSION
 
     history = []
@@ -103,6 +106,18 @@ def build_backup(profile):
             }
         )
 
+    season_ratings = [
+        {
+            "media_type": rating.title.media_type,
+            "title": rating.title.name,
+            "year": rating.title.year or None,
+            "ids": _ids(rating.title),
+            "season": rating.season,
+            "rating": rating.rating,
+        }
+        for rating in SeasonRating.objects.filter(profile=profile).select_related("title").order_by("title__name", "season")
+    ]
+
     return {
         "format": FORMAT,
         "version": VERSION,
@@ -111,6 +126,7 @@ def build_backup(profile):
         "profile": profile.display_name,
         "history": history,
         "lists": lists,
+        "season_ratings": season_ratings,
     }
 
 
@@ -168,6 +184,41 @@ def restore_lists(profile, data, labels_out=None):
                 if labels_out is not None:
                     labels_out.append(f"{title.name} ({watchlist.name})")
     return lists_touched, items_added
+
+
+def restore_season_ratings(profile, data):
+    """Puts a backup's season ratings back on this profile. A season the
+    profile already rated is left as it is (a restore never overwrites a
+    newer score), so restoring the same backup twice adds nothing. Titles
+    are matched/created by their ids like history rows and list items.
+    Returns the number of ratings added."""
+    from tracker.csv_import import TITLE_MAX_LENGTH, _get_or_create_title, _safe_int
+    from tracker.models import MediaType, SeasonRating
+
+    added = 0
+    for entry in data.get("season_ratings") or []:
+        if not isinstance(entry, dict) or not entry.get("title"):
+            continue
+        season, rating = _safe_int(entry.get("season")), _safe_int(entry.get("rating"))
+        if season is None or season < 0 or not rating or not 1 <= rating <= 10:
+            continue
+        media_type = entry.get("media_type")
+        if media_type not in (MediaType.TV, MediaType.ANIME):
+            media_type = MediaType.TV
+        ids = entry.get("ids") or {}
+        title = _get_or_create_title(
+            media_type, str(entry["title"])[:TITLE_MAX_LENGTH], _safe_int(entry.get("year")),
+            ids.get("trakt"), ids.get("tmdb"), ids.get("tmdb_kind") or "tv", imdb_id=ids.get("imdb"),
+        )
+        _, created = SeasonRating.objects.get_or_create(
+            profile=profile, title=title, season=season, defaults={"rating": rating}
+        )
+        added += created
+    return added
+
+
+def season_rating_count(data):
+    return len([e for e in (data.get("season_ratings") or []) if isinstance(e, dict)])
 
 
 def read_backup(path):

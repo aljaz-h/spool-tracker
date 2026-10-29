@@ -1,0 +1,103 @@
+{% load icons %}
+{# context: title, latest_rating (1-10 or None), star_fill (the show's 5 stars), season_rating_rows ([{number, rating, stars}] - shows only), rating_open (bool). The Rating tile under the poster and its popup (position:fixed via window.positionPopover, like the Watched and list popups beside it). The star, Clear and each season are plain form posts back to the page with open_rating=1, so the popup is still open afterwards. #}
+<div
+  class="relative flex-1 min-w-0" id="rating-tile-{{ title.pk }}"
+  x-data="{
+    open: {{ rating_open|yesno:'true,false' }},
+    season: null,
+    togglePanel(button) {
+      this.open = !this.open;
+      if (!this.open) return;
+      this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 320, false));
+    },
+  }"
+  x-init="if (open) $nextTick(() => window.positionPopover($refs.tile, $refs.panel, 320, false))"
+  @open-rating.window="open = true; $nextTick(() => window.positionPopover($refs.tile, $refs.panel, 320, false))"
+>
+  <button
+    type="button" x-ref="tile"
+    @click="togglePanel($el)"
+    :aria-expanded="open.toString()"
+    aria-haspopup="true"
+    class="atile {% if latest_rating %}atile-accent{% endif %}" :class="open && 'atile-open'"
+  >{% icon "star" "atile-star" %}<span>{% if latest_rating %}{{ latest_rating }}/10{% else %}Rate{% endif %}</span></button>
+  <div
+    x-ref="panel"
+    x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
+    class="fixed z-50 w-80 menu-surface p-3"
+  >
+    <div class="flex items-start justify-between px-1 pb-2">
+      <div class="min-w-0">
+        <div class="font-semibold text-sm">Your rating</div>
+        <div class="text-xs text-ink-faint truncate">{{ title.name }}</div>
+      </div>
+      <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 flex-none">{% icon "x" "w-4 h-4" %}</button>
+    </div>
+
+    <form method="post" action="{% url 'title_rate' title.pk %}" class="px-1">
+      {% csrf_token %}
+      <input type="hidden" name="open_rating" value="1">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center">
+          {% for star in star_fill %}
+            <div class="rate-star spool-tooltip" data-tooltip="Rate {{ star.right }}/10">
+              <span class="rate-star-bg">&#9733;</span>
+              {% if star.fill %}<span class="rate-star-fill" style="width:{{ star.fill }}%">&#9733;</span>{% endif %}
+              <button type="submit" name="rating" value="{{ star.left }}" class="absolute inset-y-0 left-0 w-1/2 cursor-pointer" aria-label="Rate {{ star.left }} out of 10"></button>
+              <button type="submit" name="rating" value="{{ star.right }}" class="absolute inset-y-0 right-0 w-1/2 cursor-pointer" aria-label="Rate {{ star.right }} out of 10"></button>
+            </div>
+          {% endfor %}
+        </div>
+        <div class="text-right leading-none">
+          {% if latest_rating %}<span class="text-[2rem] font-bold tabular-nums">{{ latest_rating }}</span>{% else %}<span class="text-[2rem] font-bold text-ink-faint">&ndash;</span>{% endif %}<span class="text-ink-faint text-[15px]">/10</span>
+        </div>
+      </div>
+      <p class="text-[12px] text-ink-faint mt-2">Click the left half of a star for half points</p>
+    </form>
+
+    <form method="post" action="{% url 'title_clear_rating' title.pk %}" class="mt-2.5 pt-2.5 border-t border-line">
+      {% csrf_token %}
+      <input type="hidden" name="open_rating" value="1">
+      <button type="submit" {% if not latest_rating %}disabled{% endif %} class="flex items-center gap-2.5 px-1 py-1.5 rounded-lg hover:bg-base-300 text-left w-full disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed">
+        <span class="w-8 h-8 rounded-md bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "rotate-ccw" "w-4 h-4" %}</span>
+        <span class="min-w-0">
+          <span class="block text-[13px] font-semibold">Clear rating</span>
+          <span class="block text-[12px] text-ink-faint">Remove your score for this {% if title.media_type == "movie" %}movie{% else %}show{% endif %}</span>
+        </span>
+      </button>
+    </form>
+
+    {% if season_rating_rows %}
+      <div class="mt-2.5 pt-2.5 border-t border-line">
+        <div class="px-1 pb-1 text-[12px] font-semibold text-ink-faint uppercase tracking-wide">By season</div>
+        <div class="max-h-56 overflow-y-auto flex flex-col gap-0.5 pr-0.5">
+          {% for row in season_rating_rows %}
+            <div class="px-1 py-1">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-[13.5px] font-semibold">Season {{ row.number }}</span>
+                <button type="button" class="rate-chip {% if row.rating %}is-rated{% endif %}" @click="season = (season === {{ row.number }} ? null : {{ row.number }})" :aria-expanded="(season === {{ row.number }}).toString()">
+                  {% if row.rating %}{% icon "star" "atile-star w-3.5 h-3.5" %}{{ row.rating }}{% else %}Rate{% endif %}
+                </button>
+              </div>
+              <form method="post" action="{% url 'title_season_rate' title.pk row.number %}" x-show="season === {{ row.number }}" x-cloak class="mt-1.5 flex items-center justify-between gap-2">
+                {% csrf_token %}
+                <input type="hidden" name="open_rating" value="1">
+                <div class="flex items-center">
+                  {% for star in row.stars %}
+                    <div class="rate-star !w-7 !h-7" data-tooltip="Rate {{ star.right }}/10">
+                      <span class="rate-star-bg !text-[1.7rem]">&#9733;</span>
+                      {% if star.fill %}<span class="rate-star-fill !text-[1.7rem]" style="width:{{ star.fill }}%">&#9733;</span>{% endif %}
+                      <button type="submit" name="rating" value="{{ star.left }}" class="absolute inset-y-0 left-0 w-1/2 cursor-pointer" aria-label="Rate season {{ row.number }} {{ star.left }} out of 10"></button>
+                      <button type="submit" name="rating" value="{{ star.right }}" class="absolute inset-y-0 right-0 w-1/2 cursor-pointer" aria-label="Rate season {{ row.number }} {{ star.right }} out of 10"></button>
+                    </div>
+                  {% endfor %}
+                </div>
+                {% if row.rating %}<button type="submit" name="clear" value="1" class="text-[12px] text-ink-faint hover:text-error">Clear</button>{% endif %}
+              </form>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</div>

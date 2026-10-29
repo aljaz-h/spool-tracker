@@ -16,7 +16,7 @@ from django.conf import settings as django_settings
 from django.contrib.auth.models import User
 from django.contrib.messages import get_messages
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase, override_settings
+from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
@@ -17214,7 +17214,7 @@ class TitleDetailViewTests(TestCase):
         mock_trailer.return_value = {"key": "abc123", "name": "Official Trailer"}
         mock_details.return_value = self._details()
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, "Watch trailer")
+        self.assertContains(resp, "<span>Trailer</span>")
         self.assertContains(resp, f"openTrailerModal('trailer-modal-{self.title.pk}')")
         self.assertContains(resp, "https://www.youtube.com/embed/abc123?autoplay=1")
 
@@ -17225,7 +17225,7 @@ class TitleDetailViewTests(TestCase):
         # get_trailer defaults to None via setUp's own unconditional mock.
         mock_details.return_value = self._details()
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertNotContains(resp, "Watch trailer")
+        self.assertNotContains(resp, "<span>Trailer</span>")
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -17280,7 +17280,7 @@ class TitleDetailViewTests(TestCase):
         never_watched = Title.objects.create(media_type=MediaType.MOVIE, name="Never Watched", year=2021)
         resp = self.client.get(reverse("title_detail", args=[never_watched.pk]))
         self.assertFalse(resp.context["is_watched"])
-        self.assertContains(resp, "+ Mark as Watched")
+        self.assertContains(resp, "<span>Track</span>")
         self.assertContains(resp, reverse("title_mark_watched", args=[never_watched.pk]))
         self.assertNotContains(resp, "Remove your watched mark for")
 
@@ -17302,7 +17302,7 @@ class TitleDetailViewTests(TestCase):
         resp = self.client.get(reverse("title_detail", args=[already_watched.pk]))
         self.assertTrue(resp.context["is_watched"])
         self.assertEqual(resp.context["watch_count"], 1)
-        self.assertContains(resp, "&#10003; Watched")
+        self.assertContains(resp, "atile atile-green")
         self.assertContains(resp, reverse("title_unmark_watched", args=[already_watched.pk]))
         # Same popover menu as the poster card's watched button - not the
         # old bare toggle-with-JS-confirm.
@@ -17355,7 +17355,7 @@ class TitleDetailViewTests(TestCase):
         )
         with patch("tracker.integrations.tmdb.get_full_details", return_value=None):
             resp = self.client.get(reverse("title_detail", args=[show.pk]))
-        self.assertContains(resp, "+ Mark as Watched")
+        self.assertContains(resp, "<span>Track</span>")
         self.assertNotContains(resp, reverse("title_mark_watched", args=[show.pk]))
         self.assertContains(resp, reverse("title_mark_all_seasons_watched", args=[show.pk]))
 
@@ -20923,7 +20923,7 @@ class TitleUnmarkAllSeasonsWatchedTests(TestCase):
         self._watch(1, 1)
         resp = self.client.post(reverse("title_unmark_all_seasons_watched", args=[self.title.pk]))
         self.assertContains(resp, f'id="tv-watched-wrap-{self.title.pk}"')
-        self.assertContains(resp, "+ Mark as Watched")
+        self.assertContains(resp, "<span>Track</span>")
 
 
 class TitleRewatchSeasonTests(TestCase):
@@ -21075,8 +21075,8 @@ class TitleTvWatchedButtonTests(TestCase):
     @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
     def test_never_watched_shows_the_primary_mark_button(self, mock_details):
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, "+ Mark as Watched")
-        self.assertNotContains(resp, "&#10003; Watched")
+        self.assertContains(resp, "<span>Track</span>")
+        self.assertNotContains(resp, "atile atile-green")
 
     @patch("tracker.integrations.tmdb.get_full_details", return_value=None)
     def test_any_episode_watched_shows_the_in_progress_button_with_its_count(self, mock_details):
@@ -21085,10 +21085,10 @@ class TitleTvWatchedButtonTests(TestCase):
         # the_success_button_once_the_show_is_actually_finished below).
         self._watch(1, 1)
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, "bg-info hover:brightness-110")
+        self.assertContains(resp, "atile atile-blue")
         self.assertContains(resp, "Watching")
-        self.assertNotContains(resp, "bg-success hover:brightness-110")
-        self.assertNotContains(resp, "+ Mark as Watched")
+        self.assertNotContains(resp, "atile atile-green")
+        self.assertNotContains(resp, "<span>Track</span>")
 
     @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
     @patch("tracker.integrations.tmdb.get_full_details")
@@ -21097,9 +21097,9 @@ class TitleTvWatchedButtonTests(TestCase):
         WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.COMPLETED)
         mock_details.return_value = self._details(1)
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, "bg-success hover:brightness-110")
-        self.assertContains(resp, "&#10003; Watched")
-        self.assertNotContains(resp, "bg-info hover:brightness-110")
+        self.assertContains(resp, "atile atile-green")
+        self.assertContains(resp, "atile atile-green")
+        self.assertNotContains(resp, "atile atile-blue")
 
     @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
     @patch("tracker.integrations.tmdb.get_full_details")
@@ -21245,14 +21245,14 @@ class PreviewEpisodeBrowserTests(TestCase):
     @patch("tracker.integrations.tmdb.get_full_details")
     def test_preview_page_offers_a_hero_mark_watched_button(self, mock_details, mock_season):
         # Regression test - a not-yet-tracked TV/anime title's header used
-        # to have no "+ Mark as Watched" button at all (only the movie
+        # to have no "<span>Track</span>" button at all (only the movie
         # branch did), so marking one watched required scrolling down to
         # the Episodes section. The hero button should always be there,
         # offering the same bulk actions as that section's own popover.
         mock_details.return_value = self._details()
         mock_season.return_value = self._season()
         resp = self.client.get(reverse("title_preview", args=["tv", 500]))
-        self.assertContains(resp, "+ Mark as Watched")
+        self.assertContains(resp, "<span>Track</span>")
         self.assertContains(resp, reverse("title_preview_mark_all_seasons_watched", args=["tv", 500]))
 
     @patch("tracker.integrations.tmdb.get_season_details")
@@ -21264,8 +21264,8 @@ class PreviewEpisodeBrowserTests(TestCase):
         mock_details.return_value = self._details()
         mock_season.return_value = self._season()
         resp = self.client.get(reverse("title_preview", args=["tv", 500]))
-        self.assertNotContains(resp, "Watch trailer")
-        self.assertContains(resp, "+ Mark as Watched")
+        self.assertNotContains(resp, "<span>Trailer</span>")
+        self.assertContains(resp, "<span>Track</span>")
 
 
 class ReleaseDateForHelperTests(TestCase):
@@ -21772,7 +21772,7 @@ class WatchedButtonTemplateSelectionTests(TestCase):
     def test_first_click_from_the_detail_page_returns_the_detail_fragment(self):
         # The click itself creates a WatchEvent (watch_count 0 -> 1), so
         # the response is the detail page's watched *popover*, not its
-        # bare "+ Mark as Watched" state - the marker to check for is the
+        # bare "<span>Track</span>" state - the marker to check for is the
         # detail-prefixed popover wrapper, not the pre-click button id.
         resp = self.client.post(
             reverse("title_mark_watched", args=[self.title.pk]),
@@ -21797,7 +21797,7 @@ class WatchedButtonTemplateSelectionTests(TestCase):
             HTTP_HX_REQUEST="true",
             HTTP_HX_TARGET=f"watched-popover-detail-{self.title.pk}",
         )
-        self.assertContains(resp, "+ Mark as Watched")
+        self.assertContains(resp, "<span>Track</span>")
         self.assertNotContains(resp, f'id="watched-popover-{self.title.pk}"')
 
     def test_menu_action_from_a_poster_card_returns_the_grid_fragment(self):
@@ -22239,7 +22239,7 @@ class TitlePreviewViewTests(TestCase):
         mock_trailer.return_value = {"key": "abc123", "name": ""}
         mock_details.return_value = self._details()
         resp = self.client.get(reverse("title_preview", args=["movie", 42]))
-        self.assertContains(resp, "Watch trailer")
+        self.assertContains(resp, "<span>Trailer</span>")
         self.assertContains(resp, "https://www.youtube.com/embed/abc123?autoplay=1")
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
@@ -22249,7 +22249,7 @@ class TitlePreviewViewTests(TestCase):
         # get_trailer defaults to None via setUp's own unconditional mock.
         mock_details.return_value = self._details()
         resp = self.client.get(reverse("title_preview", args=["movie", 42]))
-        self.assertNotContains(resp, "Watch trailer")
+        self.assertNotContains(resp, "<span>Trailer</span>")
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -22283,7 +22283,7 @@ class TitlePreviewViewTests(TestCase):
         watchlist = ensure_watchlist(self.profile)
         mock_details.return_value = self._details()
         resp = self.client.get(reverse("title_preview", args=["movie", 42]))
-        self.assertContains(resp, "+ Mark as Watched")
+        self.assertContains(resp, "<span>Track</span>")
         self.assertContains(resp, reverse("title_preview_mark_watched", args=["movie", 42]))
         self.assertContains(resp, "Watchlist")
         self.assertContains(resp, reverse("title_preview_add_to_list", args=["movie", 42, watchlist.pk]))
@@ -22595,7 +22595,7 @@ class TitlePreviewViewTests(TestCase):
     @patch("tracker.integrations.tmdb.get_full_details")
     def test_add_to_list_redirects_to_the_real_detail_page_for_a_plain_form_post(self, mock_details):
         # The preview page's own Lists card is a plain form (not HTMX),
-        # same as its "+ Mark as Watched" button - so this materializes
+        # same as its "<span>Track</span>" button - so this materializes
         # the title, adds it to the list, and redirects, same shape as
         # title_preview_add_to_watchlist.
         mock_details.return_value = self._details()
@@ -28470,6 +28470,57 @@ class AnimeRoundTripTests(TestCase):
         watchlist = WatchList.objects.get(profile=other, is_watchlist=True)
         self.assertEqual(list(watchlist.items.values_list("title_id", flat=True)), [film.id])
 
+    def test_season_ratings_survive_the_backup_round_trip(self, *_mocks):
+        from tracker import backup
+        from tracker.models import SeasonRating
+
+        SeasonRating.objects.create(profile=self.profile, title=self.series, season=1, rating=9)
+        data = backup.build_backup(self.profile)
+        self.assertEqual(
+            data["season_ratings"],
+            [{"media_type": "anime", "title": "Frieren", "year": 2023, "ids": {"tmdb": 209867, "tmdb_kind": "tv"}, "season": 1, "rating": 9}],
+        )
+        other = self._fresh_server()
+        session = self._import(other, "backup.json", json.dumps(data), "json")
+        session.refresh_from_db()
+        self.assertEqual(session.source_metadata["backup_season_ratings"], 1)
+        self.assertEqual(session.source_metadata["backup_season_ratings_restored"], 1)
+        self.assertNotIn("backup_season_ratings_data", session.source_metadata)  # not left lying around
+        rating = SeasonRating.objects.get(profile=other)
+        self.assertEqual((rating.title.name, rating.season, rating.rating), ("Frieren", 1, 9))
+
+    def test_restoring_never_overwrites_a_season_you_have_already_rated(self, *_mocks):
+        from tracker import backup
+        from tracker.models import SeasonRating
+
+        SeasonRating.objects.create(profile=self.profile, title=self.series, season=1, rating=9)
+        data = backup.build_backup(self.profile)
+        SeasonRating.objects.filter(profile=self.profile).update(rating=4)  # a newer, different score
+        self.assertEqual(backup.restore_season_ratings(self.profile, data), 0)
+        self.assertEqual(SeasonRating.objects.get(profile=self.profile).rating, 4)
+        self.assertEqual(backup.restore_season_ratings(self.profile, data), 0)  # and twice is the same as once
+
+    def test_junk_season_rating_rows_are_skipped(self, *_mocks):
+        from tracker import backup
+
+        junk = {"season_ratings": [
+            "nope", {"title": ""}, {"title": "X", "season": "a", "rating": 5}, {"title": "X", "season": 1, "rating": 0},
+            {"title": "X", "season": 1, "rating": 11}, {"title": "X", "season": -1, "rating": 5},
+        ]}
+        self.assertEqual(backup.restore_season_ratings(self.profile, junk), 0)
+
+    def test_a_backup_without_season_ratings_still_restores(self, *_mocks):
+        from tracker import backup
+
+        data = backup.build_backup(self.profile)
+        self.assertEqual(data["season_ratings"], [])
+        data.pop("season_ratings")  # an older backup
+        self.assertEqual(backup.restore_season_ratings(self.profile, data), 0)
+        other = self._fresh_server()
+        session = self._import(other, "backup.json", json.dumps(data), "json")
+        session.refresh_from_db()
+        self.assertNotIn("backup_season_ratings", session.source_metadata)
+
     def test_trakt_json_round_trip(self, *_mocks):
         resp = self.client.get(reverse("export_trakt_json"))
         items = json.loads(resp.content)
@@ -32372,13 +32423,30 @@ class ShowProgressBuildTests(TestCase):
         self.assertEqual((card["percent"], card["left"], card["left_minutes"]), (100, 0, 0))
         self.assertTrue(card["complete"])
 
-    def test_nothing_watched_and_not_tracked_shows_no_card(self):
-        self.assertIsNone(_sp.build(self.profile, self.title, self.details))
-
-    def test_a_tracked_show_with_nothing_watched_starts_at_zero(self):
-        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.PLANNED)
+    def test_a_show_with_nothing_watched_starts_at_zero(self):
         card = _sp.build(self.profile, self.title, self.details)
-        self.assertEqual((card["percent"], card["watched"], card["left"]), (0, 0, 18))
+        self.assertEqual((card["percent"], card["watched"], card["left"], card["state"]), (0, 0, 18, "start"))
+        self.assertEqual(card["left_minutes"], 18 * 50)
+
+    def test_the_card_says_what_state_the_show_is_in(self):
+        self.assertEqual(_sp.build(self.profile, self.title, self.details)["state"], "start")
+        self.watch(1, 1)
+        self.assertEqual(_sp.build(self.profile, self.title, self.details)["state"], "watching")
+        for s_, n in [(1, i) for i in range(2, 13)] + [(2, i) for i in range(1, 7)]:
+            self.watch(s_, n)
+        # everything released is watched: caught up while it is still airing...
+        self.assertEqual(_sp.build(self.profile, self.title, self.details)["state"], "caught_up")
+        # ...finished once TMDB says it has ended or been cancelled
+        for status in ("Ended", "Canceled"):
+            self.assertEqual(_sp.build(self.profile, self.title, {**self.details, "status": status})["state"], "finished", status)
+
+    def test_a_returning_or_in_production_show_is_never_finished(self):
+        for n in range(1, 13):
+            self.watch(1, n)
+        for n in range(1, 7):
+            self.watch(2, n)
+        for status in ("Returning Series", "In Production", "Planned", ""):
+            self.assertEqual(_sp.build(self.profile, self.title, {**self.details, "status": status})["state"], "caught_up", status)
 
     def test_movies_and_unknown_titles_have_none(self):
         movie = Title.objects.create(media_type=MediaType.MOVIE, name="Heat", year=1995)
@@ -32389,7 +32457,7 @@ class ShowProgressBuildTests(TestCase):
         other = Profile.objects.create(user=User.objects.create_user("sprogother", password="x12345678"), display_name="O")
         ep = Episode.objects.create(title=self.title, season=1, episode=1)
         WatchEvent.objects.create(profile=other, title=self.title, episode=ep, watched_at=timezone.now())
-        self.assertIsNone(_sp.build(self.profile, self.title, self.details))
+        self.assertEqual(_sp.build(self.profile, self.title, self.details)["watched"], 0)
 
     def test_the_typical_runtime_falls_back_to_local_episodes_then_a_default(self):
         self.details["episode_runtime"] = None
@@ -32411,33 +32479,38 @@ class ShowProgressPageTests(TestCase):
         self.client.login(username="sprogpage", password="pass12345")
         self.title = Title.objects.create(media_type=MediaType.TV, name="One Pace", year=2020)
         self.card = {
-            "percent": 21, "watched": 100, "total": 468, "left": 368,
+            "state": "watching", "percent": 21, "watched": 100, "total": 468, "left": 368,
             "watched_minutes": 47 * 60 + 29, "left_minutes": 177 * 60 + 28, "complete": False,
         }
 
-    @patch("tracker.views.show_progress.build")
-    def test_the_card_shows_percent_time_watched_time_left_and_counts(self, mock_build):
-        mock_build.return_value = self.card
-        body = self.client.get(reverse("title_detail", args=[self.title.pk])).content.decode()
-        self.assertIn('id="show-progress-d"', body)  # under the poster on desktop
-        self.assertIn('id="show-progress-m"', body)  # under the buttons on phones
-        self.assertIn("21%", body)
-        self.assertIn("47h 29m", body)
-        self.assertIn("100 ep", body)
-        self.assertIn("177h 28m", body)
-        self.assertIn("368 ep", body)
-        self.assertIn("100 of 468 released episodes watched", body)
-        self.assertIn("width: 21%", body)
+    def page(self, card):
+        with patch("tracker.views.show_progress.build", return_value=card):
+            return self.client.get(reverse("title_detail", args=[self.title.pk])).content.decode()
 
-    @patch("tracker.views.show_progress.build")
-    def test_a_finished_show_says_so(self, mock_build):
-        mock_build.return_value = {**self.card, "percent": 100, "left": 0, "left_minutes": 0, "complete": True}
-        self.assertContains(self.client.get(reverse("title_detail", args=[self.title.pk])), "All caught up")
+    def test_the_card_shows_percent_time_watched_time_left_and_counts(self):
+        body = self.page(self.card)
+        self.assertIn('id="show-progress"', body)
+        for text in ("21%", "47h 29m", "100 ep", "177h 28m", "368 ep", "Left", "100 of 468 released episodes watched", "width: 21%"):
+            self.assertIn(text, body)
 
-    @patch("tracker.views.show_progress.build", return_value=None)
-    def test_no_card_when_there_is_nothing_to_show(self, mock_build):
-        body = self.client.get(reverse("title_detail", args=[self.title.pk])).content.decode()
-        self.assertNotIn('class="sprog', body)
+    def test_not_started_says_start_watching(self):
+        body = self.page({**self.card, "state": "start", "percent": 0, "watched": 0, "left": 468, "watched_minutes": 0})
+        self.assertIn("Start watching", body)
+        self.assertIn("0 of 468 ep", body)
+        self.assertIn("is-start", body)
+
+    def test_caught_up_and_finished_read_differently(self):
+        done = {**self.card, "percent": 100, "left": 0, "left_minutes": 0, "complete": True}
+        caught_up = self.page({**done, "state": "caught_up"})
+        self.assertIn("All caught up", caught_up)
+        self.assertNotIn("Finished", caught_up)
+        finished = self.page({**done, "state": "finished"})
+        self.assertIn("Finished", finished)
+        self.assertNotIn("All caught up", finished)
+        self.assertIn("<svg", finished[finished.index("Finished") - 400 : finished.index("Finished")])  # the check-circle
+
+    def test_no_card_when_there_is_nothing_to_show(self):
+        self.assertNotIn('class="sprog', self.page(None))
 
     def test_a_movie_page_has_no_card(self):
         movie = Title.objects.create(media_type=MediaType.MOVIE, name="Heat", year=1995)
@@ -32450,30 +32523,23 @@ class ShowProgressPageTests(TestCase):
     def test_a_watch_change_refreshes_the_card_out_of_band(self, mock_season, mock_details, mock_tv, mock_build):
         mock_build.return_value = self.card
         mock_season.return_value = {"episodes": [{"episode_number": 1, "name": "Ep1", "still_url": None, "air_date": None, "runtime": 40, "vote_average": None}]}
-        resp = self.client.post(reverse("title_mark_season_watched", args=[self.title.pk, 1]))
-        body = resp.content.decode()
-        for suffix in ("-d", "-m"):  # both places are refreshed
-            at = body.index(f'id="show-progress{suffix}"')
-            self.assertIn('hx-swap-oob="true"', body[at : at + 200])
+        body = self.client.post(reverse("title_mark_season_watched", args=[self.title.pk, 1])).content.decode()
+        at = body.index('id="show-progress"')
+        self.assertIn('hx-swap-oob="true"', body[at : at + 120])
         self.assertIn("21%", body)
 
-    @patch("tracker.views.show_progress.build")
-    def test_desktop_puts_it_under_the_poster_and_phones_under_the_buttons(self, mock_build):
-        mock_build.return_value = self.card
-        body = self.client.get(reverse("title_detail", args=[self.title.pk])).content.decode()
-        desktop, phone = body.index('id="show-progress-d"'), body.index('id="show-progress-m"')
-        self.assertLess(body.index('class="poster '), desktop)  # after the poster
-        self.assertLess(desktop, body.index('class="min-w-0 lg:pt-2'))  # before the title column
-        self.assertGreater(phone, body.index('title-actions'))  # after the action buttons
-        self.assertIn("hidden lg:block", body[desktop - 10 : desktop + 120])
-        self.assertIn("lg:hidden", body[phone - 10 : phone + 120])
-        self.assertIn("lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)]", body)  # a bigger poster
+    def test_the_card_sits_under_the_tiles_in_the_poster_column(self):
+        body = self.page(self.card)
+        self.assertEqual(body.count('id="show-progress"'), 1)  # one copy, laid out by CSS at every width
+        poster, tiles, card = body.index('class="poster '), body.index('class="atile-row"'), body.index('id="show-progress"')
+        self.assertLess(poster, tiles)
+        self.assertLess(tiles, card)
+        self.assertLess(card, body.index('class="min-w-0 lg:pt-2'))  # still before the title column in the markup's left cell
 
     def test_the_bar_fills_to_the_percent_and_uses_the_media_colour(self):
         css = (Path(django_settings.BASE_DIR) / "static" / "src" / "app.css").read_text(encoding="utf-8")
         self.assertIn(".sprog-fill", css)
         self.assertIn('.sprog[data-kind="anime"]', css)
-
 
 # ---------------------------------------------------------------------------
 # Sync direction: what a connected service may do with a profile's data
@@ -33157,3 +33223,322 @@ class WetrakrPushViewTests(WetrakrPushBase):
         SyncLog.objects.create(profile=self.profile, provider="wetrakr", status="success", item_count=5)
         actions = {e["action"] for e in selectors.combined_logs(1).object_list}
         self.assertEqual(actions, {"Send · WeTrakr", "Sync · WeTrakr"})
+
+
+# ---------------------------------------------------------------------------
+# Title page: action tiles under the poster and the rating popup
+# ---------------------------------------------------------------------------
+from tracker.models import SeasonRating as _SeasonRating  # noqa: E402
+
+
+class TitleTilesBase(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("tileuser", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Tiles")
+        self.client.login(username="tileuser", password="pass12345")
+        self.movie = Title.objects.create(media_type=MediaType.MOVIE, name="Heat", year=1995, external_ids={"tmdb": "1", "tmdb_kind": "movie"})
+        self.show = Title.objects.create(media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "2", "tmdb_kind": "tv"})
+        self.trailer = None
+        # nothing here may reach TMDB or the task broker
+        for name, default in (
+            ("get_director", None), ("get_watch_providers", []), ("get_season_details", None), ("get_credits", []),
+            ("get_similar", []), ("get_tv_details", None), ("get_backdrops", []), ("get_trailer", None),
+        ):
+            patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        dispatch = patch("tracker.views._dispatch_sync_task_safely")
+        dispatch.start()
+        self.addCleanup(dispatch.stop)
+
+    @staticmethod
+    def details(kind):
+        movie = kind == "movie"
+        return {
+            "tmdb_id": 1, "media_type": kind, "name": "X", "year": "2020", "overview": "", "tagline": "", "genres": [],
+            "runtime": 100 if movie else None, "number_of_seasons": None if movie else 1, "number_of_episodes": None if movie else 10,
+            "seasons": [] if movie else [(1, 10)], "episode_runtime": None, "backdrop_url": None, "poster_url": None,
+            "vote_average": 7.0, "vote_count": 10, "original_language": "en", "original_language_display": "English",
+            "status": "Released" if movie else "Returning Series", "certification": None,
+            "release_date": "2020-01-01" if movie else None, "digital_release_date": None, "digital_release_upcoming": False,
+            "first_air_date": None if movie else "2020-01-01", "last_air_date": None, "next_episode_to_air": None,
+            "last_episode_to_air": None, "budget": None, "revenue": None, "production_companies": [], "countries": [],
+            "countries_display": [], "networks": [], "collection_id": None,
+        }
+
+    def get(self, title, **params):
+        kind = "movie" if title.media_type == MediaType.MOVIE else "tv"
+        with patch("tracker.integrations.tmdb.get_full_details", return_value=self.details(kind)),                 patch("tracker.views._media_gallery_context", return_value={"trailer": self.trailer, "gallery_items": [], "gallery_image_urls": []}):
+            return self.client.get(reverse("title_detail", args=[title.pk]), params).content.decode()
+
+    def watch(self, title, rating=None):
+        return WatchEvent.objects.create(profile=self.profile, title=title, watched_at=timezone.now(), user_rating=rating)
+
+
+class TitleTilesLayoutTests(TitleTilesBase):
+    def test_the_actions_live_under_the_poster_not_beside_the_title(self):
+        body = self.get(self.movie)
+        self.assertNotIn("title-actions", body)
+        self.assertNotIn("Watch trailer", body)
+        poster, tiles = body.index('class="poster '), body.index('class="atile-row"')
+        self.assertLess(poster, tiles)
+        # the whole right-hand info column (title, facts) comes after the poster column
+        self.assertLess(tiles, body.index('class="min-w-0 lg:pt-2'))
+
+    def test_the_column_reorders_for_phones_with_one_set_of_tiles(self):
+        body = self.get(self.movie)
+        self.assertIn("lg:row-span-2 max-lg:contents", body)
+        for order in ("max-lg:order-1", "max-lg:order-2", "max-lg:order-3", "max-lg:order-4"):
+            self.assertIn(order, body)
+        self.assertEqual(body.count('class="atile-row"'), 1)
+
+    def test_the_poster_column_is_a_bit_wider(self):
+        self.assertIn("lg:grid-cols-[280px_minmax(0,1fr)]", self.get(self.movie))
+
+    def test_there_is_no_your_rating_card_in_the_side_rail_any_more(self):
+        body = self.get(self.movie)
+        self.assertNotIn('<section id="your-rating"', body)
+        self.assertNotIn('<h2 class="subhead mb-2">Your rating</h2>', body)
+
+    def test_the_tiles_are_equal_and_a_row(self):
+        css = (Path(django_settings.BASE_DIR) / "static" / "src" / "app.css").read_text(encoding="utf-8")
+        row = css[css.index(".atile-row {"):]
+        self.assertIn("display: flex", row[: row.index("}")])
+        tile = css[css.index(".atile {"):]
+        self.assertIn("min-height: 3.25rem", tile[: tile.index("}")])  # about 52px
+
+    def test_the_tiles_run_in_order_status_list_rating_trailer(self):
+        self.trailer = {"key": "abc", "name": "Official"}
+        body = self.get(self.movie)
+        order = [body.index(x) for x in ("<span>Track</span>", "<span>Add to list</span>", "<span>Rate</span>", "<span>Trailer</span>")]
+        self.assertEqual(order, sorted(order))
+
+
+class TitleStatusTileTests(TitleTilesBase):
+    def test_not_tracked_is_neutral_everywhere(self):
+        body = self.get(self.movie)
+        self.assertIn("<span>Track</span>", body)
+        self.assertIn("<span>Add to list</span>", body)
+        self.assertIn("<span>Rate</span>", body)
+        self.assertNotIn("atile-green", body)
+        self.assertNotIn("atile-blue", body)
+
+    def test_a_watched_movie_is_green(self):
+        self.watch(self.movie)
+        body = self.get(self.movie)
+        self.assertIn("atile atile-green", body)
+        self.assertIn("<span>Watched", body)
+
+    def test_a_show_in_progress_is_amber_and_a_completed_one_is_green(self):
+        ep = Episode.objects.create(title=self.show, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=self.show, episode=ep, watched_at=timezone.now())
+        body = self.get(self.show)
+        self.assertIn("atile atile-blue", body)
+        self.assertIn("<span>Watching", body)
+        self.assertNotIn("atile-green", body)
+        WatchProgress.objects.create(profile=self.profile, title=self.show, status=WatchProgress.Status.COMPLETED)
+        body = self.get(self.show)
+        self.assertIn("atile atile-green", body)
+        self.assertNotIn("atile-blue", body)
+
+    def watched_episodes(self, count):
+        for n in range(1, count + 1):
+            ep = Episode.objects.create(title=self.show, season=1, episode=n)
+            WatchEvent.objects.create(profile=self.profile, title=self.show, episode=ep, watched_at=timezone.now())
+
+    def tv_details(self, aired, status="Returning Series"):
+        details = self.details("tv")
+        details["number_of_episodes"] = 10
+        details["status"] = status
+        details["last_episode_to_air"] = {"season_number": 1, "episode_number": aired, "air_date": "2026-01-01", "name": ""}
+        return details
+
+    def get_tv(self, details):
+        with patch("tracker.integrations.tmdb.get_full_details", return_value=details), \
+                patch("tracker.views._media_gallery_context", return_value={"trailer": None, "gallery_items": [], "gallery_image_urls": []}):
+            return self.client.get(reverse("title_detail", args=[self.show.pk])).content.decode()
+
+    def test_partway_through_a_show_is_blue_never_green(self):
+        self.watched_episodes(3)
+        body = self.get_tv(self.tv_details(aired=10))
+        self.assertIn("atile atile-blue", body)
+        self.assertIn("<span>Watching", body)
+        self.assertNotIn("atile-green", body)
+
+    def test_partway_is_still_blue_even_if_the_show_was_once_marked_completed(self):
+        # e.g. a new batch of episodes has aired since: the card says "Left", so the tile must not say "Watched"
+        self.watched_episodes(3)
+        WatchProgress.objects.create(profile=self.profile, title=self.show, status=WatchProgress.Status.COMPLETED)
+        body = self.get_tv(self.tv_details(aired=10))
+        self.assertIn("atile atile-blue", body)
+        self.assertNotIn("atile-green", body)
+
+    def test_green_only_when_caught_up_or_finished(self):
+        self.watched_episodes(10)
+        for status in ("Returning Series", "Ended"):
+            body = self.get_tv(self.tv_details(aired=10, status=status))
+            self.assertIn("atile atile-green", body, status)
+            self.assertIn("<span>Watched", body, status)
+            self.assertNotIn("atile-blue", body, status)
+
+    def test_caught_up_is_green_without_any_completed_flag(self):
+        self.watched_episodes(10)
+        self.assertFalse(WatchProgress.objects.filter(profile=self.profile, title=self.show).exists())
+        self.assertIn("atile atile-green", self.get_tv(self.tv_details(aired=10)))
+
+    def test_the_tile_and_the_card_always_agree(self):
+        for watched, aired in ((0, 10), (4, 10), (10, 10)):
+            WatchEvent.objects.all().delete()
+            Episode.objects.all().delete()
+            self.watched_episodes(watched)
+            body = self.get_tv(self.tv_details(aired=aired))
+            green, blue = "atile atile-green" in body, "atile atile-blue" in body
+            card_done = "sprog is-caughtup" in body or "sprog is-finished" in body
+            self.assertEqual(green, card_done, (watched, aired))
+            self.assertEqual(blue, 0 < watched < aired, (watched, aired))
+
+    def rf(self):
+        request = RequestFactory().get("/")
+        request.user = self.profile.user
+        return request
+
+    def test_the_hero_tile_after_a_watch_follows_the_same_rule(self):
+        self.watched_episodes(3)
+        with patch("tracker.integrations.tmdb.get_full_details", return_value=self.tv_details(aired=10)), \
+                patch("tracker.integrations.tmdb.get_tv_details", return_value=None):
+            body = views._hero_watched_button_oob(self.rf(), self.profile, self.show)
+        self.assertIn("atile atile-blue", body)
+        for n in range(4, 11):
+            ep = Episode.objects.create(title=self.show, season=1, episode=n)
+            WatchEvent.objects.create(profile=self.profile, title=self.show, episode=ep, watched_at=timezone.now())
+        with patch("tracker.integrations.tmdb.get_full_details", return_value=self.tv_details(aired=10)), \
+                patch("tracker.integrations.tmdb.get_tv_details", return_value=None):
+            body = views._hero_watched_button_oob(self.rf(), self.profile, self.show)
+        self.assertIn("atile atile-green", body)
+
+    def test_the_list_tile_turns_amber_when_it_is_on_a_list(self):
+        wl = WatchList.objects.create(profile=self.profile, name="Faves")
+        self.assertNotIn("atile-accent", self.get(self.movie).split("Add to list")[0][-300:])
+        WatchListItem.objects.create(watchlist=wl, title=self.movie)
+        body = self.get(self.movie)
+        self.assertIn("On 1 list", body)
+        self.assertIn("atile atile-accent", body)
+
+    def test_the_hero_tile_updates_after_a_watch_like_the_old_button_did(self):
+        ep = Episode.objects.create(title=self.show, season=1, episode=1)
+        with patch("tracker.integrations.tmdb.get_tv_details", return_value=None), \
+                patch("tracker.integrations.tmdb.get_full_details", return_value=None), \
+                patch("tracker.integrations.tmdb.get_season_details", return_value={"episodes": [{"episode_number": 1, "name": "E", "still_url": None, "air_date": None, "runtime": 40, "vote_average": None}]}):
+            body = self.client.post(reverse("title_mark_season_watched", args=[self.show.pk, 1])).content.decode()
+        self.assertIn(f'id="tv-watched-wrap-{self.show.pk}"', body)
+        self.assertIn("<span>Watching", body)
+
+
+class TitleRatingTileTests(TitleTilesBase):
+    def test_the_tile_shows_the_score_or_rate(self):
+        self.assertIn("<span>Rate</span>", self.get(self.movie))
+        self.watch(self.movie, rating=8)
+        body = self.get(self.movie)
+        self.assertIn("<span>8/10</span>", body)
+        self.assertIn("atile atile-accent", body)
+
+    def test_the_popup_has_everything_the_design_asks_for(self):
+        self.watch(self.show, rating=7)
+        body = self.get(self.show)
+        for text in ("Your rating", "Silo", "Click the left half of a star for half points", "Clear rating", "Remove your score for this show", "By season"):
+            self.assertIn(text, body)
+        self.assertEqual(body.count('class="rate-star spool-tooltip"'), 5)  # five stars
+        self.assertIn('name="rating" value="1"', body)  # half-star steps: 1..10
+        self.assertIn('name="rating" value="10"', body)
+        self.assertIn("text-[2rem]", body)  # the large readout
+        self.assertIn(":class=\"open && 'atile-open'\"", body)  # highlighted while open
+
+    def test_a_movie_popup_has_no_by_season_list(self):
+        body = self.get(self.movie)
+        self.assertNotIn("By season", body)
+        self.assertIn("Remove your score for this movie", body)
+
+    def test_the_popup_stays_open_after_one_of_its_own_actions(self):
+        self.assertIn("open: false", self.get(self.movie))
+        self.assertIn("open: true", self.get(self.movie, rating="open"))
+
+    def test_the_old_deep_link_opens_the_popup(self):
+        self.assertIn("open-rating", self.get(self.movie))
+
+    def test_clear_is_disabled_until_there_is_a_rating(self):
+        def clear_button(body):
+            at = body.index(reverse("title_clear_rating", args=[self.movie.pk]))
+            return body[at : at + 400]
+
+        self.assertIn('type="submit" disabled', clear_button(self.get(self.movie)))
+        self.watch(self.movie, rating=6)
+        self.assertNotIn('type="submit" disabled', clear_button(self.get(self.movie)))
+
+    def test_the_preview_page_cannot_rate_until_tracked(self):
+        with patch("tracker.integrations.tmdb.get_full_details", return_value=self.details("movie")),                 patch("tracker.views._media_gallery_context", return_value={"trailer": None, "gallery_items": [], "gallery_image_urls": []}):
+            body = self.client.get(reverse("title_preview", args=["movie", 999001])).content.decode()
+        self.assertIn('title="Track it first to rate it"', body)
+        self.assertIn('href="#preview-lists"', body)
+
+
+class TitleRatingActionsTests(TitleTilesBase):
+    def test_rating_still_works_and_by_default_redirects_to_the_plain_page(self):
+        resp = self.client.post(reverse("title_rate", args=[self.movie.pk]), {"rating": "9"})
+        self.assertRedirects(resp, reverse("title_detail", args=[self.movie.pk]), fetch_redirect_response=False)
+        self.assertEqual(WatchEvent.objects.get(profile=self.profile, title=self.movie).user_rating, 9)
+
+    def test_from_the_popup_it_comes_back_open(self):
+        resp = self.client.post(reverse("title_rate", args=[self.movie.pk]), {"rating": "5", "open_rating": "1"})
+        self.assertRedirects(resp, reverse("title_detail", args=[self.movie.pk]) + "?rating=open", fetch_redirect_response=False)
+
+    def test_clear_takes_the_score_off_every_watch_and_keeps_the_watches(self):
+        self.watch(self.movie, rating=8)
+        self.watch(self.movie, rating=9)
+        resp = self.client.post(reverse("title_clear_rating", args=[self.movie.pk]), {"open_rating": "1"})
+        self.assertRedirects(resp, reverse("title_detail", args=[self.movie.pk]) + "?rating=open", fetch_redirect_response=False)
+        events = WatchEvent.objects.filter(profile=self.profile, title=self.movie)
+        self.assertEqual(events.count(), 2)
+        self.assertFalse(events.filter(user_rating__isnull=False).exists())
+
+    def test_clear_only_touches_your_own_ratings(self):
+        other = Profile.objects.create(user=User.objects.create_user("tileother", password="x12345678"), display_name="O")
+        WatchEvent.objects.create(profile=other, title=self.movie, watched_at=timezone.now(), user_rating=7)
+        self.watch(self.movie, rating=3)
+        self.client.post(reverse("title_clear_rating", args=[self.movie.pk]))
+        self.assertEqual(WatchEvent.objects.get(profile=other).user_rating, 7)
+
+    def test_rating_a_season(self):
+        resp = self.client.post(reverse("title_season_rate", args=[self.show.pk, 2]), {"rating": "8", "open_rating": "1"})
+        self.assertRedirects(resp, reverse("title_detail", args=[self.show.pk]) + "?rating=open", fetch_redirect_response=False)
+        self.assertEqual(_SeasonRating.objects.get(profile=self.profile, title=self.show, season=2).rating, 8)
+        self.client.post(reverse("title_season_rate", args=[self.show.pk, 2]), {"rating": "4"})
+        self.assertEqual(_SeasonRating.objects.filter(profile=self.profile, title=self.show).count(), 1)  # replaced, not added
+        self.assertEqual(_SeasonRating.objects.get().rating, 4)
+
+    def test_clearing_a_season_and_bad_input(self):
+        _SeasonRating.objects.create(profile=self.profile, title=self.show, season=1, rating=6)
+        self.client.post(reverse("title_season_rate", args=[self.show.pk, 1]), {"clear": "1"})
+        self.assertFalse(_SeasonRating.objects.exists())
+        for bad in ("0", "11", "x", ""):
+            self.assertEqual(self.client.post(reverse("title_season_rate", args=[self.show.pk, 1]), {"rating": bad}).status_code, 404, bad)
+
+    def test_a_movie_has_no_seasons_to_rate(self):
+        self.assertEqual(self.client.post(reverse("title_season_rate", args=[self.movie.pk, 1]), {"rating": "5"}).status_code, 404)
+
+    def test_season_ratings_are_per_profile_and_shown_as_chips(self):
+        _SeasonRating.objects.create(profile=self.profile, title=self.show, season=1, rating=10)
+        other = Profile.objects.create(user=User.objects.create_user("tileother2", password="x12345678"), display_name="O2")
+        _SeasonRating.objects.create(profile=other, title=self.show, season=2, rating=2)
+        cards = [{"number": 1, "total_episodes": 10}, {"number": 2, "total_episodes": 8}]
+        rows = views._season_rating_rows(self.profile, self.show, cards)
+        self.assertEqual([(r["number"], r["rating"]) for r in rows], [(1, 10), (2, None)])
+        self.assertEqual(rows[0]["stars"][-1]["fill"], 100)
+        self.assertEqual(views._season_rating_rows(self.profile, self.movie, cards), [])
+
+    def test_all_three_require_login_and_post(self):
+        self.client.logout()
+        for name, args in (("title_rate", [self.movie.pk]), ("title_clear_rating", [self.movie.pk]), ("title_season_rate", [self.show.pk, 1])):
+            self.assertNotEqual(self.client.post(reverse(name, args=args), {"rating": "5"}).status_code, 200, name)
+        self.client.login(username="tileuser", password="pass12345")
+        self.assertEqual(self.client.get(reverse("title_clear_rating", args=[self.movie.pk])).status_code, 405)
+        self.assertEqual(self.client.get(reverse("title_season_rate", args=[self.show.pk, 1])).status_code, 405)

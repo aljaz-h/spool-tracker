@@ -1,19 +1,23 @@
-{% load tracker_extras %}
-{# context: title, suffix ("-d" under the poster on desktop, "-m" under the buttons on phones - two places, so each has its own id), wrap_class, show_progress (show_progress.build() dict or None), oob (bool, optional - sent as an hx-swap-oob fragment after a watch change so it never goes stale). Watch progress for a show/anime: percent of the RELEASED episodes watched, time watched, time left, episode counts. The wrapper is always rendered so an out-of-band swap always has something to replace. #}
-<div id="show-progress{{ suffix }}" class="{{ wrap_class }}" {% if oob %}hx-swap-oob="true"{% endif %}>
+{% load icons tracker_extras %}
+{# context: title, show_progress (show_progress.build() dict or None), oob (bool, optional - sent as an hx-swap-oob fragment after a watch change so it never goes stale). The card under the action tiles: share of the RELEASED episodes watched, time watched, time left, episode counts. state: start (nothing watched yet), watching, caught_up (still airing) or finished (the show has ended or been cancelled - from TMDB's status). The wrapper is always rendered so an out-of-band swap always has something to replace. #}
+<div id="show-progress" class="mt-3" {% if oob %}hx-swap-oob="true"{% endif %}>
   {% if show_progress %}
     <div
-      class="sprog {% if show_progress.complete %}is-complete{% endif %}" data-kind="{{ title.media_type }}"
+      class="sprog is-{{ show_progress.state|cut:"_" }}{% if show_progress.complete %} is-complete{% endif %}" data-kind="{{ title.media_type }}"
       role="group" aria-label="Watch progress" title="Released episodes only"
     >
       <div class="sprog-fill" style="width: {{ show_progress.percent }}%"></div>
       <div class="sprog-row">
         <div class="sprog-side">
           <span class="sprog-pct">{{ show_progress.percent }}%</span>
-          <span class="sprog-sub">{{ show_progress.watched_minutes|runtime_hm }} &middot; {{ show_progress.watched }} ep</span>
+          <span class="sprog-sub">{% if show_progress.state == "start" %}0 of {{ show_progress.total }} ep{% else %}{{ show_progress.watched_minutes|runtime_hm }} &middot; {{ show_progress.watched }} ep{% endif %}</span>
         </div>
         <div class="sprog-side sprog-side-right">
-          {% if show_progress.complete %}
+          {% if show_progress.state == "start" %}
+            <span class="sprog-label">Start watching</span>
+          {% elif show_progress.state == "finished" %}
+            <span class="sprog-label inline-flex items-center gap-1.5">{% icon "circle-check" "w-4 h-4" %}Finished</span>
+          {% elif show_progress.state == "caught_up" %}
             <span class="sprog-label">All caught up</span>
           {% else %}
             <span class="sprog-label">Left</span>

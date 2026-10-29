@@ -8,6 +8,37 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.165.0] - 2026-10-29
+
+### Changed
+
+- **Title page: the actions moved under the poster.** A row of four equal tiles -
+  watched/status, lists, rating and trailer - now sits under the poster (and under
+  the poster and title on a phone, still in one row), instead of beside the title.
+  The watch-progress card is under them.
+  - The status tile is neutral ("Track") until you track the title, blue while you
+    are partway through a show ("Watching"), and green only once you are all caught
+    up or the show has finished - it always agrees with the progress card. The lists
+    tile turns amber when the title is on a list; the trailer tile only appears when
+    there is a trailer.
+  - Progress card states: not started ("0% - Start watching"), partway (percentage
+    on the left, "Left" with the time and episodes remaining on the right), caught up
+    on a show that is still airing ("All caught up"), and finished on a show that has
+    ended or been cancelled ("Finished", from the show's status, never a toggle).
+    The card now also shows for shows you have not started.
+  - The poster column is a little wider on desktop.
+- **Rating moved into a popup.** The rating tile shows your score (or "Rate") and
+  opens a popup under the tiles: five stars with half-star steps, a large score
+  readout, a "Clear rating" row, and a "By season" list with a rating chip for each
+  season. The "Your rating" card in the side rail is gone.
+
+### Added
+
+- **Clear rating** - removes your score from the show while keeping your watches.
+- **Season ratings** - rate each season of a show separately in the popup. They are
+  part of Spool's backup export and come back when you import it (a season you have
+  already rated keeps your score).
+
 ## [0.164.0] - 2026-10-29
 
 ### Added

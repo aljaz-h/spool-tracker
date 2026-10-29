@@ -1932,3 +1932,24 @@ class PushRecord(models.Model):
 
     def __str__(self):
         return f"{self.provider} {self.status}: {self.watch_event_id}"
+
+
+class SeasonRating(models.Model):
+    """A profile's own score for one season of a show (1-10, same scale as a
+    watch's rating) - the "By season" list in the title page's rating
+    popup. A show's overall rating still lives on its watches."""
+
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="season_ratings")
+    title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="season_ratings")
+    season = models.PositiveSmallIntegerField()
+    rating = models.PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(10)])
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["profile", "title", "season"], name="one_season_rating_per_profile")
+        ]
+        ordering = ["season"]
+
+    def __str__(self):
+        return f"{self.profile} rated {self.title} S{self.season}: {self.rating}"

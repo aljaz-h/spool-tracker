@@ -10,7 +10,7 @@ arrived (a button here, Trakt, Simkl, Nuvio, the Scrobble API, an import).
 
 from django.db.models import Avg
 
-from .models import Episode, MediaType, WatchEvent, WatchProgress
+from .models import Episode, MediaType, WatchEvent
 
 DEFAULT_EPISODE_MINUTES = 45
 DEFAULT_ANIME_EPISODE_MINUTES = 24
@@ -40,11 +40,17 @@ def _typical_minutes(title, details):
     return DEFAULT_ANIME_EPISODE_MINUTES if title.media_type == MediaType.ANIME else DEFAULT_EPISODE_MINUTES
 
 
+ENDED_STATUSES = ("Ended", "Canceled")
+
+
 def build(profile, title, details):
     """{"percent", "watched", "total", "left", "watched_minutes",
-    "left_minutes", "complete"} or None when there is nothing to show
-    (a movie, a title TMDB knows nothing about, nothing aired yet, or a
-    show this profile has not started and does not track)."""
+    "left_minutes", "complete", "state"} or None when there is nothing to
+    show (a movie, a title TMDB knows nothing about, or nothing aired yet).
+    state is what the card says: "start" (nothing watched yet), "watching"
+    (partway), "caught_up" (everything released is watched and the show is
+    still airing) or "finished" (the same, and the show has ended or been
+    cancelled - taken from TMDB's own status, never a toggle)."""
     if title.media_type == MediaType.MOVIE or not details or details.get("media_type") == "movie":
         return None
     total = aired_episode_count(details)
@@ -72,10 +78,15 @@ def build(profile, title, details):
         seen.add(key)
         watched_minutes += runtime or typical
     watched = min(len(seen), total)
-    if not watched and not WatchProgress.objects.filter(profile=profile, title=title).exists():
-        return None
     left = total - watched
+    if watched == 0:
+        state = "start"
+    elif left:
+        state = "watching"
+    else:
+        state = "finished" if (details.get("status") or "") in ENDED_STATUSES else "caught_up"
     return {
+        "state": state,
         "percent": min(100, round(watched / total * 100)),
         "watched": watched,
         "total": total,

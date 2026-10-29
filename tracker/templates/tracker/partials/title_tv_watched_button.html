@@ -1,4 +1,8 @@
 {% load icons %}
+{% comment %}
+done: green "Watched" only when the show is finished or you are all caught up - the progress card's own state (progress_state: caught_up / finished) when TMDB gave one, else the old COMPLETED-progress flag (show_completed). Anything partway through is the blue "Watching".
+{% endcomment %}
+{% if progress_state %}{% if progress_state == "caught_up" or progress_state == "finished" %}{% firstof "1" as done %}{% endif %}{% elif show_completed %}{% firstof "1" as done %}{% endif %}
 {# context: title (Title, TV/anime), watch_count (int - selectors.title_watch_count: the least-rewatched locally-known episode's own play count), show_completed (bool - whether the whole show has a COMPLETED WatchProgress, drives the popover's mark-vs-rewatch wording), season_cards (list, from views._episode_panel_context - {"number", "total_episodes", "watched_count", ...} per season, drives the popover's own per-season rows), oob (bool, optional - true when appended to another response as an hx-swap-oob fragment, see views._hero_watched_button_oob) #}
 {% comment %}
 The header's "Watched" control for a show/anime - same visual/popover
@@ -26,7 +30,7 @@ already uses elsewhere (Dashboard/Discover/similar rows) - a blue play
 icon + "Watching" while watched but not COMPLETED, the green check only
 once show_completed is actually true.
 {% endcomment %}
-<div class="relative" id="tv-watched-wrap-{{ title.pk }}" {% if oob %}hx-swap-oob="true"{% endif %} x-data="{
+<div class="relative flex-1 min-w-0" id="tv-watched-wrap-{{ title.pk }}" {% if oob %}hx-swap-oob="true"{% endif %} x-data="{
   open: false,
   togglePanel(button) {
     this.open = !this.open;
@@ -39,8 +43,9 @@ once show_completed is actually true.
     @click="togglePanel($el)"
     :aria-expanded="open.toString()"
     aria-haspopup="true"
-    class="btn btn-sm {% if watch_count > 0 and show_completed %}bg-success hover:brightness-110 border-transparent text-success-content{% elif watch_count > 0 %}bg-info hover:brightness-110 border-transparent text-info-content{% else %}btn-primary{% endif %}"
-  >{% if watch_count > 0 %}{% if show_completed %}&#10003; Watched{% else %}{% icon "play" "w-4 h-4" %} Watching{% endif %}{% if watch_count > 1 %} &times;{{ watch_count }}{% endif %}{% else %}+ Mark as Watched{% endif %}</button>
+    class="atile {% if watch_count > 0 %}{% if done %}atile-green{% else %}atile-blue{% endif %}{% endif %}"
+    :class="open && 'ring-2 ring-white/40'"
+  >{% if watch_count > 0 %}{% if done %}{% icon "check" %}<span>Watched{% if watch_count > 1 %} &times;{{ watch_count }}{% endif %}</span>{% else %}{% icon "play" %}<span>Watching{% if watch_count > 1 %} &times;{{ watch_count }}{% endif %}</span>{% endif %}{% else %}{% icon "bookmark" %}<span>Track</span>{% endif %}</button>
   <div
     x-ref="panel"
     x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"

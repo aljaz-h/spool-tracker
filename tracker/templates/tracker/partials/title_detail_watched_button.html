@@ -13,7 +13,7 @@ HTMX's HX-Target header, so this exact partial (not the grid one) comes
 back after a menu action taken from here.
 {% endcomment %}
 {% if watch_count > 0 %}
-<div class="relative" id="watched-popover-detail-{{ title.pk }}" x-data="{
+<div class="relative flex-1 min-w-0" id="watched-popover-detail-{{ title.pk }}" x-data="{
   open: false,
   togglePanel(button) {
     this.open = !this.open;
@@ -27,8 +27,8 @@ back after a menu action taken from here.
     @click="togglePanel($el)"
     :aria-expanded="open.toString()"
     aria-haspopup="true"
-    class="btn btn-sm bg-success hover:brightness-110 border-transparent text-success-content"
-  >&#10003; Watched{% if watch_count > 1 %} &times;{{ watch_count }}{% endif %}</button>
+    class="atile atile-green" :class="open && 'ring-2 ring-white/40'"
+  >{% icon "check" %}<span>Watched{% if watch_count > 1 %} &times;{{ watch_count }}{% endif %}</span></button>
   <div
     x-ref="panel"
     x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
@@ -38,7 +38,7 @@ back after a menu action taken from here.
   </div>
 </div>
 {% else %}
-<div class="relative" id="watched-btn-detail-{{ title.pk }}" x-data="{
+<div class="relative flex-1 min-w-0" id="watched-btn-detail-{{ title.pk }}" x-data="{
   open: false,
   showCustom: false,
   togglePanel(button) {
@@ -50,7 +50,7 @@ back after a menu action taken from here.
 }">
   <button type="button" @click="togglePanel($el)"
     :aria-expanded="open.toString()"
-    aria-haspopup="true" class="btn btn-primary btn-sm">+ Mark as Watched</button>
+    aria-haspopup="true" class="atile" :class="open && 'atile-open'">{% icon "bookmark" %}<span>Track</span></button>
   <div
     x-ref="panel"
     x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"

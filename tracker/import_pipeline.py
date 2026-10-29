@@ -182,6 +182,14 @@ def scan_file_import(session):
                 "backup_lists_data": data["lists"],
             }
             session.save(update_fields=["source_metadata"])
+        if data is not None and backup.season_rating_count(data):
+            # Same for the backup's season ratings.
+            session.source_metadata = {
+                **session.source_metadata,
+                "backup_season_ratings": backup.season_rating_count(data),
+                "backup_season_ratings_data": data["season_ratings"],
+            }
+            session.save(update_fields=["source_metadata"])
     scan_normalized_items(session, normalize_file_rows(rows, parse_errors))
 
 
@@ -432,6 +440,19 @@ def _commit_candidates(session):
                 "backup_lists_restored": {"lists": lists_touched, "items": items_added},
             }
             session.save(update_fields=["source_metadata"])
+
+    # ...and its season ratings, put back without overwriting any score
+    # the profile has already given (backup.restore_season_ratings).
+    ratings_data = session.source_metadata.get("backup_season_ratings_data")
+    if ratings_data is not None:
+        from tracker import backup
+
+        added = backup.restore_season_ratings(session.profile, {"season_ratings": ratings_data})
+        session.source_metadata = {
+            **{k: v for k, v in session.source_metadata.items() if k != "backup_season_ratings_data"},
+            "backup_season_ratings_restored": added,
+        }
+        session.save(update_fields=["source_metadata"])
 
     # Cumulative totals across every run of this session's commit, not
     # just this call's own result - a resumed commit (worker crash mid-

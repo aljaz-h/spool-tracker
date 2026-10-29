@@ -2300,3 +2300,126 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     background: color-mix(in oklab, var(--color-primary) 7%, var(--color-base-200));
   }
 }
+
+/* Title page action tiles (partials/title_*_button.html, title_rating_tile.html):
+   four equal tiles under the poster - icon above label. The status tile is
+   neutral until tracked, amber while watching, green once watched; the list
+   tile turns amber when the title is on a list; the rating tile gets an
+   outline while its popup is open. */
+@layer components {
+  .atile-row {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .atile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    width: 100%;
+    min-height: 3.25rem;
+    padding: 0.3rem 0.2rem;
+    border-radius: 12px;
+    background: var(--color-base-300);
+    color: var(--color-ink-dim);
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    line-height: 1.1;
+    text-align: center;
+    cursor: pointer;
+    transition: filter 0.15s, color 0.15s;
+  }
+  .atile:hover {
+    color: var(--color-base-content);
+    filter: brightness(1.12);
+  }
+  .atile svg {
+    width: 1.1rem;
+    height: 1.1rem;
+    flex: none;
+  }
+  .atile-green {
+    background: var(--color-success);
+    color: var(--color-success-content);
+  }
+  .atile-green:hover {
+    color: var(--color-success-content);
+  }
+  .atile-blue {
+    background: var(--color-info);
+    color: var(--color-info-content);
+  }
+  .atile-blue:hover {
+    color: var(--color-info-content);
+  }
+  .atile-accent,
+  .atile-accent:hover {
+    color: var(--color-primary);
+  }
+  .atile-open {
+    outline: 1.5px solid var(--color-primary);
+    outline-offset: -1.5px;
+    background: color-mix(in oklab, var(--color-primary) 14%, var(--color-base-300));
+    color: var(--color-primary);
+  }
+  .atile:disabled,
+  .atile[aria-disabled="true"] {
+    opacity: 0.45;
+    cursor: not-allowed;
+    filter: none;
+  }
+  .atile-star {
+    fill: currentColor;
+  }
+
+  /* The rating popup */
+  .rate-star {
+    position: relative;
+    width: 2.1rem;
+    height: 2.1rem;
+    flex: none;
+  }
+  .rate-star-bg,
+  .rate-star-fill {
+    position: absolute;
+    inset: 0;
+    font-size: 2.1rem;
+    line-height: 1;
+    user-select: none;
+  }
+  .rate-star-bg {
+    color: color-mix(in oklab, var(--color-base-content) 14%, transparent);
+  }
+  .rate-star-fill {
+    color: var(--color-primary);
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .rate-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    height: 1.9rem;
+    padding: 0 0.75rem;
+    border-radius: 8px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    background: var(--color-base-300);
+    color: var(--color-ink-dim);
+  }
+  .rate-chip.is-rated {
+    color: var(--color-primary);
+  }
+  .rate-chip:hover {
+    color: var(--color-base-content);
+  }
+  .sprog.is-start .sprog-fill {
+    display: none;
+  }
+  .sprog.is-start {
+    --sprog-c: var(--color-base-content);
+  }
+}

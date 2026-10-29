@@ -53,6 +53,13 @@
         <div class="surface p-5 mb-6 text-sm">This import also adds <span class="font-semibold">{{ bl.lists }}</span> list{{ bl.lists|pluralize }} ({{ bl.items }} title{{ bl.items|pluralize }}, Watchlist included) &mdash; restored when you import. Titles already on a list are left as they are.</div>
       {% endif %}
     {% endwith %}
+    {% with sr=session.source_metadata.backup_season_ratings sr_done=session.source_metadata.backup_season_ratings_restored %}
+      {% if sr_done is not None %}
+        <div class="surface p-5 mb-6 text-sm">Season ratings restored: <span class="font-semibold">{{ sr_done }}</span> added.</div>
+      {% elif sr and session.status != "completed" %}
+        <div class="surface p-5 mb-6 text-sm">This import also adds <span class="font-semibold">{{ sr }}</span> season rating{{ sr|pluralize }}. A season you have already rated keeps your score.</div>
+      {% endif %}
+    {% endwith %}
 
     {% if session.status == "completed" %}
       <div class="surface p-5 mb-6">

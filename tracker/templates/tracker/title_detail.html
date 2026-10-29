@@ -38,7 +38,7 @@
       init() {
         const h = location.hash.slice(1);
         if (/^episode-\d+-\d+$/.test(h)) this.tab = 'episodes';
-        else if (h === 'your-rating') this.tab = 'overview';
+        else if (h === 'your-rating') this.$nextTick(() => window.dispatchEvent(new CustomEvent('open-rating')));
         else if (h === 'activity-household' && {{ household_enabled|yesno:'true,false' }}) { this.tab = 'activity'; this.view = 'household'; }
         else if (this.tabs.includes(h)) this.tab = h;
       },
@@ -62,20 +62,205 @@
     </div>
 
     <div class="page relative pt-[150px] sm:pt-[220px] lg:pt-10 pb-8 lg:pb-12">
-      <div class="grid grid-cols-[100px_minmax(0,1fr)] sm:grid-cols-[160px_minmax(0,1fr)] lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)] gap-x-4 sm:gap-x-8 lg:gap-x-11 gap-y-5 items-end lg:items-start">
-        <div class="lg:row-span-2">
-          <div class="poster rounded-xl shadow-[0_24px_60px_rgba(0,0,0,0.6)] {% if not display_poster_url %}{{ poster_seed|gradient_class }}{% endif %}">
+      <div class="grid grid-cols-[100px_minmax(0,1fr)] sm:grid-cols-[160px_minmax(0,1fr)] lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)] lg:grid-rows-[auto_1fr] gap-x-4 sm:gap-x-8 lg:gap-x-11 gap-y-5 items-end lg:items-start">
+        {# Left column: the poster, then the action tiles and the progress card under it. Below lg the column dissolves (contents) so the tiles run full width under the poster and title, in order. #}
+        <div class="lg:row-span-2 max-lg:contents">
+          <div class="poster max-lg:order-1 rounded-xl shadow-[0_24px_60px_rgba(0,0,0,0.6)] {% if not display_poster_url %}{{ poster_seed|gradient_class }}{% endif %}">
             {% if display_poster_url %}
               <img src="{{ display_poster_url|poster_size:"w500" }}" alt="{{ display_name }} poster" class="absolute inset-0">
             {% endif %}
           </div>
-          {# Desktop: the watch progress sits under the poster at its width. Phones get the same card under the buttons instead (below). #}
-          {% if not is_preview and title.media_type != "movie" %}
-            {% include "tracker/partials/title_progress_card.html" with suffix="-d" wrap_class="hidden lg:block mt-4" %}
-          {% endif %}
+          <div class="max-lg:order-3 max-lg:col-span-2 lg:mt-3">
+          {% comment %}
+              Main actions. Movies get the single watched control; shows get
+              title_tv_watched_button.html (season/whole-show bulk actions,
+              kept in sync with the episode browser's own copy via
+              views._hero_watched_button_oob); not-yet-tracked previews get
+              the materialize-on-click versions. Then lists, rating and the
+              trailer.
+            {% endcomment %}
+            <div class="atile-row" role="group" aria-label="Actions">
+                {% if is_preview and preview_media_type == "movie" %}
+                  {% comment %}
+                    Not-yet-tracked, so this is a plain (non-HTMX) form - a
+                    real page load, unlike every other first-watch popover in
+                    the app - each menu item is its own name="when" submit
+                    button rather than an hx-post, so no client-side JS is
+                    needed to route the click to the right option. Still
+                    materializes + redirects to the real title_detail
+                    afterward exactly like the old single-button version did
+                    (see views.title_preview_mark_watched) - the rest of this
+                    preview page (Lists, similar items' own list-popovers, ...)
+                    stays untracked-shaped until then, so swapping just this
+                    header in place via HTMX would leave the page inconsistent.
+                  {% endcomment %}
+                  <div class="relative flex-1 min-w-0" x-data="{ open: false, showCustom: false }" @keydown.escape.window="open = false">
+                    <button type="button" @click="open = !open" :aria-expanded="open.toString()" aria-haspopup="true" class="atile" :class="open && 'atile-open'">{% icon "bookmark" %}<span>Track</span></button>
+                    <div
+                      x-show="open" x-cloak x-transition @click.outside="open = false"
+                      class="absolute z-50 top-full mt-1.5 left-0 w-72 menu-surface p-2"
+                    >
+                      <form method="post" action="{% url 'title_preview_mark_watched' preview_media_type preview_tmdb_id %}">
+                        {% csrf_token %}
+                        <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1">
+                          <div class="font-semibold text-sm">Mark as watched</div>
+                          <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5">&times;</button>
+                        </div>
+                        <div x-show="!showCustom">
+                          <button type="submit" name="when" value="now" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
+                            <span class="min-w-0">
+                              <span class="block text-[13px] font-semibold">Watched now</span>
+                              <span class="block text-[12px] text-ink-faint">Log it at the current date and time</span>
+                            </span>
+                          </button>
+                          <button type="submit" name="when" value="release" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
+                            <span class="min-w-0">
+                              <span class="block text-[13px] font-semibold">On release date</span>
+                              <span class="block text-[12px] text-ink-faint">Log it on the day it came out</span>
+                            </span>
+                          </button>
+                          <button type="button" @click="showCustom = true" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
+                            <span class="min-w-0">
+                              <span class="block text-[13px] font-semibold">Other date</span>
+                              <span class="block text-[12px] text-ink-faint">Pick a custom date and time</span>
+                            </span>
+                          </button>
+                        </div>
+                        <div x-show="showCustom" class="px-2 pb-1 pt-1">
+                          <label class="block text-[12px] text-ink-faint mb-1">Watched at</label>
+                          <input type="datetime-local" name="custom_datetime" value="{% now 'Y-m-d\TH:i' %}" @keydown.enter.prevent class="input input-sm w-full mb-2">
+                          <div class="flex gap-1.5">
+                            <button type="button" @click="showCustom = false" class="btn btn-xs btn-soft flex-1">Back</button>
+                            <button type="submit" name="when" value="custom" class="btn btn-xs btn-primary flex-1">Confirm</button>
+                          </div>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                {% elif is_preview %}
+                  {% comment %}
+                    TV/anime counterpart of the movie preview form above -
+                    there's no single "watched" fact for a show (see the
+                    tracked title_tv_watched_button.html comment below), so
+                    this offers the same "mark all seasons"/"mark this
+                    season" bulk actions as that button's own popover, just
+                    pointed at the preview endpoints (title_preview_mark_
+                    all_seasons_watched/title_preview_mark_season_watched -
+                    same materialize-then-delegate views the Episodes
+                    section's own identical buttons already use). Unlike the
+                    movie form above this is real HTMX (hx-target=
+                    "#episodes-panel", same target the Episodes section's own
+                    copies of these exact buttons use) rather than a full
+                    page load - accepting the same known rough edge
+                    title_preview_mark_season_watched's docstring already
+                    documents for those (the rest of the header, this button
+                    included, stays preview-shaped until the next full load
+                    even though #episodes-panel itself correctly upgrades) -
+                    introducing a second, redirect-based path here would mean
+                    two different behaviors for what's otherwise the exact
+                    same action. Closes itself on success (rather than
+                    trying to relabel itself as watched, which it isn't set
+                    up to do) so at least this popover itself doesn't sit
+                    open on stale content after a real click.
+
+                    fixed + window.positionPopover, not the movie form's own
+                    plain `absolute top-full` (confirmed live: this panel got
+                    silently clipped for a title with a shorter hero - the
+                    hero backdrop above is `overflow-hidden`, and an
+                    `absolute` child never contributes to its ancestor's own
+                    auto height in the first place, so anything taller than
+                    the hero's own flow content - a real risk here once "By
+                    season" adds rows, unlike the movie form's fixed 3-item
+                    menu - got cut off with no visible box at all past that
+                    edge). Same fixed/viewport-relative pattern every other
+                    popover on this page already uses for exactly this
+                    reason (title_tv_watched_button.html and friends) -
+                    see discover_tile.html's own comment for the fuller
+                    history of this exact clip-path/overflow-hidden class of
+                    bug.
+                  {% endcomment %}
+                  <div
+                    class="relative flex-1 min-w-0"
+                    x-data="{
+                      open: false,
+                      togglePanel(button) {
+                        this.open = !this.open;
+                        if (!this.open) return;
+                        this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 288, false));
+                      },
+                    }"
+                    @keydown.escape.window="open = false"
+                    @scroll.window="open = false"
+                    @htmx:after-request.camel="if ($event.detail.successful) open = false"
+                  >
+                    <button type="button" @click="togglePanel($el)" :aria-expanded="open.toString()" aria-haspopup="true" class="atile" :class="open && 'atile-open'">{% icon "bookmark" %}<span>Track</span></button>
+                    <div
+                      x-ref="panel"
+                      x-show="open" x-cloak x-transition @click.outside="open = false"
+                      class="fixed z-50 w-72 menu-surface p-2"
+                    >
+                      <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1">
+                        <div class="font-semibold text-sm">Mark as watched</div>
+                        <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5">&times;</button>
+                      </div>
+                      <button type="button"
+                        hx-post="{% url 'title_preview_mark_all_seasons_watched' preview_media_type preview_tmdb_id %}"
+                        hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+                        hx-confirm="Mark every episode of every season of “{{ details.name }}” as watched? This can take a moment for shows with many seasons."
+                        class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
+                      >
+                        <span class="w-7 h-7 rounded-md bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "check" "w-4 h-4" %}</span>
+                        <span class="min-w-0">
+                          <span class="block text-[13px] font-semibold">Mark all seasons watched</span>
+                          <span class="block text-[12px] text-ink-faint">Every episode, every season</span>
+                        </span>
+                      </button>
+                      {% if season_cards|length > 1 %}
+                        <div class="border-t border-line mt-1 pt-1.5">
+                          <div class="px-2 pb-1 text-[12px] font-semibold text-ink-faint uppercase tracking-wide">By season</div>
+                          <div class="max-h-52 overflow-y-auto flex flex-col gap-0.5 pr-0.5">
+                            {% for card in season_cards %}
+                              <button type="button"
+                                hx-post="{% url 'title_preview_mark_season_watched' preview_media_type preview_tmdb_id card.number %}"
+                                hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+                                hx-confirm="Mark every episode of Season {{ card.number }} as watched?"
+                                class="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg hover:bg-base-300 text-left w-full"
+                              >
+                                <span class="text-[12.5px]">Season {{ card.number }}</span>
+                                {% if card.total_episodes %}<span class="text-ink-faint font-mono text-[12px]">{{ card.total_episodes }} eps</span>{% endif %}
+                              </button>
+                            {% endfor %}
+                          </div>
+                        </div>
+                      {% endif %}
+                    </div>
+                  </div>
+                {% elif title.media_type == "movie" %}
+                  {% include "tracker/partials/title_detail_watched_button.html" with title=title watch_count=watch_count %}
+                {% else %}
+                  {% include "tracker/partials/title_tv_watched_button.html" with title=title watch_count=watch_count show_completed=show_completed season_cards=season_cards progress_state=show_progress.state %}
+                {% endif %}
+                {% if not is_preview %}
+                  {% include "tracker/partials/title_detail_list_popover.html" with title=title my_lists=my_lists in_list_ids=in_list_ids %}
+                  {% include "tracker/partials/title_rating_tile.html" with title=title latest_rating=latest_rating star_fill=star_fill season_rating_rows=season_rating_rows rating_open=rating_open %}
+                {% else %}
+                  {# Not tracked yet: lists are the section in the side rail, and there is nothing to rate until it is tracked. #}
+                  <div class="flex-1 min-w-0"><a href="#preview-lists" class="atile">{% icon "list-checks" %}<span>Add to list</span></a></div>
+                  <div class="flex-1 min-w-0"><button type="button" class="atile" disabled title="Track it first to rate it">{% icon "star" "atile-star" %}<span>Rate</span></button></div>
+                {% endif %}
+                {% if trailer %}
+                  <div class="flex-1 min-w-0">
+                    <button type="button" onclick="openTrailerModal('trailer-modal-{{ poster_seed }}')" class="atile">{% icon "play" %}<span>Trailer</span></button>
+                  </div>
+                {% endif %}
+            </div>
+            {% if not is_preview and title.media_type != "movie" %}
+              {% include "tracker/partials/title_progress_card.html" %}
+            {% endif %}
+          </div>
         </div>
 
-        <div class="min-w-0 lg:pt-2 lg:max-w-[920px]">
+        <div class="min-w-0 lg:pt-2 lg:max-w-[920px] max-lg:order-2">
           <div class="flex items-center gap-2 text-[12.5px] font-semibold tracking-[0.06em] uppercase text-primary">
             <span class="type-dot {{ page_media_type|media_dot_class }}"></span>
             {% if page_media_type == "movie" %}Movie{% elif page_media_type == "anime" %}Anime{% else %}TV Series{% endif %}{% if display_year %}<span class="text-ink-dim font-medium normal-case tracking-normal">· {{ display_year }}</span>{% endif %}
@@ -104,7 +289,7 @@
           {% endif %}
         </div>
 
-        <div class="col-span-2 lg:col-span-1 lg:col-start-2 min-w-0 lg:max-w-[920px]">
+        <div class="col-span-2 lg:col-span-1 lg:col-start-2 min-w-0 lg:max-w-[920px] max-lg:order-4">
           {% comment %}
             Labelled facts - small caps label, then the value. Each label
             is its own span (tests and screen readers read it as
@@ -146,193 +331,6 @@
             </div>
           {% endif %}
 
-          {% comment %}
-            Main actions. Movies get the single watched control; shows get
-            title_tv_watched_button.html (season/whole-show bulk actions,
-            kept in sync with the episode browser's own copy via
-            views._hero_watched_button_oob); not-yet-tracked previews get
-            the materialize-on-click versions. Then lists, rating and the
-            trailer.
-          {% endcomment %}
-          <div class="title-actions flex flex-wrap items-center gap-2 mt-5 sm:mt-6">
-            {% if is_preview and preview_media_type == "movie" %}
-              {% comment %}
-                Not-yet-tracked, so this is a plain (non-HTMX) form - a
-                real page load, unlike every other first-watch popover in
-                the app - each menu item is its own name="when" submit
-                button rather than an hx-post, so no client-side JS is
-                needed to route the click to the right option. Still
-                materializes + redirects to the real title_detail
-                afterward exactly like the old single-button version did
-                (see views.title_preview_mark_watched) - the rest of this
-                preview page (Lists, similar items' own list-popovers, ...)
-                stays untracked-shaped until then, so swapping just this
-                header in place via HTMX would leave the page inconsistent.
-              {% endcomment %}
-              <div class="relative" x-data="{ open: false, showCustom: false }" @keydown.escape.window="open = false">
-                <button type="button" @click="open = !open" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-primary btn-sm">+ Mark as Watched</button>
-                <div
-                  x-show="open" x-cloak x-transition @click.outside="open = false"
-                  class="absolute z-50 top-full mt-1.5 left-0 w-72 menu-surface p-2"
-                >
-                  <form method="post" action="{% url 'title_preview_mark_watched' preview_media_type preview_tmdb_id %}">
-                    {% csrf_token %}
-                    <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1">
-                      <div class="font-semibold text-sm">Mark as watched</div>
-                      <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5">&times;</button>
-                    </div>
-                    <div x-show="!showCustom">
-                      <button type="submit" name="when" value="now" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
-                        <span class="min-w-0">
-                          <span class="block text-[13px] font-semibold">Watched now</span>
-                          <span class="block text-[12px] text-ink-faint">Log it at the current date and time</span>
-                        </span>
-                      </button>
-                      <button type="submit" name="when" value="release" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
-                        <span class="min-w-0">
-                          <span class="block text-[13px] font-semibold">On release date</span>
-                          <span class="block text-[12px] text-ink-faint">Log it on the day it came out</span>
-                        </span>
-                      </button>
-                      <button type="button" @click="showCustom = true" class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
-                        <span class="min-w-0">
-                          <span class="block text-[13px] font-semibold">Other date</span>
-                          <span class="block text-[12px] text-ink-faint">Pick a custom date and time</span>
-                        </span>
-                      </button>
-                    </div>
-                    <div x-show="showCustom" class="px-2 pb-1 pt-1">
-                      <label class="block text-[12px] text-ink-faint mb-1">Watched at</label>
-                      <input type="datetime-local" name="custom_datetime" value="{% now 'Y-m-d\TH:i' %}" @keydown.enter.prevent class="input input-sm w-full mb-2">
-                      <div class="flex gap-1.5">
-                        <button type="button" @click="showCustom = false" class="btn btn-xs btn-soft flex-1">Back</button>
-                        <button type="submit" name="when" value="custom" class="btn btn-xs btn-primary flex-1">Confirm</button>
-                      </div>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            {% elif is_preview %}
-              {% comment %}
-                TV/anime counterpart of the movie preview form above -
-                there's no single "watched" fact for a show (see the
-                tracked title_tv_watched_button.html comment below), so
-                this offers the same "mark all seasons"/"mark this
-                season" bulk actions as that button's own popover, just
-                pointed at the preview endpoints (title_preview_mark_
-                all_seasons_watched/title_preview_mark_season_watched -
-                same materialize-then-delegate views the Episodes
-                section's own identical buttons already use). Unlike the
-                movie form above this is real HTMX (hx-target=
-                "#episodes-panel", same target the Episodes section's own
-                copies of these exact buttons use) rather than a full
-                page load - accepting the same known rough edge
-                title_preview_mark_season_watched's docstring already
-                documents for those (the rest of the header, this button
-                included, stays preview-shaped until the next full load
-                even though #episodes-panel itself correctly upgrades) -
-                introducing a second, redirect-based path here would mean
-                two different behaviors for what's otherwise the exact
-                same action. Closes itself on success (rather than
-                trying to relabel itself as watched, which it isn't set
-                up to do) so at least this popover itself doesn't sit
-                open on stale content after a real click.
-
-                fixed + window.positionPopover, not the movie form's own
-                plain `absolute top-full` (confirmed live: this panel got
-                silently clipped for a title with a shorter hero - the
-                hero backdrop above is `overflow-hidden`, and an
-                `absolute` child never contributes to its ancestor's own
-                auto height in the first place, so anything taller than
-                the hero's own flow content - a real risk here once "By
-                season" adds rows, unlike the movie form's fixed 3-item
-                menu - got cut off with no visible box at all past that
-                edge). Same fixed/viewport-relative pattern every other
-                popover on this page already uses for exactly this
-                reason (title_tv_watched_button.html and friends) -
-                see discover_tile.html's own comment for the fuller
-                history of this exact clip-path/overflow-hidden class of
-                bug.
-              {% endcomment %}
-              <div
-                class="relative"
-                x-data="{
-                  open: false,
-                  togglePanel(button) {
-                    this.open = !this.open;
-                    if (!this.open) return;
-                    this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 288, false));
-                  },
-                }"
-                @keydown.escape.window="open = false"
-                @scroll.window="open = false"
-                @htmx:after-request.camel="if ($event.detail.successful) open = false"
-              >
-                <button type="button" @click="togglePanel($el)" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-primary btn-sm">+ Mark as Watched</button>
-                <div
-                  x-ref="panel"
-                  x-show="open" x-cloak x-transition @click.outside="open = false"
-                  class="fixed z-50 w-72 menu-surface p-2"
-                >
-                  <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1">
-                    <div class="font-semibold text-sm">Mark as watched</div>
-                    <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5">&times;</button>
-                  </div>
-                  <button type="button"
-                    hx-post="{% url 'title_preview_mark_all_seasons_watched' preview_media_type preview_tmdb_id %}"
-                    hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-                    hx-confirm="Mark every episode of every season of “{{ details.name }}” as watched? This can take a moment for shows with many seasons."
-                    class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
-                  >
-                    <span class="w-7 h-7 rounded-md bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "check" "w-4 h-4" %}</span>
-                    <span class="min-w-0">
-                      <span class="block text-[13px] font-semibold">Mark all seasons watched</span>
-                      <span class="block text-[12px] text-ink-faint">Every episode, every season</span>
-                    </span>
-                  </button>
-                  {% if season_cards|length > 1 %}
-                    <div class="border-t border-line mt-1 pt-1.5">
-                      <div class="px-2 pb-1 text-[12px] font-semibold text-ink-faint uppercase tracking-wide">By season</div>
-                      <div class="max-h-52 overflow-y-auto flex flex-col gap-0.5 pr-0.5">
-                        {% for card in season_cards %}
-                          <button type="button"
-                            hx-post="{% url 'title_preview_mark_season_watched' preview_media_type preview_tmdb_id card.number %}"
-                            hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-                            hx-confirm="Mark every episode of Season {{ card.number }} as watched?"
-                            class="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg hover:bg-base-300 text-left w-full"
-                          >
-                            <span class="text-[12.5px]">Season {{ card.number }}</span>
-                            {% if card.total_episodes %}<span class="text-ink-faint font-mono text-[12px]">{{ card.total_episodes }} eps</span>{% endif %}
-                          </button>
-                        {% endfor %}
-                      </div>
-                    </div>
-                  {% endif %}
-                </div>
-              </div>
-            {% elif title.media_type == "movie" %}
-              {% include "tracker/partials/title_detail_watched_button.html" with title=title watch_count=watch_count %}
-            {% else %}
-              {% include "tracker/partials/title_tv_watched_button.html" with title=title watch_count=watch_count show_completed=show_completed season_cards=season_cards %}
-            {% endif %}
-            {% if not is_preview %}
-              {% include "tracker/partials/title_detail_list_popover.html" with title=title my_lists=my_lists in_list_ids=in_list_ids %}
-              <a href="#your-rating" @click="tab = 'overview'" class="btn btn-sm btn-soft gap-1.5">{% if latest_rating %}<span class="text-primary">&#9733;</span> {{ latest_rating }}/10{% else %}<span class="text-ink-dim">&#9733;</span> Rate{% endif %}</a>
-            {% endif %}
-            {% if trailer %}
-              <button
-                type="button"
-                onclick="openTrailerModal('trailer-modal-{{ poster_seed }}')"
-                class="btn btn-sm btn-ghost gap-1.5"
-              >
-                {% icon "play" "w-3.5 h-3.5" %} Watch trailer
-              </button>
-            {% endif %}
-          </div>
-
-          {% if not is_preview and title.media_type != "movie" %}
-            {% include "tracker/partials/title_progress_card.html" with suffix="-m" wrap_class="mt-5 max-w-md lg:hidden" %}
-          {% endif %}
 
           {% if cast %}
             {# Main cast - portrait cards; the full list (with the director) is under the Cast & Crew tab. #}
@@ -634,28 +632,9 @@
 
     {# Rail of panels - beside every tab on desktop; on phones only under Overview so it never trails an episode list. #}
     <aside class="title-rail min-w-0 flex flex-col gap-5" :class="tab === 'overview' ? '' : 'max-lg:hidden'">
-      {% if not is_preview %}
-        <section id="your-rating" class="scroll-mt-20">
-          <h2 class="subhead mb-2">Your rating</h2>
-          <form method="post" action="{% url 'title_rate' title.pk %}" class="flex items-center flex-wrap gap-1">
-            {% csrf_token %}
-            {% for star in star_fill %}
-              <div class="relative w-6 h-6 sm:w-7 sm:h-7 spool-tooltip" data-tooltip="Rate {{ star.right }}/10">
-                <span class="absolute inset-0 text-2xl sm:text-[28px] leading-none text-[#353943] select-none">&#9733;</span>
-                {% if star.fill %}
-                  <span class="absolute inset-0 text-2xl sm:text-[28px] leading-none text-primary select-none overflow-hidden pointer-events-none" style="width:{{ star.fill }}%">&#9733;</span>
-                {% endif %}
-                <button type="submit" name="rating" value="{{ star.left }}" class="absolute inset-y-0 left-0 w-1/2 cursor-pointer" aria-label="Rate {{ star.left }} out of 10"></button>
-                <button type="submit" name="rating" value="{{ star.right }}" class="absolute inset-y-0 right-0 w-1/2 cursor-pointer" aria-label="Rate {{ star.right }} out of 10"></button>
-              </div>
-            {% endfor %}
-            {% if latest_rating %}<span class="text-sm font-semibold ml-2">{{ latest_rating }}<span class="text-ink-faint font-normal">/10</span></span>{% endif %}
-          </form>
-        </section>
-      {% endif %}
 
       {% if is_preview %}
-        <section>
+        <section id="preview-lists" class="scroll-mt-20">
           <h2 class="subhead mb-2">Add to a list</h2>
           {% comment %}
             A preview title has no local row yet, so every list starts

@@ -88,6 +88,7 @@ from .models import (
     Profile,
     Recommendation,
     SchedulePlan,
+    SeasonRating,
     ServiceAPIKey,
     Title,
     TitleFanartCache,
@@ -855,6 +856,19 @@ def _release_info(details):
     return None
 
 
+def _season_rating_rows(profile, title, season_cards):
+    """The rating popup's "By season" list: [{number, rating, stars}] - each
+    season with this profile's own score for it (None until rated) and the
+    5-star fill for the inline picker. Movies have no seasons."""
+    if title.media_type == MediaType.MOVIE:
+        return []
+    rated = dict(SeasonRating.objects.filter(profile=profile, title=title).values_list("season", "rating"))
+    return [
+        {"number": card["number"], "rating": rated.get(card["number"]), "stars": _star_fill(rated.get(card["number"]))}
+        for card in season_cards
+    ]
+
+
 def _star_fill(rating):
     """5 stars representing a 1-10 rating, 2 points each - each entry's
     "fill" (0/50/100) is precomputed here so the template just renders a
@@ -1413,6 +1427,12 @@ def title_detail(request, pk):
         context.update(selectors.discover_action_context(profile, discover_items))
     context["star_fill"] = _star_fill(context["latest_rating"])
     context["show_progress"] = show_progress.build(profile, title, details) if profile else None
+    # The rating popup under the poster stays open after one of its own
+    # actions (the star, Clear, a season) - they redirect back with ?rating=open.
+    context["rating_open"] = request.GET.get("rating") == "open"
+    context["season_rating_rows"] = (
+        _season_rating_rows(profile, title, context.get("season_cards") or []) if profile else []
+    )
     return render(request, "tracker/title_detail.html", context)
 
 
@@ -1740,12 +1760,10 @@ def _show_progress_context(profile, title):
 def _show_progress_oob(request, profile, title):
     if title.media_type == MediaType.MOVIE:
         return ""
-    context = {**_show_progress_context(profile, title), "oob": True}
-    return "".join(
-        render_to_string(
-            "tracker/partials/title_progress_card.html", {**context, "suffix": suffix, "wrap_class": wrap_class}, request=request
-        )
-        for suffix, wrap_class in (("-d", "hidden lg:block mt-4"), ("-m", "mt-5 max-w-md lg:hidden"))
+    return render_to_string(
+        "tracker/partials/title_progress_card.html",
+        {**_show_progress_context(profile, title), "oob": True},
+        request=request,
     )
 
 
@@ -2190,15 +2208,19 @@ def _hero_watched_button_oob(request, profile, title, episode_context=None):
     resolve the episode being toggled - see its own docstring."""
     if title.media_type == MediaType.MOVIE:
         return ""
+    tmdb_id = title.external_ids.get("tmdb")
+    details = tmdb.get_full_details(tmdb.media_type_for(title), tmdb_id) if tmdb_id else None
     if episode_context is None:
-        tmdb_id = title.external_ids.get("tmdb")
-        details = tmdb.get_full_details(tmdb.media_type_for(title), tmdb_id) if tmdb_id else None
         episode_context = _season_cards_and_completion(profile, title, details)
+    # The tile's colour follows the progress card (green only when caught up
+    # or finished), so it needs the same state the card is about to show.
+    card = show_progress.build(profile, title, details)
     return render_to_string(
         "tracker/partials/title_tv_watched_button.html",
         {
             "title": title,
             "watch_count": selectors.title_watch_count(profile, title),
+            "progress_state": card["state"] if card else None,
             "show_completed": episode_context.get("show_completed", False),
             "season_cards": episode_context.get("season_cards", []),
             "oob": True,
@@ -2427,7 +2449,48 @@ def title_rate(request, pk):
         rewatches.recompute_is_rewatch(profile, title, None)
         recommendations.mark_title_watched(profile, title)
     completion.sync_watchlist_removal(profile, title)
+    return _back_to_title(request, pk)
+
+
+def _back_to_title(request, pk):
+    """Back to the title page; the rating popup's own forms ask for it to
+    stay open (open_rating) so one visit can rate the show and its seasons."""
+    if request.POST.get("open_rating"):
+        return redirect(f"{reverse('title_detail', args=[pk])}?rating=open")
     return redirect("title_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def title_clear_rating(request, pk):
+    """"Clear rating": takes this profile's score off the show - every watch
+    of it that carries one. The watches themselves stay."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    WatchEvent.objects.filter(profile=profile, title=title, user_rating__isnull=False).update(user_rating=None)
+    return _back_to_title(request, pk)
+
+
+@login_required
+@require_POST
+def title_season_rate(request, pk, season):
+    """A score for one season (the rating popup's "By season" list), or -
+    with clear=1 - taking it off again. Independent of the show's own
+    rating."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None or title.media_type == MediaType.MOVIE:
+        raise Http404
+    if request.POST.get("clear"):
+        SeasonRating.objects.filter(profile=profile, title=title, season=season).delete()
+        return _back_to_title(request, pk)
+    rating = request.POST.get("rating", "")
+    if not (rating.isdigit() and 1 <= int(rating) <= 10):
+        raise Http404
+    SeasonRating.objects.update_or_create(profile=profile, title=title, season=season, defaults={"rating": int(rating)})
+    return _back_to_title(request, pk)
 
 
 @login_required
