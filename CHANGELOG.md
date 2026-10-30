@@ -8,6 +8,12 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.167.5] - 2026-10-30
+
+### Fixed
+
+- The "Show all N credits" button on the person page no longer shows a double-width gap around the number.
+
 ## [0.167.4] - 2026-10-30
 
 ### Fixed

@@ -118,7 +118,7 @@
       </div>
       <div class="flex justify-center mt-4" x-show="hasMore" x-cloak>
         <button type="button" x-show="!expanded" @click="expanded = true" class="btn btn-sm btn-soft">
-          Show all <span x-text="visibleTotal"></span> credits
+          <span x-text="`Show all ${visibleTotal} credits`"></span>
         </button>
         <button type="button" x-show="expanded" x-cloak @click="expanded = false" class="btn btn-sm btn-soft">
           Show less
