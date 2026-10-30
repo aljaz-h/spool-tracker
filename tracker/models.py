@@ -567,6 +567,30 @@ class TitleFanartCache(models.Model):
         return f"{self.title} fanart cache"
 
 
+class PreviewFanartCache(models.Model):
+    """TitleFanartCache's counterpart for a title that has no local row yet
+    - the preview page of a movie/show you have neither watched nor listed
+    (views.title_preview). Keyed by TMDB kind + id instead, so the logo and
+    backdrop show for every title, tracked or not. Same fields and meaning
+    as TitleFanartCache; see tasks.fetch_preview_fanart_images."""
+
+    tmdb_kind = models.CharField(max_length=8)  # "movie" or "tv"
+    tmdb_id = models.PositiveIntegerField()
+    clearlogo_url = models.URLField(blank=True)
+    clearart_url = models.URLField(blank=True)
+    backdrop_url = models.URLField(blank=True)
+    season_banners = models.JSONField(default=dict, blank=True)
+    fetch_attempted = models.BooleanField(default=False)
+    last_fetched_at = models.DateTimeField(null=True, blank=True)
+    next_refresh_at = models.DateTimeField(null=True, blank=True, db_index=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["tmdb_kind", "tmdb_id"], name="unique_preview_fanart")]
+
+    def __str__(self):
+        return f"{self.tmdb_kind}/{self.tmdb_id} fanart cache"
+
+
 class TitleTvmazeCache(models.Model):
     """One row per TV title, lazily populated the first time its release
     schedule is synced (see release_sync._sync_tv_release) - resolves and

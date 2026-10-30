@@ -46,6 +46,7 @@ from .models import (
     ServiceAPIKey,
     SyncLog,
     Title,
+    PreviewFanartCache,
     TitleFanartCache,
     TitleRatingsCache,
     TitleTvmazeCache,
@@ -22296,6 +22297,9 @@ class TitlePreviewViewTests(TestCase):
         user = User.objects.create_user("previewviewer", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="PreviewViewer")
         self.client.login(username="previewviewer", password="pass12345")
+        dispatch = patch("tracker.views._dispatch_sync_task_safely")
+        self.mock_dispatch = dispatch.start()  # the Fanart fetch the preview queues
+        self.addCleanup(dispatch.stop)
         for name, default in (
             ("get_director", None), ("get_watch_providers", []), ("get_trailer", None), ("get_backdrops", []),
             # completion.sync_show_completion (called by every episode/
@@ -22318,6 +22322,45 @@ class TitlePreviewViewTests(TestCase):
         }
         base.update(overrides)
         return base
+
+    def test_an_untracked_title_gets_its_fanart_logo_too(self):
+        from django.utils import timezone
+
+        with patch("tracker.integrations.tmdb.get_full_details", return_value=self._details()),                 patch("tracker.integrations.tmdb.get_similar", return_value=[]),                 patch("tracker.integrations.tmdb.get_credits", return_value=[]):
+            # first view: nothing cached yet -> queues the fetch and polls for the logo
+            page = self.client.get(reverse("title_preview", args=["movie", 42]))
+            self.mock_dispatch.assert_any_call(tasks.fetch_preview_fanart_images, ["movie", 42])
+            poll_url = reverse("title_preview_hero_heading_partial", args=["movie", 42])
+            self.assertContains(page, f'hx-get="{poll_url}?n=0"')
+
+            self.assertContains(self.client.get(poll_url + "?n=0"), "hx-trigger")
+            PreviewFanartCache.objects.create(
+                tmdb_kind="movie", tmdb_id=42, clearlogo_url="https://fanart/logo.png", backdrop_url="https://fanart/bg.png",
+                fetch_attempted=True, next_refresh_at=timezone.now() + timedelta(days=10),
+            )
+            done = self.client.get(poll_url + "?n=1")
+            self.assertContains(done, "https://fanart/logo.png")
+            self.assertNotContains(done, "hx-trigger")
+
+            # later views use the cache: logo and Fanart backdrop, no new fetch
+            self.mock_dispatch.reset_mock()
+            page = self.client.get(reverse("title_preview", args=["movie", 42]))
+            self.assertEqual(page.context["display_clearlogo_url"], "https://fanart/logo.png")
+            self.assertEqual(page.context["display_backdrop_url"], "https://fanart/bg.png")
+            self.mock_dispatch.assert_not_called()
+
+    def test_the_preview_fanart_task_stores_logo_by_tmdb_id(self):
+        images = {"clearlogo_url": "https://x/logo.png", "clearart_url": None, "backdrop_url": "https://x/bg.png"}
+        with patch("tracker.instance_config.get_fanart_api_key", return_value="key"),                 patch("tracker.integrations.fanart.get_movie_images", return_value={}),                 patch("tracker.integrations.fanart.extract_movie_images", return_value=images):
+            tasks.fetch_preview_fanart_images("movie", 42)
+        cache = PreviewFanartCache.objects.get(tmdb_kind="movie", tmdb_id=42)
+        self.assertEqual((cache.clearlogo_url, cache.backdrop_url, cache.fetch_attempted), ("https://x/logo.png", "https://x/bg.png", True))
+
+    def test_the_preview_fanart_task_without_a_key_just_leaves_a_retry_row(self):
+        with patch("tracker.instance_config.get_fanart_api_key", return_value=""):
+            tasks.fetch_preview_fanart_images("tv", 7)
+        cache = PreviewFanartCache.objects.get(tmdb_kind="tv", tmdb_id=7)
+        self.assertFalse(cache.fetch_attempted)
 
     def test_invalid_media_type_404s(self):
         resp = self.client.get(reverse("title_preview", args=["book", 1]))

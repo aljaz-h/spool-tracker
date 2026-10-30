@@ -8,6 +8,12 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.167.2] - 2026-10-30
+
+### Fixed
+
+- The title logo and Fanart background now show for movies, shows and anime you haven't watched or added to a list yet, not only tracked ones. They are cached by TMDB id (new table, migration 0080) and appear on their own the first time, like on tracked titles.
+
 ## [0.167.1] - 2026-10-30
 
 ### Removed

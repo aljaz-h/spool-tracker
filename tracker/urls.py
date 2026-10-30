@@ -86,6 +86,11 @@ urlpatterns = [
     path("person/<int:person_id>/", views.person_detail, name="person_detail"),
     path("titles/preview/<str:media_type>/<int:tmdb_id>/", views.title_preview, name="title_preview"),
     path(
+        "titles/preview/<str:media_type>/<int:tmdb_id>/hero-heading/",
+        views.title_preview_hero_heading_partial,
+        name="title_preview_hero_heading_partial",
+    ),
+    path(
         "titles/preview/<str:media_type>/<int:tmdb_id>/episodes/",
         views.title_preview_episodes,
         name="title_preview_episodes",

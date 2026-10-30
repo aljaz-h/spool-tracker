@@ -39,6 +39,7 @@ from .models import (
     Profile,
     SyncLog,
     Title,
+    PreviewFanartCache,
     TitleFanartCache,
     TitleRatingsCache,
 )
@@ -1363,6 +1364,46 @@ def fetch_fanart_images(title_id, force=False):
 
     TitleFanartCache.objects.update_or_create(
         title=title,
+        defaults={
+            "clearlogo_url": images.get("clearlogo_url") or "",
+            "clearart_url": images.get("clearart_url") or "",
+            "backdrop_url": images.get("backdrop_url") or "",
+            "season_banners": images.get("season_banners") or {},
+            "fetch_attempted": True,
+            "last_fetched_at": timezone.now(),
+            "next_refresh_at": timezone.now() + timedelta(days=django_settings.FANART_REFRESH_DAYS),
+        },
+    )
+
+
+@shared_task
+def fetch_preview_fanart_images(tmdb_kind, tmdb_id):
+    """fetch_fanart_images for a title with no local row yet (an untracked
+    preview page): populates PreviewFanartCache for this TMDB kind + id.
+    Queued by views._preview_fanart_context, which also re-queues it once
+    next_refresh_at has passed. Never called inline from a request."""
+    next_refresh = timezone.now() + timedelta(hours=6)
+    api_key = instance_config.get_fanart_api_key()
+    if not api_key:
+        # No key: leave a fetch_attempted=False row so views don't re-queue
+        # on every load; they retry once this short window has passed.
+        PreviewFanartCache.objects.update_or_create(
+            tmdb_kind=tmdb_kind, tmdb_id=tmdb_id, defaults={"next_refresh_at": next_refresh}
+        )
+        return
+
+    if tmdb_kind == "movie":
+        images = fanart.extract_movie_images(fanart.get_movie_images(api_key, tmdb_id))
+    else:
+        tvdb_id = tmdb.get_tv_external_ids(tmdb_id)["tvdb_id"]
+        images = (
+            fanart.extract_show_images(fanart.get_show_images(api_key, tvdb_id))
+            if tvdb_id
+            else {"clearlogo_url": None, "clearart_url": None, "backdrop_url": None, "season_banners": {}}
+        )
+    PreviewFanartCache.objects.update_or_create(
+        tmdb_kind=tmdb_kind,
+        tmdb_id=tmdb_id,
         defaults={
             "clearlogo_url": images.get("clearlogo_url") or "",
             "clearart_url": images.get("clearart_url") or "",

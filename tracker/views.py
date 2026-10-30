@@ -91,6 +91,7 @@ from .models import (
     SeasonRating,
     ServiceAPIKey,
     Title,
+    PreviewFanartCache,
     TitleFanartCache,
     TitleRatingsCache,
     WatchEvent,
@@ -1174,6 +1175,51 @@ def title_hero_heading_partial(request, pk):
         "fanart_tries": tries,
         **_title_display(title, details, fanart_images),
         **_anime_mal_context(title),
+    }
+    return render(request, "tracker/partials/title_hero_heading.html", context)
+
+
+def _preview_fanart_context(tmdb_kind, tmdb_id):
+    """_fanart_context for an untracked preview page (no Title row, so the
+    cache is PreviewFanartCache, keyed by TMDB kind + id). Same shape: the
+    cached images (stale ones are shown while a refresh is queued), or
+    {"fanart_pending": True} on the very first view while the fetch runs."""
+    cache = PreviewFanartCache.objects.filter(tmdb_kind=tmdb_kind, tmdb_id=tmdb_id).first()
+    if cache is None:
+        _dispatch_sync_task_safely(tasks.fetch_preview_fanart_images, [tmdb_kind, tmdb_id])
+        return {"fanart_pending": True}
+    if cache.next_refresh_at is None or cache.next_refresh_at <= timezone.now():
+        _dispatch_sync_task_safely(tasks.fetch_preview_fanart_images, [tmdb_kind, tmdb_id])
+    return {
+        "clearlogo_url": cache.clearlogo_url or None,
+        "clearart_url": cache.clearart_url or None,
+        "backdrop_url": cache.backdrop_url or None,
+        "season_banners": cache.season_banners,
+    }
+
+
+@login_required
+def title_preview_hero_heading_partial(request, media_type, tmdb_id):
+    """title_hero_heading_partial for an untracked preview page."""
+    if media_type not in ("movie", "tv", "anime"):
+        raise Http404
+    tmdb_kind = _tmdb_kind(media_type)
+    try:
+        tries = int(request.GET.get("n", 0)) + 1
+    except ValueError:
+        tries = FANART_POLL_TRIES
+    cache = PreviewFanartCache.objects.filter(tmdb_kind=tmdb_kind, tmdb_id=tmdb_id).first()
+    details = tmdb.get_full_details(tmdb_kind, tmdb_id)
+    if details is None:
+        raise Http404
+    context = {
+        "title": None,
+        "preview_media_type": media_type,
+        "preview_tmdb_id": tmdb_id,
+        "page_media_type": media_type,
+        "fanart_pending": cache is None and tries < FANART_POLL_TRIES,
+        "fanart_tries": tries,
+        **_title_display(None, details, {"clearlogo_url": cache.clearlogo_url or None} if cache else {}),
     }
     return render(request, "tracker/partials/title_hero_heading.html", context)
 
@@ -2618,6 +2664,7 @@ def title_preview(request, media_type, tmdb_id):
     director = tmdb.get_director(tmdb_kind, tmdb_id)
     episode_context = _episode_panel_context(request, profile, None, tmdb_id, details)
     media_gallery_context = _media_gallery_context(None, tmdb_kind, tmdb_id, api_key=api_key)
+    preview_fanart = _preview_fanart_context(tmdb_kind, tmdb_id)
     context = {
         "profile": profile,
         "title": None,
@@ -2644,7 +2691,8 @@ def title_preview(request, media_type, tmdb_id):
         # same value display_name below resolves to, under the naming
         # convention title_episodes.html's other preview_* vars use.
         "preview_name": details["name"],
-        **_title_display(None, details),
+        **_title_display(None, details, preview_fanart),
+        "fanart_pending": bool(preview_fanart.get("fanart_pending")),
         "progress": None,
         "recent_events": [],
         "latest_rating": None,

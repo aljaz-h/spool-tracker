@@ -6,7 +6,7 @@
 <div
   id="hero-heading"
   class="min-w-0 lg:pt-2 lg:max-w-[920px] max-lg:order-2"
-  {% if fanart_pending %}hx-get="{% url 'title_hero_heading_partial' title.pk %}?n={{ fanart_tries|default:0 }}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}
+  {% if fanart_pending %}hx-get="{% if title %}{% url 'title_hero_heading_partial' title.pk %}{% else %}{% url 'title_preview_hero_heading_partial' preview_media_type preview_tmdb_id %}{% endif %}?n={{ fanart_tries|default:0 }}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}
 >
   {# Phones only: on desktop the same info is the caption under the poster. #}
   <div class="flex lg:hidden items-center gap-2 text-[12.5px] font-semibold tracking-[0.06em] uppercase text-primary">
