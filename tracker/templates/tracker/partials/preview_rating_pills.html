@@ -1,0 +1,10 @@
+{% comment %}
+  The rating row of an untracked title: TMDB, then IMDb/RT/Metacritic/Trakt from PreviewRatingsCache (polled in by title_preview_rating_pills_partial until the first fetch lands), plus the MyAnimeList score for anime.
+  context: preview_media_type, preview_tmdb_id, tmdb_pill, mdblist_ratings, mdblist_pending, pills_tries, preview_extra_ratings
+{% endcomment %}
+<div
+  id="rating-pills-preview"
+  {% if mdblist_pending %}hx-get="{% url 'title_preview_rating_pills_partial' preview_media_type preview_tmdb_id %}?n={{ pills_tries|default:0 }}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}
+>
+  {% include "tracker/partials/pill_badges.html" with tmdb_pill=tmdb_pill mdblist_ratings=mdblist_ratings ratings=preview_extra_ratings %}
+</div>

@@ -2,6 +2,7 @@ import calendar as calendar_stdlib
 import csv
 import hashlib
 import json
+from types import SimpleNamespace
 import logging
 import os
 import random
@@ -92,6 +93,7 @@ from .models import (
     ServiceAPIKey,
     Title,
     PreviewFanartCache,
+    PreviewRatingsCache,
     TitleFanartCache,
     TitleRatingsCache,
     WatchEvent,
@@ -906,18 +908,89 @@ def _anime_mal_context(title):
     details = tenrai.get_anime_details(mal_id)
     if not details:
         return {}
-    if details.get("score") is not None:
+    if details.get("score") is not None and title.pk is not None:
         ExternalRating.objects.update_or_create(
             title=title, source=ExternalRating.Source.MAL, defaults={"score": str(details["score"])}
         )
     return {
+        "mal_score": details.get("score"),
         "mal_title_japanese": details.get("title_japanese"),
         "mal_studios": details.get("studios") or [],
         "mal_source": details.get("source"),
     }
 
 
-def _media_gallery_context(title, tmdb_media_type, tmdb_id, api_key=None):
+class _PreviewAnime:
+    """Stands in for a Title when looking up an untracked anime's MyAnimeList
+    data (tenrai.resolve_mal_id, _anime_mal_context, the filler overlay):
+    just the few attributes those read, and save() does nothing - nothing is
+    written for a title that has no local row. pk is None, which is how
+    _anime_mal_context knows not to persist the MAL score."""
+
+    pk = None
+    media_type = MediaType.ANIME
+
+    def __init__(self, name, year):
+        self.name = name
+        self.year = year
+        self.external_ids = {}
+
+    def save(self, **kwargs):
+        pass
+
+
+def _preview_anime_title(details, tmdb_id):
+    """A _PreviewAnime for an untracked anime preview, with its MAL id
+    resolved once (cached for a day, since there's no Title to remember it
+    on). None when TMDB had no details."""
+    if not details:
+        return None
+    from django.core.cache import cache
+
+    stub = _PreviewAnime(details.get("name"), _safe_int_year(details.get("year")))
+    key = f"preview_mal:{tmdb_id}"
+    try:
+        cached = cache.get(key)
+    except Exception:
+        cached = None
+    if cached:
+        stub.external_ids["mal"] = cached
+        return stub
+    mal_id = tenrai.resolve_mal_id(stub)
+    if mal_id:
+        try:
+            cache.set(key, mal_id, 86400)
+        except Exception:
+            pass
+    return stub
+
+
+def _safe_int_year(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _preview_anime_context(media_type, details, tmdb_id):
+    """The MAL extras (score, Japanese title, studio, source) for an
+    untracked anime preview, plus the stub itself for the trailer and filler
+    lookups. {} for movies/shows."""
+    if media_type != "anime":
+        return {}
+    stub = _preview_anime_title(details, tmdb_id)
+    if stub is None:
+        return {}
+    context = {"preview_anime_title": stub, **_anime_mal_context(stub)}
+    if context.get("mal_score") is not None:
+        # the same MAL pill a tracked anime shows (partials/pill_badges.html)
+        context["preview_extra_ratings"] = [
+            SimpleNamespace(source="mal", score=str(context["mal_score"]), get_source_display="MyAnimeList")
+        ]
+    return context
+
+
+def _media_gallery_context(title, tmdb_media_type, tmdb_id, api_key=None, mal_title=None):
     """The detail hero's "Watch trailer" button plus the "Media" gallery
     section (trailer tile + backdrop stills) - shared by title_detail and
     title_preview, since a not-yet-tracked preview should offer exactly
@@ -964,8 +1037,9 @@ def _media_gallery_context(title, tmdb_media_type, tmdb_id, api_key=None):
         )
 
         trailer = None
-        if title is not None and title.media_type == MediaType.ANIME:
-            mal_id = tenrai.resolve_mal_id(title)
+        mal_title = title if (title is not None and title.media_type == MediaType.ANIME) else mal_title
+        if mal_title is not None:
+            mal_id = tenrai.resolve_mal_id(mal_title)
             if mal_id is not None:
                 mal_details = tenrai.get_anime_details(mal_id)
                 youtube_id = (mal_details or {}).get("trailer_youtube_id")
@@ -1121,6 +1195,43 @@ def _mdblist_ratings_context(title):
     return {"mdblist_ratings": _mdblist_pills(cache.ratings), "mdblist_pending": False}
 
 
+def _preview_mdblist_context(tmdb_kind, tmdb_id):
+    """_mdblist_ratings_context for an untracked preview page - the cache is
+    PreviewRatingsCache (TMDB kind + id), same pending/poll contract."""
+    cache = PreviewRatingsCache.objects.filter(tmdb_kind=tmdb_kind, tmdb_id=tmdb_id).first()
+    if cache is None:
+        _dispatch_sync_task_safely(tasks.fetch_preview_mdblist_ratings, [tmdb_kind, tmdb_id])
+        return {"mdblist_ratings": [], "mdblist_pending": True}
+    if cache.next_refresh_at is None or cache.next_refresh_at <= timezone.now():
+        _dispatch_sync_task_safely(tasks.fetch_preview_mdblist_ratings, [tmdb_kind, tmdb_id])
+    return {"mdblist_ratings": _mdblist_pills(cache.ratings), "mdblist_pending": False}
+
+
+@login_required
+def title_preview_rating_pills_partial(request, media_type, tmdb_id):
+    """title_rating_pills_partial's counterpart for an untracked preview:
+    read-only self-poll target until the queued MDBList fetch lands."""
+    if media_type not in ("movie", "tv", "anime"):
+        raise Http404
+    tmdb_kind = _tmdb_kind(media_type)
+    try:
+        tries = int(request.GET.get("n", 0)) + 1
+    except ValueError:
+        tries = FANART_POLL_TRIES
+    cache = PreviewRatingsCache.objects.filter(tmdb_kind=tmdb_kind, tmdb_id=tmdb_id).first()
+    details = tmdb.get_full_details(tmdb_kind, tmdb_id)
+    context = {
+        "preview_media_type": media_type,
+        "preview_tmdb_id": tmdb_id,
+        "tmdb_pill": _tmdb_pill(details),
+        "mdblist_ratings": _mdblist_pills(cache.ratings) if cache else [],
+        "mdblist_pending": cache is None and tries < FANART_POLL_TRIES,
+        "pills_tries": tries,
+        **_preview_anime_context(media_type, details, tmdb_id),
+    }
+    return render(request, "tracker/partials/preview_rating_pills.html", context)
+
+
 def _fanart_context(title):
     """Fanart.tv's transparent clearlogo/clearart/backdrop for the detail
     hero (see _title_display/title_detail.html) - lazily populated the
@@ -1220,6 +1331,7 @@ def title_preview_hero_heading_partial(request, media_type, tmdb_id):
         "fanart_pending": cache is None and tries < FANART_POLL_TRIES,
         "fanart_tries": tries,
         **_title_display(None, details, {"clearlogo_url": cache.clearlogo_url or None} if cache else {}),
+        "mal_title_japanese": _preview_anime_context(media_type, details, tmdb_id).get("mal_title_japanese"),
     }
     return render(request, "tracker/partials/title_hero_heading.html", context)
 
@@ -1308,7 +1420,7 @@ def _apply_anime_filler_flags(title, episodes, season, tv_details):
             ep["filler"] = True
 
 
-def _episode_panel_context(request, profile, title, tmdb_id, details, force_season=None):
+def _episode_panel_context(request, profile, title, tmdb_id, details, force_season=None, anime_title=None):
     """Season/episode data for the title detail page's episode browser -
     shared by title_detail/title_episodes (a real, already-tracked Title)
     and title_preview/title_preview_episodes (no local Title row yet -
@@ -1428,8 +1540,9 @@ def _episode_panel_context(request, profile, title, tmdb_id, details, force_seas
         ep["aired_on"] = _parse_tmdb_date(ep.get("air_date"))
     if episodes:
         episodes[-1]["is_finale"] = True
-    if title is not None and title.media_type == MediaType.ANIME and episodes:
-        _apply_anime_filler_flags(title, episodes, season, tv_details)
+    filler_title = title if (title is not None and title.media_type == MediaType.ANIME) else anime_title
+    if filler_title is not None and episodes:
+        _apply_anime_filler_flags(filler_title, episodes, season, tv_details)
     context["episodes"] = episodes
     if profile and title:
         context["season_fully_watched"] = bool(episodes) and all(ep["watched"] for ep in episodes)
@@ -1840,7 +1953,8 @@ def title_preview_episodes(request, media_type, tmdb_id):
         "preview_name": details["name"] if details else None,
     }
     if details:
-        context.update(_episode_panel_context(request, profile, None, tmdb_id, details))
+        anime_title = _preview_anime_title(details, tmdb_id) if media_type == "anime" else None
+        context.update(_episode_panel_context(request, profile, None, tmdb_id, details, anime_title=anime_title))
     return render(request, "tracker/partials/title_episodes.html", context)
 
 
@@ -2662,9 +2776,14 @@ def title_preview(request, media_type, tmdb_id):
         similar = similar_future.result()
         watch_providers = watch_providers_future.result()
     director = tmdb.get_director(tmdb_kind, tmdb_id)
-    episode_context = _episode_panel_context(request, profile, None, tmdb_id, details)
-    media_gallery_context = _media_gallery_context(None, tmdb_kind, tmdb_id, api_key=api_key)
+    # An untracked anime has no Title to hang its MyAnimeList lookups on -
+    # _preview_anime_context stands one in (see _PreviewAnime).
+    anime_context = _preview_anime_context(media_type, details, tmdb_id)
+    anime_title = anime_context.get("preview_anime_title")
+    episode_context = _episode_panel_context(request, profile, None, tmdb_id, details, anime_title=anime_title)
+    media_gallery_context = _media_gallery_context(None, tmdb_kind, tmdb_id, api_key=api_key, mal_title=anime_title)
     preview_fanart = _preview_fanart_context(tmdb_kind, tmdb_id)
+    preview_mdblist = _preview_mdblist_context(tmdb_kind, tmdb_id)
     context = {
         "profile": profile,
         "title": None,
@@ -2677,12 +2796,10 @@ def title_preview(request, media_type, tmdb_id):
         "status_badge": tmdb.status_badge(details["status"]),
         "release_info": _release_info(details),
         "tmdb_pill": _tmdb_pill(details),
-        # No local Title row yet, so there's nothing to look up in
-        # TitleRatingsCache (see _mdblist_ratings_context) - a preview
-        # only ever shows the always-on TMDB pill above, not the
-        # supplementary IMDb/RT/Metacritic/Trakt row.
-        "mdblist_ratings": [],
-        "mdblist_pending": False,
+        # IMDb/RT/Metacritic/Trakt come from PreviewRatingsCache (TMDB kind
+        # + id) - see _preview_mdblist_context.
+        **preview_mdblist,
+        **{k: v for k, v in anime_context.items() if k != "preview_anime_title"},
         "is_preview": True,
         "preview_media_type": media_type,
         "preview_tmdb_id": tmdb_id,

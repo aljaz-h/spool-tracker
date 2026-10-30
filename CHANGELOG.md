@@ -8,6 +8,12 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.167.3] - 2026-10-30
+
+### Fixed
+
+- Titles you haven't watched or listed yet now show everything a tracked title does: the IMDb / Rotten Tomatoes / Metacritic / Trakt ratings (cached by TMDB id, new table, migration 0081, and they appear on their own), and for anime the MyAnimeList score, Japanese title, studio and source, MAL's trailer, and the filler/recap badges on episodes (so "canon only" now has something to skip). Nothing is created for a title until you actually track it.
+
 ## [0.167.2] - 2026-10-30
 
 ### Fixed

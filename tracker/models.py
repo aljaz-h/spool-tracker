@@ -540,6 +540,25 @@ class TitleRatingsCache(models.Model):
         return f"{self.title} ratings cache"
 
 
+class PreviewRatingsCache(models.Model):
+    """TitleRatingsCache's counterpart for a title with no local row yet (an
+    untracked preview page), keyed by TMDB kind + id - see
+    tasks.fetch_preview_mdblist_ratings. Same fields and meaning."""
+
+    tmdb_kind = models.CharField(max_length=8)  # "movie" or "tv"
+    tmdb_id = models.PositiveIntegerField()
+    ratings = models.JSONField(default=list, blank=True)
+    fetch_attempted = models.BooleanField(default=False)
+    last_fetched_at = models.DateTimeField(null=True, blank=True)
+    next_refresh_at = models.DateTimeField(null=True, blank=True, db_index=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["tmdb_kind", "tmdb_id"], name="unique_preview_ratings")]
+
+    def __str__(self):
+        return f"{self.tmdb_kind}/{self.tmdb_id} ratings cache"
+
+
 class TitleFanartCache(models.Model):
     """One row per title, lazily populated the first time its detail page
     is actually viewed (see views._fanart_context) - same shape/reasoning

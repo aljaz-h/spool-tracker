@@ -329,8 +329,8 @@
 
           {% if not is_preview %}
             <div class="mt-4">{% include "tracker/partials/title_rating_pills.html" %}</div>
-          {% elif tmdb_pill or mdblist_ratings %}
-            <div class="mt-4">{% include "tracker/partials/pill_badges.html" with tmdb_pill=tmdb_pill mdblist_ratings=mdblist_ratings %}</div>
+          {% else %}
+            <div class="mt-4">{% include "tracker/partials/preview_rating_pills.html" %}</div>
           {% endif %}
 
           {% if details.tagline or details.overview %}

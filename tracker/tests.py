@@ -47,6 +47,7 @@ from .models import (
     SyncLog,
     Title,
     PreviewFanartCache,
+    PreviewRatingsCache,
     TitleFanartCache,
     TitleRatingsCache,
     TitleTvmazeCache,
@@ -19554,7 +19555,7 @@ class MdblistRatingsContextTests(TestCase):
         # cache_row_present_stops_polling test below), and base.html's own
         # unrelated progress-bar script legitimately mentions "hx-trigger"
         # in a JS string/comment on every page.
-        self.assertNotContains(resp, 'hx-trigger="every 3s"')
+        self.assertNotContains(resp, reverse("title_rating_pills_partial", args=[self.title.pk]))
         self.assertContains(resp, "8.1")
 
     @patch("tracker.views._dispatch_sync_task_safely")
@@ -22347,7 +22348,57 @@ class TitlePreviewViewTests(TestCase):
             page = self.client.get(reverse("title_preview", args=["movie", 42]))
             self.assertEqual(page.context["display_clearlogo_url"], "https://fanart/logo.png")
             self.assertEqual(page.context["display_backdrop_url"], "https://fanart/bg.png")
-            self.mock_dispatch.assert_not_called()
+            for call in self.mock_dispatch.call_args_list:
+                self.assertNotEqual(call.args[0], tasks.fetch_preview_fanart_images)
+
+    def test_an_untracked_title_gets_mdblist_ratings_too(self):
+        from django.utils import timezone
+
+        with patch("tracker.integrations.tmdb.get_full_details", return_value=self._details()),                 patch("tracker.integrations.tmdb.get_similar", return_value=[]),                 patch("tracker.integrations.tmdb.get_credits", return_value=[]):
+            page = self.client.get(reverse("title_preview", args=["movie", 42]))
+            self.mock_dispatch.assert_any_call(tasks.fetch_preview_mdblist_ratings, ["movie", 42])
+            poll_url = reverse("title_preview_rating_pills_partial", args=["movie", 42])
+            self.assertContains(page, f'hx-get="{poll_url}?n=0"')
+            self.assertContains(self.client.get(poll_url + "?n=0"), "hx-trigger")
+
+            PreviewRatingsCache.objects.create(
+                tmdb_kind="movie", tmdb_id=42, fetch_attempted=True,
+                ratings=[{"source": "imdb", "value": 7.8, "score": 78}],
+                next_refresh_at=timezone.now() + timedelta(days=5),
+            )
+            done = self.client.get(poll_url + "?n=1")
+            self.assertContains(done, "7.8")
+            self.assertNotContains(done, "hx-trigger")
+            self.mock_dispatch.reset_mock()
+            page = self.client.get(reverse("title_preview", args=["movie", 42]))
+            self.assertContains(page, "7.8")
+            for call in self.mock_dispatch.call_args_list:
+                self.assertNotEqual(call.args[0], tasks.fetch_preview_mdblist_ratings)
+
+    def test_the_preview_ratings_task_stores_ratings_by_tmdb_id(self):
+        result = {"status": "ok", "remaining": 900, "ratings": [{"source": "imdb", "value": 7.8, "score": 78}]}
+        with patch("tracker.integrations.tmdb.get_full_details", return_value=self._details()),                 patch("tracker.integrations.mdblist.fetch_ratings", return_value=result):
+            tasks.fetch_preview_mdblist_ratings("movie", 42)
+        cache = PreviewRatingsCache.objects.get(tmdb_kind="movie", tmdb_id=42)
+        self.assertEqual(cache.ratings[0]["source"], "imdb")
+        self.assertTrue(cache.fetch_attempted)
+
+    def test_an_untracked_anime_gets_its_myanimelist_extras_and_filler_flags(self):
+        details = self._details(media_type="tv", name="Frieren", year="2023", number_of_seasons=1, number_of_episodes=2)
+        mal = {"score": 9.3, "title_japanese": "葬送のフリーレン", "source": "Manga", "studios": ["Madhouse"], "trailer_youtube_id": "mal-trailer"}
+        season = {"episodes": [
+            {"episode_number": 1, "name": "One", "still_url": None, "air_date": None, "vote_average": None},
+            {"episode_number": 2, "name": "Two", "still_url": None, "air_date": None, "vote_average": None},
+        ]}
+        with patch("tracker.integrations.tmdb.get_full_details", return_value=details),                 patch("tracker.integrations.tmdb.get_similar", return_value=[]),                 patch("tracker.integrations.tmdb.get_credits", return_value=[]),                 patch("tracker.integrations.tmdb.get_season_details", return_value=season),                 patch("tracker.integrations.tenrai.find_match", return_value={"mal_id": 52991}),                 patch("tracker.integrations.tenrai.get_anime_details", return_value=mal),                 patch("tracker.integrations.tenrai.get_episode_filler_map", return_value={2: {"filler": True, "recap": False}}):
+            resp = self.client.get(reverse("title_preview", args=["anime", 42]))
+        self.assertContains(resp, "葬送のフリーレン")
+        self.assertContains(resp, "9.3")
+        self.assertContains(resp, "Madhouse")
+        self.assertEqual(resp.context["trailer"]["key"], "mal-trailer")
+        self.assertEqual([bool(e.get("filler")) for e in resp.context["episodes"]], [False, True])
+        self.assertEqual(Title.objects.count(), 0)  # nothing was created for a title you haven't tracked
+        self.assertFalse(ExternalRating.objects.exists())
 
     def test_the_preview_fanart_task_stores_logo_by_tmdb_id(self):
         images = {"clearlogo_url": "https://x/logo.png", "clearart_url": None, "backdrop_url": "https://x/bg.png"}

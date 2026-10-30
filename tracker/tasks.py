@@ -40,6 +40,7 @@ from .models import (
     SyncLog,
     Title,
     PreviewFanartCache,
+    PreviewRatingsCache,
     TitleFanartCache,
     TitleRatingsCache,
 )
@@ -1297,6 +1298,53 @@ def fetch_mdblist_ratings(title_id, force=False):
             detail=f"{result['status']} fetching ratings for {title}"[:255],
         )
     cache, _ = TitleRatingsCache.objects.get_or_create(title=title)
+    cache.fetch_attempted = True
+    cache.next_refresh_at = now + timedelta(hours=6)
+    cache.save(update_fields=["fetch_attempted", "next_refresh_at"])
+
+
+@shared_task
+def fetch_preview_mdblist_ratings(tmdb_kind, tmdb_id):
+    """fetch_mdblist_ratings for a title with no local row yet (an untracked
+    preview page): populates PreviewRatingsCache for this TMDB kind + id,
+    spending the same daily MDBList quota. Queued by
+    views._preview_mdblist_context, which re-queues it once next_refresh_at
+    has passed."""
+    cfg = InstanceConfig.load()
+    _roll_mdblist_quota(cfg)
+    if not _mdblist_quota_ok(cfg):
+        _log_mdblist_quota_pause(cfg, _system_profile())
+        cfg.save(update_fields=["mdblist_quota_date", "mdblist_quota_count", "mdblist_quota_pause_logged_date"])
+        PreviewRatingsCache.objects.get_or_create(
+            tmdb_kind=tmdb_kind, tmdb_id=tmdb_id, defaults={"next_refresh_at": timezone.now() + timedelta(hours=1)}
+        )
+        return
+    cfg.save(update_fields=["mdblist_quota_date", "mdblist_quota_count"])
+
+    details = tmdb.get_full_details(tmdb_kind, tmdb_id) or {}
+    release_date_str = details.get("release_date") or details.get("first_air_date")
+    result = mdblist.fetch_ratings(tmdb_kind, tmdb_id)
+
+    cfg.mdblist_quota_count += 1
+    if result["remaining"] is not None:
+        cfg.mdblist_rate_limit_remaining = result["remaining"]
+    cfg.save(update_fields=["mdblist_quota_count", "mdblist_rate_limit_remaining"])
+
+    now = timezone.now()
+    if result["status"] in ("ok", "not_found"):
+        PreviewRatingsCache.objects.update_or_create(
+            tmdb_kind=tmdb_kind,
+            tmdb_id=tmdb_id,
+            defaults={
+                "ratings": result["ratings"],
+                "fetch_attempted": True,
+                "last_fetched_at": now,
+                "next_refresh_at": _classify_next_refresh(release_date_str, details.get("vote_count"), result["ratings"]),
+            },
+        )
+        return
+    # rate_limited/error: record the attempt, retry soon, keep any good payload
+    cache, _ = PreviewRatingsCache.objects.get_or_create(tmdb_kind=tmdb_kind, tmdb_id=tmdb_id)
     cache.fetch_attempted = True
     cache.next_refresh_at = now + timedelta(hours=6)
     cache.save(update_fields=["fetch_attempted", "next_refresh_at"])
