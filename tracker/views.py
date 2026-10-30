@@ -995,7 +995,29 @@ def _media_gallery_context(title, tmdb_media_type, tmdb_id, api_key=None):
     gallery_items.extend(
         {"kind": "image", "thumbnail_url": b["thumbnail_url"], "index": i} for i, b in enumerate(backdrops)
     )
-    return {"trailer": trailer, "gallery_items": gallery_items, "gallery_image_urls": gallery_image_urls}
+    return {
+        "trailer": trailer,
+        "trailer_videos_json": json.dumps(_trailer_videos(trailer, tmdb_media_type, tmdb_id, api_key)) if trailer else "[]",
+        "gallery_items": gallery_items,
+        "gallery_image_urls": gallery_image_urls,
+    }
+
+
+TRAILER_VIDEOS_MAX = 8
+
+
+def _trailer_videos(trailer, tmdb_media_type, tmdb_id, api_key):
+    """The trailer modal's playlist: the chosen trailer first, then TMDB's
+    other YouTube videos (teasers, clips, ...) for the "More videos" row.
+    A MAL-sourced anime trailer carries no TMDB list of its own, so TMDB's
+    is fetched for the extras. [{"key", "name", "kind"}]."""
+    extras = trailer.get("videos")
+    if extras is None and tmdb_id:
+        extras = (tmdb.get_trailer(tmdb_media_type, tmdb_id, api_key=api_key) or {}).get("videos")
+    extras = extras or []
+    main = next((v for v in extras if v["key"] == trailer["key"]), None)
+    main = main or {"key": trailer["key"], "name": trailer.get("name") or "Trailer", "kind": "Trailer"}
+    return [main] + [v for v in extras if v["key"] != main["key"]][: TRAILER_VIDEOS_MAX - 1]
 
 
 # Known MDBList source -> (display label, vendored icon name in
@@ -1311,13 +1333,27 @@ def _episode_panel_context(request, profile, title, tmdb_id, details, force_seas
         watched_count = watched_counts_by_season.get(n, 0)
         if total_episodes:
             watched_count = min(watched_count, total_episodes)
+        percent = round(watched_count / total_episodes * 100) if total_episodes else 0
+        # Card state for the season picker: no known episodes yet = announced
+        # (buttons disabled, no rating); otherwise completed / in progress /
+        # not started by how much of it is watched.
+        if not total_episodes:
+            state = "announced"
+        elif watched_count >= total_episodes:
+            state = "completed"
+        elif watched_count:
+            state = "in_progress"
+        else:
+            state = "not_started"
         season_cards.append(
             {
                 "number": n,
                 "poster_url": tv_season.get("poster_url"),
                 "total_episodes": total_episodes,
                 "watched_count": watched_count,
-                "percent": round(watched_count / total_episodes * 100) if total_episodes else 0,
+                "percent": percent,
+                "state": state,
+                "air_date": _parse_tmdb_date(tv_season.get("air_date")),
             }
         )
     context["season_cards"] = season_cards
@@ -1366,6 +1402,19 @@ def _episode_panel_context(request, profile, title, tmdb_id, details, force_seas
     context["season_remaining_count"] = len(episodes) - context["season_watched_count"]
     remaining_runtimes = [ep["runtime"] for ep in episodes if ep.get("runtime") and not ep["watched"]]
     context["season_remaining_runtime"] = selectors.format_duration(sum(remaining_runtimes)) if remaining_runtimes else None
+    # TMDB's season-level episode_count can be missing (or the call can have
+    # failed) while the episode list itself loaded fine - trust the list for
+    # the selected season's card so it isn't shown as "announced".
+    selected_card = next((c for c in season_cards if c["number"] == season), None)
+    if selected_card is not None and not selected_card["total_episodes"] and episodes:
+        total = len(episodes)
+        watched_here = context["season_watched_count"]
+        selected_card.update(
+            total_episodes=total,
+            watched_count=watched_here,
+            percent=round(watched_here / total * 100),
+            state="completed" if watched_here >= total else ("in_progress" if watched_here else "not_started"),
+        )
     return context
 
 

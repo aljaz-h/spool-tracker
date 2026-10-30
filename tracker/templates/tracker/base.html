@@ -341,13 +341,52 @@
     // click, the ✕ button - all of them fire it) clears the src back
     // out again, since just hiding the dialog leaves the video (and its
     // audio) still playing behind it.
-    window.openTrailerModal = (id) => {
+    window.openTrailerModal = (id, trigger) => {
       const modal = document.getElementById(id);
-      const iframe = modal.querySelector('iframe');
-      modal.addEventListener('close', () => { iframe.src = ''; }, { once: true });
+      modal._trigger = trigger || document.activeElement;
       modal.showModal();
-      requestAnimationFrame(() => { iframe.src = iframe.dataset.src; });
+      // the Alpine component inside (trailerPlayer) loads the video
+      modal.dispatchEvent(new CustomEvent('trailer-open'));
     };
+    // Alpine state for the trailer modal (title_detail.html): the playlist
+    // is parked on data-videos; the iframe only gets a src once the dialog
+    // is open and laid out (see the comment above). Clearing the src on
+    // close or before switching videos is what stops the playback.
+    window.trailerPlayer = (modal) => ({
+      videos: JSON.parse(modal.dataset.videos || '[]'),
+      index: 0,
+      dragY: 0,
+      startY: null,
+      get current() { return this.videos[this.index] || { key: '', kind: '' }; },
+      embed(key) {
+        return `https://www.youtube-nocookie.com/embed/${key}?autoplay=1&rel=0&modestbranding=1&iv_load_policy=3&playsinline=1`;
+      },
+      open() {
+        this.index = 0;
+        this.dragY = 0;
+        document.documentElement.style.overflow = 'hidden';
+        requestAnimationFrame(() => { this.$refs.frame.src = this.embed(this.current.key); });
+      },
+      play(i) {
+        this.index = i;
+        this.$refs.frame.src = '';
+        requestAnimationFrame(() => { this.$refs.frame.src = this.embed(this.current.key); });
+      },
+      onClose() {
+        this.$refs.frame.src = '';
+        document.documentElement.style.overflow = '';
+        this.dragY = 0;
+        const trigger = modal._trigger;
+        if (trigger && trigger.focus) trigger.focus();
+      },
+      dragStart(e) { this.startY = e.touches[0].clientY; },
+      dragMove(e) { if (this.startY !== null) this.dragY = Math.max(0, e.touches[0].clientY - this.startY); },
+      dragEnd() {
+        const close = this.dragY > 90;
+        this.startY = null;
+        if (close) modal.close(); else this.dragY = 0;
+      },
+    });
     // A title detail page's own #episode-N-M link (built by
     // tracker_extras.episode_detail_url - Continue Watching/Social
     // Activity's poster cards) - jumps to and briefly highlights that

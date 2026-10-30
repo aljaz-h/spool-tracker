@@ -2355,6 +2355,73 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .atile-blue:hover {
     color: var(--color-info-content);
   }
+
+  /* Season cards (partials/season_cards.html): the left button doubles as
+     the progress bar (--fill from the left), the right is a square chevron
+     that opens that season's "Mark episodes" menu. */
+  .smark,
+  .smark-chev {
+    height: 2.25rem;
+    border-radius: 10px;
+    background: var(--color-base-300);
+    color: var(--color-ink-dim);
+    font-size: 0.8125rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: filter 0.15s, color 0.15s;
+  }
+  .smark {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--color-success) 45%, var(--color-base-300)) var(--fill, 0%),
+      var(--color-base-300) var(--fill, 0%)
+    );
+    color: var(--color-base-content);
+  }
+  .smark.is-complete {
+    background: var(--color-success);
+    color: var(--color-success-content);
+  }
+  .smark-chev {
+    flex: none;
+    width: 2.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .smark:hover,
+  .smark-chev:hover {
+    filter: brightness(1.15);
+  }
+  .smark-chev.is-open {
+    box-shadow: inset 0 0 0 1px var(--color-line);
+  }
+  .smark:disabled,
+  .smark-chev:disabled {
+    opacity: 0.45;
+    cursor: default;
+    filter: none;
+  }
+  /* The notch pointing at the chevron (--notch-x is set when the menu opens). */
+  .season-menu::before {
+    content: "";
+    position: absolute;
+    top: -6px;
+    left: calc(var(--notch-x, 24px) - 6px);
+    width: 11px;
+    height: 11px;
+    background: var(--color-base-200);
+    border-left: 1px solid var(--color-line);
+    border-top: 1px solid var(--color-line);
+    transform: rotate(45deg);
+  }
+  .season-menu.menu-above::before {
+    display: none;
+  }
   .atile-accent,
   .atile-accent:hover {
     color: var(--color-primary);
@@ -2421,5 +2488,63 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   }
   .sprog.is-start {
     --sprog-c: var(--color-base-content);
+  }
+}
+
+/* Trailer player (title_detail.html): a centered lightbox on desktop, a
+   bottom sheet below the sm breakpoint. Not daisyUI's .modal - the sheet,
+   drag handle and "more videos" row are all ours. */
+dialog.trailer-modal {
+  /* as wide as fits: capped so header + 16:9 player + the video row fit the
+     viewport height without scrolling (the player has no black bars) */
+  width: min(1040px, 94vw, calc((94vh - 370px) * 16 / 9));
+  min-width: min(94vw, 560px);
+  max-width: none;
+  max-height: 94vh;
+  margin: auto;
+  padding: 0;
+  overflow: hidden auto;
+  color: inherit;
+  background: var(--color-base-200);
+  border: 1px solid var(--color-line);
+  border-radius: 1rem;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+}
+dialog.trailer-modal::backdrop {
+  background: rgba(8, 9, 12, 0.72);
+  backdrop-filter: blur(6px);
+}
+.trailer-sheet {
+  transition: transform 0.2s ease-out;
+}
+.trailer-sheet:focus,
+dialog.trailer-modal:focus {
+  outline: none;
+}
+.trailer-item .trailer-thumb {
+  outline: 2px solid transparent;
+  outline-offset: 0;
+}
+.trailer-item:hover .trailer-thumb {
+  filter: brightness(1.1);
+}
+.trailer-item.is-current .trailer-thumb {
+  outline-color: var(--color-base-content);
+}
+.trailer-item.is-current {
+  background: var(--color-base-300);
+}
+@media (min-width: 640px) {
+  .trailer-item.is-current {
+    background: transparent;
+  }
+}
+@media (max-width: 639px) {
+  dialog.trailer-modal {
+    width: 100%;
+    max-height: 92vh;
+    margin: auto 0 0;
+    border-width: 1px 0 0;
+    border-radius: 1.25rem 1.25rem 0 0;
   }
 }

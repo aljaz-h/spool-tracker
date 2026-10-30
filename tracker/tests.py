@@ -1117,8 +1117,8 @@ class TmdbDetailsTests(TestCase):
         self.assertEqual(details["number_of_episodes"], 24)
         self.assertEqual(details["episode_run_time"], 24)
         self.assertEqual(details["seasons"], [
-            {"season_number": 1, "episode_count": 12, "vote_average": 8.1, "poster_url": None},
-            {"season_number": 2, "episode_count": 12, "vote_average": 0, "poster_url": None},
+            {"season_number": 1, "episode_count": 12, "vote_average": 8.1, "poster_url": None, "air_date": None},
+            {"season_number": 2, "episode_count": 12, "vote_average": 0, "poster_url": None, "air_date": None},
         ])
 
     @override_settings(TMDB_API_KEY="test-key")
@@ -13909,6 +13909,23 @@ class TmdbDetailPageTests(TestCase):
         self.assertEqual(trailer["key"], "official1")
 
     @patch("tracker.integrations.tmdb._http_session.get")
+    def test_get_trailer_lists_every_youtube_video_best_first(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "results": [
+                    {"site": "YouTube", "type": "Clip", "key": "clip1", "name": "A clip", "published_at": "2020-03-01T00:00:00Z"},
+                    {"site": "Vimeo", "type": "Trailer", "key": "vimeo1"},
+                    {"site": "YouTube", "type": "Teaser", "key": "teaser1", "name": "Teaser", "official": True, "published_at": "2020-02-01T00:00:00Z"},
+                    {"site": "YouTube", "type": "Trailer", "key": "official1", "name": "Trailer", "official": True, "published_at": "2020-01-01T00:00:00Z"},
+                ]
+            }
+        )
+        videos = tmdb.get_trailer("movie", 42)["videos"]
+        self.assertEqual([(v["key"], v["kind"]) for v in videos], [
+            ("official1", "Official trailer"), ("teaser1", "Teaser"), ("clip1", "Clip"),
+        ])
+
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_trailer_falls_back_to_most_recent_when_none_are_official(self, mock_get):
         mock_get.return_value = self._response(
             {
@@ -17215,8 +17232,10 @@ class TitleDetailViewTests(TestCase):
         mock_details.return_value = self._details()
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         self.assertContains(resp, "<span>Trailer</span>")
-        self.assertContains(resp, f"openTrailerModal('trailer-modal-{self.title.pk}')")
-        self.assertContains(resp, "https://www.youtube.com/embed/abc123?autoplay=1")
+        self.assertContains(resp, f"openTrailerModal('trailer-modal-{self.title.pk}', this)")
+        self.assertEqual(resp.context["trailer_videos_json"], '[{"key": "abc123", "name": "Official Trailer", "kind": "Trailer"}]')
+        self.assertContains(resp, 'class="trailer-modal"')
+        self.assertContains(resp, "youtube-nocookie.com/embed/")  # in the player script (base.html)
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -18928,11 +18947,15 @@ class AnimeMalDetailContextTests(TestCase):
         mock_details.return_value = self._details()
         mock_find_match.return_value = {"mal_id": 269}
         mock_mal_details.return_value = {**self._mal_details(), "trailer_youtube_id": "mal-trailer"}
-        with patch("tracker.integrations.tmdb.get_trailer", return_value={"key": "tmdb-trailer", "name": ""}) as mock_tmdb_trailer:
+        tmdb_trailer = {"key": "tmdb-trailer", "name": "", "videos": [
+            {"key": "tmdb-trailer", "name": "TMDB trailer", "kind": "Official trailer"},
+            {"key": "tmdb-teaser", "name": "Teaser", "kind": "Teaser"},
+        ]}
+        with patch("tracker.integrations.tmdb.get_trailer", return_value=tmdb_trailer):
             resp = self.client.get(reverse("title_detail", args=[self.anime.pk]))
-        self.assertContains(resp, "https://www.youtube.com/embed/mal-trailer?autoplay=1")
-        self.assertNotContains(resp, "tmdb-trailer")
-        mock_tmdb_trailer.assert_not_called()
+        # MAL's trailer plays first; TMDB is only consulted for the "More videos" extras
+        keys = [v["key"] for v in json.loads(resp.context["trailer_videos_json"])]
+        self.assertEqual(keys, ["mal-trailer", "tmdb-trailer", "tmdb-teaser"])
 
     @patch("tracker.integrations.tenrai.get_episode_filler_map", return_value={})
     @patch("tracker.integrations.tenrai.get_anime_details")
@@ -18950,7 +18973,7 @@ class AnimeMalDetailContextTests(TestCase):
         mock_mal_details.return_value = self._mal_details()  # no trailer_youtube_id key at all
         with patch("tracker.integrations.tmdb.get_trailer", return_value={"key": "tmdb-trailer", "name": ""}):
             resp = self.client.get(reverse("title_detail", args=[self.anime.pk]))
-        self.assertContains(resp, "https://www.youtube.com/embed/tmdb-trailer?autoplay=1")
+        self.assertEqual([v["key"] for v in json.loads(resp.context["trailer_videos_json"])], ["tmdb-trailer"])
 
     @patch("tracker.integrations.tenrai.get_episode_filler_map", return_value={})
     @patch("tracker.integrations.tenrai.get_anime_details")
@@ -20646,8 +20669,8 @@ class TitleMarkSeasonWatchedTests(TestCase):
         mock_season.return_value = self._season(["Ep1"])
 
         resp = self.client.get(reverse("title_episodes", args=[anime.pk]), {"season": 1})
-        self.assertContains(resp, "Mark season watched (canon only)")
-        self.assertContains(resp, "Mark all watched (canon only)")
+        self.assertContains(resp, "Season watched, canon only")
+        self.assertContains(resp, "All watched, canon only")
 
         resp = self.client.get(reverse("title_episodes", args=[self.title.pk]), {"season": 1})
         self.assertNotContains(resp, "canon only")
@@ -20666,12 +20689,65 @@ class TitleMarkSeasonWatchedTests(TestCase):
         mock_season.return_value = self._season(["Ep1", "Ep2"])
         resp = self.client.get(reverse("title_episodes", args=[self.title.pk]), {"season": 1})
         self.assertContains(resp, "Mark season watched")
-        self.assertNotContains(resp, "Unmark season watched")
+        self.assertNotContains(resp, "smark is-complete")
 
         self.client.post(reverse("title_mark_season_watched", args=[self.title.pk, 1]))
         resp = self.client.get(reverse("title_episodes", args=[self.title.pk]), {"season": 1})
-        self.assertContains(resp, "Unmark season watched")
-        self.assertNotContains(resp, ">Mark season watched<")
+        # the card's own button now unmarks (and is solid green), instead of marking
+        self.assertContains(resp, "Season 1 is complete. Remove every watched mark for it?")
+        self.assertContains(resp, "smark is-complete")
+
+
+    @patch("tracker.integrations.tmdb.get_tv_details")
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_season_cards_show_their_state_and_a_menu_per_season(self, mock_season, mock_details, mock_tv):
+        mock_details.return_value = {
+            "tmdb_id": 99, "media_type": "tv", "name": "Silo", "year": "2023",
+            "overview": "", "tagline": "", "genres": [], "runtime": None,
+            "number_of_seasons": 3, "number_of_episodes": 4,
+            "backdrop_url": None, "poster_url": None, "vote_average": 7.0,
+            "vote_count": 100, "original_language": "en", "status": None,
+        }
+        mock_tv.return_value = {"number_of_episodes": 4, "episode_run_time": None, "seasons": [
+            {"season_number": 1, "episode_count": 2, "vote_average": 7.5, "poster_url": None, "air_date": "2026-04-04"},
+            {"season_number": 2, "episode_count": 2, "vote_average": 0, "poster_url": None, "air_date": "2027-01-10"},
+            {"season_number": 3, "episode_count": 0, "vote_average": 0, "poster_url": None, "air_date": None},
+        ]}
+        mock_season.return_value = self._season(["Ep1", "Ep2"])
+        ep = Episode.objects.create(title=self.title, season=1, episode=1)
+        WatchEvent.objects.create(profile=self.profile, title=self.title, episode=ep, watched_at=timezone.now())
+
+        resp = self.client.get(reverse("title_episodes", args=[self.title.pk]), {"season": 1})
+        cards = {c["number"]: c for c in resp.context["season_cards"]}
+        self.assertEqual([cards[n]["state"] for n in (1, 2, 3)], ["in_progress", "not_started", "announced"])
+        self.assertContains(resp, "S01")
+        self.assertContains(resp, "Apr 4, 2026")
+        self.assertContains(resp, "Jan 10, 2027")
+        self.assertContains(resp, "Announced")
+        self.assertContains(resp, "0/?")
+        self.assertContains(resp, "--fill: 50%")
+        self.assertContains(resp, "Season 2 · Silo")  # the menu's own subtitle
+        self.assertContains(resp, reverse("title_unmark_season_watched", args=[self.title.pk, 1]))  # Reset season progress
+        self.assertContains(resp, reverse("title_mark_season_watched", args=[self.title.pk, 2]))
+        self.assertNotContains(resp, "Mark season watched</button")  # the dropdown beside "Season N Episodes" is gone
+        self.assertNotContains(resp, 'class="btn btn-sm btn-soft gap-1.5"')
+
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_full_details")
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_selected_season_is_not_announced_when_tmdb_lacks_its_episode_count(self, mock_season, mock_details, _tv):
+        mock_details.return_value = {
+            "tmdb_id": 99, "media_type": "tv", "name": "Silo", "year": "2023",
+            "overview": "", "tagline": "", "genres": [], "runtime": None,
+            "number_of_seasons": 1, "number_of_episodes": 2,
+            "backdrop_url": None, "poster_url": None, "vote_average": 7.0,
+            "vote_count": 100, "original_language": "en", "status": None,
+        }
+        mock_season.return_value = self._season(["Ep1", "Ep2"])
+        resp = self.client.get(reverse("title_episodes", args=[self.title.pk]), {"season": 1})
+        self.assertEqual(resp.context["season_cards"][0]["state"], "not_started")
+        self.assertContains(resp, "0/2")
 
 
 class TitleUnmarkSeasonWatchedTests(TestCase):
@@ -33512,7 +33588,10 @@ class TitleRatingTileTests(TitleTilesBase):
         with patch("tracker.integrations.tmdb.get_full_details", return_value=self.details("movie")),                 patch("tracker.views._media_gallery_context", return_value={"trailer": None, "gallery_items": [], "gallery_image_urls": []}):
             body = self.client.get(reverse("title_preview", args=["movie", 999001])).content.decode()
         self.assertIn('title="Track it first to rate it"', body)
-        self.assertIn('href="#preview-lists"', body)
+        # "Add to list" is a popup on an untracked title too (not a bare anchor to the side rail)
+        self.assertNotIn('href="#preview-lists"', body)
+        self.assertIn('<div class="font-semibold text-sm">Add to list</div>', body)
+        self.assertIn(reverse("title_preview_add_to_list", args=["movie", 999001, ensure_watchlist(self.profile).pk]), body)
 
 
 class TitleRatingActionsTests(TitleTilesBase):

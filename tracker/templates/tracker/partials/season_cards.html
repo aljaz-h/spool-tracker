@@ -1,0 +1,212 @@
+{% load tracker_extras icons %}
+{# context (all from title_episodes.html): title (None for a preview), preview_media_type/preview_tmdb_id/preview_name, season, season_cards ({"number", "poster_url", "total_episodes", "watched_count", "percent", "state" (completed/in_progress/not_started/announced), "air_date"}), season_ratings, show_completed #}
+{% comment %}
+  Season picker. Each card: the poster (an hx-get that swaps #episodes-panel to that season; the selected one has the amber ring), then a button row - the left button is also the progress bar (its fill is --fill, solid green when complete) and marks the season watched (or unmarks it when complete); the right one opens that season's own "Mark episodes" menu. The cards scroll sideways on narrow screens rather than wrapping.
+
+  The amber ring is its own overlay div painted after the image: an inset ring on the poster box itself is covered by the absolutely-positioned image, and an outset ring gets clipped by the row's forced overflow-y.
+{% endcomment %}
+{% firstof title.name preview_name as episodes_title_name %}
+{% if title %}
+  {% url 'title_mark_all_seasons_watched' title.pk as mark_all_url %}
+{% else %}
+  {% url 'title_preview_mark_all_seasons_watched' preview_media_type preview_tmdb_id as mark_all_url %}
+{% endif %}
+<div class="flex gap-4 overflow-x-auto scroll-row pb-2 mb-9">
+  {% for card in season_cards %}
+    {% if title %}
+      {% url 'title_mark_season_watched' title.pk card.number as mark_season_url %}
+    {% else %}
+      {% url 'title_preview_mark_season_watched' preview_media_type preview_tmdb_id card.number as mark_season_url %}
+    {% endif %}
+    <div
+      class="season-card w-[128px] sm:w-[160px] flex-none"
+      x-data="{
+        open: false,
+        toggle() {
+          this.open = !this.open;
+          if (!this.open) return;
+          this.$nextTick(() => {
+            const button = this.$refs.chev;
+            window.positionPopover(button, this.$refs.panel, 288, false);
+            const b = button.getBoundingClientRect(), p = this.$refs.panel.getBoundingClientRect();
+            this.$refs.panel.style.setProperty('--notch-x', (b.left + b.width / 2 - p.left) + 'px');
+            this.$refs.panel.classList.toggle('menu-above', p.top < b.top);
+          });
+        },
+        close() { this.open = false; this.$nextTick(() => this.$refs.chev.focus()); },
+      }"
+      @keydown.escape.window="if (open) close()"
+      @scroll.window="open = false"
+      @htmx:after-request.camel="if ($event.detail.successful) open = false"
+    >
+      <button
+        type="button"
+        hx-get="{% if title %}{% url 'title_episodes' title.pk %}{% else %}{% url 'title_preview_episodes' preview_media_type preview_tmdb_id %}{% endif %}?season={{ card.number }}"
+        hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+        {% if card.number == season %}aria-current="true"{% endif %}
+        class="block w-full text-left"
+        aria-label="Season {{ card.number }}"
+      >
+        <div class="relative aspect-[2/3] rounded-xl overflow-hidden bg-base-300 {% if card.state == 'announced' %}opacity-50{% endif %} {% if not card.poster_url %}{{ title.pk|default:preview_tmdb_id|add:card.number|gradient_class }}{% endif %}">
+          {% if card.poster_url %}
+            <img src="{{ card.poster_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+          {% endif %}
+          <span class="absolute top-2 left-2 px-1.5 py-0.5 rounded-md bg-black/60 backdrop-blur-sm text-[11px] font-bold tracking-wide text-white">S{{ card.number|stringformat:"02d" }}</span>
+          {% if card.state == "completed" %}
+            <span class="absolute top-2 right-2 w-6 h-6 rounded-full bg-success text-success-content flex items-center justify-center" title="Season complete">{% icon "check" "w-3.5 h-3.5" %}</span>
+          {% endif %}
+          {% if card.number == season %}
+            <div class="absolute inset-0 rounded-xl inset-ring-2 inset-ring-primary pointer-events-none" aria-hidden="true"></div>
+          {% endif %}
+        </div>
+      </button>
+
+      <div class="mt-2 flex gap-1.5">
+        {% if card.state == "announced" %}
+          <button type="button" disabled class="smark flex-1 min-w-0" style="--fill: 0%">{% icon "check" "w-4 h-4" %}<span>0/?</span></button>
+          <button type="button" disabled class="smark-chev" aria-label="Season {{ card.number }} actions">{% icon "chevron-down" "w-4 h-4" %}</button>
+        {% else %}
+          {% if card.state == "completed" and title %}
+            <button type="button"
+              hx-post="{% url 'title_unmark_season_watched' title.pk card.number %}"
+              hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+              hx-confirm="Season {{ card.number }} is complete. Remove every watched mark for it?"
+              class="smark is-complete flex-1 min-w-0" title="Season watched - click to unmark" style="--fill: 100%"
+            >{% icon "check" "w-4 h-4" %}<span>{{ card.watched_count }}/{{ card.total_episodes }}</span></button>
+          {% else %}
+            <button type="button"
+              hx-post="{{ mark_season_url }}"
+              hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+              hx-confirm="Mark every episode of Season {{ card.number }} of “{{ episodes_title_name }}” as watched?"
+              class="smark {% if card.state == 'completed' %}is-complete{% endif %} flex-1 min-w-0" title="Mark season watched" style="--fill: {{ card.percent }}%"
+            >{% icon "check" "w-4 h-4" %}<span>{{ card.watched_count }}/{{ card.total_episodes }}</span></button>
+          {% endif %}
+          <button
+            type="button" x-ref="chev" @click="toggle()"
+            :aria-expanded="open.toString()" aria-haspopup="true" aria-label="Season {{ card.number }} actions"
+            class="smark-chev" :class="open && 'is-open'"
+          >{% icon "chevron-down" "w-4 h-4" %}</button>
+        {% endif %}
+      </div>
+
+      <div class="mt-2 text-[14px] font-semibold {% if card.number == season %}text-base-content{% else %}text-ink-dim{% endif %}">Season {{ card.number }}</div>
+      <div class="text-[12.5px] text-ink-faint truncate">
+        {% if card.state == "announced" %}
+          <span class="font-semibold text-primary">Announced</span>
+        {% else %}
+          {% with rating=season_ratings|get_item:card.number %}
+            {% if rating %}<span class="text-primary font-semibold">&#9733; {{ rating|floatformat:1 }}</span>{% endif %}
+            {% if rating and card.air_date %} · {% endif %}
+          {% endwith %}
+          {% if card.air_date %}{{ card.air_date|date:"M j, Y" }}{% endif %}
+        {% endif %}
+      </div>
+
+      {% if card.state != "announced" %}
+        <div
+          x-ref="panel"
+          x-show="open" x-cloak x-transition.opacity @click.outside="open = false"
+          class="season-menu fixed z-50 w-72 menu-surface p-2"
+          role="dialog" aria-label="Mark episodes"
+        >
+          <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1">
+            <div class="min-w-0">
+              <div class="font-semibold text-sm">Mark episodes</div>
+              <div class="text-xs text-ink-faint truncate">Season {{ card.number }} · {{ episodes_title_name }}</div>
+            </div>
+            <button type="button" @click="close()" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 flex-none">{% icon "x" "w-4 h-4" %}</button>
+          </div>
+
+          <button type="button"
+            hx-post="{{ mark_season_url }}"
+            hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+            hx-confirm="Mark every episode of Season {{ card.number }} of “{{ episodes_title_name }}” as watched?"
+            class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
+          >
+            <span class="w-7 h-7 rounded-md bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "eye" "w-4 h-4" %}</span>
+            <span class="min-w-0">
+              <span class="block text-[13px] font-semibold">Mark season watched</span>
+              <span class="block text-[12px] text-ink-faint">Every episode of Season {{ card.number }}</span>
+            </span>
+          </button>
+          {% if title.media_type == "anime" or preview_media_type == "anime" %}
+            <button type="button"
+              hx-post="{{ mark_season_url }}" hx-vals='{"canon_only": "1"}'
+              hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+              hx-confirm="Mark every canon episode of Season {{ card.number }} of “{{ episodes_title_name }}” as watched, skipping filler/recap?"
+              class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
+            >
+              <span class="w-7 h-7 rounded-md bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "eye" "w-4 h-4" %}</span>
+              <span class="min-w-0">
+                <span class="block text-[13px] font-semibold">Season watched, canon only</span>
+                <span class="block text-[12px] text-ink-faint">Skips filler and recap episodes</span>
+              </span>
+            </button>
+          {% endif %}
+
+          <div class="border-t border-line my-1.5"></div>
+
+          {% if show_completed %}
+            <button type="button"
+              hx-post="{% url 'title_unmark_all_seasons_watched' title.pk %}"
+              hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+              hx-confirm="Remove every watched mark for every season of “{{ episodes_title_name }}”? This can't be undone."
+              class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
+            >
+              <span class="w-7 h-7 rounded-md bg-error/15 flex items-center justify-center flex-none text-error">{% icon "trash-2" "w-4 h-4" %}</span>
+              <span class="min-w-0">
+                <span class="block text-[13px] font-semibold">Unmark all watched</span>
+                <span class="block text-[12px] text-ink-faint">Remove every episode play</span>
+              </span>
+            </button>
+          {% else %}
+            <button type="button"
+              hx-post="{{ mark_all_url }}"
+              hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+              hx-confirm="Mark every episode of every season of “{{ episodes_title_name }}” as watched? This can take a moment for shows with many seasons."
+              class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
+            >
+              <span class="w-7 h-7 rounded-md bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "check" "w-4 h-4" %}</span>
+              <span class="min-w-0">
+                <span class="block text-[13px] font-semibold">Mark all watched</span>
+                <span class="block text-[12px] text-ink-faint">Every episode, every season</span>
+              </span>
+            </button>
+            {% if title.media_type == "anime" or preview_media_type == "anime" %}
+              <button type="button"
+                hx-post="{{ mark_all_url }}" hx-vals='{"canon_only": "1"}'
+                hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+                hx-confirm="Mark every canon episode of every season of “{{ episodes_title_name }}” as watched, skipping filler/recap? This can take a moment for shows with many seasons."
+                class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
+              >
+                <span class="w-7 h-7 rounded-md bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "check" "w-4 h-4" %}</span>
+                <span class="min-w-0">
+                  <span class="block text-[13px] font-semibold">All watched, canon only</span>
+                  <span class="block text-[12px] text-ink-faint">Skips filler and recap episodes</span>
+                </span>
+              </button>
+            {% endif %}
+          {% endif %}
+
+          {% if title %}
+            <div class="border-t border-line my-1.5"></div>
+            <button type="button"
+              {% if card.watched_count %}
+                hx-post="{% url 'title_unmark_season_watched' title.pk card.number %}"
+                hx-target="#episodes-panel" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
+                hx-confirm="Remove every watched mark for Season {{ card.number }} of “{{ episodes_title_name }}”? This can't be undone."
+              {% else %}disabled{% endif %}
+              class="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-default"
+            >
+              <span class="w-7 h-7 rounded-md bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "rotate-ccw" "w-4 h-4" %}</span>
+              <span class="min-w-0">
+                <span class="block text-[13px] font-semibold">Reset season progress</span>
+                <span class="block text-[12px] text-ink-faint">Unmark every episode of Season {{ card.number }}</span>
+              </span>
+            </button>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+  {% endfor %}
+</div>

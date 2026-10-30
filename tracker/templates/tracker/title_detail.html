@@ -246,13 +246,51 @@
                   {% include "tracker/partials/title_detail_list_popover.html" with title=title my_lists=my_lists in_list_ids=in_list_ids %}
                   {% include "tracker/partials/title_rating_tile.html" with title=title latest_rating=latest_rating star_fill=star_fill season_rating_rows=season_rating_rows rating_open=rating_open %}
                 {% else %}
-                  {# Not tracked yet: lists are the section in the side rail, and there is nothing to rate until it is tracked. #}
-                  <div class="flex-1 min-w-0"><a href="#preview-lists" class="atile">{% icon "list-checks" %}<span>Add to list</span></a></div>
+                  {# Not tracked yet: the same "Add to list" popup as a tracked title, but each row is a plain form post that tracks the title and adds it (title_preview_add_to_list). Nothing to rate until it is tracked. #}
+                  <div class="relative flex-1 min-w-0" x-data="{
+                    open: false,
+                    togglePanel(button) {
+                      this.open = !this.open;
+                      if (!this.open) return;
+                      this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 288, false));
+                    },
+                  }">
+                    <button type="button" @click="togglePanel($el)" :aria-expanded="open.toString()" aria-haspopup="true" class="atile" :class="open && 'atile-open'">{% icon "list-checks" %}<span>Add to list</span></button>
+                    <div
+                      x-ref="panel"
+                      x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
+                      class="fixed z-50 w-72 menu-surface p-2"
+                    >
+                      <div class="flex items-start justify-between px-2 pt-1 pb-2 mb-1">
+                        <div class="min-w-0">
+                          <div class="font-semibold text-sm">Add to list</div>
+                          <div class="text-xs text-ink-faint truncate">{{ display_name }}</div>
+                        </div>
+                        <button type="button" @click="open = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 flex-none">{% icon "x" "w-4 h-4" %}</button>
+                      </div>
+                      <div class="max-h-56 overflow-y-auto">
+                        {% for list in my_lists %}
+                          <form method="post" action="{% url 'title_preview_add_to_list' preview_media_type preview_tmdb_id list.id %}">
+                            {% csrf_token %}
+                            <button type="submit" class="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
+                              <span class="w-7 h-7 rounded-md flex items-center justify-center flex-none bg-base-300 text-ink-dim">{% icon "list-checks" "w-4 h-4" %}</span>
+                              <span class="min-w-0 flex-1">
+                                <span class="block text-[13px] font-semibold truncate">{{ list.name }}</span>
+                                <span class="block text-[12px] text-ink-faint">Add to this list</span>
+                              </span>
+                            </button>
+                          </form>
+                        {% empty %}
+                          <div class="text-[12px] text-ink-faint px-2 py-1.5">No lists yet. <a href="{% url 'lists' %}" class="text-primary">Create one</a></div>
+                        {% endfor %}
+                      </div>
+                    </div>
+                  </div>
                   <div class="flex-1 min-w-0"><button type="button" class="atile" disabled title="Track it first to rate it">{% icon "star" "atile-star" %}<span>Rate</span></button></div>
                 {% endif %}
                 {% if trailer %}
                   <div class="flex-1 min-w-0">
-                    <button type="button" onclick="openTrailerModal('trailer-modal-{{ poster_seed }}')" class="atile">{% icon "play" %}<span>Trailer</span></button>
+                    <button type="button" onclick="openTrailerModal('trailer-modal-{{ poster_seed }}', this)" class="atile">{% icon "play" %}<span>Trailer</span></button>
                   </div>
                 {% endif %}
             </div>
@@ -334,13 +372,35 @@
       starts with an empty src (real one parked on data-src) so YouTube
       is never fetched until the dialog actually opens.
     {% endcomment %}
-    <dialog id="trailer-modal-{{ poster_seed }}" class="modal">
-      <div class="modal-box max-w-4xl bg-base-200 p-2">
-        <form method="dialog"><button class="btn btn-xs btn-circle btn-ghost absolute right-1.5 top-1.5 z-10 bg-base-300/90">✕</button></form>
-        <div class="aspect-video rounded-lg overflow-hidden bg-black">
+    <dialog
+      id="trailer-modal-{{ poster_seed }}" class="trailer-modal"
+      data-videos="{{ trailer_videos_json }}"
+      x-data="trailerPlayer($el)"
+      @trailer-open="open()"
+      @close="onClose()"
+      @click="if ($event.target === $el) $el.close()"
+      aria-label="Trailer player"
+    >
+      <div class="trailer-sheet" tabindex="-1" autofocus :style="dragY ? `transform: translateY(${dragY}px); transition: none` : ''">
+        {# Drag handle: phones only. Swiping it down closes the sheet. #}
+        <div class="sm:hidden flex justify-center pt-2.5 pb-1 touch-none"
+          @touchstart.passive="dragStart($event)" @touchmove.passive="dragMove($event)" @touchend="dragEnd()">
+          <span class="w-10 h-1 rounded-full bg-line"></span>
+        </div>
+
+        <div class="flex items-center gap-3 px-5 sm:px-7 pt-2 sm:pt-4 pb-4">
+          {% if display_poster_url %}<img src="{{ display_poster_url|poster_size:"w185" }}" alt="" class="max-sm:hidden w-10 h-[54px] rounded-md object-cover flex-none">{% endif %}
+          <div class="min-w-0 flex-1">
+            <div class="font-bold text-[17px] sm:text-[19px] leading-tight truncate">{{ display_name }}</div>
+            <div class="text-[13px] text-ink-faint truncate" x-text="current.kind"></div>
+          </div>
+          <a :href="`https://www.youtube.com/watch?v=${current.key}`" target="_blank" rel="noopener noreferrer" class="max-sm:hidden btn btn-soft h-10 min-h-0 gap-2 px-4">{% icon "external-link" "w-4 h-4" %}Open on YouTube</a>
+          <button type="button" @click="$el.closest('dialog').close()" title="Close" aria-label="Close" class="btn btn-soft h-10 w-10 sm:h-10 min-h-0 p-0 max-sm:h-11 max-sm:w-11 flex-none">{% icon "x" "w-5 h-5" %}</button>
+        </div>
+
+        <div class="aspect-video bg-black">
           <iframe
-            src=""
-            data-src="https://www.youtube.com/embed/{{ trailer.key }}?autoplay=1"
+            src="" x-ref="frame"
             title="Trailer"
             class="w-full h-full"
             referrerpolicy="strict-origin-when-cross-origin"
@@ -348,8 +408,33 @@
             allowfullscreen
           ></iframe>
         </div>
+
+        <div class="px-5 sm:px-7 pt-4 pb-5">
+          <div class="flex items-center justify-between mb-3">
+            <div class="subhead" x-show="videos.length > 1">More videos</div>
+            <div class="max-sm:hidden ml-auto text-[13px] text-ink-faint"><kbd class="px-1.5 py-0.5 rounded border border-line text-[12px]">Esc</kbd> to close</div>
+          </div>
+          <div x-show="videos.length > 1" class="flex flex-col sm:flex-row gap-2 sm:gap-3 sm:overflow-x-auto scroll-row pb-1">
+            <template x-for="(video, i) in videos" :key="video.key">
+              <button type="button" @click="play(i)"
+                class="trailer-item flex sm:flex-col items-center sm:items-stretch gap-3 sm:gap-2 text-left sm:w-[232px] sm:flex-none rounded-xl p-1.5 sm:p-0"
+                :class="i === index && 'is-current'" :aria-current="i === index ? 'true' : null">
+                <span class="trailer-thumb relative block w-28 sm:w-full aspect-video rounded-lg overflow-hidden bg-base-300 flex-none">
+                  <img :src="`https://img.youtube.com/vi/${video.key}/mqdefault.jpg`" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
+                </span>
+                <span class="min-w-0 block">
+                  <span class="block text-[14px] font-semibold truncate" x-text="video.name"></span>
+                  <span class="block text-[12.5px] text-ink-faint truncate">
+                    <template x-if="i === index"><span class="text-success font-semibold">Now playing</span></template>
+                    <template x-if="i !== index"><span x-text="video.kind"></span></template>
+                  </span>
+                </span>
+              </button>
+            </template>
+          </div>
+          <a :href="`https://www.youtube.com/watch?v=${current.key}`" target="_blank" rel="noopener noreferrer" class="sm:hidden btn btn-soft w-full h-12 min-h-0 gap-2 mt-4">{% icon "external-link" "w-4 h-4" %}Open on YouTube</a>
+        </div>
       </div>
-      <form method="dialog" class="modal-backdrop bg-black/80"><button>close</button></form>
     </dialog>
   {% endif %}
 
@@ -418,7 +503,7 @@
                     type="button"
                     {% if forloop.counter0 >= 5 %}x-show="showAll" x-cloak{% endif %}
                     {% if item.kind == "trailer" %}
-                      onclick="openTrailerModal('trailer-modal-{{ poster_seed }}')"
+                      onclick="openTrailerModal('trailer-modal-{{ poster_seed }}', this)"
                     {% else %}
                       @click="openLightbox({{ item.index }})"
                     {% endif %}

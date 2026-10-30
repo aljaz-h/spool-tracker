@@ -194,7 +194,7 @@ def get_movie_details(tmdb_id):
 def get_tv_details(tmdb_id, api_key=None):
     """Returns {"number_of_episodes": int|None, "episode_run_time": int|None,
     "seasons": [{"season_number": int, "episode_count": int, "vote_average": float|None,
-    "poster_url": str|None}, ...]} or None on failure. episode_run_time is
+    "poster_url": str|None, "air_date": "YYYY-MM-DD"|None}, ...]} or None on failure. episode_run_time is
     TMDB's show-level typical duration (first value of its episode_run_time
     array, when present) - not a precise per-episode figure, which would
     need one API call per episode and isn't worth it just for a watch-time
@@ -228,6 +228,7 @@ def get_tv_details(tmdb_id, api_key=None):
                 "episode_count": s.get("episode_count"),
                 "vote_average": s.get("vote_average"),
                 "poster_url": f"{IMAGE_BASE}{s['poster_path']}" if s.get("poster_path") else None,
+                "air_date": s.get("air_date") or None,
             }
             for s in (data.get("seasons") or [])
         ],
@@ -1563,7 +1564,39 @@ def get_trailer(media_type, tmdb_id, api_key=None):
     official = [v for v in trailers if v.get("official")]
     pool = official or trailers
     best = max(pool, key=lambda v: v.get("published_at") or "")
-    return {"key": best["key"], "name": best.get("name") or ""}
+    return {"key": best["key"], "name": best.get("name") or "", "videos": _youtube_videos(results)}
+
+
+# Order the trailer modal's "More videos" row: the real thing first, then
+# the shorter promo types, then the bonus material.
+_VIDEO_TYPE_ORDER = ["Trailer", "Teaser", "Clip", "Featurette", "Behind the Scenes", "Bloopers", "Opening Credits"]
+
+
+def _youtube_videos(results):
+    """Every YouTube video TMDB lists for a title (not just the trailer),
+    best-first, as [{"key", "name", "kind"}]. kind is what the modal shows
+    under the name: "Official trailer" for a trailer TMDB flags official,
+    else the video's own TMDB type ("Teaser", "Clip", ...). TMDB has no
+    durations, so none are carried."""
+    videos = [v for v in results if v.get("site") == "YouTube" and v.get("key")]
+
+    def rank(v):
+        kind = v.get("type")
+        order = _VIDEO_TYPE_ORDER.index(kind) if kind in _VIDEO_TYPE_ORDER else len(_VIDEO_TYPE_ORDER)
+        # earlier type first, official before not, newest first
+        newest = "".join(chr(0x10FFFF - ord(c)) for c in (v.get("published_at") or ""))
+        return (order, not v.get("official"), newest)
+
+    out, seen = [], set()
+    for v in sorted(videos, key=rank):
+        if v["key"] in seen:
+            continue
+        seen.add(v["key"])
+        kind = v.get("type") or "Video"
+        if kind == "Trailer" and v.get("official"):
+            kind = "Official trailer"
+        out.append({"key": v["key"], "name": v.get("name") or kind, "kind": kind})
+    return out
 
 
 _BACKDROP_THUMB_BASE = "https://image.tmdb.org/t/p/w300"

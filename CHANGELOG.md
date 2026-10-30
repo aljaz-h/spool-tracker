@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.167.0] - 2026-10-30
+
+### Changed
+
+- Season picker on TV/anime pages redesigned: bigger posters with an "S01" chip, a green check badge once a season is complete, and under each poster a progress button (fills green as you watch, solid when complete; click to mark the season watched, or unmark it when complete) plus a chevron that opens that season's own "Mark episodes" menu (mark season, canon only for anime, mark all, and a new "Reset season progress"). Under that: season name, rating and air date. Seasons TMDB has no episodes for yet show as dimmed "Announced".
+- The "Mark episodes" dropdown beside "Season N Episodes" is gone; the menu lives on each season card now.
+
+- Trailer player redesigned: a centered lightbox on desktop and a bottom sheet on phones (drag handle, swipe down to close). Header with the poster, title and an "Open on YouTube" button; a "More videos" row (TMDB's teasers, clips and featurettes) when the title has more than one video, with "Now playing" on the current one. Plays through youtube-nocookie.com, pauses when you switch or close, locks page scroll while open and returns focus to the Trailer button. TMDB gives no video durations, so the mockup's duration chips are left out.
+
+### Fixed
+
+- "Add to list" on a movie/show/anime you haven't tracked yet now opens the same list popup as a tracked one (picking a list tracks the title and adds it). It used to just scroll to the side rail, so on a new title nothing visible happened - especially on phones.
+
 ## [0.166.0] - 2026-10-29
 
 ### Added
