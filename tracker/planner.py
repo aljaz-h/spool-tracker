@@ -278,6 +278,7 @@ class _State:
             for ep in eps:
                 self.planned_pairs.setdefault(slot.title_id, set()).add((ep.season, ep.episode))
         self._feeds = {}
+        self._released = {}
         self._watched_movies = set(
             WatchEvent.objects.filter(
                 profile=profile, title__in=[i.title_id for i in items], episode__isnull=True
@@ -303,7 +304,9 @@ class _State:
         if self.is_movie(title):
             if title.id in self._watched_movies or title.id in self.planned_movies:
                 return None
-            if not _movie_released(title, timezone.now()):
+            if title.id not in self._released:  # once per fill, not once per window x title
+                self._released[title.id] = _movie_released(title, timezone.now())
+            if not self._released[title.id]:
                 return None
             minutes = title.runtime_minutes or DEFAULT_MOVIE_MINUTES
             return ("movie", minutes) if minutes <= room else None
@@ -469,12 +472,17 @@ def _plan_lock(plan):
     """Holds the plan row's lock for the length of a plan/rebuild. Only
     Postgres has row locks to take (SQLite, the dev/test fallback, locks
     the whole file and would fail an upgrade from a read outright), so
-    elsewhere this is a plain pass-through."""
+    elsewhere this is a plain pass-through.
+
+    Yields None when another request already holds the lock (it is planning
+    right now): waiting for it just stacked requests up behind a fill that
+    can spend many seconds on TMDB calls (seen as 20s+ lock waits), and
+    that request is doing the work anyway."""
     if connection.vendor != "postgresql":
         yield plan
         return
     with transaction.atomic():
-        yield SchedulePlan.objects.select_for_update().get(pk=plan.pk)
+        yield SchedulePlan.objects.select_for_update(skip_locked=True).filter(pk=plan.pk).first()
 
 
 def ensure_plan(profile, now=None):
@@ -487,7 +495,10 @@ def ensure_plan(profile, now=None):
     if not plan.enabled:
         return plan
     now = now or timezone.now()
-    with _plan_lock(plan) as plan:
+    with _plan_lock(plan) as locked:
+        if locked is None:
+            return plan  # someone else is planning right now - show what is there
+        plan = locked
         changed = reconcile(profile, now)
         key = f"schedule:fill:{profile.id}"
         if plan.mode == SchedulePlan.Mode.MANUAL:

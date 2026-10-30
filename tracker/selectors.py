@@ -1134,12 +1134,21 @@ def calendar_releases(profile, media_type=None, source="all", start=None, end=No
     passes the specific month being viewed: ReleaseSchedule rows are never
     pruned once their date passes, so a past month's releases are still in
     the database, they just weren't being queried for."""
+    # Each leg is an IN-subquery on title_id rather than a join through the
+    # title to progress/history/watchlists (+ DISTINCT): those joins fanned a
+    # release out once per matching row before collapsing them again.
     watching_q = Q(
-        title__watch_progress__profile=profile, title__watch_progress__status=WatchProgress.Status.WATCHING
+        title_id__in=WatchProgress.objects.filter(
+            profile=profile, status=WatchProgress.Status.WATCHING
+        ).values("title_id")
     )
-    any_progress_q = Q(title__watch_progress__profile=profile) | Q(title__watch_events__profile=profile)
-    watchlist_q = Q(title__watchlist_items__watchlist__profile=profile) | Q(
-        title__watchlist_items__watchlist__is_shared=True
+    any_progress_q = Q(title_id__in=WatchProgress.objects.filter(profile=profile).values("title_id")) | Q(
+        title_id__in=WatchEvent.objects.filter(profile=profile).values("title_id")
+    )
+    watchlist_q = Q(
+        title_id__in=WatchListItem.objects.filter(
+            Q(watchlist__profile=profile) | Q(watchlist__is_shared=True)
+        ).values("title_id")
     )
     if source == "watching":
         scope_q = watching_q
@@ -1157,7 +1166,6 @@ def calendar_releases(profile, media_type=None, source="all", start=None, end=No
         .exclude(release_type=ReleaseSchedule.ReleaseType.DIGITAL_RELEASE)
         .select_related("title", "episode")
         .order_by("release_date")
-        .distinct()
     )
     if media_type:
         qs = qs.filter(title__media_type=media_type)
@@ -1323,9 +1331,13 @@ def titles_needing_release_sync():
     time. TMDB-id filtering happens per-title in Python inside
     release_sync.sync_title_releases, not here, matching the
     title.external_ids.get("tmdb") idiom already used in views.py."""
+    # IN-subqueries, not LEFT JOINs to all three tables + DISTINCT: the joins
+    # multiplied a title's rows by its history size before collapsing them.
     return Title.objects.filter(
-        Q(watch_progress__isnull=False) | Q(watchlist_items__isnull=False) | Q(watch_events__isnull=False)
-    ).distinct()
+        Q(id__in=WatchProgress.objects.values("title_id"))
+        | Q(id__in=WatchListItem.objects.values("title_id"))
+        | Q(id__in=WatchEvent.objects.values("title_id"))
+    )
 
 
 def ready_to_watch_queue(profile, queue_size=3):
@@ -2825,12 +2837,15 @@ def discover_action_context(profile, items):
     # each clause already checks, so multiple items never collide even
     # when a movie and a tv show share the same raw numeric tmdb id.
     tier1_by_key = {}
-    tier1_clauses = [
-        Q(external_ids__tmdb=str(item["tmdb_id"]), external_ids__tmdb_kind=item["media_type"]) for item in items
-    ]
-    if tier1_clauses:
-        for title in Title.objects.filter(reduce(operator.or_, tier1_clauses)):
-            tier1_by_key[(title.external_ids.get("tmdb"), title.external_ids.get("tmdb_kind"))] = title
+    # One "tmdb id IN (...)" on the indexed key (migration 0082) instead of
+    # an OR of 100+ (id AND kind) pairs; the kind pairing is done in Python.
+    wanted_pairs = {(str(item["tmdb_id"]), item["media_type"]) for item in items}
+    if wanted_pairs:
+        tmdb_ids = {tmdb_id for tmdb_id, _ in wanted_pairs}
+        for title in Title.objects.filter(external_ids__tmdb__in=tmdb_ids):
+            pair = (title.external_ids.get("tmdb"), title.external_ids.get("tmdb_kind"))
+            if pair in wanted_pairs:
+                tier1_by_key[pair] = title
 
     matched_title_by_key = {}
     unmatched_items = []
@@ -2847,16 +2862,11 @@ def discover_action_context(profile, items):
     # null on all of these candidates by definition; disambiguated by
     # media_type same as the original per-item filter did.
     if unmatched_items:
-        tier2_clauses = [
-            Q(
-                external_ids__tmdb=str(item["tmdb_id"]),
-                external_ids__tmdb_kind__isnull=True,
-                media_type__in=local_media_types_for_kind.get(item["media_type"], []),
-            )
-            for _, item in unmatched_items
-        ]
         tier2_candidates_by_tmdb_id = {}
-        for title in Title.objects.filter(reduce(operator.or_, tier2_clauses)):
+        for title in Title.objects.filter(
+            external_ids__tmdb__in={str(item["tmdb_id"]) for _, item in unmatched_items},
+            external_ids__tmdb_kind__isnull=True,
+        ):
             tier2_candidates_by_tmdb_id.setdefault(title.external_ids.get("tmdb"), []).append(title)
 
         for key, item in unmatched_items:

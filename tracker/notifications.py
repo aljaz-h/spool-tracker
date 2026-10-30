@@ -24,7 +24,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from . import notification_prefs, push, selectors
-from .models import Notification, Profile, ReleaseSchedule, WatchListItem
+from .models import Notification, Profile, ReleaseSchedule, WatchEvent, WatchListItem, WatchProgress
 
 # How close to "now" a release has to be to notify on it at all - a
 # release more than a day past is stale news, one more than three days
@@ -79,7 +79,13 @@ def _profiles_watching(title):
     title. Deliberately narrower than "tracking" (see below): a title
     merely sitting on a watchlist isn't something you're watching yet, so
     it shouldn't trigger a "new episode" alert."""
-    return Profile.objects.filter(Q(watch_progress__title=title) | Q(watch_events__title=title)).distinct()
+    # Two IN-subqueries rather than LEFT JOINs to both tables: joining
+    # progress x history multiplies the rows per profile and needed a
+    # DISTINCT on top (hundreds of ms on a big history table).
+    return Profile.objects.filter(
+        Q(id__in=WatchProgress.objects.filter(title=title).values("profile_id"))
+        | Q(id__in=WatchEvent.objects.filter(title=title).values("profile_id"))
+    )
 
 
 def _profiles_tracking(title):

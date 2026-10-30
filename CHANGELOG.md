@@ -8,6 +8,12 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.167.4] - 2026-10-30
+
+### Fixed
+
+- Performance (from the query performance page): opening My Schedule no longer queues up behind another request that is mid-plan (the plan row lock was seen waiting 20s+ - a request that finds it locked now just shows the current plan); a fill no longer re-checks each movie's release date once per time window (42k identical queries); the "who is watching this title" lookup behind release notifications no longer joins watch history and progress together (150-500 ms per call); the calendar's release list and the release-sync title list no longer join watch history, progress and watchlists together and de-duplicate (100+ ms each); and title lookups by TMDB id (matching a page of discover results) use one indexed "id IN (...)" instead of an OR of 100+ pairs, plus a Postgres index (migration 0082, Postgres only).
+
 ## [0.167.3] - 2026-10-30
 
 ### Fixed

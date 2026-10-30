@@ -32046,6 +32046,21 @@ class EnsurePlanTests(PlannerTestBase):
         _planner.ensure_plan(self.profile, self.now)
         self.assertEqual(self.slots(), [])
 
+    def test_a_request_that_finds_the_plan_locked_just_shows_it(self):
+        # Postgres only: another request is mid-fill and holds the row lock, so this one
+        # must not wait for it (it used to queue up for 20s+) - _plan_lock yields None.
+        import contextlib
+
+        @contextlib.contextmanager
+        def held_by_someone_else(plan):
+            yield None
+
+        self.add_movie("Heat", 100)
+        with patch("tracker.planner._plan_lock", held_by_someone_else):
+            plan = _planner.ensure_plan(self.profile, self.now)
+        self.assertEqual(plan.pk, self.plan.pk)
+        self.assertEqual(self.slots(), [])  # nothing planned by this request
+
     def test_a_settings_change_replans_what_has_not_started(self):
         self.add_movie("Heat", 100)
         self.add_movie("Alien", 100)
