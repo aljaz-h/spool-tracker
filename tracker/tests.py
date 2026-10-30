@@ -22350,7 +22350,8 @@ class TitlePreviewViewTests(TestCase):
         mock_details.return_value = self._details()
         resp = self.client.get(reverse("title_preview", args=["movie", 42]))
         self.assertContains(resp, "<span>Trailer</span>")
-        self.assertContains(resp, "https://www.youtube.com/embed/abc123?autoplay=1")
+        self.assertEqual([v["key"] for v in json.loads(resp.context["trailer_videos_json"])], ["abc123"])
+        self.assertContains(resp, 'class="trailer-modal"')
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -33589,7 +33590,8 @@ class TitleRatingTileTests(TitleTilesBase):
             body = self.client.get(reverse("title_preview", args=["movie", 999001])).content.decode()
         self.assertIn('title="Track it first to rate it"', body)
         # "Add to list" is a popup on an untracked title too (not a bare anchor to the side rail)
-        self.assertNotIn('href="#preview-lists"', body)
+        self.assertNotIn("preview-lists", body)  # the old side-rail "Add to a list" card is gone
+        self.assertNotIn("Add to a list", body)
         self.assertIn('<div class="font-semibold text-sm">Add to list</div>', body)
         self.assertIn(reverse("title_preview_add_to_list", args=["movie", 999001, ensure_watchlist(self.profile).pk]), body)
 

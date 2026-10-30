@@ -8,6 +8,12 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.167.1] - 2026-10-30
+
+### Removed
+
+- The "Add to a list" card in the side rail of an untracked title - the "Add to list" popup under the poster does the same job (and now has a "New list…" link).
+
 ## [0.167.0] - 2026-10-30
 
 ### Changed

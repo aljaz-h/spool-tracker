@@ -281,9 +281,10 @@
                             </button>
                           </form>
                         {% empty %}
-                          <div class="text-[12px] text-ink-faint px-2 py-1.5">No lists yet. <a href="{% url 'lists' %}" class="text-primary">Create one</a></div>
+                          <div class="text-[12px] text-ink-faint px-2 py-1.5">No lists yet.</div>
                         {% endfor %}
                       </div>
+                      <a href="{% url 'lists' %}" class="block px-2 pt-2 mt-1 border-t border-line text-[12.5px] text-ink-faint hover:text-primary">New list…</a>
                     </div>
                   </div>
                   <div class="flex-1 min-w-0"><button type="button" class="atile" disabled title="Track it first to rate it">{% icon "star" "atile-star" %}<span>Rate</span></button></div>
@@ -692,27 +693,6 @@
 
     {# Rail of panels - beside every tab on desktop; on phones only under Overview so it never trails an episode list. #}
     <aside class="title-rail min-w-0 flex flex-col gap-5" :class="tab === 'overview' ? '' : 'max-lg:hidden'">
-
-      {% if is_preview %}
-        <section id="preview-lists" class="scroll-mt-20">
-          <h2 class="subhead mb-2">Add to a list</h2>
-          {% comment %}
-            A preview title has no local row yet, so every list starts
-            unchecked and posts to title_preview_add_to_list, which
-            materializes the Title and adds it - a tracked title gets the
-            list popover in the hero instead.
-          {% endcomment %}
-          <div class="flex flex-wrap gap-2">
-            {% for list in my_lists %}
-              <form method="post" action="{% url 'title_preview_add_to_list' preview_media_type preview_tmdb_id list.id %}">
-                {% csrf_token %}
-                <button type="submit" class="h-8 px-3 rounded-lg text-[12.5px] font-medium bg-base-200 text-ink-dim hover:text-base-content hover:bg-base-300">+ {{ list.name }}</button>
-              </form>
-            {% endfor %}
-            <a href="{% url 'lists' %}" class="h-8 px-3 rounded-lg text-[12.5px] font-medium text-ink-faint hover:text-primary inline-flex items-center">New list…</a>
-          </div>
-        </section>
-      {% endif %}
 
       {% if watch_providers %}
         <section>
