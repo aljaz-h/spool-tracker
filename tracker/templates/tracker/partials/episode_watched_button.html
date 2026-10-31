@@ -1,8 +1,8 @@
 {% load icons %}
-{# context: title (Title or None - a not-yet-tracked preview episode, see preview_media_type/preview_tmdb_id/preview_name below), season, episode_number, watched (bool - always False when title is None, preview episodes have no watch history to look up yet), watch_count (int, 0 when unwatched - how many plays this exact episode has, drives the checkmark's own ×N badge same as poster_card_watched_button.html), id_suffix (str, optional - disambiguates the id when this partial renders more than once for the same episode, e.g. title_episodes.html's separate mobile/desktop layouts), preview_media_type/preview_tmdb_id (only set when title is None, routes the first-watch popover to title_preview_episode_mark_watched instead of episode_mark_watched), preview_name (str, only set when title is None - the show's name, for the popover header) #}
+{# context: title (Title or None - a not-yet-tracked preview episode, see preview_media_type/preview_tmdb_id/preview_name below), season, episode_number, watched (bool - always False when title is None, preview episodes have no watch history to look up yet), watch_count (int, 0 when unwatched - how many plays this exact episode has, drives the checkmark's own ×N badge same as poster_card_watched_button.html), id_suffix (str, optional - disambiguates the id when this partial renders more than once for the same episode, e.g. title_episodes.html's separate mobile/desktop layouts), preview_media_type/preview_tmdb_id (only set when title is None, routes the first-watch popover to title_preview_episode_mark_watched instead of episode_mark_watched), preview_name (str, only set when title is None - the show's name, for the popover header), footer (bool, optional - the Continue Watching card's full-width 40px footer button: progress-fill background, label from cw_footer_label.html; needs percent/status_label/time_left too) #}
 {% if watched %}
 <div
-  class="relative flex-none"
+  class="relative {% if footer %}w-full{% else %}flex-none{% endif %}"
   id="ep-watched-wrap-{{ title.pk }}-{{ season }}-{{ episode_number }}{{ id_suffix }}"
   x-data="{
     open: false,
@@ -20,8 +20,11 @@
     :aria-expanded="open.toString()"
     aria-haspopup="true"
     title="Watched — manage plays"
+    {% if footer %}aria-label="Mark next episode watched"
+    class="smark cw-foot is-complete"
+  >{% include "tracker/partials/cw_footer_label.html" %}</button>{% else %}
     class="w-10 self-stretch min-h-8 rounded-md flex items-center justify-center gap-0.5 border transition-colors flex-none bg-success/90 border-success/60 text-success-content"
-  >{% icon "check" "w-4 h-4" %}{% if watch_count > 1 %}<span class="font-mono text-[11px] ml-0.5">&times;{{ watch_count }}</span>{% endif %}</button>
+  >{% icon "check" "w-4 h-4" %}{% if watch_count > 1 %}<span class="font-mono text-[11px] ml-0.5">&times;{{ watch_count }}</span>{% endif %}</button>{% endif %}
   <div
     x-ref="panel"
     x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
@@ -32,7 +35,7 @@
 </div>
 {% else %}
 <div
-  class="relative flex-none"
+  class="relative {% if footer %}w-full{% else %}flex-none{% endif %}"
   id="ep-watched-btn-{% if title %}{{ title.pk }}{% else %}{{ preview_tmdb_id }}{% endif %}-{{ season }}-{{ episode_number }}{{ id_suffix }}"
   x-data="{
     open: false,
@@ -51,8 +54,11 @@
     :aria-expanded="open.toString()"
     aria-haspopup="true"
     title="Mark as watched"
+    {% if footer %}aria-label="Mark next episode watched"
+    class="smark cw-foot" style="--fill: {{ percent|default:0 }}%"
+  >{% include "tracker/partials/cw_footer_label.html" %}</button>{% else %}
     class="w-10 self-stretch min-h-8 rounded-md flex items-center justify-center border transition-colors flex-none bg-black/55 border-white/15 text-white/85 hover:bg-black/75 hover:border-white/30"
-  >{% icon "check" "w-4 h-4" %}</button>
+  >{% icon "check" "w-4 h-4" %}</button>{% endif %}
   <div
     x-ref="panel"
     x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"

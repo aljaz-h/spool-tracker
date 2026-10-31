@@ -26,19 +26,19 @@ to avoid triggering navigation.
 {% endcomment %}
 {% if progress %}
   {% comment %}
-  Continue Watching card: 16:9 artwork (the episode still for a show
+  Continue Watching card: 120px-tall artwork (the episode still for a show
   with a resolved current episode, otherwise its poster/backdrop), title
-  and episode on a bottom scrim, a thin progress line along the bottom
-  edge, and the remaining-time caption underneath. Movies and shows share
-  the same layout. The watched control sits beside the caption - for a
-  resolved show it's the per-episode button (current_episode is itself
-  the last watched episode), otherwise the whole-title button. Drop /
+  and episode on a bottom scrim. Movies and shows share the same layout. The footer inside the
+  card is one full-width button whose background is the progress bar
+  (label + "63% · 2d 13h" via cw_footer_label.html) - for a resolved
+  show it's the per-episode button (current_episode is itself the last
+  watched episode), otherwise the whole-title button. Drop /
   remove reveal in the top-right corner on hover/focus (first tap on
   touch, see base.html's watch-progress-card handlers).
   {% endcomment %}
-  <div class="{{ width_class|default:"w-[280px] flex-none" }} discover-tile watch-progress-card media-card" id="watch-progress-card-{{ title.pk }}" {% if oob %}hx-swap-oob="true"{% endif %}>
+  <div class="{{ width_class|default:"w-[280px] flex-none" }} discover-tile watch-progress-card media-card cw-card" id="watch-progress-card-{{ title.pk }}" {% if oob %}hx-swap-oob="true"{% endif %}>
     <div class="media-card-art">
-      <div class="backdrop aspect-video {% if not progress.still_url %}{{ title.pk|gradient_class }}{% endif %}">
+      <div class="backdrop cw-art {% if not progress.still_url %}{{ title.pk|gradient_class }}{% endif %}">
         {% if progress.still_url %}
           <img src="{{ progress.still_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0">
         {% endif %}
@@ -48,15 +48,12 @@ to avoid triggering navigation.
           <span class="absolute top-2 left-2 z-10 chip chip-primary !bg-primary !text-primary-content pointer-events-none">Season Finale</span>
         {% endif %}
         <div class="absolute inset-x-0 bottom-0 z-10 px-3 pb-3 pointer-events-none">
-          <div class="text-[15px] font-semibold text-white truncate leading-tight">{{ title.name }}</div>
+          <div class="text-[16px] font-bold text-white truncate leading-tight">{{ title.name }}</div>
           {% if progress.season %}
             <div class="text-[12px] text-white/70 truncate mt-0.5"><span class="font-mono">S{{ progress.season }}E{{ progress.episode_number }}</span>{% if progress.episode_name %} · {{ progress.episode_name }}{% endif %}</div>
           {% else %}
             <div class="text-[12px] text-white/70 truncate mt-0.5">{{ title.media_type|media_label }}{% if title.year %} · {{ title.year }}{% endif %}</div>
           {% endif %}
-        </div>
-        <div class="absolute inset-x-0 bottom-0 z-10 h-[3px] bg-white/10">
-          <div class="h-full bg-primary" style="width:{{ progress.percent }}%"></div>
         </div>
       </div>
       <div class="watch-progress-actions discover-tile-reveal-actions absolute top-2 right-2 z-20 flex gap-1 opacity-0 pointer-events-none">
@@ -82,17 +79,12 @@ to avoid triggering navigation.
         >&times;</button>
       </div>
     </div>
-    <div class="mt-2 flex items-center justify-between gap-3">
-      <a href="{{ detail_url }}" class="min-w-0 watch-progress-link text-xs text-ink-dim truncate hover:text-base-content" @click="if (window.matchMedia('(hover: none)').matches && !mobileOptions) { $event.preventDefault(); mobileOptions = true; }">
-        <span class="text-primary font-medium">{{ progress.percent }}%</span> · {{ progress.caption }}
-      </a>
-      <div class="flex items-stretch h-8 flex-none">
+    <div class="p-2.5">
       {% if progress.season %}
-        {% include "tracker/partials/episode_watched_button.html" with title=title season=progress.season episode_number=progress.episode_number watched=progress.watch_count|default:0 watch_count=progress.watch_count|default:0 preview_tmdb_id="" preview_media_type="" preview_name="" %}
+        {% include "tracker/partials/episode_watched_button.html" with title=title season=progress.season episode_number=progress.episode_number watched=progress.watch_count|default:0 watch_count=progress.watch_count|default:0 preview_tmdb_id="" preview_media_type="" preview_name="" footer=True percent=progress.percent status_label=progress.status_label time_left=progress.time_left %}
       {% else %}
-        {% include "tracker/partials/poster_card_watched_button.html" with title=title compact=True watched=watched_by_title|get_item:title.pk watch_count=watch_count_by_title|get_item:title.pk in_progress=in_progress_by_title|get_item:title.pk %}
+        {% include "tracker/partials/poster_card_watched_button.html" with title=title compact=True footer=True percent=progress.percent status_label=progress.status_label time_left=progress.time_left watched=watched_by_title|get_item:title.pk watch_count=watch_count_by_title|get_item:title.pk in_progress=in_progress_by_title|get_item:title.pk %}
       {% endif %}
-      </div>
     </div>
   </div>
 {% else %}

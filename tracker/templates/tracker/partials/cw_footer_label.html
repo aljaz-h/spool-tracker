@@ -1,0 +1,4 @@
+{% load icons %}
+{# context: status_label (str - "153E left" / "In progress"), percent (int), time_left (str, may be empty). Inner content of the Continue Watching card's footer button (see poster_card.html); the button itself comes from episode_watched_button.html / poster_card_watched_button.html with footer=True. #}
+<span class="flex items-center gap-2 min-w-0">{% icon "check" "w-4 h-4 flex-none" %}<span class="truncate">{{ status_label }}</span></span>
+<span class="flex-none font-mono text-[12px] font-semibold opacity-80">{{ percent }}%{% if time_left %} · {{ time_left }}{% endif %}</span>

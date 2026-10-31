@@ -1,5 +1,5 @@
 {% load icons %}
-{# context: title (Title), watched (bool, ANY watch event - plain or per-episode), watch_count (int - see selectors._badge_watch_counts: a movie's own plain/episode-less watch count, or a show's minimum per-episode watch count), in_progress (bool - see selectors.poster_action_context's own in_progress_by_title docstring: watched but not yet COMPLETED - always False for a movie, which has no partial-watch state), compact (bool, optional - the Dashboard Watching row's movie card: a fixed-width solid pill matching episode_watched_button.html instead of the portrait card's full-width flat action-bar cell) #}
+{# context: title (Title), watched (bool, ANY watch event - plain or per-episode), watch_count (int - see selectors._badge_watch_counts: a movie's own plain/episode-less watch count, or a show's minimum per-episode watch count), in_progress (bool - see selectors.poster_action_context's own in_progress_by_title docstring: watched but not yet COMPLETED - always False for a movie, which has no partial-watch state), compact (bool, optional - the Dashboard Watching row's movie card: a fixed-width solid pill matching episode_watched_button.html instead of the portrait card's full-width flat action-bar cell), footer (bool, optional - the Continue Watching card's full-width 40px footer button: progress-fill background, label from cw_footer_label.html; needs percent/status_label/time_left too) #}
 {% comment %}
 Both states are popover triggers using the same fixed/
 getBoundingClientRect()-positioned pattern as poster_card_list_popover.html.
@@ -24,7 +24,7 @@ itself (watched_menu_panel.html) is unchanged either way - same
 rewatch/undo/history actions apply regardless of completion state.
 {% endcomment %}
 {% if watched %}
-<div class="relative {% if compact %}flex-none{% else %}flex-1{% endif %}" id="watched-popover-{{ title.pk }}" x-data="{
+<div class="relative {% if footer %}w-full{% elif compact %}flex-none{% else %}flex-1{% endif %}" id="watched-popover-{{ title.pk }}" x-data="{
   open: false,
   togglePanel(button) {
     this.open = !this.open;
@@ -39,8 +39,10 @@ rewatch/undo/history actions apply regardless of completion state.
     :aria-expanded="open.toString()"
     aria-haspopup="true"
     title="{% if in_progress %}Watching — manage plays{% else %}Watched — manage plays{% endif %}"
-    class="{% if compact %}w-10 self-stretch min-h-8 rounded-md border flex-none flex items-center justify-center gap-0.5 transition-colors {% if in_progress %}bg-info/90 border-info/60 text-info-content{% else %}bg-success/90 border-success/60 text-success-content{% endif %}{% else %}w-full h-8 rounded-md flex items-center justify-center gap-1 {% if in_progress %}bg-info/20 text-info hover:bg-info/30{% else %}bg-success/20 text-success hover:bg-success/30{% endif %}{% endif %}"
-  >{% if in_progress %}{% icon "play" "w-4 h-4" %}{% else %}{% icon "check" "w-4 h-4" %}{% endif %}{% if watch_count > 1 %}<span class="font-mono {% if compact %}text-[9px]{% else %}text-[10px]{% endif %}">&times;{{ watch_count }}</span>{% endif %}</button>
+    {% if footer %}aria-label="Mark next episode watched"{% endif %}
+    class="{% if footer %}smark cw-foot{% if not in_progress %} is-complete{% endif %}{% elif compact %}w-10 self-stretch min-h-8 rounded-md border flex-none flex items-center justify-center gap-0.5 transition-colors {% if in_progress %}bg-info/90 border-info/60 text-info-content{% else %}bg-success/90 border-success/60 text-success-content{% endif %}{% else %}w-full h-8 rounded-md flex items-center justify-center gap-1 {% if in_progress %}bg-info/20 text-info hover:bg-info/30{% else %}bg-success/20 text-success hover:bg-success/30{% endif %}{% endif %}"
+    {% if footer %}style="--fill: {{ percent|default:0 }}%"{% endif %}
+  >{% if footer %}{% include "tracker/partials/cw_footer_label.html" %}{% else %}{% if in_progress %}{% icon "play" "w-4 h-4" %}{% else %}{% icon "check" "w-4 h-4" %}{% endif %}{% if watch_count > 1 %}<span class="font-mono {% if compact %}text-[9px]{% else %}text-[10px]{% endif %}">&times;{{ watch_count }}</span>{% endif %}{% endif %}</button>
   <div
     x-ref="panel"
     x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"
@@ -50,7 +52,7 @@ rewatch/undo/history actions apply regardless of completion state.
   </div>
 </div>
 {% else %}
-<div class="relative {% if compact %}flex-none{% else %}flex-1{% endif %}" id="watched-btn-{{ title.pk }}" x-data="{
+<div class="relative {% if footer %}w-full{% elif compact %}flex-none{% else %}flex-1{% endif %}" id="watched-btn-{{ title.pk }}" x-data="{
   open: false,
   showCustom: false,
   togglePanel(button) {
@@ -66,8 +68,9 @@ rewatch/undo/history actions apply regardless of completion state.
     :aria-expanded="open.toString()"
     aria-haspopup="true"
     title="Mark as watched"
-    class="{% if compact %}w-10 self-stretch min-h-8 rounded-md border flex-none flex items-center justify-center transition-colors bg-black/55 border-white/15 text-white/85 hover:bg-black/75 hover:border-white/30{% else %}w-full h-8 rounded-md flex items-center justify-center text-white/80 hover:text-white hover:bg-white/10{% endif %}"
-  >{% icon "check" "w-4 h-4" %}</button>
+    {% if footer %}aria-label="Mark next episode watched" style="--fill: {{ percent|default:0 }}%"{% endif %}
+    class="{% if footer %}smark cw-foot{% elif compact %}w-10 self-stretch min-h-8 rounded-md border flex-none flex items-center justify-center transition-colors bg-black/55 border-white/15 text-white/85 hover:bg-black/75 hover:border-white/30{% else %}w-full h-8 rounded-md flex items-center justify-center text-white/80 hover:text-white hover:bg-white/10{% endif %}"
+  >{% if footer %}{% include "tracker/partials/cw_footer_label.html" %}{% else %}{% icon "check" "w-4 h-4" %}{% endif %}</button>
   <div
     x-ref="panel"
     x-show="open" x-cloak x-transition @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false"

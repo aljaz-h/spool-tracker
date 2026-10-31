@@ -15769,8 +15769,9 @@ class DashboardWatchingWatchlistTests(TestCase):
         )
         resp = self.client.get(reverse("dashboard"))
         self.assertContains(resp, "S1E130")
-        self.assertContains(resp, "aspect-video")
+        self.assertContains(resp, "cw-art")
         self.assertContains(resp, f"ep-watched-btn-{show.pk}-1-130")
+        self.assertContains(resp, 'aria-label="Mark next episode watched"')
 
     @patch("tracker.integrations.tmdb.get_season_details")
     def test_watching_a_shows_season_finale_gets_the_finale_badge(self, mock_season):
@@ -15811,8 +15812,25 @@ class DashboardWatchingWatchlistTests(TestCase):
         # a list-popover panel, so its absence in this window is real.
         next_card = content.find('id="watch-progress-card-', card_start + 1)
         window = content[card_start : next_card if next_card != -1 else card_start + 4000]
-        self.assertIn("aspect-video", window)
+        self.assertIn("cw-art", window)
         self.assertNotIn("Add to list", window)
+
+    def test_watching_card_footer_button_is_the_progress_fill(self):
+        # One full-width footer button: progress is its --fill background,
+        # label left ("In progress" for a movie), "N% · time left" right.
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="A Movie", year=2020, runtime_minutes=100)
+        WatchProgress.objects.create(
+            profile=self.profile, title=movie, position_seconds=30 * 60, status=WatchProgress.Status.WATCHING
+        )
+        resp = self.client.get(reverse("dashboard"))
+        content = resp.content.decode()
+        window = content[content.index(f'id="watch-progress-card-{movie.pk}"'):][:6000]
+        self.assertIn("smark cw-foot", window)
+        self.assertIn("--fill: 30%", window)
+        self.assertIn("In progress", window)
+        self.assertIn("30%", window)
+        self.assertIn("1h 10m", window)
+        self.assertIn('aria-label="Mark next episode watched"', window)
 
     def test_the_movie_cards_watched_button_matches_the_show_cards_solid_pill(self):
         # Reported live: the movie card's button (portrait action-bar
@@ -15827,8 +15845,9 @@ class DashboardWatchingWatchlistTests(TestCase):
         content = resp.content.decode()
         card_start = content.index(f'id="watch-progress-card-{movie.pk}"')
         window = content[card_start : card_start + 4000]
-        self.assertIn("w-10 self-stretch min-h-8 rounded-md border", window)
-        self.assertIn("bg-success/90 border-success/60", window)
+        # Once watched the footer button is the solid green state, not the
+        # partial progress fill.
+        self.assertIn("smark cw-foot is-complete", window)
         self.assertNotIn("h-9", window)
 
     def test_start_watching_shows_a_watchlist_title_with_a_recent_release(self):

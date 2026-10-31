@@ -8,6 +8,12 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.168.0] - 2026-10-31
+
+### Changed
+
+- Continue Watching cards are now one rounded panel: 120px artwork with the title and episode over it, and a single full-width footer button below. The button's background is the progress bar, with the remaining episode count (or "In progress") on the left and "63% · 2d 13h 12m" on the right, on every card including 0%. The separate progress line, percentage text and standalone check button are gone; the footer still opens the same mark-watched menu, keeps the solid green state once watched, and has a hover border and a keyboard focus ring.
+
 ## [0.167.5] - 2026-10-30
 
 ### Fixed

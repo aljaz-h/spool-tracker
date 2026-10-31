@@ -334,12 +334,18 @@ def continue_watching(profile, media_types=None, limit=8, title_id=None):
         season = episode_number = episode_name = still_url = None
         is_season_finale = False
         watch_count = 0
+        # The card footer's own two labels (poster_card.html): "left" is the
+        # remaining-episode count, "In progress" when there's none to show
+        # (a movie, or a show with no episode totals); "time" is the
+        # remaining runtime in short form, "" when unknown.
+        status_label, time_left = "In progress", ""
         if title.media_type == MediaType.MOVIE:
             total_seconds = (title.runtime_minutes or 0) * 60
             percent = min(100, round(progress.position_seconds / total_seconds * 100)) if total_seconds else 0
             if title.runtime_minutes:
                 remaining = max(0, title.runtime_minutes - progress.position_seconds // 60)
                 caption = f"{remaining} min left"
+                time_left = format_duration(remaining) if remaining else ""
             else:
                 caption = "In progress"
             # Landscape still for the Watching row's own card (same
@@ -410,16 +416,20 @@ def continue_watching(profile, media_types=None, limit=8, title_id=None):
                         remaining_show_eps = max(total_show_eps - watched_total, 0)
                         percent = min(100, round(watched_total / total_show_eps * 100)) if total_show_eps else 0
                         caption = f"{remaining_show_eps}E left"
+                        status_label = caption
                         typical_runtime = show_details.get("episode_run_time")
                         if typical_runtime and remaining_show_eps:
                             remaining_minutes = remaining_show_eps * typical_runtime
+                            time_left = format_duration(remaining_minutes)
                             caption += f" · {format_duration(remaining_minutes)} remaining"
                     else:
                         # Fallback: season-only remaining (original behavior)
                         remaining_eps = max(total_eps - ep.episode, 0)
                         remaining_minutes = sum(rt for n, rt in tmdb_episodes if n > ep.episode)
                         caption = f"{remaining_eps}E left"
+                        status_label = caption
                         if remaining_minutes:
+                            time_left = format_duration(remaining_minutes)
                             caption += f" · {format_duration(remaining_minutes)} remaining"
                 else:
                     caption = f"S{ep.season}E{ep.episode}"
@@ -444,6 +454,8 @@ def continue_watching(profile, media_types=None, limit=8, title_id=None):
                 "title": title,
                 "percent": percent,
                 "caption": caption,
+                "status_label": status_label,
+                "time_left": time_left,
                 "season": season,
                 "episode_number": episode_number,
                 "episode_name": episode_name,
