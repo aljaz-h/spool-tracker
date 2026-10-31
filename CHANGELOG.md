@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.170.0] - 2026-10-31
+
+### Changed
+
+- Settings panels share one pattern: a single panel with a header, then rows with the label and help text on the left and a dark dropdown/input tile on the right, dividers between, amber primary actions, neutral tiles for secondary ones and red text-only Disconnect/Clear. Built on shared `settings_card` / `settings_row` template tags and `.s-*` styles.
+- Converted: Connected Apps (Nuvio, Trakt, Simkl, WeTrakr, TMDB, MyAnimeList) with a last-synced strip (amber when overdue) and Review full import / Sync now; Preferences; Notifications and Push Notifications; and the Server Integrations credential cards.
+- The sync schedule is now one dropdown that saves automatically on change (with an inline "Saved"), replacing the "Sync every N day(s) at" inputs and Save button. Trakt's "import my lists" option is a row in the same form.
+
 ## [0.169.2] - 2026-10-31
 
 ### Fixed

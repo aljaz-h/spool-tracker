@@ -1,0 +1,15 @@
+{% load icons %}
+{# context: title, description, icon (svg name), icon_class (colour class for the mark), configured (bool), clear_slug (str, optional - shows a Clear button posting to clear_instance_config_field), clear_confirm (str). Header of a Server Integrations SettingsCard; lives inside that page's single save form, so Clear is a formaction submit. #}
+<div class="s-card-head">
+  <div class="s-logo {{ icon_class|default:"text-ink-dim" }}" aria-hidden="true">{% icon icon "w-6 h-6" %}</div>
+  <div class="min-w-0 flex-1">
+    <div class="flex items-center gap-2 flex-wrap">
+      <h3 class="font-semibold text-[15px] leading-tight">{{ title }}</h3>
+      {% if configured %}<span class="chip chip-success"><span class="w-1.5 h-1.5 rounded-full bg-success" aria-hidden="true"></span>Configured</span>{% else %}<span class="chip">Not configured</span>{% endif %}
+    </div>
+    <div class="text-[13px] text-ink-dim mt-0.5">{{ description }}</div>
+  </div>
+  {% if configured and clear_slug %}
+    <button type="submit" formaction="{% url 'clear_instance_config_field' clear_slug %}" onclick="return confirm('{{ clear_confirm|escapejs }}');" class="s-btn s-btn-danger flex-none">Clear</button>
+  {% endif %}
+</div>

@@ -1,0 +1,9 @@
+{% load icons %}
+{# context: title, description (safe HTML ok), icon (svg name). The header of a SettingsCard that isn't a service (no logo, no Connected pill) - see sync_provider_card.html for those. #}
+<div class="s-card-head">
+  <div class="s-logo text-ink-dim" aria-hidden="true">{% icon icon "w-6 h-6" %}</div>
+  <div class="min-w-0 flex-1">
+    <h3 class="font-semibold text-[15px] leading-tight">{{ title }}</h3>
+    <div class="text-[13px] text-ink-dim mt-0.5">{{ description }}</div>
+  </div>
+</div>

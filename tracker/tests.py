@@ -9880,6 +9880,16 @@ class NuvioProviderKeyedViewsTests(TestCase):
         cron = PeriodicTask.objects.get(name=name).crontab
         self.assertEqual((cron.minute, cron.hour), ("0", "4"))
 
+    def test_auto_saving_schedule_row_gets_a_204_with_no_redirect(self):
+        resp = self.client.post(
+            reverse("save_sync_schedule", args=["nuvio"]),
+            {"sync_every_minutes": "60", "sync_interval_days": "1", "sync_time": "04:00"},
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(resp.status_code, 204)
+        self.connection.refresh_from_db()
+        self.assertEqual(self.connection.sync_every_minutes, 60)
+
     def test_nuvio_ignores_an_unsupported_frequency(self):
         self.client.post(
             reverse("save_sync_schedule", args=["nuvio"]),
@@ -16305,7 +16315,11 @@ class ContinueWatchingEpisodeDisplayTests(TestCase):
         item = selectors.continue_watching(self.profile)[0]
         # 20 episodes in the show, 4 watched: 16 left at 25 min each.
         self.assertEqual(item["caption"], "16E left · 6h 40m remaining")
-        self.assertEqual(item["percent"], 20)
+        self.assertEqual(item["status_label"], "16E left")
+        # The card's percent/time are this episode's own (no position
+        # reported yet: 0% of a 25 minute episode), not the whole show's.
+        self.assertEqual(item["percent"], 0)
+        self.assertEqual(item["time_left"], "25m")
 
     @patch("tracker.integrations.tmdb.get_season_details")
     def test_still_url_and_episode_name_come_from_tmdb(self, mock_season):
@@ -24338,11 +24352,11 @@ class AnimationSystemTests(TestCase):
     def test_settings_animations_toggle_is_off_by_default_and_reflects_the_saved_value(self):
         resp = self.client.get(reverse("settings"))
         self.assertContains(resp, 'name="animations_enabled"')
-        self.assertNotContains(resp, 'name="animations_enabled" class="checkbox checkbox-sm" checked')
+        self.assertNotContains(resp, 'name="animations_enabled" class="checkbox" aria-label="Interface animations" checked')
         self.profile.animations_enabled = True
         self.profile.save(update_fields=["animations_enabled"])
         resp = self.client.get(reverse("settings"))
-        self.assertContains(resp, 'name="animations_enabled" class="checkbox checkbox-sm" checked')
+        self.assertContains(resp, 'name="animations_enabled" class="checkbox" aria-label="Interface animations" checked')
 
     def test_animated_swap_actually_differs_in_rendered_markup(self):
         # Step 4 scope check, end to end: the exact same page (Discover's

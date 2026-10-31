@@ -1,0 +1,19 @@
+{% load icons settings_ui %}
+{# context: label, name (form field name; the input id is si-<name>), value, configured (bool - drives the "leave blank to keep" placeholder), secret (bool - password field with a show/hide toggle), show (the Alpine flag name the toggle flips, only with secret), help (optional), placeholder (optional override), input_type (optional, default text). One labelled credential row of a Server Integrations SettingsCard. #}
+{% settings_row title=label help=help %}
+  <div class="relative w-full sm:w-72">
+    <input
+      {% if secret %}:type="{{ show }} ? 'text' : 'password'"{% else %}type="{{ input_type|default:'text' }}"{% endif %}
+      id="si-{{ name }}" name="{{ name }}" value="{{ value|default:'' }}" aria-label="{{ label }}"
+      @keydown.enter.prevent
+      placeholder="{% if placeholder %}{{ placeholder }}{% elif configured %}•••• leave blank to keep{% else %}not set{% endif %}"
+      class="s-input w-full font-mono{% if secret %} pr-9{% endif %}"
+    >
+    {% if secret %}
+      <button type="button" @click="{{ show }} = !{{ show }}" tabindex="-1" title="Show/hide" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+        <span x-show="!{{ show }}">{% icon "eye" "w-4 h-4" %}</span>
+        <span x-show="{{ show }}" x-cloak>{% icon "eye-off" "w-4 h-4" %}</span>
+      </button>
+    {% endif %}
+  </div>
+{% endsettings_row %}

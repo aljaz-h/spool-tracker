@@ -1,0 +1,92 @@
+{% load icons tracker_extras settings_ui %}
+{# context: provider (str), account (a connected ExternalAccount/NuvioConnection that pulls). The rows, status strip and footer of a sync service's SettingsCard - the header (logo, name, account, Connected pill) belongs to the caller. #}
+{% direction_choices provider as direction_options %}
+{% direction_help provider account as direction_text %}
+<form method="post" action="{% url 'save_sync_direction' provider %}" x-data="{ changed: false }" @change="changed = true">
+  {% csrf_token %}
+  {% settings_row title="Sync direction" help=direction_text %}
+    <select name="sync_direction" class="s-select" aria-label="What {{ provider|title }} may do">
+      {% for value, label, help in direction_options %}<option value="{{ value }}" {% if account.sync_direction == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="s-btn" x-show="changed" x-cloak>Save</button>
+  {% endsettings_row %}
+</form>
+
+{% if account|pulls or account|pushes %}
+  {% schedule_options account as sched %}
+  <form
+    method="post" action="{% url 'save_sync_schedule' provider %}"
+    hx-post="{% url 'save_sync_schedule' provider %}" hx-trigger="change delay:100ms" hx-swap="none"
+    x-data="{ choice: '{{ sched.0 }}', saved: false }"
+    @htmx:after-request="if ($event.detail.successful) { saved = true; setTimeout(() => saved = false, 2000) }"
+  >
+    {% csrf_token %}
+    {% if provider == "nuvio" %}<input type="hidden" name="sync_every_minutes" :value="choice.startsWith('m') ? choice.slice(1) : 0">{% endif %}
+    <input type="hidden" name="sync_interval_days" :value="choice.startsWith('d') ? choice.slice(1) : 1">
+    {% settings_row title="Sync schedule" help="How often Spool checks for new activity. Changes save automatically." %}
+      <span class="s-saved" x-show="saved" x-cloak role="status">Saved</span>
+      <input type="time" name="sync_time" value="{{ account.sync_hour|stringformat:'02d' }}:{{ account.sync_minute|stringformat:'02d' }}" class="s-input" aria-label="Time of day to sync" x-show="choice.startsWith('d')" x-cloak>
+      <select class="s-select" x-model="choice" aria-label="How often to sync {{ provider|title }}">
+        {% for value, label in sched.1 %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+      </select>
+    {% endsettings_row %}
+    {% if provider == "trakt" %}
+      {% settings_row title="Import my lists" help="Also import your Trakt Watchlist and custom lists." %}
+        <input type="checkbox" name="import_lists" class="checkbox" aria-label="Import my Trakt lists" {% if account.import_lists %}checked{% endif %}>
+      {% endsettings_row %}
+    {% endif %}
+  </form>
+{% endif %}
+
+{% if provider|can_push and account|pushes %}
+  <div class="s-strip">
+    {% if account.push_confirmed_at %}
+      <div class="text-[13px] text-ink-dim">Last sent: {% if account.last_pushed_at %}{{ account.last_pushed_at|timesince }} ago{% else %}not yet{% endif %}</div>
+      <div class="flex items-center gap-2 flex-wrap">
+        <a href="{% url 'push_preview' provider %}" class="s-btn">What is pending</a>
+        <form method="post" action="{% url 'push_now' provider %}">
+          {% csrf_token %}
+          <button type="submit" class="s-btn s-btn-primary">Send now</button>
+        </form>
+      </div>
+    {% else %}
+      <div class="text-[13px] text-warning">Nothing is sent until you have reviewed it.</div>
+      <a href="{% url 'push_preview' provider %}" class="s-btn s-btn-primary">Review what will be sent</a>
+    {% endif %}
+  </div>
+{% endif %}
+
+{% if account|pulls %}
+  {% sync_is_stale account as stale %}
+  <div class="s-strip{% if stale %} is-stale{% endif %}">
+    <div class="flex items-center gap-3 min-w-0">
+      <span class="s-strip-icon" aria-hidden="true">{% icon "clock" "w-[18px] h-[18px]" %}</span>
+      <div class="min-w-0">
+        <div class="text-[12px] text-ink-faint">Last synced</div>
+        <div class="s-strip-time text-[14px] font-semibold">{% if account.last_synced_at %}{{ account.last_synced_at|timesince }} ago{% else %}Never{% endif %}</div>
+      </div>
+    </div>
+    <div class="flex items-center gap-2 flex-wrap">
+      <form method="post" action="{% url 'trigger_import_review' provider %}">
+        {% csrf_token %}
+        <button type="submit" class="s-btn" title="Scan and review a full import before anything's written, same as a first connection does">Review full import</button>
+      </form>
+      <form method="post" action="{% url 'trigger_manual_sync' provider %}">
+        {% csrf_token %}
+        <button type="submit" class="s-btn s-btn-primary">{% icon "refresh-cw" "w-4 h-4" %}Sync now</button>
+      </form>
+    </div>
+  </div>
+{% else %}
+  <div class="s-strip">
+    <div class="text-[13px] text-ink-dim">Last synced: {% if account.last_synced_at %}{{ account.last_synced_at|timesince }} ago{% else %}never{% endif %}</div>
+  </div>
+{% endif %}
+
+<div class="s-foot">
+  <form method="post" action="{% url 'disconnect_provider' provider %}" onsubmit="return confirm('Disconnect {{ provider|title }}? Future syncs stop; history already imported stays.');">
+    {% csrf_token %}
+    <button type="submit" class="s-btn s-btn-danger">{% icon "unlink" "w-4 h-4" %}Disconnect</button>
+  </form>
+  <span class="text-[12px] text-ink-faint">Disconnecting keeps everything already imported</span>
+</div>

@@ -6756,6 +6756,9 @@ def save_sync_schedule(request, provider):
         update_fields.append("import_lists")
     account.save(update_fields=update_fields)
     scheduling.ensure_periodic_task(account)
+    if request.headers.get("HX-Request"):
+        # The auto-saving schedule row confirms inline; no page reload.
+        return HttpResponse(status=204)
     messages.success(request, f"Updated the {provider.title()} sync schedule.")
     return redirect("settings")
 
