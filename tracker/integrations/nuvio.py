@@ -330,10 +330,32 @@ def upsert_history_items(profile, items, labels_out=None):
                 continue
             from tracker import episode_matching
 
+            reported = (season, episode_num)
             season, episode_num = episode_matching.resolve_episode_season(
                 title, title.external_ids.get("tmdb"), season, episode_num
             )
             episode, _ = Episode.objects.get_or_create(title=title, season=season, episode=episode_num)
+            if (season, episode_num) != reported:
+                # Watches synced before the reconciliation knew how to place
+                # this season sit on an orphan Episode (History shows them,
+                # the title page can't) - move them onto the real one
+                # rather than leaving a duplicate beside the new row.
+                orphan = Episode.objects.filter(title=title, season=reported[0], episode=reported[1]).first()
+                if orphan is not None:
+                    moved = WatchEvent.objects.filter(
+                        profile=profile, title=title, episode=orphan, watched_at=watched_at
+                    ).exclude(
+                        id__in=WatchEvent.objects.filter(
+                            profile=profile, title=title, episode=episode, watched_at=watched_at
+                        ).values("id")
+                    )
+                    if moved.update(episode=episode):
+                        touched_watch_keys.add((title.id, episode.id))
+                    WatchEvent.objects.filter(
+                        profile=profile, title=title, episode=orphan, watched_at=watched_at
+                    ).delete()
+                    if not WatchEvent.objects.filter(episode=orphan).exists():
+                        orphan.delete()
             touched_shows.add(title.id)
         else:
             touched_movies.add(title.id)

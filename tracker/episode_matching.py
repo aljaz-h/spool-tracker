@@ -52,7 +52,22 @@ def resolve_episode_season(title, tmdb_id, season, episode_number):
     if not tv_details:
         return season, episode_number
     real_seasons = {s["season_number"] for s in tv_details["seasons"] if s["season_number"] != 0}
-    if season in real_seasons or len(real_seasons) != 1:
+    if season in real_seasons:
+        return season, episode_number
+    if len(real_seasons) != 1:
+        # Several real TMDB seasons. Reporting the very next one is most
+        # likely a genuinely new season (left alone, see above), but a
+        # season far past the last real one is a different numbering
+        # scheme - Bleach's final arc is TMDB season 2 and S17 in the
+        # TVDB-style numbering players use. Treated as the show's latest
+        # season when the episode number fits inside it.
+        last_season = max(real_seasons)
+        if season > last_season + 1:
+            last_count = next(
+                (s.get("episode_count") or 0 for s in tv_details["seasons"] if s["season_number"] == last_season), 0
+            )
+            if 0 < episode_number <= last_count:
+                return last_season, episode_number
         return season, episode_number
 
     mal_id = tenrai.resolve_mal_id(title)

@@ -8,6 +8,12 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.169.2] - 2026-10-31
+
+### Fixed
+
+- Anime that a player numbers differently from TMDB's own seasons now land on the right season when TMDB lists several: Bleach's Thousand-Year Blood War (Nuvio "S17", TMDB season 2) was recorded as S17E48-50 in History but never marked on the title page. A season far past TMDB's last one now maps to the latest season when the episode fits. Watches already synced under the wrong season move over on the next Nuvio sync (or via `manage.py reconcile_episode_seasons --commit`).
+
 ## [0.169.1] - 2026-10-31
 
 ### Changed

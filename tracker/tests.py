@@ -7278,6 +7278,32 @@ class NuvioUpsertHistoryItemsTests(TestCase):
         self.assertEqual(event.episode.season, 1)
         self.assertEqual(event.episode.episode, 1)
 
+    @patch(
+        "tracker.integrations.tmdb.get_tv_details",
+        return_value={"seasons": [{"season_number": 1, "episode_count": 366}, {"season_number": 2, "episode_count": 50}]},
+    )
+    def test_a_watch_synced_under_the_unreconciled_season_moves_to_the_real_one(self, mock_tv_details):
+        show = Title.objects.create(
+            media_type=MediaType.ANIME, name="Bleach", year=2004,
+            external_ids={"tmdb": "30984", "tmdb_kind": "tv", "nuvio": "tt0434665"},
+        )
+        import datetime
+
+        orphan = Episode.objects.create(title=show, season=17, episode=50)
+        WatchEvent.objects.create(
+            profile=self.profile, title=show, episode=orphan,
+            watched_at=datetime.datetime.fromtimestamp(1711600000, tz=datetime.timezone.utc),
+        )
+        item = {
+            "content_id": "tt0434665", "content_type": "series", "watched_at": 1711600000000,
+            "season": 17, "episode": 50, "name": "Bleach", "year": 2004,
+        }
+        nuvio.upsert_history_items(self.profile, [item])
+        events = WatchEvent.objects.filter(profile=self.profile, title=show)
+        self.assertEqual(events.count(), 1)
+        self.assertEqual((events[0].episode.season, events[0].episode.episode), (2, 50))
+        self.assertFalse(Episode.objects.filter(title=show, season=17).exists())
+
     @patch("tracker.integrations.tenrai.get_season_episode_offset", return_value=13)
     @patch("tracker.integrations.tenrai.resolve_mal_id", return_value=1)
     @patch("tracker.integrations.tmdb.get_tv_details", return_value={"seasons": [{"season_number": 1, "episode_count": 25}]})
@@ -18913,6 +18939,15 @@ class ResolveEpisodeSeasonTests(TestCase):
         ):
             result = episode_matching.resolve_episode_season(self.anime, "117465", 3, 1)
         self.assertEqual(result, (3, 1))
+
+    def test_season_far_past_the_last_real_one_maps_to_the_latest_season(self):
+        # Bleach: TMDB has 2 seasons (the second is the Thousand-Year Blood
+        # War, 50 episodes); players number that arc season 17.
+        two_seasons = {"seasons": [{"season_number": 1, "episode_count": 366}, {"season_number": 2, "episode_count": 50}]}
+        with patch("tracker.integrations.tmdb.get_tv_details", return_value=two_seasons):
+            self.assertEqual(episode_matching.resolve_episode_season(self.anime, "117465", 17, 50), (2, 50))
+            # An episode number that can't fit in the latest season stays put.
+            self.assertEqual(episode_matching.resolve_episode_season(self.anime, "117465", 17, 51), (17, 51))
 
     def test_no_mal_match_leaves_episode_as_reported(self):
         with patch(
