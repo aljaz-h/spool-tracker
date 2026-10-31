@@ -60,12 +60,22 @@
   </div>
   {% endif %}
   {% if account|pulls or account|pushes %}
-  <form method="post" action="{% url 'save_sync_schedule' provider %}" class="flex items-center gap-1.5 flex-wrap">
+  <form method="post" action="{% url 'save_sync_schedule' provider %}" class="flex items-center gap-1.5 flex-wrap" x-data="{ every: '{{ account.sync_every_minutes|default:0 }}' }">
     {% csrf_token %}
+    {% if provider == "nuvio" %}
+      <span class="text-[12px] text-ink-dim">Sync</span>
+      <select name="sync_every_minutes" x-model="every" class="select select-xs bg-base-300" aria-label="How often to sync Nuvio">
+        <option value="30">every 30 minutes</option>
+        <option value="60">every hour</option>
+        <option value="0">daily or less often</option>
+      </select>
+    {% endif %}
+    <span class="contents" {% if provider == "nuvio" %}x-show="every === '0'"{% endif %}>
     <span class="text-[12px] text-ink-dim">Sync every</span>
     <input type="number" name="sync_interval_days" min="1" max="30" value="{{ account.sync_interval_days }}" class="input input-xs w-12 px-1.5">
     <span class="text-[12px] text-ink-dim">day(s) at</span>
     <input type="time" name="sync_time" value="{{ account.sync_hour|stringformat:'02d' }}:{{ account.sync_minute|stringformat:'02d' }}" class="input input-xs px-1.5">
+    </span>
     <button type="submit" class="btn btn-xs btn-soft">Save</button>
     {% if provider == "trakt" %}
       <label class="flex items-center gap-1.5 text-[12px] text-ink-dim cursor-pointer w-full mt-1">

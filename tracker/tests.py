@@ -9839,6 +9839,29 @@ class NuvioProviderKeyedViewsTests(TestCase):
         pt = PeriodicTask.objects.get(name=scheduling.sync_periodic_task_name(self.connection))
         self.assertEqual(pt.task, "tracker.tasks.sync_nuvio_history")
 
+    def test_nuvio_can_sync_every_30_minutes_or_hourly_then_back_to_daily(self):
+        url = reverse("save_sync_schedule", args=["nuvio"])
+        name = scheduling.sync_periodic_task_name(self.connection)
+        self.client.post(url, {"sync_every_minutes": "30", "sync_interval_days": "1", "sync_time": "04:00"})
+        self.connection.refresh_from_db()
+        self.assertEqual(self.connection.sync_every_minutes, 30)
+        cron = PeriodicTask.objects.get(name=name).crontab
+        self.assertEqual((cron.minute, cron.hour, cron.day_of_month), ("*/30", "*", "*"))
+        self.client.post(url, {"sync_every_minutes": "60", "sync_interval_days": "1", "sync_time": "04:00"})
+        cron = PeriodicTask.objects.get(name=name).crontab
+        self.assertEqual((cron.minute, cron.hour), ("0", "*"))
+        self.client.post(url, {"sync_every_minutes": "0", "sync_interval_days": "1", "sync_time": "04:00"})
+        cron = PeriodicTask.objects.get(name=name).crontab
+        self.assertEqual((cron.minute, cron.hour), ("0", "4"))
+
+    def test_nuvio_ignores_an_unsupported_frequency(self):
+        self.client.post(
+            reverse("save_sync_schedule", args=["nuvio"]),
+            {"sync_every_minutes": "5", "sync_interval_days": "1", "sync_time": "04:00"},
+        )
+        self.connection.refresh_from_db()
+        self.assertEqual(self.connection.sync_every_minutes, 0)
+
     @patch("tracker.views._dispatch_sync_task_safely")
     def test_trigger_manual_sync_dispatches_nuvio_task(self, mock_dispatch):
         self.client.post(reverse("trigger_manual_sync", args=["nuvio"]))
@@ -15814,6 +15837,31 @@ class DashboardWatchingWatchlistTests(TestCase):
         window = content[card_start : next_card if next_card != -1 else card_start + 4000]
         self.assertIn("cw-art", window)
         self.assertNotIn("Add to list", window)
+
+    def test_watching_a_show_card_shows_progress_through_the_episode_not_the_show(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Ep Progress Show", year=2020)
+        ep = Episode.objects.create(title=show, season=1, episode=3, runtime_minutes=40)
+        WatchProgress.objects.create(
+            profile=self.profile, title=show, current_episode=ep, position_seconds=10 * 60,
+            status=WatchProgress.Status.WATCHING,
+        )
+        item = selectors.continue_watching(self.profile)[0]
+        self.assertEqual(item["percent"], 25)
+        self.assertEqual(item["time_left"], "30m")
+
+    def test_watching_a_show_card_resets_to_zero_once_the_episode_advanced(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Advanced Show", year=2020)
+        ep1 = Episode.objects.create(title=show, season=1, episode=1, runtime_minutes=40)
+        Episode.objects.create(title=show, season=1, episode=2, runtime_minutes=40)
+        WatchEvent.objects.create(profile=self.profile, title=show, episode=ep1, watched_at="2024-01-01T00:00:00Z")
+        WatchProgress.objects.create(
+            profile=self.profile, title=show, current_episode=ep1, position_seconds=39 * 60,
+            status=WatchProgress.Status.WATCHING,
+        )
+        item = selectors.continue_watching(self.profile)[0]
+        self.assertEqual(item["episode_number"], 2)
+        self.assertEqual(item["percent"], 0)
+        self.assertEqual(item["time_left"], "40m")
 
     def test_watching_card_footer_button_is_the_progress_fill(self):
         # One full-width footer button: progress is its --fill background,

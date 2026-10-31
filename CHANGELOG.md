@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.169.1] - 2026-10-31
+
+### Changed
+
+- Continue Watching cards for shows and anime now show how far through the current episode you are (position over the episode's runtime) and the time left in that episode, instead of whole-show progress, which stays on the title page. Movies already worked this way.
+
+## [0.169.0] - 2026-10-31
+
+### Added
+
+- Nuvio can now sync every 30 minutes or every hour (Settings -> Nuvio -> "Sync"), not just daily, so Continue Watching positions stay current. Choosing "daily or less often" keeps the existing day/time schedule.
+
 ## [0.168.0] - 2026-10-31
 
 ### Changed

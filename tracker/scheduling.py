@@ -26,10 +26,17 @@ def ensure_periodic_task(account):
     """(Re)creates the PeriodicTask matching account's sync_interval_days/
     sync_hour/sync_minute - see the field comments on ExternalAccount for
     the day_of_month=*/N approximation this relies on."""
-    day_of_month = "*" if account.sync_interval_days <= 1 else f"*/{account.sync_interval_days}"
+    every_minutes = getattr(account, "sync_every_minutes", 0)
+    if every_minutes:
+        # Sub-daily (Nuvio only): every 30 minutes, or hourly on the hour.
+        minute = "*/30" if every_minutes < 60 else "0"
+        hour, day_of_month = "*", "*"
+    else:
+        minute, hour = str(account.sync_minute), str(account.sync_hour)
+        day_of_month = "*" if account.sync_interval_days <= 1 else f"*/{account.sync_interval_days}"
     schedule, _ = CrontabSchedule.objects.get_or_create(
-        minute=str(account.sync_minute),
-        hour=str(account.sync_hour),
+        minute=minute,
+        hour=hour,
         day_of_week="*",
         day_of_month=day_of_month,
         month_of_year="*",

@@ -6745,6 +6745,12 @@ def save_sync_schedule(request, provider):
     account.sync_hour = hour
     account.sync_minute = minute
     update_fields = ["sync_interval_days", "sync_hour", "sync_minute"]
+    if provider == "nuvio":
+        # Only Nuvio offers sub-daily: its continue-watching positions move
+        # throughout the day.
+        every = request.POST.get("sync_every_minutes", "0")
+        account.sync_every_minutes = int(every) if every in ("30", "60") else 0
+        update_fields.append("sync_every_minutes")
     if provider == "trakt":
         account.import_lists = bool(request.POST.get("import_lists"))
         update_fields.append("import_lists")

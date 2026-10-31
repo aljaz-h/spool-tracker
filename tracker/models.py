@@ -1165,6 +1165,10 @@ class NuvioConnection(models.Model):
     sync_interval_days = models.PositiveSmallIntegerField(default=1)
     sync_hour = models.PositiveSmallIntegerField(default=4, validators=[MaxValueValidator(23)])
     sync_minute = models.PositiveSmallIntegerField(default=0, validators=[MaxValueValidator(59)])
+    # 0 = the daily/every-N-days schedule above; 30 or 60 = sync that often
+    # instead (the continue-watching position only changes when Nuvio
+    # pushes it, so a daily pull shows stale progress).
+    sync_every_minutes = models.PositiveSmallIntegerField(default=0)
 
     # Duck-typed to match ExternalAccount's shape so scheduling.py's
     # ensure_periodic_task/remove_periodic_task and the provider-keyed

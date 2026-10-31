@@ -433,6 +433,25 @@ def continue_watching(profile, media_types=None, limit=8, title_id=None):
                             caption += f" · {format_duration(remaining_minutes)} remaining"
                 else:
                     caption = f"S{ep.season}E{ep.episode}"
+
+                # The card shows how far through THIS episode you are (the
+                # show-wide progress lives on the title page): the position
+                # Nuvio reported, over the episode's own runtime. The
+                # position only applies while the displayed episode is the
+                # one it was reported for - once it has advanced to the next
+                # unwatched episode that one starts at 0%.
+                ep_minutes = (
+                    dict(tmdb_episodes).get(ep.episode)
+                    or ep.runtime_minutes
+                    or (show_details_cache.get(title.id) or {}).get("episode_run_time")
+                    or 0
+                )
+                position_min = progress.position_seconds / 60 if progress.current_episode_id == ep.id else 0
+                if ep_minutes:
+                    percent = min(100, round(position_min / ep_minutes * 100))
+                    time_left = format_duration(max(0, round(ep_minutes - position_min)))
+                else:
+                    percent, time_left = 0, ""
         # season/episode_number (None for a movie, or a show with no
         # current_episode yet) let poster_card.html deep-link straight to
         # this episode (?season=N#episode-N-M) instead of just the
