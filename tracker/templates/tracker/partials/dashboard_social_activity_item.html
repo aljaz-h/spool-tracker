@@ -9,7 +9,7 @@
   {% if event.profile.avatar_image %}
     <div class="w-7 h-7 rounded-full bg-cover bg-center flex-none" style="background-image:url('{{ event.profile.avatar_image.url }}')"></div>
   {% else %}
-    <div class="w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-semibold flex-none" style="background:{{ event.profile.avatar_color }};color:#fff;">{{ event.profile.display_name|first|upper }}</div>
+    <div class="w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-semibold flex-none" style="background:{{ event.profile.avatar_color }};color:{{ event.profile.avatar_color|on_color }};">{{ event.profile.display_name|first|upper }}</div>
   {% endif %}
   <div class="min-w-0 flex-1">
     <div class="text-[13px] leading-snug text-ink-dim">

@@ -1,0 +1,5 @@
+{# Placeholder for a plain table or list that loads late (Settings > Query performance): five rows. #}
+<div role="status" aria-busy="true" class="flex flex-col gap-2">
+  <span class="sr-only">Loading</span>
+  {% for _ in "abcde" %}<div class="skel h-9 w-full rounded-lg"></div>{% endfor %}
+</div>

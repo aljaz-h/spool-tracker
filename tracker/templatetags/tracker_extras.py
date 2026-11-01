@@ -1,3 +1,5 @@
+import re
+
 from django import template
 from django.urls import reverse
 from django.utils import timezone
@@ -80,6 +82,32 @@ def poster_size(url, width):
     if not url or "/t/p/w500/" not in url:
         return url
     return url.replace("/t/p/w500/", f"/t/p/{width}/", 1)
+
+
+_TMDB_SIZE_RE = re.compile(r"/t/p/(?:w\d+|original)/")
+
+
+@register.filter
+def tmdb_size(url, width):
+    """Re-points any TMDB image URL (/t/p/<size>/...) at `width` ("w45",
+    "w185", ...). Unlike poster_size this doesn't care which size is stored,
+    so it also serves provider logos (stored at w185) that are shown at
+    18-28px. Anything that isn't a TMDB image URL is returned unchanged."""
+    if not url or not _TMDB_SIZE_RE.search(url):
+        return url
+    return _TMDB_SIZE_RE.sub(f"/t/p/{width}/", url, count=1)
+
+
+@register.filter
+def poster_srcset(url):
+    """srcset for a poster grid tile (shown ~115-175px wide): the w185 file
+    for normal screens, the w342 one for 2x and up. The stored URL is the
+    w500 one, so this is the same render-time swap as poster_size (no data
+    migration, existing titles pick it up without a re-sync). Empty for a
+    URL it doesn't recognise, which makes the browser fall back to src."""
+    if not url or "/t/p/w500/" not in url:
+        return ""
+    return f"{url.replace('/t/p/w500/', '/t/p/w185/', 1)} 1x, {url.replace('/t/p/w500/', '/t/p/w342/', 1)} 2x"
 
 
 # The mockup's 8-gradient poster palette (p1..p8), used as a graceful
@@ -408,3 +436,24 @@ def short_timesince(value):
     if not value:
         return ""
     return timesince(value, depth=1)
+
+@register.filter
+def on_color(hex_color):
+    """Readable initial colour for a profile-avatar fill: the dark accent
+    ink on light fills, white on dark ones (WCAG relative luminance), so the
+    letter keeps 4.5:1 whatever colour the member picked."""
+    value = str(hex_color or "").lstrip("#")
+    if len(value) != 6:
+        return "#fff"
+    try:
+        r, g, b = (int(value[i : i + 2], 16) / 255 for i in (0, 2, 4))
+    except ValueError:
+        return "#fff"
+
+    def channel(c):
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    luminance = 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+    # 0.19 is where white and the dark ink give the same contrast (~4.4:1),
+    # so each fill gets whichever reads better.
+    return "#fff" if luminance <= 0.19 else "#1a1305"

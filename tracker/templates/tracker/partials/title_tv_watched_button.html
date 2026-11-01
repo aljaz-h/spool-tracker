@@ -43,7 +43,7 @@ once show_completed is actually true.
     @click="togglePanel($el)"
     :aria-expanded="open.toString()"
     aria-haspopup="true"
-    class="atile {% if watch_count > 0 %}{% if done %}atile-green{% else %}atile-blue{% endif %}{% endif %}"
+    class="atile {% if watch_count > 0 %}{% if done %}atile-green{% else %}atile-primary{% endif %}{% endif %}"
     :class="open && 'ring-2 ring-white/40'"
   >{% if watch_count > 0 %}{% if done %}{% icon "check" %}<span>Watched{% if watch_count > 1 %} &times;{{ watch_count }}{% endif %}</span>{% else %}{% icon "play" %}<span>Watching{% if watch_count > 1 %} &times;{{ watch_count }}{% endif %}</span>{% endif %}{% else %}{% icon "bookmark" %}<span>Track</span>{% endif %}</button>
   <div

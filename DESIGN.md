@@ -36,13 +36,13 @@ Never hard-code hexes in templates.
 
 | Token | Value | Use |
 |---|---|---|
-| `base-100` | `#0e1014` | Page background (never pure black) |
-| `base-200` | `#16181d` | Surfaces: real cards, inputs, menus |
-| `base-300` | `#1f2229` | Raised/hover, progress tracks, chips |
-| `line` | `#262930` | The one hairline color |
+| `base-100` | `#0b0d11` | Page background (never pure black) |
+| `base-200` | `#13151a` | Surfaces: real cards, inputs, menus |
+| `base-300` | `#1b1e25` | Raised/hover, progress tracks, chips |
+| `line` | `#23262d` | The one hairline color |
 | `ink` / `base-content` | `#eceef2` | Primary text |
 | `ink-dim` | `#a6aab8` | Secondary text, metadata |
-| `ink-faint` | `#737887` | Tertiary text, placeholders |
+| `ink-faint` | `#8a8fa0` | Tertiary text, placeholders (5.2:1 on `base-200`, AA) |
 | `primary` | `#e8a63c` | Spool amber — active nav, primary CTA, progress, focus, selection |
 | `movie` / `tv` / `anime` | amber / `#8b85d6` / `#3fa9a0` | Media type — dots, chart series, split bars |
 | `success` / `error` / `info` | `#5bd58a` / `#f0604a` / `#6fb7ce` | Watched/complete, destructive, informational/in progress |
@@ -68,7 +68,8 @@ own scores.
 - **JetBrains Mono** only for episode codes (`S01E04`), timestamps where
   alignment matters, and technical values (API keys, versions). Ordinary
   numbers use Public Sans with `tabular-nums`.
-- Title case over UPPERCASE; no letter-spaced uppercase labels.
+- Title case over UPPERCASE; no letter-spaced uppercase labels (the
+  Bebas Neue wordmark and display figures are the only uppercase).
 
 ## 4. Shape & depth
 
@@ -101,8 +102,12 @@ controls and avatars. Shadows only on floating things — menus/popovers
   notifications, household and the profile menu, which holds Settings.
 - **Footer:** version and the TMDB / Jikan / AniFiller credit on every
   page (TMDB's terms require the credit).
-- **Below lg:** docked bottom nav (Home, Browse, Calendar, Search, More)
-  plus the More sheet; the top bar keeps the wordmark and account icons.
+- **Below lg:** a solid bottom nav docked to the screen edge (Home, Browse,
+  Search, Alerts, You; hairline on top, no blur, no floating capsule) plus
+  the You sheet; the top bar keeps the wordmark and account icons.
+- **Fonts:** Bebas Neue, Public Sans and JetBrains Mono are bundled in
+  `static/fonts` (woff2, `@font-face` at the top of `app.css`); nothing is
+  loaded from Google Fonts. Preload only what shows above the fold.
 - **Content width:** `.page` caps content at 1920px and owns the gutters;
   reading-heavy pages (Activity, Notifications, Settings)
   constrain themselves further. Pages never re-add their own side
@@ -126,7 +131,7 @@ controls and avatars. Shadows only on floating things — menus/popovers
 - **Title page:** poster-led hero spanning the window (`.bleed`): the
   backdrop shows on the right and fades into the page on the left; a
   large poster on the left; then the type label, title, labelled facts
-  (`.hero-facts` - small caps label, bright value: Directed by /
+  (`.hero-facts` - sentence-case label in `ink-dim`, bright value: Directed by /
   Released / Runtime / Seasons / Rated / Status), genre chips, ratings, overview,
   actions, show progress and the main cast as portrait cards
   (`title_person.html`). Below: a main panel with tabs (Episodes /
@@ -165,6 +170,11 @@ controls and avatars. Shadows only on floating things — menus/popovers
 - **Chips:** `.chip` (12px) (+ `-primary/-success/-error/-info/-tv/-anime/
   -movie/-scrim`) only for state worth isolating: status, filler/recap,
   season finale, sync state. `.filter-chip` for removable active filters.
+- **Buttons:** one filled amber `btn-primary` per screen at most; everything
+  else is `btn-soft` or `btn-ghost`. A list of equivalent actions (Connect
+  buttons, provider rows) uses `btn-soft` throughout. On touch screens
+  small controls keep their look but get a 44px hit area (`.hit-44`,
+  `@media (pointer: coarse)`).
 - **Controls:** `.seg`/`.seg-item` segmented control (type switches),
   `.tabs-line`/`.tab-line` underline tabs (in-page categories),
   `.toolbar`, `.field` (icon + input), daisyUI `btn` at `btn-sm`
@@ -174,6 +184,12 @@ controls and avatars. Shadows only on floating things — menus/popovers
 - **Episodes:** `title_episodes.html` — season poster picker, then one
   compact row per episode; watched rows recede, the first unwatched
   episode after a watched one is marked "Up next" (`.ep-row` CSS).
+- **Loading:** a block that arrives after first paint shows a skeleton the
+  size and shape of the real thing (`.skel`, `partials/skeleton_*.html`),
+  never a spinner or a bare "Loading...". The faint sweep is a loading
+  signal, not decoration, so it is the one looping animation allowed; it
+  stops under `prefers-reduced-motion`. An empty result is not a skeleton:
+  it stays the one-line `.empty` message.
 - **Empty states:** `.empty` + `.empty-title` — short heading, one plain
   sentence, optional action.
 - **Figures:** `.figure` / `.figure-label` for headline numbers (Stats,
@@ -187,5 +203,6 @@ controls and avatars. Shadows only on floating things — menus/popovers
 - No hairline between every row or section — spacing groups; a border
   is for real navigation edges (tabs, the shell) or form grouping.
 - No glow, neon, glassmorphism, large decorative gradients or blobs.
-- No idle/looping animation; nothing that moves unless the user acted.
+- No idle/looping animation; nothing that moves unless the user acted
+  (the loading skeleton's sweep is the one exception).
 - No AI-copy clichés; Spool's copy stays plain and specific.

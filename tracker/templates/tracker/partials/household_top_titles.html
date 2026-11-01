@@ -21,7 +21,7 @@
                 {% if watcher.avatar_image %}
                   <div class="w-4 h-4 rounded-full bg-cover bg-center ring-2 ring-base-100" style="background-image:url('{{ watcher.avatar_image.url }}')" title="{{ watcher.display_name }}"></div>
                 {% else %}
-                  <div class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold ring-2 ring-base-100" style="background:{{ watcher.avatar_color }};color:#fff;" title="{{ watcher.display_name }}">{{ watcher.display_name|first|upper }}</div>
+                  <div class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold ring-2 ring-base-100" style="background:{{ watcher.avatar_color }};color:{{ watcher.avatar_color|on_color }};" title="{{ watcher.display_name }}">{{ watcher.display_name|first|upper }}</div>
                 {% endif %}
               {% endfor %}
             </div>

@@ -14672,7 +14672,26 @@ class DiscoverViewTests(TestCase):
         }
         resp = self.client.get(reverse("movies", args=["popular"]))
         self.assertContains(resp, '<img src="https://image.tmdb.org/t/p/w342/abc.jpg"')
-        self.assertContains(resp, 'loading="lazy"')
+        self.assertContains(resp, 'srcset="https://image.tmdb.org/t/p/w185/abc.jpg 1x, https://image.tmdb.org/t/p/w342/abc.jpg 2x"')
+        # The first row (first six tiles) is above the fold: high priority, not lazy.
+        self.assertContains(resp, 'fetchpriority="high"')
+        self.assertNotContains(resp, 'loading="lazy"')
+
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.discover")
+    def test_tiles_below_the_first_row_stay_lazy(self, mock_discover, mock_genres):
+        mock_discover.return_value = {
+            "results": [
+                {"tmdb_id": n, "media_type": "movie", "name": f"M{n}", "year": "2020",
+                 "poster_url": f"https://image.tmdb.org/t/p/w500/p{n}.jpg", "vote_average": 7.0}
+                for n in range(1, 9)
+            ],
+            "page": 1,
+            "total_pages": 1,
+        }
+        resp = self.client.get(reverse("movies", args=["popular"]))
+        self.assertContains(resp, 'fetchpriority="high"', count=6)
+        self.assertContains(resp, 'loading="lazy"', count=2)
         self.assertNotContains(resp, "background-image:url('https://image.tmdb.org/t/p/w500/abc.jpg')")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
@@ -17327,9 +17346,11 @@ class TitleDetailViewTests(TestCase):
     def test_details_panel_status_reuses_the_hero_badge(self, mock_details, mock_credits, mock_similar):
         mock_details.return_value = self._details(status="Ended")
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        # The hero's own copy plus the Details panel's copy - both should
-        # carry the shared chip_color_class output for "warning".
-        self.assertContains(resp, '<span class="chip chip-primary">Ended</span>', count=2)
+        # The Details panel carries the shared chip_color_class output for
+        # "warning"; the hero's own copy is a neutral chip (amber is kept
+        # for the page's one primary action).
+        self.assertContains(resp, '<span class="chip chip-primary">Ended</span>', count=1)
+        self.assertContains(resp, '<span class="chip">Ended</span>', count=1)
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -21379,7 +21400,7 @@ class TitleTvWatchedButtonTests(TestCase):
         # the_success_button_once_the_show_is_actually_finished below).
         self._watch(1, 1)
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
-        self.assertContains(resp, "atile atile-blue")
+        self.assertContains(resp, "atile atile-primary")
         self.assertContains(resp, "Watching")
         self.assertNotContains(resp, "atile atile-green")
         self.assertNotContains(resp, "<span>Track</span>")
@@ -21393,7 +21414,7 @@ class TitleTvWatchedButtonTests(TestCase):
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         self.assertContains(resp, "atile atile-green")
         self.assertContains(resp, "atile atile-green")
-        self.assertNotContains(resp, "atile atile-blue")
+        self.assertNotContains(resp, "atile atile-primary")
 
     @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
     @patch("tracker.integrations.tmdb.get_full_details")
@@ -24265,6 +24286,132 @@ class PosterSizeFilterTests(TestCase):
 
         backdrop = "https://image.tmdb.org/t/p/w1280/xyz.jpg"
         self.assertEqual(poster_size(backdrop, "w185"), backdrop)
+
+
+class PosterSrcsetFilterTests(TestCase):
+    """tracker_extras.tmdb_size / poster_srcset: render-time size swaps on
+    the stored URL (posters are saved as w500; nothing is migrated)."""
+
+    def test_tmdb_size_swaps_any_stored_size(self):
+        from tracker.templatetags.tracker_extras import tmdb_size
+
+        self.assertEqual(
+            tmdb_size("https://image.tmdb.org/t/p/w185/logo.png", "w45"), "https://image.tmdb.org/t/p/w45/logo.png"
+        )
+        self.assertEqual(
+            tmdb_size("https://image.tmdb.org/t/p/w500/p.jpg", "w342"), "https://image.tmdb.org/t/p/w342/p.jpg"
+        )
+
+    def test_tmdb_size_leaves_everything_else_alone(self):
+        from tracker.templatetags.tracker_extras import tmdb_size
+
+        self.assertEqual(tmdb_size("", "w45"), "")
+        self.assertIsNone(tmdb_size(None, "w45"))
+        self.assertEqual(tmdb_size("https://assets.fanart.tv/x.png", "w45"), "https://assets.fanart.tv/x.png")
+
+    def test_poster_srcset_offers_w185_and_w342(self):
+        from tracker.templatetags.tracker_extras import poster_srcset
+
+        self.assertEqual(
+            poster_srcset("https://image.tmdb.org/t/p/w500/abc.jpg"),
+            "https://image.tmdb.org/t/p/w185/abc.jpg 1x, https://image.tmdb.org/t/p/w342/abc.jpg 2x",
+        )
+
+    def test_poster_srcset_is_empty_for_anything_it_does_not_recognise(self):
+        from tracker.templatetags.tracker_extras import poster_srcset
+
+        self.assertEqual(poster_srcset(""), "")
+        self.assertEqual(poster_srcset(None), "")
+        self.assertEqual(poster_srcset("https://image.tmdb.org/t/p/w1280/backdrop.jpg"), "")
+
+    def test_grid_tile_uses_srcset_and_lazy_unless_eager(self):
+        from django.template.loader import render_to_string
+
+        item = {"tmdb_id": 1, "media_type": "movie", "name": "A", "year": 2020, "poster_url": "https://image.tmdb.org/t/p/w500/a.jpg", "vote_average": 7.0}
+        profile = Profile.objects.create(user=User.objects.create_user("tileviewer", password="pass12345"), display_name="Tile")
+        lazy = render_to_string("tracker/partials/discover_tile.html", {"item": item, "active_profile": profile})
+        self.assertIn('src="https://image.tmdb.org/t/p/w342/a.jpg"', lazy)
+        self.assertIn('srcset="https://image.tmdb.org/t/p/w185/a.jpg 1x, https://image.tmdb.org/t/p/w342/a.jpg 2x"', lazy)
+        self.assertIn('loading="lazy"', lazy)
+        self.assertNotIn("fetchpriority", lazy)
+        eager = render_to_string("tracker/partials/discover_tile.html", {"item": item, "eager": True, "active_profile": profile})
+        self.assertIn('fetchpriority="high"', eager)
+        self.assertNotIn('loading="lazy"', eager)
+
+
+class SelfHostedFontTests(TestCase):
+    """The UI fonts ship with the app (static/fonts) instead of loading from
+    Google Fonts."""
+
+    def test_no_page_shell_links_google_fonts(self):
+        from pathlib import Path
+
+        templates = Path(django_settings.BASE_DIR) / "tracker" / "templates"
+        for path in templates.rglob("*.html"):
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn("fonts.googleapis.com", text, path.name)
+            self.assertNotIn("fonts.gstatic.com", text, path.name)
+
+    def test_login_page_preloads_the_bundled_fonts(self):
+        resp = self.client.get(reverse("login"))
+        self.assertContains(resp, 'rel="preload"')
+        self.assertContains(resp, "public-sans-latin-var")
+        self.assertContains(resp, "bebas-neue-latin")
+        self.assertNotContains(resp, "googleapis")
+
+    def test_stylesheet_declares_every_family_from_local_files(self):
+        from pathlib import Path
+
+        base = Path(django_settings.BASE_DIR)
+        css = (base / "static" / "src" / "app.css").read_text(encoding="utf-8")
+        for family in ("Bebas Neue", "Public Sans", "JetBrains Mono"):
+            self.assertIn(f'font-family: "{family}"', css)
+        self.assertEqual(css.count("font-display: swap"), 6)
+        self.assertNotIn("http", css[css.index("/* Fonts are bundled") : css.index('@plugin "daisyui" {')].split("*/", 1)[1])
+        for name in (
+            "bebas-neue-latin", "bebas-neue-latin-ext", "public-sans-latin-var", "public-sans-latin-ext-var",
+            "jetbrains-mono-latin-var", "jetbrains-mono-latin-ext-var",
+        ):
+            self.assertTrue((base / "static" / "fonts" / f"{name}.woff2").is_file(), name)
+
+    def test_wrapped_png_fonts_are_embedded_not_fetched(self):
+        from tracker.wrapped import export, render
+
+        embedded = (render.TEMPLATES_DIR / "cards" / "_fonts.html").read_text(encoding="utf-8")
+        self.assertNotIn("http", embedded)
+        self.assertEqual(embedded.count("data:font/woff2;base64,"), 6)
+        # The app stylesheet's own faces use relative paths that don't resolve
+        # in the standalone export document, so they are dropped from it.
+        stripped = export._FONT_FACE_RE.sub("", '@font-face { src: url("../fonts/x.woff2"); } a { color: red }')
+        self.assertEqual(stripped.strip(), "a { color: red }")
+
+
+class SkeletonPlaceholderTests(TestCase):
+    """Late-loading blocks show a shared skeleton, not a bare "Loading..."."""
+
+    def test_skeletons_are_status_regions_made_of_shared_skel_blocks(self):
+        from django.template.loader import render_to_string
+
+        for name in ("tonight", "estimate", "chips", "household", "schedule_pane", "rows"):
+            html = render_to_string(f"tracker/partials/skeleton_{name}.html")
+            self.assertIn('role="status"', html, name)
+            self.assertIn('aria-busy="true"', html, name)
+            self.assertIn('class="skel', html, name)
+            self.assertNotIn("style=\"background", html, name)
+
+    def test_tonight_skeleton_reuses_the_real_row_classes(self):
+        from django.template.loader import render_to_string
+
+        html = render_to_string("tracker/partials/skeleton_tonight.html")
+        self.assertEqual(html.count("sch-tonight-row"), 2)
+        self.assertIn("sch-tonight-poster", html)
+
+    def test_stylesheet_defines_one_shimmer_that_respects_reduced_motion(self):
+        from pathlib import Path
+
+        css = (Path(django_settings.BASE_DIR) / "static" / "src" / "app.css").read_text(encoding="utf-8")
+        block = css[css.index("/* Loading skeletons"):]
+        self.assertIn("@media (prefers-reduced-motion: no-preference) {\n  .skel::after", block.replace("\r\n", "\n"))
 
 
 class BadgeColorClassesFilterTests(TestCase):
@@ -33743,7 +33890,7 @@ class TitleStatusTileTests(TitleTilesBase):
         self.assertIn("<span>Add to list</span>", body)
         self.assertIn("<span>Rate</span>", body)
         self.assertNotIn("atile-green", body)
-        self.assertNotIn("atile-blue", body)
+        self.assertNotIn("atile-primary", body)
 
     def test_a_watched_movie_is_green(self):
         self.watch(self.movie)
@@ -33755,13 +33902,13 @@ class TitleStatusTileTests(TitleTilesBase):
         ep = Episode.objects.create(title=self.show, season=1, episode=1)
         WatchEvent.objects.create(profile=self.profile, title=self.show, episode=ep, watched_at=timezone.now())
         body = self.get(self.show)
-        self.assertIn("atile atile-blue", body)
+        self.assertIn("atile atile-primary", body)
         self.assertIn("<span>Watching", body)
         self.assertNotIn("atile-green", body)
         WatchProgress.objects.create(profile=self.profile, title=self.show, status=WatchProgress.Status.COMPLETED)
         body = self.get(self.show)
         self.assertIn("atile atile-green", body)
-        self.assertNotIn("atile-blue", body)
+        self.assertNotIn("atile-primary", body)
 
     def watched_episodes(self, count):
         for n in range(1, count + 1):
@@ -33783,7 +33930,7 @@ class TitleStatusTileTests(TitleTilesBase):
     def test_partway_through_a_show_is_blue_never_green(self):
         self.watched_episodes(3)
         body = self.get_tv(self.tv_details(aired=10))
-        self.assertIn("atile atile-blue", body)
+        self.assertIn("atile atile-primary", body)
         self.assertIn("<span>Watching", body)
         self.assertNotIn("atile-green", body)
 
@@ -33792,7 +33939,7 @@ class TitleStatusTileTests(TitleTilesBase):
         self.watched_episodes(3)
         WatchProgress.objects.create(profile=self.profile, title=self.show, status=WatchProgress.Status.COMPLETED)
         body = self.get_tv(self.tv_details(aired=10))
-        self.assertIn("atile atile-blue", body)
+        self.assertIn("atile atile-primary", body)
         self.assertNotIn("atile-green", body)
 
     def test_green_only_when_caught_up_or_finished(self):
@@ -33801,7 +33948,7 @@ class TitleStatusTileTests(TitleTilesBase):
             body = self.get_tv(self.tv_details(aired=10, status=status))
             self.assertIn("atile atile-green", body, status)
             self.assertIn("<span>Watched", body, status)
-            self.assertNotIn("atile-blue", body, status)
+            self.assertNotIn("atile-primary", body, status)
 
     def test_caught_up_is_green_without_any_completed_flag(self):
         self.watched_episodes(10)
@@ -33814,7 +33961,7 @@ class TitleStatusTileTests(TitleTilesBase):
             Episode.objects.all().delete()
             self.watched_episodes(watched)
             body = self.get_tv(self.tv_details(aired=aired))
-            green, blue = "atile atile-green" in body, "atile atile-blue" in body
+            green, blue = "atile atile-green" in body, "atile atile-primary" in body
             card_done = "sprog is-caughtup" in body or "sprog is-finished" in body
             self.assertEqual(green, card_done, (watched, aired))
             self.assertEqual(blue, 0 < watched < aired, (watched, aired))
@@ -33829,7 +33976,7 @@ class TitleStatusTileTests(TitleTilesBase):
         with patch("tracker.integrations.tmdb.get_full_details", return_value=self.tv_details(aired=10)), \
                 patch("tracker.integrations.tmdb.get_tv_details", return_value=None):
             body = views._hero_watched_button_oob(self.rf(), self.profile, self.show)
-        self.assertIn("atile atile-blue", body)
+        self.assertIn("atile atile-primary", body)
         for n in range(4, 11):
             ep = Episode.objects.create(title=self.show, season=1, episode=n)
             WatchEvent.objects.create(profile=self.profile, title=self.show, episode=ep, watched_at=timezone.now())

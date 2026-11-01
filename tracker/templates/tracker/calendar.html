@@ -176,7 +176,7 @@
       id="schedule-pane" hx-get="{% url 'schedule_pane' %}" hx-trigger="intersect once" hx-swap="outerHTML"
       hx-vals='js:{days: (() => { try { const saved = localStorage.getItem("spool-schedule-days"); if (saved) return saved; } catch (e) {} return window.innerWidth < 640 ? "1" : (window.innerWidth < 1024 ? "3" : "7"); })()}'
     >
-      <div class="surface p-8 text-center text-ink-faint text-sm" role="status">Loading your schedule&hellip;</div>
+      {% include "tracker/partials/skeleton_schedule_pane.html" %}
     </div>
   </div>
 

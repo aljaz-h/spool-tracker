@@ -20,7 +20,7 @@
           {% if op.avatar_image %}
             <div class="w-8 h-8 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ op.avatar_image.url }}')"></div>
           {% else %}
-            <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-none" style="background:{{ op.avatar_color }};color:#fff;">{{ op.display_name|first|upper }}</div>
+            <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-none" style="background:{{ op.avatar_color }};color:{{ op.avatar_color|on_color }};">{{ op.display_name|first|upper }}</div>
           {% endif %}
           <div class="flex-1 min-w-0 text-[13px] font-medium truncate">{{ op.display_name }}</div>
           {% if op.id in already_watched_profile_ids %}

@@ -1,9 +1,9 @@
 {% load icons tracker_extras %}
-{# context: none explicit - reads request.resolver_match directly, same as topbar.html. Mobile/tablet-only (lg:hidden) tab bar: a floating frosted-glass capsule above the bottom edge (.glass-bar in app.css), the current tab on its own lighter pill. At lg: and up the top bar's links take over. #}
+{# context: none explicit - reads request.resolver_match directly, same as topbar.html. Mobile/tablet-only (lg:hidden) tab bar: a solid bar docked to the bottom edge above the bottom edge (.dock-bar in app.css), the current tab on its own lighter pill. At lg: and up the top bar's links take over. #}
 {% with url_name=request.resolver_match.url_name %}
 <nav
   aria-label="Primary"
-  class="glass-bar lg:hidden fixed inset-x-3 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-[440px] bottom-[calc(0.625rem+env(safe-area-inset-bottom))] z-40 flex items-stretch p-1.5 rounded-[28px]"
+  class="dock-bar lg:hidden fixed inset-x-0 bottom-0 z-40 flex items-stretch justify-center gap-1 px-2 pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))]"
 >
   {% url 'dashboard' as home_url %}
   {% include "tracker/partials/nav_item_bottom.html" with href=home_url icon_name="home" label="Home" is_active=url_name|eq:"dashboard" %}
@@ -36,7 +36,7 @@
     :aria-expanded="mobileSearchOpen.toString()"
     aria-haspopup="true"
     aria-label="Search"
-    class="glass-tab"
+    class="dock-tab"
     :class="mobileSearchOpen && 'is-active'"
   >
     {% icon "search" "w-[22px] h-[22px]" %}
@@ -50,7 +50,7 @@
     what HTMX's out-of-band updates target, so it must stay unique.
   {% endcomment %}
   {% url 'notifications_list' as notifications_url %}
-  <a href="{{ notifications_url }}" class="glass-tab{% if url_name == 'notifications_list' %} is-active{% endif %}" {% if url_name == 'notifications_list' %}aria-current="page"{% endif %} aria-label="Alerts{% if unread_notification_count %}, {{ unread_notification_count }} unread{% endif %}">
+  <a href="{{ notifications_url }}" class="dock-tab{% if url_name == 'notifications_list' %} is-active{% endif %}" {% if url_name == 'notifications_list' %}aria-current="page"{% endif %} aria-label="Alerts{% if unread_notification_count %}, {{ unread_notification_count }} unread{% endif %}">
     <span class="relative">
       {% icon "bell" "w-[22px] h-[22px]" %}
       {% if unread_notification_count %}<span class="absolute -top-1.5 -right-2.5 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-content text-[11px] font-bold leading-none flex items-center justify-center">{% if unread_notification_count > 99 %}99+{% else %}{{ unread_notification_count }}{% endif %}</span>{% endif %}
@@ -68,11 +68,11 @@
     @click="bottomSheetOpen = true"
     :aria-expanded="bottomSheetOpen.toString()"
     aria-haspopup="dialog"
-    class="glass-tab{% if url_name|in_list:'my_profile,settings,calendar,history,member_history,lists,list_detail,stats,member_stats,activity' %} is-active{% endif %}"
+    class="dock-tab{% if url_name|in_list:'my_profile,settings,calendar,history,member_history,lists,list_detail,stats,member_stats,activity' %} is-active{% endif %}"
     :class="bottomSheetOpen && 'is-active'"
   >
     {% if active_profile %}
-      <span class="w-[24px] h-[24px] rounded-full flex items-center justify-center text-[11px] font-bold border-[1.5px] {% if active_profile.avatar_image %}bg-cover bg-center{% endif %}" style="border-color:{{ active_profile.avatar_color }};{% if active_profile.avatar_image %}background-image:url('{{ active_profile.avatar_image.url }}'){% else %}background:{{ active_profile.avatar_color }};color:#fff;{% endif %}">{% if not active_profile.avatar_image %}{{ active_profile.display_name|first|upper }}{% endif %}</span>
+      <span class="w-[24px] h-[24px] rounded-full flex items-center justify-center text-[11px] font-bold border-[1.5px] {% if active_profile.avatar_image %}bg-cover bg-center{% endif %}" style="border-color:{{ active_profile.avatar_color }};{% if active_profile.avatar_image %}background-image:url('{{ active_profile.avatar_image.url }}'){% else %}background:{{ active_profile.avatar_color }};color:{{ active_profile.avatar_color|on_color }};{% endif %}">{% if not active_profile.avatar_image %}{{ active_profile.display_name|first|upper }}{% endif %}</span>
     {% else %}
       {% icon "user" "w-[22px] h-[22px]" %}
     {% endif %}

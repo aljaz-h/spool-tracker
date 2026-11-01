@@ -48,7 +48,7 @@
     </div>
     <div class="pr-4 lg:pl-6">
       <div class="figure !text-[2.5rem]">{{ daily_average.average_duration }}</div>
-      <div class="figure-label">Daily average{% if daily_average.delta_label %} · <span class="{% if daily_average.delta_positive %}text-success{% else %}text-error{% endif %}">{{ daily_average.delta_label }}</span>{% endif %}</div>
+      <div class="figure-label">Daily average{% if daily_average.delta_label %} · <span class="{% if daily_average.delta_positive %}text-success{% else %}text-ink-dim{% endif %}">{{ daily_average.delta_label }} vs previous period</span>{% endif %}</div>
     </div>
   </section>
 

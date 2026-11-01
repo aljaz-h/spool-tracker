@@ -3,7 +3,7 @@
 <a href="{% url 'collection_detail' item.id %}" class="media-card block group">
   <div class="poster {% if not item.poster_url %}{{ item.id|gradient_class }}{% endif %}">
     {% if item.poster_url %}
-      <img src="{{ item.poster_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 group-hover:brightness-110">
+      <img src="{{ item.poster_url|poster_size:"w342" }}" srcset="{{ item.poster_url|poster_srcset }}" alt="" loading="lazy" class="absolute inset-0 group-hover:brightness-110">
     {% endif %}
   </div>
   <span class="media-title">{{ item.name }}</span>

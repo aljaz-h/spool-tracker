@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   {% include "tracker/partials/pwa_head.html" %}
   <title>{% block title %}Spool{% endblock %}</title>
+  <meta name="description" content="{% block meta_description %}Spool tracks the movies, TV shows and anime your household watches: history, progress, ratings and what is coming next.{% endblock %}">
   <script>
     // "/" jumps to the global search field from anywhere that isn't
     // already a text input - the usual media-app shortcut.
@@ -28,8 +29,7 @@
       input.select();
     });
   </script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Public+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  {% include "tracker/partials/fonts_head.html" %}
   <link rel="stylesheet" href="{% static 'dist/app.css' %}">
   <script defer src="{% static 'vendor/htmx.js' %}"></script>
   {% comment %}
@@ -434,6 +434,7 @@
   </script>
 </head>
 <body class="bg-base-100 text-base-content min-h-screen" data-animations="{% if active_profile.animations_enabled %}on{% else %}off{% endif %}">
+  <a href="#main" class="skip-link">Skip to content</a>
   <div id="spool-progress-bar" class="fixed top-0 left-0 h-[2.5px] w-0 bg-primary z-[200] opacity-0 pointer-events-none transition-[width,opacity] duration-200 ease-out" aria-hidden="true"></div>
   {% comment %}
     x-effect below locks background scroll for as long as the bottom
@@ -462,7 +463,7 @@
   >
     <div class="app-content">
       {% include "tracker/partials/topbar.html" %}
-      <main id="main" class="page flex-1 pt-6 sm:pt-8 lg:pt-10 pb-14 lg:pb-20">
+      <main id="main" tabindex="-1" class="page flex-1 focus:outline-none pt-6 sm:pt-8 lg:pt-10 pb-14 lg:pb-20">
         {% include "tracker/partials/discover_type_switcher.html" %}
         {% block content %}{% endblock %}
       </main>

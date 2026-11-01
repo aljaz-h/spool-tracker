@@ -6,6 +6,7 @@ nothing from the web server, so it works the same from a request and from
 the Celery worker."""
 
 import json
+import re
 import secrets
 from pathlib import Path
 
@@ -24,6 +25,10 @@ def _static(*parts):
     return Path(settings.BASE_DIR, "static", *parts)
 
 
+# app.css points its @font-face rules at /static/fonts; in a standalone
+# document those relative paths lead nowhere, so they are dropped and the
+# data-URI copies in cards/_fonts.html (the same files) are the only faces.
+_FONT_FACE_RE = re.compile(r"@font-face\s*\{[^}]*\}")
 REVIEW_BODY = "tracker/partials/wrapped_review_body.html"
 ALL_TIME_BODY = "tracker/partials/wrapped_all_time_body.html"
 
@@ -41,7 +46,7 @@ def review_document(context, body=REVIEW_BODY):
             **context,
             "export": True,
             "body_template": body,
-            "css": _static("dist", "app.css").read_text(encoding="utf-8"),
+            "css": _FONT_FACE_RE.sub("", _static("dist", "app.css").read_text(encoding="utf-8")),
             "fonts": (render.TEMPLATES_DIR / "cards" / "_fonts.html").read_text(encoding="utf-8"),
             "js": "\n".join(scripts).replace("</script", "<\\/script"),
         },

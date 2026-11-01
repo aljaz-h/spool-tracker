@@ -61,7 +61,7 @@
             <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-tv"></span>TV</span>
             <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-anime"></span>Anime</span>
           </div>
-          <div class="flex items-center gap-3 font-mono text-[10.5px] uppercase tracking-wide">
+          <div class="flex items-center gap-3 font-mono text-[10.5px]">
             <span><span class="text-success">Done</span> synced</span>
             <span><span class="text-info">Waiting</span> for sync</span>
             <span><span class="text-primary">Moved</span> to next slot</span>
@@ -86,7 +86,7 @@
         <div class="surface p-5">
           <h3 class="sch-eyebrow mb-2.5">Finish line</h3>
           <div hx-get="{% url 'schedule_estimate' %}" hx-trigger="load" hx-swap="innerHTML">
-            <div class="text-[13px] text-ink-faint" role="status">Working it out&hellip;</div>
+            {% include "tracker/partials/skeleton_estimate.html" %}
           </div>
         </div>
 

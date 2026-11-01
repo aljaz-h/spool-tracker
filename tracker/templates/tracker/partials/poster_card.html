@@ -40,7 +40,7 @@ to avoid triggering navigation.
     <div class="media-card-art">
       <div class="backdrop cw-art {% if not progress.still_url %}{{ title.pk|gradient_class }}{% endif %}">
         {% if progress.still_url %}
-          <img src="{{ progress.still_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0">
+          <img src="{{ progress.still_url|poster_size:"w342" }}" alt="" {% if eager %}fetchpriority="high"{% else %}loading="lazy"{% endif %} class="absolute inset-0">
         {% endif %}
         <div class="art-scrim"></div>
         <a href="{{ detail_url }}" class="absolute inset-0 z-0" tabindex="-1" aria-hidden="true"></a>
@@ -101,7 +101,7 @@ to avoid triggering navigation.
     <div class="media-card-art">
       <a href="{{ detail_url }}" class="poster block {% if not title.poster_url %}{{ title.pk|gradient_class }}{% endif %}" tabindex="-1" aria-hidden="true">
         {% if title.poster_url %}
-          <img src="{{ title.poster_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0">
+          <img src="{{ title.poster_url|poster_size:"w342" }}" srcset="{{ title.poster_url|poster_srcset }}" alt="" {% if eager %}fetchpriority="high"{% else %}loading="lazy"{% endif %} class="absolute inset-0">
         {% endif %}
         {% if ip %}
           <span class="card-state card-state-progress" title="Watching">&#9654;</span>
@@ -113,7 +113,7 @@ to avoid triggering navigation.
             {% if event_profile.avatar_image %}
               <span class="w-4 h-4 rounded-full bg-cover bg-center flex-none" style="background-image:url('{{ event_profile.avatar_image.url }}')"></span>
             {% else %}
-              <span class="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-semibold flex-none" style="background:{{ event_profile.avatar_color }};color:#fff;">{{ event_profile.display_name|first|upper }}</span>
+              <span class="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-semibold flex-none" style="background:{{ event_profile.avatar_color }};color:{{ event_profile.avatar_color|on_color }};">{{ event_profile.display_name|first|upper }}</span>
             {% endif %}
             <span class="text-[12px] font-semibold text-white truncate">{{ event_profile.display_name }}</span>
           </span>

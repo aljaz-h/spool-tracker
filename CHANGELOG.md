@@ -8,6 +8,39 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.174.0] - 2026-11-01
+
+### Changed
+
+- Faster pages, fewer bytes. Poster tiles in grids and rows now offer the browser two sizes (`srcset`: w185 for normal screens, w342 for 2x and up) instead of always sending w342, so a 1x screen downloads roughly half the image data on Home and Browse; the big poster on a title page stays w500. Posters are still stored at w500 and resized at render time, so existing titles pick this up with no migration or re-sync.
+- The streaming-provider logos in the Browse filter panel and in Settings > Preferences (about 150 of them, shown at 18-20px, loaded eagerly even while hidden) are now `w45`, lazy, and have a width and height. Movies/TV/Anime pages no longer start about 150 extra requests.
+- The UI fonts (Bebas Neue, Public Sans, JetBrains Mono) are bundled with the app (`static/fonts`, woff2, served with a long-lived immutable cache) instead of loading from Google Fonts: no third-party request or render-blocking stylesheet, and the app works offline. Public Sans and JetBrains Mono are variable files, so every weight in use comes from one file each. Latin-extended files (Slovenian, Polish, Czech... letters) are declared by unicode-range and only download when a page shows such a letter. The body face and the wordmark are preloaded. The Wrapped PNG renderer embeds the same files, so recaps render without network access.
+- The first row of posters on Home (Continue Watching, Recently Watched), the first row of Movies/TV/Anime, and the title page's poster and backdrop load with `fetchpriority="high"` and are never lazy; everything below the fold stays lazy.
+- Late-loading blocks show a skeleton in the shape of the real content instead of a "Loading..." line: the Dashboard's My Schedule card, Calendar > My schedule, the schedule's Finish line card, the title page's Household panel, Settings > Preferences (favorite genres) and Settings > Query performance. One shared `.skel` style, built from surface tokens; the faint sweep stops under `prefers-reduced-motion`.
+- The household avatar on a title page now picks dark or white initials from the avatar colour, like the other avatars.
+
+### Added
+
+- `tmdb_size` and `poster_srcset` template filters.
+
+## [0.173.0] - 2026-11-01
+
+### Changed
+
+- UI/UX audit pass (see `UI_UX_AUDIT.md`). The palette is a touch darker (page `#0b0d11`, surfaces and hairlines stepped to match) with the amber unchanged, and the faint text colour is lifted to `#8a8fa0` so captions, placeholders and empty states meet WCAG AA contrast.
+- The phone tab bar is now a solid bar docked to the bottom edge instead of a floating frosted-glass capsule, so it no longer covers the last row of content or breaks the no-glassmorphism rule.
+- The title page's main action ("Watching") is now the amber primary instead of cyan, its labels are sentence case, and the hero status chip ("Ended", "Returning") is neutral instead of amber. Labels across the app (title facts, schedule, Wrapped, Year in Review, Settings tables) are sentence case without letter-spacing, as `DESIGN.md` already required.
+- Profile avatar initials pick dark or white ink from the avatar colour, so the letter stays readable on light colours (it was white on gold, 1.8:1).
+- Settings → Connected Apps: "Connect" buttons are the quiet style rather than amber, so the list no longer implies an order. "Not available yet - ask" copy fixed; the empty watchlist line is plain; a falling daily average or month-over-month figure is no longer shown in error red.
+- The page's right edge no longer shifts 15px between long and short pages (the scrollbar lane is always reserved).
+- Small controls (calendar month arrows, History remove buttons, small buttons and segmented controls on touch screens) get a 44px hit area without changing how they look.
+- Headings balance their line breaks; schedule day numbers use tabular figures; one `transition-all` removed.
+
+### Added
+
+- A "Skip to content" link as the first tab stop, and a default meta description.
+- Colour literals in `app.css` (scrims, shadows, white-on-artwork, the soft button fill) now go through tokens.
+
 ## [0.172.2] - 2026-11-01
 
 ### Changed

@@ -241,7 +241,7 @@
                           {% for p in providers|slice:":10" %}
                             <label class="flex items-center gap-1.5 text-xs font-medium bg-base-300 text-ink-dim rounded-full pl-1.5 pr-3 py-1.5 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
                               <input type="checkbox" name="provider" value="{{ p.id }}" class="sr-only" {% if p.id in selected_providers %}checked{% endif %}>
-                              {% if p.logo_url %}<img src="{{ p.logo_url }}" alt="" class="w-4.5 h-4.5 rounded">{% endif %}
+                              {% if p.logo_url %}<img src="{{ p.logo_url|tmdb_size:"w45" }}" alt="" width="18" height="18" loading="lazy" class="w-4.5 h-4.5 rounded">{% endif %}
                               {{ p.name }}
                             </label>
                           {% endfor %}
@@ -251,7 +251,7 @@
                             {% for p in providers|slice:"10:" %}
                               <label class="flex items-center gap-1.5 text-xs font-medium bg-base-300 text-ink-dim rounded-full pl-1.5 pr-3 py-1.5 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
                                 <input type="checkbox" name="provider" value="{{ p.id }}" class="sr-only" {% if p.id in selected_providers %}checked{% endif %}>
-                                {% if p.logo_url %}<img src="{{ p.logo_url }}" alt="" class="w-4.5 h-4.5 rounded">{% endif %}
+                                {% if p.logo_url %}<img src="{{ p.logo_url|tmdb_size:"w45" }}" alt="" width="18" height="18" loading="lazy" class="w-4.5 h-4.5 rounded">{% endif %}
                                 {{ p.name }}
                               </label>
                             {% endfor %}
@@ -423,7 +423,7 @@
             MOVIE/TV label would just repeat what the page's own
             toggle/heading already says.
           {% endcomment %}
-          {% include "tracker/partials/discover_tile.html" with item=item hide_type_badge=True %}
+          {% include "tracker/partials/discover_tile.html" with item=item hide_type_badge=True eager=forloop.counter|in_list:"1,2,3,4,5,6" %}
         {% endif %}
       {% endfor %}
     </div>

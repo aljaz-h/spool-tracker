@@ -1,4 +1,61 @@
 @import "tailwindcss";
+/* Fonts are bundled (static/fonts, woff2) instead of loaded from Google Fonts:
+   no third-party request before first paint, and the app works offline.
+   Public Sans and JetBrains Mono are variable files, so every weight the app
+   uses (400-800 / 400-700) comes from one file each. The latin-ext files
+   (Slovenian, Polish, Czech... letters in titles and names) are declared with
+   their unicode-range, so a page only downloads one when it actually shows
+   such a letter. Paths are relative to /static/dist/app.css; collectstatic
+   rewrites them to hashed, long-cached names. */
+@font-face {
+  font-family: "Bebas Neue";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/bebas-neue-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Bebas Neue";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/bebas-neue-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Public Sans";
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url("../fonts/public-sans-latin-ext-var.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Public Sans";
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url("../fonts/public-sans-latin-var.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("../fonts/jetbrains-mono-latin-ext-var.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("../fonts/jetbrains-mono-latin-var.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 @plugin "daisyui" {
   themes: false; /* only our own theme is bundled, no daisyUI built-ins */
 }
@@ -11,9 +68,9 @@
 
   /* Surfaces - three close tonal steps, separated mostly by tone and
      spacing rather than borders. Page < surface < raised. */
-  --color-base-100: #0e1014; /* page */
-  --color-base-200: #16181d; /* surface: cards that really are cards, inputs, menus */
-  --color-base-300: #1f2229; /* raised: hover, tracks, nested controls */
+  --color-base-100: #0b0d11; /* page */
+  --color-base-200: #13151a; /* surface: cards that really are cards, inputs, menus */
+  --color-base-300: #1b1e25; /* raised: hover, tracks, nested controls */
   --color-base-content: #eceef2;
 
   --color-primary: #e8a63c; /* Spool amber - also the Movies colour */
@@ -22,7 +79,7 @@
   --color-secondary-content: #0c211f;
   --color-accent: #8b85d6; /* muted violet - TV */
   --color-accent-content: #171531;
-  --color-neutral: #1f2229;
+  --color-neutral: #1b1e25;
   --color-neutral-content: #eceef2;
   --color-info: #6fb7ce;
   --color-info-content: #0a1f26;
@@ -50,11 +107,11 @@
   --font-body: "Public Sans", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
 
-  --color-line: #262930;
-  --color-line-strong: #30333c;
+  --color-line: #23262d;
+  --color-line-strong: #2c2f37;
   --color-ink: #eceef2;
   --color-ink-dim: #a6aab8;
-  --color-ink-faint: #737887;
+  --color-ink-faint: #8a8fa0; /* 5.2:1 on base-200, 5.6:1 on base-100 (AA) */
 
   --color-marquee: #e8a63c;
   --color-marquee-dim: #8a641f;
@@ -76,8 +133,14 @@
   --color-tmdb: #01b4e4;
   --color-mdblist: #4284ca;
   --color-tvtime: #ffd400;
-  --color-simkl: #000000;
+  --color-simkl: #111317;
   --color-letterboxd: #202830;
+
+  /* Fixed ink and fills used on top of artwork, plus the rgb triplets the
+     scrims and shadows below are built from, so no colour literal lives
+     outside this block. */
+  --color-on-media: #ffffff;
+  --color-soft: #272a32; /* btn-soft fill */
 
   /* Flatter radius scale than Tailwind's defaults: posters/buttons/inputs
      sit at 8px, cards at 10-12px, nothing rounder than 14px except true
@@ -101,6 +164,17 @@
 }
 
 @layer base {
+  :root {
+    --scrim-rgb: 8 9 12;
+    --shadow-rgb: 0 0 0;
+    --white-rgb: 255 255 255;
+    --primary-rgb: 232 166 60;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
   body {
     font-family: var(--font-body);
     -webkit-font-smoothing: antialiased;
@@ -347,8 +421,8 @@
   }
   /* Overlay variant for chips sitting on artwork */
   .chip-scrim {
-    background: rgba(10, 11, 14, 0.78);
-    color: #eceef2;
+    background: rgb(var(--scrim-rgb) / 0.78);
+    color: var(--color-ink);
   }
 
   /* Media-type dot, used next to a meta line instead of a type badge. */
@@ -364,7 +438,7 @@
   .progress-track {
     height: 3px;
     border-radius: 9999px;
-    background: rgba(255, 255, 255, 0.09);
+    background: rgb(var(--white-rgb) / 0.09);
     overflow: hidden;
   }
   .progress-fill {
@@ -380,7 +454,7 @@
     border-radius: var(--radius-lg);
     overflow: hidden;
     background: var(--color-base-300);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+    box-shadow: inset 0 0 0 1px rgb(var(--white-rgb) / 0.04);
   }
   .poster img,
   .backdrop img {
@@ -398,7 +472,7 @@
   .art-scrim {
     position: absolute;
     inset: 0;
-    background: linear-gradient(to top, rgba(8, 9, 12, 0.92) 0%, rgba(8, 9, 12, 0.55) 38%, rgba(8, 9, 12, 0) 70%);
+    background: linear-gradient(to top, rgb(var(--scrim-rgb) / 0.92) 0%, rgb(var(--scrim-rgb) / 0.55) 38%, rgb(var(--scrim-rgb) / 0) 70%);
     pointer-events: none;
   }
 
@@ -625,7 +699,7 @@
     background: var(--color-base-200);
     border: 1px solid var(--color-line);
     border-radius: var(--radius-xl);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 16px 40px rgb(var(--shadow-rgb) / 0.5);
   }
 }
 
@@ -743,7 +817,7 @@
   }
   .media-card a:hover .media-title,
   .media-card a.media-title:hover {
-    color: #fff;
+    color: var(--color-on-media);
   }
   .media-card .meta {
     margin-top: 0.25rem;
@@ -766,8 +840,8 @@
     gap: 0.25rem;
     padding: 0.25rem;
     border-radius: 0.5rem;
-    background: rgba(12, 13, 17, 0.86);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    background: rgb(var(--scrim-rgb) / 0.86);
+    box-shadow: 0 6px 18px rgb(var(--shadow-rgb) / 0.45);
     opacity: 0;
     pointer-events: none;
   }
@@ -788,16 +862,16 @@
     font-size: 0.625rem;
     font-weight: 700;
     pointer-events: none;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 1px 4px rgb(var(--shadow-rgb) / 0.5);
   }
   .card-state-watched {
     background: var(--color-success);
     color: var(--color-success-content);
   }
   .card-state-progress {
-    background: #0d0f12;
+    background: var(--color-base-100);
     color: var(--color-info);
-    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-info) 55%, transparent), 0 1px 4px rgba(0, 0, 0, 0.5);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-info) 55%, transparent), 0 1px 4px rgb(var(--shadow-rgb) / 0.5);
   }
   .card-corner {
     position: absolute;
@@ -972,7 +1046,7 @@
   color: var(--color-base-content);
 }
 .btn-soft:not(.btn-primary):not(.btn-error):not(.btn-success):not(.btn-warning):not(.btn-info):not(.btn-secondary):not(.btn-accent):hover {
-  background: #272a32;
+  background: var(--color-soft);
 }
 .btn-ghost:hover {
   background: var(--color-base-300);
@@ -1075,7 +1149,7 @@ select:not(:disabled) {
   border-radius: 9999px;
   background: var(--color-primary);
   border: 2px solid var(--color-base-100);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 1px 3px rgb(var(--shadow-rgb) / 0.5);
   cursor: pointer;
   transition: box-shadow 0.15s ease;
 }
@@ -1086,17 +1160,17 @@ select:not(:disabled) {
   border-radius: 9999px;
   background: var(--color-primary);
   border: 2px solid var(--color-base-100);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 1px 3px rgb(var(--shadow-rgb) / 0.5);
   cursor: pointer;
   transition: box-shadow 0.15s ease;
 }
 .dual-range-thumb:active::-webkit-slider-thumb,
 .dual-range-thumb:focus-visible::-webkit-slider-thumb {
-  box-shadow: 0 0 0 6px rgba(232, 166, 60, 0.28);
+  box-shadow: 0 0 0 6px rgb(var(--primary-rgb) / 0.28);
 }
 .dual-range-thumb:active::-moz-range-thumb,
 .dual-range-thumb:focus-visible::-moz-range-thumb {
-  box-shadow: 0 0 0 6px rgba(232, 166, 60, 0.28);
+  box-shadow: 0 0 0 6px rgb(var(--primary-rgb) / 0.28);
 }
 
 /* title_detail's full-bleed hero scrim - two layered gradients rather
@@ -1112,8 +1186,8 @@ select:not(:disabled) {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(90deg, rgba(8, 9, 12, 0.98) 0%, rgba(8, 9, 12, 0.92) 22%, rgba(8, 9, 12, 0.55) 48%, rgba(8, 9, 12, 0.15) 75%, transparent 100%),
-    linear-gradient(0deg, rgba(8, 9, 12, 0.9) 0%, transparent 35%);
+    linear-gradient(90deg, rgb(var(--scrim-rgb) / 0.98) 0%, rgb(var(--scrim-rgb) / 0.92) 22%, rgb(var(--scrim-rgb) / 0.55) 48%, rgb(var(--scrim-rgb) / 0.15) 75%, transparent 100%),
+    linear-gradient(0deg, rgb(var(--scrim-rgb) / 0.9) 0%, transparent 35%);
 }
 /* Dashboard's section dividers - plain thin line (replaced the old
    dotted "filmstrip" divider, which read as too decorative next to the
@@ -1216,7 +1290,7 @@ select:not(:disabled) {
   transition: transform 150ms ease, opacity 150ms ease, box-shadow 150ms ease;
   opacity: 0.55;
   transform: scale(1.04) rotate(-1.5deg);
-  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 16px 32px rgb(var(--shadow-rgb) / 0.45);
   cursor: grabbing;
   z-index: 20;
 }
@@ -1383,7 +1457,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   width: max-content;
   max-width: 220px;
   text-align: center;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 12px rgb(var(--shadow-rgb) / 0.35);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -1515,11 +1589,9 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   }
 }
 .hero-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--color-ink-faint);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-ink-dim);
 }
 /* Title page rail: each section is a quiet panel with its own heading. */
 .title-rail > section {
@@ -1533,56 +1605,99 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   color: var(--color-base-content);
 }
 
-/* Phone tab bar (bottom_nav.html): a floating frosted-glass capsule.
-   Translucent tint + blur/saturate so content shows through softly, a
-   hairline rim and a faint top highlight for the glass edge, a soft drop
-   shadow to lift it off the page. Without backdrop-filter support it
-   falls back to a near-solid fill so labels stay readable. */
-.glass-bar {
-  background: rgba(16, 18, 23, 0.94);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 12px 32px rgba(0, 0, 0, 0.5),
-    0 2px 8px rgba(0, 0, 0, 0.35);
+/* Loading skeletons: the placeholder for a block that arrives after first
+   paint (partials/skeleton_*.html). Same grid and sizes as the real content,
+   so nothing moves when it lands. One flat fill from the surface tokens; a
+   slow, faint sweep runs only when the visitor hasn't asked for reduced
+   motion. A skeleton stands in for content that is on its way - an empty
+   state ("nothing here") stays a one-line message. */
+@layer components {
+  .skel {
+    position: relative;
+    overflow: hidden;
+    background: color-mix(in oklab, var(--color-base-content) 7%, var(--color-base-200));
+    border-radius: var(--radius-md);
+  }
+  .skel-line {
+    height: 0.75rem;
+    border-radius: 0.25rem;
+  }
+  .skel-round {
+    border-radius: 9999px;
+  }
+  .skel-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+  }
+  .skel-chips > .skel {
+    height: 1.875rem;
+    width: 5rem;
+    border-radius: 9999px;
+  }
+  .skel-chips > .skel:nth-child(3n + 1) { width: 4rem; }
+  .skel-chips > .skel:nth-child(4n + 2) { width: 6.25rem; }
+  .skel-chips > .skel:nth-child(5n + 3) { width: 5.5rem; }
 }
-@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  .glass-bar {
-    background: rgba(24, 26, 32, 0.58);
-    -webkit-backdrop-filter: blur(22px) saturate(170%);
-    backdrop-filter: blur(22px) saturate(170%);
+@media (prefers-reduced-motion: no-preference) {
+  .skel::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklab, var(--color-base-content) 6%, transparent),
+      transparent
+    );
+    animation: skel-sweep 2.4s ease-in-out infinite;
   }
 }
-.glass-tab {
+@keyframes skel-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* Phone tab bar (bottom_nav.html): a solid bar docked to the bottom edge -
+   a surface with a hairline on top, like the top bar, so content never
+   shows through it and nothing floats over the last row of a page. */
+.dock-bar {
+  background: var(--color-base-200);
+  border-top: 1px solid var(--color-line);
+}
+.dock-tab {
   flex: 1;
+  max-width: 7rem;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 0.2rem;
   height: 3.25rem;
-  border-radius: 22px;
-  font-size: 0.6875rem;
+  border-radius: 10px;
+  font-size: 0.75rem;
   font-weight: 600;
   color: var(--color-ink-dim);
 }
-.glass-tab:active {
-  background: rgba(255, 255, 255, 0.06);
+.dock-tab:active {
+  background: var(--color-base-300);
 }
-.glass-tab.is-active,
-.glass-tab[aria-current="page"] {
-  background: rgba(255, 255, 255, 0.1);
+.dock-tab.is-active,
+.dock-tab[aria-current="page"] {
+  background: var(--color-base-300);
   color: var(--color-base-content);
 }
-.glass-tab.is-active svg,
-.glass-tab[aria-current="page"] svg {
+.dock-tab.is-active svg,
+.dock-tab[aria-current="page"] svg {
   color: var(--color-primary);
 }
-.glass-tab:focus-visible {
+.dock-tab:focus-visible {
   outline-offset: -2px;
 }
 @media (prefers-reduced-motion: no-preference) {
-  body[data-animations="on"] .glass-tab {
+  body[data-animations="on"] .dock-tab {
     transition: background-color 180ms ease, color 180ms ease;
   }
 }
@@ -1811,8 +1926,6 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .sch-eyebrow {
     font-size: 0.6875rem;
     font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
     color: var(--color-ink-faint);
   }
   .sch-heading {
@@ -1872,13 +1985,12 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .sch-day-name {
     font-size: 0.625rem;
     font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
     color: var(--color-ink-faint);
   }
   .sch-day-num {
     font-family: var(--font-brand);
     font-size: 1.5rem;
+    font-variant-numeric: tabular-nums;
     line-height: 1.1;
   }
   .sch-day-month {
@@ -1951,7 +2063,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     border-radius: 8px;
     border-left: 3px solid var(--sch-c);
     background: var(--color-base-300);
-    box-shadow: 0 1px 0 rgb(0 0 0 / 0.25);
+    box-shadow: 0 1px 0 rgb(var(--shadow-rgb) / 0.25);
     overflow: hidden;
     font-size: 0.75rem;
     line-height: 1.25;
@@ -1980,11 +2092,8 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .sch-tag {
     float: right;
     margin-left: 0.25rem;
-    font-family: var(--font-mono);
-    font-size: 0.5625rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-size: 0.6875rem;
+    font-weight: 600;
   }
   .sch-slot-title {
     display: block;
@@ -1995,7 +2104,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     white-space: nowrap;
   }
   .sch-slot-title:hover {
-    color: #fff;
+    color: var(--color-on-media);
   }
   .sch-slot-meta {
     font-family: var(--font-mono);
@@ -2198,7 +2307,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     font-size: 0.8125rem;
     font-weight: 600;
     background: var(--color-base-300);
-    box-shadow: 0 6px 24px rgb(0 0 0 / 0.45);
+    box-shadow: 0 6px 24px rgb(var(--shadow-rgb) / 0.45);
   }
   .sch-mode-face {
     display: flex;
@@ -2264,18 +2373,16 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     font-size: 1.2rem;
     font-weight: 700;
     letter-spacing: -0.01em;
-    color: #fff;
+    color: var(--color-on-media);
   }
   .sprog-label {
     font-size: 0.8125rem;
     font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: #fff;
+    color: var(--color-on-media);
   }
   .sprog-sub {
     font-size: 0.78rem;
-    color: color-mix(in oklab, #fff 82%, transparent);
+    color: color-mix(in oklab, var(--color-on-media) 82%, transparent);
     white-space: nowrap;
   }
 }
@@ -2303,7 +2410,8 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 
 /* Title page action tiles (partials/title_*_button.html, title_rating_tile.html):
    four equal tiles under the poster - icon above label. The status tile is
-   neutral until tracked, amber while watching, green once watched; the list
+   neutral until tracked, the one amber primary while watching, green once
+   watched; the list
    tile turns amber when the title is on a list; the rating tile gets an
    outline while its popup is open. */
 @layer components {
@@ -2323,10 +2431,8 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     border-radius: 12px;
     background: var(--color-base-300);
     color: var(--color-ink-dim);
-    font-size: 0.625rem;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
+    font-size: 0.75rem;
+    font-weight: 600;
     line-height: 1.1;
     text-align: center;
     cursor: pointer;
@@ -2348,12 +2454,12 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .atile-green:hover {
     color: var(--color-success-content);
   }
-  .atile-blue {
-    background: var(--color-info);
-    color: var(--color-info-content);
+  .atile-primary {
+    background: var(--color-primary);
+    color: var(--color-primary-content);
   }
-  .atile-blue:hover {
-    color: var(--color-info-content);
+  .atile-primary:hover {
+    color: var(--color-primary-content);
   }
 
   /* Season cards (partials/season_cards.html): the left button doubles as
@@ -2620,7 +2726,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     border-radius: 1rem;
     overflow: hidden;
     border: 1px solid var(--color-line);
-    box-shadow: 0 24px 60px rgb(0 0 0 / 0.5);
+    box-shadow: 0 24px 60px rgb(var(--shadow-rgb) / 0.5);
     background: var(--color-base-200);
   }
   .wrapped-card-frame {
@@ -2668,8 +2774,6 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .wp-options-title {
     font-size: 0.6875rem;
     font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
     color: var(--color-ink-faint);
     margin-bottom: 0.5rem;
   }
@@ -2959,8 +3063,6 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   }
   .yr-year-small {
     font-size: 0.8125rem;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
     margin-bottom: 0.5rem;
   }
   .yr-headline {
@@ -2979,8 +3081,6 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   }
   .yr-directed-label {
     font-size: 0.75rem;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
     color: var(--color-ink-dim);
   }
   .yr-directed-who {
@@ -3036,8 +3136,6 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   }
   .yr-tile dt {
     font-size: 0.6875rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
     color: var(--color-ink-dim);
   }
   .yr-tile dd {
@@ -3080,8 +3178,8 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     aspect-ratio: 2 / 3;
     object-fit: cover;
     border-radius: 0.75rem;
-    box-shadow: 0 14px 34px rgb(0 0 0 / 0.55);
-    border: 1px solid rgb(255 255 255 / 0.08);
+    box-shadow: 0 14px 34px rgb(var(--shadow-rgb) / 0.55);
+    border: 1px solid rgb(var(--white-rgb) / 0.08);
     transform: translateY(calc(var(--d) * 1.2rem)) rotate(calc((var(--i) - 2) * 7deg));
   }
   .yr-fan img:nth-child(1), .yr-fan img:nth-child(5) { --d: 2; }
@@ -3114,7 +3212,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .yr-moment-shade {
     position: absolute;
     inset: 0;
-    background: linear-gradient(90deg, rgb(8 9 12 / 0.92) 0%, rgb(8 9 12 / 0.6) 55%, rgb(8 9 12 / 0.35) 100%);
+    background: linear-gradient(90deg, rgb(var(--scrim-rgb) / 0.92) 0%, rgb(var(--scrim-rgb) / 0.6) 55%, rgb(var(--scrim-rgb) / 0.35) 100%);
   }
   .yr-moment-body {
     position: relative;
@@ -3128,8 +3226,8 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     width: 3.75rem;
     height: 3.75rem;
     border-radius: 999px;
-    background: color-mix(in oklab, #fff 14%, transparent);
-    border: 1px solid rgb(255 255 255 / 0.3);
+    background: color-mix(in oklab, var(--color-on-media) 14%, transparent);
+    border: 1px solid rgb(var(--white-rgb) / 0.3);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3138,7 +3236,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .yr-moment-play::before {
     content: "";
     margin-left: 0.25rem;
-    border-left: 1.1rem solid #fff;
+    border-left: 1.1rem solid var(--color-on-media);
     border-top: 0.7rem solid transparent;
     border-bottom: 0.7rem solid transparent;
   }
@@ -3151,7 +3249,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     font-weight: 800;
     line-height: 1.1;
     letter-spacing: -0.01em;
-    color: #fff;
+    color: var(--color-on-media);
   }
   .yr-moment-facts {
     display: flex;
@@ -3159,14 +3257,12 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   }
   .yr-moment-facts dt {
     font-size: 0.6875rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: rgb(255 255 255 / 0.65);
+    color: rgb(var(--white-rgb) / 0.65);
   }
   .yr-moment-facts dd {
     font-weight: 800;
     font-size: 1.125rem;
-    color: #fff;
+    color: var(--color-on-media);
   }
 
   /* big stat tiles beside the weekly chart */
@@ -3177,8 +3273,6 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   }
   .yr-bigtile dt {
     font-size: 0.6875rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
     color: var(--color-ink-faint);
   }
   .yr-bigtile dd {
@@ -3253,8 +3347,6 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .yr-facts dt {
     font-size: 0.6875rem;
     color: var(--color-ink-faint);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
   }
   .yr-facts dd {
     font-weight: 700;
@@ -3279,7 +3371,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     justify-content: space-between;
     font-size: 0.8125rem;
     font-weight: 800;
-    color: #0e1014;
+    color: var(--color-base-100);
     overflow: hidden;
   }
   .yr-genre span {
@@ -3344,7 +3436,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     font-size: 2.5rem;
     font-weight: 800;
     color: var(--color-ink-faint);
-    box-shadow: 0 10px 26px rgb(0 0 0 / 0.4);
+    box-shadow: 0 10px 26px rgb(var(--shadow-rgb) / 0.4);
   }
   .yr-pcard-art img {
     position: absolute;
@@ -3360,8 +3452,8 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     font-family: var(--font-brand);
     font-size: 4.5rem;
     line-height: 1;
-    color: #fff;
-    text-shadow: 0 2px 14px rgb(0 0 0 / 0.75);
+    color: var(--color-on-media);
+    text-shadow: 0 2px 14px rgb(var(--shadow-rgb) / 0.75);
   }
   .yr-pcard-name {
     margin-top: 0.6rem;
@@ -3534,7 +3626,6 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .yr-trend-month {
     font-size: 0.6875rem;
     font-weight: 700;
-    letter-spacing: 0.08em;
     color: var(--color-ink-faint);
     margin-bottom: 0.35rem;
   }
@@ -3610,8 +3701,6 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .yr-person-title {
     font-size: 0.75rem;
     font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
     color: var(--color-ink-dim);
   }
   .yr-featured {
@@ -3690,7 +3779,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     aspect-ratio: 2 / 3;
     object-fit: cover;
     border-radius: 0.6rem;
-    box-shadow: 0 10px 26px rgb(0 0 0 / 0.45);
+    box-shadow: 0 10px 26px rgb(var(--shadow-rgb) / 0.45);
   }
   .yr-thanks-text p {
     margin-top: 0.9rem;
@@ -4073,10 +4162,10 @@ dialog.trailer-modal {
   background: var(--color-base-200);
   border: 1px solid var(--color-line);
   border-radius: 1rem;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 30px 80px rgb(var(--shadow-rgb) / 0.6);
 }
 dialog.trailer-modal::backdrop {
-  background: rgba(8, 9, 12, 0.72);
+  background: rgb(var(--scrim-rgb) / 0.72);
   backdrop-filter: blur(6px);
 }
 .trailer-sheet {
@@ -4112,4 +4201,49 @@ dialog.trailer-modal:focus {
     border-width: 1px 0 0;
     border-radius: 1.25rem 1.25rem 0 0;
   }
+}
+
+/* Touch screens: controls keep their size but get a 44px hit area. Text
+   buttons grow in height; small icon buttons (.hit-44) grow an invisible
+   area around themselves. */
+@media (pointer: coarse) {
+  .btn-sm,
+  .seg-item,
+  .tab-line,
+  .section-link {
+    min-height: 2.75rem;
+  }
+  /* needs a positioned element (relative/absolute) */
+  .hit-44::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 2.75rem);
+    height: max(100%, 2.75rem);
+    transform: translate(-50%, -50%);
+  }
+}
+
+/* Skip link: first tab stop on every page, visible only while focused. */
+.skip-link {
+  position: absolute;
+  left: 0.75rem;
+  top: -4rem;
+  z-index: 100;
+  padding: 0.625rem 1rem;
+  border-radius: var(--radius-lg);
+  background: var(--color-primary);
+  color: var(--color-primary-content);
+  font-weight: 600;
+}
+.skip-link:focus {
+  top: 0.75rem;
+}
+
+/* Reserve the scrollbar lane on every page, so the top bar and the right
+   edge stay put between long and short pages. Unlayered, because daisyUI's
+   own :root rule would otherwise win and only reserve it on scrolling pages. */
+html[data-theme] {
+  scrollbar-gutter: stable;
 }

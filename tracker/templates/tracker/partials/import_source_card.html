@@ -55,7 +55,7 @@
             {% endif %}
           </div>
           {% if not configured and provider not in connected_providers %}
-            <div class="text-[12px] text-ink-faint mt-2">Not available yet &mdash; ask your server owner to set up {{ title }} first.</div>
+            <div class="text-[12px] text-ink-faint mt-2">Not available yet. Ask your server owner to set up {{ title }} first.</div>
           {% endif %}
         {% elif always_available %}
           <form method="post" action="{% url upload_url_name %}" enctype="multipart/form-data" class="flex flex-wrap items-center gap-2 mt-3" x-data="{ fileName: null }">

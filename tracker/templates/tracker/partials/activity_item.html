@@ -20,7 +20,7 @@
       {% if item.profile.avatar_image %}
         <div class="w-9 h-9 rounded-full bg-cover bg-center" style="background-image:url('{{ item.profile.avatar_image.url }}')"></div>
       {% else %}
-        <div class="w-9 h-9 rounded-full flex items-center justify-center text-[13px] font-semibold" style="background:{{ item.profile.avatar_color }};color:#fff;">{{ item.profile.display_name|first|upper }}</div>
+        <div class="w-9 h-9 rounded-full flex items-center justify-center text-[13px] font-semibold" style="background:{{ item.profile.avatar_color }};color:{{ item.profile.avatar_color|on_color }};">{{ item.profile.display_name|first|upper }}</div>
       {% endif %}
     </button>
     <span class="text-[12px] text-ink-faint mt-1.5 whitespace-nowrap tabular-nums">{{ item.timestamp|time:time_format_str }}</span>

@@ -8,7 +8,7 @@
   <div class="grid grid-cols-2 gap-4">
     <div>
       <div class="figure">{{ monthly_stats.hours }}<span class="text-sm font-medium text-ink-dim ml-1">hrs</span></div>
-      <div class="figure-label">Hours watched{% if monthly_stats.pct_change_vs_last_month is not None %} · <span class="{% if monthly_stats.pct_change_vs_last_month >= 0 %}text-success{% else %}text-error{% endif %}">{% if monthly_stats.pct_change_vs_last_month >= 0 %}&#8593;{% else %}&#8595;{% endif %} {{ monthly_stats.pct_change_vs_last_month|cut:"-" }}% vs last mo</span>{% endif %}</div>
+      <div class="figure-label">Hours watched{% if monthly_stats.pct_change_vs_last_month is not None %} · <span class="{% if monthly_stats.pct_change_vs_last_month >= 0 %}text-success{% else %}text-ink-dim{% endif %}">{% if monthly_stats.pct_change_vs_last_month >= 0 %}&#8593;{% else %}&#8595;{% endif %} {{ monthly_stats.pct_change_vs_last_month|cut:"-" }}% vs last mo</span>{% endif %}</div>
     </div>
     <div>
       <div class="figure">{{ monthly_stats.episodes_logged }}<span class="text-sm font-medium text-ink-dim ml-1">eps</span></div>

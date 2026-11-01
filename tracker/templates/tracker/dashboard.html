@@ -41,7 +41,7 @@
       </div>
       <div class="landscape-row landscape-row-scroll">
         {% for item in continue_watching %}
-          {% include "tracker/partials/poster_card.html" with title=item.title progress=item width_class="min-w-0" %}
+          {% include "tracker/partials/poster_card.html" with title=item.title progress=item width_class="min-w-0" eager=forloop.counter|in_list:"1,2,3" %}
         {% endfor %}
       </div>
     </section>
@@ -67,7 +67,7 @@
           </div>
           <div class="landscape-row">
             {% for event in recently_watched %}
-              {% include "tracker/partials/watch_event_card.html" with event=event %}
+              {% include "tracker/partials/watch_event_card.html" with event=event eager=forloop.counter|in_list:"1,2,3" %}
             {% endfor %}
           </div>
         </section>
@@ -90,7 +90,7 @@
             {% endfor %}
           </div>
         {% else %}
-          <p class="text-sm text-ink-dim">Watchlist's empty — future you will thank present you for adding something.</p>
+          <p class="text-sm text-ink-dim">Your watchlist is empty. Add something to see it here.</p>
         {% endif %}
       </section>
 
@@ -144,7 +144,7 @@
             <a href="{% url 'calendar' %}?tab=schedule" class="section-link">Plan &rarr;</a>
           </div>
           <div class="surface p-5" hx-get="{% url 'schedule_tonight' %}" hx-trigger="load" hx-swap="innerHTML">
-            <div class="text-[13px] text-ink-faint" role="status">Loading&hellip;</div>
+            {% include "tracker/partials/skeleton_tonight.html" %}
           </div>
         </section>
       {% endif %}

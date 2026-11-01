@@ -24,16 +24,16 @@
   sliver of browsers that honor an explicit background sooner than they
   honor color-scheme. Both have to be inline/this early - anything in
   app.css itself is already too late, since the whole point is covering
-  the time before that file has loaded. #0e1014 matches --color-base-100
+  the time before that file has loaded. #0b0d11 matches --color-base-100
   in app.css - keep them in sync.
 {% endcomment %}
-<style>html { background: #0e1014; }</style>
+<style>html { background: #0b0d11; }</style>
 <link rel="icon" type="image/x-icon" href="{% static 'img/favicon.ico' %}">
 <link rel="icon" type="image/png" sizes="32x32" href="{% static 'img/favicon-32.png' %}">
 <link rel="icon" type="image/png" sizes="16x16" href="{% static 'img/favicon-16.png' %}">
 <link rel="apple-touch-icon" href="{% static 'img/apple-touch-icon.png' %}">
 <link rel="manifest" href="{% static 'img/manifest.webmanifest' %}">
-<meta name="theme-color" content="#0e1014">
+<meta name="theme-color" content="#0b0d11">
 {% comment %}
   iOS Safari doesn't act on the web manifest for "Add to Home Screen" -
   these are its own separate, older meta-tag convention for the same

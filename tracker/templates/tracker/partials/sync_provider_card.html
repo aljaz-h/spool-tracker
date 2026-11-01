@@ -17,7 +17,7 @@
     {% if provider in connected_providers %}
       <span class="chip chip-success flex-none"><span class="w-1.5 h-1.5 rounded-full bg-success" aria-hidden="true"></span>Connected</span>
     {% elif configured %}
-      <a href="{{ connect_url }}" class="s-btn s-btn-primary flex-none">Connect</a>
+      <a href="{{ connect_url }}" class="s-btn flex-none">Connect</a>
     {% else %}
       <button type="button" disabled data-tooltip="Ask your server owner to set this up first" class="s-btn spool-tooltip flex-none opacity-50 cursor-not-allowed">Connect</button>
     {% endif %}

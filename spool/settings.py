@@ -203,6 +203,7 @@ STATICFILES_DIRS = [
     ("vendor", BASE_DIR / "static" / "vendor"),
     ("img", BASE_DIR / "static" / "img"),
     ("js", BASE_DIR / "static" / "js"),
+    ("fonts", BASE_DIR / "static" / "fonts"),
 ]
 STORAGES = {
     # Explicit because setting STORAGES at all replaces Django's whole

@@ -34,7 +34,7 @@ opacity until hovered/focused (discover-tile-dim, see app.css).
   <div class="media-card-art">
     <a href="{{ preview_url }}" class="poster block" tabindex="-1" aria-hidden="true">
       {% if item.poster_url %}
-        <img src="{{ item.poster_url|poster_size:"w342" }}" alt="" loading="lazy" class="discover-tile-zoom absolute inset-0">
+        <img src="{{ item.poster_url|poster_size:"w342" }}" srcset="{{ item.poster_url|poster_srcset }}" alt="" {% if eager %}fetchpriority="high"{% else %}loading="lazy"{% endif %} class="discover-tile-zoom absolute inset-0">
       {% else %}
         <div class="art-fill discover-tile-zoom absolute inset-0 {{ item.tmdb_id|gradient_class }}"></div>
       {% endif %}

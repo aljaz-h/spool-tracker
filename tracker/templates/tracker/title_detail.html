@@ -55,10 +55,10 @@
   <section class="title-hero bleed relative -mt-6 sm:-mt-8 lg:-mt-10" aria-label="{{ display_name }}">
     <div class="absolute inset-x-0 top-0 h-[260px] sm:h-[360px] lg:h-full overflow-hidden {% if not display_backdrop_url %}{{ poster_seed|gradient_class }} opacity-40{% endif %}" aria-hidden="true">
       {% if display_backdrop_url %}
-        <img src="{{ display_backdrop_url }}" alt="" class="absolute inset-y-0 right-0 h-full w-full lg:w-[78%] object-cover object-[center_20%] opacity-75">
+        <img src="{{ display_backdrop_url }}" alt="" fetchpriority="high" class="absolute inset-y-0 right-0 h-full w-full lg:w-[78%] object-cover object-[center_20%] opacity-75">
       {% endif %}
-      <div class="absolute inset-0 bg-[linear-gradient(90deg,#0e1014_0%,#0e1014_22%,rgba(14,16,20,0.86)_38%,rgba(14,16,20,0.35)_62%,rgba(14,16,20,0.1)_100%)] max-lg:bg-none"></div>
-      <div class="absolute inset-0 bg-[linear-gradient(0deg,#0e1014_0%,rgba(14,16,20,0.7)_20%,rgba(14,16,20,0)_55%,rgba(14,16,20,0.45)_100%)]"></div>
+      <div class="absolute inset-0 bg-[linear-gradient(90deg,#0b0d11_0%,#0b0d11_22%,rgba(11,13,17,0.86)_38%,rgba(11,13,17,0.35)_62%,rgba(11,13,17,0.1)_100%)] max-lg:bg-none"></div>
+      <div class="absolute inset-0 bg-[linear-gradient(0deg,#0b0d11_0%,rgba(11,13,17,0.7)_20%,rgba(11,13,17,0)_55%,rgba(11,13,17,0.45)_100%)]"></div>
     </div>
 
     <div class="page relative pt-[150px] sm:pt-[220px] lg:pt-10 pb-8 lg:pb-12">
@@ -67,7 +67,7 @@
         <div class="lg:row-span-2 max-lg:contents">
           <div class="poster max-lg:order-1 rounded-xl shadow-[0_24px_60px_rgba(0,0,0,0.6)] {% if not display_poster_url %}{{ poster_seed|gradient_class }}{% endif %}">
             {% if display_poster_url %}
-              <img src="{{ display_poster_url|poster_size:"w500" }}" alt="{{ display_name }} poster" class="absolute inset-0">
+              <img src="{{ display_poster_url|poster_size:"w500" }}" alt="{{ display_name }} poster" fetchpriority="high" class="absolute inset-0">
             {% endif %}
           </div>
           <div class="max-lg:order-3 max-lg:col-span-2 lg:mt-3">
@@ -219,7 +219,7 @@
                       </button>
                       {% if season_cards|length > 1 %}
                         <div class="border-t border-line mt-1 pt-1.5">
-                          <div class="px-2 pb-1 text-[12px] font-semibold text-ink-faint uppercase tracking-wide">By season</div>
+                          <div class="px-2 pb-1 text-[12px] font-semibold text-ink-faint">By season</div>
                           <div class="max-h-52 overflow-y-auto flex flex-col gap-0.5 pr-0.5">
                             {% for card in season_cards %}
                               <button type="button"
@@ -318,7 +318,7 @@
             {% if mal_studios %}<span class="hero-fact"><span class="hero-label">Studio</span> {{ mal_studios|join:", " }}</span>{% endif %}
             {% if mal_source %}<span class="hero-fact"><span class="hero-label">Source</span> {{ mal_source }}</span>{% endif %}
             {% if details.original_language and not details.original_language_display %}<span class="hero-fact"><span class="hero-label">Language</span> <span class="uppercase">{{ details.original_language }}</span></span>{% endif %}
-            {% if status_badge %}<span class="hero-fact"><span class="hero-label">Status</span> <span class="chip {{ status_badge.color|chip_color_class }}">{{ status_badge.label }}</span></span>{% endif %}
+            {% if status_badge %}<span class="hero-fact"><span class="hero-label">Status</span> <span class="chip">{{ status_badge.label }}</span></span>{% endif %}
           </div>
 
           {% if details.genres %}
@@ -683,7 +683,7 @@
                 {# Not tracked yet, so nobody has anything to show - just who to recommend it to. #}
                 {% include "tracker/partials/recommend_card.html" %}
               {% else %}
-                <div class="text-[13px] text-ink-dim" role="status">Loading household&hellip;</div>
+                {% include "tracker/partials/skeleton_household.html" %}
               {% endif %}
             </section>
           {% endif %}
@@ -701,7 +701,7 @@
             {% for p in watch_providers %}
               <div class="flex items-center gap-2.5">
                 {% if p.logo_url %}
-                  <div class="w-7 h-7 rounded-md bg-cover bg-center flex-none" style="background-image:url('{{ p.logo_url }}')"></div>
+                  <div class="w-7 h-7 rounded-md bg-cover bg-center flex-none" style="background-image:url('{{ p.logo_url|tmdb_size:'w92' }}')"></div>
                 {% else %}
                   <div class="w-7 h-7 rounded-md bg-base-300 flex-none"></div>
                 {% endif %}

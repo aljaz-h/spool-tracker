@@ -1,3 +1,4 @@
+{% load tracker_extras %}
 {# context: profile, discover_genres, discover_providers - see views.discover_preference_options #}
 <div id="discover-preference-options" x-data="{ showAllProviders: false }">
   <div class="text-ink-dim text-xs mt-4 mb-2">Favorite genres</div>
@@ -27,7 +28,7 @@
     {% for p in discover_providers|slice:":10" %}
       <label class="flex items-center gap-1.5 text-xs font-medium bg-base-300 text-ink-dim rounded-full pl-1.5 pr-3 py-1 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
         <input type="checkbox" name="preferred_provider_ids" value="{{ p.id }}" class="sr-only" {% if p.id in profile.preferred_provider_ids %}checked{% endif %}>
-        {% if p.logo_url %}<img src="{{ p.logo_url }}" alt="" class="w-5 h-5 rounded">{% endif %}
+        {% if p.logo_url %}<img src="{{ p.logo_url|tmdb_size:"w45" }}" alt="" width="20" height="20" loading="lazy" class="w-5 h-5 rounded">{% endif %}
         {{ p.name }}
       </label>
     {% endfor %}
@@ -35,7 +36,7 @@
       {% for p in discover_providers|slice:"10:" %}
         <label x-show="showAllProviders" x-cloak class="flex items-center gap-1.5 text-xs font-medium bg-base-300 text-ink-dim rounded-full pl-1.5 pr-3 py-1 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
           <input type="checkbox" name="preferred_provider_ids" value="{{ p.id }}" class="sr-only" {% if p.id in profile.preferred_provider_ids %}checked{% endif %}>
-          {% if p.logo_url %}<img src="{{ p.logo_url }}" alt="" class="w-5 h-5 rounded">{% endif %}
+          {% if p.logo_url %}<img src="{{ p.logo_url|tmdb_size:"w45" }}" alt="" width="20" height="20" loading="lazy" class="w-5 h-5 rounded">{% endif %}
           {{ p.name }}
         </label>
       {% endfor %}

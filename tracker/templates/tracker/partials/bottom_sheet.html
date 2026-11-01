@@ -1,3 +1,4 @@
+{% load tracker_extras %}
 {% load icons %}
 {# context: none explicit - reads show_activity_nav and other_profiles from context_processors.py (already available everywhere - other_profiles is the same list topbar.html's own Friends dropdown reads). Mobile-only "More" bottom sheet, opened by bottom_nav.html's More button (bottomSheetOpen, on base.html's root x-data). Transition timing/easing directly mirrors sidebar.html's own drawer (ease-out 200ms in / ease-in 150ms out), just sliding up (Y axis) instead of in from the left (X axis). Focus-trapped via @alpinejs/focus's x-trap (vendored static/vendor/alpine-focus.js) since nothing else in this codebase hand-rolls focus trapping. #}
 <div
@@ -66,7 +67,7 @@
     {% url 'my_profile' as profile_url %}
     <a href="{{ profile_url }}" @click="bottomSheetOpen = false" class="flex items-center gap-3 min-w-0 group">
       {% if active_profile %}
-        <span class="w-11 h-11 rounded-full flex-none flex items-center justify-center text-base font-bold border-2 {% if active_profile.avatar_image %}bg-cover bg-center{% endif %}" style="border-color:{{ active_profile.avatar_color }};{% if active_profile.avatar_image %}background-image:url('{{ active_profile.avatar_image.url }}'){% else %}background:{{ active_profile.avatar_color }};color:#fff;{% endif %}">{% if not active_profile.avatar_image %}{{ active_profile.display_name|first|upper }}{% endif %}</span>
+        <span class="w-11 h-11 rounded-full flex-none flex items-center justify-center text-base font-bold border-2 {% if active_profile.avatar_image %}bg-cover bg-center{% endif %}" style="border-color:{{ active_profile.avatar_color }};{% if active_profile.avatar_image %}background-image:url('{{ active_profile.avatar_image.url }}'){% else %}background:{{ active_profile.avatar_color }};color:{{ active_profile.avatar_color|on_color }};{% endif %}">{% if not active_profile.avatar_image %}{{ active_profile.display_name|first|upper }}{% endif %}</span>
       {% endif %}
       <span class="min-w-0">
         <h2 class="text-base font-semibold truncate">{% if active_profile %}{{ active_profile.display_name }}{% else %}You{% endif %}</h2>
@@ -158,7 +159,7 @@
             >
               <div
                 class="w-8 h-8 rounded-full flex-none flex items-center justify-center font-mono text-xs font-semibold {% if p.avatar_image %}bg-cover bg-center{% endif %}"
-                style="{% if p.avatar_image %}background-image:url('{{ p.avatar_image.url }}'){% else %}background:{{ p.avatar_color }};color:#fff;{% endif %}"
+                style="{% if p.avatar_image %}background-image:url('{{ p.avatar_image.url }}'){% else %}background:{{ p.avatar_color }};color:{{ p.avatar_color|on_color }};{% endif %}"
               >{% if not p.avatar_image %}{{ p.display_name|first|upper }}{% endif %}</div>
               <div class="min-w-0 flex-1">
                 <div class="text-sm font-medium truncate">{{ p.display_name }}</div>

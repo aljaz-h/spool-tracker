@@ -8,12 +8,12 @@
 <div class="media-card hist-card group relative" id="hist-item-{{ event.id }}">
   <label
     x-show="selecting" x-cloak
-    class="absolute top-2 right-2 z-20 w-6 h-6 rounded-md bg-black/75 flex items-center justify-center cursor-pointer"
+    class="hit-44 absolute top-2 right-2 z-20 w-6 h-6 rounded-md bg-black/75 flex items-center justify-center cursor-pointer"
   ><input type="checkbox" name="event_ids" value="{{ event.id }}" @change="recount()" class="checkbox checkbox-xs checkbox-primary" aria-label="Select {{ event.title.name }}"></label>
   <a href="{{ detail_url }}" class="block" @click="if (selecting) $event.preventDefault()">
     <div class="poster {% if not event.title.poster_url %}{{ event.title.pk|gradient_class }}{% endif %}">
       {% if event.title.poster_url %}
-        <img src="{{ event.title.poster_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 group-hover:brightness-110">
+        <img src="{{ event.title.poster_url|poster_size:"w342" }}" srcset="{{ event.title.poster_url|poster_srcset }}" alt="" loading="lazy" class="absolute inset-0 group-hover:brightness-110">
       {% endif %}
       {% if event.episode %}
         <span class="absolute top-2 left-2 z-10 chip chip-scrim font-mono">S{{ event.episode.season }}:E{{ event.episode.episode }}</span>
@@ -38,6 +38,6 @@
     hx-swap="outerHTML swap:150ms"
     title="Remove from history"
     aria-label="Remove from history"
-    class="absolute top-2 right-2 z-20 w-6 h-6 rounded-full bg-black/70 text-white/80 text-sm leading-none flex items-center justify-center hover:bg-error hover:text-white"
+    class="hit-44 absolute top-2 right-2 z-20 w-6 h-6 rounded-full bg-black/70 text-white/80 text-sm leading-none flex items-center justify-center hover:bg-error hover:text-white"
   >&times;</button>
 </div>

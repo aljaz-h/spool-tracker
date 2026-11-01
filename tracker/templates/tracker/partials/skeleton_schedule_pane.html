@@ -1,0 +1,25 @@
+{# Placeholder for Calendar > My schedule while partials/schedule_pane.html loads: the same two-column layout (the week on the left, a 20rem rail on the right). The day columns follow the pane's own default of 1 / 3 / 7 days by width. #}
+<div role="status" aria-busy="true" class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] items-stretch">
+  <span class="sr-only">Loading your schedule</span>
+  <div class="surface p-4 sm:p-5 min-w-0">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div class="skel w-44 h-[1.65rem]"></div>
+      <div class="flex gap-2"><div class="skel w-32 h-8 rounded-lg"></div><div class="skel w-28 h-8 rounded-lg"></div></div>
+    </div>
+    <div class="grid gap-3 mt-5 grid-cols-1 sm:grid-cols-3 lg:grid-cols-7">
+      {% for _ in "abcdefg" %}
+        <div class="{% if forloop.counter > 3 %}hidden lg:block{% elif forloop.counter > 1 %}hidden sm:block{% endif %}">
+          <div class="skel skel-line w-12 !h-[11px]"></div>
+          <div class="skel mt-1.5 w-8 h-6"></div>
+          <div class="skel mt-3 w-full h-16 rounded-lg"></div>
+          <div class="skel mt-2 w-full h-12 rounded-lg"></div>
+        </div>
+      {% endfor %}
+    </div>
+    <div class="min-h-[10rem]"></div>
+  </div>
+  <div class="flex flex-col gap-6">
+    <div class="surface p-5"><div class="skel skel-line w-24 !h-[11px]"></div><div class="skel mt-3 w-36 h-[2.4rem]"></div><div class="skel mt-3 w-full h-14 rounded-lg"></div></div>
+    <div class="surface p-5"><div class="skel skel-line w-20 !h-[11px]"></div><div class="skel mt-3 w-full h-24 rounded-lg"></div></div>
+  </div>
+</div>

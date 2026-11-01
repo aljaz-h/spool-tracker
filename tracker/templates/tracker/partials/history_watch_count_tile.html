@@ -3,7 +3,7 @@
 <a href="{% url 'title_detail' title.pk %}" class="media-card block group">
   <div class="poster {% if not title.poster_url %}{{ title.pk|gradient_class }}{% endif %}">
     {% if title.poster_url %}
-      <img src="{{ title.poster_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 group-hover:brightness-110">
+      <img src="{{ title.poster_url|poster_size:"w342" }}" srcset="{{ title.poster_url|poster_srcset }}" alt="" loading="lazy" class="absolute inset-0 group-hover:brightness-110">
     {% endif %}
     <span class="absolute bottom-1.5 right-1.5 z-10 chip chip-scrim tabular-nums">&times;{{ watch_count }}</span>
   </div>

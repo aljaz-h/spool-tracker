@@ -1,4 +1,5 @@
 {% extends "tracker/base.html" %}
+{% load tracker_extras %}
 {% load icons settings_ui %}
 {% block title %}Settings · Spool{% endblock %}
 {% block content %}
@@ -404,7 +405,7 @@
               hx-swap="outerHTML"
             >
               <div class="s-row-title mb-2">Favorite genres</div>
-              <div class="text-xs text-ink-faint">Loading…</div>
+              {% include "tracker/partials/skeleton_chips.html" %}
             </div>
           </div>
 
@@ -459,9 +460,9 @@
           {% include "tracker/partials/settings_head.html" with title="Notifications" icon="bell" description="Choose what you hear about, and whether it shows in your bell, goes to push, or both." %}
           <div class="s-row !block">
             <div class="grid grid-cols-[1fr_auto_auto] items-center gap-x-5 gap-y-1">
-              <div class="text-[11px] uppercase tracking-wide text-ink-faint pb-1">Notify me about</div>
-              <div class="text-[11px] uppercase tracking-wide text-ink-faint pb-1 w-12 text-center">In app</div>
-              <div class="text-[11px] uppercase tracking-wide text-ink-faint pb-1 w-12 text-center">Push</div>
+              <div class="text-[11px] text-ink-faint pb-1">Notify me about</div>
+              <div class="text-[11px] text-ink-faint pb-1 w-12 text-center">In app</div>
+              <div class="text-[11px] text-ink-faint pb-1 w-12 text-center">Push</div>
               {% for group, rows in notification_table %}
                 <div class="col-span-3 text-[12px] font-semibold text-ink-dim pt-3 pb-1">{{ group }}</div>
                 {% for setting, app_on, push_on in rows %}
@@ -592,19 +593,19 @@
           treatment as Import & Export's cards.
         {% endcomment %}
         {% url 'trakt_connect' as connect_url %}
-        {% include "tracker/partials/sync_provider_card.html" with provider="trakt" name="Trakt" description="Sync watched history, ratings &amp; lists" icon="trakt" icon_class="text-trakt" configured=trakt_configured connect_url=connect_url unavailable="Not available yet - ask your server owner to set up Trakt first." account=external_accounts.trakt %}
+        {% include "tracker/partials/sync_provider_card.html" with provider="trakt" name="Trakt" description="Sync watched history, ratings &amp; lists" icon="trakt" icon_class="text-trakt" configured=trakt_configured connect_url=connect_url unavailable="Not available yet. Ask your server owner to set up Trakt first." account=external_accounts.trakt %}
 
         {% url 'simkl_connect' as connect_url %}
-        {% include "tracker/partials/sync_provider_card.html" with provider="simkl" name="Simkl" description="Import history &amp; anime progress" icon="simkl" icon_class="text-simkl" configured=simkl_configured connect_url=connect_url unavailable="Not available yet - ask your server owner to set up Simkl first." account=external_accounts.simkl %}
+        {% include "tracker/partials/sync_provider_card.html" with provider="simkl" name="Simkl" description="Import history &amp; anime progress" icon="simkl" icon_class="text-simkl" configured=simkl_configured connect_url=connect_url unavailable="Not available yet. Ask your server owner to set up Simkl first." account=external_accounts.simkl %}
 
         {% url 'wetrakr_connect' as connect_url %}
-        {% include "tracker/partials/sync_provider_card.html" with provider="wetrakr" name="WeTrakr" description="Sync watched history &amp; ratings" icon="wetrakr" icon_class="text-ink-dim" configured=wetrakr_configured connect_url=connect_url unavailable="Not available yet - ask your server owner to set up WeTrakr first." account=external_accounts.wetrakr %}
+        {% include "tracker/partials/sync_provider_card.html" with provider="wetrakr" name="WeTrakr" description="Sync watched history &amp; ratings" icon="wetrakr" icon_class="text-ink-dim" configured=wetrakr_configured connect_url=connect_url unavailable="Not available yet. Ask your server owner to set up WeTrakr first." account=external_accounts.wetrakr %}
 
         {% url 'tmdb_connect' as connect_url %}
-        {% include "tracker/partials/sync_provider_card.html" with provider="tmdb" name="TMDB" description="Sync favorites &amp; watchlist (movies &amp; TV)" icon="tmdb" icon_class="text-tmdb" configured=tmdb_configured connect_url=connect_url unavailable="Not available yet - ask your server owner to set up a TMDB API key first." account=external_accounts.tmdb %}
+        {% include "tracker/partials/sync_provider_card.html" with provider="tmdb" name="TMDB" description="Sync favorites &amp; watchlist (movies &amp; TV)" icon="tmdb" icon_class="text-tmdb" configured=tmdb_configured connect_url=connect_url unavailable="Not available yet. Ask your server owner to set up a TMDB API key first." account=external_accounts.tmdb %}
 
         {% url 'mal_connect' as connect_url %}
-        {% include "tracker/partials/sync_provider_card.html" with provider="mal" name="MyAnimeList" description="Sync anime list, progress &amp; ratings" icon="myanimelist" icon_class="text-mal" configured=mal_configured connect_url=connect_url unavailable="Not available yet - ask your server owner to set up MyAnimeList first." account=external_accounts.mal %}
+        {% include "tracker/partials/sync_provider_card.html" with provider="mal" name="MyAnimeList" description="Sync anime list, progress &amp; ratings" icon="myanimelist" icon_class="text-mal" configured=mal_configured connect_url=connect_url unavailable="Not available yet. Ask your server owner to set up MyAnimeList first." account=external_accounts.mal %}
 
         {% include "tracker/partials/nuvio_card.html" %}
       </div>
@@ -813,7 +814,7 @@
                 {% if p.avatar_image %}
                   <div class="w-8 h-8 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ p.avatar_image.url }}')"></div>
                 {% else %}
-                  <div class="w-8 h-8 rounded-full flex items-center justify-center font-mono text-xs font-semibold" style="background:{{ p.avatar_color }};color:#fff;">{{ p.display_name|first|upper }}</div>
+                  <div class="w-8 h-8 rounded-full flex items-center justify-center font-mono text-xs font-semibold" style="background:{{ p.avatar_color }};color:{{ p.avatar_color|on_color }};">{{ p.display_name|first|upper }}</div>
                 {% endif %}
                 <div class="flex-1 min-w-0">
                   <div class="font-semibold text-[13.5px]">{{ p.display_name }}</div>
@@ -1221,7 +1222,7 @@
           <h3 class="text-lg mb-1">Query performance</h3>
           <div class="text-ink-dim text-xs mb-3.5">The slowest database queries since statistics were last reset, from Postgres's own <code>pg_stat_statements</code> — admin-only. Loads the first time you open this tab.</div>
           <div id="query-stats" hx-get="{% url 'query_stats_partial' %}" hx-trigger="intersect once" hx-swap="innerHTML">
-            <div class="text-[13px] text-ink-dim" role="status">Loading&hellip;</div>
+            {% include "tracker/partials/skeleton_rows.html" %}
           </div>
         </div>
 

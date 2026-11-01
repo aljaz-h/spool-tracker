@@ -14,7 +14,7 @@
         <div class="yr-directed">
           <span class="yr-directed-label">Directed by</span>
           <span class="yr-directed-who">
-            {% if profile.avatar_image and not export %}<span class="yr-avatar" style="background-image:url('{{ profile.avatar_image.url }}')"></span>{% else %}<span class="yr-avatar" style="background:{{ profile.avatar_color }};color:#fff">{{ profile.display_name|first|upper }}</span>{% endif %}
+            {% if profile.avatar_image and not export %}<span class="yr-avatar" style="background-image:url('{{ profile.avatar_image.url }}')"></span>{% else %}<span class="yr-avatar" style="background:{{ profile.avatar_color }};color:{{ profile.avatar_color|on_color }}">{{ profile.display_name|first|upper }}</span>{% endif %}
             {{ profile.display_name }}
           </span>
         </div>

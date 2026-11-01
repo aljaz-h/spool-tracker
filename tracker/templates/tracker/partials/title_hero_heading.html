@@ -9,7 +9,7 @@
   {% if fanart_pending %}hx-get="{% if title %}{% url 'title_hero_heading_partial' title.pk %}{% else %}{% url 'title_preview_hero_heading_partial' preview_media_type preview_tmdb_id %}{% endif %}?n={{ fanart_tries|default:0 }}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}
 >
   {# Phones only: on desktop the same info is the caption under the poster. #}
-  <div class="flex lg:hidden items-center gap-2 text-[12.5px] font-semibold tracking-[0.06em] uppercase text-primary">
+  <div class="flex lg:hidden items-center gap-2 text-[12.5px] font-semibold text-primary">
     <span class="type-dot {{ page_media_type|media_dot_class }}"></span>
     {% if page_media_type == "movie" %}Movie{% elif page_media_type == "anime" %}Anime{% else %}TV Series{% endif %}{% if display_year %}<span class="text-ink-dim font-medium normal-case tracking-normal">&middot; {{ display_year }}</span>{% endif %}
   </div>

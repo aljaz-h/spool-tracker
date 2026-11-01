@@ -1,3 +1,4 @@
+{% load tracker_extras %}
 {% load icons %}
 {# context: leaderboard (selectors.household_leaderboard()), leaderboard_period ("week"|"year") - always rendered (with its toggle), so the household can find it even in a quiet week; views.activity opens on This Year when the week is empty but the year isn't. #}
   {% comment %}
@@ -37,7 +38,7 @@
               {% if row.profile.avatar_image %}
                 <div class="w-5 h-5 rounded-full bg-cover bg-center flex-none" style="background-image:url('{{ row.profile.avatar_image.url }}')"></div>
               {% else %}
-                <div class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold flex-none" style="background:{{ row.profile.avatar_color }};color:#fff;">{{ row.profile.display_name|first|upper }}</div>
+                <div class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold flex-none" style="background:{{ row.profile.avatar_color }};color:{{ row.profile.avatar_color|on_color }};">{{ row.profile.display_name|first|upper }}</div>
               {% endif %}
               <span class="text-[13.5px] font-medium truncate">{{ row.profile.display_name }}</span>
             </div>

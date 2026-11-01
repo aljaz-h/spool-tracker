@@ -163,7 +163,7 @@
             >
               <div
                 class="w-8 h-8 rounded-full flex-none flex items-center justify-center font-mono text-xs font-semibold {% if p.avatar_image %}bg-cover bg-center{% endif %}"
-                style="{% if p.avatar_image %}background-image:url('{{ p.avatar_image.url }}'){% else %}background:{{ p.avatar_color }};color:#fff;{% endif %}"
+                style="{% if p.avatar_image %}background-image:url('{{ p.avatar_image.url }}'){% else %}background:{{ p.avatar_color }};color:{{ p.avatar_color|on_color }};{% endif %}"
               >{% if not p.avatar_image %}{{ p.display_name|first|upper }}{% endif %}</div>
               <div class="min-w-0 flex-1">
                 <div class="text-sm font-medium truncate">{{ p.display_name }}</div>
@@ -198,7 +198,7 @@
         >
           <div
             class="w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-semibold border-2 flex-none {% if active_profile.avatar_image %}bg-cover bg-center{% endif %}"
-            style="border-color:{{ active_profile.avatar_color }};{% if active_profile.avatar_image %}background-image:url('{{ active_profile.avatar_image.url }}'){% else %}background:{{ active_profile.avatar_color }};color:#fff;{% endif %}"
+            style="border-color:{{ active_profile.avatar_color }};{% if active_profile.avatar_image %}background-image:url('{{ active_profile.avatar_image.url }}'){% else %}background:{{ active_profile.avatar_color }};color:{{ active_profile.avatar_color|on_color }};{% endif %}"
           >{% if not active_profile.avatar_image %}{{ active_profile.display_name|first|upper }}{% endif %}</div>
           <span class="hidden 2xl:inline text-[13px] font-medium text-base-content truncate max-w-[110px]">{{ active_profile.display_name }}</span>
           <span class="hidden sm:flex flex-none transition-transform" :class="open ? 'rotate-180' : ''">

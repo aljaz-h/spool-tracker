@@ -8,7 +8,7 @@
 <a href="{{ detail_url }}" class="media-card group block min-w-0">
   <div class="backdrop aspect-video {% if not event.still_url %}{{ event.title.pk|gradient_class }}{% endif %}">
     {% if event.still_url %}
-      <img src="{{ event.still_url|poster_size:"w342" }}" alt="" loading="lazy" class="absolute inset-0 group-hover:brightness-110">
+      <img src="{{ event.still_url|poster_size:"w342" }}" alt="" {% if eager %}fetchpriority="high"{% else %}loading="lazy"{% endif %} class="absolute inset-0 group-hover:brightness-110">
     {% endif %}
     <div class="art-scrim"></div>
     <div class="absolute inset-x-0 bottom-0 px-3 pb-2.5">

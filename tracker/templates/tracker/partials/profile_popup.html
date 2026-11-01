@@ -5,7 +5,7 @@
     {% if target.avatar_image %}
       <div class="w-12 h-12 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ target.avatar_image.url }}')" aria-hidden="true"></div>
     {% else %}
-      <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg font-semibold flex-none" style="background:{{ target.avatar_color }};color:#fff;" aria-hidden="true">{{ target.display_name|first|upper }}</div>
+      <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg font-semibold flex-none" style="background:{{ target.avatar_color }};color:{{ target.avatar_color|on_color }};" aria-hidden="true">{{ target.display_name|first|upper }}</div>
     {% endif %}
     <div class="min-w-0 flex-1">
       <h2 id="profile-popup-title" class="text-lg font-semibold leading-tight truncate">{{ target.display_name }}</h2>
