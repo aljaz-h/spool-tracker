@@ -8,6 +8,12 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.176.1] - 2026-11-01
+
+### Changed
+
+- The phone tab bar is back to the floating frosted-glass capsule (rounded, blurred and translucent, with a rim and soft shadow). DESIGN.md now names it as the one deliberate glass surface.
+
 ## [0.176.0] - 2026-11-01
 
 Run `python manage.py migrate` (migration 0089 adds an index; nothing else changes in the database).

@@ -211,7 +211,8 @@ controls and avatars. Shadows only on floating things — menus/popovers
   uppercase metadata pills where a `.meta` line would do.
 - No hairline between every row or section — spacing groups; a border
   is for real navigation edges (tabs, the shell) or form grouping.
-- No glow, neon, glassmorphism, large decorative gradients or blobs.
+- No glow, neon, glassmorphism, large decorative gradients or blobs. The one
+  exception is the phone tab bar, a floating frosted-glass capsule.
 - No idle/looping animation; nothing that moves unless the user acted
   (the loading skeleton's sweep is the one exception).
 - No AI-copy clichés; Spool's copy stays plain and specific.
