@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.175.1] - 2026-11-01
+
+### Security
+
+- Wrapped's Discord upload now posts to an address rebuilt from known-safe parts (one of Discord's own hosts from a fixed table, a numeric webhook id, a URL-safe token) instead of the typed-in text, so the server never connects to anything the user typed; a query string or extra path is dropped. Fixes the CodeQL "full server-side request forgery" alert.
+- The saved-recap image view resolves the real file path and refuses anything outside the recaps folder, on top of the token check. Fixes the two CodeQL "uncontrolled data used in path expression" alerts.
+- The Wrapped year and month pickers no longer use an inline `onchange="window.location = this.value"`; a small script follows the chosen address only if it is on this site. Fixes the two CodeQL "DOM text reinterpreted as HTML" alerts.
+
 ## [0.175.0] - 2026-11-01
 
 ### Changed

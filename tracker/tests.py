@@ -34656,6 +34656,41 @@ class WrappedTests(TestCase):
         ):
             self.assertFalse(is_discord_webhook(bad), bad)
 
+    def test_the_post_goes_to_an_address_rebuilt_from_safe_parts(self):
+        from tracker.wrapped.service import discord_webhook_endpoint
+
+        self.assertEqual(
+            discord_webhook_endpoint("https://discord.com/api/webhooks/123/abc-DEF_9/"),
+            "https://discord.com/api/webhooks/123/abc-DEF_9",
+        )
+        self.assertEqual(
+            discord_webhook_endpoint("https://CANARY.discord.com./api/webhooks/1/x"),
+            "https://canary.discord.com/api/webhooks/1/x",
+        )
+        for bad in (
+            "https://discord.com/api/webhooks/x",  # no numeric id
+            "https://discord.com/api/webhooks/1/abc/extra", "https://discord.com/api/webhooks/1/a%2Fb",
+            "https://discord.com.evil.example/api/webhooks/1/abc",
+            "http://discord.com/api/webhooks/1/abc", "",
+        ):
+            self.assertIsNone(discord_webhook_endpoint(bad), bad)
+        # A query string is dropped, never forwarded.
+        self.assertEqual(
+            discord_webhook_endpoint("https://discord.com/api/webhooks/1/abc?thread_id=9"),
+            "https://discord.com/api/webhooks/1/abc",
+        )
+
+    def test_recap_image_path_cannot_leave_the_recaps_folder(self):
+        for token in ("..", "../../etc/passwd", "a" * 30 + "/../x", "short", "a" * 30 + ".png"):
+            resp = self.client.get(f"/wrapped/img/{token}.png")
+            self.assertEqual(resp.status_code, 404, token)
+
+    def test_year_and_month_pickers_have_no_inline_script(self):
+        resp = self.client.get(reverse("wrapped_year", args=[2025]))
+        self.assertContains(resp, "data-wp-nav")
+        self.assertNotContains(resp, "this.value")
+        self.assertNotContains(resp, "onchange=")
+
     def test_a_non_discord_webhook_is_not_saved_and_never_contacted(self):
         self.client.post(
             reverse("save_appearance"),

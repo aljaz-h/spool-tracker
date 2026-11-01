@@ -76,6 +76,16 @@
     return data;
   }
 
+  /* The year and month pickers: choosing an option opens that page. The option
+     values are Spool's own addresses; anything that isn't on this site is ignored. */
+  document.addEventListener('change', (event) => {
+    const select = event.target.closest('select[data-wp-nav]');
+    if (!select) return;
+    let target;
+    try { target = new URL(select.value, window.location.href); } catch (error) { return; }
+    if (target.origin === window.location.origin) window.location.assign(target.pathname + target.search);
+  });
+
   document.addEventListener('click', async (event) => {
     const button = event.target.closest('[data-act], [data-copy-url]');
     if (!button) return;

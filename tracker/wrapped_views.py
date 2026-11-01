@@ -1,6 +1,7 @@
 """Wrapped: the recap page, the card/report HTML it embeds, the on-demand PNG
 and the public image URL. See tracker/wrapped/ for the stats and rendering."""
 
+import os
 import re
 from datetime import date
 
@@ -248,8 +249,12 @@ def wrapped_image(request, token):
     report = WrappedReport.objects.filter(token=token).first()
     if report is None:
         raise Http404
-    path = wrapped_render.generated_dir() / f"{token}.png"
-    if not path.is_file():
+    # The token is already limited to URL-safe characters above; resolving the
+    # real path and checking it stays inside the recaps folder is the second,
+    # independent guard.
+    base = os.path.realpath(str(wrapped_render.generated_dir()))
+    path = os.path.realpath(os.path.join(base, f"{token}.png"))
+    if not path.startswith(base + os.sep) or not os.path.isfile(path):
         raise Http404
     response = FileResponse(open(path, "rb"), content_type="image/png")
     response["Cache-Control"] = "private, max-age=31536000, immutable"

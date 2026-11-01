@@ -5,6 +5,7 @@ post). One code path shared by the scheduled Celery tasks and the page's
 
 import calendar
 import logging
+import re
 from datetime import date, timedelta
 
 import requests
@@ -277,6 +278,30 @@ def is_discord_webhook(url):
     )
 
 
+_DISCORD_WEBHOOK_PATH = re.compile(r"/api/webhooks/(\d+)/([A-Za-z0-9_-]+)/?")
+# Looked up by the validated host name, so the host that is posted to is one of
+# these constants, never the typed-in text.
+_DISCORD_BASE = {host: f"https://{host}" for host in DISCORD_HOSTS}
+
+
+def discord_webhook_endpoint(url):
+    """The address a recap is posted to, rebuilt from parts that are known to be
+    safe: one of Discord's own hosts (from a fixed table), a numeric webhook id
+    and a token of URL-safe characters. Anything else, including a query string
+    or extra path segments, gives None, so the typed-in address is never what
+    the server connects to."""
+    from urllib.parse import urlparse
+
+    if not is_discord_webhook(url):
+        return None
+    parts = urlparse(url)
+    base = _DISCORD_BASE.get((parts.hostname or "").rstrip(".").lower())
+    match = _DISCORD_WEBHOOK_PATH.fullmatch(parts.path)
+    if base is None or match is None:
+        return None
+    return f"{base}/api/webhooks/{match.group(1)}/{match.group(2)}"
+
+
 def safe_error(exc):
     """What's logged and stored about a failed delivery: the HTTP status or
     the exception type, never the message - a requests error message
@@ -289,7 +314,8 @@ def safe_error(exc):
 
 def _post_to_discord(webhook_url, path, profile, label):
     """Uploads the PNG itself, so nothing needs a public URL for Spool."""
-    if not is_discord_webhook(webhook_url):
+    endpoint = discord_webhook_endpoint(webhook_url)
+    if endpoint is None:
         raise ValueError("not a Discord webhook address")
     payload = {
         "embeds": [
@@ -305,7 +331,7 @@ def _post_to_discord(webhook_url, path, profile, label):
 
     with open(path, "rb") as f:
         resp = requests.post(
-            webhook_url,
+            endpoint,
             data={"payload_json": json.dumps(payload)},
             files={"file": ("wrapped.png", f, "image/png")},
             timeout=20,

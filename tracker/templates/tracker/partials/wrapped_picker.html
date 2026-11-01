@@ -7,13 +7,13 @@
     <a href="{% url 'wrapped_all_time' %}" role="tab" aria-selected="{% if is_all_time %}true{% else %}false{% endif %}" class="{% if is_all_time %}is-on{% endif %}">All Time</a>
   </div>
   {% if not is_all_time %}
-  <select class="wp-select" aria-label="Year" onchange="window.location = this.value">
+  <select class="wp-select" aria-label="Year" data-wp-nav>
     {% for y in years %}
       <option value="{% if kind == 'monthly' %}{% url 'wrapped_month' y month %}{% elif is_review %}{% url 'wrapped_review' y %}{% else %}{% url 'wrapped_year' y %}{% endif %}" {% if y == year %}selected{% endif %}>{{ y }}</option>
     {% endfor %}
   </select>
   {% if kind == 'monthly' %}
-    <select class="wp-select" aria-label="Month" onchange="window.location = this.value">
+    <select class="wp-select" aria-label="Month" data-wp-nav>
       {% for m, name in months %}
         <option value="{% url 'wrapped_month' year m %}" {% if m == month %}selected{% endif %}>{{ name }}</option>
       {% endfor %}
