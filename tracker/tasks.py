@@ -975,6 +975,45 @@ def generate_watchlist_stale_notifications():
 
 
 @shared_task
+def generate_wrapped_recaps():
+    """Daily beat job: makes whichever Wrapped recaps have come due - the
+    month and year that just ended, for every profile with Wrapped on. Safe
+    to run every day: a recap that already exists for a period (even one
+    that found nothing watched) is never made twice, and one missed because
+    the worker was down is picked up the next day."""
+    from .models import Profile, WrappedReport
+    from .wrapped import service
+
+    Kind = WrappedReport.Kind
+    today = date.today()
+    prev_month = (today.replace(day=1) - timedelta(days=1))
+    year = today.year - 1
+    due = [
+        (Kind.MONTHLY, "wrapped_monthly", prev_month.year, prev_month.month),
+        (Kind.YEARLY, "wrapped_yearly", year, None),
+        (Kind.YEAR_IN_REVIEW, "wrapped_year_in_review", year, None),
+    ]
+    made = 0
+    for profile in Profile.objects.filter(wrapped_enabled=True):
+        for kind, flag, due_year, due_month in due:
+            if not getattr(profile, flag):
+                continue
+            since = service.period_bounds(kind, due_year, due_month)[0]
+            if WrappedReport.objects.filter(profile=profile, kind=kind, since=since).exclude(
+                status=WrappedReport.Status.FAILED
+            ).exists():
+                continue
+            try:
+                service.generate(profile, kind, due_year, due_month)
+                made += 1
+            except Exception:
+                logger.exception("generate_wrapped_recaps: profile %s, %s %s failed", profile.id, kind, due_year)
+    pruned = service.prune_expired()
+    logger.info("generate_wrapped_recaps: %d recap(s) made, %d expired removed", made, pruned)
+    return made
+
+
+@shared_task
 def check_for_new_version():
     """Nightly beat job (see bootstrap_periodic_tasks.py) - see
     tracker/update_check.py for the actual fetch/compare logic. Only

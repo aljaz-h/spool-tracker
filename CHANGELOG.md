@@ -8,6 +8,20 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.171.0] - 2026-11-01
+
+### Added
+
+- **Wrapped is built in.** The monthly and yearly recap cards and the long Year in Review that used to need the separate spool-wrapped app now live in Spool, read straight from your watch history. A new **Wrapped** page (Stats -> Wrapped, or `/wrapped/`) shows any year or month in the app's own look, with a **Year in Review** tab, and **Create image** makes a PNG you can download or share. Four card styles (Spool, Classic, Minimal, Vibrant).
+- **Settings -> Personal -> Wrapped** replaces the old card under API & Sharing: turn scheduled recaps on, pick monthly / yearly / Year in Review, the card style, which stats appear, and an optional Discord webhook the finished image is posted to.
+- A daily job makes the month and year that just ended for everyone who has Wrapped on (once each, and it catches up after downtime) and sends a "Wrapped ready" notification (bell and push, configurable under Notifications).
+- Recaps are saved: yearly recaps and Year in Review are kept for good, monthly recaps for a year after they were made (a daily job removes expired ones and their image files). A "Saved recaps" list on the Wrapped page opens or downloads any of them; re-creating a period's image replaces the old copy.
+- PNG rendering uses headless Chromium (Playwright), now installed in the Docker image, so the image is larger. New migration `0085`.
+
+### Changed
+
+- The old "Share watch history with spool-wrapped" switch is now the master switch for the built-in Wrapped; the external Reports API is unchanged for anyone still using it.
+
 ## [0.170.1] - 2026-11-01
 
 ### Fixed

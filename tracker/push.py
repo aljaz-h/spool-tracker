@@ -127,6 +127,7 @@ PUSH_ELIGIBLE_KINDS = frozenset(
         Notification.Kind.RECOMMENDATION_WATCHED,
         Notification.Kind.RECOMMENDATION_REPLIED,
         Notification.Kind.WATCHLIST_STALE,
+        Notification.Kind.WRAPPED_READY,
     }
 )
 

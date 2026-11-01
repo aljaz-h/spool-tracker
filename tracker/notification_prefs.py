@@ -61,6 +61,11 @@ SETTINGS = (
         GROUP_LIBRARY, ("watchlist_stale",),
     ),
     Setting(
+        "wrapped_ready", "Wrapped recaps",
+        "Your monthly or yearly Wrapped is ready to open.",
+        GROUP_LIBRARY, ("wrapped_ready",),
+    ),
+    Setting(
         "sync_failed", "Sync failures",
         "Trakt, Simkl or Nuvio sync failed.",
         GROUP_SYSTEM, ("sync_failed",),

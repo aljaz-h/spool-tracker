@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 1080px;
+    height: 1920px;
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: radial-gradient(circle at 15% 0%, #4c1d95 0%, #1e1b4b 38%, #0b0a1f 100%);
+    color: #f5f3ff;
+    overflow: hidden;
+  }
+  .card {
+    width: 1080px;
+    height: 1920px;
+    padding: 96px 80px;
+    display: flex;
+    flex-direction: column;
+  }
+  .eyebrow {
+    font-size: 34px;
+    font-weight: 600;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: #c4b5fd;
+  }
+  .profile {
+    font-size: 72px;
+    font-weight: 800;
+    margin-top: 18px;
+    line-height: 1.1;
+  }
+  .period {
+    font-size: 40px;
+    font-weight: 500;
+    color: #a78bfa;
+    margin-top: 10px;
+  }
+  .headline {
+    margin-top: 90px;
+  }
+  .headline .big-number {
+    font-size: 220px;
+    font-weight: 800;
+    line-height: 1;
+    background: linear-gradient(90deg, #f5d0fe, #c4b5fd, #93c5fd);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .headline .big-label {
+    font-size: 46px;
+    font-weight: 600;
+    color: #ede9fe;
+    margin-top: 8px;
+  }
+  .stats {
+    margin-top: 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 48px;
+  }
+  .stat-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 2px solid rgba(196, 181, 253, 0.25);
+    padding-bottom: 32px;
+  }
+  .stat-label {
+    font-size: 34px;
+    color: #c4b5fd;
+    font-weight: 500;
+  }
+  .stat-value {
+    font-size: 46px;
+    font-weight: 700;
+    color: #ffffff;
+    text-align: right;
+    max-width: 620px;
+  }
+  .split {
+    margin-top: 96px;
+  }
+  .split-title {
+    font-size: 34px;
+    color: #c4b5fd;
+    font-weight: 500;
+    margin-bottom: 28px;
+  }
+  .split-bar {
+    display: flex;
+    width: 100%;
+    height: 56px;
+    border-radius: 28px;
+    overflow: hidden;
+  }
+  .split-bar .movie { background: #a78bfa; }
+  .split-bar .tv { background: #f0abfc; }
+  .split-bar .anime { background: #67e8f9; }
+  .split-legend {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 22px;
+    font-size: 30px;
+    color: #ede9fe;
+  }
+  .split-legend span.dot {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    margin-right: 12px;
+    vertical-align: middle;
+  }
+  .footer {
+    margin-top: auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 30px;
+    color: #a78bfa;
+    font-weight: 600;
+    letter-spacing: 2px;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="eyebrow">Spool Wrapped</div>
+    <div class="profile">{{ profile_display_name }}</div>
+    <div class="period">{{ period_label }}</div>
+
+    {% if show_total_watch_time %}
+    <div class="headline">
+      <div class="big-number">{{ stats.total_watch_hours_display }}</div>
+      <div class="big-label">spent watching</div>
+    </div>
+    {% endif %}
+
+    <div class="stats">
+      {% if show_total_titles %}
+      <div class="stat-row">
+        <div class="stat-label">Titles watched</div>
+        <div class="stat-value">{{ stats.total_titles }}</div>
+      </div>
+      {% endif %}
+      {% if show_top_genre and stats.top_genre %}
+      <div class="stat-row">
+        <div class="stat-label">Top genre</div>
+        <div class="stat-value">{{ stats.top_genre }}</div>
+      </div>
+      {% endif %}
+      {% if show_longest_streak and stats.longest_streak_days > 1 %}
+      <div class="stat-row">
+        <div class="stat-label">Longest streak</div>
+        <div class="stat-value">{{ stats.longest_streak_days }} days</div>
+      </div>
+      {% endif %}
+      {% if show_top_rated_title and stats.top_rated_title %}
+      <div class="stat-row">
+        <div class="stat-label">Top rated</div>
+        <div class="stat-value">{{ stats.top_rated_title }} ({{ stats.top_rated_rating }}/10)</div>
+      </div>
+      {% endif %}
+    </div>
+
+    {% if show_type_split and stats.type_split.total > 0 %}
+    <div class="split">
+      <div class="split-title">Movies / TV / Anime</div>
+      <div class="split-bar">
+        {% if stats.type_split.movie > 0 %}<div class="movie" style="width: {{ stats.type_split.percent('movie') }}%"></div>{% endif %}
+        {% if stats.type_split.tv > 0 %}<div class="tv" style="width: {{ stats.type_split.percent('tv') }}%"></div>{% endif %}
+        {% if stats.type_split.anime > 0 %}<div class="anime" style="width: {{ stats.type_split.percent('anime') }}%"></div>{% endif %}
+      </div>
+      <div class="split-legend">
+        <div><span class="dot" style="background:#a78bfa"></span>Movies {{ stats.type_split.percent('movie') }}%</div>
+        <div><span class="dot" style="background:#f0abfc"></span>TV {{ stats.type_split.percent('tv') }}%</div>
+        <div><span class="dot" style="background:#67e8f9"></span>Anime {{ stats.type_split.percent('anime') }}%</div>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="footer">
+      <span>Spool Wrapped</span>
+      <span>{{ period_type|upper }}</span>
+    </div>
+  </div>
+</body>
+</html>

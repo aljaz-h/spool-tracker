@@ -65,6 +65,7 @@ LOG_RETENTION_TASK_NAME = "prune-old-logs"
 MDBLIST_REFRESH_TASK_NAME = "queue-due-mdblist-refreshes"
 FANART_REFRESH_TASK_NAME = "queue-due-fanart-refreshes"
 WATCHLIST_STALE_TASK_NAME = "generate-watchlist-stale-notifications"
+WRAPPED_TASK_NAME = "generate-wrapped-recaps"
 RECLASSIFY_ANIME_TASK_NAME = "reclassify-anime-titles"
 IMPORT_CLEANUP_TASK_NAME = "expire-import-sessions"
 BACKUP_TASK_NAME = "run-due-backups"
@@ -159,6 +160,23 @@ def ensure_watchlist_stale_task(hour=4, minute=0):
         defaults={
             "crontab": schedule,
             "task": "tracker.tasks.generate_watchlist_stale_notifications",
+            "args": "[]",
+            "enabled": True,
+        },
+    )
+
+
+def ensure_wrapped_task(hour=5, minute=0):
+    """(Re)creates the daily PeriodicTask that makes any monthly/yearly
+    Wrapped recap that has come due (tasks.generate_wrapped_recaps)."""
+    schedule, _ = CrontabSchedule.objects.get_or_create(
+        minute=str(minute), hour=str(hour), day_of_week="*", day_of_month="*", month_of_year="*"
+    )
+    PeriodicTask.objects.update_or_create(
+        name=WRAPPED_TASK_NAME,
+        defaults={
+            "crontab": schedule,
+            "task": "tracker.tasks.generate_wrapped_recaps",
             "args": "[]",
             "enabled": True,
         },

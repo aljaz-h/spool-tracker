@@ -31,6 +31,12 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Headless Chromium for Wrapped's PNG recap cards (tracker/wrapped/render.py).
+# --with-deps pulls the system libraries Chromium needs; the browser itself
+# goes to a fixed path so the non-root runtime user can read it.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN playwright install --with-deps chromium && rm -rf /var/lib/apt/lists/*
+
 COPY . .
 COPY --from=css-builder /app/static/dist/app.css ./static/dist/app.css
 # SILK_ENABLED=True here only for this collectstatic run - unrelated to

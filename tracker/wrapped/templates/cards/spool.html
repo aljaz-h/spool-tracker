@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+{% include "_fonts.html" %}
+
+  /* Palette + type straight from spool-tracker's own daisyUI theme
+     (static/src/app.css) - not a reinterpretation. Movies=primary/amber,
+     TV=accent/violet, Anime=secondary/teal is the exact mapping
+     tracker/templates/tracker/stats.html's type-split legend uses
+     (bg-primary/bg-accent/bg-secondary), not a guess. */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 1080px;
+    height: 1920px;
+    font-family: "Public Sans", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background:
+      radial-gradient(ellipse 900px 500px at 50% 0%, rgba(232, 166, 60, 0.16) 0%, rgba(232, 166, 60, 0) 70%),
+      #14161c;
+    color: #eceef2;
+    overflow: hidden;
+  }
+  .card {
+    width: 1080px;
+    height: 1920px;
+    padding: 92px 76px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .wordmark {
+    font-family: "Bebas Neue", sans-serif;
+    font-weight: 400;
+    font-size: 64px;
+    letter-spacing: 0.03em;
+    color: #e8a63c;
+    text-shadow: 0 0 44px rgba(232, 166, 60, 0.55);
+    line-height: 1;
+  }
+  .tagline {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 22px;
+    color: #9195a6;
+    letter-spacing: 0.04em;
+    margin-top: 14px;
+  }
+  .rule {
+    height: 1px;
+    background: #2b2f3b;
+    margin-top: 40px;
+  }
+
+  .profile {
+    font-family: "Bebas Neue", sans-serif;
+    font-weight: 400;
+    text-transform: uppercase;
+    font-size: 76px;
+    letter-spacing: 0.02em;
+    margin-top: 48px;
+    line-height: 1.05;
+    color: #eceef2;
+  }
+  .period {
+    font-size: 32px;
+    color: #9195a6;
+    margin-top: 8px;
+  }
+
+  .headline {
+    margin-top: 92px;
+  }
+  .headline .big-number {
+    font-family: "JetBrains Mono", monospace;
+    font-weight: 700;
+    font-size: 148px;
+    line-height: 1;
+    color: #e8a63c;
+    text-shadow: 0 0 60px rgba(232, 166, 60, 0.3);
+  }
+  .headline .big-label {
+    font-family: "Bebas Neue", sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 28px;
+    color: #9195a6;
+    margin-top: 14px;
+  }
+
+  .stats {
+    margin-top: 88px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .stat-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 1px solid #2b2f3b;
+    padding: 26px 0;
+  }
+  .stat-label {
+    font-family: "Bebas Neue", sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 26px;
+    color: #9195a6;
+  }
+  .stat-value {
+    font-size: 38px;
+    font-weight: 700;
+    color: #eceef2;
+    text-align: right;
+    max-width: 620px;
+  }
+  .stat-value .num {
+    font-family: "Bebas Neue", sans-serif;
+    font-weight: 400;
+    color: #e8a63c;
+    font-size: 44px;
+  }
+  .stat-value .rating-pill {
+    display: inline-block;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 22px;
+    font-weight: 700;
+    color: #1a1305;
+    background: #e8a63c;
+    padding: 3px 12px;
+    border-radius: 8px;
+    margin-left: 10px;
+    vertical-align: middle;
+  }
+
+  .split {
+    margin-top: 76px;
+  }
+  .split-title {
+    font-family: "Bebas Neue", sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 26px;
+    color: #9195a6;
+    margin-bottom: 26px;
+  }
+  .split-bar {
+    display: flex;
+    width: 100%;
+    height: 22px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #1b1e26;
+    border: 1px solid #2b2f3b;
+  }
+  .split-bar .movie { background: #e8a63c; }
+  .split-bar .tv { background: #8b85d6; }
+  .split-bar .anime { background: #3fa9a0; }
+  .split-legend {
+    display: flex;
+    gap: 32px;
+    margin-top: 22px;
+    font-size: 26px;
+    color: #9195a6;
+  }
+  .split-legend .dot {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    margin-right: 10px;
+    vertical-align: middle;
+  }
+
+  .footer {
+    margin-top: auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 32px;
+    border-top: 1px solid #2b2f3b;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 24px;
+    color: #5c606f;
+    letter-spacing: 0.03em;
+  }
+  .footer .brand-foot {
+    color: #9195a6;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="wordmark">SPOOL</div>
+    <div class="tagline">WRAPPED &middot; {{ period_type|upper }}</div>
+    <div class="rule"></div>
+
+    <div class="profile">{{ profile_display_name }}</div>
+    <div class="period">{{ period_label }}</div>
+
+    {% if show_total_watch_time %}
+    <div class="headline">
+      <div class="big-number">{{ stats.total_watch_hours_display }}</div>
+      <div class="big-label">Time spent watching</div>
+    </div>
+    {% endif %}
+
+    <div class="stats">
+      {% if show_total_titles %}
+      <div class="stat-row">
+        <div class="stat-label">Titles watched</div>
+        <div class="stat-value"><span class="num">{{ stats.total_titles }}</span></div>
+      </div>
+      {% endif %}
+      {% if show_top_genre and stats.top_genre %}
+      <div class="stat-row">
+        <div class="stat-label">Top genre</div>
+        <div class="stat-value">{{ stats.top_genre }}</div>
+      </div>
+      {% endif %}
+      {% if show_longest_streak and stats.longest_streak_days > 1 %}
+      <div class="stat-row">
+        <div class="stat-label">Longest streak</div>
+        <div class="stat-value"><span class="num">{{ stats.longest_streak_days }}</span> days</div>
+      </div>
+      {% endif %}
+      {% if show_top_rated_title and stats.top_rated_title %}
+      <div class="stat-row">
+        <div class="stat-label">Top rated</div>
+        <div class="stat-value">{{ stats.top_rated_title }}<span class="rating-pill">{{ stats.top_rated_rating }}/10</span></div>
+      </div>
+      {% endif %}
+    </div>
+
+    {% if show_type_split and stats.type_split.total > 0 %}
+    <div class="split">
+      <div class="split-title">Movies / TV / Anime</div>
+      <div class="split-bar">
+        {% if stats.type_split.movie > 0 %}<div class="movie" style="width: {{ stats.type_split.percent('movie') }}%"></div>{% endif %}
+        {% if stats.type_split.tv > 0 %}<div class="tv" style="width: {{ stats.type_split.percent('tv') }}%"></div>{% endif %}
+        {% if stats.type_split.anime > 0 %}<div class="anime" style="width: {{ stats.type_split.percent('anime') }}%"></div>{% endif %}
+      </div>
+      <div class="split-legend">
+        <div><span class="dot" style="background:#e8a63c"></span>Movies &mdash; {{ stats.type_split.percent('movie') }}%</div>
+        <div><span class="dot" style="background:#8b85d6"></span>TV &mdash; {{ stats.type_split.percent('tv') }}%</div>
+        <div><span class="dot" style="background:#3fa9a0"></span>Anime &mdash; {{ stats.type_split.percent('anime') }}%</div>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="footer">
+      <span class="brand-foot">Spool Wrapped</span>
+      <span>{{ period_type|upper }}</span>
+    </div>
+  </div>
+</body>
+</html>

@@ -11,6 +11,7 @@
     {% if profile %}
       <div class="flex items-center gap-2">
         <a href="{% url 'export_csv' %}" class="btn btn-sm btn-ghost text-ink-dim">{% icon "download" "w-3.5 h-3.5" %}Export</a>
+        {% if is_own_stats %}<a href="{% url 'wrapped' %}" class="btn btn-sm btn-soft">{% icon "sparkles" "w-3.5 h-3.5" %}Wrapped</a>{% endif %}
         <a href="{{ history_url }}" class="btn btn-sm btn-soft">View History</a>
       </div>
     {% endif %}

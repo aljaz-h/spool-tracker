@@ -236,6 +236,7 @@ _NOTIFICATION_ICON_META = {
     Notification.Kind.WATCHLIST_STALE: ("clock", "text-accent"),
     Notification.Kind.IMPORT_STATUS: ("upload", "text-primary"),
     Notification.Kind.BACKUP_STATUS: ("server", "text-info"),
+    Notification.Kind.WRAPPED_READY: ("sparkles", "text-primary"),
 }
 _DEFAULT_NOTIFICATION_ICON_META = ("bell", "text-ink-dim")
 

@@ -198,6 +198,15 @@ class Profile(models.Model):
     # "Delivery config precedence"). Not the source of truth.
     wrapped_webhook_url = models.URLField(blank=True, default="")
     wrapped_email_enabled = models.BooleanField(default=False)
+    # Built-in Wrapped (tracker/wrapped/): which recaps are generated for
+    # this profile, which card preset they use, and any stats left off the
+    # card. wrapped_enabled above is the master switch; wrapped_webhook_url
+    # doubles as the Discord webhook the finished PNG is posted to.
+    wrapped_monthly = models.BooleanField(default=True)
+    wrapped_yearly = models.BooleanField(default=True)
+    wrapped_year_in_review = models.BooleanField(default=False)
+    wrapped_template = models.CharField(max_length=20, default="spool")
+    wrapped_hidden_stats = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     # Set on the account bootstrap_admin creates from ADMIN_USERNAME/
     # ADMIN_PASSWORD (see management/commands/bootstrap_admin.py) so its
@@ -733,6 +742,43 @@ class WatchProgress(models.Model):
         return f"{self.profile} · {self.title} ({self.status})"
 
 
+class WrappedReport(models.Model):
+    """One generated Wrapped recap for a profile and period - the monthly or
+    yearly card, or the long Year in Review. The PNG lives at
+    MEDIA_ROOT/wrapped/<token>.png (served from an unguessable URL, see
+    views.wrapped_image); the stats are recomputed from watch history when
+    the page is opened, so a late-logged watch isn't missing from it."""
+
+    class Kind(models.TextChoices):
+        MONTHLY = "monthly", "Monthly"
+        YEARLY = "yearly", "Yearly"
+        YEAR_IN_REVIEW = "year_in_review", "Year in Review"
+
+    class Status(models.TextChoices):
+        SUCCESS = "success", "Success"
+        FAILED = "failed", "Failed"
+        SKIPPED = "skipped_no_history", "Nothing watched"
+
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="wrapped_reports")
+    kind = models.CharField(max_length=20, choices=Kind.choices)
+    period_label = models.CharField(max_length=40)
+    since = models.DateField()
+    until = models.DateField()
+    template_name = models.CharField(max_length=20, blank=True, default="")
+    token = models.CharField(max_length=64, null=True, blank=True, unique=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.SUCCESS)
+    error_message = models.TextField(blank=True, default="")
+    delivered_discord = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["profile", "kind", "since"])]
+
+    def __str__(self):
+        return f"{self.profile} · {self.get_kind_display()} {self.period_label}"
+
+
 class WatchList(models.Model):
     """A shared list is visible to every profile on the instance, but only
     its creator may edit/delete it (spool-product-spec.md §5)."""
@@ -862,6 +908,7 @@ class Notification(models.Model):
         WATCHLIST_STALE = "watchlist_stale", "Watchlist time capsule"
         IMPORT_STATUS = "import_status", "Import"
         BACKUP_STATUS = "backup_status", "Backup"
+        WRAPPED_READY = "wrapped_ready", "Wrapped ready"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="notifications")
     kind = models.CharField(max_length=25, choices=Kind.choices)

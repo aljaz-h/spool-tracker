@@ -25,6 +25,7 @@ from django.utils import timezone as _tz
 from .watchlists import ensure_watchlist
 from .integrations import anifiller, fanart, mdblist, myanimelist, nuvio, scrobble, simkl, tenrai, tmdb, tmdb_account, trakt, tvmaze, wetrakr
 from .models import (
+    WrappedReport,
     AVATAR_COLOR_CHOICES,
     AdminAuditLogEntry,
     ApiToken,
@@ -26737,29 +26738,26 @@ class SaveAppearanceWrappedFieldsTests(TestCase):
         self.profile = Profile.objects.create(user=user, display_name="WrappedSettingsUser")
         self.client.login(username="wrappedsettingsuser", password="pass12345")
 
-    def test_saves_all_three_fields(self):
+    def test_saves_the_enable_switch_and_webhook(self):
         self.client.post(
             reverse("save_appearance"),
             {
                 "wrapped_settings_submitted": "1",
                 "wrapped_enabled": "on",
                 "wrapped_webhook_url": "https://discord.com/api/webhooks/x",
-                "wrapped_email_enabled": "on",
             },
         )
         self.profile.refresh_from_db()
         self.assertTrue(self.profile.wrapped_enabled)
         self.assertEqual(self.profile.wrapped_webhook_url, "https://discord.com/api/webhooks/x")
-        self.assertTrue(self.profile.wrapped_email_enabled)
 
-    def test_unchecking_both_boxes_still_saves_via_the_hidden_marker(self):
+    def test_unchecking_the_boxes_still_saves_via_the_hidden_marker(self):
         self.profile.wrapped_enabled = True
-        self.profile.wrapped_email_enabled = True
         self.profile.save()
         self.client.post(reverse("save_appearance"), {"wrapped_settings_submitted": "1"})
         self.profile.refresh_from_db()
         self.assertFalse(self.profile.wrapped_enabled)
-        self.assertFalse(self.profile.wrapped_email_enabled)
+        self.assertFalse(self.profile.wrapped_monthly)
 
     def test_without_the_marker_nothing_changes(self):
         self.client.post(reverse("save_appearance"), {})
@@ -33945,3 +33943,301 @@ class TitleRatingActionsTests(TitleTilesBase):
         self.client.login(username="tileuser", password="pass12345")
         self.assertEqual(self.client.get(reverse("title_clear_rating", args=[self.movie.pk])).status_code, 405)
         self.assertEqual(self.client.get(reverse("title_season_rate", args=[self.show.pk, 1])).status_code, 405)
+
+
+class WrappedTests(TestCase):
+    """Built-in Wrapped (tracker/wrapped/, tracker/wrapped_views.py)."""
+
+    def setUp(self):
+        user = User.objects.create_user("wrappedfan", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="WrappedFan", wrapped_enabled=True)
+        self.client.login(username="wrappedfan", password="pass12345")
+        self.show = Title.objects.create(media_type=MediaType.TV, name="Wrapped Show", year=2020, runtime_minutes=40)
+        self.year = 2025
+        for day in (3, 4, 9):
+            episode = Episode.objects.create(title=self.show, season=1, episode=day, runtime_minutes=40)
+            WatchEvent.objects.create(
+                profile=self.profile, title=self.show, episode=episode,
+                watched_at=f"{self.year}-03-{day:02d}T20:00:00Z", user_rating=9,
+            )
+
+    def _fake_png(self, template_name, context, full_page=False):
+        from tracker.wrapped import render
+
+        token = "T" * 32
+        path = render.generated_dir() / f"{token}.png"
+        path.write_bytes(b"\x89PNG fake")
+        return token, path
+
+    def test_history_entries_cover_only_the_half_open_range(self):
+        from datetime import date
+
+        from tracker.wrapped.entries import history_entries
+
+        self.assertEqual(len(history_entries(self.profile, date(self.year, 3, 1), date(self.year, 4, 1))), 3)
+        self.assertEqual(len(history_entries(self.profile, date(self.year, 3, 4), date(self.year, 3, 9))), 1)
+        self.assertEqual(len(history_entries(self.profile, date(self.year, 4, 1), date(self.year, 5, 1))), 0)
+
+    def test_card_context_has_the_numbers_and_honours_hidden_stats(self):
+        from tracker.wrapped import service
+
+        self.profile.wrapped_hidden_stats = ["top_genre"]
+        context, count = service.card_context(self.profile, "monthly", self.year, 3)
+        self.assertEqual(count, 3)
+        self.assertEqual(context["stats"].total_watch_minutes, 120)
+        self.assertEqual(context["period_label"], "March 2025")
+        self.assertFalse(context["show_top_genre"])
+        self.assertTrue(context["show_total_watch_time"])
+
+    def test_pages_render_for_year_month_and_review(self):
+        for url in (
+            reverse("wrapped_year", args=[self.year]),
+            reverse("wrapped_month", args=[self.year, 3]),
+            reverse("wrapped_review", args=[self.year]),
+        ):
+            resp = self.client.get(url)
+            self.assertEqual(resp.status_code, 200, url)
+            self.assertContains(resp, "Create image")
+
+    def test_page_for_a_period_with_nothing_watched_says_so(self):
+        resp = self.client.get(reverse("wrapped_month", args=[self.year, 7]))
+        self.assertContains(resp, "Nothing watched in July 2025")
+
+    def test_frame_is_embeddable_card_html(self):
+        resp = self.client.get(reverse("wrapped_year_frame", args=[self.year]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["X-Frame-Options"], "SAMEORIGIN")
+
+    def test_month_out_of_range_is_a_404(self):
+        self.assertEqual(self.client.get(f"/wrapped/{self.year}/13/").status_code, 404)
+
+    @patch("tracker.wrapped.render.render_png")
+    def test_create_stores_a_report_and_the_image_is_served_by_token(self, mock_render):
+        mock_render.side_effect = self._fake_png
+        resp = self.client.post(reverse("wrapped_create"), {"kind": "monthly", "year": self.year, "month": 3})
+        self.assertRedirects(resp, reverse("wrapped_month", args=[self.year, 3]), fetch_redirect_response=False)
+        report = WrappedReport.objects.get(profile=self.profile)
+        self.assertEqual(report.status, "success")
+        self.assertEqual(report.period_label, "March 2025")
+        # The page's button only makes the image - no notification.
+        self.assertFalse(Notification.objects.filter(kind="wrapped_ready").exists())
+        # Public (no login needed), by the unguessable token only.
+        self.client.logout()
+        image = self.client.get(reverse("wrapped_image", args=[report.token]))
+        self.assertEqual(image.status_code, 200)
+        self.assertEqual(image["Content-Type"], "image/png")
+        self.assertEqual(self.client.get("/wrapped/img/not-a-real-token-at-all-1234.png").status_code, 404)
+
+    @patch("tracker.wrapped.render.render_png")
+    def test_generating_with_nothing_watched_is_skipped_not_failed(self, mock_render):
+        from tracker.wrapped import service
+
+        report = service.generate(self.profile, "monthly", self.year, 7)
+        self.assertEqual(report.status, "skipped_no_history")
+        mock_render.assert_not_called()
+
+    @patch("tracker.wrapped.render.render_png", side_effect=RuntimeError("no chromium"))
+    def test_a_render_failure_is_recorded_not_raised(self, _mock_render):
+        from tracker.wrapped import service
+
+        report = service.generate(self.profile, "monthly", self.year, 3)
+        self.assertEqual(report.status, "failed")
+        self.assertIn("no chromium", report.error_message)
+
+    @patch("tracker.wrapped.service._post_to_discord")
+    @patch("tracker.wrapped.render.render_png")
+    def test_delivery_notifies_and_posts_to_discord(self, mock_render, mock_discord):
+        from tracker.wrapped import service
+
+        mock_render.side_effect = self._fake_png
+        self.profile.wrapped_webhook_url = "https://discord.com/api/webhooks/1/x"
+        self.profile.save()
+        report = service.generate(self.profile, "monthly", self.year, 3)
+        self.assertTrue(report.delivered_discord)
+        mock_discord.assert_called_once()
+        note = Notification.objects.get(profile=self.profile, kind="wrapped_ready")
+        self.assertEqual(note.link, reverse("wrapped_month", args=[self.year, 3]))
+
+    @patch("tracker.wrapped.service._post_to_discord", side_effect=RuntimeError("bad webhook"))
+    @patch("tracker.wrapped.render.render_png")
+    def test_a_discord_failure_does_not_lose_the_recap(self, mock_render, _mock_discord):
+        from tracker.wrapped import service
+
+        mock_render.side_effect = self._fake_png
+        self.profile.wrapped_webhook_url = "https://discord.com/api/webhooks/1/x"
+        self.profile.save()
+        report = service.generate(self.profile, "monthly", self.year, 3)
+        self.assertEqual(report.status, "success")
+        self.assertFalse(report.delivered_discord)
+        self.assertIn("bad webhook", report.error_message)
+
+    @patch("tracker.wrapped.service.generate")
+    def test_daily_task_makes_each_due_recap(self, mock_generate):
+        from datetime import date
+
+        self.profile.wrapped_year_in_review = True
+        self.profile.save()
+        with patch("tracker.tasks.date") as mock_date:
+            mock_date.today.return_value = date(2026, 2, 10)
+            made = tasks.generate_wrapped_recaps()
+        # The month and year that just ended: Jan 2026, 2025, and 2025's review.
+        self.assertEqual(made, 3)
+        calls = {(c.args[1], c.args[2], c.args[3]) for c in mock_generate.call_args_list}
+        self.assertEqual(calls, {("monthly", 2026, 1), ("yearly", 2025, None), ("year_in_review", 2025, None)})
+
+    @patch("tracker.wrapped.service.generate")
+    def test_daily_task_skips_existing_recaps_and_profiles_with_wrapped_off(self, mock_generate):
+        from datetime import date
+
+        WrappedReport.objects.create(
+            profile=self.profile, kind="monthly", period_label="January 2026",
+            since=date(2026, 1, 1), until=date(2026, 2, 1), status="skipped_no_history",
+        )
+        with patch("tracker.tasks.date") as mock_date:
+            mock_date.today.return_value = date(2026, 2, 10)
+            tasks.generate_wrapped_recaps()
+        self.assertNotIn("monthly", {c.args[1] for c in mock_generate.call_args_list})
+        mock_generate.reset_mock()
+        self.profile.wrapped_enabled = False
+        self.profile.save()
+        with patch("tracker.tasks.date") as mock_date:
+            mock_date.today.return_value = date(2026, 2, 10)
+            self.assertEqual(tasks.generate_wrapped_recaps(), 0)
+
+    def test_settings_save_updates_the_wrapped_options(self):
+        resp = self.client.post(
+            reverse("save_appearance"),
+            {
+                "wrapped_settings_submitted": "1", "wrapped_enabled": "on", "wrapped_yearly": "on",
+                "wrapped_template": "classic", "wrapped_show_top_genre": "on",
+                "wrapped_webhook_url": "https://discord.com/api/webhooks/9/y",
+            },
+        )
+        self.assertEqual(resp.status_code, 204)
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.wrapped_yearly)
+        self.assertFalse(self.profile.wrapped_monthly)
+        self.assertEqual(self.profile.wrapped_template, "classic")
+        self.assertNotIn("top_genre", self.profile.wrapped_hidden_stats)
+        self.assertIn("longest_streak", self.profile.wrapped_hidden_stats)
+
+    def test_only_discord_webhook_addresses_are_accepted(self):
+        from tracker.wrapped.service import is_discord_webhook
+
+        self.assertTrue(is_discord_webhook("https://discord.com/api/webhooks/1/abc"))
+        self.assertTrue(is_discord_webhook("https://ptb.discord.com/api/webhooks/1/abc"))
+        for bad in (
+            "", "http://discord.com/api/webhooks/1/abc", "https://localhost/api/webhooks/1/abc",
+            "https://127.0.0.1/api/webhooks/1/abc", "https://discord.com.evil.example/api/webhooks/1/abc",
+            "https://user@discord.com/api/webhooks/1/abc", "https://discord.com:8443/api/webhooks/1/abc",
+            "https://discord.com/other/path", "https://169.254.169.254/latest/meta-data/",
+        ):
+            self.assertFalse(is_discord_webhook(bad), bad)
+
+    def test_a_non_discord_webhook_is_not_saved_and_never_contacted(self):
+        self.client.post(
+            reverse("save_appearance"),
+            {"wrapped_settings_submitted": "1", "wrapped_webhook_url": "http://169.254.169.254/x"},
+        )
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.wrapped_webhook_url, "")
+        from tracker.wrapped import service
+
+        with patch("tracker.wrapped.service.requests.post") as mock_post:
+            with self.assertRaises(ValueError):
+                service._post_to_discord("http://169.254.169.254/x", "unused.png", self.profile, "2025")
+        mock_post.assert_not_called()
+
+    def test_settings_page_has_the_wrapped_tab(self):
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, "tab === 'wrapped'")
+        self.assertContains(resp, "Card style")
+
+    def test_pages_need_a_login(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(reverse("wrapped")).status_code, 302)
+
+
+class WrappedRetentionTests(TestCase):
+    """Yearly recaps are kept for good, monthly ones for a year."""
+
+    def setUp(self):
+        from tracker.wrapped import render
+
+        user = User.objects.create_user("wrappedkeeper", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="WrappedKeeper", wrapped_enabled=True)
+        self.client.login(username="wrappedkeeper", password="pass12345")
+        self.render = render
+        self.show = Title.objects.create(media_type=MediaType.TV, name="Kept Show", year=2020, runtime_minutes=40)
+        episode = Episode.objects.create(title=self.show, season=1, episode=1, runtime_minutes=40)
+        WatchEvent.objects.create(
+            profile=self.profile, title=self.show, episode=episode, watched_at="2025-03-03T20:00:00Z"
+        )
+
+    def _report(self, kind, token, age_days, status="success", since=None):
+        from datetime import date, timedelta
+
+        from django.utils import timezone
+
+        path = self.render.generated_dir() / f"{token}.png"
+        if status == "success":
+            path.write_bytes(b"png")
+        report = WrappedReport.objects.create(
+            profile=self.profile, kind=kind, period_label="x", since=since or date(2025, 3, 1),
+            until=date(2025, 4, 1), token=token if status == "success" else None, status=status,
+        )
+        WrappedReport.objects.filter(pk=report.pk).update(created_at=timezone.now() - timedelta(days=age_days))
+        return report, path
+
+    def test_monthly_recaps_expire_after_a_year_but_yearly_ones_stay(self):
+        from tracker.wrapped import service
+
+        old_month, old_path = self._report("monthly", "M" * 30, 400)
+        fresh_month, fresh_path = self._report("monthly", "N" * 30, 100)
+        old_year, old_year_path = self._report("yearly", "Y" * 30, 900)
+        old_review, review_path = self._report("year_in_review", "R" * 30, 900)
+        self.assertEqual(service.prune_expired(), 1)
+        self.assertFalse(WrappedReport.objects.filter(pk=old_month.pk).exists())
+        self.assertFalse(old_path.exists())
+        for kept, path in ((fresh_month, fresh_path), (old_year, old_year_path), (old_review, review_path)):
+            self.assertTrue(WrappedReport.objects.filter(pk=kept.pk).exists())
+            self.assertTrue(path.exists())
+            path.unlink()
+
+    def test_failed_and_empty_notes_are_dropped_after_90_days(self):
+        from tracker.wrapped import service
+
+        old, _ = self._report("monthly", "", 120, status="skipped_no_history")
+        recent, _ = self._report("monthly", "", 10, status="failed")
+        service.prune_expired()
+        self.assertFalse(WrappedReport.objects.filter(pk=old.pk).exists())
+        self.assertTrue(WrappedReport.objects.filter(pk=recent.pk).exists())
+
+    def test_recreating_a_period_replaces_the_old_copy_and_its_file(self):
+        from tracker.wrapped import service
+
+        def fake(template_name, context, full_page=False):
+            token = ("A" if not hasattr(fake, "n") else "B") * 32
+            fake.n = 1
+            path = self.render.generated_dir() / f"{token}.png"
+            path.write_bytes(b"png")
+            return token, path
+
+        with patch("tracker.wrapped.render.render_png", side_effect=fake):
+            first = service.generate(self.profile, "yearly", 2025, deliver=False)
+            second = service.generate(self.profile, "yearly", 2025, deliver=False)
+        self.assertEqual(WrappedReport.objects.filter(profile=self.profile, kind="yearly").count(), 1)
+        self.assertFalse(WrappedReport.objects.filter(pk=first.pk).exists())
+        self.assertFalse((self.render.generated_dir() / f"{first.token}.png").exists())
+        self.assertTrue((self.render.generated_dir() / f"{second.token}.png").exists())
+        (self.render.generated_dir() / f"{second.token}.png").unlink()
+
+    def test_page_lists_saved_recaps_with_their_expiry(self):
+        _month, month_path = self._report("monthly", "M" * 30, 10)
+        _year, year_path = self._report("yearly", "Y" * 30, 10, since=__import__("datetime").date(2025, 1, 1))
+        resp = self.client.get(reverse("wrapped_year", args=[2025]))
+        self.assertContains(resp, "Saved recaps")
+        self.assertContains(resp, "Kept until")
+        self.assertContains(resp, "Monthly recaps are kept for a year")
+        month_path.unlink()
+        year_path.unlink()

@@ -1,7 +1,7 @@
 from django.contrib.auth import views as auth_views
 from django.urls import path
 
-from . import schedule_views, views
+from . import schedule_views, views, wrapped_views
 
 urlpatterns = [
     path("sw.js", views.service_worker, name="service_worker"),
@@ -167,6 +167,15 @@ urlpatterns = [
     path("lists/<int:list_id>/roulette/", views.watchlist_roulette, name="watchlist_roulette"),
     path("watchlist/surprise-me/", views.surprise_me, name="surprise_me"),
     path("stats/", views.stats, name="stats"),
+    path("wrapped/", wrapped_views.wrapped_home, name="wrapped"),
+    path("wrapped/<int:year>/", wrapped_views.wrapped_year, name="wrapped_year"),
+    path("wrapped/<int:year>/review/", wrapped_views.wrapped_review, name="wrapped_review"),
+    path("wrapped/<int:year>/<int:month>/", wrapped_views.wrapped_month, name="wrapped_month"),
+    path("wrapped/frame/<int:year>/", wrapped_views.wrapped_year_frame, name="wrapped_year_frame"),
+    path("wrapped/frame/<int:year>/review/", wrapped_views.wrapped_review_frame, name="wrapped_review_frame"),
+    path("wrapped/frame/<int:year>/<int:month>/", wrapped_views.wrapped_month_frame, name="wrapped_month_frame"),
+    path("wrapped/create/", wrapped_views.wrapped_create, name="wrapped_create"),
+    path("wrapped/img/<str:token>.png", wrapped_views.wrapped_image, name="wrapped_image"),
     path("stats/heatmap/", views.stats_heatmap, name="stats_heatmap"),
     path("stats/genre-breakdown/", views.stats_genre_breakdown, name="stats_genre_breakdown"),
     path("profile/<int:profile_id>/stats/", views.stats, name="member_stats"),

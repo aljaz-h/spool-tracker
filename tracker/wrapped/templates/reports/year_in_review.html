@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+{% include "_fonts.html" %}
+
+  /* Same palette/type as the "spool" card preset and the admin UI
+     (see app/templates/cards/spool.html, app/admin/static/admin.css) -
+     this report is a much longer page, not a different brand. */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 1080px;
+    font-family: "Public Sans", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #14161c;
+    color: #eceef2;
+  }
+  .page { width: 1080px; padding-bottom: 100px; }
+
+  .display {
+    font-family: "Bebas Neue", sans-serif;
+    font-weight: 400;
+    text-transform: uppercase;
+  }
+  .mono { font-family: "JetBrains Mono", monospace; }
+
+  /* ---------------- Hero ---------------- */
+  .hero {
+    padding: 100px 80px 70px;
+    text-align: center;
+    background: radial-gradient(ellipse 900px 600px at 50% 0%, rgba(232, 166, 60, 0.16) 0%, rgba(232, 166, 60, 0) 70%), #14161c;
+  }
+  .hero .eyebrow {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 24px;
+    letter-spacing: 0.15em;
+    color: #9195a6;
+  }
+  .hero .year-badge {
+    display: inline-block;
+    margin-top: 28px;
+    padding: 6px 22px;
+    border: 1px solid #e8a63c;
+    border-radius: 999px;
+    color: #e8a63c;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 22px;
+    letter-spacing: 0.1em;
+  }
+  .hero .hero-title {
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 148px;
+    line-height: 0.92;
+    letter-spacing: 0.01em;
+    color: #e8a63c;
+    text-shadow: 0 0 70px rgba(232, 166, 60, 0.45);
+    margin-top: 18px;
+  }
+  .hero .directed-by {
+    margin-top: 36px;
+    font-size: 24px;
+    letter-spacing: 0.08em;
+    color: #9195a6;
+    text-transform: uppercase;
+  }
+  .hero .profile-name {
+    display: block;
+    margin-top: 8px;
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 56px;
+    color: #eceef2;
+    letter-spacing: 0.02em;
+  }
+  .hero-stats-row {
+    margin-top: 56px;
+    display: flex;
+    justify-content: center;
+    gap: 56px;
+  }
+  .hero-stat .num {
+    font-family: "JetBrains Mono", monospace;
+    font-weight: 700;
+    font-size: 44px;
+    color: #eceef2;
+  }
+  .hero-stat .label {
+    margin-top: 4px;
+    font-size: 16px;
+    color: #9195a6;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  /* ---------------- Moment cards (first/last play) ---------------- */
+  .moment-card {
+    margin: 0 80px 60px;
+    padding: 32px 36px;
+    background: #1b1e26;
+    border: 1px solid #2b2f3b;
+    border-left: 4px solid #e8a63c;
+    border-radius: 16px;
+  }
+  .moment-label {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 16px;
+    letter-spacing: 0.08em;
+    color: #9195a6;
+  }
+  .moment-title {
+    margin-top: 10px;
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 44px;
+    color: #eceef2;
+    letter-spacing: 0.01em;
+  }
+  .moment-meta {
+    margin-top: 8px;
+    font-size: 16px;
+    color: #9195a6;
+  }
+  .moment-meta b { color: #eceef2; }
+
+  /* ---------------- Section shell ---------------- */
+  .section { padding: 70px 80px 10px; border-top: 1px solid #2b2f3b; }
+  .section-title {
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 30px;
+    letter-spacing: 0.1em;
+    color: #e8a63c;
+  }
+  .section-headline {
+    margin-top: 18px;
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 52px;
+    color: #eceef2;
+    line-height: 1.05;
+  }
+  .block-title {
+    font-family: "Bebas Neue", sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 24px;
+    color: #9195a6;
+    margin-bottom: 20px;
+  }
+  .block-sub {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 14px;
+    color: #5c606f;
+    text-transform: none;
+    letter-spacing: normal;
+    margin-left: 10px;
+  }
+
+  /* ---------------- Activity chart ---------------- */
+  .chart-row {
+    margin-top: 48px;
+    display: flex;
+    gap: 32px;
+  }
+  .chart-panel {
+    flex: 1;
+    background: #1b1e26;
+    border: 1px solid #2b2f3b;
+    border-radius: 16px;
+    padding: 32px 28px 20px;
+  }
+  .bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    height: 180px;
+  }
+  .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+  .bar { width: 100%; min-height: 3px; background: linear-gradient(180deg, #f0c169, #e8a63c); border-radius: 4px 4px 0 0; }
+  .bar-label { margin-top: 10px; font-family: "JetBrains Mono", monospace; font-size: 13px; color: #5c606f; }
+
+  .chart-stats {
+    width: 260px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 28px;
+  }
+  .stat-pair .num { font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 36px; color: #e8a63c; line-height: 1; }
+  .stat-pair .label { margin-top: 4px; font-size: 14px; color: #9195a6; text-transform: uppercase; letter-spacing: 0.06em; }
+  .mini-stats { display: flex; gap: 20px; font-size: 13px; color: #9195a6; margin-top: 10px; }
+  .mini-stats b { font-family: "JetBrains Mono", monospace; color: #eceef2; }
+
+  .activity-footnote { margin-top: 20px; font-size: 15px; color: #9195a6; }
+  .activity-footnote b { color: #eceef2; font-family: "JetBrains Mono", monospace; }
+
+  /* ---------------- Ranked list (Most Played) ---------------- */
+  .ranked-block { margin-top: 60px; }
+  .ranked-row {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 16px 0;
+    border-bottom: 1px solid #2b2f3b;
+  }
+  .ranked-row .rank {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    background: #232732;
+    color: #e8a63c;
+    font-family: "JetBrains Mono", monospace;
+    font-weight: 700;
+    font-size: 15px;
+    display: flex; align-items: center; justify-content: center;
+    flex: none;
+  }
+  .ranked-row .rank-name { flex: 1; font-size: 19px; font-weight: 600; color: #eceef2; }
+  .ranked-row .rank-meta { font-family: "JetBrains Mono", monospace; font-size: 14px; color: #9195a6; }
+
+  /* ---------------- Pills (networks/studios) ---------------- */
+  .pill-block { margin-top: 60px; }
+  .pills { display: flex; flex-wrap: wrap; gap: 12px; }
+  .pill {
+    padding: 10px 18px;
+    background: #1b1e26;
+    border: 1px solid #2b2f3b;
+    border-radius: 999px;
+    font-size: 16px;
+    font-weight: 600;
+    color: #eceef2;
+  }
+  .pill span { font-family: "JetBrains Mono", monospace; color: #e8a63c; margin-left: 8px; }
+
+  /* ---------------- Genre bar ---------------- */
+  .genre-block { margin-top: 60px; }
+  .genre-bar { display: flex; width: 100%; height: 24px; border-radius: 6px; overflow: hidden; background: #1b1e26; border: 1px solid #2b2f3b; }
+  .genre-legend { display: flex; flex-wrap: wrap; gap: 10px 26px; margin-top: 22px; font-size: 15px; color: #9195a6; }
+  .genre-legend .dot { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 8px; vertical-align: middle; }
+
+  /* ---------------- Countries ---------------- */
+  .country-block { margin-top: 60px; }
+  .country-row { display: flex; align-items: center; gap: 16px; padding: 10px 0; }
+  .country-name { width: 190px; flex: none; font-size: 16px; color: #eceef2; }
+  .country-bar-track { flex: 1; height: 10px; background: #1b1e26; border-radius: 5px; overflow: hidden; }
+  .country-bar-fill { height: 100%; background: linear-gradient(90deg, #8a641f, #e8a63c); border-radius: 5px; }
+  .country-count { width: 36px; text-align: right; font-family: "JetBrains Mono", monospace; color: #9195a6; font-size: 14px; }
+
+  /* ---------------- Cast & Crew ---------------- */
+  .cc-grid { display: flex; gap: 60px; margin-top: 48px; }
+  .cc-col { flex: 1; }
+  .cc-col-full { margin-top: 60px; }
+  .cc-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 0;
+    border-bottom: 1px solid #2b2f3b;
+    font-size: 17px;
+    color: #eceef2;
+  }
+  .cc-row .rank {
+    width: 26px; height: 26px;
+    border-radius: 7px;
+    background: #232732;
+    color: #8b85d6;
+    font-family: "JetBrains Mono", monospace;
+    font-weight: 700;
+    font-size: 13px;
+    display: flex; align-items: center; justify-content: center;
+    flex: none;
+  }
+  .cc-row .cc-count { margin-left: auto; font-family: "JetBrains Mono", monospace; color: #9195a6; font-size: 14px; }
+
+  /* ---------------- Footer ---------------- */
+  .footer-thanks {
+    margin-top: 90px;
+    padding: 90px 80px 70px;
+    text-align: center;
+    background: radial-gradient(ellipse 800px 400px at 50% 100%, rgba(232, 166, 60, 0.12) 0%, rgba(232, 166, 60, 0) 70%), #14161c;
+    border-top: 1px solid #2b2f3b;
+  }
+  .thanks-title {
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 96px;
+    color: #eceef2;
+    letter-spacing: 0.02em;
+  }
+  .thanks-sub { margin-top: 20px; font-size: 20px; color: #9195a6; line-height: 1.5; }
+  .footer-brand {
+    margin-top: 48px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 20px;
+    color: #5c606f;
+    letter-spacing: 0.05em;
+  }
+</style>
+</head>
+<body>
+{% set genre_colors = ['#e8a63c', '#3fa9a0', '#8b85d6', '#fa5a3d', '#6fb7ce', '#5bd58a', '#c98f34', '#b8b4e8'] %}
+{% macro section(sec) %}
+{% if sec.total_plays > 0 %}
+<div class="section">
+  <div class="section-title">{{ sec.label|upper }}</div>
+  <div class="section-headline">{{ sec.total_hours_display }} hours of {{ sec.total_titles }} {{ sec.label }}</div>
+
+  <div class="chart-row">
+    <div class="chart-panel">
+      {% set max_plays = sec.monthly_activity|map(attribute='plays')|max %}
+      <div class="bars">
+        {% for point in sec.monthly_activity %}
+        <div class="bar-col">
+          <div class="bar" style="height: {{ ((point.plays / (max_plays or 1)) * 100)|round(1) }}%"></div>
+          <div class="bar-label">{{ point.label }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="chart-stats">
+      <div>
+        <div class="stat-pair"><div class="num">{{ sec.total_hours_display }}</div><div class="label">Hours</div></div>
+        <div class="mini-stats"><div>Per month <b>{{ sec.avg_hours_per_month }}</b></div></div>
+      </div>
+      <div>
+        <div class="stat-pair"><div class="num">{{ sec.total_plays }}</div><div class="label">Plays</div></div>
+        <div class="mini-stats"><div>Per month <b>{{ sec.avg_plays_per_month }}</b></div></div>
+      </div>
+    </div>
+  </div>
+
+  {% if sec.most_played %}
+  <div class="ranked-block">
+    <div class="block-title">Most Played {{ sec.label }}</div>
+    {% for t in sec.most_played %}
+    <div class="ranked-row">
+      <div class="rank">{{ loop.index }}</div>
+      <div class="rank-name">{{ t.title }}</div>
+      <div class="rank-meta">{{ t.play_count }} play{{ 's' if t.play_count != 1 }} &middot; {{ t.hours_display }}h</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if sec.most_watched_secondary %}
+  <div class="pill-block">
+    <div class="block-title">{{ sec.secondary_label }}</div>
+    <div class="pills">
+      {% for n in sec.most_watched_secondary %}
+      <div class="pill">{{ n.name }}<span>{{ n.count }}</span></div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if sec.most_watched_genres %}
+  {% set genre_total = sec.most_watched_genres|sum(attribute='count') %}
+  <div class="genre-block">
+    <div class="block-title">Most Watched {{ sec.label }} Genres</div>
+    <div class="genre-bar">
+      {% for g in sec.most_watched_genres %}
+      <div style="width: {{ ((g.count / genre_total) * 100)|round(2) }}%; background: {{ genre_colors[loop.index0 % genre_colors|length] }}"></div>
+      {% endfor %}
+    </div>
+    <div class="genre-legend">
+      {% for g in sec.most_watched_genres %}
+      <div><span class="dot" style="background:{{ genre_colors[loop.index0 % genre_colors|length] }}"></span>{{ g.name }} ({{ g.count }})</div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if sec.most_watched_countries %}
+  {% set top_country_count = sec.most_watched_countries[0].count %}
+  <div class="country-block">
+    <div class="block-title">Most Watched {{ sec.label }} Countries<span class="block-sub">{{ sec.country_count }} total</span></div>
+    {% for c in sec.most_watched_countries %}
+    <div class="country-row">
+      <div class="country-name">{{ c.name }}</div>
+      <div class="country-bar-track"><div class="country-bar-fill" style="width: {{ ((c.count / top_country_count) * 100)|round(1) }}%"></div></div>
+      <div class="country-count">{{ c.count }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+{% endmacro %}
+
+<div class="page">
+  <div class="hero">
+    <div class="eyebrow">SPOOL WRAPPED</div>
+    <div class="year-badge">{{ stats.year }}</div>
+    <div class="hero-title">Year<br>in Review</div>
+    <div class="directed-by">Directed by<span class="profile-name">{{ profile_display_name|upper }}</span></div>
+    <div class="hero-stats-row">
+      <div class="hero-stat"><div class="num">{{ stats.total_hours_display }}</div><div class="label">Hours</div></div>
+      <div class="hero-stat"><div class="num">{{ stats.total_titles }}</div><div class="label">Titles</div></div>
+      <div class="hero-stat"><div class="num">{{ stats.movies.total_titles }}</div><div class="label">Movies</div></div>
+      <div class="hero-stat"><div class="num">{{ stats.shows.total_titles }}</div><div class="label">Shows</div></div>
+    </div>
+  </div>
+
+  {% if stats.first_play %}
+  <div class="moment-card">
+    <div class="moment-label">FIRST PLAY OF {{ stats.year }}</div>
+    <div class="moment-title">{{ stats.first_play.title }}</div>
+    <div class="moment-meta">Watched at <b>{{ stats.first_play.watched_at_display }}</b> &middot; Play count in {{ stats.year }}: <b>{{ stats.first_play.play_count_in_period }}</b></div>
+  </div>
+  {% endif %}
+
+  {{ section(stats.shows) }}
+  {{ section(stats.movies) }}
+
+  {% if stats.most_watched_cast or stats.most_watched_directors or stats.most_watched_writers %}
+  <div class="section">
+    <div class="section-title">CAST &amp; CREW</div>
+    <div class="cc-grid">
+      {% if stats.most_watched_cast %}
+      <div class="cc-col">
+        <div class="block-title">Most Watched Cast</div>
+        {% for n in stats.most_watched_cast %}
+        <div class="cc-row"><span class="rank">{{ loop.index }}</span>{{ n.name }}<span class="cc-count">{{ n.count }}</span></div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if stats.most_watched_directors %}
+      <div class="cc-col">
+        <div class="block-title">Most Watched Directors</div>
+        {% for n in stats.most_watched_directors %}
+        <div class="cc-row"><span class="rank">{{ loop.index }}</span>{{ n.name }}<span class="cc-count">{{ n.count }}</span></div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% if stats.most_watched_writers %}
+    <div class="cc-col-full">
+      <div class="block-title">Most Watched Writers</div>
+      {% for n in stats.most_watched_writers %}
+      <div class="cc-row"><span class="rank">{{ loop.index }}</span>{{ n.name }}<span class="cc-count">{{ n.count }}</span></div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if stats.last_play %}
+  <div class="section" style="border-top: 1px solid #2b2f3b; padding-bottom: 70px;">
+    <div class="moment-card" style="margin: 0;">
+      <div class="moment-label">LAST PLAY OF {{ stats.year }}</div>
+      <div class="moment-title">{{ stats.last_play.title }}</div>
+      <div class="moment-meta">Watched at <b>{{ stats.last_play.watched_at_display }}</b> &middot; Play count in {{ stats.year }}: <b>{{ stats.last_play.play_count_in_period }}</b></div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="footer-thanks">
+    <div class="thanks-title">Thanks.</div>
+    <div class="thanks-sub">
+      You did an epic job directing {{ stats.year }}.<br>
+      Keep your journey going by watching one of these popular shows or movies.
+    </div>
+    <div class="footer-brand">Spool Wrapped</div>
+  </div>
+</div>
+</body>
+</html>
