@@ -10,7 +10,7 @@ from datetime import timedelta
 from functools import reduce
 
 from django.conf import settings
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Max, Q, Sum
 from django.db.models import Value
 from django.db.models.functions import Coalesce, ExtractDay, ExtractHour, ExtractMonth, Replace
 from django.template.defaultfilters import time as django_time_filter
@@ -704,21 +704,20 @@ def _recent_titles_for_recommendations(profile, media_type, sample_size):
     id - the DB half of recommended_for_you()'s history-based path,
     split out so recommended_for_you_batch() can run it standalone, up
     front, before any TMDB call is issued."""
-    recent_titles = []
-    seen_title_ids = set()
-    for event in (
+    # The newest sample_size distinct titles, worked out in the database -
+    # looping over the whole watch history and stopping early still loaded
+    # every row (and its title) first.
+    newest = (
         WatchEvent.objects.filter(
             profile=profile, title__media_type=media_type, title__external_ids__tmdb__isnull=False
         )
-        .select_related("title")
-        .order_by("-watched_at")
-    ):
-        if event.title_id not in seen_title_ids:
-            seen_title_ids.add(event.title_id)
-            recent_titles.append(event.title)
-        if len(recent_titles) >= sample_size:
-            break
-    return recent_titles
+        .values("title_id")
+        .annotate(last_watched=Max("watched_at"))
+        .order_by("-last_watched", "-title_id")[:sample_size]
+    )
+    title_ids = [row["title_id"] for row in newest]
+    titles_by_id = Title.objects.in_bulk(title_ids)
+    return [titles_by_id[title_id] for title_id in title_ids if title_id in titles_by_id]
 
 
 def _merge_similar_results(recent_titles, per_title_results, limit):
@@ -1068,6 +1067,19 @@ def recently_watched(profile, media_types, limit=12):
     return events
 
 
+# Columns the household feeds never read: the secrets and settings on the
+# profile row (TOTP secret and backup codes, push URLs, webhook, preferences)
+# and the large JSON lists on the title row (cast, crew). A feed shows a
+# name, an avatar, a poster and a caption, so these are left in the database
+# instead of travelling with every row.
+_FEED_DEFERRED = (
+    "profile__totp_secret", "profile__totp_backup_codes", "profile__encrypted_push_notification_urls",
+    "profile__wrapped_webhook_url", "profile__notification_prefs", "profile__wrapped_hidden_stats",
+    "profile__preferred_genre_ids", "profile__preferred_provider_ids", "profile__bio",
+    "title__cast", "title__cast_genders", "title__directors", "title__writers",
+)
+
+
 def social_activity(profile, limit=12):
     """Dashboard's "Social Activity" row - the last `limit` watch events
     from other profiles in the household (share_activity respecting,
@@ -1082,6 +1094,7 @@ def social_activity(profile, limit=12):
         WatchEvent.objects.filter(profile__share_activity=True)
         .exclude(profile=profile)
         .select_related("title", "episode", "profile")
+        .defer(*_FEED_DEFERRED)
         .prefetch_related("title__ratings")
         .order_by("-watched_at")[:limit]
     )
@@ -2149,6 +2162,7 @@ def activity_feed(limit=30):
     for event in (
         WatchEvent.objects.filter(profile__share_activity=True)
         .select_related("profile", "title", "episode")
+        .defer(*_FEED_DEFERRED)
         .order_by("-watched_at")[:limit]
     ):
         items.append(

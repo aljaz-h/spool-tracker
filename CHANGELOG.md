@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.176.0] - 2026-11-01
+
+Run `python manage.py migrate` (migration 0089 adds an index; nothing else changes in the database).
+
+### Changed
+
+- Faster household feeds. The Activity page and the Dashboard's Social Activity row sort every shared watch by time, and the only index started with the profile, so Postgres sorted the whole table to return a dozen rows. `WatchEvent.watched_at` now has its own index (migration 0089), which lets those queries read the newest rows and stop.
+- The same feeds no longer read columns they never use: the profile's TOTP secret and backup codes, push URLs, webhook, preferences and bio, and the title's large cast, crew and gender lists. This makes each row lighter and keeps secrets out of feed queries.
+- The "recently watched titles" lookup behind Recommended for you now asks the database for the newest N distinct titles (two queries) instead of loading a profile's entire watch history for that media type and stopping part-way through the loop.
+
 ## [0.175.3] - 2026-11-01
 
 ### Security

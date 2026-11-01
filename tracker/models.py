@@ -696,6 +696,10 @@ class WatchEvent(models.Model):
             # detail page), not covered by the index above since watched_at
             # isn't a leading/matching column for that query.
             models.Index(fields=["profile", "title"]),
+            # watched_at on its own - the household feeds ("the newest 12
+            # watches by anyone who shares") sort every profile's events, so
+            # without it Postgres sorts the whole table to return a dozen rows.
+            models.Index(fields=["watched_at"], name="watchevent_watched_at_idx"),
         ]
 
     def __str__(self):

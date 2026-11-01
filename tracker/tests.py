@@ -24556,6 +24556,74 @@ class SkeletonPlaceholderTests(TestCase):
         self.assertIn("@media (prefers-reduced-motion: no-preference) {\n  .skel::after", block.replace("\r\n", "\n"))
 
 
+class FeedAndRecommendationQueryTests(TestCase):
+    """The slow-query fixes: the household feeds leave secrets and big JSON
+    columns in the database, WatchEvent.watched_at has its own index, and the
+    "recently watched titles" lookup no longer scans the whole history."""
+
+    def setUp(self):
+        self.me = Profile.objects.create(user=User.objects.create_user("feedme", password="pass12345"), display_name="Me")
+        self.other = Profile.objects.create(
+            user=User.objects.create_user("feedother", password="pass12345"), display_name="Other", share_activity=True,
+            totp_secret="SECRETSECRET", bio="hello",
+        )
+
+    def _title(self, name, tmdb_id=None, media_type=MediaType.MOVIE):
+        return Title.objects.create(
+            media_type=media_type, name=name, year=2020, cast=["A", "B"], directors=["D"],
+            external_ids={"tmdb": str(tmdb_id)} if tmdb_id else {},
+        )
+
+    def test_watched_at_has_its_own_index(self):
+        names = {i.name for i in WatchEvent._meta.indexes}
+        self.assertIn("watchevent_watched_at_idx", names)
+        index = next(i for i in WatchEvent._meta.indexes if i.name == "watchevent_watched_at_idx")
+        self.assertEqual(index.fields, ["watched_at"])
+
+    def test_social_activity_leaves_secrets_and_cast_out_without_extra_queries(self):
+        for n in range(3):
+            WatchEvent.objects.create(profile=self.other, title=self._title(f"T{n}", n + 1), watched_at=f"2024-01-0{n + 1}T00:00:00Z")
+        with self.assertNumQueries(2):  # the events (joined), the titles' ratings - nothing per row
+            events = selectors.social_activity(self.me)
+            for event in events:
+                self.assertTrue(event.profile.display_name and event.title.name and event.title.poster_url is not None)
+        profile_deferred = events[0].profile.get_deferred_fields()
+        self.assertIn("totp_secret", profile_deferred)
+        self.assertIn("totp_backup_codes", profile_deferred)
+        self.assertIn("encrypted_push_notification_urls", profile_deferred)
+        self.assertIn("cast", events[0].title.get_deferred_fields())
+        self.assertNotIn("display_name", profile_deferred)
+        self.assertNotIn("avatar_color", profile_deferred)
+
+    def test_activity_feed_still_names_the_watcher_and_title(self):
+        WatchEvent.objects.create(profile=self.other, title=self._title("Fathom", 5), watched_at="2024-01-01T00:00:00Z")
+        feed = selectors.activity_feed(limit=5)
+        self.assertEqual([(i["profile"].display_name, i["title"].name) for i in feed], [("Other", "Fathom")])
+        self.assertIn("totp_secret", feed[0]["profile"].get_deferred_fields())
+
+    def test_recent_titles_are_the_newest_distinct_ones_of_that_type_with_a_tmdb_id(self):
+        a, b, c = self._title("A", 1), self._title("B", 2), self._title("C", 3)
+        no_id = self._title("NoId")
+        show = self._title("Show", 9, media_type=MediaType.TV)
+        times = [(a, "2024-01-01"), (b, "2024-01-02"), (a, "2024-01-03"), (no_id, "2024-01-04"), (show, "2024-01-05"), (c, "2024-01-02")]
+        for title, day in times:
+            WatchEvent.objects.create(profile=self.me, title=title, watched_at=f"{day}T10:00:00Z")
+        WatchEvent.objects.create(profile=self.other, title=self._title("Theirs", 7), watched_at="2024-02-01T00:00:00Z")
+        titles = selectors._recent_titles_for_recommendations(self.me, MediaType.MOVIE, sample_size=2)
+        self.assertEqual([t.name for t in titles], ["A", "C"])  # A rewatched newest; B/C tie on the day, newer id first
+        every = selectors._recent_titles_for_recommendations(self.me, MediaType.MOVIE, sample_size=10)
+        self.assertEqual([t.name for t in every], ["A", "C", "B"])
+        self.assertEqual([t.name for t in selectors._recent_titles_for_recommendations(self.me, MediaType.TV, sample_size=5)], ["Show"])
+
+    def test_recent_titles_cost_two_queries_however_long_the_history(self):
+        for n in range(30):
+            WatchEvent.objects.create(profile=self.me, title=self._title(f"T{n}", 100 + n), watched_at=f"2024-01-{n + 1:02d}T00:00:00Z")
+        with self.assertNumQueries(2):
+            titles = selectors._recent_titles_for_recommendations(self.me, MediaType.MOVIE, sample_size=5)
+        self.assertEqual(len(titles), 5)
+        self.assertEqual(titles[0].name, "T29")
+
+
 class BadgeColorClassesFilterTests(TestCase):
     """tracker_extras.badge_color_classes - maps tmdb.STATUS_BADGES' own
     "color" key to the pill classes title_detail.html's status badge (the
