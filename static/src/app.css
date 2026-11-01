@@ -2540,6 +2540,9 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .wp-btn:hover {
     filter: brightness(1.2);
   }
+  .wp-btn[hidden] {
+    display: none;
+  }
   .wp-btn:disabled {
     opacity: 0.6;
     cursor: wait;
@@ -2775,8 +2778,24 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     font-size: 0.75rem;
     color: var(--color-ink-dim);
   }
-  .wp-saved-actions a:hover {
+  .wp-saved-actions a:hover,
+  .wp-saved-actions button:hover {
     color: var(--color-base-content);
+  }
+  .wp-saved-icons {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .wp-saved-icons button {
+    background: none;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    cursor: pointer;
+  }
+  .wp-saved-icons button[hidden] {
+    display: none;
   }
   .wp-export .yr {
     max-width: 77.5rem;
@@ -3000,6 +3019,13 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .yr-tiles-4 {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
+  /* Big numbers fit their box: the font size is capped by the tile's own
+     width divided by how many characters the number has (--n, set in the
+     template), so "1,573" and "444d 21h" never run past the border. */
+  .yr-tile,
+  .yr-bigtile {
+    container-type: inline-size;
+  }
   .yr-tile {
     background: color-mix(in oklab, var(--color-base-100) 70%, transparent);
     backdrop-filter: blur(6px);
@@ -3015,9 +3041,9 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     color: var(--color-ink-dim);
   }
   .yr-tile dd {
-    font-size: clamp(2rem, 3vw, 2.5rem);
+    font-size: min(2.5rem, calc(100cqw / (var(--n, 5) * 0.64)));
     font-weight: 800;
-    line-height: 1.05;
+    line-height: 1.1;
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.02em;
     white-space: nowrap;
@@ -3027,9 +3053,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     .yr-tiles-4 {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-    .yr-tile dd {
-      font-size: 2.25rem;
-    }
+
     .yr-cover-inner {
       padding: 2rem 1.25rem;
     }
@@ -3158,7 +3182,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     color: var(--color-ink-faint);
   }
   .yr-bigtile dd {
-    font-size: 2.75rem;
+    font-size: min(2.75rem, calc(100cqw / (var(--n, 5) * 0.64)));
     font-weight: 800;
     line-height: 1.05;
     letter-spacing: -0.02em;

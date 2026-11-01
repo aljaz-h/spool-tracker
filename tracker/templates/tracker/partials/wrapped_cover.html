@@ -20,7 +20,7 @@
         </div>
       {% endif %}
       <dl class="yr-tiles{% if tiles|length == 4 %} yr-tiles-4{% endif %}">
-        {% for label, value in tiles %}<div class="yr-tile"><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endfor %}
+        {% for label, value in tiles %}<div class="yr-tile"><dt>{{ label }}</dt><dd style="--n: {{ value|length }}">{{ value }}</dd></div>{% endfor %}
       </dl>
     </div>
     <div class="yr-fan" aria-hidden="true">

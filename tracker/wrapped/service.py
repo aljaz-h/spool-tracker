@@ -43,12 +43,16 @@ def year_range(year):
 
 
 def period_label(kind, year, month=None):
+    if kind == WrappedReport.Kind.ALL_TIME:
+        return "All Time"
     if kind == WrappedReport.Kind.MONTHLY and month:
         return f"{calendar.month_name[month]} {year}"
     return str(year)
 
 
 def period_bounds(kind, year, month=None):
+    if kind == WrappedReport.Kind.ALL_TIME:
+        return date(1970, 1, 1), date.today() + timedelta(days=1)
     if kind == WrappedReport.Kind.MONTHLY:
         return month_range(year, month)
     return year_range(year)
@@ -222,7 +226,25 @@ def parse_options(query):
     return (fmt if fmt in render.FORMATS else render.DEFAULT_FORMAT), hide
 
 
+def image_filename(report):
+    """What a downloaded recap is called: the kind, the period and when it
+    was made, e.g. spool-wrapped-monthly-2026-10-20261101-1325.png."""
+    Kind = WrappedReport.Kind
+    slug = {
+        Kind.MONTHLY: "monthly", Kind.YEARLY: "yearly", Kind.YEAR_IN_REVIEW: "year-in-review", Kind.ALL_TIME: "all-time",
+    }.get(report.kind, str(report.kind))
+    period = ""
+    if report.kind == Kind.MONTHLY:
+        period = f"{report.since:%Y-%m}"
+    elif report.kind in (Kind.YEARLY, Kind.YEAR_IN_REVIEW):
+        period = str(report.since.year)
+    stamp = timezone.localtime(report.created_at).strftime("%Y%m%d-%H%M")
+    return "-".join(["spool-wrapped", slug] + ([period] if period else []) + [stamp]) + ".png"
+
+
 def page_url(kind, year, month=None):
+    if kind == WrappedReport.Kind.ALL_TIME:
+        return reverse("wrapped_all_time")
     if kind == WrappedReport.Kind.MONTHLY:
         return reverse("wrapped_month", args=[year, month])
     if kind == WrappedReport.Kind.YEAR_IN_REVIEW:
@@ -336,6 +358,7 @@ def saved_reports(profile):
         {
             "report": r,
             "url": page_url(r.kind, r.since.year, r.since.month),
+            "filename": image_filename(r) if r.token else "",
             "expires": r.created_at + MONTHLY_KEEP if r.kind == WrappedReport.Kind.MONTHLY else None,
         }
         for r in reports
@@ -350,8 +373,29 @@ def generate(profile, kind, year, month=None, deliver=True, fmt=render.DEFAULT_F
     since, until = period_bounds(kind, year, month)
     label = period_label(kind, year, month)
     review = kind == WrappedReport.Kind.YEAR_IN_REVIEW
-    template_name = "" if review else (fmt if fmt in render.FORMATS else render.DEFAULT_FORMAT)
+    all_time = kind == WrappedReport.Kind.ALL_TIME
+    template_name = "" if (review or all_time) else (fmt if fmt in render.FORMATS else render.DEFAULT_FORMAT)
     base = dict(profile=profile, kind=kind, period_label=label, since=since, until=until, template_name=template_name)
+
+    if all_time:
+        # One long page, like the Year in Review, drawn by the browser; the
+        # image is a screenshot of it. Only the latest copy is kept.
+        context = all_time_context(profile)
+        if not context["stats"].has_data:
+            return WrappedReport.objects.create(**base, status=WrappedReport.Status.SKIPPED)
+        try:
+            from . import export
+
+            token, _path = export.render_review_png(context, export.ALL_TIME_BODY)
+        except Exception as exc:
+            logger.exception("All Time image failed for profile %s", profile.id)
+            return WrappedReport.objects.create(
+                **base, status=WrappedReport.Status.FAILED, error_message=str(exc)[:500]
+            )
+        remove_reports(
+            WrappedReport.objects.filter(profile=profile, kind=kind, status=WrappedReport.Status.SUCCESS)
+        )
+        return WrappedReport.objects.create(**base, token=token, status=WrappedReport.Status.SUCCESS)
 
     if review:
         context, count = year_in_review_context(profile, year)

@@ -52,7 +52,10 @@
             </a>
             <div class="wp-saved-actions">
               <a href="{{ item.url }}">Open</a>
-              {% if item.report.token %}<a href="{% url 'wrapped_image' item.report.token %}" download="spool-wrapped-{{ item.report.period_label|slugify }}.png" aria-label="Download {{ item.report.period_label }}">{% icon "download" "w-3.5 h-3.5" %}</a>{% endif %}
+              {% if item.report.token %}<span class="wp-saved-icons">
+                <button type="button" data-copy-url="{% url 'wrapped_image' item.report.token %}" aria-label="Copy {{ item.report.period_label }} image" title="Copy image">{% icon "copy" "w-3.5 h-3.5" %}</button>
+                <a href="{% url 'wrapped_image' item.report.token %}" download="{{ item.filename }}" aria-label="Download {{ item.report.period_label }}" title="Download">{% icon "download" "w-3.5 h-3.5" %}</a>
+              </span>{% endif %}
             </div>
             {% if item.expires %}<small>Kept until {{ item.expires|date:"M j, Y" }}</small>{% endif %}
           </div>

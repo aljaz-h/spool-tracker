@@ -762,6 +762,7 @@ class WrappedReport(models.Model):
         MONTHLY = "monthly", "Monthly"
         YEARLY = "yearly", "Yearly"
         YEAR_IN_REVIEW = "year_in_review", "Year in Review"
+        ALL_TIME = "all_time", "All Time"
 
     class Status(models.TextChoices):
         SUCCESS = "success", "Success"

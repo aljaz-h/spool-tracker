@@ -6,9 +6,10 @@ from datetime import date
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.http import FileResponse, Http404, HttpResponse
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils.text import slugify
 from django.views.decorators.http import require_POST
 
 from .models import Profile, WatchEvent, WrappedReport
@@ -74,6 +75,7 @@ def _page(request, kind, year, month=None):
                 **service.year_in_review_page_context(profile, year),
                 "label": label,
                 "report": report,
+                "filename": service.image_filename(report) if report else "",
                 "saved": service.saved_reports(profile),
                 "create_fields": {"kind": kind, "year": year, "month": ""},
             },
@@ -102,6 +104,7 @@ def _page(request, kind, year, month=None):
             "has_history": bool(count),
             "frame_url": frame_url,
             "report": report,
+            "filename": service.image_filename(report) if report else "",
             "is_review": kind == Kind.YEAR_IN_REVIEW,
             "create_fields": {"kind": kind, "year": year, "month": month or "", "fmt": fmt, "hide": hide},
             "saved": service.saved_reports(profile),
@@ -122,19 +125,30 @@ def wrapped_all_time(request):
     """Everything you've ever watched, on one page - not tied to a period."""
     profile = _profile_or_404(request)
     today = date.today()
+    report = (
+        WrappedReport.objects.filter(profile=profile, kind=Kind.ALL_TIME, status=WrappedReport.Status.SUCCESS)
+        .order_by("-created_at")
+        .first()
+    )
+    context = service.all_time_context(profile)
     return render(
         request,
         "tracker/wrapped_all_time.html",
         {
             "profile": profile,
             "kind": "all_time",
+            "has_history": context["stats"].has_data,
+            "label": "All Time",
+            "report": report,
+            "filename": service.image_filename(report) if report and report.token else "",
+            "create_fields": {"kind": Kind.ALL_TIME, "year": "", "month": ""},
             "year": today.year,
             "month": today.month,
             "years": _years_for(profile),
             "months": [],
             "is_review": False,
             "is_all_time": True,
-            **service.all_time_context(profile),
+            **context,
         },
     )
 
@@ -188,7 +202,7 @@ def wrapped_create(request):
     if kind not in Kind.values:
         raise Http404
     try:
-        year = int(request.POST.get("year", ""))
+        year = 0 if kind == Kind.ALL_TIME else int(request.POST.get("year", ""))
         month = int(request.POST["month"]) if kind == Kind.MONTHLY else None
     except (ValueError, KeyError):
         raise Http404
@@ -196,6 +210,22 @@ def wrapped_create(request):
         raise Http404
     fmt, hidden = service.parse_options(request.POST)
     report = service.generate(profile, kind, year, month, deliver=False, fmt=fmt, hidden=hidden)
+    if "application/json" in request.headers.get("Accept", ""):
+        # The page's Download / Copy buttons make the image in the background.
+        if report.status == WrappedReport.Status.SUCCESS and report.token:
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "url": reverse("wrapped_image", args=[report.token]),
+                    "name": service.image_filename(report),
+                }
+            )
+        message = (
+            "Nothing watched in that period yet."
+            if report.status == WrappedReport.Status.SKIPPED
+            else "Couldn't create the image. Try again in a moment."
+        )
+        return JsonResponse({"ok": False, "message": message}, status=400)
     if report.status == WrappedReport.Status.FAILED or (
         report.status == WrappedReport.Status.SUCCESS and not report.token
     ):
@@ -203,7 +233,7 @@ def wrapped_create(request):
     elif report.status == WrappedReport.Status.SKIPPED:
         messages.info(request, "Nothing watched in that period yet.")
     url = service.page_url(kind, year, month)
-    if kind != Kind.YEAR_IN_REVIEW:
+    if kind in (Kind.MONTHLY, Kind.YEARLY):
         # Back to the same format and options the image was made with.
         hide = ",".join(sorted(hidden if hidden is not None else service.hidden_from_profile(profile)))
         url += f"?fmt={fmt}&hide={hide}"
@@ -215,12 +245,13 @@ def wrapped_image(request, token):
     Discord or shared; the token is the access control."""
     if not _TOKEN_RE.match(token):
         raise Http404
-    if not WrappedReport.objects.filter(token=token).exists():
+    report = WrappedReport.objects.filter(token=token).first()
+    if report is None:
         raise Http404
     path = wrapped_render.generated_dir() / f"{token}.png"
     if not path.is_file():
         raise Http404
     response = FileResponse(open(path, "rb"), content_type="image/png")
     response["Cache-Control"] = "private, max-age=31536000, immutable"
-    response["Content-Disposition"] = 'inline; filename="spool-wrapped.png"'
+    response["Content-Disposition"] = f'inline; filename="{service.image_filename(report)}"'
     return response

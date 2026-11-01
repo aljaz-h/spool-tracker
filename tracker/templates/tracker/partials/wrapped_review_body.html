@@ -26,16 +26,16 @@
       <div class="yr-stack" data-section="{{ section_key }}">
         <div class="yr-panel">
           <dl class="yr-bigtiles">
-            <div class="yr-bigtile is-accent"><dt>Hours</dt><dd>{{ section.total_hours_display }}</dd></div>
-            <div class="yr-bigtile"><dt>Plays</dt><dd>{{ section.total_plays|floatformat:"0g" }}</dd></div>
-            <div class="yr-bigtile"><dt>Hours per week</dt><dd>{{ section.per_week.0 }}</dd></div>
-            <div class="yr-bigtile"><dt>Hours per day</dt><dd>{{ section.per_day.0 }}</dd></div>
+            <div class="yr-bigtile is-accent"><dt>Hours</dt><dd style="--n: {{ section.total_hours_display|length }}">{{ section.total_hours_display }}</dd></div>
+            <div class="yr-bigtile"><dt>Plays</dt><dd style="--n: {{ section.total_plays|floatformat:'0g'|length }}">{{ section.total_plays|floatformat:"0g" }}</dd></div>
+            <div class="yr-bigtile"><dt>Hours per week</dt><dd style="--n: {{ section.per_week.0|length }}">{{ section.per_week.0 }}</dd></div>
+            <div class="yr-bigtile"><dt>Hours per day</dt><dd style="--n: {{ section.per_day.0|length }}">{{ section.per_day.0 }}</dd></div>
           </dl>
         </div>
         <div class="yr-panel">
           <dl class="yr-bigtiles">
-            <div class="yr-bigtile"><dt>Plays per month</dt><dd>{{ section.per_month.1 }}</dd></div>
-            <div class="yr-bigtile"><dt>Plays per week</dt><dd>{{ section.per_week.1 }}</dd></div>
+            <div class="yr-bigtile"><dt>Plays per month</dt><dd style="--n: {{ section.per_month.1|length }}">{{ section.per_month.1 }}</dd></div>
+            <div class="yr-bigtile"><dt>Plays per week</dt><dd style="--n: {{ section.per_week.1|length }}">{{ section.per_week.1 }}</dd></div>
           </dl>
         </div>
       </div>

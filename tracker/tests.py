@@ -34025,7 +34025,7 @@ class WrappedTests(TestCase):
         for url in (reverse("wrapped_year", args=[self.year]), reverse("wrapped_month", args=[self.year, 3])):
             resp = self.client.get(url)
             self.assertEqual(resp.status_code, 200, url)
-            self.assertContains(resp, "Create PNG")
+            self.assertContains(resp, "Download PNG")
 
     def test_year_in_review_is_a_native_page_with_chart_data_and_an_image_button(self):
         resp = self.client.get(reverse("wrapped_review", args=[self.year]))
@@ -34034,11 +34034,104 @@ class WrappedTests(TestCase):
         self.assertContains(resp, 'id="yr-data"')
         self.assertContains(resp, "wrapped-review")
         self.assertContains(resp, "Wrapped Show")
-        self.assertContains(resp, "Create PNG")
+        self.assertContains(resp, "Download PNG")
         data = resp.context["chart_data"]
         self.assertEqual(list(data), ["shows"])
         self.assertEqual(len(data["shows"]["monthly"]), 12)
         self.assertEqual(sum(w["plays"] for w in data["shows"]["weekly"]), 3)
+
+    def test_pages_offer_download_and_copy_before_any_image_exists(self):
+        resp = self.client.get(reverse("wrapped_year", args=[self.year]))
+        self.assertContains(resp, 'data-act="download"')
+        self.assertContains(resp, 'data-act="copy"')
+        self.assertContains(resp, "wrapped-actions")
+        self.assertNotContains(resp, "data-url=")  # nothing made yet
+
+    @patch("tracker.wrapped.render.render_png")
+    def test_the_buttons_make_the_image_through_a_json_request(self, mock_render):
+        mock_render.side_effect = self._fake_png
+        resp = self.client.post(
+            reverse("wrapped_create"),
+            {"kind": "yearly", "year": self.year, "fmt": "square", "hide": ""},
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data["ok"])
+        report = WrappedReport.objects.get(profile=self.profile)
+        self.assertRegex(data["name"], r"^spool-wrapped-yearly-2025-\d{8}-\d{4}\.png$")
+        self.assertEqual(data["url"], reverse("wrapped_image", args=[report.token]))
+        # Once it exists the page hands the URL to the buttons.
+        page = self.client.get(reverse("wrapped_year", args=[self.year]))
+        self.assertContains(page, f'data-url="{data["url"]}"')
+
+    def test_the_json_request_says_why_when_there_is_nothing_to_make(self):
+        resp = self.client.post(
+            reverse("wrapped_create"), {"kind": "monthly", "year": self.year, "month": 7}, HTTP_ACCEPT="application/json"
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.json()["ok"])
+        self.assertIn("Nothing watched", resp.json()["message"])
+
+    @patch("tracker.wrapped.render.render_png", side_effect=RuntimeError("no chromium"))
+    def test_the_json_request_reports_a_failed_render(self, _mock):
+        resp = self.client.post(
+            reverse("wrapped_create"), {"kind": "yearly", "year": self.year}, HTTP_ACCEPT="application/json"
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Couldn't create", resp.json()["message"])
+
+    def test_big_numbers_size_themselves_to_their_box(self):
+        resp = self.client.get(reverse("wrapped_review", args=[self.year]))
+        self.assertContains(resp, 'class="yr-tile"')
+        self.assertContains(resp, 'dd style="--n: ')
+        self.assertContains(resp, 'class="yr-bigtile')
+
+    def test_downloads_are_named_after_the_kind_the_period_and_when(self):
+        from datetime import date
+
+        from django.utils import timezone
+
+        from tracker.wrapped import service
+
+        def name(kind, since):
+            report = WrappedReport.objects.create(
+                profile=self.profile, kind=kind, period_label="x", since=since, until=since, token=None, status="success"
+            )
+            return service.image_filename(report), timezone.localtime(report.created_at).strftime("%Y%m%d-%H%M")
+
+        fname, stamp = name("monthly", date(2026, 10, 1))
+        self.assertEqual(fname, f"spool-wrapped-monthly-2026-10-{stamp}.png")
+        fname, stamp = name("yearly", date(2025, 1, 1))
+        self.assertEqual(fname, f"spool-wrapped-yearly-2025-{stamp}.png")
+        fname, stamp = name("year_in_review", date(2025, 1, 1))
+        self.assertEqual(fname, f"spool-wrapped-year-in-review-2025-{stamp}.png")
+        fname, stamp = name("all_time", date(1970, 1, 1))
+        self.assertEqual(fname, f"spool-wrapped-all-time-{stamp}.png")
+
+    @patch("tracker.wrapped.export.render_review_png")
+    def test_all_time_can_be_made_into_an_image_too(self, mock_export):
+        mock_export.side_effect = lambda context, body=None: self._fake_png("all_time", context)
+        resp = self.client.post(reverse("wrapped_create"), {"kind": "all_time"}, HTTP_ACCEPT="application/json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertRegex(resp.json()["name"], r"^spool-wrapped-all-time-\d{8}-\d{4}\.png$")
+        report = WrappedReport.objects.get(profile=self.profile, kind="all_time")
+        self.assertTrue(report.token)
+        self.assertEqual(mock_export.call_args.args[1], "tracker/partials/wrapped_all_time_body.html")
+        # Only the latest copy is kept.
+        self.client.post(reverse("wrapped_create"), {"kind": "all_time"}, HTTP_ACCEPT="application/json")
+        self.assertEqual(WrappedReport.objects.filter(profile=self.profile, kind="all_time", status="success").count(), 1)
+        page = self.client.get(reverse("wrapped_all_time"))
+        self.assertContains(page, 'data-act="download"')
+        self.assertContains(page, "data-name=\"spool-wrapped-all-time-")
+
+    def test_the_all_time_image_document_is_self_contained(self):
+        from tracker.wrapped import export, service
+
+        html = export.review_document(service.all_time_context(self.profile), export.ALL_TIME_BODY)
+        self.assertIn("window.__yrWorldData", html)
+        self.assertIn("All<br>Time", html.replace("\n", ""))
+        self.assertNotIn("<script src=", html)
 
     def test_pages_are_their_own_shell_not_the_app_chrome(self):
         for url in (reverse("wrapped_year", args=[self.year]), reverse("wrapped_review", args=[self.year])):
@@ -34071,7 +34164,7 @@ class WrappedTests(TestCase):
         resp = self.client.post(reverse("wrapped_create"), {"kind": "year_in_review", "year": self.year}, follow=True)
         report = WrappedReport.objects.get(profile=self.profile, kind="year_in_review")
         self.assertIsNone(report.token)
-        self.assertContains(resp, "Create PNG")
+        self.assertContains(resp, "Download PNG")
 
     @patch("tracker.wrapped.export.render_review_png")
     def test_generating_a_year_in_review_notifies_and_links_to_the_page(self, mock_export):
@@ -34154,6 +34247,7 @@ class WrappedTests(TestCase):
         image = self.client.get(reverse("wrapped_image", args=[report.token]))
         self.assertEqual(image.status_code, 200)
         self.assertEqual(image["Content-Type"], "image/png")
+        self.assertRegex(image["Content-Disposition"], r'filename="spool-wrapped-monthly-2025-03-\d{8}-\d{4}\.png"')
         self.assertEqual(self.client.get("/wrapped/img/not-a-real-token-at-all-1234.png").status_code, 404)
 
     @patch("tracker.wrapped.render.render_png")

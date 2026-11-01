@@ -25,6 +25,7 @@
     {% block content %}{% endblock %}
   </main>
   {% include "tracker/partials/toasts.html" %}
+  <script src="{% static 'js/wrapped-actions.js' %}" defer></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

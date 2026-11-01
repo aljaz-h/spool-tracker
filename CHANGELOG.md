@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.172.1] - 2026-11-01
+
+### Added
+
+- **Copy image** next to **Download PNG** on every Wrapped recap (Year, Month and Year in Review): one click copies the picture so it can be pasted straight into a chat or a post. Both buttons make the image first if it doesn't exist yet, so it's a single click either way, without leaving the page. Saved recaps get a copy button too. Copying needs https or localhost; elsewhere the Copy buttons hide and Download remains. Downloaded files say what they are and when they were made: `spool-wrapped-yearly-2026-20261101-1443.png`, `spool-wrapped-monthly-2026-10-...`, `spool-wrapped-year-in-review-2026-...`, `spool-wrapped-all-time-...`.
+- **All Time can be downloaded and copied as an image too** (the same one-click buttons; the latest copy is kept). New migration `0088`.
+
+### Fixed
+
+- Big numbers on the cover and stat tiles (1,573 plays, 444d 21h watched) no longer run past the tile's border: each number sizes itself to the width of its tile, on Year in Review and All Time.
+
 ## [0.172.0] - 2026-11-01
 
 ### Changed

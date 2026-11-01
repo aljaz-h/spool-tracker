@@ -24,8 +24,13 @@ def _static(*parts):
     return Path(settings.BASE_DIR, "static", *parts)
 
 
-def review_document(context):
-    """The standalone HTML for `context` (see service.year_in_review_page_context)."""
+REVIEW_BODY = "tracker/partials/wrapped_review_body.html"
+ALL_TIME_BODY = "tracker/partials/wrapped_all_time_body.html"
+
+
+def review_document(context, body=REVIEW_BODY):
+    """The standalone HTML for `context` (see service.year_in_review_page_context
+    / service.all_time_context); `body` is the page's own template."""
     world = json.loads(_static("vendor", "world-110m.json").read_text(encoding="utf-8"))
     scripts = [_static("vendor", name).read_text(encoding="utf-8") for name in _SCRIPTS]
     scripts.append(f"window.__yrWorldData = {json.dumps(world, separators=(',', ':'))};")
@@ -35,6 +40,7 @@ def review_document(context):
         {
             **context,
             "export": True,
+            "body_template": body,
             "css": _static("dist", "app.css").read_text(encoding="utf-8"),
             "fonts": (render.TEMPLATES_DIR / "cards" / "_fonts.html").read_text(encoding="utf-8"),
             "js": "\n".join(scripts).replace("</script", "<\\/script"),
@@ -42,12 +48,12 @@ def review_document(context):
     )
 
 
-def render_review_png(context):
-    """Renders the Year in Review to <MEDIA_ROOT>/wrapped/<token>.png and
-    returns (token, path)."""
+def render_review_png(context, body=REVIEW_BODY):
+    """Renders the Year in Review (or, with `body`, All Time) to
+    <MEDIA_ROOT>/wrapped/<token>.png and returns (token, path)."""
     from playwright.sync_api import sync_playwright
 
-    html = review_document(context)
+    html = review_document(context, body)
     token = secrets.token_urlsafe(24)
     path = render.generated_dir() / f"{token}.png"
     with sync_playwright() as p:
