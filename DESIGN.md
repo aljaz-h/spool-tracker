@@ -144,6 +144,15 @@ controls and avatars. Shadows only on floating things — menus/popovers
   is further in, only a window around it is shown. On phones the poster
   sits beside the title, the main panel loses its card background and
   the rail only shows under Overview.
+- **Person page:** a header panel (dimmed collage of their best-known
+  posters, big portrait, department chips, born line, bio, two actions and
+  a stats card), then Known for (six `discover_tile`s with a role line),
+  Career by year (bars drawn in the page: amber watched, grey not) and one
+  Filmography - tabs by department, watched and type filters, sort, and a
+  grid (by decade) or list (table) view that is remembered. Filtering and
+  sorting run in the browser over what the server rendered
+  (`static/js/person-filmography.js`); a title appears once however many
+  departments it is under. Chips here are plain: no amber.
 - **History:** each day is a heading (with its totals, pinned while you
   scroll it) over a `.media-grid` of plays — `history_tile.html` (poster
   with the episode code, title, episode name or year · time) and

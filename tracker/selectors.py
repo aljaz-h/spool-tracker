@@ -2981,22 +2981,19 @@ def person_personal_stats(profile, items, action_context):
     matched_titles = [t for t in action_context["discover_title_by_key"].values() if t is not None]
     matched_title_ids = [t.pk for t in matched_titles]
 
-    watched_title_ids = set(
+    # One query for every watch of a matched title, newest first: gives the
+    # watched set and each title's latest rating without a query per title.
+    watched_title_ids = set()
+    latest_rating_by_title = {}
+    for title_id, rating in (
         WatchEvent.objects.filter(profile=profile, title_id__in=matched_title_ids)
-        .values_list("title_id", flat=True)
-        .distinct()
-    )
-
-    latest_ratings = []
-    for title_id in watched_title_ids:
-        rating = (
-            WatchEvent.objects.filter(profile=profile, title_id=title_id, user_rating__isnull=False)
-            .order_by("-watched_at")
-            .values_list("user_rating", flat=True)
-            .first()
-        )
-        if rating is not None:
-            latest_ratings.append(rating)
+        .order_by("-watched_at")
+        .values_list("title_id", "user_rating")
+    ):
+        watched_title_ids.add(title_id)
+        if rating is not None and title_id not in latest_rating_by_title:
+            latest_rating_by_title[title_id] = rating
+    latest_ratings = list(latest_rating_by_title.values())
     avg_rating = round(sum(latest_ratings) / len(latest_ratings), 1) if latest_ratings else None
 
     total_minutes = (
@@ -3008,18 +3005,25 @@ def person_personal_stats(profile, items, action_context):
     # share_activity-gated, same privacy convention social_activity() uses -
     # this stat exposes another profile's watch history, unlike
     # _recommend_context's unfiltered "other_profiles" (recommending
-    # doesn't reveal what anyone's watched).
+    # doesn't reveal what anyone's watched). One query for every housemate:
+    # how many of this person's titles each has watched ("their_count") and
+    # how many of those you have too ("count", the titles in common).
     co_watchers = []
-    if watched_title_ids:
-        for other in Profile.objects.exclude(pk=profile.pk).filter(share_activity=True).order_by("display_name"):
-            their_watched_ids = set(
-                WatchEvent.objects.filter(profile=other, title_id__in=watched_title_ids)
-                .values_list("title_id", flat=True)
-                .distinct()
-            )
-            overlap = len(watched_title_ids & their_watched_ids)
-            if overlap:
-                co_watchers.append({"profile": other, "count": overlap})
+    others = list(Profile.objects.exclude(pk=profile.pk).filter(share_activity=True).order_by("display_name"))
+    if others and matched_title_ids:
+        watched_by_profile = {}
+        for profile_id, title_id in (
+            WatchEvent.objects.filter(profile__in=others, title_id__in=matched_title_ids)
+            .values_list("profile_id", "title_id")
+            .distinct()
+        ):
+            watched_by_profile.setdefault(profile_id, set()).add(title_id)
+        for other in others:
+            theirs = watched_by_profile.get(other.pk)
+            if theirs:
+                co_watchers.append(
+                    {"profile": other, "count": len(watched_title_ids & theirs), "their_count": len(theirs)}
+                )
 
     return {
         "watched_count": len(watched_title_ids),
@@ -3028,3 +3032,42 @@ def person_personal_stats(profile, items, action_context):
         "total_watch_time": format_duration(total_minutes) if total_minutes else None,
         "co_watchers": co_watchers,
     }
+
+
+def person_in_progress_details(profile, action_context):
+    """{"tv:123": {"label": "S3 E4", "pct": 35}} for every credit on the
+    person page that this profile is partway through: where they are (the
+    current episode) and how much of the show is watched, from three
+    queries in total however many credits there are."""
+    title_by_key = {
+        key: title
+        for key, title in action_context["discover_title_by_key"].items()
+        if title is not None and action_context["discover_in_progress"].get(key)
+    }
+    if not title_by_key:
+        return {}
+    title_ids = [t.pk for t in title_by_key.values()]
+    current_by_title = {
+        row.title_id: row.current_episode
+        for row in WatchProgress.objects.filter(profile=profile, title_id__in=title_ids).select_related(
+            "current_episode"
+        )
+    }
+    total_by_title = dict(
+        Episode.objects.filter(title_id__in=title_ids).values_list("title_id").annotate(n=Count("id"))
+    )
+    seen_by_title = dict(
+        WatchEvent.objects.filter(profile=profile, title_id__in=title_ids, episode__isnull=False)
+        .values_list("title_id")
+        .annotate(n=Count("episode", distinct=True))
+    )
+    details = {}
+    for key, title in title_by_key.items():
+        episode = current_by_title.get(title.pk)
+        total = total_by_title.get(title.pk) or 0
+        seen = seen_by_title.get(title.pk) or 0
+        details[key] = {
+            "label": f"S{episode.season} E{episode.episode}" if episode else "",
+            "pct": min(100, round(100 * seen / total)) if total else 0,
+        }
+    return details

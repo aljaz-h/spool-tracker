@@ -8,6 +8,25 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.175.0] - 2026-11-01
+
+### Changed
+
+- The person (cast and crew) page is redone. A header with a dimmed backdrop of their best-known posters, a bigger portrait, department chips (Actor, Director, Producer...), born date, age and place, a short bio with "Read more", and a stats card: "X of Y watched" with a green progress bar, total watch time, a bar per department, and which housemates have watched how many of their titles (and how many you share).
+- "Known for": six larger posters with the part they played ("as Gus Fring"), ranked by TMDB popularity and skipping talk-show, archive and one-or-two-episode guest appearances, with the usual watched, watching and rewatch badges.
+- "Career by year": credits per release year as a bar chart drawn in the page, watched titles in amber and unwatched in grey.
+- One Filmography replaces the separate "You've Watched", "Best Works", Acting and Directing grids, so a title appears once however many departments it is under. Tabs for All, Acting, Directing, Producing (and Writing when they have it) with counts; Watched/Unwatched and Movies/TV filters; sort by newest, highest rated or most popular; a grid/list switch that is remembered per browser. The grid groups credits by decade (8 across; 3 on phones) with the watched, watching and x2 badges; the list is a table with year, poster, title, role, type, rating, your status (with the episode while you are watching) and an add-to-list button, stacking into rows on phones. "Show all N credits" replaces the faded loading row.
+- Poster tiles use w342 with a 1x/2x `srcset` and the list rows w185; the first row is high priority.
+- Producing credits are now included (TMDB's Production department), each credit carries its role (character or job), and the per-department cap is 60 credits instead of 40.
+
+### Added
+
+- "Pick something unwatched" (a random released credit you haven't watched, taken to the title's page or its TMDB preview) and "Add unwatched to a list" (puts their released, unwatched credits on a list you choose, looking up at most 20 new titles per click and saying when to run it again).
+
+### Fixed
+
+- The person page's stats did one query per watched title and per housemate; they are now a fixed number of queries however many credits there are (covered by a query-count test).
+
 ## [0.174.0] - 2026-11-01
 
 ### Changed

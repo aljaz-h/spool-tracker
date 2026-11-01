@@ -1,130 +1,253 @@
 {% extends "tracker/base.html" %}
-{% load tracker_extras %}
+{% load static tracker_extras icons %}
 {% block title %}{{ person.name }} · Spool{% endblock %}
+{% block meta_description %}{{ person.name }}: filmography, what you have watched and what is left.{% endblock %}
 {% block content %}
 
-  <section class="mb-12 pb-8 border-b border-line">
-    <div class="flex flex-col sm:flex-row gap-6 sm:gap-8">
-      <div class="w-[120px] sm:w-[168px] aspect-[2/3] rounded-xl flex-none overflow-hidden bg-base-300 bg-cover bg-center shadow-[0_12px_32px_rgba(0,0,0,0.5)] mx-auto sm:mx-0"
-           {% if person.profile_url %}style="background-image:url('{{ person.profile_url }}')"{% endif %}></div>
-      <div class="min-w-0 flex-1 text-center sm:text-left">
-        <h1 class="page-title sm:!text-4xl">{{ person.name }}</h1>
-        {% if known_for_primary %}
-          <div class="mt-2 text-sm text-ink-dim">
-            Known for <span class="text-base-content font-medium">{{ known_for_primary }}</span>{% if known_for_secondary %} · Also {{ known_for_secondary|join:", " }}{% endif %}
+  {% comment %}
+    The person page: header (portrait, departments, bio, actions, stats),
+    Known for, a credits-per-year chart and one Filmography. Everything
+    below the header filters/sorts in the browser (person-filmography.js);
+    with scripting off the server's own order (newest first) and every
+    credit is still there. context: person, chips, departments, stats,
+    credits (one entry per title, see views._build_person_credits),
+    known_for, career, plus discover_action_context's keys.
+  {% endcomment %}
+
+  <section class="pf-hero">
+    {% if backdrop_posters %}
+      <div class="pf-hero-art" aria-hidden="true">
+        {% for url in backdrop_posters %}<img src="{{ url|poster_size:"w342" }}" alt="" loading="lazy">{% endfor %}
+      </div>
+    {% endif %}
+    <div class="pf-hero-scrim" aria-hidden="true"></div>
+    <div class="pf-hero-body">
+      <div class="pf-portrait">
+        {% if person.profile_url %}<img src="{{ person.profile_url|tmdb_size:"w342" }}" alt="{{ person.name }}" fetchpriority="high">{% else %}<span class="pf-portrait-empty">{% icon "user" "w-10 h-10" %}</span>{% endif %}
+      </div>
+
+      <div class="min-w-0">
+        <h1 class="pf-name">{{ person.name }}</h1>
+        {% if chips %}
+          <div class="flex flex-wrap gap-1.5 mt-2.5">
+            {% for chip in chips %}<span class="chip {% if forloop.first %}text-base-content{% endif %}">{{ chip }}</span>{% endfor %}
           </div>
         {% endif %}
         {% if birthday_date or person.place_of_birth %}
-          <div class="text-[13px] text-ink-dim mt-1.5">
-            {% if birthday_date %}
-              Born <span class="font-semibold text-base-content">{{ birthday_date|date:"F j, Y" }}</span>{% if deathday_date %} – <span class="font-semibold text-base-content">{{ deathday_date|date:"F j, Y" }}</span>{% endif %}
-              {% if age is not None %}<span class="text-ink-faint">(age {{ age }}{% if deathday_date %} at death{% endif %})</span>{% endif %}
-            {% endif %}
-            {% if person.place_of_birth %}<span class="text-ink-faint">{% if birthday_date %} — {% endif %}{{ person.place_of_birth }}</span>{% endif %}
+          <div class="text-[13px] text-ink-dim mt-2.5">
+            {% if birthday_date %}Born {{ birthday_date|date:"F j, Y" }}{% if deathday_date %} – died {{ deathday_date|date:"F j, Y" }}{% endif %}{% if age is not None %} (age {{ age }}{% if deathday_date %} at death{% endif %}){% endif %}{% endif %}{% if person.place_of_birth %}{% if birthday_date %} &middot; {% endif %}{{ person.place_of_birth }}{% endif %}
           </div>
         {% endif %}
         {% if person.biography %}
-          <div class="mt-3 max-w-3xl" {% if person.biography|length > 400 %}x-data="{ expanded: false }"{% endif %}>
-            <p class="text-[14.5px] leading-relaxed text-[#c4c7d2] text-left {% if person.biography|length > 400 %}line-clamp-4{% endif %}"
-               {% if person.biography|length > 400 %}:class="expanded ? '' : 'line-clamp-4'"{% endif %}>{{ person.biography }}</p>
-            {% if person.biography|length > 400 %}
-              <button type="button" @click="expanded = !expanded" class="mt-1.5 text-[12.5px] font-semibold text-ink-faint hover:text-primary transition-colors cursor-pointer">
+          <div class="mt-3 max-w-2xl" x-data="{ expanded: false }">
+            <p class="text-[14.5px] leading-relaxed text-base-content/85" :class="expanded ? '' : 'line-clamp-4'">{{ person.biography }}</p>
+            {% if person.biography|length > 300 %}
+              <button type="button" @click="expanded = !expanded" class="mt-1 text-[13px] font-semibold text-primary hover:underline cursor-pointer">
                 <span x-show="!expanded">Read more</span>
                 <span x-show="expanded" x-cloak>Show less</span>
               </button>
             {% endif %}
           </div>
         {% endif %}
-      </div>
-    </div>
-
-    {% if highlight_stats %}
-      <div class="mt-6 flex flex-wrap items-center gap-x-10 gap-y-3">
-        {% for stat in highlight_stats %}
-          <div class="flex items-baseline gap-1.5">
-            <span class="text-xl font-bold tabular-nums">{{ stat.value }}</span>
-            <span class="text-ink-dim text-xs">{{ stat.label }}</span>
-            {% if stat.info %}<span tabindex="0" aria-label="{{ stat.info }}" data-tooltip="{{ stat.info }}" class="text-ink-faint text-[12px] cursor-help spool-tooltip">&#9432;</span>{% endif %}
-          </div>
-        {% endfor %}
-      </div>
-    {% endif %}
-    {% if stats.co_watchers %}
-      <div class="mt-3 flex flex-col gap-1">
-        {% for co in stats.co_watchers %}
-          <div class="text-[12.5px] text-ink-dim">You and <span class="font-semibold text-base-content">{{ co.profile.display_name }}</span> have both watched <span class="font-semibold text-base-content">{{ co.count }}</span> title{{ co.count|pluralize }} with them</div>
-        {% endfor %}
-      </div>
-    {% endif %}
-  </section>
-
-  {% comment %}
-    Each section clips to exactly two grid rows (.grid-clamp-2-rows, see
-    app.css) rather than a fixed item count - the number of tiles that
-    make up "two rows" depends on viewport width and on how many tiles
-    the current Watched/Unwatched filter leaves visible, neither of
-    which a hardcoded count would track correctly. measure() (re-run on
-    every filter change) reads the real DOM after Alpine's x-show
-    updates land to find whether a third row actually exists for
-    whatever's visible right now, and how many tiles that is for the
-    "Show all N credits" label - the clipping itself is pure CSS, so it
-    stays correct on window resize without a resize listener.
-  {% endcomment %}
-  {% for section in filmography_sections %}
-    <div
-      x-data="{
-        filter: 'all',
-        expanded: false,
-        hasMore: false,
-        visibleTotal: {{ section.items|length }},
-        measure() {
-          this.$nextTick(() => {
-            const tiles = Array.from(this.$refs.grid.children).filter(el => el.offsetParent !== null);
-            this.visibleTotal = tiles.length;
-            const tops = [...new Set(tiles.map(el => el.offsetTop))];
-            this.hasMore = tops.length > 2;
-          });
-        },
-      }"
-      x-init="measure()"
-      class="mb-12"
-    >
-      <div class="flex justify-between items-center flex-wrap gap-3 mb-4">
-        <h2 class="section-title">{{ section.label }}{% if section.key == "watched" %}<span class="section-count">{{ section.items|length }}</span>{% endif %}</h2>
-        {% if section.key != "watched" %}
-          <div class="seg">
-            <button type="button" @click="filter = 'all'; expanded = false; measure()" class="seg-item" :class="filter === 'all' && 'is-active'">All</button>
-            <button type="button" @click="filter = 'watched'; expanded = false; measure()" class="seg-item" :class="filter === 'watched' && 'is-active'">Watched</button>
-            <button type="button" @click="filter = 'unwatched'; expanded = false; measure()" class="seg-item" :class="filter === 'unwatched' && 'is-active'">Unwatched</button>
+        {% if credits %}
+          <div class="flex flex-wrap items-center gap-2 mt-5">
+            {% if unwatched_count %}
+              <a href="{% url 'person_pick_unwatched' person.id %}" class="btn btn-primary btn-sm">{% icon "refresh-cw" "w-4 h-4" %}Pick something unwatched</a>
+            {% else %}
+              <span class="btn btn-primary btn-sm btn-disabled" aria-disabled="true">{% icon "refresh-cw" "w-4 h-4" %}Pick something unwatched</span>
+            {% endif %}
+            {% if unwatched_count and my_lists %}
+              <div class="relative" x-data="{ open: false }">
+                <button type="button" class="btn btn-soft btn-sm" @click="open = !open" :aria-expanded="open.toString()" aria-haspopup="true">{% icon "list-checks" "w-4 h-4" %}Add unwatched to a list</button>
+                <div x-show="open" x-cloak x-transition @click.outside="open = false" @keydown.escape.window="open = false" class="menu-surface absolute left-0 z-30 mt-2 w-64 p-1.5">
+                  <div class="px-2 pt-1 pb-1.5 text-[12.5px] text-ink-dim">Add their {{ unwatched_count }} unwatched credit{{ unwatched_count|pluralize }} to</div>
+                  <div class="max-h-56 overflow-y-auto">
+                    {% for list in my_lists %}
+                      <form method="post" action="{% url 'person_add_unwatched' person.id %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="list_id" value="{{ list.id }}">
+                        <button type="submit" class="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full text-[13px] font-semibold">{% icon "list-checks" "w-4 h-4 text-ink-dim flex-none" %}<span class="truncate">{{ list.name }}</span></button>
+                      </form>
+                    {% endfor %}
+                  </div>
+                </div>
+              </div>
+            {% endif %}
           </div>
         {% endif %}
       </div>
-      <div class="relative">
-        <div
-          x-ref="grid"
-          class="media-grid"
-          :class="!expanded && hasMore ? 'grid-clamp-2-rows' : ''"
-        >
-          {% for item in section.items %}
-            <div x-data="{ watched: {{ item.watched|yesno:'true,false' }} }" x-show="filter === 'all' || (filter === 'watched' && watched) || (filter === 'unwatched' && !watched)">
-              {% include "tracker/partials/discover_tile.html" with item=item %}
+
+      {% if stats %}
+        <aside class="pf-stats" aria-label="Your watching">
+          <div class="flex items-baseline gap-2">
+            <span class="figure !text-[2.5rem]">{{ watched_total }}</span>
+            <span class="text-ink-dim text-sm">of {{ credit_total }} watched</span>
+            {% if credit_total >= credit_cap %}<span tabindex="0" aria-label="Limited to their {{ credit_cap }} most notable credits per department." data-tooltip="Limited to their {{ credit_cap }} most notable credits per department." class="text-ink-faint text-[12px] cursor-help spool-tooltip">&#9432;</span>{% endif %}
+          </div>
+          <div class="progress-track mt-2.5"><div class="progress-fill progress-fill-success" style="width:{{ watched_pct }}%"></div></div>
+          {% if stats.total_watch_time %}<div class="text-[13px] text-ink-dim mt-2">{{ stats.total_watch_time }} watched in total</div>{% endif %}
+          {% if departments|length > 1 %}
+            <div class="mt-4 flex flex-col gap-3">
+              {% for d in departments %}
+                <div>
+                  <div class="flex items-baseline justify-between text-[13px]"><span class="font-semibold">{{ d.label }}</span><span class="text-ink-dim tabular-nums">{{ d.watched }} of {{ d.total }}</span></div>
+                  <div class="progress-track mt-1.5 !h-[3px]"><div class="progress-fill progress-fill-success" style="width:{{ d.pct }}%"></div></div>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+          {% if stats.avg_rating %}<div class="text-[13px] text-ink-dim mt-4"><span class="text-primary">&#9733;</span> {{ stats.avg_rating }}/10 your average rating</div>{% endif %}
+          {% for co in stats.co_watchers %}
+            <div class="flex items-start gap-2.5 mt-4 text-[13px] text-ink-dim leading-snug">
+              <span class="flex w-6 h-6 flex-none items-center justify-center rounded-full text-[11px] font-bold" style="background:{{ co.profile.avatar_color }};color:{{ co.profile.avatar_color|on_color }}" aria-hidden="true">{{ co.profile.display_name|first|upper }}</span>
+              <span><span class="font-semibold text-base-content">{{ co.profile.display_name }}</span> has watched {{ co.their_count }} of their titles. {% if co.count %}You have {{ co.count }} in common.{% else %}You have none in common.{% endif %}</span>
             </div>
           {% endfor %}
-        </div>
-        <div
-          class="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-base-100 to-transparent"
-          x-show="hasMore && !expanded" x-cloak
-        ></div>
-      </div>
-      <div class="flex justify-center mt-4" x-show="hasMore" x-cloak>
-        <button type="button" x-show="!expanded" @click="expanded = true" class="btn btn-sm btn-soft">
-          <span x-text="`Show all ${visibleTotal} credits`"></span>
-        </button>
-        <button type="button" x-show="expanded" x-cloak @click="expanded = false" class="btn btn-sm btn-soft">
-          Show less
-        </button>
-      </div>
+        </aside>
+      {% endif %}
     </div>
-  {% endfor %}
+  </section>
+
+  {% if known_for %}
+    <section class="section">
+      <div class="section-head">
+        <h2 class="section-title">Known for</h2>
+        <span class="text-[13px] text-ink-dim max-sm:hidden">The titles most people know them from</span>
+      </div>
+      <div class="pf-known">
+        {% for item in known_for %}
+          {% include "tracker/partials/discover_tile.html" with item=item eager=True %}
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {% if career.bars|length > 1 %}
+    <section class="section">
+      <div class="section-head">
+        <h2 class="section-title">Career by year</h2>
+        <div class="flex items-center gap-4 text-[12.5px] text-ink-dim">
+          <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-[3px] bg-primary"></span>You watched</span>
+          <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-[3px] pf-year-u"></span>Not watched yet</span>
+        </div>
+      </div>
+      <div class="pf-years" role="img" aria-label="Credits per release year, {{ career.labels.0 }} to {{ career.labels|last }}">
+        {% for bar in career.bars %}
+          <div class="pf-year spool-tooltip" data-tooltip="{{ bar.year }} · {{ bar.total }} credit{{ bar.total|pluralize }}{% if bar.watched %} · {{ bar.watched }} watched{% endif %}">
+            {% if bar.unwatched %}<span class="pf-year-u" style="height:{{ bar.unwatched_pct }}%"></span>{% endif %}
+            {% if bar.watched %}<span class="pf-year-w" style="height:{{ bar.watched_pct }}%"></span>{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+      <div class="pf-years-axis" aria-hidden="true">{% for year in career.labels %}<span>{{ year }}</span>{% endfor %}</div>
+    </section>
+  {% endif %}
+
+  {% if credits %}
+    <section class="section" id="filmography" data-pf data-limit-grid="18" data-limit-list="15">
+      <script>
+        // Before first paint: pick the saved view so the other one never loads its images.
+        try { var v = localStorage.getItem('spool-person-view'); if (v === 'list' || v === 'grid') document.getElementById('filmography').dataset.view = v; } catch (e) {}
+      </script>
+      <div class="section-head flex-wrap gap-y-3">
+        <h2 class="section-title">Filmography</h2>
+        <div class="flex flex-wrap items-center gap-2">
+          <div class="seg" role="group" aria-label="Watched">
+            <button type="button" class="seg-item is-active" data-pf-watch="all" aria-pressed="true">All</button>
+            <button type="button" class="seg-item" data-pf-watch="watched" aria-pressed="false">Watched</button>
+            <button type="button" class="seg-item" data-pf-watch="unwatched" aria-pressed="false">Unwatched</button>
+          </div>
+          <div class="seg" role="group" aria-label="Type">
+            <button type="button" class="seg-item is-active" data-pf-type="all" aria-pressed="true">All</button>
+            <button type="button" class="seg-item" data-pf-type="movie" aria-pressed="false">Movies</button>
+            <button type="button" class="seg-item" data-pf-type="tv" aria-pressed="false">TV</button>
+          </div>
+          <select class="select select-sm w-auto" data-pf-sort aria-label="Sort credits">
+            <option value="newest">Newest first</option>
+            <option value="rating">Highest rated</option>
+            <option value="popular">Most popular</option>
+          </select>
+          <div class="seg" role="group" aria-label="View">
+            <button type="button" class="seg-item is-active" data-pf-view="grid" aria-pressed="true" aria-label="Grid view" title="Grid view">{% icon "layout-grid" "w-4 h-4" %}</button>
+            <button type="button" class="seg-item" data-pf-view="list" aria-pressed="false" aria-label="List view" title="List view">{% icon "list" "w-4 h-4" %}</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="tabs-line" role="group" aria-label="Department">
+        <button type="button" class="tab-line is-active" data-pf-tab="all" aria-pressed="true">All <span class="section-count">{{ credit_total }}</span></button>
+        {% for d in departments %}
+          <button type="button" class="tab-line" data-pf-tab="{{ d.key }}" aria-pressed="false">{{ d.label }} <span class="section-count">{{ d.total }}</span></button>
+        {% endfor %}
+      </div>
+
+      <p class="text-[13px] text-ink-dim mt-3 empty-line" data-pf-empty hidden>Nothing matches these filters.</p>
+
+      <div class="pf-grid mt-5" data-pf-grid>
+        {% for item in credits %}
+          <div class="pf-item" data-pf-item data-depts="{{ item.departments|join:' ' }}" data-watched="{{ item.watched|yesno:'1,0' }}" data-type="{{ item.media_type }}" data-rating="{{ item.vote_average|default:0 }}" data-pop="{{ item.popularity }}" data-date="{{ item.release_date|default:'' }}" data-decade="{{ item.decade_label|default:'Undated' }}">
+            {% include "tracker/partials/discover_tile.html" with item=item eager=forloop.counter|in_list:"1,2,3,4,5,6,7,8" %}
+          </div>
+        {% endfor %}
+      </div>
+
+      <div class="pf-list mt-5" data-pf-list>
+        <table class="pf-table">
+          <thead>
+            <tr><th class="pf-c-year">Year</th><th class="pf-c-poster"><span class="sr-only">Poster</span></th><th>Title</th><th class="pf-c-role">Role</th><th class="pf-c-type">Type</th><th class="pf-c-rating">Rating</th><th class="pf-c-status">Your status</th><th class="pf-c-add"><span class="sr-only">Add to list</span></th></tr>
+          </thead>
+          <tbody data-pf-rows>
+            {% for item in credits %}
+              {% with key=item.key %}
+              {% with matched_title=discover_title_by_key|get_item:key %}
+              {% url 'title_preview' item|preview_media_type item.tmdb_id as preview_url %}
+              <tr class="pf-row" data-pf-item data-depts="{{ item.departments|join:' ' }}" data-watched="{{ item.watched|yesno:'1,0' }}" data-type="{{ item.media_type }}" data-rating="{{ item.vote_average|default:0 }}" data-pop="{{ item.popularity }}" data-date="{{ item.release_date|default:'' }}" data-decade="{{ item.decade_label|default:'Undated' }}">
+                <td class="pf-c-year tabular-nums text-ink-dim">{{ item.year|default:"—" }}</td>
+                <td class="pf-c-poster">
+                  <a href="{% if matched_title %}{% url 'title_detail' matched_title.pk %}{% else %}{{ preview_url }}{% endif %}" class="pf-poster-sm {% if not item.poster_url %}{{ item.tmdb_id|gradient_class }}{% endif %}" tabindex="-1" aria-hidden="true">
+                    {% if item.poster_url %}<img src="{{ item.poster_url|poster_size:"w185" }}" alt="" loading="lazy">{% endif %}
+                  </a>
+                </td>
+                <td class="pf-c-title min-w-0">
+                  <a href="{% if matched_title %}{% url 'title_detail' matched_title.pk %}{% else %}{{ preview_url }}{% endif %}" class="font-semibold hover:text-primary">{{ item.name }}</a>
+                  <div class="pf-meta-m text-[12.5px] text-ink-dim">{% if item.role_label %}{{ item.role_label }} &middot; {% endif %}{{ item.media_type|media_label }} &middot; {{ item.year|default:"—" }}{% if item.vote_average %} &middot; &#9733; {{ item.vote_average|floatformat:1 }}{% endif %}</div>
+                </td>
+                <td class="pf-c-role text-ink-dim">{{ item.role_label|default:"" }}</td>
+                <td class="pf-c-type"><span class="inline-flex items-center gap-1.5"><span class="type-dot {{ item.media_type|media_dot_class }}"></span>{{ item.media_type|media_label }}</span></td>
+                <td class="pf-c-rating tabular-nums">{% if item.vote_average %}<span class="text-primary">&#9733;</span> {{ item.vote_average|floatformat:1 }}{% else %}<span class="text-ink-faint">—</span>{% endif %}</td>
+                <td class="pf-c-status">
+                  {% if item.in_progress %}
+                    <span class="font-semibold">Watching{% if item.progress.label %} &middot; {{ item.progress.label }}{% endif %}</span>
+                    <span class="progress-track mt-1.5 block"><span class="progress-fill progress-fill-success block" style="width:{{ item.progress.pct|default:0 }}%"></span></span>
+                  {% elif item.watched %}
+                    <span class="text-success font-semibold">Watched</span>{% with wc=discover_watch_count|get_item:key %}{% if wc > 1 %} <span class="text-ink-dim">&times;{{ wc }}</span>{% endif %}{% endwith %}
+                  {% else %}
+                    <span class="text-ink-dim">Not watched</span>
+                  {% endif %}
+                </td>
+                <td class="pf-c-add">
+                  <div class="pf-add card-actions-inline">
+                    {% if matched_title %}
+                      {% include "tracker/partials/poster_card_list_popover.html" with title=matched_title my_lists=my_lists in_list_ids=discover_list_membership|get_item:key %}
+                    {% else %}
+                      {% include "tracker/partials/discover_tile_list_popover.html" with media_type=item|preview_media_type tmdb_id=item.tmdb_id my_lists=my_lists name=item.name %}
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+              {% endwith %}
+              {% endwith %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="flex justify-center mt-8" data-pf-more-wrap hidden>
+        <button type="button" class="btn btn-sm btn-soft" data-pf-more></button>
+      </div>
+      <p class="sr-only" role="status" aria-live="polite" data-pf-status></p>
+    </section>
+    <script src="{% static 'js/person-filmography.js' %}" defer></script>
+  {% endif %}
 
 {% endblock %}

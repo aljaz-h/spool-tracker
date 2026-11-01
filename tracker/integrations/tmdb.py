@@ -1721,7 +1721,7 @@ def watch_provider_catalog(media_type, region="US", api_key=None):
 
 # --- Person detail page (tracker/views.person_detail) -------------------
 
-CREDIT_CAP = 40  # public - views.person_detail surfaces this in the stats card's cap tooltip
+CREDIT_CAP = 60  # public - views.person_detail surfaces this in the stats card's cap tooltip
 
 
 def get_person_details(person_id, api_key=None):
@@ -1770,12 +1770,19 @@ def _normalize_credit(item):
         "poster_url": f"{IMAGE_BASE}{poster_path}" if poster_path else None,
         "vote_average": item.get("vote_average"),
         "vote_count": item.get("vote_count") or 0,
+        # The person page's own columns: what TMDB currently ranks them by,
+        # the part they played (cast: character) or the job they held (crew),
+        # and how many episodes a TV credit covers.
+        "popularity": item.get("popularity") or 0,
+        "character": (item.get("character") or "").strip(),
+        "job": (item.get("job") or "").strip(),
+        "episode_count": item.get("episode_count") or 0,
     }
 
 
 def get_person_credits(person_id, api_key=None):
-    """{"acting": [...], "directing": [...], "writing": [...]} - each a
-    list of normalized credit dicts (see _normalize_credit), deduped by
+    """{"acting": [...], "directing": [...], "production": [...],
+    "writing": [...]} - each a list of normalized credit dicts (see _normalize_credit), deduped by
     tmdb_id within its own section (a person can hold two crew jobs on
     one title - e.g. Writer + Story - which would otherwise list the
     same poster twice) and capped to the CREDIT_CAP most-notable
@@ -1784,8 +1791,8 @@ def get_person_credits(person_id, api_key=None):
     and matching each against the local library costs one query per
     credit (see selectors.discover_action_context's own docstring for
     why that's not batched), so capping keeps one page load's query
-    count bounded. Scoped to just these three departments - TMDB's
-    combined_credits crew list spans many more (Production, Sound,
+    count bounded. Scoped to just these four departments - TMDB's
+    combined_credits crew list spans many more (Sound,
     Editing...) that this page doesn't surface. Every section is []
     rather than missing when there's nothing, so callers don't need an
     extra "credits is None" branch on top of "list is empty".
@@ -1798,12 +1805,20 @@ def get_person_credits(person_id, api_key=None):
     def dedupe_and_cap(items):
         seen = {}
         for item in items:
-            seen.setdefault(item["tmdb_id"], item)
+            # Same title under the same department twice (two crew jobs, or
+            # one actor playing two parts): one tile, every role named.
+            key = (item["media_type"], item["tmdb_id"])
+            first = seen.setdefault(key, item)
+            if first is not item:
+                for field in ("character", "job"):
+                    if item[field] and item[field] not in first[field].split(" / "):
+                        first[field] = f"{first[field]} / {item[field]}" if first[field] else item[field]
         ordered = sorted(seen.values(), key=lambda c: c["vote_count"], reverse=True)
         return ordered[:CREDIT_CAP]
 
     return {
         "acting": dedupe_and_cap([_normalize_credit(c) for c in cast]),
         "directing": dedupe_and_cap([_normalize_credit(c) for c in crew if c.get("department") == "Directing"]),
+        "production": dedupe_and_cap([_normalize_credit(c) for c in crew if c.get("department") == "Production"]),
         "writing": dedupe_and_cap([_normalize_credit(c) for c in crew if c.get("department") == "Writing"]),
     }

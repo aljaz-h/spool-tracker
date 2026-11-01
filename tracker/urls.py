@@ -84,6 +84,8 @@ urlpatterns = [
     path("recommendations/<int:pk>/reveal/", views.reveal_recommendation, name="reveal_recommendation"),
     path("recommendations/<int:pk>/reply/", views.reply_to_recommendation, name="reply_to_recommendation"),
     path("person/<int:person_id>/", views.person_detail, name="person_detail"),
+    path("person/<int:person_id>/pick/", views.person_pick_unwatched, name="person_pick_unwatched"),
+    path("person/<int:person_id>/add-unwatched/", views.person_add_unwatched, name="person_add_unwatched"),
     path("titles/preview/<str:media_type>/<int:tmdb_id>/", views.title_preview, name="title_preview"),
     path(
         "titles/preview/<str:media_type>/<int:tmdb_id>/rating-pills/",

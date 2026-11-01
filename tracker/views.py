@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import logging
 import os
 import random
+import re
 import secrets
 import threading
 import uuid
@@ -2854,11 +2855,97 @@ def _person_age(birthday_date, deathday_date):
     return end.year - birthday_date.year - ((end.month, end.day) < (birthday_date.month, birthday_date.day))
 
 
-# person_detail's own "Best Works" row - see its build-out below for why
-# each constant exists.
-BEST_WORKS_MIN_VOTES = 20
-BEST_WORKS_LIMIT = 10
-BEST_WORKS_MIN_ITEMS = 3
+# The person page's departments, in tab order: TMDB credit-list key, the tab
+# label, and the singular name shown as a chip in the header.
+PERSON_DEPARTMENTS = (
+    ("acting", "Acting", "Actor"),
+    ("directing", "Directing", "Director"),
+    ("production", "Producing", "Producer"),
+    ("writing", "Writing", "Writer"),
+)
+PERSON_KNOWN_FOR_COUNT = 6
+# TMDB lists talk-show and archive appearances ("Self", "Himself") among a
+# person's most popular credits; they are not what someone is known for.
+_PERSON_SELF_ROLE_RE = re.compile(r"\b(self|himself|herself|themselves|archive footage|uncredited)\b", re.IGNORECASE)
+# One click of "Add unwatched to a list" materialises at most this many titles
+# that aren't in the library yet (each costs a TMDB lookup); run it again for
+# the rest.
+PERSON_ADD_LIMIT = 20
+
+
+def _build_person_credits(credits):
+    """One entry per title across every department (so a film they both
+    acted in and produced is one tile, one count, one watch-time sum), each
+    carrying the departments it appears under and the role they held there
+    (character for acting, job for crew)."""
+    by_key = {}
+    for department, _label, _chip in PERSON_DEPARTMENTS:
+        for credit in credits.get(department) or []:
+            key = f"{credit['media_type']}:{credit['tmdb_id']}"
+            entry = by_key.get(key)
+            if entry is None:
+                entry = {**credit, "key": key, "departments": [], "roles": []}
+                by_key[key] = entry
+            entry["departments"].append(department)
+            role = credit.get("character") if department == "acting" else credit.get("job")
+            if role and role not in entry["roles"]:
+                entry["roles"].append(role)
+    for entry in by_key.values():
+        entry["role_label"] = " · ".join(entry["roles"])
+        entry["popularity"] = entry.get("popularity") or 0
+        entry["decade"] = int(entry["year"]) // 10 * 10 if entry.get("year") else None
+    return list(by_key.values())
+
+
+def _person_known_for(items):
+    """Their six best-known titles: TMDB's popularity ranking over credits
+    with a poster, skipping talk-show and archive appearances, preferring
+    titles enough people have rated to be a fair signal and, for TV, a real
+    run of episodes rather than a guest spot."""
+    def is_real_role(item):
+        if item["roles"] and all(_PERSON_SELF_ROLE_RE.search(r) for r in item["roles"]):
+            return False
+        # A one-or-two-episode guest spot isn't what a show is known for them by.
+        return not (item["media_type"] == "tv" and 0 < (item.get("episode_count") or 0) < 4)
+
+    for min_votes in (50, 0):
+        pool = [i for i in items if i.get("poster_url") and i["vote_count"] >= min_votes and is_real_role(i)]
+        if len(pool) >= 3 or min_votes == 0:
+            break
+    pool.sort(key=lambda i: (i["popularity"], i["vote_count"]), reverse=True)
+    known = []
+    for item in pool[:PERSON_KNOWN_FOR_COUNT]:
+        character = item.get("character") if "acting" in item["departments"] else ""
+        known.append({**item, "known_line": f"as {character}" if character else item["role_label"]})
+    return known if len(known) >= 3 else []
+
+
+def _person_career_years(items, watched_by_key):
+    """Credits per release year, split into watched and not, as bar heights
+    (percent of the busiest year) for the page's own bar chart."""
+    counts = {}
+    for item in items:
+        if not item.get("year"):
+            continue
+        year = int(item["year"])
+        bucket = counts.setdefault(year, [0, 0])
+        bucket[0 if watched_by_key.get(item["key"]) else 1] += 1
+    if not counts:
+        return {"bars": [], "labels": []}
+    first, last = min(counts), max(counts)
+    busiest = max(sum(v) for v in counts.values())
+    bars = []
+    for year in range(first, last + 1):
+        watched, unwatched = counts.get(year, (0, 0))
+        bars.append(
+            {
+                "year": year, "watched": watched, "unwatched": unwatched, "total": watched + unwatched,
+                "watched_pct": round(100 * watched / busiest, 1), "unwatched_pct": round(100 * unwatched / busiest, 1),
+            }
+        )
+    span = last - first
+    label_years = sorted({first + round(span * n / 4) for n in range(5)}) if span else [first]
+    return {"bars": bars, "labels": label_years}
 
 
 @login_required
@@ -2870,6 +2957,15 @@ def person_detail(request, person_id):
     household watch stats (selectors.person_personal_stats) TMDB has no
     concept of. Read-only against TMDB, same as title_preview - no local
     row is ever created for a person.
+
+    One header (portrait, departments, bio, actions, a stats card), their
+    "Known for" titles, a credits-per-year chart and a single Filmography
+    (tabs by department, watch/type filters, sorting and a grid/list switch
+    all run in the browser - static/js/person-filmography.js) so a title
+    appears once however many departments it is under. Queries do not grow
+    with the number of credits: the library match is batched (see
+    selectors.discover_action_context) and so are the stats and the
+    in-progress details.
 
     get_person_details/get_person_credits are two independent TMDB
     endpoints - fired from one shared worker pool instead of one after
@@ -2894,136 +2990,159 @@ def person_detail(request, person_id):
         raise Http404
     profile = Profile.objects.filter(user=request.user).first()
 
-    # Deduped once across all three departments - a hyphenate (e.g.
-    # someone who both acted in and directed a film) would otherwise get
-    # counted twice in the personal-stats totals below, even though the
-    # filmography display itself deliberately still lists it under both
-    # of their department sections.
-    deduped_items = {}
-    for department in ("acting", "directing", "writing"):
-        for item in credits[department]:
-            deduped_items.setdefault(item["tmdb_id"], item)
-    items = list(deduped_items.values())
-
+    items = _build_person_credits(credits)
     action_context = (
         selectors.discover_action_context(profile, items) if profile and items else _EMPTY_DISCOVER_CONTEXT
     )
     stats = selectors.person_personal_stats(profile, items, action_context) if profile else None
+    progress_details = selectors.person_in_progress_details(profile, action_context) if profile and items else {}
+    watched_by_key = action_context["discover_watched"]
 
-    sections = {}
-    for department in ("acting", "directing", "writing"):
-        section_items = list(credits[department])
-        for item in section_items:
-            item["watched"] = action_context["discover_watched"].get(f"{item['media_type']}:{item['tmdb_id']}", False)
-        # Two-pass stable sort (not one combined key) so "newest first"
-        # holds *within* each watched-status group rather than being
-        # overridden by it - Python's sort is stable, so the first pass's
-        # date order survives the second pass's watched/unwatched split.
-        section_items.sort(key=lambda i: i["release_date"] or "", reverse=True)
-        section_items.sort(key=lambda i: not i["watched"])
-        sections[department] = section_items
+    for item in items:
+        item["watched"] = bool(watched_by_key.get(item["key"]))
+        item["in_progress"] = bool(action_context["discover_in_progress"].get(item["key"]))
+        item["progress"] = progress_details.get(item["key"])
+    items.sort(key=lambda i: i["release_date"] or "", reverse=True)
 
-    department_labels = {"acting": "Acting", "directing": "Directing", "writing": "Writing"}
-    filmography_sections = [
-        {"key": department, "label": department_labels[department], "items": sections[department]}
-        for department in ("acting", "directing", "writing")
-        if sections[department]
-    ]
+    # Tabs and header chips: only departments they actually have credits in,
+    # busiest first for the chips (the tabs keep a fixed order).
+    departments = []
+    for key, label, chip in PERSON_DEPARTMENTS:
+        in_department = [i for i in items if key in i["departments"]]
+        if in_department:
+            departments.append(
+                {
+                    "key": key, "label": label, "chip": chip, "total": len(in_department),
+                    "watched": sum(1 for i in in_department if i["watched"]),
+                }
+            )
+    for department in departments:
+        department["pct"] = round(100 * department["watched"] / department["total"]) if department["total"] else 0
+    chips = [d["chip"] for d in sorted(departments, key=lambda d: -d["total"])]
 
-    # "Best Works" - this person's own highest-rated credits, deduped
-    # across every department (so a hyphenate's acting/directing credit
-    # on the same title doesn't take two of the limited slots) rather
-    # than scoped to "Known for"'s own single department, and requiring
-    # a modest vote_count floor for the same reason discover()'s own
-    # "top_rated" category does (BEST_WORKS_MIN_VOTES) - otherwise a
-    # single 10/10 vote from one person on an obscure credit would
-    # outrank something genuinely well-known. Placed first, ahead of
-    # every department section, since it's the page's own highlight row.
-    best_works_pool = [
-        item for item in items if item.get("vote_average") and item["vote_count"] >= BEST_WORKS_MIN_VOTES
-    ]
-    best_works_pool.sort(key=lambda i: i["vote_average"], reverse=True)
-    best_works_items = best_works_pool[:BEST_WORKS_LIMIT]
-    for item in best_works_items:
-        item["watched"] = action_context["discover_watched"].get(f"{item['media_type']}:{item['tmdb_id']}", False)
-    if len(best_works_items) >= BEST_WORKS_MIN_ITEMS:
-        filmography_sections.insert(0, {"key": "best_works", "label": "Best Works", "items": best_works_items})
-    # "Known for" (primary) is whichever section has the most credits, not
-    # just TMDB's own single-guess known_for_department or display order -
-    # a person could be primarily a director with only a couple of small
-    # acting credits, and "known for acting" would read wrong for them.
-    # "also" lists every other non-empty section, so a hyphenate reads as
-    # "Known for Acting - also Directing, Writing" per the spec's "or
-    # multiple if applicable".
-    by_credit_count = sorted(filmography_sections, key=lambda s: -len(s["items"]))
-    known_for_primary = by_credit_count[0]["label"] if by_credit_count else details.get("known_for_department")
-    known_for_secondary = [s["label"] for s in by_credit_count[1:]]
+    known_for = _person_known_for(items)
+    backdrop_posters = [
+        i["poster_url"] for i in sorted(items, key=lambda i: (i["popularity"], i["vote_count"]), reverse=True)
+        if i.get("poster_url")
+    ][:7]
 
     birthday_date = _parse_tmdb_date(details.get("birthday"))
     deathday_date = _parse_tmdb_date(details.get("deathday"))
 
-    # The stats card's inline figures - built as an ordered list (not
-    # separate always-present context keys) so the template can lay them
-    # out identically regardless of which ones this particular person
-    # actually has data for. The credit-count callouts only cover
-    # secondary departments - the primary one is already named in
-    # "Known for", so repeating its count here would be redundant.
-    highlight_stats = []
-    if stats:
-        highlight_stats.append(
-            {
-                "value": f"{stats['watched_count']} of {stats['total_count']}", "label": "watched",
-                "info": f"Limited to their {tmdb.CREDIT_CAP} most notable credits per category.",
-            }
-        )
-        if stats["total_watch_time"]:
-            highlight_stats.append({"value": stats["total_watch_time"], "label": "total watch time", "info": None})
-        if stats["avg_rating"]:
-            highlight_stats.append(
-                {"value": f"★ {stats['avg_rating']}/10", "label": "your average rating", "info": None}
-            )
-    for section in by_credit_count:
-        if section["label"] != known_for_primary:
-            count = len(section["items"])
-            noun = "credit" if count == 1 else "credits"
-            highlight_stats.append(
-                {"value": str(count), "label": f"{section['label'].lower()} {noun}", "info": None}
-            )
+    decades = []
+    for item in items:
+        if not decades or decades[-1]["decade"] != item["decade"]:
+            decades.append({"decade": item["decade"], "label": f"{item['decade']}s" if item["decade"] else "Undated"})
+        item["decade_label"] = decades[-1]["label"]
 
-    # "You've Watched" - the titles behind the stats card's "N of M
-    # watched" figure, so that number has something to point at. Same
-    # deduped item list (a film they both acted in and directed shows
-    # once) and the same watched lookup the figure itself uses. Added
-    # after Known for/the credit-count callouts are worked out above, so
-    # it never counts as one of this person's departments.
-    watched_items = [
-        item for item in items
-        if action_context["discover_watched"].get(f"{item['media_type']}:{item['tmdb_id']}", False)
-    ]
-    for item in watched_items:
-        item["watched"] = True
-    if watched_items:
-        filmography_sections.insert(0, {"key": "watched", "label": "You've Watched", "items": watched_items})
-
+    watched_total = sum(1 for i in items if i["watched"])
     context = {
         "profile": profile,
         "person": details,
-        "known_for_primary": known_for_primary,
-        "known_for_secondary": known_for_secondary,
+        "chips": chips,
+        "departments": departments,
         "birthday_date": birthday_date,
         "deathday_date": deathday_date,
         "age": _person_age(birthday_date, deathday_date),
         "stats": stats,
-        "highlight_stats": highlight_stats,
-        "filmography_sections": filmography_sections,
+        "watched_total": watched_total,
+        "watched_pct": round(100 * watched_total / len(items)) if items else 0,
+        "credit_total": len(items),
+        "credit_cap": tmdb.CREDIT_CAP,
+        "known_for": known_for,
+        "backdrop_posters": backdrop_posters,
+        "career": _person_career_years(items, watched_by_key),
+        "credits": items,
         # discover_tile.html's own list-picker popover needs this regardless
         # of whether a given tile has a matched local Title yet - same
         # context key title_detail's "similar" grid and title_preview both
         # already provide it under.
         "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
+        "unwatched_count": sum(1 for i in items if not i["watched"]),
         **action_context,
     }
     return render(request, "tracker/person_detail.html", context)
+
+
+def _person_unwatched_credits(request, person_id):
+    """(profile, credits, action_context) for the person page's two
+    "unwatched" actions: this person's released credits that the profile
+    hasn't watched. Unreleased titles are left out - there is nothing to
+    pick or watch yet."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    credits = tmdb.get_person_credits(person_id, api_key=instance_config.get_tmdb_api_key())
+    items = _build_person_credits(credits)
+    action_context = selectors.discover_action_context(profile, items) if items else _EMPTY_DISCOVER_CONTEXT
+    today = timezone.localdate().isoformat()
+    unwatched = [
+        i for i in items
+        if not action_context["discover_watched"].get(i["key"]) and i.get("release_date") and i["release_date"] <= today
+    ]
+    return profile, unwatched, action_context
+
+
+@login_required
+def person_pick_unwatched(request, person_id):
+    """"Pick something unwatched" on the person page: Surprise me, limited
+    to this person's released credits you haven't watched. Goes to the
+    title's own page when it is already in the library, else to its TMDB
+    preview page (nothing is created just by looking)."""
+    _profile, unwatched, action_context = _person_unwatched_credits(request, person_id)
+    if not unwatched:
+        messages.info(request, "You've watched everything of theirs that's out.")
+        return redirect("person_detail", person_id=person_id)
+    picked = random.choice(unwatched)
+    local = action_context["discover_title_by_key"].get(picked["key"])
+    if local is not None:
+        return redirect("title_detail", pk=local.pk)
+    return redirect("title_preview", media_type=picked["media_type"], tmdb_id=picked["tmdb_id"])
+
+
+@login_required
+@require_POST
+def person_add_unwatched(request, person_id):
+    """"Add unwatched to a list" on the person page: puts this person's
+    released, unwatched credits on one of your lists. Titles not in the
+    library yet are looked up on TMDB first (_get_or_create_preview_title),
+    so a single click handles at most PERSON_ADD_LIMIT of those; the message
+    says when there is more to add."""
+    profile, unwatched, action_context = _person_unwatched_credits(request, person_id)
+    watchlist = get_object_or_404(WatchList, pk=request.POST.get("list_id"))
+    if not watchlist.can_edit(profile):
+        raise Http404
+    on_list = set(WatchListItem.objects.filter(watchlist=watchlist).values_list("title_id", flat=True))
+    position = (WatchListItem.objects.filter(watchlist=watchlist).aggregate(Max("position"))["position__max"] or 0)
+    added = 0
+    looked_up = 0
+    left_over = 0
+    for item in unwatched:
+        title = action_context["discover_title_by_key"].get(item["key"])
+        if title is None:
+            if looked_up >= PERSON_ADD_LIMIT:
+                left_over += 1
+                continue
+            looked_up += 1
+            title = _get_or_create_preview_title(item["media_type"], item["tmdb_id"])
+            if title is None:
+                continue
+        if title.pk in on_list:
+            continue
+        position += 1
+        WatchListItem.objects.create(watchlist=watchlist, title=title, position=position)
+        on_list.add(title.pk)
+        added += 1
+    if added:
+        message = f"Added {added} title{'s' if added != 1 else ''} to {watchlist.name}."
+        if left_over:
+            message += f" {left_over} more to add - run it again."
+        messages.success(request, message)
+    elif left_over:
+        messages.info(request, "Nothing could be added right now - try again in a moment.")
+    else:
+        messages.info(request, f"Everything of theirs you haven't watched is already on {watchlist.name}.")
+    return redirect("person_detail", person_id=person_id)
 
 
 def _get_or_create_preview_title(media_type, tmdb_id):
