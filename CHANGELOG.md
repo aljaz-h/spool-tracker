@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.172.0] - 2026-11-01
+
+### Changed
+
+- **Wrapped has its own page.** The Year, Month and Year in Review recaps now open in their own full page inside Spool - no top nav or footer, a slim bar to switch period, and one centered column - instead of sitting in the app's dashboard layout.
+- **Year in Review is a page to read through**, laid out like Trakt's but in Spool's own look: a cover with your top posters, the first play of the year, then Shows and Movies each with a weekly activity chart, hours and plays per month, the most-played titles, networks/studios as bubbles, a genre bar and a world map of the countries you watched, followed by most-watched cast, directors and writers, the last play of the year and a closing "Thanks" card. Charts are drawn in the page itself, with the map data bundled in Spool, so nothing is loaded from outside.
+- **Every recap can be downloaded as a PNG**, the Year in Review included (a full-height image of the page, charts and map drawn in, made the same way as the cards and saved with the others).
+- **New share image** for the Year and Month recaps: a 1080-wide card with the period as a huge title, three stat pills (hours, titles and longest streak for a month; hours, plays and titles for a year), a first-play and a last-play banner over the title's backdrop, the top 3 shows and top 3 movies, and the movies/TV/anime split with the top genre. It is drawn on the server (artwork is fetched there and inlined). The Wrapped page shows it as a scaled preview with a Format choice (Portrait 4:5, Square, Story 9:16) and tick-boxes for what appears (first and last play, top 3, split, hide my name); the choice is kept in the page address and used by "Create PNG"/"Re-create". Saved recaps show a thumbnail of their image. The four old card styles are replaced by this one design, so the Card style setting is gone.
+- **Year in Review additions:** most-watched cast is split into Actors and Actresses (from TMDB's gender field, shown with a 2x2 grid with Directors and Writers, each with a title count), and **Show Trends / Movie Trends** show the most popular title that premiered each month of the year (TMDB, cached) with the ones you watched ticked. Run `manage.py enrich_titles_reports_metadata` once so existing titles get cast genders. New migration `0087`.
+- **Year in Review and All Time are wider and more visual** (a 1240px page that stacks on narrow screens): a backdrop mosaic behind the cover with a fan of five posters and big stat tiles, first and last play banners over the title's backdrop, section headings, a weekly chart with gridlines and hour labels, the top five shows and movies as large poster cards with big rank numbers over a dimmed backdrop (places 6 to 10 as a list with bars), networks and studios as letter tiles with thick bars, 96px genre strips with percentages, a large world map with the ranked countries beside it, and people cards with a portrait for the featured person (looked up on TMDB). The same design is used for the Year in Review image export (now about 1320px wide).
+- **All Time tab** next to Year, Month and Year in Review: totals since your first watch, where the time went, release-year histograms for shows and movies, top 10 shows and movies, genres, a countries map, networks and studios as bars and the four people cards.
+- The compact Wrapped card's "Spool" style follows the app's current typography (Public Sans for headings and labels; Bebas only for the wordmark and big figures).
+
 ## [0.171.1] - 2026-11-01
 
 ### Fixed

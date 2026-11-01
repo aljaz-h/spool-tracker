@@ -1,0 +1,32 @@
+{% extends "tracker/wrapped_base.html" %}
+{% load static icons %}
+{% block title %}{{ year }} Year in Review · Spool{% endblock %}
+
+{% block main_class %} wp-main-xl{% endblock %}
+
+{% block bar %}
+  {% include "tracker/partials/wrapped_picker.html" %}
+  {% if has_history %}
+    {% include "tracker/partials/wrapped_download.html" %}
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+  {% if not has_history %}
+    <div class="wp-empty">
+      <div class="wp-empty-title">Nothing watched in {{ year }}</div>
+      <p>Once something is logged for this year, its review shows up here.</p>
+    </div>
+  {% else %}
+    {% include "tracker/partials/wrapped_review_body.html" %}
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  {% if has_history %}
+    <script src="{% static 'vendor/d3-array.min.js' %}"></script>
+    <script src="{% static 'vendor/d3-geo.min.js' %}"></script>
+    <script src="{% static 'vendor/topojson-client.min.js' %}"></script>
+    <script src="{% static 'js/wrapped-review.js' %}" data-world="{% static 'vendor/world-110m.json' %}"></script>
+  {% endif %}
+{% endblock %}

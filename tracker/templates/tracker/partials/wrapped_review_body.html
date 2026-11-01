@@ -1,0 +1,114 @@
+{% load tracker_extras %}
+{# context: stats, sections, chart_data, trends, cover_tiles, year, year_str, next_year, profile, export (bool - the image export: no app-relative URLs, images loaded eagerly). The Year in Review itself: used by the page (wrapped_review.html) and by the PNG export (wrapped_export.html). #}
+<div class="yr">
+
+  {% include "tracker/partials/wrapped_cover.html" with eyebrow=year_str headline="Year in<br>Review" tiles=cover_tiles collage=stats.collage directed=True %}
+
+  {% include "tracker/partials/wrapped_moment.html" with label="First play of "|add:year_str moment=stats.first_play %}
+
+  {% for section_key, section in sections %}
+    <div class="yr-section-head" data-section="{{ section_key }}">
+      <h2>{{ section.label }}</h2>
+      <div class="yr-section-meta">{{ section.total_titles|floatformat:"0g" }} {{ section.label|lower }} &middot; {{ section.total_plays|floatformat:"0g" }} plays</div>
+    </div>
+
+    {# ---- Hours: the weekly chart, and the numbers beside it ---- #}
+    <section class="yr-grid-2 yr-overview">
+      <div class="yr-panel" data-section="{{ section_key }}">
+        <div class="yr-kicker">In {{ year }}, you watched</div>
+        <h3 class="yr-big">{{ section.total_hours_display }} hours of {{ section.total_titles|floatformat:"0g" }} {{ section.label }}</h3>
+        <div class="yr-chart yr-chart-bars" data-chart="weekly" data-section="{{ section_key }}"></div>
+        <p class="yr-note">
+          {% if section.peak_week_label %}Your most active week was <b>{{ section.peak_week_label }}</b> with <b>{{ section.peak_week_plays }}</b> plays.{% endif %}
+          {% if section.peak_hour is not None %} The most popular time you watched was <b>{{ section.peak_hour }}:00</b>.{% endif %}
+        </p>
+      </div>
+      <div class="yr-stack" data-section="{{ section_key }}">
+        <div class="yr-panel">
+          <dl class="yr-bigtiles">
+            <div class="yr-bigtile is-accent"><dt>Hours</dt><dd>{{ section.total_hours_display }}</dd></div>
+            <div class="yr-bigtile"><dt>Plays</dt><dd>{{ section.total_plays|floatformat:"0g" }}</dd></div>
+            <div class="yr-bigtile"><dt>Hours per week</dt><dd>{{ section.per_week.0 }}</dd></div>
+            <div class="yr-bigtile"><dt>Hours per day</dt><dd>{{ section.per_day.0 }}</dd></div>
+          </dl>
+        </div>
+        <div class="yr-panel">
+          <dl class="yr-bigtiles">
+            <div class="yr-bigtile"><dt>Plays per month</dt><dd>{{ section.per_month.1 }}</dd></div>
+            <div class="yr-bigtile"><dt>Plays per week</dt><dd>{{ section.per_week.1 }}</dd></div>
+          </dl>
+        </div>
+      </div>
+    </section>
+
+    {# ---- Most played ---- #}
+    {% if section_key == "movies" %}
+      {% include "tracker/partials/wrapped_topblock.html" with section=section section_key=section_key heading="Most Watched Movies" by_time=True %}
+    {% else %}
+      {% include "tracker/partials/wrapped_topblock.html" with section=section section_key=section_key heading="Most Played Shows" by_time=False %}
+    {% endif %}
+
+    {% include "tracker/partials/wrapped_nets.html" with section=section section_key=section_key heading="Most Watched "|add:section.secondary_label %}
+
+    {% include "tracker/partials/wrapped_genres.html" with section=section section_key=section_key heading="Most Watched "|add:section.singular|add:" Genres" %}
+
+    {% include "tracker/partials/wrapped_geo.html" with countries=section.countries section_key=section_key heading="Most Watched "|add:section.singular|add:" Countries" %}
+
+    {# ---- Trends: what premiered this year, and how much of it you watched ---- #}
+    {% with tr=trends|get_item:section_key %}
+      {% if tr %}
+        <section class="yr-panel yr-trends">
+          <div class="yr-genres-head">
+            <h3 class="yr-h3">{{ section.label|slice:":-1" }} Trends</h3>
+            <p class="yr-note yr-trends-note">The most popular {{ section.label|lower }} that premiered in {{ year }} &middot; you watched <b>{{ tr.watched }}</b> of {{ tr.total }}</p>
+          </div>
+          <div class="yr-trend-grid">
+            {% for item in tr.items %}
+              <figure class="yr-trend{% if item.watched %} is-watched{% endif %}">
+                <figcaption class="yr-trend-month">{{ item.month }}</figcaption>
+                <div class="yr-trend-poster">
+                  {% if item.poster_url %}<img src="{{ item.poster_url|poster_size:'w342' }}" alt="" loading="{% if export %}eager{% else %}lazy{% endif %}">{% else %}<span>{{ item.name|first }}</span>{% endif %}
+                  {% if item.watched %}<span class="yr-trend-check" aria-label="Watched">&#10003;</span>{% endif %}
+                </div>
+                <figcaption class="yr-trend-name">{{ item.name }}</figcaption>
+              </figure>
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
+    {% endwith %}
+  {% endfor %}
+
+  {# ---- People ---- #}
+  <div class="yr-section-head"><h2>People</h2></div>
+  <section class="yr-people-grid">
+    {% include "tracker/partials/wrapped_people.html" with title="Most Watched Actors" people=stats.most_watched_actors %}
+    {% include "tracker/partials/wrapped_people.html" with title="Most Watched Actresses" people=stats.most_watched_actresses %}
+    {% include "tracker/partials/wrapped_people.html" with title="Most Watched Directors" people=stats.most_watched_directors %}
+    {% include "tracker/partials/wrapped_people.html" with title="Most Watched Writers" people=stats.most_watched_writers %}
+  </section>
+
+  {% include "tracker/partials/wrapped_moment.html" with label="Last play of "|add:year_str moment=stats.last_play %}
+
+  {# ---- Thanks ---- #}
+  <section class="yr-panel yr-thanks">
+    <div class="yr-mosaic" aria-hidden="true">
+      {% for t in stats.collage %}{% if t.backdrop_url %}<img src="{{ t.backdrop_url }}" alt="" loading="{% if export %}eager{% else %}lazy{% endif %}">{% endif %}{% endfor %}
+    </div>
+    <div class="yr-mosaic-shade" aria-hidden="true"></div>
+    <div class="yr-thanks-inner">
+      {% if stats.collage %}
+        <div class="yr-thanks-posters" aria-hidden="true">
+          {% for t in stats.collage|slice:":6" %}{% if t.poster_url %}<img src="{{ t.poster_url|poster_size:'w342' }}" alt="" loading="{% if export %}eager{% else %}lazy{% endif %}">{% endif %}{% endfor %}
+        </div>
+      {% endif %}
+      <div class="yr-thanks-text">
+        <div class="yr-stars" aria-hidden="true">★ ★ ★ ★ ★</div>
+        <h2 class="yr-headline">Thanks.</h2>
+        <p>You did an epic job directing {{ year }}.{% if stats.is_partial %} The year isn't over yet, so there is still time for a better ending.{% else %} Here's to an even better sequel in {{ next_year }}.{% endif %}</p>
+      </div>
+    </div>
+  </section>
+
+  {{ chart_data|json_script:"yr-data" }}
+</div>

@@ -1393,6 +1393,8 @@ def get_credits(media_type, tmdb_id, limit=12, api_key=None):
                 "character": person.get("character") or "",
                 "profile_url": f"{PROFILE_BASE}{profile_path}" if profile_path else None,
                 "tmdb_person_id": person.get("id"),
+                # TMDB's own field: 1 female, 2 male, 0 not specified, 3 non-binary.
+                "gender": person.get("gender") or 0,
             }
         )
     return results
@@ -1472,16 +1474,69 @@ def get_reports_metadata(media_type, tmdb_id, details):
     countries = details.get("countries") or []
     companies = details.get("production_companies") or []
     networks = details.get("networks") or []
-    cast_names = [c["name"] for c in get_credits(media_type, tmdb_id, limit=5) if c["name"]]
+    credits = [c for c in get_credits(media_type, tmdb_id, limit=5) if c["name"]]
+    cast_names = [c["name"] for c in credits]
     director = get_director(media_type, tmdb_id)
     return {
         "country": countries[0] if countries else "",
         "studio": companies[0] if is_movie and companies else "",
         "network": networks[0] if not is_movie and networks else "",
         "cast": cast_names,
+        "cast_genders": {c["name"]: c.get("gender") or 0 for c in credits},
         "directors": [director["name"]] if director and director["name"] else [],
         "writers": get_writers(media_type, tmdb_id),
     }
+
+
+def get_popular_premieres(media_type, year, api_key=None):
+    """The most popular title that premiered in each month of `year` -
+    [{"month": 1..12, "tmdb_id", "name", "poster_url"} or None, ...] (12
+    entries, None for a month TMDB has nothing for) - for Wrapped's Show /
+    Movie Trends. media_type "movie" or "tv" (anime is TV here). Twelve
+    cached /discover calls; a finished year's lists change very little, so
+    they're kept for a week, the running year's for a day."""
+    import calendar
+    import datetime
+    from concurrent.futures import ThreadPoolExecutor
+
+    api_key = api_key if api_key is not None else _api_key()
+    if not api_key:
+        return [None] * 12
+    field = "primary_release_date" if media_type == "movie" else "first_air_date"
+    ttl = 86400 if year >= datetime.date.today().year else 7 * 86400
+
+    def month_top(month):
+        last = calendar.monthrange(year, month)[1]
+        data = _list_request(
+            f"discover/{media_type}",
+            {
+                "sort_by": "popularity.desc", "include_adult": "false", "without_keywords": _UNSAFE_KEYWORD_IDS,
+                f"{field}.gte": f"{year}-{month:02d}-01", f"{field}.lte": f"{year}-{month:02d}-{last:02d}",
+                "vote_count.gte": 5,
+            },
+            api_key=api_key, ttl=ttl,
+        )
+        results = (data or {}).get("results") or []
+        if not results:
+            return None
+        item = _normalize_result(results[0], media_type)
+        return {"month": month, "tmdb_id": item["tmdb_id"], "name": item["name"], "poster_url": item["poster_url"]}
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        return list(pool.map(month_top, range(1, 13)))
+
+
+def get_person_photo(name, api_key=None):
+    """A portrait URL (w342) for the best TMDB person match for `name`, or "" -
+    for Wrapped's featured-person cards. One cached search per name."""
+    name = (name or "").strip()
+    if not name:
+        return ""
+    data = _list_request("search/person", {"query": name, "include_adult": "false"}, api_key=api_key, ttl=30 * 86400)
+    for person in (data or {}).get("results") or []:
+        if person.get("profile_path"):
+            return f"https://image.tmdb.org/t/p/w342{person['profile_path']}"
+    return ""
 
 
 def get_season_details(tmdb_id, season_number):

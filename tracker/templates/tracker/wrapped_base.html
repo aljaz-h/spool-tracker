@@ -1,0 +1,30 @@
+{% load static %}<!doctype html>
+{% comment %}
+  Wrapped's own page shell: still Spool (same fonts, colours, login), but
+  not the app's dashboard chrome - no top nav, no footer. One centered
+  column, a slim bar to move between periods, nothing else around it, so
+  a recap reads like something to look at rather than a settings screen.
+{% endcomment %}
+<html lang="en" data-theme="spool">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  {% include "tracker/partials/pwa_head.html" %}
+  <title>{% block title %}Wrapped · Spool{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Public+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'dist/app.css' %}">
+</head>
+<body class="wp-body" data-animations="off">
+  <header class="wp-bar">
+    <a href="{% url 'stats' %}" class="wp-back" aria-label="Back to Stats">&larr;<span>Stats</span></a>
+    <a href="{% url 'wrapped' %}" class="wp-mark" aria-label="Wrapped home">Spool <b>Wrapped</b></a>
+    <div class="wp-bar-controls">{% block bar %}{% endblock %}</div>
+  </header>
+  <main class="wp-main{% block main_class %}{% endblock %}">
+    {% block content %}{% endblock %}
+  </main>
+  {% include "tracker/partials/toasts.html" %}
+  {% block scripts %}{% endblock %}
+</body>
+</html>

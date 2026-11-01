@@ -1,0 +1,30 @@
+{% load tracker_extras %}
+{# context: eyebrow (small line above the title), headline (the big title, <br> allowed), tiles [(label, value)], collage (TitleAgg list: poster_url + backdrop_url), profile, directed (bool - show "Directed by"), export. The cover: a mosaic of backdrops behind the title and a fan of five posters beside it. #}
+<section class="yr-panel yr-cover">
+  <div class="yr-mosaic" aria-hidden="true">
+    {% for t in collage %}{% if t.backdrop_url %}<img src="{{ t.backdrop_url }}" alt="" loading="{% if export %}eager{% else %}lazy{% endif %}">{% endif %}{% endfor %}
+  </div>
+  <div class="yr-mosaic-shade" aria-hidden="true"></div>
+  <div class="yr-cover-inner">
+    <div>
+      <div class="yr-stars" aria-hidden="true">★ ★ ★ ★ ★</div>
+      <div class="yr-year{% if eyebrow_small %} yr-year-small{% endif %}">{{ eyebrow }}</div>
+      <h2 class="yr-headline">{{ headline|safe }}</h2>
+      {% if directed %}
+        <div class="yr-directed">
+          <span class="yr-directed-label">Directed by</span>
+          <span class="yr-directed-who">
+            {% if profile.avatar_image and not export %}<span class="yr-avatar" style="background-image:url('{{ profile.avatar_image.url }}')"></span>{% else %}<span class="yr-avatar" style="background:{{ profile.avatar_color }};color:#fff">{{ profile.display_name|first|upper }}</span>{% endif %}
+            {{ profile.display_name }}
+          </span>
+        </div>
+      {% endif %}
+      <dl class="yr-tiles{% if tiles|length == 4 %} yr-tiles-4{% endif %}">
+        {% for label, value in tiles %}<div class="yr-tile"><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endfor %}
+      </dl>
+    </div>
+    <div class="yr-fan" aria-hidden="true">
+      {% for t in collage|slice:":5" %}{% if t.poster_url %}<img src="{{ t.poster_url|poster_size:'w342' }}" alt="" style="--i: {{ forloop.counter0 }}" loading="{% if export %}eager{% else %}lazy{% endif %}">{% endif %}{% endfor %}
+    </div>
+  </div>
+</section>

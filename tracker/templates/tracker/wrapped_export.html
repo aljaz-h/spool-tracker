@@ -1,0 +1,14 @@
+<!doctype html>
+{# The Year in Review as one self-contained document for the PNG export (tracker/wrapped/export.py): the app's CSS, fonts and the chart scripts are inlined, so the screenshot needs nothing from the server. #}
+<html lang="en" data-theme="spool">
+<head>
+  <meta charset="UTF-8">
+  <style>{{ fonts|safe }}</style>
+  <style>{{ css|safe }}</style>
+  <style>html, body { background: #0e1014; } body { padding: 24px 12px 36px; } .yr { margin: 0 auto; }</style>
+</head>
+<body class="wp-body wp-export">
+  {% include "tracker/partials/wrapped_review_body.html" %}
+  <script>{{ js|safe }}</script>
+</body>
+</html>

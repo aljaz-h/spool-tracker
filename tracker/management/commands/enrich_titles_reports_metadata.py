@@ -31,7 +31,12 @@ class Command(BaseCommand):
         candidates = [
             t
             for t in Title.objects.all()
-            if t.external_ids.get("tmdb") and not (t.country or t.studio or t.network or t.cast or t.directors or t.writers)
+            if t.external_ids.get("tmdb")
+            and (
+                not (t.country or t.studio or t.network or t.cast or t.directors or t.writers)
+                # Titles enriched before cast genders were kept: run again to fill them in.
+                or (t.cast and not t.cast_genders)
+            )
         ]
         total = len(candidates)
         if total == 0:

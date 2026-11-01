@@ -554,14 +554,9 @@
             {% settings_row title="Year in Review" help="A much longer yearly report: activity charts, most-watched titles, genres, countries, cast and crew." %}
               <input type="checkbox" name="wrapped_year_in_review" class="checkbox" aria-label="Year in Review" {% if profile.wrapped_year_in_review %}checked{% endif %}>
             {% endsettings_row %}
-            {% settings_row title="Card style" help="The look of the monthly and yearly card." %}
-              <select name="wrapped_template" class="s-select" aria-label="Card style">
-                {% for key, info in wrapped_templates.items %}<option value="{{ key }}" {% if profile.wrapped_template == key %}selected{% endif %}>{{ info.name }}</option>{% endfor %}
-              </select>
-            {% endsettings_row %}
             <div class="s-row !block">
-              <div class="s-row-title">Stats on the card</div>
-              <p class="s-row-help mb-2">Untick anything you'd rather leave off.</p>
+              <div class="s-row-title">On the share image</div>
+              <p class="s-row-help mb-2">What the image shows by default. You can change it for any one image on the Wrapped page.</p>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
                 {% for key, label in wrapped_card_stats %}
                   <label class="flex items-center gap-2 text-[13px] cursor-pointer">

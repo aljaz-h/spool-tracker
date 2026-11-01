@@ -13809,7 +13809,7 @@ class TmdbDetailPageTests(TestCase):
         mock_get.return_value = self._response(
             {
                 "cast": [
-                    {"id": 501, "name": "Actor One", "character": "Hero", "profile_path": "/a.jpg"},
+                    {"id": 501, "name": "Actor One", "character": "Hero", "profile_path": "/a.jpg", "gender": 2},
                     {"id": 502, "name": "Actor Two", "character": "Villain", "profile_path": None},
                 ]
             }
@@ -13822,8 +13822,10 @@ class TmdbDetailPageTests(TestCase):
                 "name": "Actor One", "character": "Hero",
                 "profile_url": "https://image.tmdb.org/t/p/w185/a.jpg",
                 "tmdb_person_id": 501,
+                "gender": 2,
             },
         )
+        self.assertEqual(cast[1]["gender"], 0)  # not given -> unspecified
         self.assertIsNone(cast[1]["profile_url"])
         self.assertEqual(cast[1]["tmdb_person_id"], 502)
 
@@ -26433,6 +26435,7 @@ class TmdbReportsMetadataTests(TestCase):
                 "studio": "Universal Pictures",
                 "network": "",
                 "cast": ["Cillian Murphy", "Emily Blunt"],
+                "cast_genders": {"Cillian Murphy": 0, "Emily Blunt": 0},
                 "directors": ["Christopher Nolan"],
                 "writers": ["Christopher Nolan"],
             },
@@ -33983,7 +33986,7 @@ class WrappedTests(TestCase):
                 watched_at=f"{self.year}-03-{day:02d}T20:00:00Z", user_rating=9,
             )
 
-    def _fake_png(self, template_name, context, full_page=False):
+    def _fake_png(self, template_name, context, fmt="portrait", full_page=False):
         from tracker.wrapped import render
 
         token = "T" * 32
@@ -34003,23 +34006,123 @@ class WrappedTests(TestCase):
     def test_card_context_has_the_numbers_and_honours_hidden_stats(self):
         from tracker.wrapped import service
 
-        self.profile.wrapped_hidden_stats = ["top_genre"]
+        self.profile.wrapped_hidden_stats = ["split"]
         context, count = service.card_context(self.profile, "monthly", self.year, 3)
         self.assertEqual(count, 3)
         self.assertEqual(context["stats"].total_watch_minutes, 120)
         self.assertEqual(context["period_label"], "March 2025")
-        self.assertFalse(context["show_top_genre"])
-        self.assertTrue(context["show_total_watch_time"])
+        self.assertEqual(context["period_title"], "MARCH")
+        self.assertEqual(context["pills"], [("2", "hours"), ("1", "titles"), ("2", "day streak")])
+        self.assertFalse(context["show_split"])
+        self.assertTrue(context["show_first_last"])
+        # An explicit choice (the page's checkboxes) beats the saved one.
+        context, _ = service.card_context(self.profile, "yearly", self.year, hidden={"name"})
+        self.assertFalse(context["show_name"])
+        self.assertTrue(context["show_split"])
+        self.assertEqual(context["pills"][1][1], "plays")
 
-    def test_pages_render_for_year_month_and_review(self):
-        for url in (
-            reverse("wrapped_year", args=[self.year]),
-            reverse("wrapped_month", args=[self.year, 3]),
-            reverse("wrapped_review", args=[self.year]),
-        ):
+    def test_pages_render_for_year_and_month(self):
+        for url in (reverse("wrapped_year", args=[self.year]), reverse("wrapped_month", args=[self.year, 3])):
             resp = self.client.get(url)
             self.assertEqual(resp.status_code, 200, url)
-            self.assertContains(resp, "Create image")
+            self.assertContains(resp, "Create PNG")
+
+    def test_year_in_review_is_a_native_page_with_chart_data_and_an_image_button(self):
+        resp = self.client.get(reverse("wrapped_review", args=[self.year]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Year in")
+        self.assertContains(resp, 'id="yr-data"')
+        self.assertContains(resp, "wrapped-review")
+        self.assertContains(resp, "Wrapped Show")
+        self.assertContains(resp, "Create PNG")
+        data = resp.context["chart_data"]
+        self.assertEqual(list(data), ["shows"])
+        self.assertEqual(len(data["shows"]["monthly"]), 12)
+        self.assertEqual(sum(w["plays"] for w in data["shows"]["weekly"]), 3)
+
+    def test_pages_are_their_own_shell_not_the_app_chrome(self):
+        for url in (reverse("wrapped_year", args=[self.year]), reverse("wrapped_review", args=[self.year])):
+            resp = self.client.get(url)
+            self.assertContains(resp, "wp-main")
+            self.assertNotContains(resp, 'id="global-search-input"')
+
+    @patch("tracker.wrapped.export.render_review_png")
+    def test_year_in_review_image_is_made_and_served(self, mock_export):
+        mock_export.side_effect = lambda context: self._fake_png("year_in_review", context)
+        resp = self.client.post(reverse("wrapped_create"), {"kind": "year_in_review", "year": self.year})
+        self.assertRedirects(resp, reverse("wrapped_review", args=[self.year]), fetch_redirect_response=False)
+        report = WrappedReport.objects.get(profile=self.profile, kind="year_in_review")
+        self.assertTrue(report.token)
+        page = self.client.get(reverse("wrapped_review", args=[self.year]))
+        self.assertContains(page, "Download PNG")
+
+    def test_review_document_is_self_contained(self):
+        from tracker.wrapped import export, service
+
+        html = export.review_document(service.year_in_review_page_context(self.profile, self.year))
+        self.assertIn("window.__yrWorldData", html)
+        self.assertIn('id="yr-data"', html)
+        self.assertIn("@font-face", html)
+        self.assertNotIn("/static/", html)
+        self.assertNotIn("<script src=", html)
+
+    @patch("tracker.wrapped.export.render_review_png", side_effect=RuntimeError("no chromium"))
+    def test_a_failed_review_image_still_records_the_review_and_says_so(self, _mock):
+        resp = self.client.post(reverse("wrapped_create"), {"kind": "year_in_review", "year": self.year}, follow=True)
+        report = WrappedReport.objects.get(profile=self.profile, kind="year_in_review")
+        self.assertIsNone(report.token)
+        self.assertContains(resp, "Create PNG")
+
+    @patch("tracker.wrapped.export.render_review_png")
+    def test_generating_a_year_in_review_notifies_and_links_to_the_page(self, mock_export):
+        from tracker.wrapped import service
+
+        mock_export.side_effect = lambda context: self._fake_png("year_in_review", context)
+        report = service.generate(self.profile, "year_in_review", self.year)
+        self.assertEqual(report.status, "success")
+        self.assertTrue(report.token)
+        note = Notification.objects.get(profile=self.profile, kind="wrapped_ready")
+        self.assertEqual(note.link, reverse("wrapped_review", args=[self.year]))
+        self.assertIn("Year in Review", note.message)
+
+    def test_the_image_formats_and_options_come_from_the_url(self):
+        resp = self.client.get(reverse("wrapped_year", args=[self.year]) + "?fmt=square&hide=name,split")
+        self.assertEqual(resp.context["fmt"], "square")
+        self.assertEqual(resp.context["card_height"], 1080)
+        self.assertTrue(resp.context["hide_name"])
+        self.assertIn("fmt=square", resp.context["frame_url"])
+        self.assertContains(resp, "Story 9:16")
+        self.assertContains(resp, "Hide my name")
+        bad = self.client.get(reverse("wrapped_year", args=[self.year]) + "?fmt=nope")
+        self.assertEqual(bad.context["fmt"], "portrait")
+
+    def test_frame_honours_format_and_hidden_options(self):
+        resp = self.client.get(reverse("wrapped_year_frame", args=[self.year]) + "?fmt=story&hide=first_last,name")
+        html = resp.content.decode()
+        self.assertIn("height: 1920px", html)
+        self.assertNotIn("First play of", html)
+        self.assertNotIn('class="owner"', html)
+
+    @patch("tracker.wrapped.render.render_png")
+    def test_create_passes_the_chosen_format_and_options_on(self, mock_render):
+        mock_render.side_effect = self._fake_png
+        self.client.post(
+            reverse("wrapped_create"),
+            {"kind": "yearly", "year": self.year, "fmt": "square", "hide": "name"},
+        )
+        report = WrappedReport.objects.get(profile=self.profile)
+        self.assertEqual(report.template_name, "square")
+        self.assertEqual(mock_render.call_args.kwargs["fmt"], "square")
+        self.assertFalse(mock_render.call_args.args[1]["show_name"])
+
+    def test_images_are_only_fetched_from_the_known_image_hosts(self):
+        from tracker.wrapped import service
+
+        with patch("tracker.wrapped.service.requests.get") as mock_get:
+            self.assertEqual(service.inline_image("https://evil.example/x.png"), "")
+            self.assertEqual(service.inline_image("http://image.tmdb.org/t/p/w500/x.jpg"), "")
+            self.assertEqual(service.inline_image("https://localhost/x.png"), "")
+        mock_get.assert_not_called()
 
     def test_page_for_a_period_with_nothing_watched_says_so(self):
         resp = self.client.get(reverse("wrapped_month", args=[self.year, 7]))
@@ -34037,7 +34140,10 @@ class WrappedTests(TestCase):
     def test_create_stores_a_report_and_the_image_is_served_by_token(self, mock_render):
         mock_render.side_effect = self._fake_png
         resp = self.client.post(reverse("wrapped_create"), {"kind": "monthly", "year": self.year, "month": 3})
-        self.assertRedirects(resp, reverse("wrapped_month", args=[self.year, 3]), fetch_redirect_response=False)
+        # Back on the same format and options the image was made with.
+        self.assertRedirects(
+            resp, reverse("wrapped_month", args=[self.year, 3]) + "?fmt=portrait&hide=", fetch_redirect_response=False
+        )
         report = WrappedReport.objects.get(profile=self.profile)
         self.assertEqual(report.status, "success")
         self.assertEqual(report.period_label, "March 2025")
@@ -34143,7 +34249,7 @@ class WrappedTests(TestCase):
             reverse("save_appearance"),
             {
                 "wrapped_settings_submitted": "1", "wrapped_recaps_enabled": "on", "wrapped_yearly": "on",
-                "wrapped_template": "classic", "wrapped_show_top_genre": "on",
+                "wrapped_show_first_last": "on",
                 "wrapped_webhook_url": "https://discord.com/api/webhooks/9/y",
             },
         )
@@ -34151,9 +34257,8 @@ class WrappedTests(TestCase):
         self.profile.refresh_from_db()
         self.assertTrue(self.profile.wrapped_yearly)
         self.assertFalse(self.profile.wrapped_monthly)
-        self.assertEqual(self.profile.wrapped_template, "classic")
-        self.assertNotIn("top_genre", self.profile.wrapped_hidden_stats)
-        self.assertIn("longest_streak", self.profile.wrapped_hidden_stats)
+        self.assertNotIn("first_last", self.profile.wrapped_hidden_stats)
+        self.assertIn("split", self.profile.wrapped_hidden_stats)
 
     def test_only_discord_webhook_addresses_are_accepted(self):
         from tracker.wrapped.service import is_discord_webhook
@@ -34185,7 +34290,7 @@ class WrappedTests(TestCase):
     def test_settings_page_has_the_wrapped_tab(self):
         resp = self.client.get(reverse("settings"))
         self.assertContains(resp, "tab === 'wrapped'")
-        self.assertContains(resp, "Card style")
+        self.assertContains(resp, "On the share image")
 
     def test_pages_need_a_login(self):
         self.client.logout()
@@ -34250,7 +34355,7 @@ class WrappedRetentionTests(TestCase):
     def test_recreating_a_period_replaces_the_old_copy_and_its_file(self):
         from tracker.wrapped import service
 
-        def fake(template_name, context, full_page=False):
+        def fake(template_name, context, fmt="portrait", full_page=False):
             token = ("A" if not hasattr(fake, "n") else "B") * 32
             fake.n = 1
             path = self.render.generated_dir() / f"{token}.png"
@@ -34275,3 +34380,185 @@ class WrappedRetentionTests(TestCase):
         self.assertContains(resp, "Monthly recaps are kept for a year")
         month_path.unlink()
         year_path.unlink()
+
+
+class WrappedPhase2Tests(TestCase):
+    """Actors / actresses split and the Show / Movie Trends sections."""
+
+    def setUp(self):
+        user = User.objects.create_user("wrappedtrends", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="WrappedTrends")
+        self.client.login(username="wrappedtrends", password="pass12345")
+        self.year = 2025
+        # Artwork lookups hit TMDB; none of these tests are about that.
+        for target, value in (("get_full_details", None), ("get_person_photo", "")):
+            patcher = patch(f"tracker.wrapped.artwork.tmdb.{target}", return_value=value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.movie = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Cast Movie", year=2020, runtime_minutes=100,
+            external_ids={"tmdb": "501"}, cast=["Ann Actress", "Bob Actor", "Sam Unknown"],
+            cast_genders={"Ann Actress": 1, "Bob Actor": 2, "Sam Unknown": 0},
+        )
+        self.second = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Second Movie", year=2021, runtime_minutes=90,
+            external_ids={"tmdb": "502"}, cast=["Ann Actress"], cast_genders={"Ann Actress": 1},
+        )
+        for title, day in ((self.movie, 3), (self.second, 5), (self.movie, 9)):
+            WatchEvent.objects.create(profile=self.profile, title=title, watched_at=f"{self.year}-03-{day:02d}T20:00:00Z")
+
+    def test_cast_is_split_by_tmdb_gender_and_counts_distinct_titles(self):
+        from tracker.wrapped import service
+
+        stats = service.year_in_review_context(self.profile, self.year)[0]["stats"]
+        self.assertEqual([(p.name, p.count) for p in stats.most_watched_actresses], [("Ann Actress", 2)])
+        self.assertEqual([(p.name, p.count) for p in stats.most_watched_actors], [("Bob Actor", 1)])
+        # A cast member with no gender on record is in neither list.
+        names = {p.name for p in stats.most_watched_actors + stats.most_watched_actresses}
+        self.assertNotIn("Sam Unknown", names)
+
+    def test_review_page_has_actors_and_actresses_cards(self):
+        with patch("tracker.wrapped.trends.tmdb.get_popular_premieres", return_value=[None] * 12):
+            resp = self.client.get(reverse("wrapped_review", args=[self.year]))
+        self.assertContains(resp, "Most Watched Actors")
+        self.assertContains(resp, "Most Watched Actresses")
+        self.assertContains(resp, "Ann Actress")
+
+    @patch("tracker.wrapped.trends.tmdb._api_key", return_value="key")
+    @patch("tracker.wrapped.trends.tmdb.get_popular_premieres")
+    def test_trends_tick_the_premieres_you_watched(self, mock_premieres, _key):
+        from tracker.wrapped import trends
+
+        def premieres(media, year, api_key=None):
+            if media == "movie":
+                return [
+                    {"month": 1, "tmdb_id": 501, "name": "Cast Movie", "poster_url": None},
+                    {"month": 2, "tmdb_id": 999, "name": "Never Watched", "poster_url": None},
+                ] + [None] * 10
+            return [None] * 12
+
+        mock_premieres.side_effect = premieres
+        out = trends.trends_for(self.profile, self.year)
+        self.assertNotIn("shows", out)
+        movies = out["movies"]
+        self.assertEqual((movies["watched"], movies["total"]), (1, 2))
+        self.assertEqual([(i["month"], i["watched"]) for i in movies["items"]], [("JAN", True), ("FEB", False)])
+
+    @patch("tracker.wrapped.trends.tmdb._api_key", return_value="key")
+    @patch("tracker.wrapped.trends.tmdb.get_popular_premieres")
+    def test_review_page_shows_trends_with_the_watched_count(self, mock_premieres, _key):
+        mock_premieres.side_effect = lambda media, year, api_key=None: (
+            [{"month": 1, "tmdb_id": 501, "name": "Cast Movie", "poster_url": None}] + [None] * 11
+            if media == "movie" else [None] * 12
+        )
+        resp = self.client.get(reverse("wrapped_review", args=[self.year]))
+        self.assertContains(resp, "Movie Trends")
+        self.assertContains(resp, "you watched <b>1</b> of 1")
+        self.assertContains(resp, "yr-trend-check")
+
+    @patch("tracker.wrapped.trends.tmdb._api_key", side_effect=RuntimeError("tmdb down"))
+    def test_a_trends_failure_just_leaves_the_sections_out(self, _key):
+        resp = self.client.get(reverse("wrapped_review", args=[self.year]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, "Movie Trends")
+
+    def test_popular_premieres_asks_tmdb_once_per_month_and_picks_the_top_result(self):
+        from tracker.integrations import tmdb
+
+        def fake_list(path, params=None, api_key=None, ttl=None):
+            self.assertEqual(path, "discover/movie")
+            self.assertEqual(params["sort_by"], "popularity.desc")
+            return {"results": [{"id": 7, "title": "Top Pick", "poster_path": "/p.jpg", "release_date": "2025-03-02"}]}
+
+        with patch.object(tmdb, "_list_request", side_effect=fake_list) as mock_list:
+            result = tmdb.get_popular_premieres("movie", 2025, api_key="k")
+        self.assertEqual(mock_list.call_count, 12)
+        self.assertEqual(len(result), 12)
+        self.assertEqual(result[2]["name"], "Top Pick")
+        self.assertEqual(result[2]["month"], 3)
+
+    def test_credits_carry_the_tmdb_gender_into_the_reports_metadata(self):
+        from tracker.integrations import tmdb
+
+        credits = [{"name": "Ann", "gender": 1}, {"name": "Bob", "gender": 2}]
+        with patch.object(tmdb, "get_credits", return_value=credits), patch.object(
+            tmdb, "get_director", return_value=None
+        ), patch.object(tmdb, "get_writers", return_value=[]):
+            meta = tmdb.get_reports_metadata("movie", 1, {"countries": [], "production_companies": [], "networks": []})
+        self.assertEqual(meta["cast_genders"], {"Ann": 1, "Bob": 2})
+
+
+class WrappedAllTimeTests(TestCase):
+    """The All Time tab."""
+
+    def setUp(self):
+        user = User.objects.create_user("wrappedalltime", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="WrappedAllTime")
+        self.client.login(username="wrappedalltime", password="pass12345")
+        self.show = Title.objects.create(
+            media_type=MediaType.TV, name="Long Show", year=2012, runtime_minutes=60, network="HBO",
+            country="United States", cast=["Ann Actress"], cast_genders={"Ann Actress": 1},
+        )
+        self.movie = Title.objects.create(
+            media_type=MediaType.MOVIE, name="Old Movie", year=1999, runtime_minutes=120, studio="A24",
+            country="France", cast=["Bob Actor"], cast_genders={"Bob Actor": 2},
+        )
+        for n, when in ((1, "2019-02-01"), (2, "2022-06-10"), (3, "2025-01-05")):
+            ep = Episode.objects.create(title=self.show, season=1, episode=n, runtime_minutes=60)
+            WatchEvent.objects.create(profile=self.profile, title=self.show, episode=ep, watched_at=f"{when}T20:00:00Z")
+        WatchEvent.objects.create(profile=self.profile, title=self.movie, watched_at="2021-05-05T20:00:00Z")
+
+    def test_totals_span_the_whole_history(self):
+        from tracker.wrapped import service
+
+        stats = service.all_time_context(self.profile)["stats"]
+        self.assertEqual(stats.first_year, 2019)
+        self.assertEqual((stats.movie_titles, stats.show_titles, stats.episodes), (1, 1, 3))
+        self.assertEqual(stats.total_minutes, 3 * 60 + 120)
+        self.assertEqual(stats.time_display, "5h 00m")
+        self.assertEqual([(label, pct) for label, _css, _m, pct in stats.split], [("Movies", 40), ("TV", 60)])
+
+    def test_release_years_fill_the_gaps_between_the_oldest_and_newest(self):
+        from tracker.wrapped import service
+
+        stats = service.all_time_context(self.profile)["stats"]
+        years = dict(stats.shows.release_years)
+        self.assertEqual(years, {2012: 1})
+        movie_years = stats.movies.release_years
+        self.assertEqual(movie_years[0], (1999, 1))
+        self.assertEqual(stats.shows.release_ticks, [2012, 2012, 2012])
+
+    def test_networks_studios_and_people_are_counted(self):
+        from tracker.wrapped import service
+
+        stats = service.all_time_context(self.profile)["stats"]
+        self.assertEqual([(i.name, i.percent) for i in stats.shows.secondary], [("HBO", 100)])
+        self.assertEqual([(i.name, i.percent) for i in stats.movies.secondary], [("A24", 100)])
+        self.assertEqual([p.name for p in stats.most_watched_actresses], ["Ann Actress"])
+        self.assertEqual([p.name for p in stats.most_watched_actors], ["Bob Actor"])
+        self.assertEqual({c.name for c in stats.countries}, {"United States", "France"})
+
+    def test_page_renders_with_its_own_tab_and_no_period_pickers(self):
+        resp = self.client.get(reverse("wrapped_all_time"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "All Time")
+        self.assertContains(resp, "Where the time went")
+        self.assertContains(resp, "release years")
+        self.assertContains(resp, "Your top shows")
+        self.assertContains(resp, 'data-section="all"')
+        self.assertNotContains(resp, 'aria-label="Year"')
+        self.assertContains(resp, reverse("wrapped_all_time"))
+        self.assertEqual(self.client.get(reverse("wrapped_year", args=[2025])).status_code, 200)
+
+    def test_the_other_pages_link_to_the_all_time_tab(self):
+        resp = self.client.get(reverse("wrapped_year", args=[2025]))
+        self.assertContains(resp, f'href="{reverse("wrapped_all_time")}"')
+
+    def test_an_empty_history_says_so(self):
+        WatchEvent.objects.all().delete()
+        resp = self.client.get(reverse("wrapped_all_time"))
+        self.assertContains(resp, "Nothing watched yet")
+
+    def test_it_needs_a_login(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(reverse("wrapped_all_time")).status_code, 302)

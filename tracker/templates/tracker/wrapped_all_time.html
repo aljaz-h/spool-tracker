@@ -1,0 +1,89 @@
+{% extends "tracker/wrapped_base.html" %}
+{% load static icons tracker_extras %}
+{% block title %}All Time · Wrapped · Spool{% endblock %}
+
+{% block main_class %} wp-main-xl{% endblock %}
+
+{% block bar %}
+  {% include "tracker/partials/wrapped_picker.html" %}
+{% endblock %}
+
+{% block content %}
+  {% if not stats.has_data %}
+    <div class="wp-empty">
+      <div class="wp-empty-title">Nothing watched yet</div>
+      <p>Once you log something, your all-time numbers show up here.</p>
+    </div>
+  {% else %}
+  <div class="yr">
+
+    {% include "tracker/partials/wrapped_cover.html" with eyebrow=since_line eyebrow_small=True headline="All<br>Time" tiles=cover_tiles collage=stats.collage directed=False %}
+
+    {# ---- Where the time went ---- #}
+    <section class="yr-panel">
+      <h3 class="yr-h3">Where the time went</h3>
+      <div class="yr-split">
+        {% for label, css, minutes, percent in stats.split %}<i class="yr-split-{{ css }}" style="flex-grow: {{ minutes }}" title="{{ label }}: {{ percent }}%"></i>{% endfor %}
+      </div>
+      <div class="yr-split-legend">
+        {% for label, css, minutes, percent in stats.split %}<div><i class="yr-split-{{ css }}"></i>{{ label }} &middot; {{ percent }}%<b>{{ minutes|duration_short }}</b></div>{% endfor %}
+      </div>
+    </section>
+
+    {# ---- Release years ---- #}
+    <section class="yr-grid-2 yr-even">
+      {% for section_key, section in sections %}
+        <div class="yr-panel" data-section="{{ section_key }}">
+          <h3 class="yr-h3">{{ section.label|slice:":-1" }} release years</h3>
+          {% if section.release_bars %}
+            <div class="yr-hist-wrap">
+              <div class="yr-hist-y" aria-hidden="true"><span>{{ section.release_max }}</span><span>{{ section.release_mid }}</span><span>0</span></div>
+              <div class="yr-hist" data-section="{{ section_key }}" role="img" aria-label="{{ section.label }} watched, by the year they came out">
+                {% for year, count, height in section.release_bars %}<span class="yr-hist-bar" style="height: {{ height }}%" title="{{ year }}: {{ count }}"></span>{% endfor %}
+              </div>
+            </div>
+            <div class="yr-hist-ticks">{% for y in section.release_ticks %}<span>{{ y }}</span>{% endfor %}</div>
+          {% else %}<p class="yr-note">No release years recorded.</p>{% endif %}
+        </div>
+      {% endfor %}
+    </section>
+
+    {# ---- Top titles ---- #}
+    {% for section_key, section in sections %}
+      <div class="yr-section-head" data-section="{{ section_key }}">
+        <h2>{{ section.label }}</h2>
+        <div class="yr-section-meta">{{ section.total_titles|floatformat:"0g" }} {{ section.label|lower }} &middot; {{ section.total_plays|floatformat:"0g" }} plays &middot; {{ section.total_minutes|duration_short }}</div>
+      </div>
+      {% include "tracker/partials/wrapped_topblock.html" with section=section section_key=section_key heading="Your top "|add:section.label_lower by_time=False %}
+      {% include "tracker/partials/wrapped_genres.html" with section=section section_key=section_key heading=section.singular|add:" genres, all time" %}
+    {% endfor %}
+
+    {% include "tracker/partials/wrapped_geo.html" with countries=stats.countries section_key="all" heading="Countries, all time" %}
+
+    {# ---- Networks and studios ---- #}
+    {% for section_key, section in sections %}
+      {% include "tracker/partials/wrapped_nets.html" with section=section section_key=section_key heading=section.secondary_label %}
+    {% endfor %}
+
+    {# ---- People ---- #}
+    <div class="yr-section-head"><h2>People</h2></div>
+    <section class="yr-people-grid">
+      {% include "tracker/partials/wrapped_people.html" with title="Most Watched Actors" people=stats.most_watched_actors %}
+      {% include "tracker/partials/wrapped_people.html" with title="Most Watched Actresses" people=stats.most_watched_actresses %}
+      {% include "tracker/partials/wrapped_people.html" with title="Most Watched Directors" people=stats.most_watched_directors %}
+      {% include "tracker/partials/wrapped_people.html" with title="Most Watched Writers" people=stats.most_watched_writers %}
+    </section>
+
+    {{ chart_data|json_script:"yr-data" }}
+  </div>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  {% if stats.has_data %}
+    <script src="{% static 'vendor/d3-array.min.js' %}"></script>
+    <script src="{% static 'vendor/d3-geo.min.js' %}"></script>
+    <script src="{% static 'vendor/topojson-client.min.js' %}"></script>
+    <script src="{% static 'js/wrapped-review.js' %}" data-world="{% static 'vendor/world-110m.json' %}"></script>
+  {% endif %}
+{% endblock %}

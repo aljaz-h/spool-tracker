@@ -1,0 +1,23 @@
+{# context: kind, year, month, years, months, is_review. Which recap and period the Wrapped pages show - plain links and selects, so every period has its own URL and nothing needs a script. #}
+<nav class="wp-picker" aria-label="Wrapped period">
+  <div class="wp-tabs" role="tablist" aria-label="Recap type">
+    <a href="{% url 'wrapped_year' year %}" role="tab" aria-selected="{% if kind == 'yearly' %}true{% else %}false{% endif %}" class="{% if kind == 'yearly' %}is-on{% endif %}">Year</a>
+    <a href="{% url 'wrapped_month' year month %}" role="tab" aria-selected="{% if kind == 'monthly' %}true{% else %}false{% endif %}" class="{% if kind == 'monthly' %}is-on{% endif %}">Month</a>
+    <a href="{% url 'wrapped_review' year %}" role="tab" aria-selected="{% if is_review %}true{% else %}false{% endif %}" class="{% if is_review %}is-on{% endif %}">Year in Review</a>
+    <a href="{% url 'wrapped_all_time' %}" role="tab" aria-selected="{% if is_all_time %}true{% else %}false{% endif %}" class="{% if is_all_time %}is-on{% endif %}">All Time</a>
+  </div>
+  {% if not is_all_time %}
+  <select class="wp-select" aria-label="Year" onchange="window.location = this.value">
+    {% for y in years %}
+      <option value="{% if kind == 'monthly' %}{% url 'wrapped_month' y month %}{% elif is_review %}{% url 'wrapped_review' y %}{% else %}{% url 'wrapped_year' y %}{% endif %}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+    {% endfor %}
+  </select>
+  {% if kind == 'monthly' %}
+    <select class="wp-select" aria-label="Month" onchange="window.location = this.value">
+      {% for m, name in months %}
+        <option value="{% url 'wrapped_month' year m %}" {% if m == month %}selected{% endif %}>{{ name }}</option>
+      {% endfor %}
+    </select>
+  {% endif %}
+  {% endif %}
+</nav>

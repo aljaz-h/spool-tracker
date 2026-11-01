@@ -1,0 +1,21 @@
+{% load tracker_extras %}
+{# context: label ("First play of 2026"), moment (wrapped.year_stats.PlayMoment), export. A wide banner over the title's backdrop (its poster, cropped, when there isn't one) with the date and play count - the first and last play of the year. #}
+{% if moment %}
+  <section class="yr-panel yr-moment">
+    <div class="yr-moment-art">
+      {% if moment.backdrop_url %}<img src="{{ moment.backdrop_url }}" alt="" loading="{% if export %}eager{% else %}lazy{% endif %}">{% elif moment.poster_url %}<img src="{{ moment.poster_url|poster_size:'w342' }}" alt="" loading="{% if export %}eager{% else %}lazy{% endif %}">{% endif %}
+    </div>
+    <div class="yr-moment-shade"></div>
+    <div class="yr-moment-body">
+      <span class="yr-moment-play" aria-hidden="true"></span>
+      <div class="yr-moment-text">
+        <div class="yr-kicker" style="color: rgb(255 255 255 / 0.75); text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.75rem">{{ label }}</div>
+        <h3 class="yr-moment-title">{{ moment.title }}</h3>
+      </div>
+      <dl class="yr-moment-facts">
+        <div><dt>Watched at</dt><dd>{{ moment.watched_at_display }}</dd></div>
+        <div><dt>Play count</dt><dd>{{ moment.play_count_in_period }}</dd></div>
+      </dl>
+    </div>
+  </section>
+{% endif %}

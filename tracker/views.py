@@ -4703,7 +4703,6 @@ def _settings_page_context(request, profile):
         "languages": DISCOVER_LANGUAGES,
         "discover_regions": DISCOVER_REGIONS,
         "landing_pages": Profile.LandingPage.choices,
-        "wrapped_templates": _wrapped_templates(),
         "wrapped_card_stats": _wrapped_card_stats(),
         "trakt_configured": bool(instance_config.get_trakt_credentials()[0]),
         "simkl_configured": bool(instance_config.get_simkl_credentials()[0]),
@@ -5765,16 +5764,12 @@ def save_appearance(request):
     # are plain checkboxes, which vanish from POST entirely when
     # unchecked (same reasoning as animations_enabled_submitted above).
     if "wrapped_settings_submitted" in request.POST:
-        from .wrapped import render as wrapped_render
         from .wrapped import service as wrapped_service
 
         profile.wrapped_recaps_enabled = bool(request.POST.get("wrapped_recaps_enabled"))
         profile.wrapped_monthly = bool(request.POST.get("wrapped_monthly"))
         profile.wrapped_yearly = bool(request.POST.get("wrapped_yearly"))
         profile.wrapped_year_in_review = bool(request.POST.get("wrapped_year_in_review"))
-        template = request.POST.get("wrapped_template", "")
-        if template in wrapped_render.AVAILABLE_TEMPLATES:
-            profile.wrapped_template = template
         profile.wrapped_hidden_stats = [
             key for key, _label in wrapped_service.CARD_STATS if not request.POST.get(f"wrapped_show_{key}")
         ]
@@ -5786,7 +5781,7 @@ def save_appearance(request):
         update_fields.extend(
             [
                 "wrapped_recaps_enabled", "wrapped_monthly", "wrapped_yearly", "wrapped_year_in_review",
-                "wrapped_template", "wrapped_hidden_stats", "wrapped_webhook_url",
+                "wrapped_hidden_stats", "wrapped_webhook_url",
             ]
         )
     if "wrapped_sharing_submitted" in request.POST:
@@ -7782,12 +7777,6 @@ def transfer_activity_partial(request):
     if profile is None:
         raise Http404
     return render(request, "tracker/partials/transfer_activity.html", _transfer_activity_context(profile))
-
-
-def _wrapped_templates():
-    from .wrapped import render as wrapped_render
-
-    return wrapped_render.AVAILABLE_TEMPLATES
 
 
 def _wrapped_card_stats():

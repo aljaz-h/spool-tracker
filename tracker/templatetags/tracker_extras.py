@@ -201,6 +201,17 @@ def direction_choices(provider):
 
 
 @register.filter
+def duration_short(minutes):
+    """Minutes as "168d 6h" / "3h 05m" - Wrapped's All Time totals."""
+    from tracker.wrapped.year_stats import all_time_duration
+
+    try:
+        return all_time_duration(int(minutes))
+    except (TypeError, ValueError):
+        return ""
+
+
+@register.filter
 def can_push(provider):
     """True for a service Spool can send data to."""
     from tracker import sync_direction

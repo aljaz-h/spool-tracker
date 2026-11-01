@@ -1,0 +1,22 @@
+{# context: title, people (list of wrapped.year_stats.NamedCount; the first may carry a photo_url), export. One ranked list of the Year in Review's / All Time's cast and crew, with the top person featured with a portrait. #}
+<div class="yr-panel">
+  <h3 class="yr-person-title">{{ title }}</h3>
+  {% if people %}
+    {% with first=people.0 %}
+      <div class="yr-featured">
+        <div class="yr-featured-photo">{% if first.photo_url %}<img src="{{ first.photo_url }}" alt="" loading="{% if export %}eager{% else %}lazy{% endif %}">{% else %}{{ first.letter }}{% endif %}</div>
+        <div>
+          <div class="yr-featured-name">{{ first.name }}</div>
+          <div class="yr-featured-count">{{ first.count }} {% if first.count == 1 %}title{% else %}titles{% endif %}</div>
+        </div>
+      </div>
+    {% endwith %}
+    <ol class="yr-people">
+      {% for p in people|slice:"1:5" %}
+        <li><span class="yr-rank">{{ forloop.counter|add:1 }}</span><span class="yr-avatar yr-avatar-sm" aria-hidden="true">{{ p.letter }}</span><span class="yr-name">{{ p.name }}</span><span class="yr-count">{{ p.count }} {% if p.count == 1 %}title{% else %}titles{% endif %}</span></li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    <p class="yr-note">Nothing recorded for these yet.</p>
+  {% endif %}
+</div>

@@ -1,0 +1,8 @@
+{# context: section, section_key, heading. A 96px strip, one segment per genre sized by how often, with its percentage; the chart itself is drawn by static/js/wrapped-review.js. #}
+<section class="yr-panel" data-section="{{ section_key }}">
+  <div class="yr-genres-head">
+    <h3 class="yr-h3">{{ heading }}</h3>
+    {% if section.genres %}<dl class="yr-facts yr-facts-inline"><div><dt>Most watched</dt><dd>{{ section.most_watched_genre }}</dd></div><div><dt>Least watched</dt><dd>{{ section.least_watched_genre }}</dd></div><div><dt>Genre count</dt><dd>{{ section.genres|length }}</dd></div></dl>{% endif %}
+  </div>
+  <div class="yr-chart yr-chart-genres" data-chart="genres" data-section="{{ section_key }}"></div>
+</section>

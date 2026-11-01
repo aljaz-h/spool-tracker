@@ -54,15 +54,38 @@ def _page(request, kind, year, month=None):
         .order_by("-created_at")
         .first()
     )
+    common = {
+        "profile": profile,
+        "kind": kind,
+        "year": year,
+        "month": month if month else (date.today().month if year == date.today().year else 1),
+        "years": _years_for(profile),
+        "months": [(i, name) for i, name in enumerate(
+            ["January", "February", "March", "April", "May", "June", "July",
+             "August", "September", "October", "November", "December"], start=1)],
+        "is_review": kind == Kind.YEAR_IN_REVIEW,
+    }
     if kind == Kind.YEAR_IN_REVIEW:
-        _context, count = service.year_in_review_context(profile, year)
-        frame_url = reverse("wrapped_review_frame", args=[year])
-    else:
-        _context, count = service.card_context(profile, kind, year, month)
-        frame_url = (
-            reverse("wrapped_month_frame", args=[year, month]) if kind == Kind.MONTHLY
-            else reverse("wrapped_year_frame", args=[year])
+        return render(
+            request,
+            "tracker/wrapped_review.html",
+            {
+                **common,
+                **service.year_in_review_page_context(profile, year),
+                "label": label,
+                "report": report,
+                "saved": service.saved_reports(profile),
+                "create_fields": {"kind": kind, "year": year, "month": ""},
+            },
         )
+    fmt, hidden = service.parse_options(request.GET)
+    context, count = service.card_context(profile, kind, year, month, fmt=fmt, hidden=hidden, with_images=False)
+    hide = ",".join(context["hidden"])
+    frame_url = (
+        reverse("wrapped_month_frame", args=[year, month]) if kind == Kind.MONTHLY
+        else reverse("wrapped_year_frame", args=[year])
+    ) + f"?fmt={fmt}&hide={hide}"
+    width, height = wrapped_render.format_size(fmt)
     return render(
         request,
         "tracker/wrapped.html",
@@ -80,8 +103,38 @@ def _page(request, kind, year, month=None):
             "frame_url": frame_url,
             "report": report,
             "is_review": kind == Kind.YEAR_IN_REVIEW,
-            "create_fields": {"kind": kind, "year": year, "month": month or ""},
+            "create_fields": {"kind": kind, "year": year, "month": month or "", "fmt": fmt, "hide": hide},
             "saved": service.saved_reports(profile),
+            "fmt": fmt,
+            "formats": [(key, label, w, h) for key, (label, w, h) in wrapped_render.FORMATS.items()],
+            "card_height": height,
+            "preview_scale": round(420 / width, 5),
+            "options": [
+                (key, label, key not in context["hidden"]) for key, label in service.CARD_STATS if key != "name"
+            ],
+            "hide_name": "name" in context["hidden"],
+        },
+    )
+
+
+@login_required
+def wrapped_all_time(request):
+    """Everything you've ever watched, on one page - not tied to a period."""
+    profile = _profile_or_404(request)
+    today = date.today()
+    return render(
+        request,
+        "tracker/wrapped_all_time.html",
+        {
+            "profile": profile,
+            "kind": "all_time",
+            "year": today.year,
+            "month": today.month,
+            "years": _years_for(profile),
+            "months": [],
+            "is_review": False,
+            "is_all_time": True,
+            **service.all_time_context(profile),
         },
     )
 
@@ -102,16 +155,13 @@ def wrapped_review(request, year):
 
 
 def _frame(request, kind, year, month=None):
-    """The card/report HTML on its own, for the page's iframe - exactly what
-    the PNG is a screenshot of."""
+    """The card HTML on its own, for the page's iframe - exactly what the
+    PNG is a screenshot of."""
     profile = _profile_or_404(request)
-    if kind == Kind.YEAR_IN_REVIEW:
-        context, _count = service.year_in_review_context(profile, year)
-        template = "year_in_review"
-    else:
-        context, _count = service.card_context(profile, kind, year, month)
-        template = service.template_for(profile)
-    response = HttpResponse(wrapped_render.render_html(template, context))
+    fmt, hidden = service.parse_options(request.GET)
+    context, _count = service.card_context(profile, kind, year, month, fmt=fmt, hidden=hidden)
+    _width, height = wrapped_render.format_size(context["fmt"])
+    response = HttpResponse(wrapped_render.render_html("card", {**context, "height": height}))
     response["X-Frame-Options"] = "SAMEORIGIN"
     return response
 
@@ -126,11 +176,6 @@ def wrapped_month_frame(request, year, month):
     if not 1 <= month <= 12:
         raise Http404
     return _frame(request, Kind.MONTHLY, year, month)
-
-
-@login_required
-def wrapped_review_frame(request, year):
-    return _frame(request, Kind.YEAR_IN_REVIEW, year)
 
 
 @login_required
@@ -149,12 +194,20 @@ def wrapped_create(request):
         raise Http404
     if month is not None and not 1 <= month <= 12:
         raise Http404
-    report = service.generate(profile, kind, year, month, deliver=False)
-    if report.status == WrappedReport.Status.FAILED:
+    fmt, hidden = service.parse_options(request.POST)
+    report = service.generate(profile, kind, year, month, deliver=False, fmt=fmt, hidden=hidden)
+    if report.status == WrappedReport.Status.FAILED or (
+        report.status == WrappedReport.Status.SUCCESS and not report.token
+    ):
         messages.error(request, "Couldn't create the image. Try again in a moment.")
     elif report.status == WrappedReport.Status.SKIPPED:
         messages.info(request, "Nothing watched in that period yet.")
-    return redirect(service.page_url(kind, year, month))
+    url = service.page_url(kind, year, month)
+    if kind != Kind.YEAR_IN_REVIEW:
+        # Back to the same format and options the image was made with.
+        hide = ",".join(sorted(hidden if hidden is not None else service.hidden_from_profile(profile)))
+        url += f"?fmt={fmt}&hide={hide}"
+    return redirect(url)
 
 
 def wrapped_image(request, token):

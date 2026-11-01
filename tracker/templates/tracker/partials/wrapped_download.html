@@ -1,0 +1,22 @@
+{% load icons %}
+{# context: report (the saved WrappedReport for this period, or None), create_fields. The bar's image button: download the saved PNG, or make it. #}
+{% if report and report.token %}
+  <a href="{% url 'wrapped_image' report.token %}" download="spool-wrapped-{{ label|slugify }}.png" class="wp-btn wp-btn-primary">{% icon "download" "w-4 h-4" %}Download PNG</a>
+  <form method="post" action="{% url 'wrapped_create' %}" class="contents">
+    {% csrf_token %}
+    <input type="hidden" name="kind" value="{{ create_fields.kind }}">
+    <input type="hidden" name="year" value="{{ create_fields.year }}">
+    <input type="hidden" name="month" value="{{ create_fields.month }}">
+    {% if create_fields.fmt %}<input type="hidden" name="fmt" value="{{ create_fields.fmt }}"><input type="hidden" name="hide" value="{{ create_fields.hide }}">{% endif %}
+    <button type="submit" class="wp-btn" title="Make a fresh image with everything watched so far">{% icon "refresh-cw" "w-4 h-4" %}<span class="wp-btn-label">Re-create</span></button>
+  </form>
+{% else %}
+  <form method="post" action="{% url 'wrapped_create' %}" class="contents" x-data onsubmit="this.querySelector('button').disabled = true; this.querySelector('button span').textContent = 'Making image…'">
+    {% csrf_token %}
+    <input type="hidden" name="kind" value="{{ create_fields.kind }}">
+    <input type="hidden" name="year" value="{{ create_fields.year }}">
+    <input type="hidden" name="month" value="{{ create_fields.month }}">
+    {% if create_fields.fmt %}<input type="hidden" name="fmt" value="{{ create_fields.fmt }}"><input type="hidden" name="hide" value="{{ create_fields.hide }}">{% endif %}
+    <button type="submit" class="wp-btn wp-btn-primary">{% icon "download" "w-4 h-4" %}<span>Create PNG</span></button>
+  </form>
+{% endif %}

@@ -1,0 +1,145 @@
+<!doctype html>
+{# The Wrapped share card (month or year), 1080 wide and 1080 / 1350 / 1920 tall - a Jinja2 template (tracker/wrapped/render.py), not a Django one. Context: see service.card_context. Rendered on the server by headless Chromium, so the artwork is inlined as data URIs (service.inline_image) and nothing here loads from outside. #}
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+{% include "_fonts.html" %}
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #0e0f11; }
+  body {
+    width: 1080px;
+    height: {{ height }}px;
+    font-family: "Public Sans", "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: #f3f4f6;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  .card {
+    position: relative;
+    width: 1080px;
+    height: {{ height }}px;
+    padding: var(--pad-top) var(--side) var(--pad-bottom);
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap);
+    background:
+      radial-gradient(900px 420px at 50% 0%, rgba(245, 158, 11, 0.16), transparent 70%),
+      #0e0f11;
+  }
+  .card > * { flex: none; }
+  /* Sizes per format: the layout is the same, the spacing and type scale.
+     Portrait matches the share-image mockup; square compresses it, story
+     gives the same blocks more room. */
+  .portrait { --pad-top: 60px; --pad-bottom: 56px; --side: 64px; --gap: 22px; --wordmark: 46px; --kind: 17px; --owner: 22px; --title: 204px; --sub: 27px; --pill-h: 97px; --pill-v: 52px; --pill-l: 20px; --banner-h: 172px; --banner-name: 47px; --banner-label: 19px; --play: 22px; --list-pad: 28px; --list-h: 19px; --row: 48px; --row-n: 24px; --row-t: 26px; --row-c: 20px; --bar: 12px; --legend: 22px; --radius: 30px; }
+  .square { --pad-top: 46px; --pad-bottom: 42px; --side: 64px; --gap: 14px; --wordmark: 38px; --kind: 15px; --owner: 19px; --title: 150px; --sub: 22px; --pill-h: 78px; --pill-v: 42px; --pill-l: 17px; --banner-h: 132px; --banner-name: 38px; --banner-label: 16px; --play: 18px; --list-pad: 22px; --list-h: 16px; --row: 38px; --row-n: 20px; --row-t: 22px; --row-c: 17px; --bar: 10px; --legend: 19px; --radius: 24px; }
+  .story { --pad-top: 96px; --pad-bottom: 88px; --side: 64px; --gap: 38px; --wordmark: 52px; --kind: 19px; --owner: 25px; --title: 262px; --sub: 34px; --pill-h: 124px; --pill-v: 64px; --pill-l: 23px; --banner-h: 236px; --banner-name: 56px; --banner-label: 22px; --play: 26px; --list-pad: 34px; --list-h: 22px; --row: 68px; --row-n: 28px; --row-t: 30px; --row-c: 24px; --bar: 16px; --legend: 25px; --radius: 36px; }
+  .spacer { flex: 1; }
+
+  .head { display: flex; align-items: baseline; justify-content: space-between; }
+  .brand { display: flex; align-items: baseline; gap: 16px; }
+  .wordmark { font-family: "Bebas Neue", sans-serif; font-size: var(--wordmark); line-height: 1; color: #f59e0b; letter-spacing: 0.02em; }
+  .kind { font-size: var(--kind); font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: #8b8f99; }
+  .owner { font-size: var(--owner); font-weight: 600; color: #e5e7eb; }
+
+  .title { text-align: center; font-family: "Bebas Neue", sans-serif; font-size: var(--title); line-height: 0.9; letter-spacing: 0.01em; color: #f3f4f6; text-transform: uppercase; }
+  .sub { text-align: center; font-size: var(--sub); font-weight: 700; color: #b8bcc6; }
+
+  .pills { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .pill { height: var(--pill-h); border-radius: var(--radius); background: #16181c; border: 1px solid #24262b; display: flex; align-items: baseline; justify-content: center; gap: 10px; padding-top: calc(var(--pill-h) * 0.2); }
+  .pill b { font-family: "Bebas Neue", sans-serif; font-weight: 400; font-size: var(--pill-v); line-height: 1; color: #f59e0b; }
+  .pill span { font-size: var(--pill-l); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #8b8f99; }
+
+  .banner { position: relative; height: var(--banner-h); border-radius: var(--radius); overflow: hidden; display: flex; align-items: center; gap: 30px; padding: 0 56px; background-size: cover; background-position: center; }
+  .banner.first { background-color: #2a1c6b; background-image: linear-gradient(110deg, #17101f 0%, #34276b 45%, #c2410c 100%); }
+  .banner.last { background-color: #0f3a36; background-image: linear-gradient(110deg, #0e1c1a 0%, #176b60 48%, #f59e0b 100%); }
+  .banner .shade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(8, 9, 11, 0.9) 0%, rgba(8, 9, 11, 0.55) 55%, rgba(8, 9, 11, 0.25) 100%); }
+  .banner .play { position: relative; width: 0; height: 0; border-left: calc(var(--play) * 1.6) solid #f3f4f6; border-top: var(--play) solid transparent; border-bottom: var(--play) solid transparent; flex: none; }
+  .banner .text { position: relative; min-width: 0; }
+  .banner .label { font-size: var(--banner-label); font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: #e5e7eb; }
+  .banner .name { font-size: var(--banner-name); font-weight: 800; line-height: 1.08; letter-spacing: -0.01em; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 820px; margin-top: 4px; }
+
+  .lists { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .list { background: #16181c; border: 1px solid #24262b; border-radius: var(--radius); padding: var(--list-pad) var(--list-pad) calc(var(--list-pad) * 0.6); min-width: 0; }
+  .list h3 { font-size: var(--list-h); font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 4px; white-space: nowrap; }
+  .list.shows h3 { color: #8b85d6; }
+  .list.movies h3 { color: #e8a63c; }
+  .row { display: flex; align-items: baseline; gap: 14px; height: var(--row); }
+  .row .n { font-family: "JetBrains Mono", monospace; font-size: var(--row-n); font-weight: 700; color: #5b5f69; flex: none; }
+  .row .t { font-size: var(--row-t); font-weight: 700; color: #f3f4f6; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .c { font-size: var(--row-c); font-weight: 600; color: #8b8f99; flex: none; }
+
+  .split-bar { display: flex; height: var(--bar); border-radius: 999px; overflow: hidden; }
+  .split-bar i { display: block; height: 100%; }
+  .split-bar .movie { background: #e8a63c; }
+  .split-bar .tv { background: #8b85d6; }
+  .split-bar .anime { background: #2dd4bf; }
+  .legend { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--legend); font-weight: 600; color: #b8bcc6; }
+  .legend .grow { text-align: right; }
+  .empty-note { text-align: center; color: #6b6f7a; font-size: 32px; }
+</style>
+</head>
+<body>
+<div class="card {{ fmt }}">
+  <div class="head">
+    <div class="brand"><span class="wordmark">SPOOL</span><span class="kind">Wrapped &middot; {{ period_type }}</span></div>
+    {% if show_name %}<div class="owner">{{ profile_display_name }}</div>{% endif %}
+  </div>
+
+  <div class="title">{{ period_title }}</div>
+  <div class="sub">{{ period_sub }}</div>
+
+  <div class="pills">
+    {% for value, label in pills %}<div class="pill"><b>{{ value }}</b><span>{{ label }}</span></div>{% endfor %}
+  </div>
+
+  {% if show_first_last and stats.first_play %}
+    <div class="banner first" {% if first_image %}style="background-image: url('{{ first_image }}')"{% endif %}>
+      {% if first_image %}<div class="shade"></div>{% endif %}
+      <div class="play"></div>
+      <div class="text"><div class="label">First play of {{ period_word }}</div><div class="name">{{ stats.first_play.title }}</div></div>
+    </div>
+  {% endif %}
+
+  {% if show_top_titles %}
+    <div class="lists">
+      <div class="list shows">
+        <h3>Most watched shows</h3>
+        {% for t in stats.top_shows %}<div class="row"><span class="n">{{ "%02d"|format(loop.index) }}</span><span class="t">{{ t.title }}</span>{% if show_counts %}<span class="c">{{ t.plays }}</span>{% endif %}</div>
+        {% else %}<div class="row"><span class="t" style="color:#6b6f7a">Nothing yet</span></div>{% endfor %}
+      </div>
+      <div class="list movies">
+        <h3>{% if show_counts %}Most watched movies{% else %}Most played movies{% endif %}</h3>
+        {% for t in stats.top_movies %}<div class="row"><span class="n">{{ "%02d"|format(loop.index) }}</span><span class="t">{{ t.title }}</span>{% if show_counts %}<span class="c">{{ t.hours_display }}</span>{% endif %}</div>
+        {% else %}<div class="row"><span class="t" style="color:#6b6f7a">Nothing yet</span></div>{% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  {% if show_first_last and stats.last_play %}
+    <div class="banner last" {% if last_image %}style="background-image: url('{{ last_image }}')"{% endif %}>
+      {% if last_image %}<div class="shade"></div>{% endif %}
+      <div class="play"></div>
+      <div class="text"><div class="label">Last play of {{ last_word }}</div><div class="name">{{ stats.last_play.title }}</div></div>
+    </div>
+  {% endif %}
+
+  <div class="spacer"></div>
+
+  {% if show_split and stats.type_split.total > 0 %}
+    <div class="split-bar">
+      {% if stats.type_split.movie %}<i class="movie" style="width: {{ stats.type_split.movie / stats.type_split.total * 100 }}%"></i>{% endif %}
+      {% if stats.type_split.tv %}<i class="tv" style="width: {{ stats.type_split.tv / stats.type_split.total * 100 }}%"></i>{% endif %}
+      {% if stats.type_split.anime %}<i class="anime" style="width: {{ stats.type_split.anime / stats.type_split.total * 100 }}%"></i>{% endif %}
+    </div>
+    <div class="legend">
+      <span>Movies {{ stats.type_split.percent('movie') }}%</span><span>TV {{ stats.type_split.percent('tv') }}%</span><span>Anime {{ stats.type_split.percent('anime') }}%</span>
+      <span class="grow">{% if stats.top_genre %}Top genre: {{ stats.top_genre }}{% endif %}{% if show_counts and stats.longest_streak_days > 1 %} &middot; Best streak {{ stats.longest_streak_days }} days{% endif %}</span>
+    </div>
+  {% elif stats.top_genre %}
+    <div class="legend"><span class="grow" style="width:100%">Top genre: {{ stats.top_genre }}</span></div>
+  {% endif %}
+</div>
+</body>
+</html>

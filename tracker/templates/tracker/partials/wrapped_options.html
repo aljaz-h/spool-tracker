@@ -1,0 +1,35 @@
+{# context: fmt, formats [(key, label, width, height)], options [(key, label, on)], hide_name. The share image's format and what it shows; changing either reloads the page with the choice in the URL, so the preview and the Create button always agree. #}
+<aside class="wp-options" aria-label="Image options">
+  <div class="wp-options-group">
+    <div class="wp-options-title">Format</div>
+    {% for key, label, w, h in formats %}
+      <label class="wp-format{% if key == fmt %} is-on{% endif %}">
+        <input type="radio" name="fmt" value="{{ key }}" {% if key == fmt %}checked{% endif %}>
+        <span>{{ label }}</span><small>{{ w }} &times; {{ h }}</small>
+      </label>
+    {% endfor %}
+  </div>
+  <div class="wp-options-group">
+    <div class="wp-options-title">Show on the image</div>
+    {% for key, label, on in options %}
+      <label class="wp-check"><input type="checkbox" name="show" value="{{ key }}" {% if on %}checked{% endif %}><span>{{ label }}</span></label>
+    {% endfor %}
+    <label class="wp-check"><input type="checkbox" name="hide_name" value="name" {% if hide_name %}checked{% endif %}><span>Hide my name</span></label>
+  </div>
+  <script>
+    (function () {
+      const root = document.currentScript.parentElement;
+      const keys = [{% for key, label, on in options %}"{{ key }}"{% if not forloop.last %}, {% endif %}{% endfor %}];
+      root.addEventListener('change', () => {
+        const fmt = root.querySelector('input[name=fmt]:checked').value;
+        const shown = new Set([...root.querySelectorAll('input[name=show]:checked')].map((i) => i.value));
+        const hide = keys.filter((k) => !shown.has(k));
+        if (root.querySelector('input[name=hide_name]').checked) hide.push('name');
+        const url = new URL(window.location.href);
+        url.searchParams.set('fmt', fmt);
+        url.searchParams.set('hide', hide.join(','));
+        window.location.href = url.toString();
+      });
+    })();
+  </script>
+</aside>

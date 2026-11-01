@@ -1,0 +1,20 @@
+{# context: countries (NamedCount with percent), section_key (the chart's data key), heading. A large world map with the ranked countries beside it. #}
+<section class="yr-panel" data-section="{{ section_key }}">
+  <div class="yr-genres-head">
+    <h3 class="yr-h3">{{ heading }}</h3>
+    {% if countries %}<dl class="yr-facts yr-facts-inline"><div><dt>Most watched</dt><dd>{{ countries.0.name }}</dd></div><div><dt>Least watched</dt><dd>{% with last=countries|last %}{{ last.name }}{% endwith %}</dd></div><div><dt>Country count</dt><dd>{{ countries|length }}</dd></div></dl>{% endif %}
+  </div>
+  <div class="yr-geo">
+    <div class="yr-chart yr-chart-map" data-chart="countries" data-section="{{ section_key }}"></div>
+    {% if countries %}
+      <ol class="yr-ranks">
+        {% for c in countries|slice:":7" %}
+          <li class="yr-rank-row">
+            <div class="yr-net-head"><span>{{ c.name }}</span><b>{{ c.percent }}%</b></div>
+            <div class="yr-meter"><i style="width: {{ c.percent }}%"></i></div>
+          </li>
+        {% endfor %}
+      </ol>
+    {% endif %}
+  </div>
+</section>

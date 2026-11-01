@@ -1,0 +1,32 @@
+{% load tracker_extras %}
+{# context: section (a section with top_titles), section_key ("shows"/"movies"), heading, by_time (bool - rank detail is time watched, not plays), export. The five top titles as big poster cards with rank numbers over a dimmed backdrop, then places 6 to 10 as a list with bars. #}
+{% with top=section.top_title %}
+<section class="yr-panel yr-topblock" data-section="{{ section_key }}">
+  {% if top.backdrop_url %}<div class="yr-topblock-bg" aria-hidden="true"><img src="{{ top.backdrop_url }}" alt="" loading="{% if export %}eager{% else %}lazy{% endif %}"></div>{% endif %}
+  <h3 class="yr-h3">{{ heading }}</h3>
+  <ol class="yr-posters">
+    {% for t in section.top_titles|slice:":5" %}
+      <li class="yr-pcard">
+        <div class="yr-pcard-art">
+          {% if t.poster_url %}<img src="{{ t.poster_url|poster_size:'w342' }}" alt="" loading="{% if export %}eager{% else %}lazy{% endif %}">{% else %}<span>{{ t.title|first }}</span>{% endif %}
+          <span class="yr-pcard-rank">{{ forloop.counter }}</span>
+        </div>
+        <div class="yr-pcard-name" title="{{ t.title }}">{{ t.title }}</div>
+        <div class="yr-pcard-count">{% if by_time %}{{ t.duration_display }}{% else %}{{ t.play_count }} plays{% endif %}</div>
+      </li>
+    {% endfor %}
+  </ol>
+  {% if section.top_titles|length > 5 %}
+    <ol class="yr-toplist" start="6">
+      {% for t in section.top_titles|slice:"5:" %}
+        <li>
+          <span class="yr-rank">{{ forloop.counter|add:5 }}</span>
+          <span class="yr-name" title="{{ t.title }}">{{ t.title }}</span>
+          <span class="yr-minibar"><i style="width: {% widthratio t.play_count section.top_title.play_count 100 %}%"></i></span>
+          <span class="yr-count">{% if by_time %}{{ t.duration_display }}{% else %}{{ t.play_count }} plays{% endif %}</span>
+        </li>
+      {% endfor %}
+    </ol>
+  {% endif %}
+</section>
+{% endwith %}

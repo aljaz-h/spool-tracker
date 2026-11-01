@@ -403,9 +403,10 @@ def attach_reports_metadata(title, metadata):
     title.studio = metadata.get("studio") or ""
     title.network = metadata.get("network") or ""
     title.cast = metadata.get("cast") or []
+    title.cast_genders = metadata.get("cast_genders") or {}
     title.directors = metadata.get("directors") or []
     title.writers = metadata.get("writers") or []
-    title.save(update_fields=["country", "studio", "network", "cast", "directors", "writers"])
+    title.save(update_fields=["country", "studio", "network", "cast", "cast_genders", "directors", "writers"])
 
 
 class Title(models.Model):
@@ -448,6 +449,10 @@ class Title(models.Model):
     # relational credits model would be over-engineering for what's
     # actually used. Top ~5 billed cast (get_credits' own limit).
     cast = models.JSONField(default=list, blank=True)
+    # {name: TMDB gender (1 female, 2 male, 0 unspecified, 3 non-binary)} for
+    # the names in `cast` - what splits Wrapped's most-watched cast into
+    # actors and actresses.
+    cast_genders = models.JSONField(default=dict, blank=True)
     directors = models.JSONField(default=list, blank=True)
     writers = models.JSONField(default=list, blank=True)
     # name, lowercased with accents and punctuation stripped and spaces

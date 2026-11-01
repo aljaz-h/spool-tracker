@@ -1,0 +1,22 @@
+{# context: section (secondary: NamedCount with percent), section_key, heading. Networks or studios: a letter tile and a thick bar for each. #}
+<section class="yr-panel" data-section="{{ section_key }}">
+  <div class="yr-genres-head">
+    <h3 class="yr-h3">{{ heading }}</h3>
+    {% if section.secondary %}<dl class="yr-facts yr-facts-inline"><div><dt>Most watched</dt><dd>{{ section.most_watched_secondary }}</dd></div><div><dt>Least watched</dt><dd>{{ section.least_watched_secondary }}</dd></div><div><dt>{{ section.secondary_label|slice:":-1" }} count</dt><dd>{{ section.secondary|length }}</dd></div></dl>{% endif %}
+  </div>
+  {% if section.secondary %}
+    <ul class="yr-nets">
+      {% for item in section.secondary|slice:":8" %}
+        <li class="yr-net">
+          <span class="yr-net-tile" aria-hidden="true">{{ item.letter }}</span>
+          <div>
+            <div class="yr-net-head"><span>{{ item.name }}</span><b>{{ item.percent }}%</b></div>
+            <div class="yr-meter"><i style="width: {{ item.percent }}%"></i></div>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="yr-note">No {{ section.secondary_label|lower }} recorded for these.</p>
+  {% endif %}
+</section>

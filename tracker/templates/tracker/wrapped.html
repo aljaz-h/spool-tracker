@@ -1,115 +1,63 @@
-{% extends "tracker/base.html" %}
+{% extends "tracker/wrapped_base.html" %}
 {% load tracker_extras icons %}
-{% block title %}Wrapped · Spool{% endblock %}
+{% block title %}{{ label }} Wrapped · Spool{% endblock %}
+
+{% block bar %}
+  {% include "tracker/partials/wrapped_picker.html" %}
+  {% if has_history %}
+    {% include "tracker/partials/wrapped_download.html" %}
+  {% endif %}
+{% endblock %}
+
+{% block main_class %} wp-main-wide{% endblock %}
+
 {% block content %}
-
-  <div class="page-head">
-    <div>
-      <h1 class="page-title">Wrapped</h1>
-      <p class="page-subtitle">Your monthly and yearly recap{% if not profile.wrapped_recaps_enabled %} &middot; <a href="{% url 'settings' %}?tab=wrapped" class="underline hover:text-base-content">Turn on scheduled recaps</a>{% endif %}</p>
-    </div>
-  </div>
-
-  {# The picker: which kind of recap, and which year/month. Plain links, so every period has its own URL. #}
-  <div class="flex flex-wrap items-center gap-3 mb-6">
-    <div class="inline-flex bg-base-300 rounded-lg p-1 gap-0.5" role="tablist" aria-label="Recap type">
-      <a href="{% url 'wrapped_year' year %}" role="tab" aria-selected="{% if kind == 'yearly' %}true{% else %}false{% endif %}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if kind == 'yearly' %}bg-base-100 text-base-content{% else %}text-ink-dim hover:text-base-content{% endif %}">Year</a>
-      <a href="{% url 'wrapped_month' year month %}" role="tab" aria-selected="{% if kind == 'monthly' %}true{% else %}false{% endif %}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if kind == 'monthly' %}bg-base-100 text-base-content{% else %}text-ink-dim hover:text-base-content{% endif %}">Month</a>
-      <a href="{% url 'wrapped_review' year %}" role="tab" aria-selected="{% if is_review %}true{% else %}false{% endif %}" class="px-3.5 py-1.5 rounded-md text-xs font-semibold {% if is_review %}bg-base-100 text-base-content{% else %}text-ink-dim hover:text-base-content{% endif %}">Year in Review</a>
-    </div>
-    <div class="flex items-center gap-2" x-data>
-      <select class="s-select !w-28" aria-label="Year" @change="window.location = $event.target.value">
-        {% for y in years %}
-          <option value="{% if kind == 'monthly' %}{% url 'wrapped_month' y month %}{% elif is_review %}{% url 'wrapped_review' y %}{% else %}{% url 'wrapped_year' y %}{% endif %}" {% if y == year %}selected{% endif %}>{{ y }}</option>
-        {% endfor %}
-      </select>
-      {% if kind == 'monthly' %}
-        <select class="s-select !w-36" aria-label="Month" @change="window.location = $event.target.value">
-          {% for m, name in months %}
-            <option value="{% url 'wrapped_month' year m %}" {% if m == month %}selected{% endif %}>{{ name }}</option>
-          {% endfor %}
-        </select>
-      {% endif %}
-    </div>
-  </div>
-
   {% if not has_history %}
-    <div class="surface p-8 text-center max-w-md">
-      <div class="font-semibold">Nothing watched in {{ label }}</div>
-      <p class="text-[13px] text-ink-dim mt-1">Once something is logged for this period, its recap shows up here.</p>
+    <div class="wp-empty">
+      <div class="wp-empty-title">Nothing watched in {{ label }}</div>
+      <p>Once something is logged for this period, its recap shows up here.</p>
     </div>
   {% else %}
-    <div class="flex flex-col lg:flex-row gap-8 items-start">
-      {% if is_review %}
-        {# The long report: sized to the column and as tall as its content. #}
-        <div class="w-full max-w-[860px]" x-data="{ scale: 1, h: 1200, size() { const f = $refs.frame; const w = $refs.box.clientWidth; this.scale = Math.min(1, w / 1080); try { this.h = f.contentDocument.documentElement.scrollHeight } catch (e) {} } }" x-init="size()" @resize.window="size()">
-          <div x-ref="box" class="w-full rounded-xl border border-line overflow-hidden bg-base-200" :style="{ height: (h * scale) + 'px' }">
-            <iframe x-ref="frame" src="{{ frame_url }}" title="Year in Review" @load="size()" class="border-0 block" style="width:1080px;transform-origin:top left" :style="{ height: h + 'px', transform: 'scale(' + scale + ')' }"></iframe>
+    <div class="wp-stage">
+      <div class="wp-stage-head">
+        <h1>{{ label }}</h1>
+        <p>{% if kind == 'monthly' %}Your month{% else %}Your year{% endif %} in Spool{% if not profile.wrapped_recaps_enabled %} &middot; <a href="{% url 'settings' %}?tab=wrapped">Make these automatically</a>{% endif %}</p>
+      </div>
+      <div class="wp-stage-body">
+        <div class="wp-preview">
+          <div class="wrapped-card-box" style="--ch: {{ card_height }}; --s: {{ preview_scale }}">
+            <iframe src="{{ frame_url }}" title="{{ label }} Wrapped" class="wrapped-card-frame" style="height: {{ card_height }}px"></iframe>
           </div>
+          {% if report %}<p class="wp-fine">Image made {{ report.created_at|timesince }} ago. It doesn't change after that; re-create it to include newer watches or other options.</p>{% else %}<p class="wp-fine">This is the image you'll get. Pick a format and what to show, then create it.</p>{% endif %}
         </div>
-      {% else %}
-        <div class="wrapped-card-box rounded-xl border border-line overflow-hidden bg-base-200 flex-none">
-          <iframe src="{{ frame_url }}" title="{{ label }} Wrapped" class="border-0 block wrapped-card-frame"></iframe>
-        </div>
-      {% endif %}
-
-      <div class="flex flex-col gap-3 min-w-0 w-full lg:w-72">
-        <div>
-          <div class="text-[15px] font-semibold">{{ label }}</div>
-          <div class="text-[13px] text-ink-dim mt-0.5">{% if is_review %}A longer look at the year{% else %}The same card that gets sent to you{% endif %}</div>
-        </div>
-        {% if report %}
-          <a href="{% url 'wrapped_image' report.token %}" download="spool-wrapped-{{ label|slugify }}.png" class="s-btn s-btn-primary justify-center">{% icon "download" "w-4 h-4" %}Download image</a>
-          <form method="post" action="{% url 'wrapped_create' %}">
-            {% csrf_token %}
-            <input type="hidden" name="kind" value="{{ create_fields.kind }}">
-            <input type="hidden" name="year" value="{{ create_fields.year }}">
-            <input type="hidden" name="month" value="{{ create_fields.month }}">
-            <button type="submit" class="s-btn justify-center w-full">{% icon "refresh-cw" "w-4 h-4" %}Re-create image</button>
-          </form>
-          <div class="text-[12px] text-ink-faint">Image made {{ report.created_at|timesince }} ago. It doesn't change after that; re-create it to include newer watches.</div>
-        {% else %}
-          <form method="post" action="{% url 'wrapped_create' %}">
-            {% csrf_token %}
-            <input type="hidden" name="kind" value="{{ create_fields.kind }}">
-            <input type="hidden" name="year" value="{{ create_fields.year }}">
-            <input type="hidden" name="month" value="{{ create_fields.month }}">
-            <button type="submit" class="s-btn s-btn-primary justify-center w-full">{% icon "download" "w-4 h-4" %}Create image</button>
-          </form>
-          <div class="text-[12px] text-ink-faint">Makes a PNG you can download or share. It takes a few seconds.</div>
-        {% endif %}
+        {% include "tracker/partials/wrapped_options.html" %}
       </div>
     </div>
   {% endif %}
 
   {# Kept recaps: yearly ones for good, monthly ones for a year after they were made. #}
   {% if saved %}
-    <section class="mt-12">
-      <div class="section-head"><h2 class="section-title">Saved recaps</h2></div>
-      <p class="text-[13px] text-ink-dim mb-4">Yearly recaps and Year in Review are kept. Monthly recaps are kept for a year after they were made.</p>
-      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+    <section class="wp-saved">
+      <h2>Saved recaps</h2>
+      <p>Yearly recaps and Year in Review are kept. Monthly recaps are kept for a year after they were made.</p>
+      <div class="wp-saved-grid">
         {% for item in saved %}
-          <div class="surface p-3 flex flex-col gap-2">
-            <a href="{{ item.url }}" class="block">
-              <div class="font-semibold text-[14px] truncate">{{ item.report.period_label }}</div>
-              <div class="text-[12px] text-ink-dim">{{ item.report.get_kind_display }}</div>
+          <div class="wp-saved-item">
+            <a href="{{ item.url }}" class="wp-saved-thumb">
+              {% if item.report.token %}<img src="{% url 'wrapped_image' item.report.token %}" alt="" loading="lazy">{% endif %}
             </a>
-            <div class="flex items-center justify-between gap-2">
-              <a href="{{ item.url }}" class="text-[12px] text-ink-dim hover:text-base-content underline">Open</a>
-              <a href="{% url 'wrapped_image' item.report.token %}" download="spool-wrapped-{{ item.report.period_label|slugify }}.png" class="text-[12px] text-ink-dim hover:text-base-content" aria-label="Download {{ item.report.period_label }}">{% icon "download" "w-3.5 h-3.5" %}</a>
+            <a href="{{ item.url }}">
+              <b>{{ item.report.period_label }}</b>
+              <span>{{ item.report.get_kind_display }}</span>
+            </a>
+            <div class="wp-saved-actions">
+              <a href="{{ item.url }}">Open</a>
+              {% if item.report.token %}<a href="{% url 'wrapped_image' item.report.token %}" download="spool-wrapped-{{ item.report.period_label|slugify }}.png" aria-label="Download {{ item.report.period_label }}">{% icon "download" "w-3.5 h-3.5" %}</a>{% endif %}
             </div>
-            {% if item.expires %}<div class="text-[11px] text-ink-faint">Kept until {{ item.expires|date:"M j, Y" }}</div>{% endif %}
+            {% if item.expires %}<small>Kept until {{ item.expires|date:"M j, Y" }}</small>{% endif %}
           </div>
         {% endfor %}
       </div>
     </section>
   {% endif %}
-
-  <style>
-    /* The card is a 1080x1920 canvas; shown at a third of its size, then
-       narrower on small screens. */
-    .wrapped-card-box { --w: 360px; --s: 0.33333; width: var(--w); height: calc(var(--w) * 16 / 9); max-width: 100%; }
-    .wrapped-card-frame { width: 1080px; height: 1920px; transform-origin: top left; transform: scale(var(--s)); }
-    @media (max-width: 420px) { .wrapped-card-box { --w: 300px; --s: 0.27778; } }
-  </style>
 {% endblock %}
