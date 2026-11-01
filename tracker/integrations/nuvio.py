@@ -428,6 +428,8 @@ def upsert_progress_items(profile, items):
     immediately discard it for something that was already finished
     before this sync ever saw it. Doesn't touch WatchEvent/history at
     all either way."""
+    from django.utils import timezone
+
     from tracker.models import Episode, MediaType, Title, WatchProgress
 
     updated = 0
@@ -477,13 +479,29 @@ def upsert_progress_items(profile, items):
             )
             current_episode, _ = Episode.objects.get_or_create(title=title, season=season, episode=episode_num)
 
-        WatchProgress.objects.update_or_create(
+        position_seconds = int(position_ms / 1000)
+        duration_seconds = int(duration_ms / 1000) if isinstance(duration_ms, (int, float)) and duration_ms > 0 else None
+        row, created = WatchProgress.objects.get_or_create(
             profile=profile, title=title,
             defaults={
-                "current_episode": current_episode,
-                "position_seconds": int(position_ms / 1000),
-                "status": WatchProgress.Status.WATCHING,
+                "current_episode": current_episode, "position_seconds": position_seconds,
+                "duration_seconds": duration_seconds, "status": WatchProgress.Status.WATCHING,
             },
         )
+        if not created:
+            # Only a real change counts as activity (and moves the card up
+            # Continue Watching) - re-syncing an unchanged row must not.
+            moved = (
+                row.position_seconds != position_seconds
+                or row.current_episode_id != (current_episode.id if current_episode else None)
+                or row.status != WatchProgress.Status.WATCHING
+            )
+            row.current_episode = current_episode
+            row.position_seconds = position_seconds
+            row.duration_seconds = duration_seconds or row.duration_seconds
+            row.status = WatchProgress.Status.WATCHING
+            if moved:
+                row.last_activity_at = timezone.now()
+            row.save()
         updated += 1
     return updated

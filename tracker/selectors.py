@@ -243,7 +243,7 @@ def continue_watching(profile, media_types=None, limit=8, title_id=None):
         qs = qs.filter(title__media_type__in=media_types)
     if title_id is not None:
         qs = qs.filter(title_id=title_id)
-    qs = qs.select_related("title", "current_episode").order_by("-updated_at")
+    qs = qs.select_related("title", "current_episode").order_by("-last_activity_at", "-updated_at")
     if limit:
         qs = qs[:limit]
     progresses = list(qs)
@@ -340,14 +340,6 @@ def continue_watching(profile, media_types=None, limit=8, title_id=None):
         # remaining runtime in short form, "" when unknown.
         status_label, time_left = "In progress", ""
         if title.media_type == MediaType.MOVIE:
-            total_seconds = (title.runtime_minutes or 0) * 60
-            percent = min(100, round(progress.position_seconds / total_seconds * 100)) if total_seconds else 0
-            if title.runtime_minutes:
-                remaining = max(0, title.runtime_minutes - progress.position_seconds // 60)
-                caption = f"{remaining} min left"
-                time_left = format_duration(remaining) if remaining else ""
-            else:
-                caption = "In progress"
             # Landscape still for the Watching row's own card (same
             # treatment a show's episode still gets) - a movie has no
             # per-scene still, so its own TMDB backdrop is the closest
@@ -357,6 +349,22 @@ def continue_watching(profile, media_types=None, limit=8, title_id=None):
             tmdb_id = title.external_ids.get("tmdb") if title.external_ids else None
             details = tmdb.get_full_details("movie", tmdb_id) if tmdb_id else None
             still_url = (details.get("backdrop_url") if details else None) or title.poster_url or None
+            # The player's own reported length wins (it's what the position
+            # is measured against), then the stored runtime, then TMDB's -
+            # the title page shows TMDB's, and Title.runtime_minutes is only
+            # filled in once something is actually watched.
+            total_seconds = (
+                progress.duration_seconds
+                or (title.runtime_minutes or 0) * 60
+                or ((details.get("runtime") or 0) * 60 if details else 0)
+            )
+            percent = min(100, round(progress.position_seconds / total_seconds * 100)) if total_seconds else 0
+            if total_seconds:
+                remaining = max(0, total_seconds // 60 - progress.position_seconds // 60)
+                caption = f"{remaining} min left"
+                time_left = format_duration(remaining) if remaining else ""
+            else:
+                caption = "In progress"
         else:
             ep = progress.current_episode
             percent, caption = 0, "In progress"
@@ -441,7 +449,8 @@ def continue_watching(profile, media_types=None, limit=8, title_id=None):
                 # one it was reported for - once it has advanced to the next
                 # unwatched episode that one starts at 0%.
                 ep_minutes = (
-                    dict(tmdb_episodes).get(ep.episode)
+                    (progress.duration_seconds / 60 if progress.current_episode_id == ep.id and progress.duration_seconds else 0)
+                    or dict(tmdb_episodes).get(ep.episode)
                     or ep.runtime_minutes
                     or (show_details_cache.get(title.id) or {}).get("episode_run_time")
                     or 0

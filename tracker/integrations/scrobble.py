@@ -124,6 +124,7 @@ def record_scrobble(profile, action, media_type, tmdb_id, season, episode_number
             "current_episode": ep,
             "position_seconds": _position_seconds(title, ep, progress),
             "status": WatchProgress.Status.WATCHING,
+            "last_activity_at": timezone.now(),
         },
     )
     return {"watch_event_created": False, "title_id": title.id}

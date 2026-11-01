@@ -7399,6 +7399,27 @@ class NuvioUpsertProgressItemsTests(TestCase):
         user = User.objects.create_user("nuvprog", password="pass12345")
         self.profile = Profile.objects.create(user=user, display_name="NuvProg")
 
+    def test_resync_of_an_unchanged_item_keeps_its_place_but_a_real_move_bumps_it(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        item = {
+            "content_id": "tmdb:550", "content_type": "movie", "position": 600_000, "duration": 6_000_000,
+            "name": "Fight Club", "year": 1999,
+        }
+        nuvio.upsert_progress_items(self.profile, [item])
+        row = WatchProgress.objects.get(profile=self.profile)
+        self.assertEqual(row.duration_seconds, 6000)
+        old = timezone.now() - timedelta(days=2)
+        WatchProgress.objects.filter(pk=row.pk).update(last_activity_at=old)
+        nuvio.upsert_progress_items(self.profile, [item])
+        row.refresh_from_db()
+        self.assertEqual(row.last_activity_at, old)
+        nuvio.upsert_progress_items(self.profile, [{**item, "position": 1_200_000}])
+        row.refresh_from_db()
+        self.assertGreater(row.last_activity_at, old)
+
     def test_creates_progress_row_from_ms_position(self):
         items = [
             {"content_id": "tmdb:550", "content_type": "movie", "position": 1000, "duration": 7_200_000, "name": "Fight Club"}
@@ -15898,6 +15919,48 @@ class DashboardWatchingWatchlistTests(TestCase):
         self.assertEqual(item["episode_number"], 2)
         self.assertEqual(item["percent"], 0)
         self.assertEqual(item["time_left"], "40m")
+
+    def test_movie_without_a_stored_runtime_uses_the_players_reported_duration(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="No Runtime Movie", year=2008)
+        WatchProgress.objects.create(
+            profile=self.profile, title=movie, position_seconds=65 * 60, duration_seconds=95 * 60,
+            status=WatchProgress.Status.WATCHING,
+        )
+        item = selectors.continue_watching(self.profile)[0]
+        self.assertEqual(item["percent"], 68)
+        self.assertEqual(item["time_left"], "30m")
+
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_movie_with_no_stored_runtime_falls_back_to_tmdbs(self, mock_details):
+        mock_details.return_value = {"runtime": 100, "backdrop_url": None}
+        movie = Title.objects.create(
+            media_type=MediaType.MOVIE, name="TMDB Runtime Movie", year=2008, external_ids={"tmdb": "7", "tmdb_kind": "movie"}
+        )
+        WatchProgress.objects.create(
+            profile=self.profile, title=movie, position_seconds=70 * 60, status=WatchProgress.Status.WATCHING
+        )
+        item = selectors.continue_watching(self.profile)[0]
+        self.assertEqual(item["percent"], 70)
+        self.assertEqual(item["time_left"], "30m")
+
+    def test_continue_watching_is_ordered_by_last_activity_not_last_sync(self):
+        from django.utils import timezone
+
+        older = Title.objects.create(media_type=MediaType.MOVIE, name="Older", year=2000, runtime_minutes=100)
+        newer = Title.objects.create(media_type=MediaType.MOVIE, name="Newer", year=2001, runtime_minutes=100)
+        now = timezone.now()
+        WatchProgress.objects.create(
+            profile=self.profile, title=newer, position_seconds=60, status=WatchProgress.Status.WATCHING,
+            last_activity_at=now,
+        )
+        WatchProgress.objects.create(
+            profile=self.profile, title=older, position_seconds=60, status=WatchProgress.Status.WATCHING,
+            last_activity_at=now - timedelta(days=3),
+        )
+        # A later re-save (what every sync does) must not reorder them.
+        WatchProgress.objects.get(title=older).save()
+        names = [i["title"].name for i in selectors.continue_watching(self.profile)]
+        self.assertEqual(names, ["Newer", "Older"])
 
     def test_watching_card_footer_button_is_the_progress_fill(self):
         # One full-width footer button: progress is its --fill background,

@@ -8,6 +8,13 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.170.1] - 2026-11-01
+
+### Fixed
+
+- Continue Watching now shows real progress for a movie that has no stored runtime: the percent and time left use the length Nuvio reports (stored as `duration_seconds`), then the stored runtime, then TMDB's runtime (the one the title page shows). Spool only stored a runtime once something was watched, so an in-progress movie sat at 0%. A movie that Nuvio showed as 30 minutes left no longer sits at "In progress, 0%".
+- Continue Watching is ordered by when you last watched or moved each title, not by when the last sync touched it. Every sync used to re-save every row, which shuffled the whole row; now only a changed position, episode or status counts. Existing rows are ordered by their latest watch (migration `0084`).
+
 ## [0.170.0] - 2026-10-31
 
 ### Changed

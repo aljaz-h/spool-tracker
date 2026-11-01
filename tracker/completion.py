@@ -10,6 +10,7 @@ stats were never wrong, there was just never any data behind them.
 """
 
 from django.db.models import Q
+from django.utils import timezone
 
 from .integrations import tmdb
 from .models import Episode, MediaType, Profile, WatchEvent, WatchListItem, WatchProgress
@@ -139,7 +140,8 @@ def _ensure_watching(profile, title, details=None):
         > (progress.current_episode.season, progress.current_episode.episode)
     ):
         progress.current_episode = resume_episode
-        progress.save(update_fields=["current_episode", "updated_at"])
+        progress.last_activity_at = timezone.now()
+        progress.save(update_fields=["current_episode", "updated_at", "last_activity_at"])
 
 
 def sync_show_completion(profile, title, ensure_watching=False):

@@ -7,6 +7,7 @@ from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -707,11 +708,19 @@ class WatchProgress(models.Model):
         Episode, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
     position_seconds = models.PositiveIntegerField(default=0)
+    # Total length as the player reports it (Nuvio's duration) - lets the
+    # Continue Watching card work out a percent/time left for a title whose
+    # own runtime isn't known yet. Null when never reported.
+    duration_seconds = models.PositiveIntegerField(null=True, blank=True)
     status = models.CharField(max_length=12, choices=Status.choices)
     updated_at = models.DateTimeField(auto_now=True)
+    # When this was last actually watched/moved - unlike updated_at, which
+    # every re-sync of an unchanged row bumps, so ordering Continue Watching
+    # by it would reshuffle on every sync.
+    last_activity_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
-        ordering = ["-updated_at"]
+        ordering = ["-last_activity_at"]
         constraints = [
             models.UniqueConstraint(fields=["profile", "title"], name="unique_progress_per_profile_title")
         ]
