@@ -34687,9 +34687,15 @@ class WrappedTests(TestCase):
 
     def test_year_and_month_pickers_have_no_inline_script(self):
         resp = self.client.get(reverse("wrapped_year", args=[2025]))
-        self.assertContains(resp, "data-wp-nav")
+        self.assertContains(resp, 'data-wp-nav="year"')
+        self.assertContains(resp, 'data-wp-kind="yearly"')
+        self.assertContains(resp, '<option value="2025"')  # a plain number, never an address
         self.assertNotContains(resp, "this.value")
         self.assertNotContains(resp, "onchange=")
+        month = self.client.get(reverse("wrapped_month", args=[2025, 3]))
+        self.assertContains(month, 'data-wp-nav="month" data-wp-year="2025"')
+        self.assertContains(month, 'data-wp-kind="monthly" data-wp-month="3"')
+        self.assertContains(self.client.get(reverse("wrapped_review", args=[2025])), 'data-wp-kind="review"')
 
     def test_a_non_discord_webhook_is_not_saved_and_never_contacted(self):
         self.client.post(

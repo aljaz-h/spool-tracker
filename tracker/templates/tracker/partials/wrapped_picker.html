@@ -7,15 +7,16 @@
     <a href="{% url 'wrapped_all_time' %}" role="tab" aria-selected="{% if is_all_time %}true{% else %}false{% endif %}" class="{% if is_all_time %}is-on{% endif %}">All Time</a>
   </div>
   {% if not is_all_time %}
-  <select class="wp-select" aria-label="Year" data-wp-nav>
+  {# The options carry plain numbers; static/js/wrapped-actions.js builds the address from them. #}
+  <select class="wp-select" aria-label="Year" data-wp-nav="year" data-wp-kind="{% if kind == 'monthly' %}monthly{% elif is_review %}review{% else %}yearly{% endif %}" data-wp-month="{{ month }}">
     {% for y in years %}
-      <option value="{% if kind == 'monthly' %}{% url 'wrapped_month' y month %}{% elif is_review %}{% url 'wrapped_review' y %}{% else %}{% url 'wrapped_year' y %}{% endif %}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+      <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
     {% endfor %}
   </select>
   {% if kind == 'monthly' %}
-    <select class="wp-select" aria-label="Month" data-wp-nav>
+    <select class="wp-select" aria-label="Month" data-wp-nav="month" data-wp-year="{{ year }}">
       {% for m, name in months %}
-        <option value="{% url 'wrapped_month' year m %}" {% if m == month %}selected{% endif %}>{{ name }}</option>
+        <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ name }}</option>
       {% endfor %}
     </select>
   {% endif %}

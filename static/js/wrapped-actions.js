@@ -76,14 +76,30 @@
     return data;
   }
 
-  /* The year and month pickers: choosing an option opens that page. The option
-     values are Spool's own addresses; anything that isn't on this site is ignored. */
+  /* The year and month pickers: choosing an option opens that period's page.
+     The options hold plain numbers; the address is built here from fixed text
+     and those numbers (anything that isn't a whole number is ignored), so a
+     value taken from the page is never used as an address. */
+  const wholeNumber = (text) => {
+    const number = parseInt(text, 10);
+    return Number.isInteger(number) && number > 0 ? number : null;
+  };
   document.addEventListener('change', (event) => {
     const select = event.target.closest('select[data-wp-nav]');
     if (!select) return;
-    let target;
-    try { target = new URL(select.value, window.location.href); } catch (error) { return; }
-    if (target.origin === window.location.origin) window.location.assign(target.pathname + target.search);
+    const chosen = wholeNumber(select.value);
+    if (chosen === null) return;
+    if (select.dataset.wpNav === 'month') {
+      const year = wholeNumber(select.dataset.wpYear);
+      if (year !== null) window.location.assign('/wrapped/' + year + '/' + chosen + '/');
+      return;
+    }
+    const kind = select.dataset.wpKind;
+    if (kind === 'review') window.location.assign('/wrapped/' + chosen + '/review/');
+    else if (kind === 'monthly') {
+      const month = wholeNumber(select.dataset.wpMonth);
+      if (month !== null) window.location.assign('/wrapped/' + chosen + '/' + month + '/');
+    } else window.location.assign('/wrapped/' + chosen + '/');
   });
 
   document.addEventListener('click', async (event) => {

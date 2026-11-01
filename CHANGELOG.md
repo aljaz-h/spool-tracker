@@ -8,6 +8,12 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.175.3] - 2026-11-01
+
+### Security
+
+- The Wrapped year and month pickers no longer navigate to text read from the page. The options now hold plain numbers and the script builds the address from fixed text plus those numbers (anything that isn't a whole number is ignored). Fixes the remaining CodeQL "DOM text reinterpreted as HTML" alert on `wrapped-actions.js`.
+
 ## [0.175.2] - 2026-11-01
 
 ### Changed
