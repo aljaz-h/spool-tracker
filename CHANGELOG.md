@@ -8,6 +8,12 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.172.2] - 2026-11-01
+
+### Changed
+
+- It's now clear how a recap gets saved: making the image (the first Download PNG or Copy image click for a period) saves it under **Saved recaps**. The buttons say "Saved ✓" / "Copied and saved ✓", the page updates in place (no reload) so the new recap appears there, and the hint under the preview says so. Monthly recaps are kept for a year, yearly ones for good; making another image for the same period replaces the saved one.
+
 ## [0.172.1] - 2026-11-01
 
 ### Added

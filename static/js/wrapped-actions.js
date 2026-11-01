@@ -7,7 +7,30 @@
 (function () {
   const canCopy = !!(window.isSecureContext && navigator.clipboard && window.ClipboardItem);
 
-  document.querySelectorAll('[data-act="copy"], [data-copy-url]').forEach((el) => { if (!canCopy) el.hidden = true; });
+  function hideCopyIfUnsupported() {
+    document.querySelectorAll('[data-act="copy"], [data-copy-url]').forEach((el) => { if (!canCopy) el.hidden = true; });
+  }
+  hideCopyIfUnsupported();
+
+  /* A recap was just saved: bring the page up to date without reloading it -
+     the buttons (now with Re-create and the image's address), the hint under
+     the preview and the Saved recaps list are swapped for the server's. */
+  async function refreshSaved() {
+    try {
+      const response = await fetch(window.location.href, { credentials: 'same-origin', headers: { Accept: 'text/html' } });
+      if (!response.ok) return;
+      const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+      for (const selector of ['[data-wrapped-actions]', '.wp-fine', '.wp-saved']) {
+        const fresh = doc.querySelector(selector);
+        const current = document.querySelector(selector);
+        if (fresh && current) current.replaceWith(fresh);
+        else if (fresh && selector === '.wp-saved') document.querySelector('.wp-stage').after(fresh);
+      }
+      hideCopyIfUnsupported();
+    } catch (error) {
+      console.warn('Wrapped page refresh failed:', error);
+    }
+  }
 
   function flash(button, text, ms) {
     const label = button.querySelector('span') || button;
@@ -64,18 +87,23 @@
     button.disabled = true;
     try {
       let image;
+      let justSaved = false;
       if (button.dataset.copyUrl) image = { url: button.dataset.copyUrl };
       else {
         if (needsMaking) flash(button, 'Making image…', 60000);
         image = await ensureImage(group);
+        justSaved = needsMaking;
       }
       if (act === 'copy') {
         await copyImage(image.url);
-        flash(button, 'Copied ✓');
+        flash(button, justSaved ? 'Copied and saved ✓' : 'Copied ✓');
       } else {
         download(image.url, image.name);
-        flash(button, 'Downloading…', 1800);
+        flash(button, justSaved ? 'Saved ✓' : 'Downloading…', 1800);
       }
+      // Making the image saves it as a recap: update the page so it shows
+      // up under "Saved recaps" right away.
+      if (justSaved) setTimeout(refreshSaved, 1800);
     } catch (error) {
       flash(button, act === 'copy' ? "Couldn't copy" : "Couldn't make it", 3000);
       console.warn('Wrapped image action failed:', error);

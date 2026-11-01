@@ -28,7 +28,7 @@
           <div class="wrapped-card-box" style="--ch: {{ card_height }}; --s: {{ preview_scale }}">
             <iframe src="{{ frame_url }}" title="{{ label }} Wrapped" class="wrapped-card-frame" style="height: {{ card_height }}px"></iframe>
           </div>
-          {% if report %}<p class="wp-fine">Image made {{ report.created_at|timesince }} ago. It doesn't change after that; re-create it to include newer watches or other options.</p>{% else %}<p class="wp-fine">This is the image you'll get. Pick a format and what to show, then create it.</p>{% endif %}
+          {% if report %}<p class="wp-fine">Image made {{ report.created_at|timesince }} ago. It's kept under Saved recaps below and doesn't change after that; Re-create it to include newer watches or other options.</p>{% else %}<p class="wp-fine">This is the image you'll get. Pick a format and what to show, then Download or Copy it &mdash; it's saved under Saved recaps below.</p>{% endif %}
         </div>
         {% include "tracker/partials/wrapped_options.html" %}
       </div>
