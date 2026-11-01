@@ -5768,7 +5768,7 @@ def save_appearance(request):
         from .wrapped import render as wrapped_render
         from .wrapped import service as wrapped_service
 
-        profile.wrapped_enabled = bool(request.POST.get("wrapped_enabled"))
+        profile.wrapped_recaps_enabled = bool(request.POST.get("wrapped_recaps_enabled"))
         profile.wrapped_monthly = bool(request.POST.get("wrapped_monthly"))
         profile.wrapped_yearly = bool(request.POST.get("wrapped_yearly"))
         profile.wrapped_year_in_review = bool(request.POST.get("wrapped_year_in_review"))
@@ -5785,10 +5785,16 @@ def save_appearance(request):
             profile.wrapped_webhook_url = webhook
         update_fields.extend(
             [
-                "wrapped_enabled", "wrapped_monthly", "wrapped_yearly", "wrapped_year_in_review",
+                "wrapped_recaps_enabled", "wrapped_monthly", "wrapped_yearly", "wrapped_year_in_review",
                 "wrapped_template", "wrapped_hidden_stats", "wrapped_webhook_url",
             ]
         )
+    if "wrapped_sharing_submitted" in request.POST:
+        # External Reports API sharing: it can only be turned off from here
+        # (the checkbox is only rendered while it's on), never on.
+        if not request.POST.get("wrapped_enabled"):
+            profile.wrapped_enabled = False
+            update_fields.append("wrapped_enabled")
     if update_fields:
         profile.save(update_fields=update_fields)
     return HttpResponse(status=204)

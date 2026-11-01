@@ -200,8 +200,12 @@ class Profile(models.Model):
     wrapped_email_enabled = models.BooleanField(default=False)
     # Built-in Wrapped (tracker/wrapped/): which recaps are generated for
     # this profile, which card preset they use, and any stats left off the
-    # card. wrapped_enabled above is the master switch; wrapped_webhook_url
+    # card. wrapped_recaps_enabled is the master switch; wrapped_webhook_url
     # doubles as the Discord webhook the finished PNG is posted to.
+    # The switch for the built-in recaps - separate from wrapped_enabled
+    # above, which stays "share my watch history with an external app over
+    # the Reports API" and is never turned on by this feature.
+    wrapped_recaps_enabled = models.BooleanField(default=False)
     wrapped_monthly = models.BooleanField(default=True)
     wrapped_yearly = models.BooleanField(default=True)
     wrapped_year_in_review = models.BooleanField(default=False)

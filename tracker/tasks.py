@@ -994,7 +994,7 @@ def generate_wrapped_recaps():
         (Kind.YEAR_IN_REVIEW, "wrapped_year_in_review", year, None),
     ]
     made = 0
-    for profile in Profile.objects.filter(wrapped_enabled=True):
+    for profile in Profile.objects.filter(wrapped_recaps_enabled=True):
         for kind, flag, due_year, due_month in due:
             if not getattr(profile, flag):
                 continue

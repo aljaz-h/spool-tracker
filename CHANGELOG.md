@@ -8,6 +8,13 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.171.1] - 2026-11-01
+
+### Fixed
+
+- Turning on built-in Wrapped recaps no longer also turned on sharing your watch history with an external app through the Reports API. They are now two separate settings: recaps use their own switch (off by default, migration `0086`), and the old "share with an external Wrapped app" setting stays as it was. A small "External Wrapped app" card appears under API & Sharing only while a profile is still sharing, so it can be turned off.
+- A failed Discord delivery no longer logs or stores the webhook address (its token is a secret); only the HTTP status or error type is kept.
+
 ## [0.171.0] - 2026-11-01
 
 ### Added

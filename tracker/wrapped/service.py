@@ -115,6 +115,16 @@ def is_discord_webhook(url):
     )
 
 
+def safe_error(exc):
+    """What's logged and stored about a failed delivery: the HTTP status or
+    the exception type, never the message - a requests error message
+    contains the full webhook URL, and the token in it is a secret."""
+    response = getattr(exc, "response", None)
+    if response is not None and getattr(response, "status_code", None):
+        return f"HTTP {response.status_code}"
+    return type(exc).__name__
+
+
 def _post_to_discord(webhook_url, path, profile, label):
     """Uploads the PNG itself, so nothing needs a public URL for Spool."""
     if not is_discord_webhook(webhook_url):
@@ -234,8 +244,9 @@ def _deliver(profile, report, path, kind, year, month):
             _post_to_discord(profile.wrapped_webhook_url, path, profile, report.period_label)
             report.delivered_discord = True
         except Exception as exc:
-            logger.warning("Wrapped Discord delivery failed for profile %s: %s", profile.id, exc)
-            errors.append(f"Discord: {exc}")
+            reason = safe_error(exc)
+            logger.warning("Wrapped Discord delivery failed for profile %s: %s", profile.id, reason)
+            errors.append(f"Discord: {reason}")
     link = page_url(kind, year, month)
     notifications.notify(
         profile,

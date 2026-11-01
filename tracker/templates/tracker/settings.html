@@ -543,7 +543,7 @@
             <input type="hidden" name="wrapped_settings_submitted" value="1">
             {% settings_row title="Make my recaps" help="Create your Wrapped automatically and tell you when it's ready. You can always open any period yourself from the Wrapped page." %}
               <span class="spool-spinner" aria-hidden="true"></span>
-              <input type="checkbox" name="wrapped_enabled" class="checkbox" aria-label="Make my recaps" {% if profile.wrapped_enabled %}checked{% endif %}>
+              <input type="checkbox" name="wrapped_recaps_enabled" class="checkbox" aria-label="Make my recaps" {% if profile.wrapped_recaps_enabled %}checked{% endif %}>
             {% endsettings_row %}
             {% settings_row title="Monthly recap" help="On the first of each month, for the month before." %}
               <input type="checkbox" name="wrapped_monthly" class="checkbox" aria-label="Monthly recap" {% if profile.wrapped_monthly %}checked{% endif %}>
@@ -617,6 +617,26 @@
       {# ==================== ADVANCED ==================== #}
       <div x-show="tab === 'advanced'" x-cloak class="flex flex-col gap-5 max-w-2xl">
         {% include "tracker/partials/api_tokens_card.html" %}
+
+        {% comment %}
+          Only shown while a profile is still sharing with an external
+          Wrapped app over the Reports API (the old spool-wrapped
+          opt-in) - so it can be turned off, never newly turned on from
+          here. Built-in recaps use wrapped_recaps_enabled instead and
+          never share anything outside Spool.
+        {% endcomment %}
+        {% if profile.wrapped_enabled %}
+          {% settings_card %}
+            {% include "tracker/partials/settings_head.html" with title="External Wrapped app" icon="sparkles" description="Your watch history is shared with an external Wrapped app (the old spool-wrapped) through the Reports API." %}
+            <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
+              <input type="hidden" name="wrapped_sharing_submitted" value="1">
+              {% settings_row title="Share my watch history" help="Turn this off to stop any external app from seeing it. Built-in Wrapped doesn't need this." %}
+                <span class="spool-spinner" aria-hidden="true"></span>
+                <input type="checkbox" name="wrapped_enabled" class="checkbox" aria-label="Share my watch history with an external Wrapped app" checked>
+              {% endsettings_row %}
+            </form>
+          {% endsettings_card %}
+        {% endif %}
       </div>
 
       {# ==================== IMPORT & EXPORT ==================== #}

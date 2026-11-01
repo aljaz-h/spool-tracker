@@ -26743,26 +26743,48 @@ class SaveAppearanceWrappedFieldsTests(TestCase):
             reverse("save_appearance"),
             {
                 "wrapped_settings_submitted": "1",
-                "wrapped_enabled": "on",
+                "wrapped_recaps_enabled": "on",
                 "wrapped_webhook_url": "https://discord.com/api/webhooks/x",
             },
         )
         self.profile.refresh_from_db()
-        self.assertTrue(self.profile.wrapped_enabled)
+        self.assertTrue(self.profile.wrapped_recaps_enabled)
         self.assertEqual(self.profile.wrapped_webhook_url, "https://discord.com/api/webhooks/x")
+        # Built-in recaps never turn on sharing with an external app.
+        self.assertFalse(self.profile.wrapped_enabled)
 
     def test_unchecking_the_boxes_still_saves_via_the_hidden_marker(self):
-        self.profile.wrapped_enabled = True
+        self.profile.wrapped_recaps_enabled = True
         self.profile.save()
         self.client.post(reverse("save_appearance"), {"wrapped_settings_submitted": "1"})
         self.profile.refresh_from_db()
-        self.assertFalse(self.profile.wrapped_enabled)
+        self.assertFalse(self.profile.wrapped_recaps_enabled)
         self.assertFalse(self.profile.wrapped_monthly)
 
     def test_without_the_marker_nothing_changes(self):
         self.client.post(reverse("save_appearance"), {})
         self.profile.refresh_from_db()
+        self.assertFalse(self.profile.wrapped_recaps_enabled)
         self.assertFalse(self.profile.wrapped_enabled)
+
+    def test_external_sharing_can_only_be_turned_off_from_settings(self):
+        self.profile.wrapped_enabled = True
+        self.profile.save()
+        self.client.post(reverse("save_appearance"), {"wrapped_sharing_submitted": "1"})
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.wrapped_enabled)
+        # A post asking to turn it on does nothing.
+        self.client.post(reverse("save_appearance"), {"wrapped_sharing_submitted": "1", "wrapped_enabled": "on"})
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.wrapped_enabled)
+
+    def test_the_sharing_card_only_shows_while_sharing_is_on(self):
+        resp = self.client.get(reverse("settings"))
+        self.assertNotContains(resp, "External Wrapped app")
+        self.profile.wrapped_enabled = True
+        self.profile.save()
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, "External Wrapped app")
 
 
 class WatchProgressDropApiTests(TestCase):
@@ -33950,7 +33972,7 @@ class WrappedTests(TestCase):
 
     def setUp(self):
         user = User.objects.create_user("wrappedfan", password="pass12345")
-        self.profile = Profile.objects.create(user=user, display_name="WrappedFan", wrapped_enabled=True)
+        self.profile = Profile.objects.create(user=user, display_name="WrappedFan", wrapped_recaps_enabled=True)
         self.client.login(username="wrappedfan", password="pass12345")
         self.show = Title.objects.create(media_type=MediaType.TV, name="Wrapped Show", year=2020, runtime_minutes=40)
         self.year = 2025
@@ -34058,6 +34080,18 @@ class WrappedTests(TestCase):
         note = Notification.objects.get(profile=self.profile, kind="wrapped_ready")
         self.assertEqual(note.link, reverse("wrapped_month", args=[self.year, 3]))
 
+    def test_delivery_errors_never_contain_the_webhook_url(self):
+        import requests as _requests
+
+        from tracker.wrapped import service
+
+        secret = "https://discord.com/api/webhooks/123/SECRETTOKEN"
+        response = _requests.Response()
+        response.status_code = 404
+        err = _requests.HTTPError(f"404 Client Error: Not Found for url: {secret}", response=response)
+        self.assertEqual(service.safe_error(err), "HTTP 404")
+        self.assertEqual(service.safe_error(_requests.ConnectionError(f"failed for {secret}")), "ConnectionError")
+
     @patch("tracker.wrapped.service._post_to_discord", side_effect=RuntimeError("bad webhook"))
     @patch("tracker.wrapped.render.render_png")
     def test_a_discord_failure_does_not_lose_the_recap(self, mock_render, _mock_discord):
@@ -34069,7 +34103,7 @@ class WrappedTests(TestCase):
         report = service.generate(self.profile, "monthly", self.year, 3)
         self.assertEqual(report.status, "success")
         self.assertFalse(report.delivered_discord)
-        self.assertIn("bad webhook", report.error_message)
+        self.assertEqual(report.error_message, "Discord: RuntimeError")
 
     @patch("tracker.wrapped.service.generate")
     def test_daily_task_makes_each_due_recap(self, mock_generate):
@@ -34098,7 +34132,7 @@ class WrappedTests(TestCase):
             tasks.generate_wrapped_recaps()
         self.assertNotIn("monthly", {c.args[1] for c in mock_generate.call_args_list})
         mock_generate.reset_mock()
-        self.profile.wrapped_enabled = False
+        self.profile.wrapped_recaps_enabled = False
         self.profile.save()
         with patch("tracker.tasks.date") as mock_date:
             mock_date.today.return_value = date(2026, 2, 10)
@@ -34108,7 +34142,7 @@ class WrappedTests(TestCase):
         resp = self.client.post(
             reverse("save_appearance"),
             {
-                "wrapped_settings_submitted": "1", "wrapped_enabled": "on", "wrapped_yearly": "on",
+                "wrapped_settings_submitted": "1", "wrapped_recaps_enabled": "on", "wrapped_yearly": "on",
                 "wrapped_template": "classic", "wrapped_show_top_genre": "on",
                 "wrapped_webhook_url": "https://discord.com/api/webhooks/9/y",
             },
@@ -34165,7 +34199,7 @@ class WrappedRetentionTests(TestCase):
         from tracker.wrapped import render
 
         user = User.objects.create_user("wrappedkeeper", password="pass12345")
-        self.profile = Profile.objects.create(user=user, display_name="WrappedKeeper", wrapped_enabled=True)
+        self.profile = Profile.objects.create(user=user, display_name="WrappedKeeper", wrapped_recaps_enabled=True)
         self.client.login(username="wrappedkeeper", password="pass12345")
         self.render = render
         self.show = Title.objects.create(media_type=MediaType.TV, name="Kept Show", year=2020, runtime_minutes=40)

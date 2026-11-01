@@ -6,7 +6,7 @@
   <div class="page-head">
     <div>
       <h1 class="page-title">Wrapped</h1>
-      <p class="page-subtitle">Your monthly and yearly recap{% if not profile.wrapped_enabled %} &middot; <a href="{% url 'settings' %}?tab=wrapped" class="underline hover:text-base-content">Turn on scheduled recaps</a>{% endif %}</p>
+      <p class="page-subtitle">Your monthly and yearly recap{% if not profile.wrapped_recaps_enabled %} &middot; <a href="{% url 'settings' %}?tab=wrapped" class="underline hover:text-base-content">Turn on scheduled recaps</a>{% endif %}</p>
     </div>
   </div>
 
