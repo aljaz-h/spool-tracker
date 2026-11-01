@@ -8,6 +8,12 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.175.2] - 2026-11-01
+
+### Changed
+
+- Dependency updates (patch and minor releases that fit the versions Celery, Kombu and Playwright require): django-ninja 1.7.3, pydantic 2.14.2 / pydantic_core 2.50.2, oauthlib 4.0.1, python-crontab 3.4.0, amqp 5.4.1, billiard 4.3.1, click-repl 0.4.1, annotated-types 0.8.0, wcwidth 0.9.4; Tailwind CSS 4.3.3 (build tools). Left alone on purpose: Django 6 (5.2 is the long-term-support line), redis 8 (Kombu needs below 6.5), Playwright (needs a matching browser reinstall), daisyUI 5.7 (a large jump that can shift component styles), and pyee (Playwright pins it).
+
 ## [0.175.1] - 2026-11-01
 
 ### Security
