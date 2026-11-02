@@ -171,7 +171,7 @@ def fetch_anime_list(access_token, limit=1000):
     return items
 
 
-def _resolve(mal_id, name, year):
+def _resolve(mal_id, name, year, provider="mal"):
     """One title_matching.resolve_title_match call per anime - read-
     only, same guarantee every other call site of this function has
     (see that module's own docstring). Done here, at normalize time,
@@ -181,7 +181,7 @@ def _resolve(mal_id, name, year):
     build (season, episode) pairs - see this module's own docstring."""
     from tracker import title_matching
 
-    return title_matching.resolve_title_match(MediaType.ANIME, "mal", mal_id, name=name, year=year)
+    return title_matching.resolve_title_match(MediaType.ANIME, provider, mal_id, name=name, year=year)
 
 
 def _episode_specs(tmdb_id):
@@ -254,7 +254,7 @@ def _error_item(source_row, reason):
     }
 
 
-def _history_items_for(mal_id, name, year, progress, score, watched_at, source_row):
+def _history_items_for(mal_id, name, year, progress, score, watched_at, source_row, provider="mal"):
     """progress: list_status.num_episodes_watched (already confirmed >
     0 by the caller). Branches on the *resolved* TMDB kind, not MAL's
     own node.media_type guess - a MAL "tv"/"ova"/"ona"/"special" that
@@ -267,8 +267,8 @@ def _history_items_for(mal_id, name, year, progress, score, watched_at, source_r
     external score naturally reads as "my rating as of where I left
     off", not as a letterboxd-style guess at a duplicate per-episode
     rating."""
-    match = _resolve(mal_id, name, year)
-    source_external_ids = {"mal": str(mal_id)}
+    match = _resolve(mal_id, name, year, provider)
+    source_external_ids = {provider: str(mal_id)}
     if match.tmdb_id:
         source_external_ids["tmdb"] = match.tmdb_id
         source_external_ids["tmdb_kind"] = match.tmdb_kind
@@ -300,7 +300,7 @@ def _history_items_for(mal_id, name, year, progress, score, watched_at, source_r
     return [_history_item(name, year, None, None, watched_at, rating, source_external_ids, source_row)]
 
 
-def _watchlist_item(mal_id, name, year, position):
+def _watchlist_item(mal_id, name, year, position, provider="mal"):
     """tracker.backup.restore_lists' own item shape - no tmdb id
     resolved here (unlike _history_items_for), since restore_lists'
     own _get_or_create_title already does the same fuzzy name/year
@@ -308,11 +308,11 @@ def _watchlist_item(mal_id, name, year, position):
     items (which also carry no native id at all) already rely on."""
     return {
         "type": "show", "media_type": MediaType.ANIME, "title": name, "year": year,
-        "ids": {"mal": str(mal_id)}, "position": position,
+        "ids": {provider: str(mal_id)}, "position": position,
     }
 
 
-def normalize_items(entries):
+def normalize_items(entries, fallback_date=None):
     """entries: fetch_anime_list()'s own return list. Returns
     (history_items, watchlist_entry) - history_items in the common
     Import Review normalized shape (see import_pipeline.py's own
@@ -327,7 +327,14 @@ def normalize_items(entries):
     convention IMDb/Letterboxd/TMDB's own watchlist-only imports use.
 
     See this module's own docstring for how MAL's 5 statuses collapse
-    into history items vs. the watchlist vs. nothing at all."""
+    into history items vs. the watchlist vs. nothing at all.
+
+    Entries from tracker.integrations.animelist (AniList, Kitsu, a MAL XML
+    export) have the same shape; a node's optional "provider" says which
+    service its id belongs to (default "mal"). fallback_date is the date
+    used for a watched entry that carries none at all (an XML export has no
+    "last updated" stamp) - without it such an entry is reported as an error,
+    as before."""
     history_items = []
     watchlist_items = []
     source_row = 0
@@ -336,6 +343,7 @@ def normalize_items(entries):
         node = entry.get("node") or {}
         status_data = entry.get("list_status") or {}
         mal_id = node.get("id")
+        provider = node.get("provider") or "mal"
         name = node.get("title") or ""
         year = (node.get("start_season") or {}).get("year")
         status = status_data.get("status")
@@ -347,24 +355,24 @@ def normalize_items(entries):
             continue
 
         if status == "plan_to_watch":
-            watchlist_items.append(_watchlist_item(mal_id, name, year, len(watchlist_items)))
+            watchlist_items.append(_watchlist_item(mal_id, name, year, len(watchlist_items), provider))
             continue
 
         if status not in ("watching", "on_hold", "completed", "dropped") or progress <= 0:
             continue
 
-        watched_at = _best_date(status_data)
+        watched_at = _best_date(status_data) or fallback_date
         if watched_at is None:
             history_items.append(_error_item(source_row, "no usable date (missing updated_at/finish_date)"))
             continue
 
-        history_items.extend(_history_items_for(mal_id, name, year, progress, score, watched_at, source_row))
+        history_items.extend(_history_items_for(mal_id, name, year, progress, score, watched_at, source_row, provider))
 
     watchlist_entry = {"is_watchlist": True, "items": watchlist_items} if watchlist_items else None
     return history_items, watchlist_entry
 
 
-def upsert_normalized_items(profile, history_items, labels_out=None):
+def upsert_normalized_items(profile, history_items, labels_out=None, source=None):
     """Routine re-sync's write path for normalize_items()' own
     history_items - the apply_title_match-based counterpart to scan's
     read-only resolve_title_match (used internally by _resolve above,
@@ -375,10 +383,12 @@ def upsert_normalized_items(profile, history_items, labels_out=None):
     shape, since normalize_items already did every bit of parsing and
     resolution this needs - there's no separate raw-provider-item step
     left to duplicate here. Returns the count of newly created
-    WatchEvent rows."""
+    WatchEvent rows. source: the WatchEvent.Source to stamp (MyAnimeList
+    unless an AniList/Kitsu sync passes its own)."""
     from tracker import completion, media_kinds, recommendations, rewatches, title_matching
     from tracker.models import Episode, Title, WatchEvent
 
+    source = source or WatchEvent.Source.MAL
     created = 0
     touched_movies = set()
     touched_shows = set()
@@ -386,13 +396,14 @@ def upsert_normalized_items(profile, history_items, labels_out=None):
     for item in history_items:
         if item["error"] or item["watched_at"] is None:
             continue
-        mal_id = item["source_external_ids"].get("mal")
+        provider = next((p for p in ("mal", "anilist", "kitsu") if item["source_external_ids"].get(p)), "mal")
+        mal_id = item["source_external_ids"].get(provider)
         tmdb_id = item["source_external_ids"].get("tmdb")
         kind = media_kinds.tmdb_kind_for(
             item["media_type"], item["season"], item["episode"], item["source_external_ids"].get("tmdb_kind")
         )
         title = title_matching.apply_title_match(
-            item["media_type"], "mal", mal_id, name=item["title_name"], year=item["year"],
+            item["media_type"], provider, mal_id, name=item["title_name"], year=item["year"],
             tmdb_id=tmdb_id, tmdb_kind=kind,
         )
         episode = None
@@ -409,14 +420,14 @@ def upsert_normalized_items(profile, history_items, labels_out=None):
         if existing is None:
             WatchEvent.objects.create(
                 profile=profile, title=title, episode=episode, watched_at=item["watched_at"],
-                user_rating=item["rating"], source=WatchEvent.Source.MAL,
+                user_rating=item["rating"], source=source,
             )
             created += 1
             if labels_out is not None:
                 labels_out.append(title.name if episode is None else f"{title.name} S{episode.season}E{episode.episode}")
             touched_watch_keys.add((title.id, episode.id if episode else None))
         elif not existing.source:
-            existing.source = WatchEvent.Source.MAL
+            existing.source = source
             existing.save(update_fields=["source"])
 
     for title_id, episode_id in touched_watch_keys:

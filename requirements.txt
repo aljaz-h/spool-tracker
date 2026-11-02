@@ -13,6 +13,7 @@ click-repl==0.4.1
 colorama==0.4.6
 cron-descriptor==1.4.5
 cryptography==50.0.2
+defusedxml==0.7.1
 Django==5.2.17
 django-celery-beat==2.9.0
 django-environ==0.14.0

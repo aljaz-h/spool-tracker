@@ -1,0 +1,9 @@
+{# context: logs_page, logs_qs_nopage - Prev / Next links that keep every filter, the view and the category. #}
+<div class="flex gap-1.5">
+  {% if logs_page.has_previous %}
+    <a href="?tab=logs&page={{ logs_page.previous_page_number }}{% if logs_qs_nopage %}&{{ logs_qs_nopage }}{% endif %}" class="btn btn-sm btn-ghost text-ink-dim">&larr; Prev</a>
+  {% endif %}
+  {% if logs_page.has_next %}
+    <a href="?tab=logs&page={{ logs_page.next_page_number }}{% if logs_qs_nopage %}&{{ logs_qs_nopage }}{% endif %}" class="btn btn-sm btn-ghost text-ink-dim">Next &rarr;</a>
+  {% endif %}
+</div>

@@ -40,7 +40,7 @@ to avoid triggering navigation.
     <div class="media-card-art">
       <div class="backdrop cw-art {% if not progress.still_url %}{{ title.pk|gradient_class }}{% endif %}">
         {% if progress.still_url %}
-          <img src="{{ progress.still_url|poster_size:"w342" }}" alt="" {% if eager %}fetchpriority="high"{% else %}loading="lazy"{% endif %} class="absolute inset-0">
+          <img src="{{ progress.still_url|poster_size:"w342" }}" alt="" {% if eager %}fetchpriority="high"{% else %}loading="lazy"{% endif %} class="absolute inset-0{% if progress.season %} spoiler-still{% endif %}">
         {% endif %}
         <div class="art-scrim"></div>
         <a href="{{ detail_url }}" class="absolute inset-0 z-0" tabindex="-1" aria-hidden="true"></a>

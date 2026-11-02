@@ -1,0 +1,73 @@
+{# context: entry - one row of the Logs tables (settings_logs_entries.html). #}
+{% load icons %}
+<tr class="border-b border-line last:border-b-0{% if entry.status == 'not_run' %} log-notrun text-ink-faint{% endif %}">
+  <td class="py-2.5 px-3.5">{{ entry.profile.display_name }}</td>
+  <td class="py-2.5 px-3.5 font-mono text-[12px]">{{ entry.action }}</td>
+  <td class="py-2.5 px-3.5 font-mono text-[12px] text-ink-dim">{% if entry.timestamp %}{{ entry.timestamp|date:"Y-m-d H:i:s" }}{% else %}—{% endif %}</td>
+  <td class="py-2.5 px-3.5 font-mono text-[12px] text-ink-dim">
+    {% if entry.duration_seconds %}
+      {{ entry.duration_seconds|floatformat:1 }}s
+      {% if entry.status == "failed" and entry.duration_seconds < 1 %}
+        <span
+          tabindex="0"
+          aria-label="Failed in under a second - likely rejected before reaching Trakt/Simkl at all (an expired or invalid token), not a network timeout or slow response."
+          class="ml-1 text-[11px] text-warning/90 cursor-help spool-tooltip"
+          data-tooltip="Failed in under a second - likely rejected before reaching Trakt/Simkl at all (an expired or invalid token), not a network timeout or slow response."
+        >fast fail</span>
+      {% endif %}
+    {% else %}—{% endif %}
+  </td>
+  <td class="py-2.5 px-3.5">
+    {% if entry.status == "success" %}
+      <span class="inline-flex items-center gap-1 font-mono text-[12px] text-success">{% icon "check" "w-3 h-3" %}success</span>
+    {% elif entry.status == "failed" %}
+      <span class="inline-flex items-center gap-1 font-mono text-[12px] text-error">{% icon "x" "w-3 h-3" %}failed</span>
+    {% elif entry.status == "not_run" %}
+      <span class="font-mono text-[12px] text-ink-faint">not run</span>
+    {% elif entry.status == "waiting" %}
+      <span class="font-mono text-[12px] text-info">awaiting review</span>
+    {% elif entry.status == "paused" %}
+      <span class="font-mono text-[12px] text-warning">paused</span>
+    {% elif entry.status == "cancelled" %}
+      <span class="font-mono text-[12px] text-ink-faint">cancelled</span>
+    {% else %}
+      <span class="font-mono text-[12px] text-warning">running</span>
+    {% endif %}
+  </td>
+  <td class="py-2.5 px-3.5 font-mono text-[12px] align-top">
+    {% if entry.imported_titles %}
+      <div x-data="{ open: false }">
+        <button type="button" @click="open = !open" class="hover:text-base-content underline decoration-dotted">{{ entry.item_count }} <span x-text="open ? '▲' : '▾'"></span></button>
+        <div x-show="open" x-cloak class="mt-1.5 max-h-48 w-48 overflow-y-auto bg-base-300 border border-line rounded-md p-2">
+          <ul class="space-y-0.5 text-[12px] text-ink-dim font-body">
+            {% for label in entry.imported_titles %}<li class="truncate" title="{{ label }}">{{ label }}</li>{% endfor %}
+          </ul>
+          {% if entry.imported_titles_more %}<div class="mt-1 text-[12px] text-ink-faint">+{{ entry.imported_titles_more }} more</div>{% endif %}
+        </div>
+      </div>
+    {% else %}{{ entry.item_count|default:"—" }}{% endif %}
+  </td>
+  <td class="py-2.5 px-3.5 text-ink-faint text-[12px] max-w-[280px] 2xl:max-w-[560px]">
+    {% if entry.error_message %}
+      <div x-data="{ open: false, copied: false }">
+        <button
+          type="button" @click="open = !open" x-show="!open"
+          data-tooltip="{{ entry.error_message }}"
+          class="block w-full text-left truncate hover:text-base-content spool-tooltip"
+        >{{ entry.error_message }}</button>
+        <button
+          type="button" @click="open = !open" x-show="open" x-cloak
+          class="text-[12px] text-ink-dim hover:text-base-content underline decoration-dotted"
+        >Collapse ▲</button>
+        <div x-show="open" x-cloak class="mt-1.5 flex flex-col gap-1.5 max-w-md">
+          <div x-ref="fulltext" class="font-mono text-[12px] whitespace-pre-wrap break-all bg-base-300 border border-line rounded-md p-2 select-text">{{ entry.error_message }}</div>
+          <button
+            type="button"
+            @click="navigator.clipboard.writeText($refs.fulltext.innerText); copied = true; setTimeout(() => copied = false, 1500)"
+            class="self-start px-2 py-1 rounded-md border border-line bg-base-100 text-[12px] text-ink-dim hover:text-base-content"
+          ><span x-show="!copied">Copy</span><span x-show="copied" x-cloak>Copied!</span></button>
+        </div>
+      </div>
+    {% else %}{{ entry.detail|default:"—" }}{% endif %}
+  </td>
+</tr>

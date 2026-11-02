@@ -23,7 +23,7 @@ from django_celery_beat.models import PeriodicTask
 from . import achievements, completion, crypto, csv_import, episode_matching, ical, imdb_import, import_pipeline, instance_config, letterboxd_import, notifications, push, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, title_matching, totp, tvtime_import, update_check, views
 from django.utils import timezone as _tz
 from .watchlists import ensure_watchlist
-from .integrations import anifiller, fanart, mdblist, myanimelist, nuvio, scrobble, simkl, tenrai, tmdb, tmdb_account, trakt, tvmaze, wetrakr
+from .integrations import anifiller, animelist, fanart, mdblist, myanimelist, nuvio, scrobble, simkl, tenrai, tmdb, tmdb_account, trakt, tvmaze, wetrakr
 from .models import (
     WrappedReport,
     AVATAR_COLOR_CHOICES,
@@ -4112,6 +4112,33 @@ class SaveAppearanceViewTests(TestCase):
         )
         self.profile.refresh_from_db()
         self.assertTrue(self.profile.animations_enabled)
+
+    def test_blur_unwatched_episodes_saves_and_turns_off(self):
+        self.assertFalse(self.profile.blur_unwatched_episodes)
+        self.client.post(
+            reverse("save_appearance"), {"blur_unwatched_episodes_submitted": "1", "blur_unwatched_episodes": "on"}
+        )
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.blur_unwatched_episodes)
+        self.client.post(reverse("save_appearance"), {"blur_unwatched_episodes_submitted": "1"})
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.blur_unwatched_episodes)
+
+    def test_other_appearance_controls_leave_the_blur_setting_alone(self):
+        self.profile.blur_unwatched_episodes = True
+        self.profile.save(update_fields=["blur_unwatched_episodes"])
+        self.client.post(reverse("save_appearance"), {"animations_enabled_submitted": "1"})
+        self.client.post(reverse("save_appearance"), {"time_format": "24h"})
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.blur_unwatched_episodes)
+
+    def test_the_body_carries_the_blur_flag_and_the_settings_row_is_there(self):
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, 'data-blur-unwatched="off"')
+        self.assertContains(resp, "Blur unwatched episodes")
+        self.profile.blur_unwatched_episodes = True
+        self.profile.save(update_fields=["blur_unwatched_episodes"])
+        self.assertContains(self.client.get(reverse("settings")), 'data-blur-unwatched="on"')
 
     def test_unchecking_animations_turns_it_off(self):
         self.profile.animations_enabled = True
@@ -9192,6 +9219,228 @@ class CombinedLogsTests(TestCase):
         self.assertEqual(page.object_list[0]["action"], "Import")
 
 
+class GroupedLogsTests(TestCase):
+    """selectors.combined_log_groups() and the Logs tab's grouped view: one
+    collapsible run per category per local day, nightly jobs checked against
+    the fixed list so a missing one shows as "not run"."""
+
+    NIGHTLY = [
+        DataLog.Action.RELEASE_SYNC, DataLog.Action.RELEASE_NOTIFICATIONS, DataLog.Action.UPDATE_CHECK,
+        DataLog.Action.WATCHLIST_STALE, DataLog.Action.LOG_RETENTION, DataLog.Action.RECLASSIFY_ANIME,
+    ]
+
+    def setUp(self):
+        from datetime import datetime
+
+        from django.utils import timezone
+
+        self.timezone = timezone
+        self.owner = Profile.objects.create(
+            user=User.objects.create_user("groupowner", password="pass12345", is_superuser=True), display_name="GroupOwner"
+        )
+        self.member = Profile.objects.create(user=User.objects.create_user("groupmember", password="pass12345"), display_name="Maya")
+        # Midday on a fixed day, so "today" is stable and every nightly job (03:00-04:30) is already behind it.
+        self.now = timezone.make_aware(datetime(2026, 11, 2, 12, 0))
+
+    def _at(self, days_ago, hour, minute=0):
+        return self.now.replace(hour=hour, minute=minute) - timedelta(days=days_ago)
+
+    def _data(self, action, when, status=DataLog.Status.SUCCESS, profile=None, **extra):
+        log = DataLog.objects.create(profile=profile or self.owner, action=action, status=status, **extra)
+        DataLog.objects.filter(pk=log.pk).update(created_at=when)
+        return log
+
+    def _sync(self, when, profile=None, provider=ExternalAccount.Provider.NUVIO, status=SyncLog.Status.SUCCESS):
+        log = SyncLog.objects.create(profile=profile or self.owner, provider=provider, status=status)
+        SyncLog.objects.filter(pk=log.pk).update(started_at=when)
+        return log
+
+    def _night(self, days_ago, skip=(), failed=()):
+        for i, action in enumerate(self.NIGHTLY):
+            if action in skip:
+                continue
+            status = DataLog.Status.FAILED if action in failed else DataLog.Status.SUCCESS
+            self._data(action, self._at(days_ago, 3 + (i + 1) // 2, 30 * ((i + 1) % 2)), status=status)
+
+    def _groups(self, **kwargs):
+        page, summary = selectors.combined_log_groups(None, now=self.now, **kwargs)
+        return list(page.object_list), summary
+
+    def _night_group(self, days_ago):
+        day = (self.now - timedelta(days=days_ago)).date()
+        return next(g for g in self._groups()[0] if g["category"] == "nightly" and g["day"] == day)
+
+    def test_a_full_nightly_run_is_one_healthy_collapsed_group(self):
+        self._night(0)
+        groups, _ = self._groups()
+        self.assertEqual(len(groups), 1)
+        night = groups[0]
+        self.assertEqual((night["category"], night["pill"], night["state"]), ("nightly", "6/6 ok", "ok"))
+        self.assertFalse(night["open"])
+        self.assertEqual(night["title"], "Nightly maintenance · 2 Nov")
+        self.assertEqual(night["squares"], ["ok"] * 6)
+
+    def test_a_job_with_no_entry_shows_as_not_run_and_opens_the_group(self):
+        self._night(1, skip={DataLog.Action.RECLASSIFY_ANIME})
+        night = self._night_group(1)
+        self.assertEqual(night["pill"], "Warning · 5/6")
+        self.assertEqual((night["not_run"], night["state"], night["open"]), (1, "warning", True))
+        missing = [e for e in night["entries"] if e["status"] == "not_run"]
+        self.assertEqual([e["action"] for e in missing], ["Reclassify Anime"])
+        self.assertIn("No log entry by 05:30", missing[0]["detail"])
+        self.assertEqual(night["squares"][-1], "not_run")
+
+    def test_a_failed_job_makes_the_group_red_and_counts_it(self):
+        self._night(1, skip={DataLog.Action.RECLASSIFY_ANIME}, failed={DataLog.Action.RELEASE_NOTIFICATIONS})
+        night = self._night_group(1)
+        self.assertEqual((night["pill"], night["state"], night["note"]), ("Failed · 4/6", "failed", "1 failed · 1 not run"))
+        self.assertTrue(night["problem"])
+
+    def test_todays_night_is_not_called_missed_before_the_grace_time(self):
+        from datetime import datetime
+
+        early = self.timezone.make_aware(datetime(2026, 11, 2, 4, 0))
+        self._data(DataLog.Action.RELEASE_SYNC, early.replace(hour=3))
+        page, _ = selectors.combined_log_groups(None, now=early)
+        night = page.object_list[0]
+        self.assertEqual((night["not_run"], night["total"]), (0, 1))
+
+    def test_a_night_with_no_entries_at_all_is_a_failed_zero_of_six_group(self):
+        self._night(2)
+        self._night(0)
+        groups, _ = self._groups()
+        quiet = next(g for g in groups if g["day"] == (self.now - timedelta(days=1)).date())
+        self.assertEqual((quiet["pill"], quiet["state"], quiet["not_run"]), ("Failed · 0/6", "failed", 6))
+
+    def test_filters_do_not_invent_not_run_rows(self):
+        self._night(1, skip={DataLog.Action.RECLASSIFY_ANIME})
+        groups, _ = self._groups(status="success")
+        self.assertEqual([g["day"] for g in groups], [(self.now - timedelta(days=1)).date()])
+        self.assertEqual(groups[0]["not_run"], 0)
+        self.assertEqual(groups[0]["total"], 5)
+
+    def test_syncs_group_per_profile_provider_and_day_with_a_cadence(self):
+        for n in range(4):
+            self._sync(self._at(0, 8 + n // 2, 30 * (n % 2)))
+        self._sync(self._at(0, 9), profile=self.member, provider=ExternalAccount.Provider.TRAKT)
+        self._sync(self._at(1, 9))
+        groups, _ = self._groups()
+        syncs = [g for g in groups if g["category"] == "syncs"]
+        self.assertEqual(len(syncs), 3)
+        nuvio_today = next(g for g in syncs if g["total"] == 4)
+        self.assertEqual(nuvio_today["title"], "Nuvio sync · GroupOwner")
+        self.assertEqual(nuvio_today["span"], "every 30 min · last 09:30")
+        self.assertEqual(nuvio_today["pill"], "4/4 ok")
+
+    def test_manual_actions_stay_single_rows_and_hourly_jobs_group_by_day(self):
+        self._data(DataLog.Action.EXPORT, self._at(0, 8))
+        self._data(DataLog.Action.IMPORT, self._at(0, 9))
+        for hour in range(3):
+            self._data(DataLog.Action.MDBLIST_REFRESH, self._at(0, hour))
+        groups, _ = self._groups()
+        manual = [g for g in groups if g["category"] == "manual"]
+        self.assertEqual(sorted(g["title"] for g in manual), ["Export", "Import"])
+        self.assertTrue(all(g["total"] == 1 for g in manual))
+        hourly = [g for g in groups if g["category"] == "hourly"]
+        self.assertEqual((len(hourly), hourly[0]["total"]), (1, 3))
+
+    def test_a_running_entry_makes_a_blue_group_that_starts_open(self):
+        self._data(DataLog.Action.IMPORT, self._at(0, 8), status=DataLog.Status.RUNNING)
+        self._sync(self._at(0, 9), status=SyncLog.Status.RUNNING)
+        groups, _ = self._groups()
+        self.assertTrue(all(g["state"] == "running" and g["open"] for g in groups))
+
+    def test_groups_sort_newest_first_within_a_day_and_the_day_label_says_today(self):
+        self._night(0)
+        self._sync(self._at(0, 10))
+        self._data(DataLog.Action.EXPORT, self._at(1, 18))
+        groups, _ = self._groups()
+        self.assertEqual([g["category"] for g in groups], ["syncs", "nightly", "manual"])
+        self.assertEqual(groups[0]["day_label"], "Today · 2 Nov")
+        self.assertEqual(groups[2]["day_label"], "Yesterday · 1 Nov")
+
+    def test_category_narrows_the_groups_but_not_the_chip_counts(self):
+        self._night(0)
+        self._sync(self._at(0, 10))
+        self._data(DataLog.Action.EXPORT, self._at(0, 11))
+        groups, summary = self._groups(category="syncs")
+        self.assertEqual([g["category"] for g in groups], ["syncs"])
+        self.assertEqual(summary["category_counts"], {"nightly": 1, "syncs": 1, "hourly": 0, "manual": 1})
+
+    def test_pagination_is_by_group(self):
+        for days_ago in range(5):
+            self._data(DataLog.Action.EXPORT, self._at(days_ago, 9))
+        page, summary = selectors.combined_log_groups(2, page_size=2, now=self.now)
+        self.assertEqual((page.paginator.count, len(page.object_list), summary["entry_count"]), (5, 2, 5))
+
+    def test_the_needs_attention_summary_names_what_went_wrong(self):
+        self._night(1, skip={DataLog.Action.RECLASSIFY_ANIME}, failed={DataLog.Action.RELEASE_NOTIFICATIONS})
+        self._night(0)
+        _, summary = self._groups()
+        self.assertEqual(summary["problem_count"], 1)
+        self.assertEqual(
+            summary["problem_sentences"],
+            ["Nightly maintenance on 1 Nov finished 4/6: Release Notifications failed, Reclassify Anime did not run."],
+        )
+
+    def test_a_failure_the_streak_banner_already_names_is_not_repeated_in_the_strip(self):
+        self._sync(self._at(1, 6), profile=self.member, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.FAILED)
+        self._sync(self._at(0, 6), profile=self.member, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.FAILED)
+        _, summary = self._groups(covered_syncs={(self.member.pk, "trakt")})
+        self.assertEqual((summary["problem_count"], summary["problem_sentences"]), (2, []))
+        _, summary = self._groups()
+        self.assertEqual(len(summary["problem_sentences"]), 2)
+        self.client.login(username="groupowner", password="pass12345")
+        resp = self.client.get(reverse("logs_table_partial"))
+        self.assertContains(resp, "has failed 2 times in a row")
+        self.assertContains(resp, "2 runs need a look")
+
+    def test_the_flat_entries_still_come_back_for_the_flat_view(self):
+        self._night(0)
+        self.assertEqual(len(selectors.combined_logs(None, page_size=50).object_list), 6)
+
+    def test_the_tab_defaults_to_grouped_and_flat_is_one_param_away(self):
+        self._night(0)
+        self.client.login(username="groupowner", password="pass12345")
+        grouped = self.client.get(reverse("settings"), {"tab": "logs"})
+        self.assertTrue(grouped.context["logs_grouped"])
+        self.assertContains(grouped, "Nightly maintenance")
+        self.assertContains(grouped, "Expand all")
+        flat = self.client.get(reverse("settings"), {"tab": "logs", "log_view": "flat"})
+        self.assertFalse(flat.context["logs_grouped"])
+        self.assertNotContains(flat, "Expand all")
+        self.assertEqual(len(flat.context["logs_page"].object_list), 6)
+
+    def test_the_needs_attention_strip_and_show_problems_button_render(self):
+        self._night(1, skip={DataLog.Action.RECLASSIFY_ANIME})
+        self.client.login(username="groupowner", password="pass12345")
+        resp = self.client.get(reverse("logs_table_partial"))
+        self.assertContains(resp, "Needs attention.")
+        self.assertContains(resp, "Show problems")
+        self.assertContains(resp, "not run")
+
+    def test_a_healthy_log_has_no_needs_attention_strip(self):
+        self._night(0)
+        self.client.login(username="groupowner", password="pass12345")
+        self.assertNotContains(self.client.get(reverse("logs_table_partial")), "Needs attention.")
+
+    def test_polling_continues_while_a_grouped_entry_is_running(self):
+        self._sync(self.timezone.now(), status=SyncLog.Status.RUNNING)
+        self.client.login(username="groupowner", password="pass12345")
+        resp = self.client.get(reverse("logs_table_partial"))
+        self.assertTrue(resp.context["logs_has_running"])
+        self.assertContains(resp, 'hx-trigger="every 4s"')
+
+    def test_the_category_chip_links_keep_the_filters(self):
+        self.client.login(username="groupowner", password="pass12345")
+        resp = self.client.get(reverse("settings"), {"tab": "logs", "log_provider": "trakt", "log_category": "syncs"})
+        chips = {c["key"]: c for c in resp.context["logs_category_links"]}
+        self.assertTrue(chips["syncs"]["active"])
+        self.assertIn("log_provider=trakt", chips["nightly"]["url"])
+        self.assertIn("log_category=nightly", chips["nightly"]["url"])
+        self.assertNotIn("log_category=syncs", chips["nightly"]["url"])
+
+
 class SyncLogViewTests(TestCase):
     def setUp(self):
         from django.utils import timezone
@@ -9236,7 +9485,7 @@ class SyncLogViewTests(TestCase):
             profile=self.member, provider=ExternalAccount.Provider.SIMKL, status=SyncLog.Status.SUCCESS
         )
         self.client.login(username="logowner", password="pass12345")
-        resp = self.client.get(reverse("settings"), {"tab": "logs", "log_profile": self.owner.id})
+        resp = self.client.get(reverse("settings"), {"tab": "logs", "log_view": "flat", "log_profile": self.owner.id})
         profiles_shown = {entry["profile"] for entry in resp.context["logs_page"].object_list}
         self.assertEqual(profiles_shown, {self.owner})
 
@@ -9255,21 +9504,21 @@ class SyncLogViewTests(TestCase):
     def test_log_action_type_filter_narrows_entries(self):
         DataLog.objects.create(profile=self.owner, action=DataLog.Action.IMPORT, status=DataLog.Status.SUCCESS)
         self.client.login(username="logowner", password="pass12345")
-        resp = self.client.get(reverse("settings"), {"tab": "logs", "log_action_type": "sync"})
+        resp = self.client.get(reverse("settings"), {"tab": "logs", "log_view": "flat", "log_action_type": "sync"})
         actions_shown = {entry["action"] for entry in resp.context["logs_page"].object_list}
         self.assertEqual(actions_shown, {"Sync · Trakt"})
 
     def test_log_provider_filter_narrows_entries(self):
         SyncLog.objects.create(profile=self.owner, provider=ExternalAccount.Provider.SIMKL, status=SyncLog.Status.SUCCESS)
         self.client.login(username="logowner", password="pass12345")
-        resp = self.client.get(reverse("settings"), {"tab": "logs", "log_provider": "trakt"})
+        resp = self.client.get(reverse("settings"), {"tab": "logs", "log_view": "flat", "log_provider": "trakt"})
         actions_shown = {entry["action"] for entry in resp.context["logs_page"].object_list}
         self.assertEqual(actions_shown, {"Sync · Trakt"})
 
     def test_log_status_filter_narrows_entries(self):
         DataLog.objects.create(profile=self.owner, action=DataLog.Action.IMPORT, status=DataLog.Status.FAILED)
         self.client.login(username="logowner", password="pass12345")
-        resp = self.client.get(reverse("settings"), {"tab": "logs", "log_status": "failed"})
+        resp = self.client.get(reverse("settings"), {"tab": "logs", "log_view": "flat", "log_status": "failed"})
         actions_shown = {entry["action"] for entry in resp.context["logs_page"].object_list}
         self.assertEqual(actions_shown, {"Import"})
 
@@ -9416,7 +9665,7 @@ class LogsTablePartialViewTests(TestCase):
             profile=self.owner, provider=ExternalAccount.Provider.TRAKT, status=SyncLog.Status.SUCCESS, item_count=3,
         )
         self.client.login(username="logspartialowner", password="pass12345")
-        resp = self.client.get(reverse("logs_table_partial"))
+        resp = self.client.get(reverse("logs_table_partial"), {"log_view": "flat"})
         self.assertNotContains(resp, "@click=\"open = !open\"")
 
     def test_truncated_imported_titles_show_the_more_count(self):
@@ -18222,6 +18471,28 @@ class TitleEpisodeBrowserTests(TestCase):
         self.assertEqual(content.count(f'id="ep-watched-btn-{self.title.pk}-1-1"'), 1)
         self.assertNotIn(f'id="ep-watched-btn-{self.title.pk}-1-1-m"', content)
         self.assertEqual(content.count("Freedom Day"), 1)
+
+    @patch("tracker.integrations.tmdb.get_tv_details", return_value=None)
+    @patch("tracker.integrations.tmdb.get_season_details")
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_only_unwatched_episode_thumbnails_are_marked_for_blurring(
+        self, mock_details, mock_credits, mock_similar, mock_season, mock_tv_details
+    ):
+        mock_details.return_value = self._details()
+        season = self._season(["Freedom Day", "Hold"])
+        for episode, number in zip(season["episodes"], (1, 2)):
+            episode["still_url"] = f"https://image.tmdb.org/t/p/w500/still{number}.jpg"
+        mock_season.return_value = season
+        watched = Episode.objects.create(title=self.title, season=1, episode=1, name="Freedom Day")
+        WatchEvent.objects.create(profile=self.profile, title=self.title, episode=watched, watched_at=timezone.now())
+        content = self.client.get(reverse("title_detail", args=[self.title.pk])).content.decode()
+        self.assertEqual(content.count("spoiler-still"), 1)
+        unwatched_img = content[content.index("still2"):].split(">")[0]
+        self.assertIn("spoiler-still", unwatched_img)
+        watched_img = content[content.index("still1"):].split(">")[0]
+        self.assertNotIn("spoiler-still", watched_img)
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -27714,11 +27985,11 @@ class LogsPageSizeTests(TestCase):
         self.client.login(username="logpagesizeowner", password="pass12345")
 
     def test_first_page_shows_20_entries(self):
-        resp = self.client.get(reverse("settings"), {"tab": "logs"})
+        resp = self.client.get(reverse("settings"), {"tab": "logs", "log_view": "flat"})
         self.assertEqual(len(resp.context["logs_page"].object_list), 20)
 
     def test_second_page_shows_the_remaining_5(self):
-        resp = self.client.get(reverse("settings"), {"tab": "logs", "page": 2})
+        resp = self.client.get(reverse("settings"), {"tab": "logs", "log_view": "flat", "page": 2})
         self.assertEqual(len(resp.context["logs_page"].object_list), 5)
 
 
@@ -30773,6 +31044,390 @@ class ScanMalSessionTests(TestCase):
         self.assertTrue(WatchEvent.objects.filter(profile=self.profile, title=title).exists())
         watchlist = ensure_watchlist(self.profile)
         self.assertTrue(watchlist.items.filter(title__name="Future Watch").exists())
+
+
+def _http(payload, status=200):
+    """A stand-in requests.Response for the anime-list readers."""
+    response = MagicMock()
+    response.status_code = status
+    response.ok = status < 400
+    response.json.return_value = payload
+    return response
+
+
+class AnimeListReaderTests(TestCase):
+    """tracker/integrations/animelist.py - AniList, Kitsu and MAL-XML lists
+    turned into the entry shape myanimelist.normalize_items reads."""
+
+    ANILIST_ENTRY = {
+        "status": "COMPLETED", "progress": 12, "score": 9, "updatedAt": 1700000000,
+        "startedAt": {"year": 2023, "month": 1, "day": 5}, "completedAt": {"year": 2023, "month": 3, "day": 30},
+        "media": {"id": 500, "idMal": 40, "seasonYear": 2023, "startDate": {"year": 2023},
+                  "title": {"romaji": "Shingeki", "english": "Attack"}},
+    }
+
+    def test_username_is_cleaned_and_rejected_when_it_is_not_a_name(self):
+        self.assertEqual(animelist.clean_username("  @someone "), "someone")
+        for bad in ("", "a/b", "x" * 101, "a;b"):
+            with self.assertRaises(animelist.AnimeListError):
+                animelist.clean_username(bad)
+
+    def test_anilist_entry_prefers_the_mal_id_and_carries_dates_and_score(self):
+        entry = animelist._anilist_entry(self.ANILIST_ENTRY)
+        self.assertEqual(entry["node"], {"id": 40, "provider": "mal", "title": "Attack", "start_season": {"year": 2023}})
+        status = entry["list_status"]
+        self.assertEqual((status["status"], status["score"], status["num_episodes_watched"]), ("completed", 9, 12))
+        self.assertEqual((status["start_date"], status["finish_date"]), ("2023-01-05", "2023-03-30"))
+        self.assertTrue(status["updated_at"].startswith("2023-11-14"))
+
+    def test_anilist_entry_without_a_mal_id_keeps_its_own(self):
+        raw = {**self.ANILIST_ENTRY, "media": {**self.ANILIST_ENTRY["media"], "idMal": None}}
+        node = animelist._anilist_entry(raw)["node"]
+        self.assertEqual((node["id"], node["provider"]), (500, "anilist"))
+
+    def test_anilist_statuses_collapse_to_the_mal_ones(self):
+        seen = {}
+        for anilist_status in ("CURRENT", "REPEATING", "PAUSED", "DROPPED", "PLANNING", "COMPLETED"):
+            seen[anilist_status] = animelist._anilist_entry({**self.ANILIST_ENTRY, "status": anilist_status})["list_status"]["status"]
+        self.assertEqual(
+            seen,
+            {"CURRENT": "watching", "REPEATING": "watching", "PAUSED": "on_hold", "DROPPED": "dropped",
+             "PLANNING": "plan_to_watch", "COMPLETED": "completed"},
+        )
+
+    def test_a_partial_anilist_date_is_not_used(self):
+        raw = {**self.ANILIST_ENTRY, "completedAt": {"year": 2023, "month": None, "day": None}}
+        self.assertIsNone(animelist._anilist_entry(raw)["list_status"]["finish_date"])
+
+    @patch("tracker.integrations.animelist.requests.post")
+    def test_fetch_anilist_follows_chunks_and_drops_a_title_listed_twice(self, mock_post):
+        page = lambda more: _http({"data": {"MediaListCollection": {
+            "hasNextChunk": more, "lists": [{"entries": [self.ANILIST_ENTRY]}]}}})
+        mock_post.side_effect = [page(True), page(False)]
+        entries = animelist.fetch_anilist("someone")
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(mock_post.call_count, 2)
+        self.assertEqual(mock_post.call_args.kwargs["json"]["variables"], {"userName": "someone", "chunk": 2, "perChunk": 500})
+
+    @patch("tracker.integrations.animelist.requests.post")
+    def test_anilist_private_missing_and_rate_limited_are_said_plainly(self, mock_post):
+        mock_post.return_value = _http({"errors": [{"message": "Private User", "status": 403}]}, status=403)
+        with self.assertRaisesMessage(animelist.AnimeListError, "is private"):
+            animelist.fetch_anilist("someone")
+        mock_post.return_value = _http({"errors": [{"message": "User not found", "status": 404}]}, status=404)
+        with self.assertRaisesMessage(animelist.AnimeListError, 'no user called "someone"'):
+            animelist.fetch_anilist("someone")
+        mock_post.return_value = _http({}, status=429)
+        with self.assertRaisesMessage(animelist.AnimeListError, "rate-limiting"):
+            animelist.fetch_anilist("someone")
+
+    @patch("tracker.integrations.animelist.requests.post", side_effect=requests.ConnectionError("down"))
+    def test_anilist_unreachable_is_an_anime_list_error(self, _post):
+        with self.assertRaisesMessage(animelist.AnimeListError, "Couldn't reach AniList"):
+            animelist.fetch_anilist("someone")
+
+    KITSU_LIBRARY = {
+        "data": [
+            {"id": "1", "attributes": {"status": "current", "progress": 3, "ratingTwenty": 17,
+                                        "startedAt": "2024-02-01T10:00:00.000Z", "finishedAt": None,
+                                        "progressedAt": "2024-02-09T10:00:00.000Z"},
+             "relationships": {"anime": {"data": {"type": "anime", "id": "77"}}}},
+            {"id": "2", "attributes": {"status": "planned", "progress": 0, "ratingTwenty": None},
+             "relationships": {"anime": {"data": {"type": "anime", "id": "78"}}}},
+        ],
+        "included": [
+            {"type": "anime", "id": "77", "attributes": {"canonicalTitle": "Frieren", "startDate": "2023-09-29"},
+             "relationships": {"mappings": {"data": [{"type": "mappings", "id": "9"}]}}},
+            {"type": "mappings", "id": "9", "attributes": {"externalSite": "myanimelist/anime", "externalId": "52991"}},
+            {"type": "anime", "id": "78", "attributes": {"canonicalTitle": "No Mapping", "startDate": None},
+             "relationships": {"mappings": {"data": []}}},
+        ],
+        "links": {},
+    }
+
+    @patch("tracker.integrations.animelist.requests.get")
+    def test_fetch_kitsu_resolves_the_user_then_reads_the_library(self, mock_get):
+        mock_get.side_effect = [_http({"data": [{"id": "42"}]}), _http(self.KITSU_LIBRARY)]
+        entries = animelist.fetch_kitsu("someone")
+        self.assertEqual(mock_get.call_args_list[0].kwargs["params"]["filter[slug]"], "someone")
+        self.assertEqual(mock_get.call_args_list[1].kwargs["params"]["filter[user_id]"], "42")
+        first, second = entries
+        self.assertEqual(first["node"], {"id": 52991, "provider": "mal", "title": "Frieren", "start_season": {"year": 2023}})
+        self.assertEqual(first["list_status"]["status"], "watching")
+        self.assertEqual(first["list_status"]["score"], 8)  # Kitsu's 2-20 scale, halved
+        self.assertEqual(first["list_status"]["start_date"], "2024-02-01")
+        self.assertEqual((second["node"]["id"], second["node"]["provider"]), (78, "kitsu"))
+        self.assertEqual(second["list_status"]["status"], "plan_to_watch")
+
+    @patch("tracker.integrations.animelist.requests.get")
+    def test_fetch_kitsu_follows_the_next_link_and_reports_an_unknown_user(self, mock_get):
+        first = {**self.KITSU_LIBRARY, "links": {"next": "https://kitsu.app/api/edge/library-entries?page%5Boffset%5D=500"}}
+        mock_get.side_effect = [_http({"data": [{"id": "42"}]}), _http(first), _http({"data": [], "included": [], "links": {}})]
+        self.assertEqual(len(animelist.fetch_kitsu("someone")), 2)
+        self.assertEqual(mock_get.call_args_list[2].args[0], "https://kitsu.app/api/edge/library-entries?page%5Boffset%5D=500")
+        mock_get.side_effect = [_http({"data": []}), _http({"data": []})]
+        with self.assertRaisesMessage(animelist.AnimeListError, 'Kitsu has no user called "ghost"'):
+            animelist.fetch_kitsu("ghost")
+
+    XML = (
+        b"<?xml version=\"1.0\" encoding=\"UTF-8\" ?><myanimelist><myinfo><user_name>me</user_name></myinfo>"
+        b"<anime><series_animedb_id>1</series_animedb_id><series_title><![CDATA[Cowboy Bebop]]></series_title>"
+        b"<my_watched_episodes>26</my_watched_episodes><my_start_date>2020-01-02</my_start_date>"
+        b"<my_finish_date>0000-00-00</my_finish_date><my_score>10</my_score><my_status>Completed</my_status></anime>"
+        b"<anime><series_animedb_id>2</series_animedb_id><series_title>Planned One</series_title>"
+        b"<my_watched_episodes>0</my_watched_episodes><my_score>0</my_score><my_status>Plan to Watch</my_status></anime>"
+        b"<anime><series_animedb_id>3</series_animedb_id><series_title>Odd</series_title><my_status>Mystery</my_status></anime>"
+        b"</myanimelist>"
+    )
+
+    def test_parse_mal_xml_reads_statuses_scores_and_ignores_zero_dates(self):
+        entries = animelist.parse_mal_xml(self.XML)
+        self.assertEqual([e["node"]["id"] for e in entries], [1, 2])
+        bebop = entries[0]
+        self.assertEqual(bebop["node"]["title"], "Cowboy Bebop")
+        self.assertEqual(
+            bebop["list_status"],
+            {"status": "completed", "score": 10, "num_episodes_watched": 26, "updated_at": None,
+             "start_date": "2020-01-02", "finish_date": None},
+        )
+        self.assertEqual(entries[1]["list_status"]["status"], "plan_to_watch")
+
+    def test_parse_mal_xml_reads_a_gzipped_export(self):
+        import gzip
+
+        self.assertEqual(len(animelist.parse_mal_xml(gzip.compress(self.XML))), 2)
+
+    def test_parse_mal_xml_refuses_entities_other_roots_and_empty_lists(self):
+        bomb = b'<?xml version="1.0"?><!DOCTYPE myanimelist [<!ENTITY a "aaaa">]><myanimelist>&a;</myanimelist>'
+        for bad in (bomb, b"not xml at all", b"<other><anime/></other>", b"<myanimelist></myanimelist>"):
+            with self.assertRaises(animelist.AnimeListError):
+                animelist.parse_mal_xml(bad)
+
+    @patch("tracker.integrations.animelist._anilist_page")
+    @patch("tracker.integrations.animelist._kitsu_user_id")
+    def test_check_user_asks_for_one_row_not_the_whole_list(self, mock_kitsu, mock_page):
+        self.assertEqual(animelist.check_user("anilist", " me "), "me")
+        mock_page.assert_called_once_with("me", 1, 1)
+        self.assertEqual(animelist.check_user("kitsu", "me"), "me")
+        mock_kitsu.assert_called_once_with("me")
+        with self.assertRaises(animelist.AnimeListError):
+            animelist.check_user("nope", "me")
+
+
+class AnimeListImportFlowTests(TestCase):
+    """AniList / Kitsu / XML through the shared MAL normalizer, the review
+    pipeline, routine sync and the connect + upload views."""
+
+    def setUp(self):
+        user = User.objects.create_user("animelister", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="AnimeLister")
+        self.client.login(username="animelister", password="pass12345")
+
+    def _entry(self, ident, title, status, provider="anilist", progress=1, **status_extra):
+        return {
+            "node": {"id": ident, "provider": provider, "title": title, "start_season": {"year": 2020}},
+            "list_status": {"status": status, "num_episodes_watched": progress, "score": 8, **status_extra},
+        }
+
+    @patch("tracker.title_matching.resolve_title_match")
+    def test_normalize_keys_history_and_watchlist_on_the_entrys_own_provider(self, mock_resolve):
+        mock_resolve.return_value = _mal_match(tmdb_id=None, tmdb_kind=None)
+        history, watchlist = myanimelist.normalize_items([
+            self._entry(500, "Watched", "completed", finish_date="2024-01-01"),
+            self._entry(501, "Later", "plan_to_watch", provider="kitsu", progress=0),
+        ])
+        self.assertEqual(history[0]["source_external_ids"], {"anilist": "500"})
+        self.assertEqual(mock_resolve.call_args.args[:3], (MediaType.ANIME, "anilist", 500))
+        self.assertEqual(watchlist["items"][0]["ids"], {"kitsu": "501"})
+
+    def test_a_watched_entry_with_no_date_uses_the_fallback_date_when_given(self):
+        entries = [self._entry(1, "Undated", "completed", provider="mal")]
+        with patch("tracker.title_matching.resolve_title_match", return_value=_mal_match(tmdb_id=None, tmdb_kind=None)):
+            self.assertIsNotNone(myanimelist.normalize_items(entries)[0][0]["error"])
+            stamp = _tz.now()
+            item = myanimelist.normalize_items(entries, fallback_date=stamp)[0][0]
+        self.assertIsNone(item["error"])
+        self.assertEqual(item["watched_at"], stamp)
+
+    @patch("tracker.title_matching.apply_title_match")
+    def test_upsert_stamps_the_source_and_matches_on_the_items_provider(self, mock_apply):
+        title = Title.objects.create(media_type=MediaType.ANIME, name="Film", year=2020)
+        mock_apply.return_value = title
+        item = {
+            "media_type": MediaType.ANIME, "title_name": "Film", "year": 2020, "season": None, "episode": None,
+            "watched_at": _tz.now(), "rating": 7, "source_external_ids": {"anilist": "500"}, "source_row": 1, "error": None,
+        }
+        myanimelist.upsert_normalized_items(self.profile, [item], source=WatchEvent.Source.ANILIST)
+        self.assertEqual(mock_apply.call_args.args[:3], (MediaType.ANIME, "anilist", "500"))
+        self.assertEqual(WatchEvent.objects.get(profile=self.profile, title=title).source, WatchEvent.Source.ANILIST)
+
+    @patch("tracker.title_matching.resolve_title_match")
+    @patch("tracker.integrations.animelist.fetch_list")
+    def test_scanning_an_anilist_connection_stages_history_and_a_watchlist(self, mock_fetch, mock_resolve):
+        mock_resolve.return_value = _mal_match(tmdb_id=None, tmdb_kind=None)
+        ExternalAccount.objects.create(profile=self.profile, provider="anilist", external_username="someone")
+        mock_fetch.return_value = [
+            self._entry(500, "Watched", "completed", finish_date="2024-01-01"),
+            self._entry(501, "Later", "plan_to_watch", progress=0),
+        ]
+        session = ImportSession.objects.create(profile=self.profile, source=ImportSession.Source.ANILIST)
+        tasks.scan_import_session(session.id)
+        session.refresh_from_db()
+        mock_fetch.assert_called_once_with("anilist", "someone")
+        self.assertEqual(session.status, ImportSession.Status.READY)
+        self.assertEqual(session.candidates.count(), 1)
+        self.assertEqual(session.source_metadata["backup_lists"], {"lists": 1, "items": 1})
+
+    @patch("tracker.title_matching.resolve_title_match")
+    def test_scanning_an_xml_export_stages_its_entries_and_cleans_up_the_file(self, mock_resolve):
+        import tempfile
+
+        mock_resolve.return_value = _mal_match(tmdb_id=None, tmdb_kind=None)
+        handle = tempfile.NamedTemporaryFile(suffix=".xml", delete=False)
+        handle.write(AnimeListReaderTests.XML)
+        handle.close()
+        session = ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.ANIMEXML, source_metadata={"path": handle.name}
+        )
+        tasks.scan_import_session(session.id)
+        session.refresh_from_db()
+        self.assertEqual(session.status, ImportSession.Status.READY)
+        candidate = session.candidates.get()
+        self.assertEqual(candidate.title_name, "Cowboy Bebop")
+        self.assertEqual(_tz.localtime(candidate.watched_at).date().isoformat(), "2020-01-02")  # its start date; it has no finish date
+        self.assertFalse(os.path.exists(handle.name))  # the staged file is cleaned up after the scan
+
+    @patch("tracker.title_matching.resolve_title_match")
+    def test_an_undated_xml_entry_is_dated_the_day_of_the_import(self, mock_resolve):
+        import tempfile
+
+        mock_resolve.return_value = _mal_match(tmdb_id=None, tmdb_kind=None)
+        handle = tempfile.NamedTemporaryFile(suffix=".xml", delete=False)
+        handle.write(
+            b"<myanimelist><anime><series_animedb_id>7</series_animedb_id><series_title>Undated</series_title>"
+            b"<my_watched_episodes>1</my_watched_episodes><my_status>Completed</my_status></anime></myanimelist>"
+        )
+        handle.close()
+        session = ImportSession.objects.create(
+            profile=self.profile, source=ImportSession.Source.ANIMEXML, source_metadata={"path": handle.name}
+        )
+        tasks.scan_import_session(session.id)
+        self.assertEqual(session.candidates.get().watched_at.date(), _tz.now().date())
+
+    @patch("tracker.title_matching.apply_title_match")
+    @patch("tracker.title_matching.resolve_title_match")
+    @patch("tracker.integrations.animelist.fetch_list")
+    def test_routine_sync_adds_new_watches_and_logs_them(self, mock_fetch, mock_resolve, mock_apply):
+        mock_resolve.return_value = _mal_match(tmdb_id=None, tmdb_kind=None)
+        title = Title.objects.create(media_type=MediaType.ANIME, name="Watched", year=2020)
+        mock_apply.return_value = title
+        account = ExternalAccount.objects.create(
+            profile=self.profile, provider="kitsu", external_username="someone", sync_direction="pull"
+        )
+        mock_fetch.return_value = [self._entry(9, "Watched", "completed", provider="kitsu", finish_date="2024-01-01")]
+        self.assertEqual(tasks.sync_kitsu_history(self.profile.id), 1)
+        event = WatchEvent.objects.get(profile=self.profile, title=title)
+        self.assertEqual(event.source, WatchEvent.Source.KITSU)
+        log = SyncLog.objects.get(profile=self.profile)
+        self.assertEqual((log.provider, log.status, log.item_count), ("kitsu", SyncLog.Status.SUCCESS, 1))
+        account.refresh_from_db()
+        self.assertIsNotNone(account.last_synced_at)
+        self.assertEqual(tasks.sync_kitsu_history(self.profile.id), 0)  # nothing new the second time
+
+    @patch("tracker.integrations.animelist.fetch_list")
+    def test_routine_sync_failure_is_logged_with_the_readable_message(self, mock_fetch):
+        ExternalAccount.objects.create(profile=self.profile, provider="anilist", external_username="x", sync_direction="pull")
+        mock_fetch.side_effect = animelist.AnimeListError('The AniList list for "x" is private - make it public to import it.')
+        with self.assertRaises(animelist.AnimeListError):
+            tasks.sync_anilist_history(self.profile.id)
+        log = SyncLog.objects.get(profile=self.profile)
+        self.assertEqual(log.status, SyncLog.Status.FAILED)
+        self.assertIn("is private", log.error_message)
+
+    def test_routine_sync_does_nothing_without_an_account_or_when_not_pulling(self):
+        self.assertEqual(tasks.sync_anilist_history(self.profile.id), 0)
+        ExternalAccount.objects.create(profile=self.profile, provider="anilist", external_username="x", sync_direction="off")
+        with patch("tracker.integrations.animelist.fetch_list") as mock_fetch:
+            self.assertEqual(tasks.sync_anilist_history(self.profile.id), 0)
+        mock_fetch.assert_not_called()
+
+    @patch("tracker.integrations.animelist.check_user", return_value="someone")
+    def test_connecting_creates_the_account_and_goes_to_the_direction_choice(self, mock_check):
+        resp = self.client.post(reverse("anime_list_connect", args=["anilist"]), {"username": " someone "})
+        mock_check.assert_called_once_with("anilist", " someone ")
+        account = ExternalAccount.objects.get(profile=self.profile, provider="anilist")
+        self.assertEqual(account.external_username, "someone")
+        self.assertEqual(account.sync_direction, "off")  # nothing reads from it until the person chooses
+        self.assertRedirects(resp, reverse("sync_direction_setup", args=["anilist"]))
+        self.assertTrue(PeriodicTask.objects.filter(name=f"sync-anilist-{account.id}").exists())
+        self.assertTrue(DataLog.objects.filter(profile=self.profile, action=DataLog.Action.ANILIST_CONNECT, status="success").exists())
+
+    @patch("tracker.integrations.animelist.check_user", side_effect=animelist.AnimeListError('AniList has no user called "ghost".'))
+    def test_connecting_with_a_wrong_name_connects_nothing_and_says_why(self, _check):
+        resp = self.client.post(reverse("anime_list_connect", args=["anilist"]), {"username": "ghost"}, follow=True)
+        self.assertFalse(ExternalAccount.objects.filter(profile=self.profile, provider="anilist").exists())
+        self.assertContains(resp, 'AniList has no user called')
+        self.assertTrue(DataLog.objects.filter(profile=self.profile, action=DataLog.Action.ANILIST_CONNECT, status="failed").exists())
+
+    def test_only_the_two_username_services_connect_this_way(self):
+        self.assertEqual(self.client.post(reverse("anime_list_connect", args=["trakt"]), {"username": "x"}).status_code, 404)
+        self.assertEqual(self.client.get(reverse("anime_list_connect", args=["kitsu"])).status_code, 405)
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.animelist.check_user", return_value="newname")
+    def test_changing_the_username_on_a_connected_account_resyncs_from_it(self, _check, mock_dispatch):
+        ExternalAccount.objects.create(profile=self.profile, provider="kitsu", external_username="old", sync_direction="pull")
+        self.client.post(reverse("anime_list_connect", args=["kitsu"]), {"username": "newname"})
+        self.assertEqual(ExternalAccount.objects.get(profile=self.profile, provider="kitsu").external_username, "newname")
+        mock_dispatch.assert_called_once_with(tasks.sync_kitsu_history, [self.profile.id])
+
+    def test_choosing_pull_after_connecting_starts_an_import_review(self):
+        ExternalAccount.objects.create(profile=self.profile, provider="anilist", external_username="someone", sync_direction="off")
+        with patch("tracker.views._dispatch_sync_task_safely") as mock_dispatch:
+            resp = self.client.post(reverse("sync_direction_setup", args=["anilist"]), {"sync_direction": "pull"})
+        session = ImportSession.objects.get(profile=self.profile, source="anilist")
+        self.assertRedirects(resp, reverse("import_review", args=[session.id]), fetch_redirect_response=False)
+        mock_dispatch.assert_called_once_with(tasks.scan_import_session, [session.id])
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    def test_uploading_an_xml_export_starts_a_review(self, mock_dispatch):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        upload = SimpleUploadedFile("animelist.xml", AnimeListReaderTests.XML, content_type="text/xml")
+        resp = self.client.post(reverse("import_animexml"), {"csv_file": upload})
+        session = ImportSession.objects.get(profile=self.profile, source=ImportSession.Source.ANIMEXML)
+        self.assertRedirects(resp, reverse("import_review", args=[session.id]), fetch_redirect_response=False)
+        self.assertEqual(session.source_filename, "animelist.xml")
+        self.assertEqual(session.source_metadata["entries"], 2)
+        mock_dispatch.assert_called_once_with(tasks.scan_import_session, [session.id])
+        os.remove(session.source_metadata["path"])
+
+    def test_uploading_the_wrong_kind_of_file_is_refused_with_a_reason(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        for name, body in (("list.csv", b"a,b"), ("list.xml", b"<other/>"), ("list.xml", b"junk")):
+            resp = self.client.post(reverse("import_animexml"), {"csv_file": SimpleUploadedFile(name, body)}, follow=True)
+            self.assertFalse(ImportSession.objects.filter(profile=self.profile).exists())
+            self.assertContains(resp, "Import Data")  # back on Settings, with the message
+        resp = self.client.post(reverse("import_animexml"), {}, follow=True)
+        self.assertContains(resp, "Choose a file first.")
+
+    def test_settings_offers_anilist_kitsu_and_the_xml_upload(self):
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, "AniList username")
+        self.assertContains(resp, "Kitsu username")
+        self.assertContains(resp, reverse("import_animexml"))
+        self.assertContains(resp, reverse("anime_list_connect", args=["anilist"]))
+        ExternalAccount.objects.create(profile=self.profile, provider="kitsu", external_username="kitsufan", sync_direction="pull")
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, "kitsufan")
+        self.assertContains(resp, "Read a different Kitsu user")
+
+    def test_scheduling_uses_each_providers_own_task(self):
+        for provider, task_name in (("anilist", "tracker.tasks.sync_anilist_history"), ("kitsu", "tracker.tasks.sync_kitsu_history")):
+            account = ExternalAccount.objects.create(profile=self.profile, provider=provider, external_username="x", sync_direction="pull")
+            scheduling.ensure_periodic_task(account)
+            self.assertEqual(PeriodicTask.objects.get(name=f"sync-{provider}-{account.id}").task, task_name)
 
 
 class SyncMalHistoryTaskTests(TestCase):

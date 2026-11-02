@@ -69,7 +69,7 @@ from . import (
     totp,
     tvtime_import,
 )
-from .integrations import anifiller, fanart, mdblist, myanimelist, nuvio, simkl, tenrai, tmdb, tmdb_account, trakt, wetrakr
+from .integrations import anifiller, animelist, fanart, mdblist, myanimelist, nuvio, simkl, tenrai, tmdb, tmdb_account, trakt, wetrakr
 from .watchlists import WATCHLIST_NAME, ensure_watchlist
 from .models import (
     AVATAR_COLOR_CHOICES,
@@ -108,7 +108,8 @@ from .models import (
 MOVIE_TV_TYPES = [MediaType.MOVIE, MediaType.TV]
 HISTORY_PAGE_SIZE = 150  # rows per page for the most/least-watched title list - one row is already one tile there, no day-grouping involved
 HISTORY_DATES_PER_PAGE = 10  # dates per page for the default day-grouped History view - see _paginate_history_by_day
-LOGS_PAGE_SIZE = 20  # rows per page for Settings' Logs tab - see selectors.combined_logs
+LOGS_PAGE_SIZE = 20  # rows per page for Settings' Logs tab (flat view) - see selectors.combined_logs
+LOGS_GROUPS_PER_PAGE = 10  # runs per page in the grouped view - see selectors.combined_log_groups
 # Settings' Logs tab Provider filter - ExternalAccount.Provider covers
 # trakt/simkl/nuvio (the connectable accounts); TMDB isn't one (just an
 # API key) but backfill_posters/genres/completion tag their DataLog rows
@@ -4765,24 +4766,68 @@ def _logs_tab_context(request):
         "log_status": request.GET.get("log_status", ""),
         "log_date_from": request.GET.get("log_date_from", ""),
         "log_date_to": request.GET.get("log_date_to", ""),
+        # Grouped (one collapsible row per run) is the default; "flat" is the
+        # plain newest-first table.
+        "log_view": "flat" if request.GET.get("log_view") == "flat" else "",
+        "log_category": request.GET.get("log_category", "")
+        if request.GET.get("log_category") in dict(selectors.LOG_CATEGORIES)
+        else "",
     }
+    filters = {
+        "profile_id": log_params["log_profile"] or None,
+        "oldest_first": log_params["log_sort"] == "oldest",
+        "action_type": log_params["log_action_type"] or None,
+        "provider": log_params["log_provider"] or None,
+        "status": log_params["log_status"] or None,
+        "date_from": _parse_log_date(log_params["log_date_from"]),
+        "date_to": _parse_log_date(log_params["log_date_to"]),
+    }
+    grouped = log_params["log_view"] != "flat"
+    failure_streaks = selectors.sync_failure_streaks()
+    if grouped:
+        logs_page, logs_summary = selectors.combined_log_groups(
+            request.GET.get("page"),
+            page_size=LOGS_GROUPS_PER_PAGE,
+            category=log_params["log_category"] or None,
+            covered_syncs={(streak["profile_id"], streak["provider"]) for streak in failure_streaks},
+            **filters,
+        )
+        entries_on_page = [entry for group in logs_page.object_list for entry in group["entries"]]
+    else:
+        logs_page = selectors.combined_logs(request.GET.get("page"), page_size=LOGS_PAGE_SIZE, **filters)
+        logs_summary = None
+        entries_on_page = logs_page.object_list
+    # The links for the view toggle and category chips: every filter kept, the
+    # page dropped (a different view or category starts back at page 1).
+    kept = {k: v for k, v in log_params.items() if v}
+
+    def tab_link(**changes):
+        merged = {**kept, **changes}
+        return "?" + urlencode({"tab": "logs", **{k: v for k, v in merged.items() if v}})
+
     if request.GET.get("page"):
         log_params["page"] = request.GET["page"]
-    logs_page = selectors.combined_logs(
-        request.GET.get("page"),
-        page_size=LOGS_PAGE_SIZE,
-        profile_id=log_params["log_profile"] or None,
-        oldest_first=log_params["log_sort"] == "oldest",
-        action_type=log_params["log_action_type"] or None,
-        provider=log_params["log_provider"] or None,
-        status=log_params["log_status"] or None,
-        date_from=_parse_log_date(log_params["log_date_from"]),
-        date_to=_parse_log_date(log_params["log_date_to"]),
-    )
     return {
         "logs_page": logs_page,
-        "logs_has_running": any(entry["status"] == "running" for entry in logs_page.object_list),
+        "logs_grouped": grouped,
+        "logs_summary": logs_summary,
+        "logs_has_running": any(entry["status"] == "running" for entry in entries_on_page),
         "logs_query_string": urlencode({k: v for k, v in log_params.items() if v}),
+        "logs_qs_nopage": urlencode({k: v for k, v in kept.items()}),
+        "log_view": log_params["log_view"],
+        "log_category": log_params["log_category"],
+        "logs_view_links": {"grouped": tab_link(log_view="", log_category=""), "flat": tab_link(log_view="flat", log_category="")},
+        "logs_category_links": [
+            {
+                "key": key,
+                "label": label,
+                "count": logs_summary["category_counts"][key] if logs_summary else 0,
+                "url": tab_link(log_category=key),
+                "active": log_params["log_category"] == key,
+            }
+            for key, label in selectors.LOG_CATEGORIES
+        ],
+        "logs_all_url": tab_link(log_category=""),
         "log_profile_id": log_params["log_profile"],
         "log_sort": log_params["log_sort"],
         "log_action_type": log_params["log_action_type"],
@@ -4793,7 +4838,7 @@ def _logs_tab_context(request):
         "log_action_types": selectors.LOG_ACTION_TYPES,
         "log_provider_choices": LOG_PROVIDER_CHOICES,
         "log_status_choices": DataLog.Status.choices,
-        "failure_streaks": selectors.sync_failure_streaks(),
+        "failure_streaks": failure_streaks,
     }
 
 
@@ -5833,6 +5878,9 @@ def save_appearance(request):
     if "animations_enabled_submitted" in request.POST:
         profile.animations_enabled = bool(request.POST.get("animations_enabled"))
         update_fields.append("animations_enabled")
+    if "blur_unwatched_episodes_submitted" in request.POST:
+        profile.blur_unwatched_episodes = bool(request.POST.get("blur_unwatched_episodes"))
+        update_fields.append("blur_unwatched_episodes")
     time_format = request.POST.get("time_format")
     if time_format in Profile.TimeFormat.values:
         profile.time_format = time_format
@@ -6369,14 +6417,18 @@ PROVIDER_MODULES = {"trakt": trakt, "simkl": simkl}
 SYNC_TASKS = {
     "trakt": tasks.sync_trakt_history, "simkl": tasks.sync_simkl_history, "nuvio": tasks.sync_nuvio_history,
     "wetrakr": tasks.sync_wetrakr_history, "tmdb": tasks.sync_tmdb_lists, "mal": tasks.sync_mal_history,
+    "anilist": tasks.sync_anilist_history, "kitsu": tasks.sync_kitsu_history,
 }
+# Anime lists read by public username - no OAuth app, so no server setup and
+# nothing for an owner to configure (see tracker/integrations/animelist.py).
+ANIME_LIST_PROVIDERS = {"anilist": "AniList", "kitsu": "Kitsu"}
 # Providers whose FIRST connection goes through Import Review instead of
 # an immediate sync (see oauth_callback) - grows as Simkl/Nuvio's own
 # scan adapters (tasks.SCAN_HANDLERS) land in later stages. A provider
 # missing here keeps today's connect-triggers-immediate-sync behavior
 # unchanged, so half-wiring this set never leaves a provider connecting
 # into a review session with no scan implementation behind it.
-IMPORT_REVIEW_PROVIDERS = {"trakt", "simkl", "nuvio", "wetrakr", "tmdb", "mal"}
+IMPORT_REVIEW_PROVIDERS = {"trakt", "simkl", "nuvio", "wetrakr", "tmdb", "mal", "anilist", "kitsu"}
 
 
 def _begin_direction_choice(request, connection, provider):
@@ -6391,7 +6443,9 @@ def _begin_direction_choice(request, connection, provider):
 
 
 def _provider_name(provider):
-    return {"mal": "MyAnimeList", "nuvio": "Nuvio", "wetrakr": "WeTrakr"}.get(provider, provider.title())
+    return {"mal": "MyAnimeList", "nuvio": "Nuvio", "wetrakr": "WeTrakr", "anilist": "AniList", "kitsu": "Kitsu"}.get(
+        provider, provider.title()
+    )
 
 
 def _start_import_review(profile, provider):
@@ -6623,6 +6677,94 @@ def oauth_callback(request, provider):
     else:
         messages.success(request, f"Reconnected to {provider.title()}. It is set to \"{account.get_sync_direction_display()}\".")
     return redirect("settings")
+
+
+ANIME_LIST_CONNECT_ACTIONS = {
+    "anilist": DataLog.Action.ANILIST_CONNECT,
+    "kitsu": DataLog.Action.KITSU_CONNECT,
+}
+
+
+@login_required
+@require_POST
+def anime_list_connect(request, provider):
+    """Connect AniList or Kitsu by public username - the "connection" is just
+    the name to read, so there is no redirect and nothing to authorise. The
+    name is checked first (one small request) so a typo or a private list is
+    reported here instead of failing a scan later. A new connection goes
+    through the usual direction choice and Import Review; changing the name
+    on an existing one just re-syncs from the new list."""
+    if provider not in ANIME_LIST_PROVIDERS:
+        raise Http404
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    action = ANIME_LIST_CONNECT_ACTIONS[provider]
+    name = ANIME_LIST_PROVIDERS[provider]
+    try:
+        username = animelist.check_user(provider, request.POST.get("username", ""))
+    except animelist.AnimeListError as e:
+        DataLog.objects.create(
+            profile=profile, action=action, provider=provider, status=DataLog.Status.FAILED, error_message=str(e)[:500]
+        )
+        messages.error(request, str(e))
+        return redirect(f"{reverse('settings')}?tab=connected_apps")
+
+    account, created = ExternalAccount.objects.get_or_create(profile=profile, provider=provider)
+    account.external_username = username
+    account.save(update_fields=["external_username"])
+    scheduling.ensure_periodic_task(account)
+    DataLog.objects.create(
+        profile=profile, action=action, provider=provider, status=DataLog.Status.SUCCESS, detail=f"connected as {username}"
+    )
+    if created:
+        return _begin_direction_choice(request, account, provider)
+    if sync_direction.allows_pull(account):
+        _dispatch_sync_task_safely(SYNC_TASKS[provider], [profile.id])
+        messages.success(request, f"{name} is now reading {username}'s list - syncing it now.")
+    else:
+        messages.success(request, f"{name} now points at {username}. Sync is set to \"{account.get_sync_direction_display()}\".")
+    return redirect(f"{reverse('settings')}?tab=connected_apps")
+
+
+@login_required
+@require_POST
+def import_animexml_upload(request):
+    """Upload a MyAnimeList-format XML export (MAL's "Export my list", or one
+    converted from AniList/Kitsu) straight into Import Review. The file is
+    read and checked here so a wrong file is reported at once; the scan itself
+    reads the staged copy."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        return redirect("settings")
+    upload = request.FILES.get("csv_file")
+    if not upload:
+        messages.error(request, "Choose a file first.")
+        return redirect("settings")
+    if upload.size > MAX_CSV_IMPORT_SIZE:
+        messages.error(request, f'"{upload.name}" is too large — please upload a file under 50MB.')
+        return redirect("settings")
+    if not upload.name.lower().endswith((".xml", ".xml.gz", ".gz")):
+        messages.error(request, f'"{upload.name}" is not an .xml (or .xml.gz) file.')
+        return redirect("settings")
+    data = upload.read()
+    try:
+        entries = animelist.parse_mal_xml(data)
+    except animelist.AnimeListError as e:
+        messages.error(request, f'"{upload.name}": {e}')
+        return redirect("settings")
+
+    os.makedirs(CSV_IMPORT_DIR, exist_ok=True)
+    path = os.path.join(CSV_IMPORT_DIR, f"{uuid.uuid4().hex}.xml")
+    with open(path, "wb") as f:
+        f.write(data)
+    session = ImportSession.objects.create(
+        profile=profile, source=ImportSession.Source.ANIMEXML, status=ImportSession.Status.SCANNING,
+        source_filename=upload.name, source_metadata={"path": path, "entries": len(entries)},
+        expires_at=timezone.now() + IMPORT_SESSION_EXPIRY,
+    )
+    _dispatch_sync_task_safely(tasks.scan_import_session, [session.id])
+    return redirect("import_review", session_id=session.id)
 
 
 def _finish_nuvio_connect(request, profile, email, refresh_token, nuvio_profile):

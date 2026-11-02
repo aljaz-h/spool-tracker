@@ -6,7 +6,7 @@ import logging
 import operator
 import zoneinfo
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from functools import reduce
 
 from django.conf import settings
@@ -146,6 +146,8 @@ LOG_ACTION_TYPES = [
             DataLog.Action.WETRAKR_CONNECT,
             DataLog.Action.TMDB_CONNECT,
             DataLog.Action.MAL_CONNECT,
+            DataLog.Action.ANILIST_CONNECT,
+            DataLog.Action.KITSU_CONNECT,
         ],
     ),
     ("disconnect", "Disconnect", [DataLog.Action.DISCONNECT]),
@@ -165,6 +167,37 @@ LOG_ACTION_TYPES = [
     ("log_retention", "Log Retention", [DataLog.Action.LOG_RETENTION]),
 ]
 _LOG_ACTION_TYPE_VALUES = {key: values for key, _label, values in LOG_ACTION_TYPES}
+
+# Settings' Logs tab, grouped view: every entry belongs to one category and a
+# category folds into one collapsible run per local day (account syncs also per
+# profile and provider; manual actions stay single rows).
+#   nightly - the beat jobs in tracker/scheduling.py, in the order they run
+#   hourly  - the MDBList refresh
+#   syncs   - SyncLog rows (Trakt / Simkl / Nuvio / WeTrakr ...)
+#   manual  - everything else (imports, exports, connects, backfills ...)
+LOG_CATEGORIES = [
+    ("nightly", "Nightly"),
+    ("syncs", "Syncs"),
+    ("hourly", "Hourly"),
+    ("manual", "Manual"),
+]
+_LOG_CATEGORY_KEYS = {key for key, _label in LOG_CATEGORIES}
+# The nightly maintenance run, as (DataLog action, label) in the order the jobs
+# fire (03:00 to 04:30). A night with no row for one of these shows it as "not
+# run", so a job that silently stopped is a gap in the list rather than an
+# absence nobody sees.
+NIGHTLY_JOBS = [
+    (DataLog.Action.RELEASE_SYNC, "Release Sync"),
+    (DataLog.Action.RELEASE_NOTIFICATIONS, "Release Notifications"),
+    (DataLog.Action.UPDATE_CHECK, "Update Check"),
+    (DataLog.Action.WATCHLIST_STALE, "Watchlist Reminders"),
+    (DataLog.Action.LOG_RETENTION, "Log Retention"),
+    (DataLog.Action.RECLASSIFY_ANIME, "Reclassify Anime"),
+]
+_NIGHTLY_ACTIONS = {action for action, _label in NIGHTLY_JOBS}
+# The last nightly job is scheduled at 04:30; an hour after that, a job with no
+# log row counts as missed (before it, the night may simply not be over).
+NIGHTLY_GRACE = time(5, 30)
 
 
 def _distinct_watch_dates(profile):
@@ -1277,9 +1310,7 @@ def sync_failure_streaks():
     return streaks
 
 
-def combined_logs(
-    page_number,
-    page_size=50,
+def _log_entries(
     cap=1000,
     profile_id=None,
     oldest_first=False,
@@ -1310,8 +1341,6 @@ def combined_logs(
     already be validated/parsed by the caller (see views._settings_page_
     context) since they arrive as free-text GET params a user could
     hand-edit."""
-    from django.core.paginator import Paginator
-
     from .models import SyncLog
 
     sync_logs = SyncLog.objects.select_related("profile").order_by("-started_at")
@@ -1349,6 +1378,10 @@ def combined_logs(
             "error_message": log.error_message,
             "timestamp": log.started_at,
             "duration_seconds": log.duration_seconds,
+            "category": "syncs",
+            "provider": log.provider,
+            "direction": log.direction,
+            "action_key": "",
         }
         for log in sync_logs[:cap]
     ] + [
@@ -1363,11 +1396,280 @@ def combined_logs(
             "error_message": log.error_message,
             "timestamp": log.created_at,
             "duration_seconds": (log.finished_at - log.created_at).total_seconds() if log.finished_at else None,
+            "category": _data_log_category(log.action),
+            "provider": log.provider,
+            "direction": "",
+            "action_key": log.action,
         }
         for log in data_logs[:cap]
     ]
     entries.sort(key=lambda e: e["timestamp"], reverse=not oldest_first)
-    return Paginator(entries, page_size).get_page(page_number)
+    return entries
+
+
+def _data_log_category(action):
+    if action in _NIGHTLY_ACTIONS:
+        return "nightly"
+    if action == DataLog.Action.MDBLIST_REFRESH:
+        return "hourly"
+    return "manual"
+
+
+def combined_logs(page_number, page_size=50, **filters):
+    """The flat Logs view: _log_entries() (see its docstring for the filters
+    and the cap), paginated by entry."""
+    from django.core.paginator import Paginator
+
+    return Paginator(_log_entries(**filters), page_size).get_page(page_number)
+
+
+def _clock(moment):
+    return timezone.localtime(moment).strftime("%H:%M")
+
+
+def _day_label(day, today):
+    shown = f"{day.day} {day:%b}" + (f" {day.year}" if day.year != today.year else "")
+    if day == today:
+        return f"Today · {shown}"
+    if day == today - timedelta(days=1):
+        return f"Yesterday · {shown}"
+    return shown
+
+
+def _cadence(timestamps):
+    """"every 30 min" from the typical gap between runs (needs three or more,
+    so two runs read as a plain time range instead of a guess)."""
+    if len(timestamps) < 3:
+        return ""
+    ordered = sorted(timestamps)
+    gaps = sorted((b - a).total_seconds() / 60 for a, b in zip(ordered, ordered[1:]))
+    typical = gaps[len(gaps) // 2]
+    if typical < 1:
+        return ""
+    if typical < 90:
+        return f"every {round(typical)} min"
+    if typical < 36 * 60:
+        return f"every {round(typical / 60)} h"
+    return f"every {round(typical / 1440)} d"
+
+
+def _group_title(category, entries, day):
+    first = entries[0]
+    if category == "nightly":
+        return f"Nightly maintenance · {day.day} {day:%b}"
+    if category == "hourly":
+        return "Hourly jobs · MDBList refresh"
+    if category == "syncs":
+        verb = "send" if first["direction"] == "push" else "sync"
+        label = first["action"].split(" · ", 1)[-1]
+        return f"{label} {verb} · {first['profile'].display_name}"
+    return first["action"]
+
+
+def _finish_group(group, now):
+    """Counts, status pill, squares and the one-line note for a group."""
+    entries = group["entries"]
+    counts = {"ok": 0, "failed": 0, "not_run": 0, "running": 0, "other": 0}
+    for entry in entries:
+        if entry["status"] == "success":
+            counts["ok"] += 1
+        elif entry["status"] == "failed":
+            counts["failed"] += 1
+        elif entry["status"] == "not_run":
+            counts["not_run"] += 1
+        elif entry["status"] == "running":
+            counts["running"] += 1
+        else:
+            counts["other"] += 1
+    total = len(entries)
+    group.update(total=total, ok=counts["ok"], failed=counts["failed"], not_run=counts["not_run"], running=counts["running"])
+    # Red when anything failed or nothing at all ran, amber when some jobs
+    # simply didn't run (or a run is paused / awaiting review / cancelled),
+    # blue while something runs.
+    if counts["failed"] or (counts["not_run"] and not counts["ok"] and not counts["running"]):
+        group["state"] = "failed"
+    elif counts["running"]:
+        group["state"] = "running"
+    elif counts["not_run"] or counts["other"]:
+        group["state"] = "warning"
+    else:
+        group["state"] = "ok"
+    if total == 1 and group["category"] == "manual":
+        group["pill"] = entries[0]["status"].replace("_", " ")
+    elif group["state"] == "running":
+        group["pill"] = "running"
+    elif group["state"] == "ok":
+        group["pill"] = f"{total}/{total} ok"
+    else:
+        group["pill"] = f"{'Failed' if group['state'] == 'failed' else 'Warning'} · {counts['ok']}/{total}"
+    note = []
+    if counts["failed"]:
+        note.append(f"{counts['failed']} failed")
+    if counts["not_run"]:
+        note.append(f"{counts['not_run']} not run")
+    group["note"] = " · ".join(note)
+    group["problem"] = bool(counts["failed"] or counts["not_run"])
+    group["open"] = bool(counts["failed"] or counts["not_run"] or counts["running"])
+    # One square per job, in the order they ran (a "not run" job has no time,
+    # so it goes at the end, where its slot in the schedule is).
+    schedule = sorted(entries, key=lambda e: (e["timestamp"] is None, e["timestamp"] or now))
+    group["squares"] = (
+        [("ok" if e["status"] == "success" else e["status"] if e["status"] in ("failed", "not_run", "running") else "other") for e in schedule]
+        if 1 < total <= 24 and group["category"] != "manual"
+        else []
+    )
+    real = [e["timestamp"] for e in entries if e["timestamp"]]
+    if group["category"] == "syncs" or group["category"] == "manual":
+        cadence = _cadence(real)
+        if cadence:
+            group["span"] = f"{cadence} · last {_clock(max(real))}"
+        elif len(real) > 1:
+            group["span"] = f"{_clock(min(real))} to {_clock(max(real))}"
+        elif real:
+            group["span"] = _clock(real[0])
+    elif real:
+        group["span"] = f"{_clock(min(real))} to {_clock(max(real))}" if len(real) > 1 else _clock(real[0])
+    return group
+
+
+def _problem_sentence(group):
+    day = group["day"]
+    when = f"{day.day} {day:%b}"
+    if group["category"] == "nightly":
+        parts = []
+        in_schedule_order = {action: i for i, (action, _label) in enumerate(NIGHTLY_JOBS)}
+        for entry in sorted(group["entries"], key=lambda e: in_schedule_order.get(e["action_key"], 0)):
+            if entry["status"] == "failed":
+                parts.append(f"{entry['action']} failed")
+            elif entry["status"] == "not_run":
+                parts.append(f"{entry['action']} did not run")
+        return f"Nightly maintenance on {when} finished {group['ok']}/{group['total']}: {', '.join(parts)}."
+    if group["category"] == "syncs":
+        return f"{group['title']} on {when}: {group['failed']} of {group['total']} failed."
+    return f"{group['title']} on {when}: {group['note']}."
+
+
+def combined_log_groups(
+    page_number,
+    page_size=10,
+    category=None,
+    now=None,
+    covered_syncs=(),
+    **filters,
+):
+    """The grouped Logs view: _log_entries() folded into one collapsible run
+    per category per local day (see LOG_CATEGORIES). Each group carries its
+    counts, status pill, a square per job and a note; nightly groups are
+    compared to NIGHTLY_JOBS so a job with no row shows as "not run", and a
+    whole night with no rows at all shows as a 0/6 group. Those two gap
+    checks only run on an unfiltered view (a profile/action/provider/status
+    filter would otherwise invent rows that the filter then hides).
+
+    Returns (page of groups, summary) - the summary carries the per-category
+    group counts (before `category` narrows them), the total entry count and
+    the sentences for the "Needs attention" strip. `covered_syncs` is a set of
+    (profile id, provider) pairs whose failures the page already calls out
+    (the failure-streak banners), so the strip doesn't say it twice."""
+    from django.core.paginator import Paginator
+
+    now = now or timezone.now()
+    local_now = timezone.localtime(now)
+    today = local_now.date()
+    oldest_first = filters.get("oldest_first", False)
+    entries = _log_entries(**filters)
+    grouped = {}
+    for entry in entries:
+        day = timezone.localtime(entry["timestamp"]).date()
+        entry["day"] = day
+        cat = entry["category"]
+        if cat == "nightly" or cat == "hourly":
+            key = (cat, day)
+        elif cat == "syncs":
+            key = (cat, day, entry["profile"].pk, entry["provider"], entry["direction"])
+        else:
+            key = (cat, entry["timestamp"], entry["action"], entry["profile"].pk, id(entry))
+        grouped.setdefault(key, {"category": cat, "day": day, "entries": []})["entries"].append(entry)
+
+    gap_checks = not any(filters.get(f) for f in ("profile_id", "action_type", "provider", "status"))
+    if gap_checks:
+        nightly_days = [g["day"] for g in grouped.values() if g["category"] == "nightly"]
+        if nightly_days:
+            span_start = min(nightly_days)
+            day = span_start
+            while day <= today:
+                grouped.setdefault(("nightly", day), {"category": "nightly", "day": day, "entries": []})
+                day += timedelta(days=1)
+            if filters.get("date_from"):
+                for key in [k for k, g in grouped.items() if g["category"] == "nightly" and g["day"] < filters["date_from"]]:
+                    if not grouped[key]["entries"]:
+                        del grouped[key]
+            if filters.get("date_to"):
+                for key in [k for k, g in grouped.items() if g["category"] == "nightly" and g["day"] > filters["date_to"]]:
+                    if not grouped[key]["entries"]:
+                        del grouped[key]
+
+    groups = []
+    for group in grouped.values():
+        day = group["day"]
+        if group["category"] == "nightly" and gap_checks:
+            if day < today or local_now.time() >= NIGHTLY_GRACE:
+                present = {e["action_key"] for e in group["entries"]}
+                owner = group["entries"][0]["profile"] if group["entries"] else None
+                for action, label in NIGHTLY_JOBS:
+                    if action not in present:
+                        group["entries"].append(
+                            {
+                                "profile": owner,
+                                "action": label,
+                                "status": "not_run",
+                                "item_count": None,
+                                "detail": f"Did not run. No log entry by {NIGHTLY_GRACE:%H:%M}.",
+                                "imported_titles": [],
+                                "imported_titles_more": 0,
+                                "error_message": "",
+                                "timestamp": None,
+                                "duration_seconds": None,
+                                "category": "nightly",
+                                "provider": "",
+                                "direction": "",
+                                "action_key": action,
+                                "day": day,
+                            }
+                        )
+        if not group["entries"]:
+            continue
+        real = [e for e in group["entries"] if e["timestamp"]]
+        group["latest"] = max((e["timestamp"] for e in real), default=timezone.make_aware(datetime.combine(day, time.min)))
+        # Newest first (oldest first when asked); a "not run" row has no time,
+        # so it sorts with the later jobs - the nightly list is already in
+        # schedule order, which is the order a missing job would have run in.
+        order = {action: i for i, (action, _label) in enumerate(NIGHTLY_JOBS)}
+
+        def sort_key(e):
+            return (e["timestamp"] or group["latest"], order.get(e["action_key"], 0))
+
+        group["entries"].sort(key=sort_key, reverse=not oldest_first)
+        group["title"] = _group_title(group["category"], group["entries"], day)
+        group["pair"] = (group["entries"][0]["profile"].pk if group["entries"][0]["profile"] else None, group["entries"][0]["provider"])
+        group["day_label"] = _day_label(day, today)
+        groups.append(_finish_group(group, now))
+
+    counts = {key: 0 for key, _label in LOG_CATEGORIES}
+    for group in groups:
+        counts[group["category"]] += 1
+    if category in _LOG_CATEGORY_KEYS:
+        groups = [g for g in groups if g["category"] == category]
+    groups.sort(key=lambda g: (g["day"], g["latest"]), reverse=not oldest_first)
+    problems = [g for g in sorted(groups, key=lambda g: g["latest"], reverse=True) if g["problem"]]
+    sentenced = [g for g in problems if not (g["category"] == "syncs" and g["pair"] in covered_syncs)]
+    summary = {
+        "category_counts": counts,
+        "entry_count": sum(g["total"] - g["not_run"] for g in groups),
+        "problem_count": len(problems),
+        "problem_sentences": [_problem_sentence(g) for g in sentenced[:4]],
+        "problem_more": max(0, len(sentenced) - 4),
+    }
+    return Paginator(groups, page_size).get_page(page_number), summary
 
 
 def titles_needing_release_sync():

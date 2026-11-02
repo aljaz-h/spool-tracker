@@ -27,7 +27,7 @@ from . import (
     version,
     wetrakr_push,
 )
-from .integrations import fanart, mdblist, myanimelist, nuvio, simkl, tmdb, tmdb_account, trakt, tvmaze, wetrakr
+from .integrations import animelist, fanart, mdblist, myanimelist, nuvio, simkl, tmdb, tmdb_account, trakt, tvmaze, wetrakr
 from .models import (
     DataLog,
     ExternalAccount,
@@ -39,6 +39,7 @@ from .models import (
     Profile,
     SyncLog,
     Title,
+    WatchEvent,
     PreviewFanartCache,
     PreviewRatingsCache,
     TitleFanartCache,
@@ -440,6 +441,46 @@ def sync_mal_history(profile_id):
     return created
 
 
+def _sync_anime_list(profile_id, provider, source):
+    """Routine re-sync of a username-based anime list (AniList, Kitsu):
+    re-reads the whole public list (neither has a "since" parameter worth
+    relying on) and writes it the way MyAnimeList's own sync does - history
+    through myanimelist.upsert_normalized_items, plan-to-watch as the
+    watchlist - since animelist.py hands back the same entry shape."""
+    try:
+        account = ExternalAccount.objects.select_related("profile").get(profile_id=profile_id, provider=provider)
+    except ExternalAccount.DoesNotExist:
+        logger.info("sync_%s_history: profile %s has no %s account connected", provider, profile_id, provider)
+        return 0
+    if not sync_direction.allows_pull(account):
+        logger.info("sync_%s_history: profile %s has it set to %s - not reading from it", provider, profile_id, account.sync_direction)
+        return 0
+
+    def fetch_and_upsert():
+        labels = []
+        entries = animelist.fetch_list(provider, account.external_username)
+        history_items, watchlist_entry = myanimelist.normalize_items(entries)
+        created = myanimelist.upsert_normalized_items(account.profile, history_items, labels_out=labels, source=source)
+        created += myanimelist.upsert_watchlist(account.profile, watchlist_entry, labels_out=labels)
+        return created, labels
+
+    created = _run_sync(account.profile, provider, fetch_and_upsert)
+    account.last_synced_at = timezone.now()
+    account.save(update_fields=["last_synced_at"])
+    logger.info("sync_%s_history: profile %s, %d items added", provider, profile_id, created)
+    return created
+
+
+@shared_task
+def sync_anilist_history(profile_id):
+    return _sync_anime_list(profile_id, ExternalAccount.Provider.ANILIST, WatchEvent.Source.ANILIST)
+
+
+@shared_task
+def sync_kitsu_history(profile_id):
+    return _sync_anime_list(profile_id, ExternalAccount.Provider.KITSU, WatchEvent.Source.KITSU)
+
+
 def _scan_trakt_session(session):
     """Fetches this profile's full Trakt history (same trakt.fetch_history
     call routine sync uses, including its own 401-triggers-a-refresh
@@ -631,6 +672,36 @@ def _scan_mal_session(session):
     import_pipeline.scan_normalized_items(session, history_items)
 
 
+def _stash_anime_scan(session, entries, fallback_date=None):
+    """Shared tail of the anime-list scans: normalize (resolving TMDB
+    matches, read-only) and hand the history to the source-agnostic scan,
+    with plan-to-watch kept as a watchlist the review page shows beside it."""
+    history_items, watchlist_entry = myanimelist.normalize_items(entries, fallback_date=fallback_date)
+    if watchlist_entry is not None:
+        session.source_metadata = {
+            **session.source_metadata,
+            "backup_lists": backup.list_summary({"lists": [watchlist_entry]}),
+            "backup_lists_data": [watchlist_entry],
+        }
+        session.save(update_fields=["source_metadata"])
+    import_pipeline.scan_normalized_items(session, history_items)
+
+
+def _scan_anime_list_session(session):
+    """First-connect scan of an AniList / Kitsu public list."""
+    account = ExternalAccount.objects.select_related("profile").get(profile=session.profile, provider=session.source)
+    _stash_anime_scan(session, animelist.fetch_list(session.source, account.external_username))
+
+
+def _scan_animexml_session(session):
+    """A MyAnimeList-format XML export the person uploaded (see
+    animelist.parse_mal_xml). The file carries no "last updated" stamp, so a
+    watched entry with no start/finish date is dated the day of the import."""
+    with open(session.source_metadata["path"], "rb") as f:
+        entries = animelist.parse_mal_xml(f.read())
+    _stash_anime_scan(session, entries, fallback_date=timezone.now())
+
+
 def _scan_imdb_session(session):
     """IMDb CSV import has no live data behind it at all (see
     tracker/imdb_import.py's own module docstring) - this just reads
@@ -714,6 +785,9 @@ SCAN_HANDLERS = {
     ImportSession.Source.WETRAKR: _scan_wetrakr_session,
     ImportSession.Source.TMDB: _scan_tmdb_session,
     ImportSession.Source.MAL: _scan_mal_session,
+    ImportSession.Source.ANILIST: _scan_anime_list_session,
+    ImportSession.Source.KITSU: _scan_anime_list_session,
+    ImportSession.Source.ANIMEXML: _scan_animexml_session,
     ImportSession.Source.IMDB: _scan_imdb_session,
     ImportSession.Source.LETTERBOXD: _scan_letterboxd_session,
     ImportSession.Source.TVTIME: _scan_tvtime_session,

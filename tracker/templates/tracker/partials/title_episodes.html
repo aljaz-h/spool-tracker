@@ -71,7 +71,7 @@
         <div data-episode="{{ season }}-{{ ep.episode_number }}" data-state="{% if ep.watched %}watched{% elif ep.release_in %}upcoming{% else %}unwatched{% endif %}" {% if episodes|length > 12 %}x-show="shown({{ forloop.counter0 }})"{% endif %} class="episode-card ep-row flex items-center gap-3.5 sm:gap-5 py-1.5 px-2 -mx-2 rounded-lg hover:bg-white/[0.03]">
           <div class="w-[104px] sm:w-32 aspect-video flex-none rounded-md relative overflow-hidden bg-base-300 {% if not ep.still_url %}{{ title.pk|default:preview_tmdb_id|add:ep.episode_number|gradient_class }}{% endif %}">
             {% if ep.still_url %}
-              <img src="{{ ep.still_url|poster_size:"w342" }}" alt="" loading="lazy" class="ep-thumb absolute inset-0 w-full h-full object-cover">
+              <img src="{{ ep.still_url|poster_size:"w342" }}" alt="" loading="lazy" class="ep-thumb absolute inset-0 w-full h-full object-cover{% if not ep.watched %} spoiler-still{% endif %}">
             {% endif %}
             {% if ep.watched %}
               <span class="absolute bottom-1 right-1 w-5 h-5 rounded-full bg-success text-success-content flex items-center justify-center text-[12px] font-bold shadow" title="Watched">&#10003;</span>

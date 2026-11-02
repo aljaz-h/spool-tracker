@@ -105,6 +105,12 @@ class Profile(models.Model):
     # the OS level always overrides this when true, regardless of what
     # this field says (handled entirely in CSS, not here).
     animations_enabled = models.BooleanField(default=False)
+    # Settings -> Appearance - blur the thumbnail of any episode the profile
+    # hasn't watched yet (the Continue Watching card's next episode, the
+    # unwatched rows of a season's episode list) so a still can't spoil the
+    # episode. Off by default; applied in CSS from <body data-blur-unwatched>
+    # (see static/src/app.css's .spoiler-still).
+    blur_unwatched_episodes = models.BooleanField(default=False)
     # Settings → Preferences - pre-fills Movies & TV/Anime's own genre
     # filter (with_genres) on a fresh visit. Populated from a chip picker
     # sourced from tmdb.genres("movie") - the movie catalog is reused for
@@ -673,6 +679,8 @@ class WatchEvent(models.Model):
         TRAKT = "trakt", "Trakt"
         WETRAKR = "wetrakr", "WeTrakr"
         MAL = "mal", "MyAnimeList"
+        ANILIST = "anilist", "AniList"
+        KITSU = "kitsu", "Kitsu"
         WEBHOOK = "webhook", "Scrobble API"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="watch_events")
@@ -1093,6 +1101,12 @@ class ExternalAccount(models.Model):
         # Short code ("mal", not "myanimelist") to fit this field's own
         # max_length=10 below.
         MAL = "mal", "MyAnimeList"
+        # AniList and Kitsu read a *public* anime list by username - no
+        # OAuth, no tokens, no server-side app credentials (see
+        # tracker/integrations/animelist.py). The username lives in
+        # external_username below.
+        ANILIST = "anilist", "AniList"
+        KITSU = "kitsu", "Kitsu"
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="external_accounts")
     provider = models.CharField(max_length=10, choices=Provider.choices)
@@ -1164,6 +1178,9 @@ class ExternalAccount(models.Model):
     # fetched once right after create_session and cached here rather
     # than re-fetched on every sync.
     tmdb_account_id = models.PositiveIntegerField(null=True, blank=True)
+    # AniList / Kitsu only - the public username whose anime list is read
+    # (they have no tokens, so this is the whole "connection").
+    external_username = models.CharField(max_length=100, blank=True, default="")
 
     class Meta:
         constraints = [
@@ -1571,6 +1588,8 @@ class DataLog(models.Model):
         WETRAKR_CONNECT = "wetrakr_connect", "WeTrakr Connect"
         TMDB_CONNECT = "tmdb_connect", "TMDB Connect"
         MAL_CONNECT = "mal_connect", "MyAnimeList Connect"
+        ANILIST_CONNECT = "anilist_connect", "AniList Connect"
+        KITSU_CONNECT = "kitsu_connect", "Kitsu Connect"
         MERGE_DUPLICATES = "merge_duplicates", "Merge Duplicate Titles"
         BACKFILL_POSTERS = "backfill_posters", "Backfill Posters"
         BACKFILL_GENRES = "backfill_genres", "Backfill Genres"
@@ -1717,6 +1736,11 @@ class ImportSession(models.Model):
         WETRAKR = "wetrakr", "WeTrakr"
         TMDB = "tmdb", "TMDB"
         MAL = "mal", "MyAnimeList"
+        ANILIST = "anilist", "AniList"
+        KITSU = "kitsu", "Kitsu"
+        # A MyAnimeList-format XML export (what MAL's own "Export my list"
+        # makes, and what AniList/Kitsu list converters produce).
+        ANIMEXML = "animexml", "Anime list XML"
         IMDB = "imdb", "IMDb"
         LETTERBOXD = "letterboxd", "Letterboxd"
         TVTIME = "tvtime", "TV Time"

@@ -8,6 +8,25 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.177.0] - 2026-11-02
+
+Run `python manage.py migrate` (migrations 0090 and 0091 add a profile setting, an account field and a few new choices; no data changes). This release adds one dependency, `defusedxml`, to `requirements.txt`, so rebuild the image.
+
+### Added
+
+- Settings > Logs is grouped into runs. Entries fold into one collapsible row per category per day under Today / Yesterday / date dividers: Nightly maintenance, Hourly jobs (MDBList refresh), account syncs (per profile and provider, with a cadence such as "every 30 min") and manual actions (single rows). Each row shows a status pill (green `6/6 ok`, amber `Warning`, red `Failed`, blue `running`), a "1 failed · 1 not run" note and a square per job. Groups with a failure, a missing job or a running entry open by default.
+- Each nightly run is checked against the fixed list of six jobs (Release Sync, Release Notifications, Update Check, Watchlist Reminders, Log Retention, Reclassify Anime). A job with no log entry shows as a hatched "not run" row and counts against the total, and a night with no entries at all shows as `Failed · 0/6`. A job isn't called missed until 05:30 (an hour after the last one is due), and the check is off while a profile, action, provider or status filter is set.
+- A Grouped / Flat list toggle (Flat is the old table), category chips with counts, Expand all / Collapse all, and a "Needs attention" strip with a Show problems button. The failure-streak banners, the filters and the 4-second polling while something runs are unchanged.
+- Settings > Preferences > Appearance has **Blur unwatched episodes**, off by default and per profile. When it is on, the thumbnail of an episode you haven't watched yet is blurred: the next episode on the Continue Watching card, and every unwatched row in a show's episode list (a thumbnail shows itself while the pointer is on it, on devices with a mouse). Watched episodes, movies and titles with no episode still are untouched.
+- AniList and Kitsu import and sync, by public username. Settings > Connected Apps (and Import & Export) has a card for each: type the username, Connect, choose what it may do, review the import, and Spool then re-reads the list on the card's schedule. No app registration or server setup is needed. The name is checked on connect (a typo or a private list says so at once); AniList lists are read in chunks of 500 and Kitsu's follows its own page links. Titles are matched by their MyAnimeList id when the service has one, otherwise by name and year. Plan to watch goes on the Watchlist. Sync logs and notifications work like the other providers'.
+- Anime list file (XML) import: upload a MyAnimeList "Export my list" file (`.xml` or `.xml.gz`), or an AniList/Kitsu list converted to one, straight into Import Review. Entries with no dates are dated the day of the import. The file is parsed with `defusedxml`, so a crafted file can't expand entities or read local files.
+- MyAnimeList's own sync was already there (it needs the server owner to register a MyAnimeList app); the new importers share its code, so statuses, scores, "watched N episodes" and the watchlist behave the same everywhere. `docs/IMPORTING.md` covers all three.
+
+### Changed
+
+- The Logs tab uses the full width of the page instead of stopping at 80rem (1585px of table at a 1920px window, up from 1040px), and the Detail column gets more room on very wide screens. The other Settings tabs keep their widths.
+- The log row is its own include (`settings_logs_row.html`) and the table another (`settings_logs_entries.html`), shared by the flat view and every group. The grouped view pages by run (10 per page).
+
 ## [0.176.1] - 2026-11-01
 
 ### Changed

@@ -276,6 +276,8 @@ urlpatterns = [
     path("import/imdb/", views.import_imdb_upload, name="import_imdb"),
     path("import/letterboxd/", views.import_letterboxd_upload, name="import_letterboxd"),
     path("import/tvtime/", views.import_tvtime_upload, name="import_tvtime"),
+    path("import/anime-xml/", views.import_animexml_upload, name="import_animexml"),
+    path("import/<str:provider>/connect-username/", views.anime_list_connect, name="anime_list_connect"),
     path("import/review/<int:session_id>/", views.import_review, name="import_review"),
     path("import/review/<int:session_id>/status/", views.import_review_status, name="import_review_status"),
     path(

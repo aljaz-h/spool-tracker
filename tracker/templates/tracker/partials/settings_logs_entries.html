@@ -1,0 +1,22 @@
+{% load icons %}
+{# context: entries (the rows to show) - the Logs table, used by the flat view and inside each group of the grouped view. #}
+<div class="overflow-x-auto">
+  <table class="w-full text-[12.5px]">
+    <thead>
+      <tr class="text-left text-ink-dim border-b border-line">
+        <th class="py-2.5 px-3.5">Profile</th>
+        <th class="py-2.5 px-3.5">Action</th>
+        <th class="py-2.5 px-3.5">When</th>
+        <th class="py-2.5 px-3.5">Duration</th>
+        <th class="py-2.5 px-3.5">Status</th>
+        <th class="py-2.5 px-3.5">Items</th>
+        <th class="py-2.5 px-3.5">Detail</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in entries %}
+        {% include "tracker/partials/settings_logs_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

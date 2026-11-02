@@ -20,7 +20,7 @@
     openGroups: { personal: true, data: true, server: true },
     toggleGroup(g) { this.openGroups[g] = !this.openGroups[g]; },
   }"
-  :class="(tab === 'logs' || tab === 'data' || tab === 'query_performance') ? 'max-w-7xl' : 'max-w-5xl'"
+  :class="tab === 'logs' ? 'max-w-none' : (tab === 'data' || tab === 'query_performance') ? 'max-w-7xl' : 'max-w-5xl'"
 >
 
   <div class="page-head">
@@ -343,6 +343,13 @@
               <input type="checkbox" name="animations_enabled" class="checkbox" aria-label="Interface animations" {% if profile.animations_enabled %}checked{% endif %}>
             {% endsettings_row %}
           </form>
+          <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
+            <input type="hidden" name="blur_unwatched_episodes_submitted" value="1">
+            {% settings_row title="Blur unwatched episodes" help="Blurs the thumbnail of an episode you haven't watched yet (the next episode on your Continue Watching card and the unwatched rows on a show's page) so it can't spoil anything. Takes effect on the next page load." %}
+              <span class="spool-spinner" aria-hidden="true"></span>
+              <input type="checkbox" name="blur_unwatched_episodes" class="checkbox" aria-label="Blur unwatched episodes" {% if profile.blur_unwatched_episodes %}checked{% endif %}>
+            {% endsettings_row %}
+          </form>
         {% endsettings_card %}
 
         {% settings_card %}
@@ -607,6 +614,10 @@
         {% url 'mal_connect' as connect_url %}
         {% include "tracker/partials/sync_provider_card.html" with provider="mal" name="MyAnimeList" description="Sync anime list, progress &amp; ratings" icon="myanimelist" icon_class="text-mal" configured=mal_configured connect_url=connect_url unavailable="Not available yet. Ask your server owner to set up MyAnimeList first." account=external_accounts.mal %}
 
+        {% include "tracker/partials/anime_list_card.html" with provider="anilist" name="AniList" description="Sync your anime list &amp; progress by username" icon="anilist" icon_class="text-anilist" account=external_accounts.anilist %}
+
+        {% include "tracker/partials/anime_list_card.html" with provider="kitsu" name="Kitsu" description="Sync your anime library &amp; progress by username" icon="kitsu" icon_class="text-kitsu" account=external_accounts.kitsu %}
+
         {% include "tracker/partials/nuvio_card.html" %}
       </div>
 
@@ -651,6 +662,9 @@
             {% include "tracker/partials/import_source_card.html" with icon="wetrakr" title="WeTrakr" subtitle="Watch history & ratings" provider="wetrakr" configured=wetrakr_configured connect_url_name="wetrakr_connect" %}
             {% include "tracker/partials/import_source_card.html" with icon="tmdb" icon_color="text-tmdb" title="TMDB" subtitle="Favorites & watchlist sync" provider="tmdb" configured=tmdb_configured connect_url_name="tmdb_connect" %}
             {% include "tracker/partials/import_source_card.html" with icon="myanimelist" icon_color="text-mal" title="MyAnimeList" subtitle="Anime list, progress & ratings" provider="mal" configured=mal_configured connect_url_name="mal_connect" %}
+            {% include "tracker/partials/import_source_card.html" with icon="anilist" icon_color="text-anilist" title="AniList" subtitle="Anime list &amp; progress, by public username" provider="anilist" username_connect=True %}
+            {% include "tracker/partials/import_source_card.html" with icon="kitsu" icon_color="text-kitsu" title="Kitsu" subtitle="Anime library &amp; progress, by public username" provider="kitsu" username_connect=True %}
+            {% include "tracker/partials/import_source_card.html" with icon="myanimelist" icon_color="text-mal" title="Anime list file (XML)" subtitle="A MyAnimeList export, or an AniList/Kitsu list converted to one (.xml or .xml.gz)" upload_label="Upload XML" upload_accept=".xml,.gz" upload_url_name="import_animexml" always_available=True %}
             {% include "tracker/partials/import_source_card.html" with icon="nuvio" title="Nuvio" subtitle="History & continue-watching progress" provider="nuvio" nuvio=True configured=True connected=nuvio_connection %}
             {% include "tracker/partials/import_source_card.html" with icon="imdb" icon_color="text-imdb" title="IMDb" subtitle="Ratings & watchlist only — IMDb has no watch-history export" upload_label="Upload IMDb CSV" upload_accept=".csv" upload_url_name="import_imdb" always_available=True %}
             {% include "tracker/partials/import_source_card.html" with icon="letterboxd" icon_color="text-letterboxd" title="Letterboxd" subtitle="Watched films, ratings & watchlist" upload_label="Upload Letterboxd ZIP" upload_accept=".zip" upload_url_name="import_letterboxd" always_available=True %}
@@ -1270,6 +1284,8 @@
                 >
                   <input type="hidden" name="tab" value="logs">
                   <input type="hidden" name="log_sort" value="{{ log_sort }}">
+                  <input type="hidden" name="log_view" value="{{ log_view }}">
+                  <input type="hidden" name="log_category" value="{{ log_category }}">
 
                   <div>
                     <div class="text-xs text-ink-dim mb-1.5 font-medium">Profile</div>
@@ -1353,7 +1369,7 @@
 
                 <div class="sticky bottom-0 px-5 pb-5 pt-4 bg-base-200 border-t border-line flex items-center gap-3">
                   <button type="submit" form="logs-filters-form" class="btn btn-sm btn-primary flex-1">Apply filters</button>
-                  <a href="?tab=logs{% if log_sort == "oldest" %}&log_sort=oldest{% endif %}" class="btn btn-sm btn-ghost">Clear all</a>
+                  <a href="?tab=logs{% if log_sort == "oldest" %}&log_sort=oldest{% endif %}{% if log_view %}&log_view={{ log_view }}{% endif %}" class="btn btn-sm btn-ghost">Clear all</a>
                 </div>
               </div>
             </div>
@@ -1366,6 +1382,8 @@
               <input type="hidden" name="log_status" value="{{ log_status }}">
               <input type="hidden" name="log_date_from" value="{{ log_date_from }}">
               <input type="hidden" name="log_date_to" value="{{ log_date_to }}">
+              <input type="hidden" name="log_view" value="{{ log_view }}">
+              <input type="hidden" name="log_category" value="{{ log_category }}">
               <select name="log_sort" onchange="this.form.submit()" class="select select-sm text-xs">
                 <option value="newest" {% if log_sort == "newest" %}selected{% endif %}>Newest first</option>
                 <option value="oldest" {% if log_sort == "oldest" %}selected{% endif %}>Oldest first</option>

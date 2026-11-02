@@ -62,7 +62,7 @@ FILE_SOURCES = (ImportSession.Source.CSV, ImportSession.Source.JSON, ImportSessi
 KNOWN_PROVIDERS = (
     ImportSession.Source.TRAKT, ImportSession.Source.SIMKL, ImportSession.Source.NUVIO,
     ImportSession.Source.WETRAKR, ImportSession.Source.IMDB, ImportSession.Source.MAL,
-    ImportSession.Source.TVTIME,
+    ImportSession.Source.TVTIME, ImportSession.Source.ANILIST, ImportSession.Source.KITSU,
 )
 
 
@@ -491,6 +491,9 @@ WATCH_EVENT_SOURCE_BY_PROVIDER = {
     ImportSession.Source.NUVIO: WatchEvent.Source.NUVIO,
     ImportSession.Source.WETRAKR: WatchEvent.Source.WETRAKR,
     ImportSession.Source.MAL: WatchEvent.Source.MAL,
+    ImportSession.Source.ANILIST: WatchEvent.Source.ANILIST,
+    ImportSession.Source.KITSU: WatchEvent.Source.KITSU,
+    ImportSession.Source.ANIMEXML: WatchEvent.Source.MAL,
 }
 
 

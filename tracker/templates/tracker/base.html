@@ -433,7 +433,7 @@
     }
   </script>
 </head>
-<body class="bg-base-100 text-base-content min-h-screen" data-animations="{% if active_profile.animations_enabled %}on{% else %}off{% endif %}">
+<body class="bg-base-100 text-base-content min-h-screen" data-animations="{% if active_profile.animations_enabled %}on{% else %}off{% endif %}" data-blur-unwatched="{% if active_profile.blur_unwatched_episodes %}on{% else %}off{% endif %}">
   <a href="#main" class="skip-link">Skip to content</a>
   <div id="spool-progress-bar" class="fixed top-0 left-0 h-[2.5px] w-0 bg-primary z-[200] opacity-0 pointer-events-none transition-[width,opacity] duration-200 ease-out" aria-hidden="true"></div>
   {% comment %}

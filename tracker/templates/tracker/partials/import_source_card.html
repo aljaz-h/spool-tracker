@@ -10,7 +10,7 @@
 {% endcomment %}
 <div class="{% if coming_soon %}rounded-xl bg-base-100 border border-line p-4 opacity-50{% else %}surface p-5{% endif %}">
   <div class="flex items-start gap-4">
-    <div class="{% if coming_soon %}w-9 h-9{% else %}w-10 h-10{% endif %} rounded-lg bg-base-300 flex items-center justify-center flex-none text-[15px] font-bold {% if coming_soon or provider and not nuvio and not configured and provider not in connected_providers %}text-ink-faint grayscale opacity-60{% else %}{{ icon_color|default:"text-ink-dim" }}{% endif %}" aria-hidden="true">
+    <div class="{% if coming_soon %}w-9 h-9{% else %}w-10 h-10{% endif %} rounded-lg bg-base-300 flex items-center justify-center flex-none text-[15px] font-bold {% if coming_soon or provider and not nuvio and not username_connect and not configured and provider not in connected_providers %}text-ink-faint grayscale opacity-60{% else %}{{ icon_color|default:"text-ink-dim" }}{% endif %}" aria-hidden="true">
       {% if monogram %}{{ monogram }}{% else %}{% icon icon "w-7 h-7" %}{% endif %}
     </div>
     <div class="min-w-0 flex-1">
@@ -34,6 +34,18 @@
             </form>
           {% else %}
             <div class="text-[13px] text-base-content/85 mt-1.5">{{ connected.email }}{% if connected.nuvio_profile_name %} <span class="text-ink-faint">&middot;</span> {{ connected.nuvio_profile_name }}{% endif %}</div>
+          {% endif %}
+        {% elif username_connect %}
+          {% if provider in connected_providers %}
+            <div class="flex flex-wrap gap-2 mt-3"><a href="{% url 'settings' %}?tab=connected_apps" class="btn btn-sm btn-ghost">Manage</a></div>
+          {% else %}
+            <form method="post" action="{% url 'anime_list_connect' provider %}" class="flex flex-wrap items-center gap-2 mt-3">
+              {% csrf_token %}
+              <label class="sr-only" for="import-{{ provider }}-username">{{ title }} username</label>
+              <input id="import-{{ provider }}-username" type="text" name="username" required maxlength="100" autocomplete="off" placeholder="{{ title }} username" class="input input-sm flex-1 min-w-[10rem]">
+              <button type="submit" class="btn btn-sm btn-primary">Connect</button>
+            </form>
+            <div class="text-[12px] text-ink-faint mt-2">The list has to be public. You review everything before it is imported.</div>
           {% endif %}
         {% elif provider %}
           <div class="flex flex-wrap gap-2 mt-3">

@@ -129,6 +129,8 @@
   --color-rt: #fa5a3d;
   --color-trakt: #9f42c6;
   --color-mal: #2e51a2;
+  --color-anilist: #02a9ff;
+  --color-kitsu: #fd755c;
   --color-metacritic: #ffcc33;
   --color-tmdb: #01b4e4;
   --color-mdblist: #4284ca;
@@ -1020,6 +1022,20 @@
 .ep-row[data-state="watched"] .ep-thumb {
   filter: saturate(0.7) brightness(0.8);
 }
+/* "Blur unwatched episodes" (Settings > Appearance): the still of an episode
+   the profile hasn't watched yet. Scaled up a little so the blur doesn't
+   leave a soft edge inside the clipped frame; an episode-list thumbnail
+   shows itself again while the pointer is on it. */
+body[data-blur-unwatched="on"] .spoiler-still {
+  filter: blur(14px);
+  transform: scale(1.15);
+}
+@media (hover: hover) {
+  body[data-blur-unwatched="on"] .ep-row .relative:hover > .spoiler-still {
+    filter: none;
+    transform: none;
+  }
+}
 .ep-row[data-state="watched"] + .ep-row[data-state="unwatched"] {
   box-shadow: inset 2px 0 0 var(--color-primary);
   background: linear-gradient(90deg, color-mix(in oklab, var(--color-primary) 7%, transparent), transparent 60%);
@@ -1713,6 +1729,16 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   body[data-animations="on"] .dock-tab {
     transition: background-color 180ms ease, color 180ms ease;
   }
+}
+
+/* Settings > Logs: a nightly job with no log entry - hatched and muted so a
+   gap in the run reads as a gap, not as a row that happens to be quiet. */
+.log-notrun {
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--color-base-content) 4%, transparent) 0 6px,
+    transparent 6px 12px
+  );
 }
 
 /* Title page "Activity" timelines (title_history_card.html, title_household.html).

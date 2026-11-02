@@ -20,7 +20,7 @@ PULL, PUSH, BOTH, OFF = SyncDirection.PULL, SyncDirection.PUSH, SyncDirection.BO
 # when its push exists.
 PUSH_PROVIDERS = frozenset({"wetrakr"})
 
-NAMES = {"trakt": "Trakt", "simkl": "Simkl", "wetrakr": "WeTrakr", "nuvio": "Nuvio", "tmdb": "TMDB", "mal": "MyAnimeList"}
+NAMES = {"trakt": "Trakt", "simkl": "Simkl", "wetrakr": "WeTrakr", "nuvio": "Nuvio", "tmdb": "TMDB", "mal": "MyAnimeList", "anilist": "AniList", "kitsu": "Kitsu"}
 
 HELP = {
     PULL: "New watches, ratings and lists come from {name} into Spool, on the schedule below. Nothing is sent back.",

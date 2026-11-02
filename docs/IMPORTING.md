@@ -2,7 +2,7 @@
 
 # Importing your data
 
-## Connecting Trakt / Simkl / WeTrakr / Nuvio / TMDB / MyAnimeList
+## Connecting Trakt / Simkl / WeTrakr / Nuvio / TMDB / MyAnimeList / AniList / Kitsu
 
 ### Trakt / Simkl / WeTrakr
 
@@ -184,6 +184,35 @@ direct requests), so the OAuth flow and list-endpoint shape were built
 against third-party reference clients rather than the primary source. Do a
 small test sync first and spot-check a few titles before trusting a full
 import.
+
+### AniList and Kitsu
+
+No server setup at all - both publish a person's anime list by username, so
+there is nothing for the server owner to register.
+
+1. Settings → Connected Apps (or Import & Export) → type your AniList or Kitsu
+   username → Connect. The name is checked first, so a typo or a private list
+   is reported straight away. (For Kitsu use the name in your profile address.)
+2. Choose what it may do (read, or connected but not syncing). Reading starts
+   an **Import Review**: nothing is written until you confirm it.
+3. After that Spool re-reads the list on the schedule on the card and adds
+   anything new. "Review full import" scans the whole list again.
+
+Your list has to be **public**; a private one is refused with a message
+saying so. Both are read through the same code MyAnimeList uses, so the
+statuses, scores, "watched N episodes" handling and Plan to watch → Watchlist
+rules above all apply. Titles are matched by their MyAnimeList id where AniList
+or Kitsu knows it (most do), which is what filler flags and an earlier MyAnimeList
+connection key on, and otherwise by name and year.
+
+### Anime list file (XML)
+
+Settings → Import & Export → **Anime list file (XML)**. Upload the file
+MyAnimeList's own **Export my list** makes (`.xml` or `.xml.gz`), or an
+AniList/Kitsu list converted to that format. It goes through Import Review like
+everything else. MyAnimeList's export doesn't say *when* you watched something:
+an entry with a finish or start date uses it, and one with neither is dated the
+day of the import.
 
 ## Importing a CSV, JSON, or ZIP file
 

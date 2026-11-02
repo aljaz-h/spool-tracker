@@ -15,6 +15,8 @@ _TASK_NAME = {
     ExternalAccount.Provider.WETRAKR: "tracker.tasks.sync_wetrakr_history",
     ExternalAccount.Provider.TMDB: "tracker.tasks.sync_tmdb_lists",
     ExternalAccount.Provider.MAL: "tracker.tasks.sync_mal_history",
+    ExternalAccount.Provider.ANILIST: "tracker.tasks.sync_anilist_history",
+    ExternalAccount.Provider.KITSU: "tracker.tasks.sync_kitsu_history",
 }
 
 
