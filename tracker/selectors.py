@@ -207,8 +207,16 @@ def _distinct_watch_dates(profile):
     watching has far fewer distinct days than events (confirmed: 25k
     events, ~1-1.5k distinct days in practice), so this cuts both the
     rows transferred and the Python-side work for both streak functions
-    below."""
-    return sorted(WatchEvent.objects.filter(profile=profile).values_list("watched_at__date", flat=True).distinct())
+    below.
+
+    .order_by() is what makes the .distinct() work: WatchEvent's default
+    ordering (-watched_at) would otherwise be added to the SELECT DISTINCT,
+    and every event is then its own distinct row - the same day listed once per
+    watch, which also broke _longest_streak_from_dates (a second watch on a day
+    read as a gap)."""
+    return sorted(
+        WatchEvent.objects.filter(profile=profile).order_by().values_list("watched_at__date", flat=True).distinct()
+    )
 
 
 def _streak_from_dates(dates):
@@ -232,6 +240,7 @@ def _streak_from_dates(dates):
 
 
 def _longest_streak_from_dates(dates):
+    dates = sorted(set(dates))
     if not dates:
         return 0
     longest = current = 1
@@ -3084,6 +3093,7 @@ def poster_action_context(profile, titles):
     title_ids = [t.pk for t in titles]
     watched_ids = set(
         WatchEvent.objects.filter(profile=profile, title_id__in=title_ids)
+        .order_by()
         .values_list("title_id", flat=True)
         .distinct()
     )
@@ -3237,7 +3247,10 @@ def discover_action_context(profile, items):
     matched_titles = [t for t in matched_title_by_key.values() if t is not None]
     title_ids = [t.pk for t in matched_titles]
     watched_title_ids = set(
-        WatchEvent.objects.filter(profile=profile, title_id__in=title_ids).values_list("title_id", flat=True).distinct()
+        WatchEvent.objects.filter(profile=profile, title_id__in=title_ids)
+        .order_by()
+        .values_list("title_id", flat=True)
+        .distinct()
     )
     # The checkmark's ×N badge - same _badge_watch_counts poster_action_context
     # uses, see its own docstring for the movie/show distinction.
@@ -3330,6 +3343,7 @@ def person_personal_stats(profile, items, action_context):
         watched_by_profile = {}
         for profile_id, title_id in (
             WatchEvent.objects.filter(profile__in=others, title_id__in=matched_title_ids)
+            .order_by()
             .values_list("profile_id", "title_id")
             .distinct()
         ):

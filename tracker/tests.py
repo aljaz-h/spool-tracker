@@ -1756,6 +1756,15 @@ class CompletionWatchlistRemovalTests(TestCase):
 
 
 class ReleaseSyncTests(TestCase):
+    def setUp(self):
+        # sync_title_releases looks the show's IMDb id up on TMDB (to find it on
+        # TVmaze). Unpatched, that is a real request whenever a TMDB key is
+        # configured, and TVmaze's real air dates then replace the ones these
+        # tests set up - so a machine with a key saw 1999 dates here.
+        patcher = patch("tracker.release_sync.tmdb.get_tv_external_ids", return_value={"imdb_id": None})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _tv_details(self, next_episode):
         return {
             "name": "Cinder Street", "year": "2022", "overview": "", "tagline": "", "genres": [],
@@ -1867,7 +1876,7 @@ class ReleaseSyncTests(TestCase):
         self.assertEqual(ReleaseSchedule.objects.filter(title=title).count(), 4)
         self.assertFalse(Episode.objects.filter(title=title, season=1, episode=5).exists())
         past_row = ReleaseSchedule.objects.get(title=title, episode__episode=1)
-        self.assertEqual(past_row.release_date.date().isoformat(), "2026-07-25")
+        self.assertEqual(_tz.localtime(past_row.release_date).date().isoformat(), "2026-07-25")
         self.assertEqual(past_row.release_type, ReleaseSchedule.ReleaseType.SEASON_PREMIERE)
 
     def test_tv_falls_back_to_last_episode_season_when_nothing_is_upcoming(self):
@@ -1901,8 +1910,9 @@ class ReleaseSyncTests(TestCase):
             media_type=MediaType.TV, name="Silo", year=2023, external_ids={"tmdb": "99"}
         )
         recent_premiere = (timezone.now() - timedelta(days=10)).date().isoformat()
-        next_ep = {"air_date": "2026-08-08", "season_number": 2, "episode_number": 2, "name": "Ep2"}
-        season_2 = self._season([(1, recent_premiere, "Premiere"), (2, "2026-08-08", "Ep2")])
+        next_air = (timezone.now() + timedelta(days=4)).date().isoformat()
+        next_ep = {"air_date": next_air, "season_number": 2, "episode_number": 2, "name": "Ep2"}
+        season_2 = self._season([(1, recent_premiere, "Premiere"), (2, next_air, "Ep2")])
         season_1 = self._season([(1, "2026-01-01", "S1E1"), (2, "2026-01-08", "S1E2")])
 
         def fake_season_details(tmdb_id, season_number):
@@ -1991,7 +2001,7 @@ class ReleaseSyncTests(TestCase):
             touched = release_sync.sync_title_releases(title)
         self.assertEqual(touched, 1)
         row = ReleaseSchedule.objects.get(title=title, release_type=ReleaseSchedule.ReleaseType.MOVIE_RELEASE)
-        self.assertEqual(row.release_date.date().isoformat(), past)
+        self.assertEqual(_tz.localtime(row.release_date).date().isoformat(), past)
 
     def test_title_without_tmdb_id_is_skipped(self):
         title = Title.objects.create(media_type=MediaType.MOVIE, name="No TMDB", year=2020)
@@ -2035,7 +2045,7 @@ class ReleaseSyncTests(TestCase):
         episode = Episode.objects.get(title=title, season=2, episode=1)
         rows = ReleaseSchedule.objects.filter(title=title, episode=episode)
         self.assertEqual(rows.count(), 1)
-        self.assertEqual(rows.first().release_date.date().isoformat(), "2026-08-08")
+        self.assertEqual(_tz.localtime(rows.first().release_date).date().isoformat(), "2026-08-08")
 
 
 class TitlesNeedingReleaseSyncTests(TestCase):
@@ -12171,6 +12181,41 @@ class BackfillPostersCommandTests(TestCase):
         self.assertTrue(title.poster_url)
 
 
+class WatchStreakDistinctDatesTests(TestCase):
+    """selectors._distinct_watch_dates feeds both streak numbers: a day with
+    several watches must be one day, not one per watch."""
+
+    def setUp(self):
+        user = User.objects.create_user("streaker", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Streaker")
+        self.title = Title.objects.create(media_type=MediaType.MOVIE, name="Film", year=2020)
+
+    def _watch(self, days_ago, hour):
+        when = _tz.make_aware(_tz.datetime.combine(_tz.localdate() - timedelta(days=days_ago), _tz.datetime.min.time())) + timedelta(hours=hour)
+        WatchEvent.objects.create(profile=self.profile, title=self.title, watched_at=when)
+
+    def test_several_watches_on_one_day_are_one_date(self):
+        for hour in (9, 14, 21):
+            self._watch(0, hour)
+        self._watch(1, 12)
+        dates = selectors._distinct_watch_dates(self.profile)
+        self.assertEqual(len(dates), 2)
+        self.assertEqual(dates, sorted(set(dates)))
+
+    def test_longest_and_current_streak_count_days_not_watches(self):
+        for days_ago in (0, 1, 2, 3):
+            self._watch(days_ago, 10)
+            self._watch(days_ago, 20)
+        self.assertEqual(selectors.longest_streak(self.profile), 4)
+        self.assertEqual(selectors.current_streak(self.profile), 4)
+        self.assertEqual(selectors.streaks(self.profile), (4, 4))
+
+    def test_longest_streak_ignores_repeated_days_in_a_plain_list(self):
+        today = _tz.localdate()
+        days = [today - timedelta(days=d) for d in (5, 5, 4, 4, 3, 1)]
+        self.assertEqual(selectors._longest_streak_from_dates(days), 3)
+
+
 class SeedDemoCommandTests(TestCase):
     """seed_demo - throwaway dev/screenshot data, never meant to touch a
     real instance, hence the DEBUG guard below."""
@@ -13950,7 +13995,8 @@ class TmdbDetailPageTests(TestCase):
         self.assertIsNone(details["budget"])
         self.assertIsNone(details["revenue"])
         self.assertEqual(details["production_companies"], ["HBO"])
-        self.assertEqual(details["countries"], ["US"])
+        # origin_country's ISO codes are resolved to names (see _ISO_COUNTRY_NAMES)
+        self.assertEqual(details["countries"], ["United States"])
 
     @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_full_details_tv_countries_display_resolves_code_to_name_and_flag(self, mock_get):
@@ -15444,7 +15490,10 @@ class DiscoverCollectionsViewTests(TestCase):
     @patch("tracker.integrations.tmdb.collections", return_value=[])
     def test_no_filters_button_or_pagination_shown(self, mock_collections):
         resp = self.client.get(reverse("movies", args=["collections"]))
-        self.assertNotContains(resp, "Filters")
+        # The button and its panel, not the word: base.html's inline script
+        # comments mention "Filters" on every page.
+        self.assertNotContains(resp, '<span class="max-sm:sr-only">Filters</span>')
+        self.assertNotContains(resp, "Close filters")
 
     @patch("tracker.integrations.tmdb.collections", return_value=[])
     def test_requires_login(self, mock_collections):

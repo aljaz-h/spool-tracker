@@ -8,6 +8,13 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.177.1] - 2026-11-02
+
+### Fixed
+
+- The longest streak (Stats, Dashboard) was too low for anyone who watched more than one thing on a day. The query that lists the days you watched something returned a day once per watch instead of once, so a second watch on the same day looked like a break in the streak. Each day is now counted once. It also reads far fewer rows, since it was returning one per watch (about 25,000 for a long history) instead of one per day (a thousand or so). The same default-ordering mistake made three "which of these titles has this profile watched" lookups read every watch row; they now read only the distinct ids.
+- The seven tests that had been failing are fixed, none of them an app bug except the streak one above: a test that failed on the word "Filters" appearing in a script comment, four release-sync tests that depended on the machine's timezone and (with a TMDB key set) made real TMDB and TVmaze requests, a backfill test that hardcoded a date that has since passed, a stale expectation that a TV show's countries are ISO codes (they are resolved to names), and the demo-seed test, which failed through the streak bug.
+
 ## [0.177.0] - 2026-11-02
 
 Run `python manage.py migrate` (migrations 0090 and 0091 add a profile setting, an account field and a few new choices; no data changes). This release adds one dependency, `defusedxml`, to `requirements.txt`, so rebuild the image.
