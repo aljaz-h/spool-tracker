@@ -1,0 +1,11 @@
+{% load tracker_extras %}{# context: profile; size (Tailwind size classes, default "w-9 h-9"); text (initial's size classes, default "text-[13px]"); live (optional - Settings' preview: follows the photoUrl/color/initial/ink of the enclosing Alpine scope while a profile is being edited). One avatar everywhere: the photo, or the initial on the profile's colour in dark ink on a light colour and white on a dark one. #}
+{% if live %}
+  <span class="relative inline-flex flex-none {{ size|default:"w-9 h-9" }}" aria-hidden="true">
+    <span x-show="photoUrl" {% if not profile.avatar_image %}x-cloak{% endif %} class="absolute inset-0 rounded-full bg-cover bg-center" :style="`background-image:url('${photoUrl}')`"></span>
+    <span x-show="!photoUrl" {% if profile.avatar_image %}x-cloak{% endif %} class="absolute inset-0 rounded-full flex items-center justify-center font-semibold {{ text|default:"text-[13px]" }}" :style="`background:${color};color:${ink}`" x-text="initial">{{ profile.display_name|first|upper }}</span>
+  </span>
+{% elif profile.avatar_image %}
+  <div class="{{ size|default:"w-9 h-9" }} rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ profile.avatar_image.url }}')"></div>
+{% else %}
+  <div class="{{ size|default:"w-9 h-9" }} rounded-full flex-none flex items-center justify-center font-semibold {{ text|default:"text-[13px]" }}" style="background:{{ profile.avatar_color }};color:{{ profile.avatar_color|on_color }};">{{ profile.display_name|first|upper }}</div>
+{% endif %}

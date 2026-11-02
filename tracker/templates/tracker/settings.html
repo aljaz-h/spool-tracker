@@ -20,7 +20,7 @@
     openGroups: { personal: true, data: true, server: true },
     toggleGroup(g) { this.openGroups[g] = !this.openGroups[g]; },
   }"
-  :class="tab === 'logs' ? 'max-w-none' : (tab === 'data' || tab === 'query_performance') ? 'max-w-7xl' : 'max-w-5xl'"
+  :class="tab === 'logs' ? 'max-w-none' : (tab === 'account' || tab === 'data' || tab === 'query_performance') ? 'max-w-7xl' : 'max-w-5xl'"
 >
 
   <div class="page-head">
@@ -173,108 +173,8 @@
     <div class="flex-1 min-w-0 w-full">
 
       {# ==================== ACCOUNT ==================== #}
-      <div x-show="tab === 'account'" x-cloak
-        x-data="{
-          color: '{{ profile.avatar_color }}',
-          photoPreview: null,
-          fileName: null,
-          onFileChange(e) {
-            const file = e.target.files[0];
-            this.fileName = file ? file.name : null;
-            if (!file) { this.photoPreview = null; return; }
-            const reader = new FileReader();
-            reader.onload = () => { this.photoPreview = reader.result; };
-            reader.readAsDataURL(file);
-          },
-        }"
-        class="flex flex-col gap-5 max-w-2xl"
-      >
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs -mb-1">
-          <span class="text-ink-faint">Member since {{ profile.created_at|date:"F Y" }}</span>
-          <span class="text-line">&middot;</span>
-          {% if "trakt" in connected_providers %}
-            <span class="text-success">&#10003; Trakt connected</span>
-          {% else %}
-            <span class="text-ink-faint">Trakt not connected</span>
-          {% endif %}
-          <span class="text-line">&middot;</span>
-          {% if "simkl" in connected_providers %}
-            <span class="text-success">&#10003; Simkl connected</span>
-          {% else %}
-            <span class="text-ink-faint">Simkl not connected</span>
-          {% endif %}
-          <span class="text-line">&middot;</span>
-          {% if "wetrakr" in connected_providers %}
-            <span class="text-success">&#10003; WeTrakr connected</span>
-          {% else %}
-            <span class="text-ink-faint">WeTrakr not connected</span>
-          {% endif %}
-        </div>
-
-        <div class="settings-panel">
-          <h3 class="text-lg mb-3.5">Profile</h3>
-          <form method="post" action="{% url 'my_profile' %}" enctype="multipart/form-data">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="update_profile">
-
-            <div class="flex items-center gap-3 mb-4">
-              <div
-                x-show="photoPreview" x-cloak
-                class="w-12 h-12 rounded-full flex-none bg-cover bg-center"
-                :style="`background-image:url(${photoPreview})`"
-              ></div>
-              {% if profile.avatar_image %}
-                <div x-show="!photoPreview" class="w-12 h-12 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ profile.avatar_image.url }}')"></div>
-              {% else %}
-                <div x-show="!photoPreview" class="w-12 h-12 rounded-full flex items-center justify-center font-mono text-base font-semibold flex-none" :style="`background:${color};color:#fff;`">{{ profile.display_name|first|upper }}</div>
-              {% endif %}
-              <div class="flex-1 min-w-0">
-                <label for="id_display_name" class="block text-xs text-ink-dim mb-1">Display name</label>
-                <input id="id_display_name" type="text" name="display_name" value="{{ profile.display_name }}" required class="input w-full bg-base-100">
-              </div>
-            </div>
-
-            <label for="id_bio" class="block text-xs text-ink-dim mb-1">Bio <span class="font-normal text-ink-faint">(optional)</span></label>
-            <input id="id_bio" type="text" name="bio" value="{{ profile.bio }}" maxlength="160" placeholder="A short status or bio" class="input w-full bg-base-100 mb-4">
-
-            <label class="block text-xs text-ink-dim mb-2">Photo</label>
-            <div class="flex items-center gap-2 mb-1.5">
-              <label class="flex-1 flex items-stretch h-8 rounded-lg border border-line bg-base-100 overflow-hidden cursor-pointer hover:border-primary transition-colors">
-                <span class="flex items-center px-3 text-xs font-semibold bg-base-300 text-ink-dim flex-none">Choose File</span>
-                <span class="flex items-center px-3 text-xs text-ink-faint truncate" x-text="fileName || 'No file chosen'"></span>
-                <input type="file" name="avatar_image" accept="image/png,image/jpeg,image/webp" @change="onFileChange($event)" class="hidden">
-              </label>
-              {% if profile.avatar_image %}
-                <button type="submit" name="remove_photo" value="1" title="Remove photo" class="btn btn-sm btn-square bg-base-300 border-line text-error hover:bg-error hover:text-error-content hover:border-error flex-none">
-                  {% icon "trash-2" "w-4 h-4" %}
-                </button>
-              {% endif %}
-            </div>
-            <div class="text-[12px] text-ink-faint mb-5">JPG, PNG, or WEBP, up to 5MB. Falls back to your avatar color below when removed.</div>
-
-            <label class="block text-xs text-ink-dim mb-2">Avatar color</label>
-            <div class="flex flex-wrap gap-2 mb-5">
-              {% for c in avatar_colors %}
-                <label class="cursor-pointer">
-                  <input type="radio" name="avatar_color" value="{{ c }}" x-model="color" class="hidden" {% if c == profile.avatar_color %}checked{% endif %}>
-                  <span class="block w-7 h-7 rounded-full border-2" :class="color === '{{ c }}' ? 'border-base-content' : 'border-transparent'" style="background:{{ c }};"></span>
-                </label>
-              {% endfor %}
-            </div>
-
-            <button type="submit" class="btn btn-primary w-full">Save profile</button>
-          </form>
-
-          {% if show_activity_nav %}
-            <form hx-post="{% url 'save_privacy' %}" hx-trigger="change" hx-swap="none" class="mt-5 pt-4 border-t border-line">
-              <label class="flex items-center justify-between gap-3 cursor-pointer">
-                <span class="text-[13.5px] flex items-center gap-2">Show my activity to other profiles on this server<span class="spool-spinner" aria-hidden="true"></span></span>
-                <input type="checkbox" name="share_activity" class="checkbox checkbox-sm" {% if profile.share_activity %}checked{% endif %}>
-              </label>
-            </form>
-          {% endif %}
-        </div>
-
+      <div x-show="tab === 'account'" x-cloak>
+        {% include "tracker/partials/settings_account_profile.html" %}
       </div>
 
       {# ==================== SECURITY ==================== #}

@@ -1,0 +1,139 @@
+{% load static icons tracker_extras %}
+{% comment %}
+  Settings > Account: the profile form on the left (photo, display name, bio,
+  avatar colour, and an unsaved-changes bar that appears only when something
+  changed), and on the right how housemates see you (updates as you type) and
+  the Share my activity switch. All the behaviour is static/js/profile-form.js;
+  the form itself is an ordinary POST to my_profile, so it still works with
+  scripting off. context: profile, connected_apps_count, profile_form_config,
+  avatar_swatches, bio_max_length, show_activity_nav, profile_now_watching.
+{% endcomment %}
+<script src="{% static 'js/profile-form.js' %}"></script>
+<div x-data="profileForm(JSON.parse($el.dataset.cfg))" data-cfg="{{ profile_form_config }}" class="flex flex-col gap-5">
+
+  <div>
+    <h3 class="text-lg">Profile</h3>
+    <p class="text-[13px] text-ink-dim mt-1">
+      Member since {{ profile.created_at|date:"F Y" }}
+      {% if connected_apps_count %}&middot; {{ connected_apps_count }} app{{ connected_apps_count|pluralize }} connected{% endif %}
+      &middot; <a href="{% url 'settings' %}?tab=connected_apps" class="underline hover:text-base-content">Manage apps</a>
+    </p>
+  </div>
+
+  <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] items-start">
+
+    <form method="post" action="{% url 'my_profile' %}" enctype="multipart/form-data" @submit="onSubmit($event)" class="flex flex-col gap-6 min-w-0">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="update_profile">
+      <input type="hidden" name="remove_photo" value="1" :disabled="!removePhoto">
+
+      {# Photo: the avatar, a camera button on it, Change photo / Remove. The file input stays hidden underneath. #}
+      <div class="flex items-center gap-5">
+        <div class="relative flex-none w-24 h-24" @dragover.prevent="dragging = true" @dragleave="dragging = false" @drop.prevent="onDrop($event)">
+          <button type="button" @click="pickPhoto()" aria-label="Change photo" class="block w-24 h-24 rounded-full cursor-pointer transition-shadow focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary" :class="dragging ? 'ring-2 ring-primary ring-offset-2 ring-offset-base-100' : ''">
+            {% include "tracker/partials/avatar.html" with profile=profile live=True size="w-24 h-24" text="text-3xl" %}
+          </button>
+          <button type="button" @click="pickPhoto()" aria-label="Choose a photo" class="hit-44 absolute -bottom-1 -right-1 w-9 h-9 rounded-full border-2 border-base-100 bg-base-300 text-ink-dim hover:text-base-content flex items-center justify-center cursor-pointer">
+            {% icon "camera" "w-4 h-4" %}
+          </button>
+        </div>
+        <div class="min-w-0">
+          <div class="flex flex-wrap gap-2">
+            <button type="button" class="btn btn-soft min-h-11" @click="pickPhoto()">Change photo</button>
+            <button type="button" class="btn btn-ghost min-h-11" x-show="hasPhoto" x-cloak @click="removeCurrentPhoto()">Remove</button>
+          </div>
+          <p class="text-[12.5px] text-ink-faint mt-2">JPG, PNG or WebP, up to 5 MB. You can also drop a file on the photo.</p>
+          <p class="text-[12.5px] text-error mt-1" x-show="photoError" x-cloak x-text="photoError" role="alert"></p>
+        </div>
+        <input type="file" name="avatar_image" x-ref="file" accept="image/png,image/jpeg,image/webp" class="hidden" tabindex="-1" @change="onFileInput($event)">
+      </div>
+
+      <div>
+        <label for="id_display_name" class="block text-[13px] font-semibold mb-1.5">Display name</label>
+        <div class="relative">
+          <input id="id_display_name" type="text" name="display_name" x-model="name" required maxlength="{{ name_max_length }}" autocomplete="nickname" aria-describedby="name-help" :aria-invalid="nameState === 'taken'" class="input w-full min-h-11 bg-base-100 pr-28" :class="nameState === 'taken' ? 'input-error' : ''">
+          <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[13px]" aria-live="polite">
+            <span x-show="nameState === 'ok'" x-cloak class="text-success">&#10003; Available</span>
+            <span x-show="nameState === 'checking'" x-cloak class="text-ink-faint">Checking&hellip;</span>
+          </span>
+        </div>
+        <p class="text-[12.5px] text-error mt-1.5" x-show="nameState === 'taken'" x-cloak x-text="nameMessage" role="alert"></p>
+        <p id="name-help" class="text-[12.5px] text-ink-faint mt-1.5">Shown to housemates. It has to be unique on this server.</p>
+      </div>
+
+      <div>
+        <div class="flex items-baseline justify-between gap-3 mb-1.5">
+          <label for="id_bio" class="text-[13px] font-semibold">Bio <span class="font-normal text-ink-faint">(optional)</span></label>
+          <span class="text-[12.5px] tabular-nums" :class="bioOver ? 'text-error' : 'text-ink-faint'" aria-live="polite"><span x-text="bioCount"></span> / {{ bio_max_length }}</span>
+        </div>
+        <input id="id_bio" type="text" name="bio" x-model="bio" maxlength="{{ bio_max_length }}" placeholder="A short line about you" class="input w-full min-h-11 bg-base-100">
+        <p class="text-[12.5px] text-error mt-1.5" x-show="bioOver" x-cloak role="alert">A bio is {{ bio_max_length }} characters at most - shorten it to save.</p>
+      </div>
+
+      <fieldset>
+        <legend class="text-[13px] font-semibold">Avatar color</legend>
+        <p class="text-[12.5px] text-ink-faint mt-0.5 mb-3">Used when you have no photo.</p>
+        <div class="flex flex-wrap gap-3">
+          {% for swatch in avatar_swatches %}
+            <label class="group relative cursor-pointer">
+              <input type="radio" name="avatar_color" value="{{ swatch.hex }}" x-model="color" aria-label="{{ swatch.name }}" class="sr-only" {% if swatch.hex == profile.avatar_color %}checked{% endif %}>
+              <span class="flex w-11 h-11 items-center justify-center rounded-full ring-2 ring-transparent ring-offset-2 ring-offset-base-100 group-has-[:checked]:ring-base-content group-has-[:focus-visible]:ring-primary" style="background:{{ swatch.hex }};color:#1a1305;">
+                {% icon "check" "w-5 h-5 opacity-0 group-has-[:checked]:opacity-100" %}
+              </span>
+            </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+
+      {# Only while something is unsaved. Sits above the floating tab bar on a phone. #}
+      <div x-show="dirty" x-cloak role="status" class="sticky bottom-24 lg:bottom-4 z-30 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-base-200 px-4 py-3 shadow-[0_12px_32px_rgba(0,0,0,0.45)]">
+        <span class="text-[13px]">You have unsaved changes</span>
+        <span class="flex items-center gap-2 ml-auto">
+          <button type="button" class="btn btn-ghost min-h-11" @click="discard()">Discard</button>
+          <button type="submit" class="btn btn-primary min-h-11" :disabled="!canSave">Save changes</button>
+        </span>
+      </div>
+    </form>
+
+    {% if show_activity_nav %}
+      <aside class="flex flex-col gap-5 min-w-0">
+        <section class="s-card p-5" aria-label="How housemates see you">
+          <h4 class="text-[13px] font-semibold mb-3">How housemates see you</h4>
+          <div class="flex items-center gap-3">
+            {% include "tracker/partials/avatar.html" with profile=profile live=True size="w-12 h-12" text="text-lg" %}
+            <div class="min-w-0">
+              <div class="font-semibold truncate" x-text="name.trim() || 'Your name'">{{ profile.display_name }}</div>
+              <div class="text-[13px] text-ink-dim break-words" x-show="bio.trim()" {% if not profile.bio %}x-cloak{% endif %} x-text="bio">{{ profile.bio }}</div>
+            </div>
+          </div>
+          {% if profile_now_watching %}
+            <div class="flex items-center gap-3 mt-4 pt-4 border-t border-line">
+              <div class="w-10 aspect-[2/3] rounded-md bg-base-300 flex-none overflow-hidden {% if not profile_now_watching.title.poster_url %}{{ profile_now_watching.title.pk|gradient_class }}{% endif %}">
+                {% if profile_now_watching.title.poster_url %}<img src="{{ profile_now_watching.title.poster_url|poster_size:"w92" }}" alt="" loading="lazy" class="w-full h-full object-cover">{% endif %}
+              </div>
+              <div class="min-w-0">
+                <div class="text-[13px] font-semibold truncate">Watching {{ profile_now_watching.title.name }}</div>
+                <div class="text-[12.5px] text-ink-dim">{% if profile_now_watching.episode %}S{{ profile_now_watching.episode.season }} E{{ profile_now_watching.episode.episode }} &middot; {% endif %}{{ profile_now_watching.watched_at|timesince }} ago</div>
+              </div>
+            </div>
+          {% endif %}
+        </section>
+
+        <section class="s-card p-5" aria-label="Share my activity" x-data="shareToggle({ on: {{ profile.share_activity|yesno:'true,false' }}, url: '{% url 'save_privacy' %}', csrf: '{{ csrf_token }}' })">
+          <div class="flex items-start justify-between gap-4">
+            <div class="min-w-0">
+              <label for="share-activity" class="text-[13px] font-semibold">Share my activity</label>
+              <p class="text-[12.5px] text-ink-dim mt-1">Other profiles on this server can see what you're watching, your history and your stats.</p>
+            </div>
+            {# The switch is 24px tall; its label makes the tap area 44px. #}
+            <label class="flex flex-none min-h-11 min-w-11 items-center justify-end cursor-pointer" aria-label="Share my activity">
+              <input id="share-activity" type="checkbox" role="switch" class="toggle toggle-primary" x-model="on" @change="save()" :disabled="busy">
+            </label>
+          </div>
+          <p class="text-[12.5px] text-success mt-3" x-show="status === 'saved'" x-cloak role="status">&#10003; Saved. This setting applies right away.</p>
+          <p class="text-[12.5px] text-error mt-3" x-show="status === 'error'" x-cloak role="alert">Couldn't save that. The setting is back to what it was - try again.</p>
+        </section>
+      </aside>
+    {% endif %}
+  </div>
+</div>

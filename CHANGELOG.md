@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.178.0] - 2026-11-02
+
+### Changed
+
+- Settings > Account > Profile is reworked.
+  - **Header:** "Member since <month year> · N apps connected · Manage apps" (the link goes to Connected Apps) replaces the Trakt/Simkl/WeTrakr "not connected" strip; only what is connected is counted.
+  - **Photo:** one 96px round avatar with a camera button on it and Change photo / Remove buttons, instead of the native file input and the red trash button. Click the avatar, the camera or Change photo to choose a file, or drop one on the avatar; the new photo shows in the avatar before you save. Remove only appears when there is a photo, and is undone by Discard. The same limits apply (JPG, PNG or WebP, up to 5 MB), now also checked in the browser.
+  - **Fields:** every label sits above its field. Display name is checked for uniqueness as you type (about 300 ms after you stop) and shows "Available" or why not; the server enforces it too (ignoring case; a name that is already a duplicate can stay while it is unchanged) and the 50-character limit. Bio has a live counter and is limited to 80 characters on the server too (an older, longer bio is kept until it is edited).
+  - **Avatar color:** eight clearly different colours as 44px round buttons with a visible check and a name for screen readers (the other palette colours that read as duplicates are gone from the picker, but a profile that already has one keeps it). New profiles start with one of the eight.
+  - **Saving:** the always-visible "Save profile" button is gone. A bar appears at the bottom of the form only when something changed ("You have unsaved changes", Discard, Save changes); saving says "Saved." and leaves the page clean, and leaving with unsaved changes asks first.
+  - **Right-hand cards** (on a server with more than one profile): "How housemates see you" shows your avatar, name, bio and what you watched in the last two weeks, and updates as you type; and "Share my activity", now a switch that saves the moment you flip it and puts itself back with a message if the save fails. Two columns on wide screens, one on narrow ones.
+- One avatar component (`partials/avatar.html`) is used by the Activity feed and the Settings preview: the photo, or the initial in dark ink on a light colour and white on a dark one. The Settings avatar no longer uses white on every colour.
+
 ## [0.177.2] - 2026-11-02
 
 ### Changed

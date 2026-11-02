@@ -6439,7 +6439,11 @@ class AdminDashboardProfileControlsTests(TestCase):
     def test_no_bare_text_buttons_remain(self):
         resp = self.client.get(reverse("admin_dashboard"))
         self.assertNotContains(resp, ">Promote<")
-        self.assertNotContains(resp, ">Remove<")
+        # The Account tab on this same page has its own "Remove" (the photo's);
+        # it's the profile list this guards.
+        html = resp.content.decode()
+        outside_account = html.split("profileForm(")[0] + html.split("x-show=\"tab === 'security'\"", 1)[1]
+        self.assertNotIn(">Remove<", outside_account)
 
 
 class DeleteOwnAccountTests(TestCase):
@@ -10349,16 +10353,221 @@ class MyProfilePageContextTests(TestCase):
         resp = self.client.get(reverse("my_profile"))
         self.assertContains(resp, f"Member since {self.profile.created_at:%B %Y}")
 
-    def test_shows_not_connected_when_no_external_accounts(self):
+    def test_lists_only_what_is_connected_and_always_links_to_manage_apps(self):
         resp = self.client.get(reverse("my_profile"))
-        self.assertContains(resp, "Trakt not connected")
-        self.assertContains(resp, "Simkl not connected")
+        self.assertNotContains(resp, "not connected")
+        self.assertNotContains(resp, "apps connected")
+        self.assertContains(resp, "Manage apps")
+        self.assertContains(resp, f'{reverse("settings")}?tab=connected_apps')
 
-    def test_shows_connected_badge_for_a_linked_provider(self):
+    def test_counts_the_connected_apps(self):
         ExternalAccount.objects.create(profile=self.profile, provider="trakt")
+        self.assertContains(self.client.get(reverse("my_profile")), "1 app connected")
+        ExternalAccount.objects.create(profile=self.profile, provider="kitsu", external_username="x")
+        NuvioConnection.objects.create(profile=self.profile, email="n@example.com", nuvio_profile_id=0)
         resp = self.client.get(reverse("my_profile"))
-        self.assertContains(resp, "Trakt connected")
-        self.assertContains(resp, "Simkl not connected")
+        self.assertContains(resp, "3 apps connected")
+        self.assertNotContains(resp, "Trakt connected")
+
+
+class ProfileAccountFormTests(TestCase):
+    """Settings > Account > Profile: the name check, the limits the server
+    enforces, the avatar colours, the live preview card and the share switch."""
+
+    def setUp(self):
+        user = User.objects.create_user("acctform", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Acct Form", avatar_color="#e8a63c")
+        self.other = Profile.objects.create(
+            user=User.objects.create_user("acctother", password="pass12345"), display_name="Maya"
+        )
+        self.client.login(username="acctform", password="pass12345")
+
+    def _save(self, **fields):
+        data = {"action": "update_profile", "display_name": "Acct Form", **fields}
+        return self.client.post(reverse("my_profile"), data, follow=True)
+
+    # ---- the name check -------------------------------------------------
+    def test_name_check_says_available_for_a_free_name_and_for_your_own(self):
+        for name in ("Brand New", "Acct Form", "acct form"):
+            data = self.client.get(reverse("profile_name_check"), {"name": name}).json()
+            self.assertEqual(data, {"available": True, "message": "Available"}, name)
+
+    def test_name_check_reports_another_profiles_name_ignoring_case(self):
+        data = self.client.get(reverse("profile_name_check"), {"name": " mAYa "}).json()
+        self.assertEqual(data, {"available": False, "message": "Another profile already uses that name."})
+
+    def test_name_check_rejects_empty_and_too_long_names(self):
+        self.assertFalse(self.client.get(reverse("profile_name_check"), {"name": "  "}).json()["available"])
+        long = self.client.get(reverse("profile_name_check"), {"name": "x" * 51}).json()
+        self.assertFalse(long["available"])
+        self.assertIn("50 characters", long["message"])
+
+    def test_name_check_needs_a_login_and_a_get(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(reverse("profile_name_check"), {"name": "x"}).status_code, 302)
+        self.client.login(username="acctform", password="pass12345")
+        self.assertEqual(self.client.post(reverse("profile_name_check"), {"name": "x"}).status_code, 405)
+
+    # ---- the server's own rules -----------------------------------------
+    def test_saving_a_name_another_profile_has_is_refused_and_changes_nothing(self):
+        resp = self._save(display_name="maya", bio="new bio")
+        self.assertContains(resp, "Another profile already uses that name.")
+        self.profile.refresh_from_db()
+        self.assertEqual((self.profile.display_name, self.profile.bio), ("Acct Form", ""))
+
+    def test_a_name_that_is_already_a_duplicate_can_stay_while_it_is_unchanged(self):
+        Profile.objects.filter(pk=self.other.pk).update(display_name="Acct Form")
+        self._save(display_name="Acct Form", bio="hello")
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.bio, "hello")
+
+    def test_a_name_over_50_characters_is_refused(self):
+        resp = self._save(display_name="x" * 51)
+        self.assertContains(resp, "50 characters or fewer")
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.display_name, "Acct Form")
+
+    def test_bio_over_80_characters_is_refused_but_exactly_80_is_fine(self):
+        resp = self._save(bio="b" * 81)
+        self.assertContains(resp, "Bio has to be 80 characters or fewer.")
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.bio, "")
+        self._save(bio="b" * 80)
+        self.profile.refresh_from_db()
+        self.assertEqual(len(self.profile.bio), 80)
+
+    def test_an_older_longer_bio_is_kept_while_it_is_unchanged(self):
+        legacy = "l" * 120
+        Profile.objects.filter(pk=self.profile.pk).update(bio=legacy)
+        self._save(bio=legacy, avatar_color="#3fa9a0")
+        self.profile.refresh_from_db()
+        self.assertEqual((self.profile.bio, self.profile.avatar_color), (legacy, "#3fa9a0"))
+        resp = self._save(bio=legacy + "!")
+        self.assertContains(resp, "80 characters or fewer")
+
+    def test_saving_says_saved(self):
+        self.assertContains(self._save(bio="hi"), "Saved.")
+
+    def test_a_colour_from_the_older_palette_is_still_accepted(self):
+        self._save(avatar_color="#d6c14c")
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.avatar_color, "#d6c14c")
+
+    # ---- the page -------------------------------------------------------
+    def test_the_picker_has_eight_distinct_named_colours(self):
+        from .models import PROFILE_AVATAR_COLORS
+
+        self.assertEqual(len({c for c, _n in PROFILE_AVATAR_COLORS}), 8)
+        resp = self.client.get(reverse("my_profile"))
+        for hex_color, name in PROFILE_AVATAR_COLORS:
+            self.assertContains(resp, f'value="{hex_color}"')
+            self.assertContains(resp, f'aria-label="{name}"')
+        self.assertContains(resp, "Used when you have no photo.")
+        self.assertContains(resp, "w-11 h-11")  # 44px swatches
+
+    def test_a_colour_outside_the_picker_shows_as_the_current_one(self):
+        Profile.objects.filter(pk=self.profile.pk).update(avatar_color="#d6c14c")
+        resp = self.client.get(reverse("my_profile"))
+        self.assertContains(resp, 'aria-label="Current colour"')
+        self.assertContains(resp, 'value="#d6c14c"')
+
+    def test_new_profiles_start_with_a_colour_from_the_picker(self):
+        from .models import PROFILE_AVATAR_COLORS, random_avatar_color
+
+        palette = {c for c, _n in PROFILE_AVATAR_COLORS}
+        self.assertTrue(all(random_avatar_color() in palette for _ in range(30)))
+
+    def test_photo_controls_replace_the_native_file_input(self):
+        resp = self.client.get(reverse("my_profile"))
+        self.assertContains(resp, "Change photo")
+        self.assertContains(resp, "Choose a photo")
+        self.assertContains(resp, "JPG, PNG or WebP, up to 5 MB.")
+        self.assertContains(resp, 'name="avatar_image"')
+        # Just the Account tab: the Import tab on the same page has its own file pickers.
+        account = resp.content.decode().split("profileForm(")[1].split("tab === 'security'")[0]
+        self.assertNotIn("Choose File", account)
+        self.assertNotIn("No file chosen", account)
+        self.assertNotIn("Save profile", account)
+
+    def test_form_carries_its_limits_for_the_script(self):
+        import json
+        from html import unescape
+
+        resp = self.client.get(reverse("my_profile"))
+        cfg = json.loads(unescape(resp.context["profile_form_config"]))
+        self.assertEqual((cfg["bioMax"], cfg["nameMax"], cfg["maxBytes"]), (80, 50, 5 * 1024 * 1024))
+        self.assertEqual(cfg["nameCheckUrl"], reverse("profile_name_check"))
+        self.assertContains(resp, "/ 80")
+        self.assertContains(resp, "You have unsaved changes")
+        self.assertContains(resp, "Save changes")
+        self.assertContains(resp, "Discard")
+
+    def test_preview_and_share_cards_show_with_housemates(self):
+        resp = self.client.get(reverse("my_profile"))
+        self.assertContains(resp, "How housemates see you")
+        self.assertContains(resp, "Share my activity")
+        self.assertContains(resp, "Other profiles on this server can see what you're watching, your history and your stats.")
+        self.assertContains(resp, 'role="switch"')
+        self.assertContains(resp, reverse("save_privacy"))
+
+    def test_preview_is_left_out_on_a_single_profile_server(self):
+        self.other.delete()
+        resp = self.client.get(reverse("my_profile"))
+        self.assertNotContains(resp, "How housemates see you")
+        self.assertNotContains(resp, "Share my activity")
+
+    def test_preview_shows_what_you_watched_lately_but_not_something_old(self):
+        title = Title.objects.create(media_type=MediaType.TV, name="Andor", year=2022)
+        episode = Episode.objects.create(title=title, season=2, episode=4, name="Ep")
+        event = WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=_tz.now() - timedelta(hours=2))
+        resp = self.client.get(reverse("my_profile"))
+        self.assertContains(resp, "Watching Andor")
+        self.assertContains(resp, "S2 E4")
+        WatchEvent.objects.filter(pk=event.pk).update(watched_at=_tz.now() - timedelta(days=30))
+        self.assertNotContains(self.client.get(reverse("my_profile")), "Watching Andor")
+
+    def test_the_header_says_member_since_and_links_to_manage_apps(self):
+        resp = self.client.get(reverse("my_profile"))
+        self.assertContains(resp, f"Member since {self.profile.created_at:%B %Y}")
+        self.assertContains(resp, "Manage apps")
+
+
+class AvatarComponentTests(TestCase):
+    """partials/avatar.html - the one avatar the Activity feed and Settings use."""
+
+    def _render(self, **profile_fields):
+        from django.template.loader import render_to_string
+
+        profile = Profile(display_name="Zed", **profile_fields)
+        return render_to_string("tracker/partials/avatar.html", {"profile": profile, "size": "w-9 h-9"})
+
+    def test_a_light_colour_gets_dark_ink_not_white(self):
+        html = self._render(avatar_color="#e8a63c")
+        self.assertIn("background:#e8a63c", html)
+        self.assertIn("color:#1a1305", html)
+        self.assertIn(">Z<", html)
+
+    def test_a_dark_colour_keeps_white(self):
+        self.assertIn("color:#fff", self._render(avatar_color="#2b2b2b"))
+
+    def test_the_live_preview_variant_follows_the_forms_state(self):
+        from django.template.loader import render_to_string
+
+        html = render_to_string(
+            "tracker/partials/avatar.html", {"profile": Profile(display_name="Zed", avatar_color="#e8a63c"), "live": True, "size": "w-24 h-24"}
+        )
+        for binding in ('x-show="photoUrl"', ':style="`background:${color};color:${ink}`"', 'x-text="initial"'):
+            self.assertIn(binding, html)
+
+    def test_the_activity_feed_uses_it(self):
+        user = User.objects.create_user("avatarfeed", password="pass12345")
+        Profile.objects.create(user=user, display_name="Feeder", avatar_color="#e8a63c")
+        Profile.objects.create(user=User.objects.create_user("avatarfeed2", password="pass12345"), display_name="Other")  # the feed needs a household
+        self.client.login(username="avatarfeed", password="pass12345")
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Film", year=2020)
+        WatchEvent.objects.create(profile=Profile.objects.get(user=user), title=title, watched_at=_tz.now())
+        resp = self.client.get(reverse("activity"))
+        self.assertContains(resp, "background:#e8a63c;color:#1a1305;")
 
 
 class NotificationsAndPrivacyOnTheMergedSettingsPageTests(TestCase):
@@ -10390,19 +10599,19 @@ class NotificationsAndPrivacyOnTheMergedSettingsPageTests(TestCase):
         other_user = User.objects.create_user("movedcardother", password="pass12345")
         Profile.objects.create(user=other_user, display_name="MovedCardOther")
         resp = self.client.get(reverse("my_profile"))
-        self.assertContains(resp, "Show my activity to other profiles")
+        self.assertContains(resp, "Share my activity")
         self.assertContains(resp, reverse("save_privacy"))
 
     def test_privacy_toggle_also_on_settings_with_multiple_profiles(self):
         other_user = User.objects.create_user("movedcardother2", password="pass12345")
         Profile.objects.create(user=other_user, display_name="MovedCardOther2")
         resp = self.client.get(reverse("settings"))
-        self.assertContains(resp, "Show my activity to other profiles")
+        self.assertContains(resp, "Share my activity")
         self.assertContains(resp, reverse("save_privacy"))
 
     def test_privacy_toggle_hidden_on_single_profile_instance(self):
         resp = self.client.get(reverse("my_profile"))
-        self.assertNotContains(resp, "Show my activity to other profiles")
+        self.assertNotContains(resp, "Share my activity")
         self.assertNotContains(resp, reverse("save_privacy"))
 
 
@@ -10500,7 +10709,7 @@ class MyProfileAvatarImageTests(TestCase):
         self.assertFalse(self.profile.avatar_image)
         self.assertFalse(os.path.exists(stored_path))
 
-    def test_remove_photo_button_is_an_icon_not_text(self):
+    def test_remove_photo_is_a_text_button_beside_change_photo(self):
         upload = SimpleUploadedFile("avatar.gif", _tiny_gif_bytes(), content_type="image/gif")
         self.client.post(
             reverse("my_profile"),
@@ -10508,8 +10717,9 @@ class MyProfileAvatarImageTests(TestCase):
         )
         resp = self.client.get(reverse("my_profile"))
         self.assertContains(resp, 'name="remove_photo"')
-        self.assertContains(resp, 'd="M3 6h18"')  # trash-2 icon glyph
-        self.assertNotContains(resp, ">Remove<")
+        self.assertContains(resp, ">Remove<")
+        self.assertContains(resp, 'x-show="hasPhoto"')  # shown only while there is a photo
+        self.assertNotContains(resp, 'd="M3 6h18"')  # the old trash icon is gone
 
     def test_display_name_and_color_only_update_still_works_unaffected(self):
         self.client.post(
@@ -10543,7 +10753,10 @@ class AvatarImageRenderingTests(TestCase):
     def test_my_profile_renders_image_not_initial_fallback(self):
         resp = self.client.get(reverse("my_profile"))
         self.assertContains(resp, "background-image:url(")
-        self.assertNotContains(resp, ':style="`background:${color}')
+        # The preview avatar starts on the photo: its initial fallback is hidden.
+        self.assertContains(resp, 'x-show="!photoUrl" x-cloak')
+        self.assertNotContains(resp, 'x-show="photoUrl" x-cloak')
+        self.assertIn(self.profile.avatar_image.url, resp.context["profile_form_config"].replace("\/", "/"))
 
     def test_topbar_active_profile_renders_image_not_initial(self):
         resp = self.client.get(reverse("dashboard"))

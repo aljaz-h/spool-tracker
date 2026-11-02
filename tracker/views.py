@@ -40,7 +40,7 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.views import View
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 from itsdangerous import URLSafeTimedSerializer
 
 from . import (
@@ -73,6 +73,9 @@ from .integrations import anifiller, animelist, fanart, mdblist, myanimelist, nu
 from .watchlists import WATCHLIST_NAME, ensure_watchlist
 from .models import (
     AVATAR_COLOR_CHOICES,
+    PROFILE_AVATAR_COLORS,
+    PROFILE_BIO_MAX_LENGTH,
+    PROFILE_NAME_MAX_LENGTH,
     AdminAuditLogEntry,
     ApiToken,
     BackupDestination,
@@ -4842,6 +4845,30 @@ def _logs_tab_context(request):
     }
 
 
+def _avatar_swatches(profile):
+    """The colours Settings > Account offers: the eight in the picker, plus the
+    profile's own when it is one of the older palette's (so what they have now
+    stays selectable). [{"hex", "name"}]."""
+    swatches = [{"hex": hex_color, "name": name} for hex_color, name in PROFILE_AVATAR_COLORS]
+    if profile.avatar_color not in {s["hex"] for s in swatches}:
+        swatches.insert(0, {"hex": profile.avatar_color, "name": "Current colour"})
+    return swatches
+
+
+def _profile_now_watching(profile):
+    """The newest thing this profile watched in the last two weeks, for the
+    "How housemates see you" preview - the line the Activity feed would show.
+    Local data only (the title's stored poster and the episode numbers): the
+    Settings page makes no TMDB call for it. None when there is nothing recent."""
+    event = (
+        WatchEvent.objects.filter(profile=profile, watched_at__gte=timezone.now() - timedelta(days=14))
+        .select_related("title", "episode")
+        .order_by("-watched_at")
+        .first()
+    )
+    return event
+
+
 def _settings_page_context(request, profile):
     """Shared context for the merged Settings/My Profile/Admin Dashboard
     page - settings_view, my_profile, and admin_dashboard all render the
@@ -4852,6 +4879,7 @@ def _settings_page_context(request, profile):
     the template's own {% if profile.is_owner %} then has real data to
     gate, not just markup hidden by CSS."""
     external_accounts = {a.provider: a for a in ExternalAccount.objects.filter(profile=profile)}
+    nuvio_connection_row = NuvioConnection.objects.filter(profile=profile).first()
     other_owner_exists = Profile.objects.filter(user__is_superuser=True).exclude(pk=profile.pk).exists()
     context = {
         "profile": profile,
@@ -4863,7 +4891,7 @@ def _settings_page_context(request, profile):
         # Nuvio's connect status is per-viewer, same as Trakt/Simkl's own
         # connect status above - not admin-only, so this lives outside
         # the `if profile.is_owner:` block below.
-        "nuvio_connection": NuvioConnection.objects.filter(profile=profile).first(),
+        "nuvio_connection": nuvio_connection_row,
         "languages": DISCOVER_LANGUAGES,
         "discover_regions": DISCOVER_REGIONS,
         "landing_pages": Profile.LandingPage.choices,
@@ -4873,7 +4901,24 @@ def _settings_page_context(request, profile):
         "wetrakr_configured": bool(instance_config.get_wetrakr_credentials()[0]),
         "timezones": PROFILE_TIMEZONES,
         "server_time_zone": django_settings.TIME_ZONE,
-        "avatar_colors": AVATAR_COLOR_CHOICES,
+        "avatar_swatches": _avatar_swatches(profile),
+        "bio_max_length": PROFILE_BIO_MAX_LENGTH,
+        "name_max_length": PROFILE_NAME_MAX_LENGTH,
+        "max_avatar_bytes": MAX_AVATAR_IMAGE_SIZE,
+        "connected_apps_count": len(external_accounts) + (1 if nuvio_connection_row else 0),
+        "profile_now_watching": _profile_now_watching(profile),
+        "profile_form_config": json.dumps(
+            {
+                "name": profile.display_name,
+                "bio": profile.bio,
+                "color": profile.avatar_color,
+                "photoUrl": profile.avatar_image.url if profile.avatar_image else "",
+                "bioMax": PROFILE_BIO_MAX_LENGTH,
+                "nameMax": PROFILE_NAME_MAX_LENGTH,
+                "maxBytes": MAX_AVATAR_IMAGE_SIZE,
+                "nameCheckUrl": reverse("profile_name_check"),
+            }
+        ),
         "can_delete_own_account": not profile.is_owner or other_owner_exists,
         "api_tokens": profile.api_tokens.all(),
         "max_api_tokens": ApiToken.MAX_TOKENS_PER_PROFILE,
@@ -5358,6 +5403,33 @@ def _is_valid_image_upload(uploaded_file):
     return True
 
 
+def _display_name_problem(profile, name):
+    """Why `name` can't be this profile's display name, or "" when it can. The
+    name a profile already has is always fine (an older duplicate stays until it
+    is changed); otherwise it has to fit and be unique on the server,
+    ignoring case."""
+    if not name:
+        return "Display name is required."
+    if len(name) > PROFILE_NAME_MAX_LENGTH:
+        return f"Display name has to be {PROFILE_NAME_MAX_LENGTH} characters or fewer."
+    if name != profile.display_name and Profile.objects.filter(display_name__iexact=name).exclude(pk=profile.pk).exists():
+        return "Another profile already uses that name."
+    return ""
+
+
+@login_required
+@require_GET
+def profile_name_check(request):
+    """Settings > Account's "is this name free" check while typing. Answers
+    only yes/no and the same message the save would give - profile names are
+    already visible to everyone on the server."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    problem = _display_name_problem(profile, request.GET.get("name", "").strip())
+    return JsonResponse({"available": not problem, "message": problem or "Available"})
+
+
 @login_required
 def my_profile(request):
     profile = Profile.objects.filter(user=request.user).first()
@@ -5368,12 +5440,17 @@ def my_profile(request):
         display_name = request.POST.get("display_name", "").strip()
         avatar_color = request.POST.get("avatar_color", "").strip()
         bio = request.POST.get("bio", "").strip()
-        if not display_name:
-            messages.error(request, "Display name is required.")
+        name_error = _display_name_problem(profile, display_name)
+        if name_error:
+            messages.error(request, name_error)
+            return redirect("my_profile")
+        # An older, longer bio is kept while it is unchanged; anything new has to fit.
+        if len(bio) > PROFILE_BIO_MAX_LENGTH and bio != profile.bio:
+            messages.error(request, f"Bio has to be {PROFILE_BIO_MAX_LENGTH} characters or fewer.")
             return redirect("my_profile")
 
         profile.display_name = display_name
-        profile.bio = bio[:160]
+        profile.bio = bio
         if avatar_color in AVATAR_COLOR_CHOICES:
             profile.avatar_color = avatar_color
         update_fields = ["display_name", "avatar_color", "bio"]
@@ -5394,7 +5471,7 @@ def my_profile(request):
             update_fields.append("avatar_image")
 
         profile.save(update_fields=update_fields)
-        messages.success(request, "Profile updated.")
+        messages.success(request, "Saved.")
         return redirect("my_profile")
 
     if request.method == "POST" and request.POST.get("action") == "change_password":

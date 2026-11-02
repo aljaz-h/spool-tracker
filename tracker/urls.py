@@ -241,6 +241,7 @@ urlpatterns = [
     path("notifications/clear-all/", views.clear_all_notifications, name="clear_all_notifications"),
     path("change-credentials/", views.change_credentials, name="change_credentials"),
     path("profile/", views.my_profile, name="my_profile"),
+    path("profile/name-check/", views.profile_name_check, name="profile_name_check"),
     path("profile/delete/", views.delete_own_account, name="delete_own_account"),
     path("import/trakt/connect/", views.oauth_connect, {"provider": "trakt"}, name="trakt_connect"),
     path("import/trakt/callback/", views.oauth_callback, {"provider": "trakt"}, name="trakt_callback"),

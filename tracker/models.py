@@ -28,16 +28,33 @@ AVATAR_COLOR_CHOICES = [
 ]
 
 
+# What Settings > Account offers for a profile's avatar: eight colours that
+# are clearly different from one another (the longer palette above has pairs
+# that read as the same colour), with the name each swatch announces. A
+# profile that already has one of the other palette colours keeps it - it
+# shows as an extra swatch while it is the current one.
+PROFILE_AVATAR_COLORS = [
+    ("#e8a63c", "Amber"), ("#3fa9a0", "Teal"), ("#8b85d6", "Violet"), ("#c0473a", "Red"),
+    ("#5b8fd6", "Blue"), ("#d67ab1", "Pink"), ("#7fae5b", "Green"), ("#9a9fb0", "Grey"),
+]
+
+# Longest bio Settings takes. The column is wider (160) from before this
+# limit, so an older, longer bio is kept until it is edited.
+PROFILE_BIO_MAX_LENGTH = 80
+PROFILE_NAME_MAX_LENGTH = 50
+
+
 def random_avatar_color():
     """A new profile's starting avatar color - every profile getting the
     same fixed default read as a bug more than a feature. Prefers a color
     no *existing* profile is already using, so a small household doesn't
-    end up with two coincidentally-matching avatars; once every palette
-    color is already taken (more profiles than colors), falls back to a
-    plain random pick from the full palette."""
+    end up with two coincidentally-matching avatars; once every colour in
+    the picker is already taken (more profiles than colors), falls back to a
+    plain random pick from it."""
+    palette = [hex_color for hex_color, _name in PROFILE_AVATAR_COLORS]
     used = set(Profile.objects.values_list("avatar_color", flat=True))
-    available = [c for c in AVATAR_COLOR_CHOICES if c not in used]
-    return random.choice(available or AVATAR_COLOR_CHOICES)
+    available = [c for c in palette if c not in used]
+    return random.choice(available or palette)
 
 
 class Profile(models.Model):
@@ -67,7 +84,7 @@ class Profile(models.Model):
         STATS = "stats", "Stats"
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    display_name = models.CharField(max_length=50)
+    display_name = models.CharField(max_length=PROFILE_NAME_MAX_LENGTH)
     avatar_color = models.CharField(max_length=7, default=random_avatar_color)
     # My Profile's optional uploaded photo - takes priority over
     # avatar_color/initial everywhere an avatar renders when set; falls
