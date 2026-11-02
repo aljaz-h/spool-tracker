@@ -8,6 +8,12 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.178.1] - 2026-11-02
+
+### Fixed
+
+- The Share my activity switch no longer says "Saved" when the save didn't happen. If your session had expired, the request was bounced to the sign-in page and followed, which looked like a success. It now counts only the endpoint's own 204 as saved, and an expired session (a redirect to sign-in, or the 403 the CSRF check gives once the session is gone) puts the switch back and says the session has ended, with a link to sign in.
+
 ## [0.178.0] - 2026-11-02
 
 ### Changed

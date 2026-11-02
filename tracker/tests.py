@@ -10510,6 +10510,17 @@ class ProfileAccountFormTests(TestCase):
         self.assertContains(resp, 'role="switch"')
         self.assertContains(resp, reverse("save_privacy"))
 
+    def test_the_share_switch_only_trusts_the_endpoints_own_204(self):
+        # An expired session redirects to sign-in; a followed redirect would read as success.
+        script = open(os.path.join(os.path.dirname(__file__), "..", "static", "js", "profile-form.js"), encoding="utf-8").read()
+        self.assertIn("redirect: 'manual'", script)
+        self.assertIn("response.status !== 204", script)
+        self.assertIn("response.status === 403", script)
+        self.assertContains(self.client.get(reverse("my_profile")), "Your session has ended or this page is out of date")
+        self.assertEqual(self.client.post(reverse("save_privacy"), {"share_activity": "on"}).status_code, 204)
+        self.client.logout()
+        self.assertEqual(self.client.post(reverse("save_privacy"), {"share_activity": "on"}).status_code, 302)
+
     def test_preview_is_left_out_on_a_single_profile_server(self):
         self.other.delete()
         resp = self.client.get(reverse("my_profile"))

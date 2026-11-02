@@ -165,7 +165,7 @@
     return {
       on: cfg.on,
       busy: false,
-      status: 'idle', // idle | saved | error
+      status: 'idle', // idle | saved | error | signedout
       async save() {
         // x-model has already flipped `on`; keep that and undo it if the save fails.
         const wanted = this.on;
@@ -174,13 +174,25 @@
         try {
           const body = new FormData();
           if (wanted) body.append('share_activity', 'on');
+          // redirect: 'manual' - an expired session answers with a redirect to
+          // the sign-in page, which a followed redirect would turn into a
+          // harmless-looking 200. Only the endpoint's own 204 means it saved.
           const response = await fetch(cfg.url, {
             method: 'POST',
             body,
             credentials: 'same-origin',
+            redirect: 'manual',
             headers: { 'X-CSRFToken': cfg.csrf },
           });
-          if (!response.ok) throw new Error('save failed');
+          // A redirect, 401 or 403 (the CSRF check answers 403 once the session is
+          // gone) all mean the session has ended.
+          if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)
+              || response.status === 401 || response.status === 403) {
+            this.on = !wanted;
+            this.status = 'signedout';
+            return;
+          }
+          if (response.status !== 204) throw new Error('save failed');
           this.status = 'saved';
         } catch (error) {
           this.on = !wanted;

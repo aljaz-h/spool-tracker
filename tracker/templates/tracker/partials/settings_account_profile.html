@@ -131,6 +131,7 @@
             </label>
           </div>
           <p class="text-[12.5px] text-success mt-3" x-show="status === 'saved'" x-cloak role="status">&#10003; Saved. This setting applies right away.</p>
+          <p class="text-[12.5px] text-error mt-3" x-show="status === 'signedout'" x-cloak role="alert">Your session has ended or this page is out of date, so that wasn't saved. <a href="{% url 'login' %}" class="underline">Sign in</a> and try again.</p>
           <p class="text-[12.5px] text-error mt-3" x-show="status === 'error'" x-cloak role="alert">Couldn't save that. The setting is back to what it was - try again.</p>
         </section>
       </aside>
