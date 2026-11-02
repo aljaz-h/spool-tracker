@@ -14,14 +14,13 @@
     known_for, career, plus discover_action_context's keys.
   {% endcomment %}
 
-  <section class="pf-hero">
-    {% if backdrop_posters %}
-      <div class="pf-hero-art" aria-hidden="true">
-        {% for url in backdrop_posters %}<img src="{{ url|poster_size:"w342" }}" alt="" loading="lazy">{% endfor %}
-      </div>
-    {% endif %}
-    <div class="pf-hero-scrim" aria-hidden="true"></div>
-    <div class="pf-hero-body">
+  {# Full-width like a title page's hero (.bleed, pulled up under the top bar); the content sits on the normal page grid. The art layer is the only clipped part, so the Add-to-a-list menu below can hang out of the hero. #}
+  <section class="pf-hero bleed -mt-6 sm:-mt-8 lg:-mt-10">
+    <div class="pf-hero-art" aria-hidden="true">
+      {% for url in backdrop_posters %}<img src="{{ url|poster_size:"w342" }}" alt="" loading="lazy">{% endfor %}
+      <div class="pf-hero-scrim"></div>
+    </div>
+    <div class="page pf-hero-body">
       <div class="pf-portrait">
         {% if person.profile_url %}<img src="{{ person.profile_url|tmdb_size:"w342" }}" alt="{{ person.name }}" fetchpriority="high">{% else %}<span class="pf-portrait-empty">{% icon "user" "w-10 h-10" %}</span>{% endif %}
       </div>

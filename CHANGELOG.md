@@ -8,6 +8,12 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.177.2] - 2026-11-02
+
+### Changed
+
+- A person's page opens with a full-width header like a movie, TV or anime page's, instead of a bordered box: the portrait, name, departments, bio, actions and your stats sit on the page grid over a dimmed collage of their best-known posters, which stays to the right (behind the stats) and fades into the page at the bottom. The "Add unwatched to a list" menu is no longer at risk of being clipped by the header.
+
 ## [0.177.1] - 2026-11-02
 
 ### Fixed

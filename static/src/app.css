@@ -4287,53 +4287,67 @@ html[data-theme] {
   scrollbar-gutter: stable;
 }
 
-/* Person page (person_detail.html): header with a dimmed collage of their
-   best-known posters, Known for, a credits-per-year chart and the
-   Filmography (grid by decade, or a table). */
+/* Person page (person_detail.html): a full-width header (like a title page's)
+   over a dimmed collage of their best-known posters that fades into the page,
+   then Known for, a credits-per-year chart and the Filmography (grid by
+   decade, or a table). */
 @layer components {
   .pf-hero {
     position: relative;
-    overflow: hidden;
-    border-radius: var(--radius-2xl);
-    background: var(--color-base-200);
-    border: 1px solid var(--color-line);
   }
+  /* The collage: clipped to the hero, on the right so the text side stays
+     calm, and dissolving into the page colour at the bottom. */
   .pf-hero-art {
     position: absolute;
     inset: 0;
     display: flex;
+    overflow: hidden;
   }
   .pf-hero-art img {
     flex: 1 1 0;
     min-width: 0;
     height: 100%;
     object-fit: cover;
-    opacity: 0.55;
+    opacity: 0.32;
+  }
+  @media (min-width: 640px) {
+    .pf-hero-art img {
+      opacity: 0.5;
+    }
+  }
+  /* Wide screens: the collage keeps to the right, behind the stats, so the
+     name and bio sit on a plain background. */
+  @media (min-width: 1024px) {
+    .pf-hero-art {
+      left: 42%;
+    }
   }
   .pf-hero-scrim {
     position: absolute;
     inset: 0;
-    background: rgb(var(--scrim-rgb) / 0.82);
+    background:
+      linear-gradient(0deg, var(--color-base-100) 0%, rgb(var(--scrim-rgb) / 0.7) 22%, rgb(var(--scrim-rgb) / 0) 60%, rgb(var(--scrim-rgb) / 0.45) 100%),
+      linear-gradient(90deg, var(--color-base-100) 0%, rgb(var(--scrim-rgb) / 0.8) 22%, rgb(var(--scrim-rgb) / 0.3) 60%, rgb(var(--scrim-rgb) / 0.1) 100%);
   }
   .pf-hero-body {
     position: relative;
     display: grid;
     gap: 1.25rem;
-    padding: 1.25rem;
+    padding-block: 1.5rem 1.75rem;
     grid-template-columns: minmax(0, 1fr);
   }
   @media (min-width: 640px) {
     .pf-hero-body {
       grid-template-columns: 11rem minmax(0, 1fr);
       gap: 1.75rem;
-      padding: 1.75rem;
+      padding-block: 2rem 2.25rem;
     }
   }
   @media (min-width: 1024px) {
     .pf-hero-body {
       grid-template-columns: 14rem minmax(0, 1fr) 21rem;
-      gap: 2rem;
-      padding: 2rem;
+      gap: 2.5rem;
+      padding-block: 2.5rem 3rem;
     }
   }
   .pf-portrait {
@@ -4382,7 +4396,7 @@ html[data-theme] {
     align-self: start;
     border-radius: var(--radius-xl);
     border: 1px solid var(--color-line);
-    background: rgb(var(--scrim-rgb) / 0.6);
+    background: rgb(var(--scrim-rgb) / 0.74);
     padding: 1.25rem;
   }
   @media (min-width: 1024px) {
