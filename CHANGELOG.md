@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.180.0] - 2026-11-03
+
+### Added
+- Friends menu shows what a friend is watching: a wider menu (full width on small screens) with the title, a dot and "Watching · Movie / TV S4 E2 / Anime S14 E13" on the right of each row. The row opens the friend popup; the title is its own link to that title's page.
+- Friend popup has a "Currently watching" card (poster, title, type and episode, how long ago) that links to the title. Hidden when they aren't watching or have "Share my activity" off.
+- "Watching" comes from Nuvio only. Each Nuvio sync compares the profile's latest in-progress item with the previous sync's snapshot: progress up or a different episode means watching; nothing moved, finished, marked watched or gone from continue-watching means not. A title that appears in progress shows as watching right away, and stops once a later sync sees the same percentage. Stored on the profile, never computed on page load, and dropped after six hours without a change.
+
+### Changed
+- "Full stats →" in the friend popup is light grey instead of amber.
+
 ## [0.179.3] - 2026-11-03
 
 ### Changed

@@ -245,6 +245,17 @@ class Profile(models.Model):
     # last watched something. Touched by middleware.LastSeenMiddleware,
     # throttled there to avoid a DB write on every single request.
     last_seen_at = models.DateTimeField(null=True, blank=True)
+    # Friends menu / friend popup "Watching" state, written by the Nuvio sync
+    # (watching.refresh_nuvio_watching) and read as stored. The snapshot
+    # (title, season, episode, percent) is what the next sync compares with;
+    # is_watching is the answer from the last compare, watching_changed_at
+    # when progress last moved. See tracker/watching.py.
+    watching_title = models.ForeignKey("Title", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    watching_season = models.PositiveSmallIntegerField(null=True, blank=True)
+    watching_episode = models.PositiveSmallIntegerField(null=True, blank=True)
+    watching_percent = models.FloatField(null=True, blank=True)
+    watching_changed_at = models.DateTimeField(null=True, blank=True)
+    is_watching = models.BooleanField(default=False)
     # Calendar page's "Subscribe" button - the secret in the .ics feed
     # URL (views.calendar_feed) that stands in for login, since an
     # external calendar app fetching that URL periodically has no Spool
@@ -261,6 +272,30 @@ class Profile(models.Model):
 
     def __str__(self):
         return self.display_name
+
+    WATCHING_FRESH_FOR = datetime.timedelta(hours=6)
+
+    @property
+    def watching_now(self):
+        """The title shown as "Watching" in the Friends menu and popup, or None:
+        needs the stored flag, sharing on, and a change recent enough that a
+        stopped sync can't leave it up for days."""
+        if not (self.is_watching and self.share_activity and self.watching_title_id and self.watching_changed_at):
+            return None
+        if timezone.now() - self.watching_changed_at > self.WATCHING_FRESH_FOR:
+            return None
+        return self.watching_title
+
+    @property
+    def watching_label(self):
+        """"Movie", "TV S4 E2" or "Anime S14 E13" for watching_now."""
+        title = self.watching_now
+        if title is None:
+            return ""
+        kind = {"anime": "Anime", "tv": "TV"}.get(title.media_type, "Movie")
+        if self.watching_season and self.watching_episode:
+            return f"{kind} S{self.watching_season} E{self.watching_episode}"
+        return kind
 
     @property
     def is_owner(self):

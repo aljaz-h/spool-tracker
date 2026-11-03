@@ -36362,3 +36362,132 @@ class WrappedAllTimeTests(TestCase):
     def test_it_needs_a_login(self):
         self.client.logout()
         self.assertEqual(self.client.get(reverse("wrapped_all_time")).status_code, 302)
+
+
+class FriendsWatchingTests(TestCase):
+    """watching.refresh_nuvio_watching and where its answer shows: the Friends
+    menu row and the friend popup's "Currently watching" card."""
+
+    def setUp(self):
+        from . import watching
+        self.watching = watching
+        self.user = User.objects.create_user("watcher", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="Watcher")
+        self.viewer_user = User.objects.create_user("viewer", password="pass12345")
+        self.viewer = Profile.objects.create(user=self.viewer_user, display_name="Viewer")
+        self.show = Title.objects.create(media_type="anime", name="Frieren", year=2023, runtime_minutes=24)
+        self.ep = Episode.objects.create(title=self.show, season=14, episode=13, runtime_minutes=24)
+        self.ep2 = Episode.objects.create(title=self.show, season=14, episode=14, runtime_minutes=24)
+        self.now = timezone.now()
+
+    def _progress(self, position, episode=None, status=WatchProgress.Status.WATCHING):
+        WatchProgress.objects.update_or_create(
+            profile=self.profile, title=self.show,
+            defaults={"current_episode": episode or self.ep, "position_seconds": position,
+                      "duration_seconds": 1000, "status": status},
+        )
+
+    def _sync(self, minutes_later=0):
+        self.profile.refresh_from_db()
+        return self.watching.refresh_nuvio_watching(self.profile, now=self.now + timedelta(minutes=minutes_later))
+
+    def test_first_sync_shows_watching_then_unchanged_stops_it(self):
+        self._progress(100)
+        self.assertTrue(self._sync())
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.is_watching)
+        self.assertEqual(self.profile.watching_title, self.show)
+        self.assertEqual(self.profile.watching_percent, 10.0)
+        self.assertEqual(self.profile.watching_now, self.show)
+        self.assertFalse(self._sync(30))  # same percentage 30 minutes later
+
+    def test_progress_going_up_is_watching(self):
+        self._progress(100); self._sync()
+        self._progress(300)
+        self.assertTrue(self._sync(30))
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.watching_percent, 30.0)
+        self.assertEqual(self.profile.watching_changed_at, self.now + timedelta(minutes=30))
+
+    def test_unchanged_progress_stops_watching_and_keeps_the_change_time(self):
+        self._progress(100); self._sync()
+        self._progress(300); self._sync(30)
+        self.assertFalse(self._sync(60))
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.is_watching)
+        self.assertEqual(self.profile.watching_changed_at, self.now + timedelta(minutes=30))
+
+    def test_a_new_episode_is_watching_even_at_lower_percent(self):
+        self._progress(900); self._sync()
+        self._progress(50, episode=self.ep2)
+        self.assertTrue(self._sync(30))
+        self.profile.refresh_from_db()
+        self.assertEqual((self.profile.watching_season, self.profile.watching_episode), (14, 14))
+
+    def test_finished_or_gone_from_continue_watching_is_not_watching(self):
+        self._progress(100); self._sync()
+        self._progress(300); self.assertTrue(self._sync(30))
+        self._progress(1000, status=WatchProgress.Status.COMPLETED)
+        self.assertFalse(self._sync(60))
+        self._progress(300); self._sync(90)
+        self._progress(500); self.assertTrue(self._sync(120))
+        WatchProgress.objects.filter(profile=self.profile).delete()
+        self.assertFalse(self._sync(150))
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.is_watching)
+
+    def _make_watching(self, **extra):
+        Profile.objects.filter(pk=self.profile.pk).update(
+            watching_title=self.show, watching_season=14, watching_episode=13, watching_percent=40.0,
+            watching_changed_at=timezone.now() - timedelta(hours=3), is_watching=True, **extra)
+        self.profile.refresh_from_db()
+
+    def test_label_and_staleness(self):
+        self._make_watching()
+        self.assertEqual(self.profile.watching_label, "Anime S14 E13")
+        Profile.objects.filter(pk=self.profile.pk).update(watching_changed_at=timezone.now() - timedelta(hours=7))
+        self.profile.refresh_from_db()
+        self.assertIsNone(self.profile.watching_now)
+
+    def test_sharing_off_hides_it_everywhere(self):
+        self._make_watching(share_activity=False)
+        self.assertIsNone(self.profile.watching_now)
+        self.client.login(username="viewer", password="pass12345")
+        page = self.client.get(reverse("dashboard"))
+        self.assertNotContains(page, "Open Frieren")
+        popup = self.client.get(reverse("profile_popup", args=[self.profile.pk]))
+        self.assertNotContains(popup, "Currently watching")
+
+    def test_menu_row_and_popup_card_render_real_data(self):
+        self._make_watching()
+        self.client.login(username="viewer", password="pass12345")
+        page = self.client.get(reverse("dashboard"))
+        self.assertContains(page, 'aria-label="Open Frieren"')
+        self.assertContains(page, reverse("title_detail", args=[self.show.pk]))
+        self.assertContains(page, "Anime S14 E13")
+        popup = self.client.get(reverse("profile_popup", args=[self.profile.pk]))
+        self.assertContains(popup, "Currently watching")
+        self.assertContains(popup, "Frieren")
+        self.assertContains(popup, "3 hours ago")
+        self.assertContains(popup, reverse("title_detail", args=[self.show.pk]))
+
+    def test_not_watching_shows_neither(self):
+        self.client.login(username="viewer", password="pass12345")
+        page = self.client.get(reverse("dashboard"))
+        self.assertNotContains(page, "Open Frieren")
+        popup = self.client.get(reverse("profile_popup", args=[self.profile.pk]))
+        self.assertNotContains(popup, "Currently watching")
+
+    def test_all_friends_load_in_one_query(self):
+        self._make_watching()
+        for i in range(3):
+            u = User.objects.create_user(f"extra{i}", password="pass12345")
+            Profile.objects.create(user=u, display_name=f"Extra{i}", watching_title=self.show, is_watching=True, watching_changed_at=timezone.now())
+        request = RequestFactory().get("/")
+        request.user = self.viewer_user
+        from .context_processors import active_profile
+        friends = active_profile(request)["other_profiles"]
+        with self.assertNumQueries(1):
+            rows = [(f.display_name, f.watching_now, f.watching_label) for f in friends]
+        self.assertEqual(len(rows), 4)
+        self.assertTrue(all(row[1] == self.show for row in rows))

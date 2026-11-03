@@ -1,0 +1,35 @@
+{% load tracker_extras %}
+{# One friend in the Friends menu. context: p (a Profile from other_profiles, watching_title already joined), close (the Alpine statement that shuts the menu), stacked (true in the mobile sheet: the watching text goes under the name instead of in a right-hand column). The row opens the friend popup; the title on the right is its own link, a separate 44px target, so no link sits inside the button. Both read p.watching_now, which is empty when they aren't watching or have "Share my activity" off. #}
+{% with watching=p.watching_now %}
+<div class="flex items-stretch gap-1 rounded-lg hover:bg-base-300 {% if stacked %}hover:!bg-base-200{% endif %}">
+  <button
+    type="button"
+    @click="{{ close }}"
+    onclick="profile_popup_modal.showModal()"
+    hx-get="{% url 'profile_popup' p.id %}"
+    hx-target="#profile-popup-content"
+    hx-swap="innerHTML"
+    {% if not stacked %}title="{{ p.display_name }}"{% endif %}
+    class="flex-1 min-w-0 flex items-center gap-2.5 px-3 py-2 text-left cursor-pointer"
+  >
+    <div
+      class="w-8 h-8 rounded-full flex-none flex items-center justify-center font-mono text-xs font-semibold {% if p.avatar_image %}bg-cover bg-center{% endif %}"
+      style="{% if p.avatar_image %}background-image:url('{{ p.avatar_image.url }}'){% else %}background:{{ p.avatar_color }};color:{{ p.avatar_color|on_color }};{% endif %}"
+    >{% if not p.avatar_image %}{{ p.display_name|first|upper }}{% endif %}</div>
+    <div class="min-w-0 flex-1">
+      <div class="text-sm font-medium truncate">{{ p.display_name }}</div>
+      {% if watching and stacked %}
+        <div class="text-[12px] text-ink-dim truncate"><span class="inline-block w-1.5 h-1.5 rounded-full bg-success align-middle mr-1" aria-hidden="true"></span>Watching {{ watching.name }} &middot; {{ p.watching_label }}</div>
+      {% else %}
+        <div class="text-[12px] text-ink-faint">{% if p.last_seen_at %}Active {{ p.last_seen_at|timesince }} ago{% else %}No activity yet{% endif %}</div>
+      {% endif %}
+    </div>
+  </button>
+  {% if watching and not stacked %}
+    <a href="{% url 'title_detail' watching.pk %}" aria-label="Open {{ watching.name }}" class="flex-none w-56 min-h-11 flex flex-col justify-center px-3 text-right hover:underline">
+      <span class="text-sm font-medium truncate">{{ watching.name }}</span>
+      <span class="text-[12px] text-ink-dim truncate"><span class="inline-block w-1.5 h-1.5 rounded-full bg-success align-middle mr-1" aria-hidden="true"></span>Watching &middot; {{ p.watching_label }}</span>
+    </a>
+  {% endif %}
+</div>
+{% endwith %}

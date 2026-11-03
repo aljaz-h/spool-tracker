@@ -129,7 +129,8 @@
           this.$nextTick(() => {
             const rect = button.getBoundingClientRect();
             const panel = this.$refs.panel;
-            const width = 256;
+            const width = Math.min(540, window.innerWidth - 16);
+            panel.style.width = width + 'px';
             panel.style.left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)) + 'px';
             panel.style.top = (rect.bottom + 8) + 'px';
           });
@@ -148,28 +149,10 @@
         >
           {% icon "users" "w-[18px] h-[18px]" %}
         </button>
-        <div x-ref="panel" x-cloak :class="{'spool-popover-open': open}" class="spool-popover menu-surface fixed w-64 z-40 py-1">
+        <div x-ref="panel" x-cloak :class="{'spool-popover-open': open}" class="spool-popover menu-surface fixed z-40 py-1 px-1">
           <div class="px-3 pt-2 pb-1.5 text-xs font-semibold text-ink-dim">Friends</div>
           {% for p in other_profiles %}
-            <button
-              type="button"
-              @click="open = false"
-              onclick="profile_popup_modal.showModal()"
-              hx-get="{% url 'profile_popup' p.id %}"
-              hx-target="#profile-popup-content"
-              hx-swap="innerHTML"
-              title="{{ p.display_name }}"
-              class="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-base-300 text-left cursor-pointer"
-            >
-              <div
-                class="w-8 h-8 rounded-full flex-none flex items-center justify-center font-mono text-xs font-semibold {% if p.avatar_image %}bg-cover bg-center{% endif %}"
-                style="{% if p.avatar_image %}background-image:url('{{ p.avatar_image.url }}'){% else %}background:{{ p.avatar_color }};color:{{ p.avatar_color|on_color }};{% endif %}"
-              >{% if not p.avatar_image %}{{ p.display_name|first|upper }}{% endif %}</div>
-              <div class="min-w-0 flex-1">
-                <div class="text-sm font-medium truncate">{{ p.display_name }}</div>
-                <div class="text-[12px] text-ink-faint">{% if p.last_seen_at %}Active {{ p.last_seen_at|timesince }} ago{% else %}No activity yet{% endif %}</div>
-              </div>
-            </button>
+            {% include "tracker/partials/friend_row.html" with p=p close="open = false" %}
           {% endfor %}
         </div>
       </div>

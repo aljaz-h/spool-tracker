@@ -35,7 +35,7 @@ def active_profile(request):
             if profile.is_owner:
                 latest_available_version = update_check.available_version()
     all_profiles = Profile.objects.all()
-    other_profiles = all_profiles.exclude(pk=profile.pk) if profile is not None else all_profiles
+    other_profiles = (all_profiles.exclude(pk=profile.pk) if profile is not None else all_profiles).select_related("watching_title")
     return {
         "active_profile": profile,
         "all_profiles": all_profiles,

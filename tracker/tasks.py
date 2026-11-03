@@ -25,6 +25,7 @@ from . import (
     tvtime_import,
     update_check,
     version,
+    watching,
     wetrakr_push,
 )
 from .integrations import animelist, fanart, mdblist, myanimelist, nuvio, simkl, tmdb, tmdb_account, trakt, tvmaze, wetrakr
@@ -234,6 +235,11 @@ def sync_nuvio_history(profile_id):
     created = _run_sync(connection.profile, ExternalAccount.Provider.NUVIO, fetch_and_upsert)
     connection.last_synced_at = timezone.now()
     connection.save(update_fields=["last_synced_at"])
+    try:
+        # Friends menu "Watching" state - never allowed to fail the sync itself.
+        watching.refresh_nuvio_watching(connection.profile)
+    except Exception:
+        logger.exception("sync_nuvio_history: could not refresh the watching state for profile %s", profile_id)
     logger.info("sync_nuvio_history: profile %s, %d new watch events", profile_id, created)
     return created
 

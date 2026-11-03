@@ -12,7 +12,7 @@
       <div class="text-[13px] text-ink-dim">Member since {{ target.created_at|date:"F Y" }}</div>
     </div>
     {% if not private %}
-      <a href="{% url 'member_stats' target.pk %}" class="flex-none text-[13px] font-semibold text-primary hover:underline">Full stats &rarr;</a>
+      <a href="{% url 'member_stats' target.pk %}" class="flex-none text-[13px] font-semibold text-ink-dim hover:text-base-content hover:underline">Full stats &rarr;</a>
     {% endif %}
     <form method="dialog" class="flex-none">
       <button class="btn btn-sm btn-circle btn-ghost" aria-label="Close" autofocus>{% icon "x" "w-4 h-4" %}</button>
@@ -22,6 +22,19 @@
   {% if private %}
     <p class="mt-5 pt-5 border-t border-line text-[13px] text-ink-dim">{{ target.display_name }} keeps their activity private.</p>
   {% else %}
+
+    {% with watching=target.watching_now %}
+      {% if watching %}
+        <a href="{% url 'title_detail' watching.pk %}" aria-label="Open {{ watching.name }}" class="mt-5 flex items-center gap-3 rounded-xl bg-base-300 p-3 hover:bg-base-200">
+          {% if watching.poster_url %}<img src="{{ watching.poster_url|tmdb_size:"w92" }}" alt="" width="40" height="60" loading="lazy" class="w-10 h-[60px] rounded object-cover flex-none">{% else %}<div class="w-10 h-[60px] rounded bg-base-200 flex-none" aria-hidden="true"></div>{% endif %}
+          <div class="min-w-0 flex-1">
+            <div class="text-xs font-semibold text-ink-dim">Currently watching</div>
+            <div class="text-sm font-semibold truncate">{{ watching.name }}</div>
+            <div class="text-[12px] text-ink-dim truncate">{{ target.watching_label }}{% if target.watching_changed_at %} &middot; {{ target.watching_changed_at|timesince }} ago{% endif %}</div>
+          </div>
+        </a>
+      {% endif %}
+    {% endwith %}
 
     {% if you_and %}
       <section class="mt-5 pt-5 border-t border-line" aria-label="You and {{ target.display_name }}">
