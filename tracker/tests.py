@@ -13951,6 +13951,120 @@ class TmdbWatchProviderCatalogTests(TestCase):
         self.assertEqual(tmdb.watch_provider_catalog("movie"), [])
 
 
+class StreamingServiceGroupingTests(TestCase):
+    """TMDB lists every plan and storefront of a streaming service as its own
+    provider (Paramount Plus, Premium, Essential, ...). Spool shows one service,
+    in the pickers, in a title's "Where to watch" and behind the filters."""
+
+    def test_provider_family_strips_plans_and_channels_but_not_real_products(self):
+        family = tmdb.provider_family
+        self.assertEqual(family("Paramount Plus"), "Paramount Plus")
+        self.assertEqual(family("Paramount Plus Premium"), "Paramount Plus")
+        self.assertEqual(family("Paramount Plus Essential"), "Paramount Plus")
+        self.assertEqual(family("Paramount Plus Apple TV Channel"), "Paramount Plus")
+        self.assertEqual(family("Peacock Premium Plus"), "Peacock")
+        self.assertEqual(family("Peacock Premium"), "Peacock")
+        self.assertEqual(family("Crunchyroll Amazon Channel"), "Crunchyroll")
+        # different products, not plans of the plain service
+        for unchanged in ("YouTube Premium", "YouTube", "Netflix Kids", "Apple TV Store", "Disney Plus", "HBO Max"):
+            self.assertEqual(family(unchanged), unchanged)
+
+    def test_a_plus_sign_and_the_word_plus_are_the_same_service(self):
+        self.assertEqual(tmdb.provider_key("Paramount+"), tmdb.provider_key("Paramount Plus Premium"))
+        self.assertEqual(tmdb.provider_key("Paramount+ Amazon Channel"), tmdb.provider_key("Paramount Plus"))
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_the_catalog_lists_one_entry_per_service_carrying_every_id(self, mock_get):
+        response = Mock()
+        response.json.return_value = {
+            "results": [
+                {"provider_id": 8, "provider_name": "Netflix", "logo_path": None, "display_priority": 0},
+                {"provider_id": 531, "provider_name": "Paramount Plus Premium", "logo_path": "/prem.jpg", "display_priority": 1},
+                {"provider_id": 532, "provider_name": "Paramount Plus Essential", "logo_path": "/ess.jpg", "display_priority": 2},
+                {"provider_id": 530, "provider_name": "Paramount Plus", "logo_path": "/plain.jpg", "display_priority": 3},
+                {"provider_id": 387, "provider_name": "Peacock Premium Plus", "logo_path": None, "display_priority": 4},
+                {"provider_id": 386, "provider_name": "Peacock Premium", "logo_path": None, "display_priority": 5},
+            ]
+        }
+        response.raise_for_status = Mock()
+        mock_get.return_value = response
+        providers = tmdb.watch_provider_catalog("movie", region="US")
+        self.assertEqual([p["name"] for p in providers], ["Netflix", "Paramount Plus", "Peacock"])
+        paramount = providers[1]
+        self.assertEqual(sorted(paramount["ids"]), [530, 531, 532])
+        self.assertEqual(paramount["id"], 530)  # the plain service's own id and logo stand for it
+        self.assertTrue(paramount["logo_url"].endswith("/plain.jpg"))
+        self.assertEqual(sorted(providers[2]["ids"]), [386, 387])
+
+    def test_a_pick_expands_to_every_plan_whichever_id_was_stored(self):
+        catalog = [
+            {"id": 530, "ids": [531, 532, 530], "name": "Paramount Plus", "logo_url": None},
+            {"id": 8, "name": "Netflix", "logo_url": None},  # an entry from before grouping
+        ]
+        self.assertEqual(tmdb.expand_provider_ids([530], catalog), [531, 532, 530])
+        self.assertEqual(tmdb.expand_provider_ids([532], catalog), [531, 532, 530])  # an older pick of one plan
+        self.assertEqual(tmdb.expand_provider_ids([8, 530], catalog), [8, 531, 532, 530])
+        self.assertEqual(tmdb.expand_provider_ids([999], catalog), [999])  # unknown ids pass through
+        self.assertEqual(tmdb.expand_provider_ids([], catalog), [])
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_where_to_watch_shows_a_service_once(self, mock_get):
+        response = Mock()
+        response.json.return_value = {
+            "results": {
+                "US": {
+                    "flatrate": [
+                        {"provider_name": "Paramount Plus", "logo_path": "/a.jpg"},
+                        {"provider_name": "Paramount Plus Premium", "logo_path": "/b.jpg"},
+                        {"provider_name": "Paramount Plus Essential", "logo_path": "/c.jpg"},
+                        {"provider_name": "Paramount+ Amazon Channel", "logo_path": "/d.jpg"},
+                        {"provider_name": "Hulu", "logo_path": "/h.jpg"},
+                    ],
+                    "ads": [{"provider_name": "Peacock Premium", "logo_path": "/p.jpg"}, {"provider_name": "Peacock Premium Plus", "logo_path": "/q.jpg"}],
+                }
+            }
+        }
+        response.raise_for_status = Mock()
+        mock_get.return_value = response
+        providers = tmdb.get_watch_providers("movie", 42)
+        self.assertEqual([p["name"] for p in providers], ["Paramount Plus", "Hulu", "Peacock"])
+        self.assertTrue(providers[0]["logo_url"].endswith("/a.jpg"))  # the first one's logo
+
+    @patch("tracker.integrations.tmdb.discover_by_decades")
+    @patch("tracker.integrations.tmdb.genres", return_value=[])
+    @patch("tracker.integrations.tmdb.watch_provider_catalog")
+    def test_picking_a_service_filters_on_all_its_plans(self, mock_catalog, _genres, mock_discover):
+        mock_catalog.return_value = [
+            {"id": 530, "ids": [531, 532, 530], "name": "Paramount Plus", "logo_url": None},
+            {"id": 8, "ids": [8], "name": "Netflix", "logo_url": None},
+        ]
+        mock_discover.return_value = {"results": [], "total_pages": 1}
+        user = User.objects.create_user("grouppicker", password="pass12345")
+        Profile.objects.create(user=user, display_name="GroupPicker")
+        self.client.login(username="grouppicker", password="pass12345")
+        resp = self.client.get(reverse("movies", args=["popular"]), {"filters_submitted": "1", "provider": "530"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(mock_discover.call_args.kwargs["watch_providers"], [531, 532, 530])
+        self.assertEqual(resp.context["selected_providers"], {530})
+
+    @patch("tracker.integrations.tmdb.watch_provider_catalog")
+    @patch("tracker.integrations.tmdb.genres", return_value=[{"id": 18, "name": "Drama"}])
+    def test_the_preferences_chip_is_picked_when_any_plan_of_the_service_was_saved(self, _genres, mock_catalog):
+        mock_catalog.return_value = [
+            {"id": 530, "ids": [531, 532, 530], "name": "Paramount Plus", "logo_url": None},
+            {"id": 8, "ids": [8], "name": "Netflix", "logo_url": None},
+        ]
+        user = User.objects.create_user("groupprefs", password="pass12345")
+        profile = Profile.objects.create(user=user, display_name="GroupPrefs", preferred_provider_ids=[532])
+        self.client.login(username="groupprefs", password="pass12345")
+        resp = self.client.get(reverse("discover_preference_options"))
+        providers = {p["name"]: p["selected"] for p in resp.context["discover_providers"]}
+        self.assertEqual(providers, {"Paramount Plus": True, "Netflix": False})
+        self.assertContains(resp, 'value="530" class="sr-only" checked')
+
+
 class TmdbDiscoverByDecadesTests(TestCase):
     """discover_by_decades - Year filter's genre-style multi-select
     ("1980s or 2020s"), implemented as one real discover() call per

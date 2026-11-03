@@ -1585,11 +1585,16 @@ def get_watch_providers(media_type, tmdb_id, region="US", api_key=None):
     for key in ("flatrate", "free", "ads"):
         for p in region_data.get(key) or []:
             name = p.get("provider_name")
-            if not name or name in seen:
+            if not name:
                 continue
-            seen.add(name)
+            # One entry per service: Paramount Plus, its Premium and Essential
+            # plans and its Amazon/Apple TV channel are all "Paramount Plus".
+            family = provider_family(name)
+            if provider_key(name) in seen:
+                continue
+            seen.add(provider_key(name))
             logo_path = p.get("logo_path")
-            providers.append({"name": name, "logo_url": f"{PROFILE_BASE}{logo_path}" if logo_path else None})
+            providers.append({"name": family, "logo_url": f"{PROFILE_BASE}{logo_path}" if logo_path else None})
     return providers[:6]
 
 
@@ -1681,6 +1686,64 @@ def get_backdrops(media_type, tmdb_id, limit=12, api_key=None):
 
 _PROVIDER_BUNDLE_NAME_MARKERS = ("channel", "with ads")  # see watch_provider_catalog's own docstring
 
+# TMDB lists every plan and every storefront a service is sold through as its
+# own "provider" - "Paramount Plus", "Paramount Plus Premium", "Paramount Plus
+# Essential", "Paramount Plus Apple TV Channel" - which is the same service to
+# anyone choosing where to watch. provider_family() names the service; the
+# catalog and a title's "Where to watch" show it once.
+_PROVIDER_CHANNEL_SUFFIX = re.compile(
+    r"\s+(?:amazon|apple tv|roku premium|roku|hulu|youtube|prime video)\s+channel$", re.IGNORECASE
+)
+_PROVIDER_TIER_SUFFIX = re.compile(r"\s+(?:premium plus|premium|essentials?|basic|standard)$", re.IGNORECASE)
+# A tier word that is really a different product, so not a plan of the plain service.
+_PROVIDER_NOT_A_TIER = frozenset({"youtube premium"})
+
+
+def provider_family(name):
+    """The service behind a TMDB provider name: "Paramount Plus Premium" and
+    "Paramount Plus Apple TV Channel" -> "Paramount Plus", "Peacock Premium
+    Plus" -> "Peacock". A name with no plan or storefront suffix comes back
+    unchanged."""
+    base = (name or "").strip()
+    if base.lower() in _PROVIDER_NOT_A_TIER:
+        return base
+    base = _PROVIDER_CHANNEL_SUFFIX.sub("", base)
+    while True:
+        stripped = _PROVIDER_TIER_SUFFIX.sub("", base)
+        if not stripped or stripped == base:
+            return base
+        base = stripped
+
+
+def provider_key(name):
+    """What makes two provider names the same service: the family name, case-
+    and spacing-insensitive, with "+" read as "Plus" ("Paramount+" is "Paramount
+    Plus")."""
+    return " ".join(provider_family(name).lower().replace("+", " plus ").split())
+
+
+def provider_ids_of(provider):
+    """Every TMDB provider id behind one catalog entry (an entry made before
+    grouping existed has just its own "id")."""
+    return list(provider.get("ids") or [provider["id"]])
+
+
+def expand_provider_ids(selected_ids, catalog):
+    """The ids to send TMDB for a picked set of providers: each pick stands for
+    its whole service (every plan), whichever of its ids was stored. An id the
+    catalog doesn't know is kept as it is."""
+    by_member = {}
+    for provider in catalog or []:
+        ids = provider_ids_of(provider)
+        for member in ids:
+            by_member[member] = ids
+    expanded = []
+    for picked in selected_ids or []:
+        for provider_id in by_member.get(picked, [picked]):
+            if provider_id not in expanded:
+                expanded.append(provider_id)
+    return expanded
+
 
 def watch_provider_catalog(media_type, region="US", api_key=None):
     """[{"id", "name", "logo_url"}, ...] TMDB's streaming-provider catalog
@@ -1705,7 +1768,7 @@ def watch_provider_catalog(media_type, region="US", api_key=None):
     api_key - see get_credits' own docstring."""
     data = _list_request(f"watch/providers/{media_type}", {"watch_region": region}, api_key=api_key)
     results = sorted(data.get("results") or [], key=lambda p: p.get("display_priority", 999))
-    providers = []
+    families = {}  # provider_key(name) -> its entry, in priority order
     for p in results:
         provider_id = p.get("provider_id")
         name = p.get("provider_name")
@@ -1714,9 +1777,24 @@ def watch_provider_catalog(media_type, region="US", api_key=None):
         lowered = name.lower()
         if any(marker in lowered for marker in _PROVIDER_BUNDLE_NAME_MARKERS):
             continue
+        family = provider_family(name)
         logo_path = p.get("logo_path")
-        providers.append({"id": provider_id, "name": name, "logo_url": f"{PROFILE_BASE}{logo_path}" if logo_path else None})
-    return providers
+        key = provider_key(name)
+        entry = families.get(key)
+        if entry is None:
+            families[key] = {
+                "id": provider_id, "ids": [provider_id], "name": family,
+                "logo_url": f"{PROFILE_BASE}{logo_path}" if logo_path else None,
+            }
+            continue
+        entry["ids"].append(provider_id)
+        # The plain service's own id and logo stand for the group when it is listed.
+        if name.strip() == family:
+            entry["id"] = provider_id
+            entry["name"] = family
+            if logo_path:
+                entry["logo_url"] = f"{PROFILE_BASE}{logo_path}"
+    return list(families.values())
 
 
 # --- Person detail page (tracker/views.person_detail) -------------------

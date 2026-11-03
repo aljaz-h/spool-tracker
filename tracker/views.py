@@ -429,6 +429,11 @@ def discover(request, media_type, category):
     if is_anime:
         genre_ids = list({*genre_ids, tmdb.ANIMATION_GENRE_ID})
     region = profile.preferred_region if profile else "US"
+    # The provider catalog is cached for hours, so it is read first here: what is
+    # picked is a service ("Paramount Plus"), and TMDB needs every plan's id behind it.
+    api_key = instance_config.get_tmdb_api_key()
+    providers = tmdb.watch_provider_catalog(tmdb_media_type, region=region, api_key=api_key)
+    selected_providers = {p["id"] for p in providers if set(tmdb.provider_ids_of(p)) & set(provider_ids)}
 
     # request.GET.get's own default only kicks in when the key is missing
     # entirely - an explicit ?language= (including "" for "Any language",
@@ -468,7 +473,7 @@ def discover(request, media_type, category):
         "certification": selected_certification or None,
         "status": selected_status or None,
         "availability": selected_availability or None,
-        "watch_providers": provider_ids or None,
+        "watch_providers": tmdb.expand_provider_ids(provider_ids, providers) or None,
         "region": region,
     }
     if is_anime:
@@ -502,18 +507,15 @@ def discover(request, media_type, category):
     # after another. api_key resolved once here, not by each of the three
     # worker threads independently - same reasoning as every other
     # parallel-TMDB-call site in this app.
-    api_key = instance_config.get_tmdb_api_key()
-    with ThreadPoolExecutor(max_workers=3) as executor:
+    with ThreadPoolExecutor(max_workers=2) as executor:
         page_future = executor.submit(
             tmdb.discover_by_decades,
             tmdb_media_type, category=category, page=page_num, decades=decades, page_size=page_size,
             api_key=api_key, **filters,
         )
         genre_catalog_future = executor.submit(tmdb.genres, tmdb_media_type, api_key=api_key)
-        providers_future = executor.submit(tmdb.watch_provider_catalog, tmdb_media_type, region=region, api_key=api_key)
         page = page_future.result()
         genre_catalog = genre_catalog_future.result()
-        providers = providers_future.result()
 
     # Every result carries genre_ids, not names (see tmdb._normalize_result's
     # own comment) - resolved here against the same genre catalog the
@@ -547,7 +549,7 @@ def discover(request, media_type, category):
         "genres": genre_catalog,
         "selected_genres": set(genre_ids),
         "providers": providers,
-        "selected_providers": set(provider_ids),
+        "selected_providers": selected_providers,
         "decade_options": tmdb.decades_through_now(),
         "selected_decades": set(decades),
         "runtime_buckets": DISCOVER_RUNTIME_BUCKETS,
@@ -5054,10 +5056,15 @@ def discover_preference_options(request):
             logging.getLogger(__name__).exception("discover_preference_options: TMDB lookup failed")
             return []
 
+    providers = safely(lambda: tmdb.watch_provider_catalog("movie", region=profile.preferred_region))
+    saved = set(profile.preferred_provider_ids or [])
+    for provider in providers:
+        # Picked if any of the service's plans was saved (an older pick may be a plan's id).
+        provider["selected"] = bool(set(tmdb.provider_ids_of(provider)) & saved)
     context = {
         "profile": profile,
         "discover_genres": safely(lambda: tmdb.genres("movie")),
-        "discover_providers": safely(lambda: tmdb.watch_provider_catalog("movie", region=profile.preferred_region)),
+        "discover_providers": providers,
     }
     return render(request, "tracker/partials/discover_preference_options.html", context)
 

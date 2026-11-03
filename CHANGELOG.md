@@ -8,6 +8,13 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.179.2] - 2026-11-03
+
+### Fixed
+
+- A streaming service is shown once. TMDB lists each plan and storefront as its own provider, so a title's "Where to watch" could show Paramount Plus five times (Paramount Plus, Premium, Essential and its Amazon and Apple TV channels), and Settings > Preferences offered Paramount Plus Premium and Paramount Plus Essential, and Peacock Premium and Peacock Premium Plus, as separate services. They are now one entry each ("Paramount Plus", "Peacock"): in the Streaming services chips, in the Discover filter and in "Where to watch".
+- Picking a service filters on all of its plans, so choosing Paramount Plus still finds titles on any Paramount Plus tier, and a service you picked before this (saved as one plan's id) shows as picked. Products that only share a name stay separate (YouTube Premium is not YouTube, Netflix Kids is not Netflix).
+
 ## [0.179.1] - 2026-11-03
 
 ### Fixed

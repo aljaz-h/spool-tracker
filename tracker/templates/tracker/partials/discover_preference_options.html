@@ -34,7 +34,7 @@
         <input type="hidden" name="preferred_provider_ids_submitted" value="1">
         {% for p in discover_providers|slice:":10" %}
           <label class="s-chip !pl-2">
-            <input type="checkbox" name="preferred_provider_ids" value="{{ p.id }}" class="sr-only" {% if p.id in profile.preferred_provider_ids %}checked{% endif %}>
+            <input type="checkbox" name="preferred_provider_ids" value="{{ p.id }}" class="sr-only" {% if p.selected %}checked{% endif %}>
             {% if p.logo_url %}<img src="{{ p.logo_url|tmdb_size:"w45" }}" alt="" width="20" height="20" loading="lazy" class="w-5 h-5 rounded">{% endif %}
             {% icon "check" "s-chip-check w-3.5 h-3.5" %}{{ p.name }}
           </label>
@@ -42,7 +42,7 @@
         {% if discover_providers|length > 10 %}
           {% for p in discover_providers|slice:"10:" %}
             <label x-show="showAllProviders" x-cloak class="s-chip !pl-2">
-              <input type="checkbox" name="preferred_provider_ids" value="{{ p.id }}" class="sr-only" {% if p.id in profile.preferred_provider_ids %}checked{% endif %}>
+              <input type="checkbox" name="preferred_provider_ids" value="{{ p.id }}" class="sr-only" {% if p.selected %}checked{% endif %}>
               {% if p.logo_url %}<img src="{{ p.logo_url|tmdb_size:"w45" }}" alt="" width="20" height="20" loading="lazy" class="w-5 h-5 rounded">{% endif %}
               {% icon "check" "s-chip-check w-3.5 h-3.5" %}{{ p.name }}
             </label>
