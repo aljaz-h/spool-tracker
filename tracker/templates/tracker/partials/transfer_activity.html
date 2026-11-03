@@ -5,15 +5,16 @@
   {% if transfer_polling %}hx-get="{% url 'transfer_activity' %}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}
 >
   {% if transfer_sessions or running_backups %}
-    <div class="settings-panel">
-      <div class="flex items-center justify-between gap-3 mb-1">
-        <h3 class="text-lg">Activity</h3>
-        {% if transfer_polling %}<span class="chip chip-primary">In progress</span>{% endif %}
+    <section class="s-section">
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <h3 class="s-section-title !mb-0">Activity</h3>
+        {% if transfer_polling %}<span class="s-badge is-off">In progress</span>{% endif %}
       </div>
-      <div class="text-ink-dim text-xs mb-1">Imports and backups keep running if you leave this page - you'll get a notification when there's something to do.</div>
+      <p class="s-section-desc !mt-0">Imports and backups keep running if you leave this page. You'll get a notification when there's something to do.</p>
+      <div class="s-card">
 
       {% for b in running_backups %}
-        <div class="py-3 border-t border-line">
+        <div class="px-5 py-3.5 border-b border-line last:border-b-0">
           <div class="flex items-center gap-3">
             <span class="text-info flex-none">{% icon "server" "w-4 h-4" %}</span>
             <div class="flex-1 min-w-0 text-sm font-semibold truncate">Backing up to {{ b.get_kind_display }}</div>
@@ -24,7 +25,7 @@
       {% endfor %}
 
       {% for s in transfer_sessions %}
-        <div class="py-3 border-t border-line">
+        <div class="px-5 py-3.5 border-b border-line last:border-b-0">
           <div class="flex items-center gap-3">
             <span class="flex-none {% if s.status == 'failed' %}text-error{% elif s.status == 'completed' %}text-success{% else %}text-primary{% endif %}">{% if s.status == 'completed' %}{% icon "check" "w-4 h-4" %}{% elif s.status == 'failed' %}{% icon "triangle-alert" "w-4 h-4" %}{% else %}{% icon "upload" "w-4 h-4" %}{% endif %}</span>
             <div class="flex-1 min-w-0">
@@ -32,11 +33,11 @@
               <div class="text-xs {% if s.status == 'failed' %}text-error{% else %}text-ink-dim{% endif %} truncate">{{ s.progress_text }} &middot; started {{ s.created_at|timesince }} ago</div>
             </div>
             {% if s.status == 'ready' %}
-              <a href="{% url 'import_review' s.id %}" class="btn btn-sm btn-primary flex-none">Review</a>
+              <a href="{% url 'import_review' s.id %}" class="s-btn flex-none">Review</a>
             {% elif s.status == 'scanning' or s.status == 'importing' %}
-              <a href="{% url 'import_review' s.id %}" class="btn btn-sm btn-soft flex-none">Open</a>
+              <a href="{% url 'import_review' s.id %}" class="s-btn flex-none">Open</a>
             {% else %}
-              <a href="{% url 'import_review' s.id %}" class="btn btn-sm btn-ghost flex-none">View</a>
+              <a href="{% url 'import_review' s.id %}" class="s-btn s-btn-ghost flex-none">View</a>
             {% endif %}
           </div>
           {% if s.status == 'scanning' or s.status == 'importing' %}
@@ -50,6 +51,7 @@
           {% endif %}
         </div>
       {% endfor %}
-    </div>
+      </div>
+    </section>
   {% endif %}
 </div>

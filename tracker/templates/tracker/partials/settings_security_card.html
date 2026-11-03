@@ -1,5 +1,5 @@
 {% load icons tracker_extras %}
-{# context: profile, totp_qr_data_uri/totp_secret_display (only when not yet enabled), backup_codes_to_show (only right after enabling, this once), error (str, optional - a rejected code/password/rate-limit, not Django's messages framework, see _security_card_context's own docstring for why) #}
+{# context: profile, totp_qr_data_uri/totp_secret_display (only when not yet enabled), backup_codes_to_show (only right after enabling, this once), error (str, optional - a rejected code/password/rate-limit, not Django's messages framework, see _security_card_context) #}
 {% comment %}
 Standalone HTMX-swappable card (setup/verify/disable all re-render this
 same partial via hx-target="#totp-card" hx-swap="outerHTML"), same shape
@@ -12,64 +12,83 @@ that hands back the codes, so checking totp_enabled before this would
 always win and the one-time reveal would never actually render (caught
 live by a test asserting on it, not by inspection - an easy trap since
 both conditions really are simultaneously true on that one response);
-plain enabled (just a status line + a password-gated Disable form); not
+plain enabled (the standard On badge + a password-gated Turn off); not
 yet enabled (QR + manual-entry secret + a code field to confirm setup).
+The page already has one amber primary (Change password), so Turn on is a
+secondary button.
 {% endcomment %}
-<div id="totp-card" class="settings-panel">
-  <h3 class="text-lg mb-1">Two-factor authentication</h3>
-  <div class="text-ink-dim text-xs mb-3">Require a code from an authenticator app (Google Authenticator, Authy, 1Password, …) in addition to your password when signing in.</div>
-
+<div id="totp-card" class="s-card">
   {% if error %}
-    <div class="text-sm text-error bg-error/10 border border-error/20 rounded-lg px-3.5 py-2.5 mb-3">{{ error }}</div>
+    <div class="text-[13px] text-error bg-error/10 border-b border-error/20 px-5 py-3" role="alert">{{ error }}</div>
   {% endif %}
 
   {% if backup_codes_to_show %}
-    <div class="flex items-center gap-2 text-sm text-success font-semibold mb-3">{% icon "shield" "w-4 h-4" %} 2FA is now on</div>
-    <div class="text-xs text-ink-dim mb-2">Save these backup codes somewhere safe - each one works once, if you ever lose access to your authenticator app. They won't be shown again.</div>
-    <div class="grid grid-cols-2 gap-1.5 font-mono text-xs bg-base-300 rounded-lg p-3 mb-3">
-      {% for code in backup_codes_to_show %}<div>{{ code }}</div>{% endfor %}
+    <div class="p-5">
+      <div class="flex items-center gap-2.5 mb-1">
+        <span class="text-[15px] font-semibold">Authenticator app</span>
+        {% include "tracker/partials/status_badge.html" with kind="on" label="2FA is now on" %}
+      </div>
+      <p class="text-[13px] text-ink-dim mb-3">Save these backup codes somewhere safe - each one works once, if you ever lose access to your authenticator app. They won't be shown again.</p>
+      <div class="grid grid-cols-2 gap-1.5 font-mono text-xs bg-base-300 rounded-lg p-3 mb-3">
+        {% for code in backup_codes_to_show %}<div>{{ code }}</div>{% endfor %}
+      </div>
+      <p class="text-[12.5px] text-ink-dim">Once you've saved these, reload this page - they won't be shown again after that.</p>
     </div>
-    <div class="text-[12px] text-ink-faint">Once you've saved these, reload this page - they won't be shown again after that.</div>
 
   {% elif profile.totp_enabled %}
-    <div class="flex items-center gap-2 text-sm text-success font-semibold mb-4">{% icon "shield" "w-4 h-4" %} On</div>
     <div x-data="{ showConfirm: false }">
-      <button type="button" @click="showConfirm = true" x-show="!showConfirm" class="btn btn-sm btn-soft">Turn off</button>
+      <div class="flex items-start justify-between gap-4 p-5">
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-2.5">
+            <span class="text-[15px] font-semibold">Authenticator app</span>
+            {% include "tracker/partials/status_badge.html" with kind="on" %}
+          </div>
+          <p class="text-[13px] text-ink-dim mt-1.5">Asks for a code from Google Authenticator, Authy or 1Password when you sign in, in addition to your password.</p>
+        </div>
+        <button type="button" @click="showConfirm = !showConfirm" :aria-expanded="showConfirm.toString()" class="s-btn s-btn-danger flex-none">Turn off</button>
+      </div>
       <form
         x-show="showConfirm" x-cloak
         hx-post="{% url 'disable_totp' %}"
         hx-target="#totp-card" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-        class="flex items-end gap-2"
+        class="s-strip items-end"
       >
         {% csrf_token %}
-        <div class="flex-1">
-          <label class="block text-xs text-ink-dim mb-1">Confirm your password to turn off 2FA</label>
-          <input type="password" name="current_password" required class="input input-sm w-full">
+        <div class="flex-1 min-w-[14rem]">
+          <label for="id_totp_off_password" class="s-label">Confirm your password to turn off 2FA</label>
+          <input id="id_totp_off_password" type="password" name="current_password" required autocomplete="current-password" class="s-field">
         </div>
-        <button type="submit" class="btn btn-sm btn-error flex-none">Turn off</button>
+        <button type="submit" class="s-btn s-btn-danger flex-none">Turn off 2FA</button>
       </form>
     </div>
 
   {% else %}
-    <div class="flex flex-col sm:flex-row gap-4 mb-4">
-      <img src="{{ totp_qr_data_uri }}" alt="Scan with your authenticator app" class="w-36 h-36 rounded-lg bg-white p-2 flex-none">
-      <div class="min-w-0 text-xs text-ink-dim">
-        <div class="mb-2">Scan this QR code with your authenticator app, or enter this key manually:</div>
-        <div class="font-mono text-[12px] bg-base-300 rounded-lg px-2.5 py-1.5 break-all mb-3">{{ totp_secret_display }}</div>
-        <div>Then enter the 6-digit code it shows to turn 2FA on.</div>
+    <div class="p-5">
+      <div class="flex items-center gap-2.5 mb-1">
+        <span class="text-[15px] font-semibold">Authenticator app</span>
+        {% include "tracker/partials/status_badge.html" with kind="off" label="Off" %}
+      </div>
+      <p class="text-[13px] text-ink-dim mb-4">Require a code from an authenticator app (Google Authenticator, Authy, 1Password) in addition to your password when you sign in.</p>
+      <div class="flex flex-col sm:flex-row gap-4">
+        <img src="{{ totp_qr_data_uri }}" alt="Scan with your authenticator app" class="w-36 h-36 rounded-lg bg-white p-2 flex-none">
+        <div class="min-w-0 text-[13px] text-ink-dim">
+          <div class="mb-2">Scan this QR code with your authenticator app, or enter this key manually:</div>
+          <div class="font-mono text-[12px] bg-base-300 rounded-lg px-2.5 py-1.5 break-all mb-3">{{ totp_secret_display }}</div>
+          <div>Then enter the 6-digit code it shows to turn 2FA on.</div>
+        </div>
       </div>
     </div>
     <form
       hx-post="{% url 'enable_totp' %}"
       hx-target="#totp-card" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-      class="flex items-end gap-2"
+      class="s-strip items-end"
     >
       {% csrf_token %}
-      <div class="flex-1">
-        <label class="block text-xs text-ink-dim mb-1">6-digit code</label>
-        <input type="text" name="code" inputmode="numeric" maxlength="6" required placeholder="123456" class="input input-sm w-full font-mono tracking-widest">
+      <div class="flex-1 min-w-[10rem]">
+        <label for="id_totp_code" class="s-label">6-digit code</label>
+        <input id="id_totp_code" type="text" name="code" inputmode="numeric" maxlength="6" required placeholder="123456" autocomplete="one-time-code" class="s-field font-mono tracking-widest">
       </div>
-      <button type="submit" class="btn btn-sm btn-primary flex-none">Turn on</button>
+      <button type="submit" class="s-btn flex-none">Turn on</button>
     </form>
   {% endif %}
 </div>

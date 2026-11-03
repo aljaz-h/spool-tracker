@@ -1,0 +1,129 @@
+{# Settings > Preferences. Included by settings.html. Narrow page: sections of setting rows. Toggles and selects save the moment they change and show Saved (static/js/settings-save.js). #}
+{% load tracker_extras icons settings_ui %}
+<div x-show="tab === 'preferences'" x-cloak>
+  {% include "tracker/partials/settings_page_head.html" with title="Preferences" description="How Spool looks and behaves for you. Changes save as you make them." %}
+
+  <section class="s-section">
+    <h3 class="s-section-title">Appearance</h3>
+    {% settings_card %}
+      {% settings_row title="Theme" help="Light mode isn't available yet." %}
+        <div class="inline-flex rounded-lg border border-line p-1 gap-0.5" role="group" aria-label="Theme">
+          <span class="px-4 h-9 inline-flex items-center rounded-md text-[13px] font-semibold bg-base-300" aria-current="true">Dark</span>
+          <span class="px-4 h-9 inline-flex items-center rounded-md text-[13px] text-ink-dim opacity-70 cursor-not-allowed" aria-disabled="true">Light &middot; soon</span>
+        </div>
+      {% endsettings_row %}
+      <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
+        <input type="hidden" name="animations_enabled_submitted" value="1">
+        {% settings_row title="Interface animations" help="Subtle transitions on a few interactions. Always off if your system has reduced motion enabled." %}
+          <span class="spool-spinner" aria-hidden="true"></span>
+          {% include "tracker/partials/s_toggle.html" with name="animations_enabled" checked=profile.animations_enabled label="Interface animations" %}
+        {% endsettings_row %}
+      </form>
+      <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
+        <input type="hidden" name="blur_unwatched_episodes_submitted" value="1">
+        {% settings_row title="Blur unwatched episodes" help="Blurs the thumbnail of an episode you haven't watched yet, so it can't spoil anything. Takes effect on the next page load." %}
+          <span class="spool-spinner" aria-hidden="true"></span>
+          {% include "tracker/partials/s_toggle.html" with name="blur_unwatched_episodes" checked=profile.blur_unwatched_episodes label="Blur unwatched episodes" %}
+        {% endsettings_row %}
+      </form>
+    {% endsettings_card %}
+  </section>
+
+  <section class="s-section">
+    <h3 class="s-section-title">Date and time</h3>
+    {% settings_card %}
+      <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
+        {% settings_row title="Time format" help="12-hour with AM/PM, or 24-hour." %}
+          <span class="spool-spinner" aria-hidden="true"></span>
+          <div class="inline-flex rounded-lg border border-line p-1 gap-0.5" role="radiogroup" aria-label="Time format">
+            <label class="px-4 h-9 inline-flex items-center rounded-md text-[13px] cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content has-checked:font-semibold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-primary">
+              <input type="radio" name="time_format" value="12h" class="sr-only" {% if profile.time_format == "12h" %}checked{% endif %}>12-hour
+            </label>
+            <label class="px-4 h-9 inline-flex items-center rounded-md text-[13px] cursor-pointer text-ink-dim has-checked:bg-base-300 has-checked:text-base-content has-checked:font-semibold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-primary">
+              <input type="radio" name="time_format" value="24h" class="sr-only" {% if profile.time_format == "24h" %}checked{% endif %}>24-hour
+            </label>
+          </div>
+        {% endsettings_row %}
+      </form>
+      <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
+        {% settings_row title="Timezone" help="Useful if you're not in the same timezone as the server." %}
+          <span class="spool-spinner" aria-hidden="true"></span>
+          <select name="timezone" aria-label="Timezone" class="s-select !w-64">
+            <option value="">Server default ({{ server_time_zone }})</option>
+            {% for tz in timezones %}
+              <option value="{{ tz }}" {% if profile.timezone == tz %}selected{% endif %}>{{ tz }}</option>
+            {% endfor %}
+          </select>
+        {% endsettings_row %}
+      </form>
+    {% endsettings_card %}
+  </section>
+
+  <section class="s-section">
+    <h3 class="s-section-title">Browsing</h3>
+    {% settings_card %}
+      <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
+        {% settings_row title="Default landing page" help="The page you see right after signing in." %}
+          <span class="spool-spinner" aria-hidden="true"></span>
+          <select name="default_landing_page" aria-label="Default landing page" class="s-select">
+            {% for value, label in landing_pages %}
+              <option value="{{ value }}" {% if profile.default_landing_page == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        {% endsettings_row %}
+      </form>
+    {% endsettings_card %}
+  </section>
+
+  <section class="s-section">
+    <h3 class="s-section-title">Discovery</h3>
+    {% settings_card %}
+      {% comment %}
+        Genres and streaming services come from TMDB, so they load when this page
+        is first opened rather than with every Settings page (see
+        views.discover_preference_options). They load as soon as the tab is shown
+        (or scrolls into view), and if the request fails there is a message and a
+        Try again button instead of a placeholder that never goes away.
+      {% endcomment %}
+      <div class="s-row !block">
+        <div
+          id="discover-preference-options"
+          x-data="{ failed: false }"
+          hx-get="{% url 'discover_preference_options' %}"
+          hx-trigger="intersect once, tab-shown once, retry"
+          hx-swap="outerHTML"
+          x-init="$watch('tab', (t) => { if (t === 'preferences') htmx.trigger($el, 'tab-shown') }); if (tab === 'preferences') $nextTick(() => htmx.trigger($el, 'tab-shown'))"
+          @htmx:response-error="failed = true" @htmx:send-error="failed = true"
+        >
+          <div class="s-row-title mb-2">Favorite genres</div>
+          <div x-show="!failed">{% include "tracker/partials/skeleton_chips.html" %}</div>
+          <div x-show="failed" x-cloak role="alert">
+            <p class="s-error !mt-0">Couldn't load the genres and streaming services.</p>
+            <button type="button" class="s-btn mt-2" @click="failed = false; htmx.trigger($el.closest('#discover-preference-options'), 'retry')">Try again</button>
+          </div>
+        </div>
+      </div>
+      <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
+        {% settings_row title="Preferred language" help="Pre-fills the language filter on Movies, TV and Anime." %}
+          <span class="spool-spinner" aria-hidden="true"></span>
+          <select name="preferred_language" aria-label="Preferred language" class="s-select">
+            <option value="">Any language</option>
+            {% for code, name in languages %}
+              <option value="{{ code }}" {% if profile.preferred_language == code %}selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+          </select>
+        {% endsettings_row %}
+      </form>
+      <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
+        {% settings_row title="Region" help="Which country's streaming availability to use." %}
+          <span class="spool-spinner" aria-hidden="true"></span>
+          <select name="preferred_region" aria-label="Region" class="s-select">
+            {% for code, name in discover_regions %}
+              <option value="{{ code }}" {% if profile.preferred_region == code %}selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+          </select>
+        {% endsettings_row %}
+      </form>
+    {% endsettings_card %}
+  </section>
+</div>

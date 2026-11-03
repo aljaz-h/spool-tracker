@@ -8,6 +8,26 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.179.0] - 2026-11-03
+
+### Changed
+
+- Settings is rebuilt from one set of shared pieces (documented in DESIGN.md > Settings), so every page now has the same frame, widths, rows, buttons, badges and wording.
+  - **Page frame:** every page opens with a title and a one-line description (no icon tile), then its panels. Two content widths: narrow (720px) and wide (1040px, for Profile, Notifications, Connected apps, Import and export, Logs and Query performance). Logs is therefore no longer full width.
+  - **Controls:** buttons, selects and fields are 44px tall (a 36px compact size exists for dense desktop tables only), and small grey text is the lighter grey. Each page has at most one amber button.
+  - **Badges:** one status badge (a dot and a short word) replaces the "Connected", "Configured", "Not configured" and plain "On" variants. "Needs attention" is coral (Logs too), not amber.
+  - **Saving:** toggles, selects and chips show "Saved" beside the control when they save, or say they couldn't. The Integrations form uses the unsaved-changes bar instead of an always-visible Save.
+  - **Wording:** sentence case everywhere, including the sidebar (Connected apps, Import and export, API and sharing, Activity log, Danger zone), and links are underlined light grey, never amber.
+- **Preferences:** sections instead of icon-tile cards, toggles instead of checkboxes, and Favorite genres and Streaming services as chips (the chosen ones are raised and checked, not amber).
+- **Security:** labels above the fields, 44px show/hide buttons, a check that the new password is at least 8 characters and that the two match, "Change password" as the page's one amber button, and two-factor authentication with the standard "On" badge and a red outlined "Turn off".
+- **Connected apps:** only accounts that keep syncing. A "Connected" section (each with its direction, schedule, last synced and Disconnect) and an "Available" list with a Connect button and a badge (Not connected, or Not set up when the server owner hasn't set it up). AniList and Kitsu ask for the username in the row; Nuvio opens its sign-in under the row. Sync now is the amber button only when a single account is connected.
+- **Import and export:** file-based only, with a drop area, a Choose file button, the chosen file (name and size, with a remove button) and an Upload button for Trakt, Simkl, Letterboxd, IMDb, TV Time, Anime list, Spool backup and Other tracker, then Export and a link to automatic backups. The provider Connect buttons are gone from here (they live in Connected apps); Trakt, Simkl and Anime list link to "Connect an account instead". Notifications, My schedule, Wrapped, API and sharing, Backups, Danger zone, Profiles, Integrations, Maintenance, Activity log and Logs follow the same pieces.
+
+### Fixed
+
+- The Favorite genres chips on Preferences stayed as grey placeholders when the genre list failed to load or the section never scrolled into view. They now load as soon as the tab is shown, a failing TMDB lookup shows a message instead of an error, and there is a Try again button.
+- Small buttons (Run, Test, Preview, Back up now, Send test and the like) were 24 to 32px tall; they are 44px now.
+
 ## [0.178.1] - 2026-11-02
 
 ### Fixed

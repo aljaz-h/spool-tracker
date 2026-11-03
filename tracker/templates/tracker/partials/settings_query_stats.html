@@ -18,7 +18,7 @@
       </div>
       <div class="flex items-center gap-4 text-[12.5px] font-semibold">
         {% if queries %}
-          <button type="button" class="text-primary hover:underline" @click="copy($refs.all.textContent); copiedAll = true; setTimeout(() => copiedAll = false, 1500)"><span x-text="copiedAll ? 'Copied' : 'Copy all as text'">Copy all as text</span></button>
+          <button type="button" class="s-link" @click="copy($refs.all.textContent); copiedAll = true; setTimeout(() => copiedAll = false, 1500)"><span x-text="copiedAll ? 'Copied' : 'Copy all as text'">Copy all as text</span></button>
         {% endif %}
         <form hx-post="{% url 'query_stats_reset' %}" hx-target="#query-stats" hx-swap="innerHTML"
               hx-confirm="Clear the collected query statistics? The next window starts empty.">
@@ -47,11 +47,11 @@
                   <span>Total <strong class="tabular-nums text-base-content">{{ q.total_ms }} ms</strong></span>
                   <span>Max <strong class="tabular-nums text-base-content">{{ q.max_ms }} ms</strong></span>
                   <span>Cache <strong class="tabular-nums text-base-content">{% if q.cache_hit_pct is not None %}{{ q.cache_hit_pct }}%{% else %}&ndash;{% endif %}</strong></span>
-                  {% if q.slow %}<span class="chip chip-error">Slow &middot; avg over {{ slow_ms }} ms</span>{% endif %}
+                  {% if q.slow %}<span class="s-badge is-failed">Slow &middot; avg over {{ slow_ms }} ms</span>{% endif %}
                 </div>
                 <div class="flex items-center gap-4 mt-1.5 text-[12.5px] font-semibold">
-                  <button type="button" class="text-primary hover:underline" @click="open = !open" :aria-expanded="open.toString()"><span x-text="open ? 'Hide SQL' : 'Show SQL'">Show SQL</span></button>
-                  <button type="button" class="text-primary hover:underline" @click="copy($refs.sql.textContent); copied = true; setTimeout(() => copied = false, 1500)"><span x-text="copied ? 'Copied' : 'Copy SQL'">Copy SQL</span></button>
+                  <button type="button" class="s-link" @click="open = !open" :aria-expanded="open.toString()"><span x-text="open ? 'Hide SQL' : 'Show SQL'">Show SQL</span></button>
+                  <button type="button" class="s-link" @click="copy($refs.sql.textContent); copied = true; setTimeout(() => copied = false, 1500)"><span x-text="copied ? 'Copied' : 'Copy SQL'">Copy SQL</span></button>
                 </div>
                 <pre x-ref="sql" x-show="open" x-cloak class="mt-2 p-3 rounded-lg bg-base-300 text-[12px] leading-relaxed font-mono whitespace-pre-wrap break-words max-h-80 overflow-auto">{{ q.sql }}</pre>
               </div>

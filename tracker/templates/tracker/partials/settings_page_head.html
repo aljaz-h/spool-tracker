@@ -1,0 +1,5 @@
+{# context: title, description (one line). The header every Settings page opens with: no icon tile, then the page's panels. #}
+<header class="s-page-head">
+  <h2 class="s-page-title">{{ title }}</h2>
+  {% if description %}<p class="s-page-desc">{{ description }}</p>{% endif %}
+</header>

@@ -1,0 +1,14 @@
+{# Settings > Query performance (owners). Included by settings.html. Wide page: the slowest database queries, loaded the first time the tab is opened. #}
+{% load tracker_extras icons settings_ui %}
+<div x-show="tab === 'query_performance'" x-cloak>
+  <header class="s-page-head">
+    <h2 class="s-page-title">Query performance</h2>
+    <p class="s-page-desc">The slowest database queries since statistics were last reset, from Postgres's own <code>pg_stat_statements</code>. Loads the first time you open this tab.</p>
+  </header>
+  <div
+    id="query-stats" hx-get="{% url 'query_stats_partial' %}" hx-trigger="intersect once, tab-shown once" hx-swap="innerHTML"
+    x-init="$watch('tab', (t) => { if (t === 'query_performance') htmx.trigger($el, 'tab-shown') }); if (tab === 'query_performance') $nextTick(() => htmx.trigger($el, 'tab-shown'))"
+  >
+    {% include "tracker/partials/skeleton_rows.html" %}
+  </div>
+</div>

@@ -4845,6 +4845,52 @@ def _logs_tab_context(request):
     }
 
 
+def _connected_app_rows(external_accounts, nuvio_connection, configured):
+    """Every account that keeps syncing, for Settings > Connected apps: a dict per
+    service with what the page needs to show it connected (account) or available
+    (configured / connect link). `configured` maps provider -> whether the server
+    owner has set it up (the username-based and Nuvio ones never need that)."""
+    rows = [
+        {"key": "nuvio", "name": "Nuvio", "kind": "nuvio", "icon": "nuvio", "icon_class": "",
+         "description": "Sync watch history and continue-watching progress",
+         "account": nuvio_connection,
+         "account_label": (
+             f"{nuvio_connection.email}" + (f" · {nuvio_connection.nuvio_profile_name}" if nuvio_connection.nuvio_profile_name else "")
+         ) if nuvio_connection else ""},
+        {"key": "trakt", "name": "Trakt", "kind": "oauth", "icon": "trakt", "icon_class": "text-trakt",
+         "description": "Sync watched history, ratings and lists", "connect_url": reverse("trakt_connect")},
+        {"key": "simkl", "name": "Simkl", "kind": "oauth", "icon": "simkl", "icon_class": "text-simkl",
+         "description": "Import history and anime progress", "connect_url": reverse("simkl_connect")},
+        {"key": "wetrakr", "name": "WeTrakr", "kind": "oauth", "icon": "wetrakr", "icon_class": "text-ink-dim",
+         "description": "Sync watched history and ratings", "connect_url": reverse("wetrakr_connect")},
+        {"key": "tmdb", "name": "TMDB", "kind": "oauth", "icon": "tmdb", "icon_class": "text-tmdb",
+         "description": "Sync favorites and watchlist (movies and TV)", "connect_url": reverse("tmdb_connect"),
+         "help": "You sign in on TMDB, and Spool never sees your password."},
+        {"key": "mal", "name": "MyAnimeList", "kind": "oauth", "icon": "myanimelist", "icon_class": "text-mal",
+         "description": "Sync anime list, progress and ratings", "connect_url": reverse("mal_connect")},
+        {"key": "anilist", "name": "AniList", "kind": "username", "icon": "anilist", "icon_class": "text-anilist",
+         "description": "Sync your anime list and progress by username",
+         "help": "Your list has to be public. There is nothing to sign in to, and Spool only reads it."},
+        {"key": "kitsu", "name": "Kitsu", "kind": "username", "icon": "kitsu", "icon_class": "text-kitsu",
+         "description": "Sync your anime library and progress by username",
+         "help": "Your list has to be public. There is nothing to sign in to, and Spool only reads it."},
+    ]
+    for row in rows:
+        if row["kind"] != "nuvio":
+            row["account"] = external_accounts.get(row["key"])
+            if row["key"] in ("anilist", "kitsu") and row["account"]:
+                row["account_label"] = f"Reading the list of {row['account'].external_username}"
+            else:
+                row.setdefault("account_label", "")
+        row["configured"] = True if row["kind"] in ("username", "nuvio") else bool(configured.get(row["key"]))
+        row["connected"] = row["account"] is not None
+        # Danger zone's "Disconnect and wipe": the services whose imported history it can find again.
+        row["wipeable"] = row["key"] in ("trakt", "simkl", "wetrakr", "mal", "nuvio")
+        if row["kind"] == "oauth" and not row["configured"]:
+            row["help"] = f"Not available yet. Ask your server owner to set up {row['name']} first."
+    return rows
+
+
 def _avatar_swatches(profile):
     """The colours Settings > Account offers: the eight in the picker, plus the
     profile's own when it is one of the older palette's (so what they have now
@@ -4907,6 +4953,17 @@ def _settings_page_context(request, profile):
         "max_avatar_bytes": MAX_AVATAR_IMAGE_SIZE,
         "connected_apps_count": len(external_accounts) + (1 if nuvio_connection_row else 0),
         "profile_now_watching": _profile_now_watching(profile),
+        "connected_app_rows": _connected_app_rows(
+            external_accounts,
+            nuvio_connection_row,
+            {
+                "trakt": bool(instance_config.get_trakt_credentials()[0]),
+                "simkl": bool(instance_config.get_simkl_credentials()[0]),
+                "wetrakr": bool(instance_config.get_wetrakr_credentials()[0]),
+                "tmdb": bool(instance_config.get_tmdb_api_key()),
+                "mal": bool(instance_config.get_mal_credentials()[0]),
+            },
+        ),
         "profile_form_config": json.dumps(
             {
                 "name": profile.display_name,
@@ -4926,6 +4983,9 @@ def _settings_page_context(request, profile):
         **_backup_card_context(request, profile),
         **_transfer_activity_context(profile),
     }
+    connected_total = sum(1 for row in context["connected_app_rows"] if row["connected"])
+    context["any_connected_app"] = connected_total > 0
+    context["sole_connected_app"] = connected_total == 1  # Sync now is the amber button only when it is alone
     if profile.is_owner:
         db_engine = django_settings.DATABASES["default"]["ENGINE"].rsplit(".", 1)[-1]
         context.update(
@@ -4966,7 +5026,7 @@ def settings_view(request):
 @login_required
 def discover_preference_options(request):
     """Preferences tab's genre/provider chip pickers - lazily loaded
-    (hx-trigger="intersect once" in settings.html) rather than baked into
+    (settings/preferences.html loads it when the tab is shown) rather than baked into
     _settings_page_context, which settings_view/my_profile/admin_dashboard
     all share and render unconditionally on every hit regardless of which
     tab a viewer actually opens. tmdb.genres()/watch_provider_catalog()
@@ -4977,10 +5037,20 @@ def discover_preference_options(request):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
+    # Each list on its own: if TMDB is down (or the key is missing) one failing
+    # call can't turn the whole fragment into an error that leaves the page's
+    # placeholder up for good - an empty list shows a plain message instead.
+    def safely(call):
+        try:
+            return call() or []
+        except Exception:
+            logging.getLogger(__name__).exception("discover_preference_options: TMDB lookup failed")
+            return []
+
     context = {
         "profile": profile,
-        "discover_genres": tmdb.genres("movie"),
-        "discover_providers": tmdb.watch_provider_catalog("movie", region=profile.preferred_region),
+        "discover_genres": safely(lambda: tmdb.genres("movie")),
+        "discover_providers": safely(lambda: tmdb.watch_provider_catalog("movie", region=profile.preferred_region)),
     }
     return render(request, "tracker/partials/discover_preference_options.html", context)
 
@@ -7605,7 +7675,7 @@ def import_letterboxd_upload(request):
         messages.error(request, f'"{upload.name}" is too large — please upload a file under 50MB.')
         return redirect("settings")
     if not upload.name.lower().endswith(".zip"):
-        messages.error(request, f'"{upload.name}" isn\'t a .zip file — export your data from Letterboxd\'s Settings → Import & Export first.')
+        messages.error(request, f'"{upload.name}" isn\'t a .zip file — export your data from Letterboxd\'s Settings → Import and export first.')
         return redirect("settings")
 
     os.makedirs(CSV_IMPORT_DIR, exist_ok=True)

@@ -1,0 +1,48 @@
+{# Settings > Import and export. Included by settings.html. Wide page, file-based only: a dropzone per source, then Export. Accounts that keep syncing live under Connected apps (where a source supports both, its card links there). #}
+{% load tracker_extras icons settings_ui %}
+<div x-show="tab === 'data'" x-cloak>
+  <header class="s-page-head">
+    <h2 class="s-page-title">Import and export</h2>
+    <p class="s-page-desc">Move your data in or out as a file. For accounts that keep syncing on their own, use <a href="{% url 'settings' %}?tab=connected_apps" class="s-link">Connected apps</a>.</p>
+  </header>
+
+  {% include "tracker/partials/transfer_activity.html" %}
+
+  <section class="s-section">
+    <h3 class="s-section-title">Import from a file</h3>
+    <p class="s-section-desc">You review everything before it is imported.</p>
+    {% url 'import_csv' as import_csv_url %}
+    {% url 'import_letterboxd' as import_letterboxd_url %}
+    {% url 'import_imdb' as import_imdb_url %}
+    {% url 'import_tvtime' as import_tvtime_url %}
+    {% url 'import_animexml' as import_animexml_url %}
+    {% url 'settings' as settings_url %}
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      {% include "tracker/partials/file_dropzone.html" with action=import_csv_url title="Trakt" hint="ZIP export" accept=".zip,.csv" max_mb=50 link_url="?tab=connected_apps" %}
+      {% include "tracker/partials/file_dropzone.html" with action=import_csv_url title="Simkl" hint="VIP export file" accept=".zip,.csv" max_mb=50 link_url="?tab=connected_apps" %}
+      {% include "tracker/partials/file_dropzone.html" with action=import_letterboxd_url title="Letterboxd" hint="ZIP export" accept=".zip" max_mb=50 %}
+      {% include "tracker/partials/file_dropzone.html" with action=import_imdb_url title="IMDb" hint="Ratings and watchlist CSV" accept=".csv" max_mb=50 %}
+      {% include "tracker/partials/file_dropzone.html" with action=import_tvtime_url title="TV Time" hint="Liberator CSV" accept=".csv" max_mb=50 %}
+      {% include "tracker/partials/file_dropzone.html" with action=import_animexml_url title="Anime list" hint="MyAnimeList XML or .xml.gz" accept=".xml,.gz" max_mb=50 link_url="?tab=connected_apps" %}
+      {% include "tracker/partials/file_dropzone.html" with action=import_csv_url title="Spool backup" hint="Full backup JSON, restores your data" accept=".json" max_mb=50 %}
+      {% include "tracker/partials/file_dropzone.html" with action=import_csv_url title="Other tracker" hint="Any CSV, JSON or ZIP export" accept=".csv,.json,.zip" max_mb=50 %}
+    </div>
+    <p class="s-help mt-3">Files can be up to 50 MB.</p>
+  </section>
+
+  <section class="s-section">
+    <h3 class="s-section-title">Export</h3>
+    <div class="s-card">
+      <div class="p-5">
+        <div class="text-[15px] font-semibold">Download everything</div>
+        <p class="text-[13px] text-ink-dim mt-1">The full backup has your history, ratings and every list, and can be imported back above. CSV and Trakt JSON carry watch history only.</p>
+        <div class="flex flex-wrap gap-2.5 mt-4">
+          <a href="{% url 'export_spool_backup' %}" class="s-btn">{% icon "download" "w-4 h-4" %}Full backup (JSON)</a>
+          <a href="{% url 'export_csv' %}" class="s-btn">CSV</a>
+          <a href="{% url 'export_trakt_json' %}" class="s-btn">Trakt JSON</a>
+        </div>
+      </div>
+    </div>
+    <p class="text-[13px] text-ink-dim mt-3">Want this to happen on its own? Set up <a href="?tab=backups" class="s-link">automatic backups</a>.</p>
+  </section>
+</div>

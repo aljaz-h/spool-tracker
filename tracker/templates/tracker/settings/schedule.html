@@ -1,0 +1,11 @@
+{# Settings > My schedule. Included by settings.html. Narrow page: one panel with the schedule form (its Save is the page's one amber button). #}
+{% load tracker_extras icons settings_ui %}
+<div x-show="tab === 'schedule'" x-cloak>
+  <header class="s-page-head">
+    <h2 class="s-page-title">My schedule</h2>
+    <p class="s-page-desc">A plan for what to watch and when, fitted into the hours you are free. It lives on the <a href="{% url 'calendar' %}?tab=schedule" class="s-link">Calendar</a> page and as a Tonight card on the Dashboard. Off by default, and only for you.</p>
+  </header>
+  <div class="s-card p-5">
+    {% include "tracker/partials/schedule_settings.html" with settings=schedule_settings variant="settings" %}
+  </div>
+</div>

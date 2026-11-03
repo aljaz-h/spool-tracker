@@ -46,12 +46,12 @@
         <a href="{% url 'push_preview' provider %}" class="s-btn">What is pending</a>
         <form method="post" action="{% url 'push_now' provider %}">
           {% csrf_token %}
-          <button type="submit" class="s-btn s-btn-primary">Send now</button>
+          <button type="submit" class="s-btn">Send now</button>
         </form>
       </div>
     {% else %}
       <div class="text-[13px] text-warning">Nothing is sent until you have reviewed it.</div>
-      <a href="{% url 'push_preview' provider %}" class="s-btn s-btn-primary">Review what will be sent</a>
+      <a href="{% url 'push_preview' provider %}" class="s-btn">Review what will be sent</a>
     {% endif %}
   </div>
 {% endif %}
@@ -73,7 +73,7 @@
       </form>
       <form method="post" action="{% url 'trigger_manual_sync' provider %}">
         {% csrf_token %}
-        <button type="submit" class="s-btn s-btn-primary">{% icon "refresh-cw" "w-4 h-4" %}Sync now</button>
+        <button type="submit" class="s-btn{% if primary_sync %} s-btn-primary{% endif %}">{% icon "refresh-cw" "w-4 h-4" %}Sync now</button>
       </form>
     </div>
   </div>
@@ -88,5 +88,5 @@
     {% csrf_token %}
     <button type="submit" class="s-btn s-btn-danger">{% icon "unlink" "w-4 h-4" %}Disconnect</button>
   </form>
-  <span class="text-[12px] text-ink-faint">Disconnecting keeps everything already imported</span>
+  <span class="text-[12.5px] text-ink-dim">Disconnecting keeps everything already imported.</span>
 </div>

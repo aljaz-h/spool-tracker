@@ -16,12 +16,12 @@
 
     {% if logs_grouped %}
       <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Category">
-        <a href="{{ logs_all_url }}" {% if not log_category %}aria-current="true"{% endif %} class="text-xs font-medium rounded-full px-3 py-1.5 {% if not log_category %}bg-primary text-primary-content{% else %}bg-base-300 text-ink-dim hover:text-base-content{% endif %}">All</a>
+        <a href="{{ logs_all_url }}" {% if not log_category %}aria-current="true"{% endif %} class="text-xs font-medium rounded-full px-3 py-1.5 {% if not log_category %}bg-base-100 text-base-content ring-1 ring-base-content/30{% else %}bg-base-300 text-ink-dim hover:text-base-content{% endif %}">All</a>
         {% for chip in logs_category_links %}
-          <a href="{{ chip.url }}" {% if chip.active %}aria-current="true"{% endif %} class="text-xs font-medium rounded-full px-3 py-1.5 {% if chip.active %}bg-primary text-primary-content{% else %}bg-base-300 text-ink-dim hover:text-base-content{% endif %}">{{ chip.label }}{% if chip.count %} <span class="opacity-70">{{ chip.count }}</span>{% endif %}</a>
+          <a href="{{ chip.url }}" {% if chip.active %}aria-current="true"{% endif %} class="text-xs font-medium rounded-full px-3 py-1.5 {% if chip.active %}bg-base-100 text-base-content ring-1 ring-base-content/30{% else %}bg-base-300 text-ink-dim hover:text-base-content{% endif %}">{{ chip.label }}{% if chip.count %} <span class="opacity-70">{{ chip.count }}</span>{% endif %}</a>
         {% endfor %}
       </div>
-      <button type="button" class="btn btn-sm btn-soft" @click="allOpen = !allOpen; $dispatch('logs-set-open', allOpen)" x-text="allOpen ? 'Collapse all' : 'Expand all'">Expand all</button>
+      <button type="button" class="s-btn" @click="allOpen = !allOpen; $dispatch('logs-set-open', allOpen)" x-text="allOpen ? 'Collapse all' : 'Expand all'">Expand all</button>
     {% endif %}
   </div>
 
@@ -38,9 +38,9 @@
           </div>
           {% if streak.profile_id == profile.id and streak.looks_like_auth_failure %}
             {% if streak.provider == "trakt" %}
-              <a href="{% url 'trakt_connect' %}" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content shrink-0">Reconnect Trakt →</a>
+              <a href="{% url 'trakt_connect' %}" class="s-btn s-btn-danger shrink-0">Reconnect Trakt →</a>
             {% elif streak.provider == "simkl" %}
-              <a href="{% url 'simkl_connect' %}" class="btn btn-sm btn-outline border-error text-error hover:bg-error hover:text-error-content shrink-0">Reconnect Simkl →</a>
+              <a href="{% url 'simkl_connect' %}" class="s-btn s-btn-danger shrink-0">Reconnect Simkl →</a>
             {% endif %}
           {% endif %}
         </div>
@@ -49,13 +49,13 @@
   {% endif %}
 
   {% if logs_grouped and logs_summary.problem_count %}
-    <div class="flex items-center justify-between gap-4 flex-wrap bg-warning/10 border border-warning/30 rounded-xl px-4 py-3 mb-5">
-      <div class="text-[13px] text-warning min-w-0">
+    <div class="flex items-center justify-between gap-4 flex-wrap s-attention rounded-xl px-4 py-3 mb-5">
+      <div class="text-[13px] text-coral min-w-0">
         <span class="font-semibold">Needs attention.</span>
         {% for sentence in logs_summary.problem_sentences %}<span class="mr-3">{{ sentence }}</span>{% empty %}<span>{{ logs_summary.problem_count }} run{{ logs_summary.problem_count|pluralize }} need{{ logs_summary.problem_count|pluralize:"s," }} a look, marked in red below.</span>{% endfor %}
         {% if logs_summary.problem_more %}<span>+{{ logs_summary.problem_more }} more</span>{% endif %}
       </div>
-      <button type="button" class="btn btn-sm btn-outline border-warning text-warning hover:bg-warning hover:text-warning-content shrink-0" @click="onlyProblems = !onlyProblems" x-text="onlyProblems ? 'Show all' : 'Show problems'">Show problems</button>
+      <button type="button" class="s-btn shrink-0" @click="onlyProblems = !onlyProblems" x-text="onlyProblems ? 'Show all' : 'Show problems'">Show problems</button>
     </div>
   {% endif %}
 
@@ -71,7 +71,7 @@
           x-data="{ open: {{ group.open|yesno:'true,false' }} }"
           @logs-set-open.window="open = $event.detail"
           x-show="!onlyProblems || {{ group.problem|yesno:'true,false' }}"
-          class="rounded-xl border {% if group.state == 'failed' %}border-error/50{% elif group.state == 'warning' %}border-warning/50{% else %}border-line{% endif %} bg-base-200"
+          class="rounded-xl border {% if group.state == 'failed' %}border-error/50{% elif group.state == 'warning' %}border-coral/50{% else %}border-line{% endif %} bg-base-200"
         >
           <button type="button" @click="open = !open" :aria-expanded="open.toString()" class="w-full flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 text-left cursor-pointer">
             <span class="flex items-center gap-3 min-w-0 flex-1 basis-56">
@@ -85,7 +85,7 @@
               <span class="font-mono text-[12px] rounded-full border px-2.5 py-0.5
                 {% if group.state == 'ok' %}border-success/40 text-success bg-success/10
                 {% elif group.state == 'failed' %}border-error/50 text-error bg-error/10
-                {% elif group.state == 'warning' %}border-warning/50 text-warning bg-warning/10
+                {% elif group.state == 'warning' %}border-coral/50 text-coral bg-coral/10
                 {% else %}border-info/50 text-info bg-info/10{% endif %}">{{ group.pill }}</span>
               {% if group.note and group.total > 1 %}<span class="font-mono text-[12px] rounded-full border border-line text-ink-dim px-2.5 py-0.5">{{ group.note }}</span>{% endif %}
             </span>

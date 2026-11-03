@@ -11,16 +11,16 @@
     <input type="hidden" name="start" value="{{ start|date:'Y-m-d' }}">
   {% else %}
     <input type="hidden" name="from" value="settings">
-    <label class="flex items-center justify-between gap-3 cursor-pointer">
-      <span class="text-[13.5px]">Turn on My schedule</span>
-      <input type="checkbox" name="enabled" value="1" class="checkbox checkbox-sm" {% if settings.plan.enabled %}checked{% endif %}>
-    </label>
+    <div class="flex items-center justify-between gap-3 min-h-11">
+      <span class="text-[14px] font-semibold">Turn on My schedule</span>
+      {% include "tracker/partials/s_toggle.html" with name="enabled" value="1" checked=settings.plan.enabled label="Turn on My schedule" %}
+    </div>
   {% endif %}
 
   {% include "tracker/partials/schedule_fields.html" %}
 
   <div class="flex items-center gap-3">
     <button type="submit" class="btn btn-primary btn-sm">{% if variant == "sidebar" %}Apply{% else %}Save{% endif %}</button>
-    <span class="text-[12px] text-primary" x-show="changed" x-cloak>Not applied yet</span>
+    <span class="text-[12.5px] text-ink-dim" x-show="changed" x-cloak>Not applied yet</span>
   </div>
 </form>

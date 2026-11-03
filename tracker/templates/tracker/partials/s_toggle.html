@@ -1,0 +1,4 @@
+{# context: name, checked (bool), label (the accessible name), id (optional), value (optional). The on/off switch used in every Settings row: amber when on, with a 44px tap area around the 24px switch. Inside a form with hx-trigger="change" it saves the moment it is flipped. #}
+<label class="flex flex-none min-h-11 min-w-11 items-center justify-end cursor-pointer">
+  <input type="checkbox" role="switch" name="{{ name }}"{% if value %} value="{{ value }}"{% endif %}{% if id %} id="{{ id }}"{% endif %} class="toggle toggle-primary" aria-label="{{ label }}" {% if checked %}checked{% endif %}>
+</label>

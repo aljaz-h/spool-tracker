@@ -1,0 +1,67 @@
+{# Settings > Security. Included by settings.html. Narrow page: the password form (one amber primary, Change password) and two-factor authentication. #}
+{% load tracker_extras icons settings_ui %}
+<div x-show="tab === 'security'" x-cloak>
+  {% include "tracker/partials/settings_page_head.html" with title="Security" description="Your password and how you sign in." %}
+
+  <section class="s-section">
+    <h3 class="s-section-title">Password</h3>
+    <div class="s-card">
+      <form
+        method="post" action="{% url 'my_profile' %}"
+        x-data="{ showCurrent: false, showNew: false, showConfirm: false, current: '', next: '', confirm: '', touched: false,
+          get tooShort() { return this.touched && this.next.length > 0 && this.next.length < 8; },
+          get mismatch() { return this.touched && this.confirm.length > 0 && this.confirm !== this.next; },
+          submit(e) { this.touched = true; if (this.next.length < 8 || this.confirm !== this.next) e.preventDefault(); } }"
+        @submit="submit($event)" novalidate
+      >
+        {% csrf_token %}
+        <input type="hidden" name="action" value="change_password">
+        <div class="flex flex-col gap-5 p-5">
+          <div>
+            <label for="id_current_password" class="s-label">Current password</label>
+            <div class="relative">
+              <input id="id_current_password" :type="showCurrent ? 'text' : 'password'" name="current_password" x-model="current" required autocomplete="current-password" class="s-field pr-12">
+              <button type="button" @click="showCurrent = !showCurrent" :aria-label="showCurrent ? 'Hide password' : 'Show password'" class="s-reveal">
+                <span x-show="!showCurrent">{% icon "eye" "w-4 h-4" %}</span>
+                <span x-show="showCurrent" x-cloak>{% icon "eye-off" "w-4 h-4" %}</span>
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label for="id_new_password" class="s-label">New password</label>
+            <div class="relative">
+              <input id="id_new_password" :type="showNew ? 'text' : 'password'" name="new_password" x-model="next" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters" :aria-invalid="tooShort" aria-describedby="new-password-help" class="s-field pr-12">
+              <button type="button" @click="showNew = !showNew" :aria-label="showNew ? 'Hide password' : 'Show password'" class="s-reveal">
+                <span x-show="!showNew">{% icon "eye" "w-4 h-4" %}</span>
+                <span x-show="showNew" x-cloak>{% icon "eye-off" "w-4 h-4" %}</span>
+              </button>
+            </div>
+            <p id="new-password-help" class="s-help" x-show="!tooShort">Use a password you don't use anywhere else.</p>
+            <p class="s-error" x-show="tooShort" x-cloak role="alert">Must be at least 8 characters.</p>
+          </div>
+
+          <div>
+            <label for="id_confirm_password" class="s-label">Confirm new password</label>
+            <div class="relative">
+              <input id="id_confirm_password" :type="showConfirm ? 'text' : 'password'" name="confirm_password" x-model="confirm" required minlength="8" autocomplete="new-password" placeholder="Type it again" :aria-invalid="mismatch" class="s-field pr-12">
+              <button type="button" @click="showConfirm = !showConfirm" :aria-label="showConfirm ? 'Hide password' : 'Show password'" class="s-reveal">
+                <span x-show="!showConfirm">{% icon "eye" "w-4 h-4" %}</span>
+                <span x-show="showConfirm" x-cloak>{% icon "eye-off" "w-4 h-4" %}</span>
+              </button>
+            </div>
+            <p class="s-error" x-show="mismatch" x-cloak role="alert">The two passwords don't match.</p>
+          </div>
+        </div>
+        <div class="s-strip justify-end">
+          <button type="submit" class="s-btn s-btn-primary">Change password</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section class="s-section">
+    <h3 class="s-section-title">Two-factor authentication</h3>
+    {% include "tracker/partials/settings_security_card.html" %}
+  </section>
+</div>

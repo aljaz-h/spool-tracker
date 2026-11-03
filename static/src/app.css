@@ -112,6 +112,7 @@
   --color-ink: #eceef2;
   --color-ink-dim: #a6aab8;
   --color-ink-faint: #8a8fa0; /* 5.2:1 on base-200, 5.6:1 on base-100 (AA) */
+  --color-coral: #f08a6a; /* "Needs attention": warmer than the red of a failure, never the amber of the primary action */
 
   --color-marquee: #e8a63c;
   --color-marquee-dim: #8a641f;
@@ -4031,11 +4032,12 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     padding: 0.5rem 1.25rem;
     border-top: 1px solid var(--color-line);
   }
-  /* Controls: dark tiles at the site's small-control size (32px). */
+  /* Controls: dark tiles, 44px tall (touch size) everywhere in Settings; the
+     compact 36px size is for dense tables on a desktop only (.s-btn-compact). */
   .s-select,
   .s-input,
   .s-btn {
-    height: 2rem;
+    height: 2.75rem;
     border-radius: 0.5rem;
     background-color: var(--color-base-300);
     border: 0;
@@ -4065,6 +4067,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .s-btn {
     display: inline-flex;
     align-items: center;
+    white-space: nowrap;
     gap: 0.5rem;
     padding: 0 0.875rem;
     gap: 0.375rem;
@@ -4079,19 +4082,313 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     background-color: var(--color-primary);
     color: var(--color-primary-content);
   }
+  /* Danger: outlined red, never a filled or amber button. */
   .s-btn-danger {
     background: transparent;
     color: var(--color-error);
-    padding: 0 0.5rem;
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-error) 55%, transparent);
   }
   .s-btn-danger:hover {
     background: color-mix(in oklab, var(--color-error) 12%, transparent);
     filter: none;
   }
+  .s-btn-ghost {
+    background: transparent;
+    color: var(--color-ink-dim);
+  }
+  .s-btn-ghost:hover {
+    background: var(--color-base-300);
+    color: var(--color-base-content);
+    filter: none;
+  }
+  .s-btn:disabled,
+  .s-btn[aria-disabled="true"] {
+    opacity: 0.55;
+    cursor: not-allowed;
+    filter: none;
+  }
+  @media (min-width: 1024px) and (pointer: fine) {
+    .s-btn-compact {
+      height: 2.25rem;
+    }
+  }
   .s-saved {
     font-size: 0.75rem;
     font-weight: 600;
     color: var(--color-success);
+  }
+  .s-saved.is-error {
+    color: var(--color-error);
+  }
+
+  /* ---- Settings building blocks (see DESIGN.md > Settings) ---------------- */
+
+  /* Page frame: a title and one line of description, then panels. Two widths
+     only - narrow (720px) for forms, toggles and lists, wide (1040px) for
+     Profile, Connected apps, Import and export, Logs and Query performance. */
+  .s-page-head {
+    margin-bottom: 1.5rem;
+  }
+  .s-page-title {
+    font-size: 1.5rem;
+    line-height: 1.2;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .s-page-desc {
+    margin-top: 0.375rem;
+    font-size: 0.875rem;
+    line-height: 1.45;
+    color: var(--color-ink-dim);
+  }
+  .s-narrow {
+    max-width: 720px;
+  }
+  .s-wide {
+    max-width: 1040px;
+  }
+  .s-section {
+    margin-top: 2rem;
+  }
+  .s-section-title {
+    font-size: 1rem;
+    font-weight: 650;
+    margin-bottom: 0.75rem;
+  }
+  .s-section-desc {
+    margin: -0.5rem 0 0.75rem;
+    font-size: 0.8125rem;
+    color: var(--color-ink-dim);
+  }
+  .s-row {
+    min-height: 4rem;
+  }
+
+  /* Form fields: label above, 44px field, help text below; an error replaces
+     the help text and turns the border red. */
+  .s-label {
+    display: block;
+    margin-bottom: 0.375rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+  .s-field {
+    width: 100%;
+    min-height: 2.75rem;
+    border-radius: 0.5rem;
+    background: var(--color-base-100);
+    border: 1px solid var(--color-line-strong);
+    padding: 0 0.875rem;
+    font-size: 0.875rem;
+    color: var(--color-base-content);
+  }
+  .s-field:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 1px;
+  }
+  .s-field[aria-invalid="true"],
+  .s-field.is-invalid {
+    border-color: var(--color-error);
+  }
+  textarea.s-field {
+    padding-block: 0.625rem;
+  }
+  .s-help {
+    margin-top: 0.375rem;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--color-ink-dim);
+  }
+  .s-error {
+    margin-top: 0.375rem;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--color-error);
+  }
+  /* The show/hide button inside a password field: a 44px target. */
+  .s-reveal {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 2.75rem;
+    height: 2.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-ink-dim);
+    cursor: pointer;
+  }
+  .s-reveal:hover {
+    color: var(--color-base-content);
+  }
+
+  /* One status badge for every state: a dot and a short word. */
+  .s-badge {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 0.4rem;
+    height: 1.75rem;
+    padding: 0 0.7rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    background: var(--color-base-300);
+    color: var(--color-ink-dim);
+  }
+  .s-badge::before {
+    content: "";
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 999px;
+    background: currentColor;
+  }
+  .s-badge.is-ok {
+    background: color-mix(in oklab, var(--color-success) 15%, transparent);
+    color: var(--color-success);
+  }
+  .s-badge.is-off {
+    color: var(--color-ink-dim);
+  }
+  .s-badge.is-attention {
+    background: color-mix(in oklab, var(--color-coral) 16%, transparent);
+    color: var(--color-coral);
+  }
+  .s-badge.is-failed {
+    background: color-mix(in oklab, var(--color-error) 15%, transparent);
+    color: var(--color-error);
+  }
+  .s-badge.is-soon {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--color-line-strong);
+  }
+  .s-badge.is-soon::before {
+    display: none;
+  }
+
+  /* A strip that says something needs attention: coral, never amber. */
+  .s-attention {
+    background: color-mix(in oklab, var(--color-coral) 12%, transparent);
+    border: 1px solid color-mix(in oklab, var(--color-coral) 35%, transparent);
+  }
+
+  /* Links are underlined light grey, never amber. */
+  .s-link {
+    color: var(--color-ink);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    text-decoration-color: color-mix(in oklab, var(--color-ink) 45%, transparent);
+  }
+  .s-link:hover {
+    text-decoration-color: currentColor;
+  }
+
+  /* Choosing several: a chip that, when picked, is raised and checked - not
+     amber. */
+  .s-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 2.75rem;
+    padding: 0 1rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-line-strong);
+    background: transparent;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--color-ink-dim);
+    cursor: pointer;
+    transition: background-color 0.12s, color 0.12s, border-color 0.12s;
+  }
+  .s-chip:hover {
+    color: var(--color-base-content);
+  }
+  .s-chip:has(:checked) {
+    background: var(--color-base-300);
+    border-color: color-mix(in oklab, var(--color-base-content) 30%, transparent);
+    color: var(--color-base-content);
+    font-weight: 600;
+    box-shadow: 0 2px 8px rgb(var(--shadow-rgb) / 0.35);
+  }
+  .s-chip:has(:focus-visible) {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+  .s-chip .s-chip-check {
+    display: none;
+  }
+  .s-chip:has(:checked) .s-chip-check {
+    display: inline-block;
+  }
+
+  /* File upload: a dashed drop area with a Choose file button, and a chosen
+     file state with a remove button. Replaces every native file input. */
+  .s-dropzone {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+    padding: 0.875rem 1rem;
+    border-radius: var(--radius-xl);
+    border: 1px dashed var(--color-line-strong);
+    background: var(--color-base-200);
+    transition: border-color 0.12s, background-color 0.12s;
+  }
+  .s-dropzone.is-dragging {
+    border-color: var(--color-base-content);
+    background: var(--color-base-300);
+  }
+  .s-dropzone.has-file {
+    border-style: solid;
+  }
+  .s-dropzone-icon {
+    width: 2.5rem;
+    height: 2.5rem;
+    flex: none;
+    border-radius: 0.5rem;
+    background: var(--color-base-300);
+    color: var(--color-ink-dim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Forms with several fields: a bar appears only while something is
+     unsaved. */
+  .s-unsaved {
+    position: sticky;
+    bottom: 6rem;
+    z-index: 30;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--color-line);
+    background: var(--color-base-200);
+    box-shadow: 0 12px 32px rgb(var(--shadow-rgb) / 0.45);
+  }
+  @media (min-width: 1024px) {
+    .s-unsaved {
+      bottom: 1rem;
+    }
+  }
+
+  /* Inside Settings, small text is the lighter grey (#a6aab8 or lighter) and
+     every button is the 44px touch size; the compact size is opt-in. */
+  [data-settings] .text-ink-faint {
+    color: var(--color-ink-dim);
+  }
+  [data-settings] .btn:not(.btn-circle):not(.btn-square):not(.btn-compact) {
+    min-height: 2.75rem;
+  }
+  @media (min-width: 1024px) and (pointer: fine) {
+    [data-settings] .btn.btn-compact {
+      min-height: 2.25rem;
+    }
   }
   .smark:disabled,
   .smark-chev:disabled {

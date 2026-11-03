@@ -1,0 +1,12 @@
+{# Settings > Backups. Included by settings.html. Narrow page: where your automatic backups go, one panel per destination. #}
+{% load tracker_extras icons settings_ui %}
+<div x-show="tab === 'backups'" x-cloak id="backups">
+  <header class="s-page-head flex flex-wrap items-start justify-between gap-4">
+    <div>
+      <h2 class="s-page-title">Backups</h2>
+      <p class="s-page-desc">Save a full backup (history, ratings and every list) on a schedule. Only your own data is backed up, and each backup can be imported back from <a href="{% url 'settings' %}?tab=data" class="s-link">Import and export</a>.</p>
+    </div>
+    {% if any_backup_enabled %}{% include "tracker/partials/status_badge.html" with kind="on" %}{% else %}{% include "tracker/partials/status_badge.html" with kind="off" %}{% endif %}
+  </header>
+  {% include "tracker/partials/settings_backups.html" %}
+</div>

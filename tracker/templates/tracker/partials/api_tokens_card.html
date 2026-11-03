@@ -9,32 +9,26 @@
   x-data="{ show: false }" per <div>, not one shared boolean like the old
   single-token card used) since up to 5 rows now each need their own.
 {% endcomment %}
-<div id="api-tokens-card" class="surface p-5">
-  <div class="flex items-start gap-4 mb-4">
-    <div class="w-10 h-10 rounded-lg bg-base-300 flex items-center justify-center flex-none text-ink-dim">{% icon "key" "w-7 h-7" %}</div>
-    <div class="min-w-0 flex-1">
-      <h3 class="font-semibold text-[15px]">Custom Player</h3>
-      <div class="text-[13px] text-ink-dim mt-0.5">
-        Bring your own player or script - point it at the
-        <a href="https://github.com/aljaz-h/spool-tracker/blob/master/docs/SCROBBLE_API.md" target="_blank" rel="noopener" class="underline hover:text-base-content">Scrobble API</a>
-        with one of these tokens instead of waiting on a built-in integration. Up to {{ max_api_tokens }} tokens, one per app or device.
-      </div>
-    </div>
-  </div>
+<div id="api-tokens-card" class="s-card">
+  <p class="px-5 py-4 text-[13px] text-ink-dim">
+    Bring your own player or script: point it at the
+    <a href="https://github.com/aljaz-h/spool-tracker/blob/master/docs/SCROBBLE_API.md" target="_blank" rel="noopener" class="s-link">Scrobble API</a>
+    with one of these tokens instead of waiting on a built-in integration. Up to {{ max_api_tokens }} tokens, one per app or device.
+  </p>
 
   {% for token in api_tokens %}
-    <div class="flex items-center gap-1.5 py-2 border-t border-line" x-data="{ show: false }">
+    <div class="flex items-center gap-1 px-5 py-2 border-t border-line" x-data="{ show: false }">
       <div class="flex-1 min-w-0">
-        <div class="text-xs font-semibold truncate">{{ token.name }}</div>
+        <div class="text-[13px] font-semibold truncate">{{ token.name }}</div>
         <input
           :type="show ? 'text' : 'password'" readonly value="{{ token.token }}"
           onclick="this.select()" aria-label="{{ token.name }} token"
-          class="w-full bg-transparent text-[12px] font-mono text-ink-dim focus:outline-none cursor-text"
+          class="w-full bg-transparent text-[12.5px] font-mono text-ink-dim focus:outline-none cursor-text"
         >
       </div>
-      <button type="button" @click="show = !show" title="Show/hide token" class="text-ink-faint hover:text-base-content p-1.5 flex-none">
-        <span x-show="!show">{% icon "eye" "w-3.5 h-3.5" %}</span>
-        <span x-show="show" x-cloak>{% icon "eye-off" "w-3.5 h-3.5" %}</span>
+      <button type="button" @click="show = !show" :aria-label="show ? 'Hide {{ token.name|escapejs }} token' : 'Show {{ token.name|escapejs }} token'" class="s-btn s-btn-ghost flex-none !w-11 !px-0 justify-center">
+        <span x-show="!show">{% icon "eye" "w-4 h-4" %}</span>
+        <span x-show="show" x-cloak>{% icon "eye-off" "w-4 h-4" %}</span>
       </button>
       <form
         hx-post="{% url 'regenerate_api_token' token.pk %}"
@@ -43,7 +37,7 @@
         class="flex-none"
       >
         {% csrf_token %}
-        <button type="submit" title="Regenerate" aria-label="Regenerate {{ token.name }}" class="text-ink-faint hover:text-base-content p-1.5">{% icon "refresh-cw" "w-3.5 h-3.5" %}</button>
+        <button type="submit" title="Regenerate" aria-label="Regenerate {{ token.name }}" class="s-btn s-btn-ghost !w-11 !px-0 justify-center">{% icon "refresh-cw" "w-4 h-4" %}</button>
       </form>
       <form
         hx-post="{% url 'delete_api_token' token.pk %}"
@@ -52,7 +46,7 @@
         class="flex-none"
       >
         {% csrf_token %}
-        <button type="submit" title="Delete" aria-label="Delete {{ token.name }}" class="text-ink-faint hover:text-error p-1.5">{% icon "trash-2" "w-3.5 h-3.5" %}</button>
+        <button type="submit" title="Delete" aria-label="Delete {{ token.name }}" class="s-btn s-btn-ghost !w-11 !px-0 justify-center hover:!text-error">{% icon "trash-2" "w-4 h-4" %}</button>
       </form>
     </div>
   {% endfor %}
@@ -61,17 +55,16 @@
     <form
       hx-post="{% url 'create_api_token' %}"
       hx-target="#api-tokens-card" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
-      class="flex items-center gap-2 mt-3{% if api_tokens %} pt-3 border-t border-line{% endif %}"
+      class="s-strip items-end"
     >
       {% csrf_token %}
-      <input
-        type="text" name="name" maxlength="60" required
-        placeholder="e.g. Living room Kodi" aria-label="New token name"
-        class="input input-sm flex-1 min-w-0"
-      >
-      <button type="submit" class="btn btn-sm btn-primary flex-none">+ Add token</button>
+      <div class="flex-1 min-w-[12rem]">
+        <label for="api-token-name" class="s-label">New token name</label>
+        <input id="api-token-name" type="text" name="name" maxlength="60" required placeholder="e.g. Living room Kodi" class="s-field">
+      </div>
+      <button type="submit" class="s-btn s-btn-primary flex-none">Add token</button>
     </form>
   {% else %}
-    <div class="text-[12px] text-ink-faint mt-3 pt-3 border-t border-line">{{ max_api_tokens }} of {{ max_api_tokens }} tokens used - delete one to add another.</div>
+    <p class="s-strip text-[13px] text-ink-dim">{{ max_api_tokens }} of {{ max_api_tokens }} tokens used. Delete one to add another.</p>
   {% endif %}
 </div>

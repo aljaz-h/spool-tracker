@@ -1,0 +1,10 @@
+{# context: kind (connected | on | off | not_connected | not_set_up | needs_attention | failed | coming_soon), label (optional - the standard wording below is used when it's left out). The one status badge: a dot and a short word, the same wherever it appears. Needs attention is coral, never amber. #}
+{% if kind == "connected" %}<span class="s-badge is-ok">{{ label|default:"Connected" }}</span>
+{% elif kind == "on" %}<span class="s-badge is-ok">{{ label|default:"On" }}</span>
+{% elif kind == "off" %}<span class="s-badge is-off">{{ label|default:"Off" }}</span>
+{% elif kind == "not_connected" %}<span class="s-badge is-off">{{ label|default:"Not connected" }}</span>
+{% elif kind == "not_set_up" %}<span class="s-badge is-off">{{ label|default:"Not set up" }}</span>
+{% elif kind == "needs_attention" %}<span class="s-badge is-attention">{{ label|default:"Needs attention" }}</span>
+{% elif kind == "failed" %}<span class="s-badge is-failed">{{ label|default:"Failed" }}</span>
+{% elif kind == "coming_soon" %}<span class="s-badge is-soon">{{ label|default:"Coming soon" }}</span>
+{% endif %}

@@ -1,0 +1,58 @@
+{# Settings > Danger zone. Included by settings.html. Narrow page: permanent actions, each one a row with an outlined red button. #}
+{% load tracker_extras icons settings_ui %}
+<div x-show="tab === 'danger'" x-cloak>
+  <header class="s-page-head">
+    <h2 class="s-page-title text-error">Danger zone</h2>
+    <p class="s-page-desc">These actions are permanent and can't be undone.</p>
+  </header>
+
+  <div class="s-card border-error/30">
+    {% comment %}
+      flex-wrap + flex-none on the button: on a narrow phone there isn't room for
+      the description AND the button on one line, and without flex-none the button
+      was the one giving way and wrapping its label onto two cramped lines. Wrapping
+      the row lets it drop to its own line below the description instead.
+    {% endcomment %}
+    <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-line min-h-[4rem]">
+      <div class="min-w-0 flex-1 basis-64">
+        <div class="font-semibold text-[14px]">Clear watch history</div>
+        <div class="text-[13px] text-ink-dim">Deletes every watch event and rating. Your lists and watchlist are untouched.</div>
+      </div>
+      <form method="post" action="{% url 'clear_watch_history' %}" onsubmit="return confirm('Clear your entire watch history? This deletes every watch event and rating - permanently. Your lists and watchlist stay as they are.');">
+        {% csrf_token %}
+        <button type="submit" class="s-btn s-btn-danger">Clear history</button>
+      </form>
+    </div>
+
+    {% for row in connected_app_rows %}{% if row.connected and row.wipeable %}
+      <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-line min-h-[4rem]">
+        <div class="min-w-0 flex-1 basis-64">
+          <div class="font-semibold text-[14px]">Disconnect and wipe {{ row.name }}</div>
+          <div class="text-[13px] text-ink-dim">Disconnects {{ row.name }} and removes watch history for titles matched via {{ row.name }}.</div>
+        </div>
+        <form method="post" action="{% url 'disconnect_and_wipe_provider' row.key %}" onsubmit="return confirm('Disconnect {{ row.name|escapejs }} and remove watch history for titles matched via {{ row.name|escapejs }}? This is permanent.');">
+          {% csrf_token %}
+          <button type="submit" class="s-btn s-btn-danger">Disconnect and wipe</button>
+        </form>
+      </div>
+    {% endif %}{% endfor %}
+
+    <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-4 min-h-[4rem]">
+      <div class="min-w-0 flex-1 basis-64">
+        <div class="font-semibold text-[14px]">Delete my account</div>
+        <div class="text-[13px] text-ink-dim">Permanently deletes your profile, watch history, lists, and login.</div>
+        {% if not can_delete_own_account %}
+          <div class="text-[13px] text-coral mt-1">You're the only owner. Promote another profile to owner first.</div>
+        {% endif %}
+      </div>
+      {% if can_delete_own_account %}
+        <form method="post" action="{% url 'delete_own_account' %}" onsubmit="return confirm('Permanently delete your account? This deletes your entire watch history, lists, and login - this cannot be undone.');">
+          {% csrf_token %}
+          <button type="submit" class="s-btn s-btn-danger">Delete my account</button>
+        </form>
+      {% else %}
+        <button type="button" disabled aria-disabled="true" class="s-btn s-btn-danger">Delete my account</button>
+      {% endif %}
+    </div>
+  </div>
+</div>

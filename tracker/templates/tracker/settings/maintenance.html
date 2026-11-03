@@ -1,0 +1,78 @@
+{# Settings > Maintenance (owners). Included by settings.html. Narrow page: facts about the server and one-off cleanup jobs, each a row with its button. #}
+{% load tracker_extras icons settings_ui %}
+<div x-show="tab === 'maintenance'" x-cloak>
+  <header class="s-page-head">
+    <h2 class="s-page-title">Maintenance</h2>
+    <p class="s-page-desc">One-off cleanup and backfill jobs, normally only run from the command line. Results show up under <a href="#" @click.prevent="setTab('logs')" class="s-link">Logs</a>.</p>
+  </header>
+
+  <section class="s-section">
+    <h3 class="s-section-title">Server</h3>
+    <div class="s-card">
+      <dl class="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 p-5 font-mono text-[13px]">
+        <dt class="text-ink-dim">spool</dt><dd>v{{ app_version }}</dd>
+        <dt class="text-ink-dim">django</dt><dd>{{ django_version }}</dd>
+        <dt class="text-ink-dim">database</dt><dd>{{ db_engine }}</dd>
+        <dt class="text-ink-dim">debug</dt><dd>{{ debug }}</dd>
+        <dt class="text-ink-dim">timezone</dt><dd>{{ time_zone }}</dd>
+        <dt class="text-ink-dim">profiles</dt><dd>{{ profiles|length }}</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="s-section">
+    <h3 class="s-section-title">Logs</h3>
+    {% settings_card %}
+      <form hx-post="{% url 'save_log_retention' %}" hx-trigger="change" hx-swap="none">
+        {% settings_row title="Keep logs for" help="Sync and import log entries older than this are deleted by a nightly cleanup job. Leave blank to keep them forever. This doesn't affect the Activity log." %}
+          <span class="spool-spinner" aria-hidden="true"></span>
+          <label class="sr-only" for="log-retention-days">Days to keep logs</label>
+          <input id="log-retention-days" type="number" name="log_retention_days" min="1" max="3650" placeholder="forever" value="{{ cfg.log_retention_days|default_if_none:'' }}" class="s-input !w-28">
+          <span class="text-[13px] text-ink-dim">days</span>
+        {% endsettings_row %}
+      </form>
+    {% endsettings_card %}
+  </section>
+
+  <section class="s-section">
+    <h3 class="s-section-title">Cleanup jobs</h3>
+    {% settings_card %}
+      {% settings_row title="Merge duplicate titles" help="Finds titles imported twice under the same TMDB id (for example once through Trakt and once through Simkl) and merges their watch history, ratings and lists into one. Preview changes nothing; merging can't be undone." %}
+        <form method="post" action="{% url 'run_merge_duplicates' %}">
+          {% csrf_token %}
+          <input type="hidden" name="mode" value="preview">
+          <button type="submit" class="s-btn">Preview</button>
+        </form>
+        <form method="post" action="{% url 'run_merge_duplicates' %}" onsubmit="return confirm('Merge every duplicate title found? This deletes the duplicate rows and moves their watch history, ratings, and lists onto the original - not reversible.');">
+          {% csrf_token %}
+          <input type="hidden" name="mode" value="commit">
+          <button type="submit" class="s-btn s-btn-danger">Commit merge</button>
+        </form>
+      {% endsettings_row %}
+      {% settings_row title="Backfill posters and TMDB ids" help="Looks up a poster and TMDB id for any tracked title missing one, which covers anything imported before poster lookup existed. Runs in the background." %}
+        <form method="post" action="{% url 'run_maintenance_task' 'backfill_posters' %}">
+          {% csrf_token %}
+          <button type="submit" class="s-btn">Run</button>
+        </form>
+      {% endsettings_row %}
+      {% settings_row title="Backfill genres" help="Looks up genres for any tracked title that has none yet. Needs a TMDB id already captured, so run the posters job first if unsure. Runs in the background." %}
+        <form method="post" action="{% url 'run_maintenance_task' 'backfill_genres' %}">
+          {% csrf_token %}
+          <button type="submit" class="s-btn">Run</button>
+        </form>
+      {% endsettings_row %}
+      {% settings_row title="Backfill completion and runtime" help="Recomputes movie and episode runtime and watch-progress completion from TMDB, which covers anything imported before this existed. Runs in the background." %}
+        <form method="post" action="{% url 'run_maintenance_task' 'backfill_completion' %}">
+          {% csrf_token %}
+          <button type="submit" class="s-btn">Run</button>
+        </form>
+      {% endsettings_row %}
+      {% settings_row title="Backfill rewatches" help="Recomputes which watch events are rewatches, for history imported before rewatch marking existed. Fast, runs straight away and is safe to re-run." %}
+        <form method="post" action="{% url 'run_maintenance_task' 'backfill_rewatches' %}">
+          {% csrf_token %}
+          <button type="submit" class="s-btn">Run</button>
+        </form>
+      {% endsettings_row %}
+    {% endsettings_card %}
+  </section>
+</div>

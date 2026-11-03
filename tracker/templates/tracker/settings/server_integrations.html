@@ -1,0 +1,169 @@
+{# Settings > server integrations. Included by settings.html. #}
+{% load tracker_extras icons settings_ui %}
+<div
+  x-show="tab === 'server_integrations'" x-cloak
+  x-data="{ showTraktSecret: false, showSimklSecret: false, showWetrakrSecret: false, showMalSecret: false, showTmdb: false, showMdblist: false, showFanart: false, showSsoSecret: false, showGoogleSecret: false, showDropboxSecret: false }"
+  class="min-w-0"
+>
+  <header class="s-page-head">
+    <h2 class="s-page-title">Integrations</h2>
+    <p class="s-page-desc">Credentials for the services Spool talks to. Values here override the server's .env file. Leave a field blank to keep what is already set.</p>
+  </header>
+  <form method="post" action="{% url 'save_instance_config' %}" class="flex flex-col gap-4 min-w-0" x-data="{ dirty: false }" @input="dirty = true" @reset="dirty = false">
+    {% csrf_token %}
+
+{% settings_card %}
+  {% include "tracker/partials/integration_card_head.html" with title="TMDB" icon="tmdb" icon_class="text-tmdb" description="Supplies posters, details and release dates." configured=tmdb_configured clear_slug="tmdb" clear_confirm="Clear the stored TMDB API key? Spool will fall back to the server .env value, if any." %}
+  {% include "tracker/partials/integration_field_row.html" with label="API key" name="tmdb_api_key" value=integration_field_values.tmdb_api_key configured=tmdb_configured secret=True show="showTmdb" help="" %}
+  <div class="s-foot">
+    <span class="text-[12px] text-ink-faint"></span>
+    <button type="submit" formaction="{% url 'test_provider_credentials' 'tmdb' %}" data-tooltip="Makes a live request to TMDB using the value above (without saving it) - fully validates the key" class="s-btn spool-tooltip">Test</button>
+  </div>
+{% endsettings_card %}
+
+{% settings_card %}
+  {% include "tracker/partials/integration_card_head.html" with title="MDBList" icon="mdblist" icon_class="text-mdblist" description="Optional - adds IMDb/Rotten Tomatoes/Metacritic/Trakt pills to a title's page. Get a free key at mdblist.com/api." configured=mdblist_configured clear_slug="mdblist" clear_confirm="Clear the stored MDBList API key? This turns off supplementary ratings on title pages until a new key is set." %}
+  {% include "tracker/partials/integration_field_row.html" with label="API key" name="mdblist_api_key" value=integration_field_values.mdblist_api_key configured=mdblist_configured secret=True show="showMdblist" help="" %}
+  <div class="s-foot">
+    <span class="text-[12px] text-ink-faint"></span>
+    <button type="submit" formaction="{% url 'test_provider_credentials' 'mdblist' %}" data-tooltip="Makes a live request to MDBList using the value above (without saving it) - fully validates the key" class="s-btn spool-tooltip">Test</button>
+  </div>
+{% endsettings_card %}
+
+{% settings_card %}
+  {% include "tracker/partials/integration_card_head.html" with title="Fanart.tv" icon="sparkles" icon_class="text-ink-dim" description="Optional - adds transparent title logos and better backdrops to a title's page, over TMDB's plain images. Get a free personal key at fanart.tv/get-an-api-key." configured=fanart_configured clear_slug="fanart" clear_confirm="Clear the stored Fanart.tv API key? This turns off title logos/better backdrops until a new key is set." %}
+  {% include "tracker/partials/integration_field_row.html" with label="API key" name="fanart_api_key" value=integration_field_values.fanart_api_key configured=fanart_configured secret=True show="showFanart" help="" %}
+  <div class="s-foot">
+    <span class="text-[12px] text-ink-faint"></span>
+    <button type="submit" formaction="{% url 'test_provider_credentials' 'fanart' %}" data-tooltip="Makes a live request to Fanart.tv using the value above (without saving it) - fully validates the key" class="s-btn spool-tooltip">Test</button>
+  </div>
+{% endsettings_card %}
+
+{% settings_card %}
+  {% include "tracker/partials/integration_card_head.html" with title="Trakt" icon="trakt" icon_class="text-trakt" description="Lets profiles connect their Trakt account to import and sync history." configured=trakt_configured clear_slug="trakt" clear_confirm="Clear the stored Trakt client ID and secret? Spool will fall back to the server .env values, if any." %}
+  {% include "tracker/partials/integration_field_row.html" with label="Client ID" name="trakt_client_id" value=integration_field_values.trakt_client_id configured=trakt_configured secret=False show="" help="" %}
+  {% include "tracker/partials/integration_field_row.html" with label="Client secret" name="trakt_client_secret" value=integration_field_values.trakt_client_secret configured=trakt_configured secret=True show="showTraktSecret" help="" %}
+  <div class="s-foot">
+    <span class="text-[12px] text-ink-faint"></span>
+    <button type="submit" formaction="{% url 'test_provider_credentials' 'trakt' %}" data-tooltip="Makes a live request to Trakt using the values above (without saving them) - only confirms the client ID is live, since Trakt doesn't check the secret outside the OAuth flow" class="s-btn spool-tooltip">Test</button>
+  </div>
+{% endsettings_card %}
+
+{% settings_card %}
+  {% include "tracker/partials/integration_card_head.html" with title="Simkl" icon="simkl" icon_class="text-simkl" description="Lets profiles connect their Simkl account to import and sync history." configured=simkl_configured clear_slug="simkl" clear_confirm="Clear the stored Simkl client ID and secret? Spool will fall back to the server .env values, if any." %}
+  {% include "tracker/partials/integration_field_row.html" with label="Client ID" name="simkl_client_id" value=integration_field_values.simkl_client_id configured=simkl_configured secret=False show="" help="" %}
+  {% include "tracker/partials/integration_field_row.html" with label="Client secret" name="simkl_client_secret" value=integration_field_values.simkl_client_secret configured=simkl_configured secret=True show="showSimklSecret" help="" %}
+  <div class="s-foot">
+    <span class="text-[12px] text-ink-faint"></span>
+    <button type="submit" formaction="{% url 'test_provider_credentials' 'simkl' %}" data-tooltip="Makes a live request to Simkl using the values above (without saving them) - best effort, Simkl's API beyond OAuth isn't fully documented" class="s-btn spool-tooltip">Test</button>
+  </div>
+{% endsettings_card %}
+
+{% settings_card %}
+  {% include "tracker/partials/integration_card_head.html" with title="WeTrakr" icon="wetrakr" icon_class="text-ink-dim" description="Lets profiles connect their WeTrakr account to import and sync history." configured=wetrakr_configured clear_slug="wetrakr" clear_confirm="Clear the stored WeTrakr client ID and secret? Spool will fall back to the server .env values, if any." %}
+  {% include "tracker/partials/integration_field_row.html" with label="Client ID" name="wetrakr_client_id" value=integration_field_values.wetrakr_client_id configured=wetrakr_configured secret=False show="" help="" %}
+  {% include "tracker/partials/integration_field_row.html" with label="Client secret" name="wetrakr_client_secret" value=integration_field_values.wetrakr_client_secret configured=wetrakr_configured secret=True show="showWetrakrSecret" help="" %}
+  <div class="s-foot">
+    <span class="text-[12px] text-ink-faint"></span>
+    <button type="submit" formaction="{% url 'test_provider_credentials' 'wetrakr' %}" data-tooltip="Makes a live request to WeTrakr using the values above (without saving them) - only confirms the client ID is live, since WeTrakr doesn't check the secret outside the OAuth flow" class="s-btn spool-tooltip">Test</button>
+  </div>
+{% endsettings_card %}
+
+{% settings_card %}
+  {% include "tracker/partials/integration_card_head.html" with title="MyAnimeList" icon="myanimelist" icon_class="text-mal" description="Lets profiles connect their MyAnimeList account to import and sync their anime list." configured=mal_configured clear_slug="mal" clear_confirm="Clear the stored MyAnimeList client ID and secret? Spool will fall back to the server .env values, if any." %}
+  {% include "tracker/partials/integration_field_row.html" with label="Client ID" name="mal_client_id" value=integration_field_values.mal_client_id configured=mal_configured secret=False show="" help="" %}
+  {% include "tracker/partials/integration_field_row.html" with label="Client secret" name="mal_client_secret" value=integration_field_values.mal_client_secret configured=mal_configured secret=True show="showMalSecret" help="" %}
+  <div class="s-foot">
+    <span class="text-[12px] text-ink-faint"></span>
+    <button type="submit" formaction="{% url 'test_provider_credentials' 'mal' %}" data-tooltip="Makes a live request to MyAnimeList using the values above (without saving them) - only confirms the client ID is live, since MyAnimeList only checks the secret during the OAuth flow" class="s-btn spool-tooltip">Test</button>
+  </div>
+{% endsettings_card %}
+
+{% settings_card %}
+  {% include "tracker/partials/integration_card_head.html" with title="Google Drive" icon="google-drive" icon_class="" description="Lets every profile back up to its own Google Drive (Settings → Import and export)." configured=gdrive_backup_configured clear_slug="gdrive" clear_confirm="Clear the stored Google Drive app credentials? Profiles backing up to Google Drive will start failing until they are set again." %}
+  {% settings_row title="Redirect URI" help="Register this with the provider." %}
+    <div class="flex items-center gap-2 rounded-lg bg-base-300 px-3 min-w-0 w-full sm:w-72 h-8" x-data="{ copied: false }">
+      <code class="flex-1 min-w-0 truncate font-mono text-[12px] text-ink" title="{{ backup_redirect_uris.gdrive }}">{{ backup_redirect_uris.gdrive }}</code>
+      <button type="button" @click="navigator.clipboard?.writeText('{{ backup_redirect_uris.gdrive|escapejs }}'); copied = true; setTimeout(() => copied = false, 1500)" class="text-[12px] font-semibold text-ink-dim hover:text-base-content flex-none" x-text="copied ? 'Copied' : 'Copy'">Copy</button>
+    </div>
+  {% endsettings_row %}
+  {% include "tracker/partials/integration_field_row.html" with label="Client ID" name="google_client_id" value=integration_field_values.google_client_id configured=gdrive_backup_configured secret=False show="" help="" %}
+  {% include "tracker/partials/integration_field_row.html" with label="Client secret" name="google_client_secret" value=integration_field_values.google_client_secret configured=gdrive_backup_configured secret=True show="showGoogleSecret" help="" %}
+{% endsettings_card %}
+
+{% settings_card %}
+  {% include "tracker/partials/integration_card_head.html" with title="Dropbox" icon="dropbox" icon_class="" description="Lets every profile back up to its own Dropbox (Settings → Import and export)." configured=dropbox_backup_configured clear_slug="dropbox" clear_confirm="Clear the stored Dropbox app credentials? Profiles backing up to Dropbox will start failing until they are set again." %}
+  {% settings_row title="Redirect URI" help="Register this with the provider." %}
+    <div class="flex items-center gap-2 rounded-lg bg-base-300 px-3 min-w-0 w-full sm:w-72 h-8" x-data="{ copied: false }">
+      <code class="flex-1 min-w-0 truncate font-mono text-[12px] text-ink" title="{{ backup_redirect_uris.dropbox }}">{{ backup_redirect_uris.dropbox }}</code>
+      <button type="button" @click="navigator.clipboard?.writeText('{{ backup_redirect_uris.dropbox|escapejs }}'); copied = true; setTimeout(() => copied = false, 1500)" class="text-[12px] font-semibold text-ink-dim hover:text-base-content flex-none" x-text="copied ? 'Copied' : 'Copy'">Copy</button>
+    </div>
+  {% endsettings_row %}
+  {% include "tracker/partials/integration_field_row.html" with label="App key" name="dropbox_app_key" value=integration_field_values.dropbox_app_key configured=dropbox_backup_configured secret=False show="" help="" %}
+  {% include "tracker/partials/integration_field_row.html" with label="App secret" name="dropbox_app_secret" value=integration_field_values.dropbox_app_secret configured=dropbox_backup_configured secret=True show="showDropboxSecret" help="" %}
+{% endsettings_card %}
+
+{% settings_card %}
+  {% include "tracker/partials/settings_head.html" with title="spool-wrapped" icon="sparkles" description="Base URL and shared secret for the Manage Wrapped SSO handshake - set identically to spool-wrapped's own SSO_SHARED_SECRET." %}
+  {% include "tracker/partials/integration_field_row.html" with label="spool-wrapped URL" name="spool_wrapped_url" value=integration_field_values.spool_wrapped_url|default:cfg.spool_wrapped_url secret=False input_type="url" placeholder="https://wrapped.example.com" %}
+  {% include "tracker/partials/integration_field_row.html" with label="Shared secret" name="sso_shared_secret" value=integration_field_values.sso_shared_secret configured=sso_shared_secret_configured secret=True show="showSsoSecret" help="Blank keeps the saved value." %}
+{% endsettings_card %}
+
+    <div x-show="dirty" x-cloak role="status" class="s-unsaved">
+      <span class="text-[13px]">You have unsaved changes. Blank fields keep their saved value.</span>
+      <span class="flex items-center gap-2 ml-auto">
+        <button type="reset" class="s-btn s-btn-ghost">Discard</button>
+        <button type="submit" class="s-btn s-btn-primary">Save changes</button>
+      </span>
+    </div>
+  </form>
+
+  {% comment %}
+    ServiceAPIKey CRUD - a different credential shape from the API
+    tokens card in Settings → Integrations (one key per external
+    service, not per profile - see ServiceAPIKey's own docstring),
+    so it's owner-only here rather than self-service there. Same
+    show/hide-per-row + delete-with-confirm UX as that card.
+  {% endcomment %}
+  <section class="s-section">
+    <h3 class="s-section-title">Reports API keys</h3>
+    <p class="s-section-desc">Read-only keys for outside services (like spool-wrapped) to pull the watch history of every profile that has opted in to Wrapped.</p>
+    <div class="s-card">
+      {% for key in service_api_keys %}
+        <div class="flex items-center gap-1 px-5 py-2 border-b border-line" x-data="{ show: false }">
+          <div class="flex-1 min-w-0">
+            <div class="text-[13px] font-semibold truncate">{{ key.name }}</div>
+            <input
+              :type="show ? 'text' : 'password'" readonly value="{{ key.key }}"
+              onclick="this.select()" aria-label="{{ key.name }} key"
+              class="w-full bg-transparent text-[12.5px] font-mono text-ink-dim focus:outline-none cursor-text"
+            >
+          </div>
+          <button type="button" @click="show = !show" :aria-label="show ? 'Hide {{ key.name|escapejs }} key' : 'Show {{ key.name|escapejs }} key'" class="s-btn s-btn-ghost flex-none !w-11 !px-0 justify-center">
+            <span x-show="!show">{% icon "eye" "w-4 h-4" %}</span>
+            <span x-show="show" x-cloak>{% icon "eye-off" "w-4 h-4" %}</span>
+          </button>
+          <form
+            method="post" action="{% url 'revoke_service_api_key' key.pk %}"
+            onsubmit="return confirm('Revoke the &quot;{{ key.name|escapejs }}&quot; key? Anything still using it will get 401s immediately.');"
+            class="flex-none"
+          >
+            {% csrf_token %}
+            <button type="submit" title="Revoke" aria-label="Revoke {{ key.name }}" class="s-btn s-btn-ghost flex-none !w-11 !px-0 justify-center hover:!text-error">{% icon "trash-2" "w-4 h-4" %}</button>
+          </form>
+        </div>
+      {% endfor %}
+      <form method="post" action="{% url 'create_service_api_key' %}" class="s-strip items-end">
+        {% csrf_token %}
+        <div class="flex-1 min-w-[12rem]">
+          <label for="service-key-name" class="s-label">New key name</label>
+          <input id="service-key-name" type="text" name="name" maxlength="60" required placeholder="e.g. spool-wrapped" class="s-field">
+        </div>
+        <button type="submit" class="s-btn flex-none">Add key</button>
+      </form>
+    </div>
+    <p class="mt-3"><a href="{% url 'manage_wrapped' %}" class="s-link text-[13px]">Manage Wrapped</a></p>
+  </section>
+
+  <p class="mt-6"><a href="#" @click.prevent="setTab('logs')" class="s-link text-[13px]">View logs</a></p>
+</div>

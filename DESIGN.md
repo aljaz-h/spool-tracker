@@ -216,3 +216,41 @@ controls and avatars. Shadows only on floating things — menus/popovers
 - No idle/looping animation; nothing that moves unless the user acted
   (the loading skeleton's sweep is the one exception).
 - No AI-copy clichés; Spool's copy stays plain and specific.
+
+## 8. Settings
+
+Every Settings page is built from nine shared pieces (`app.css`, the `.s-*`
+classes; templates under `tracker/templates/tracker/settings/` and `partials/`).
+Small grey text is `#a6aab8` or lighter, labels are sentence case, and amber is
+only for the one primary action and for things that are switched on.
+
+1. **Page frame.** `settings_page_head.html`: a title and a one-line
+   description, then panels. The same header on every page, no icon tile on the
+   page itself. Two content widths only: narrow (720px) for forms, toggles and
+   lists, wide (1040px) for Profile, Notifications, Connected apps, Import and
+   export, Logs and Query performance (`wideTabs` in `settings.html`).
+2. **Setting rows.** `settings_card` + `settings_row`: label and one-line help
+   on the left, the control on the right, one panel per section, hairline
+   dividers, at least 64px tall.
+3. **Form fields.** `.s-label` above a 44px `.s-field` with `.s-help` under it; an
+   error (`.s-error`) replaces the help text and turns the border red.
+4. **Buttons.** One amber primary (`.s-btn-primary`) per page; everything else is
+   secondary (`.s-btn`), ghost (`.s-btn-ghost`) or danger (`.s-btn-danger`, outlined
+   red). 44px by default; 36px (`.s-btn-compact`) only inside dense tables on a
+   desktop. Inside `[data-settings]` daisyUI's `.btn` is held to 44px too.
+5. **Status badges.** `status_badge.html`: a dot and a short word - Connected, On,
+   Off, Not connected, Not set up, Needs attention (coral, never amber), Failed,
+   Coming soon. The same wording everywhere.
+6. **Saving.** Toggles, selects and chips save as they change and show "Saved"
+   (`settings-save.js`); forms with several text fields use the "You have unsaved
+   changes" bar (`.s-unsaved`, Discard / Save changes); one-off actions show their
+   result next to the button.
+7. **Choosing.** A toggle (`s_toggle.html`) for on and off; a checkbox only inside
+   a matrix or list of options (checked is amber); chips (`.s-chip`) for picking
+   several - the selected chip is raised and checked, not amber.
+8. **File upload.** `file_dropzone.html` + `file-dropzone.js`: a dashed drop area,
+   a Choose file button, the chosen file's name and size with a remove button. No
+   native "Choose file / No file chosen" input anywhere.
+9. **Wording and links.** Sentence case for every title, label and button, the
+   sidebar included. Links are underlined light grey (`.s-link`), never amber.
+

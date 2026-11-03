@@ -1232,7 +1232,7 @@ class ExternalAccount(models.Model):
     def paused_import_session(self):
         """WeTrakr only - the currently-paused-on-quota ImportSession for
         this account, if any (see ImportSession.Status.PAUSED). Used by
-        sync_provider_card.html to show a "paused, resuming..." line on
+        connected_app_card.html to show a "paused, resuming..." line on
         the Settings card without the template needing its own query.
         ImportSession is defined further down this same module - safe to
         reference directly with no import, since by the time any instance

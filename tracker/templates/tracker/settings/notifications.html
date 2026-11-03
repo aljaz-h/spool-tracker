@@ -1,0 +1,83 @@
+{# Settings > Notifications. Included by settings.html. Wide page with the checkbox matrix (what you hear about, in the app and as push), then push setup. Saves as you change anything. #}
+{% load tracker_extras icons settings_ui %}
+{% comment %}
+  One form spans both cards below (persists all five fields together, see
+  views.save_notifications) - hx-trigger="change" only, never "submit", which
+  is what lets the "Send test" button inside it fall through to its own native
+  (non-htmx) submission via formaction instead of being intercepted, landing on
+  test_push_notification as an ordinary POST+redirect so Django's messages
+  framework can show the result as a normal toast after the page reloads. That
+  also means this form needs a real csrf_token field - every other save so far
+  relies on base.html's global htmx X-CSRFToken header injection, which only
+  ever applies to htmx-intercepted requests, never a native form submission.
+{% endcomment %}
+<form
+  x-show="tab === 'notifications'" x-cloak
+  method="post" action="{% url 'save_notifications' %}"
+  hx-post="{% url 'save_notifications' %}" hx-trigger="change" hx-swap="none"
+>
+  {% csrf_token %}
+  <header class="s-page-head flex items-start justify-between gap-4">
+    <div>
+      <h2 class="s-page-title">Notifications</h2>
+      <p class="s-page-desc">Choose what you hear about, and whether it shows in your bell, goes to push, or both. Changes save as you make them.</p>
+    </div>
+    <span data-save-status class="s-saved mt-2" role="status"></span>
+  </header>
+
+  <section class="s-section">
+    <h3 class="s-section-title">What you're notified about</h3>
+    {% settings_card %}
+      <div class="s-row !block">
+        <div class="grid grid-cols-[1fr_auto_auto] items-center gap-x-5 gap-y-1">
+          <div class="text-[12.5px] text-ink-dim pb-1">Notify me about</div>
+          <div class="text-[12.5px] text-ink-dim pb-1 w-14 text-center">In app</div>
+          <div class="text-[12.5px] text-ink-dim pb-1 w-14 text-center">Push</div>
+          {% for group, rows in notification_table %}
+            <div class="col-span-3 text-[13px] font-semibold pt-4 pb-1">{{ group }}</div>
+            {% for setting, app_on, push_on in rows %}
+              <div class="min-w-0 py-1.5">
+                <div class="text-[13.5px]">{{ setting.label }}</div>
+                <div class="text-[12.5px] text-ink-dim">{{ setting.hint }}</div>
+              </div>
+              <label class="w-14 min-h-11 flex items-center justify-center cursor-pointer" aria-label="{{ setting.label }} in the app">
+                <input type="checkbox" name="{{ setting.key }}__app" class="checkbox checkbox-primary checkbox-sm" {% if app_on %}checked{% endif %}>
+              </label>
+              <label class="w-14 min-h-11 flex items-center justify-center cursor-pointer {% if not push_ready %}opacity-50{% endif %}" aria-label="{{ setting.label }} as a push notification">
+                <input type="checkbox" name="{{ setting.key }}__push" class="checkbox checkbox-primary checkbox-sm" {% if push_on %}checked{% endif %}>
+              </label>
+            {% endfor %}
+          {% endfor %}
+        </div>
+        {% if not push_ready %}
+          <p class="text-[12.5px] text-ink-dim mt-3">Push choices are remembered, but only take effect once push notifications are set up below.</p>
+        {% endif %}
+      </div>
+    {% endsettings_card %}
+  </section>
+
+  <section class="s-section">
+    <h3 class="s-section-title">Push notifications</h3>
+    <p class="s-section-desc">
+      Send the alerts you ticked Push for to Discord, Slack, Telegram, Pushover, Microsoft Teams or Webex Teams through
+      <a href="https://github.com/caronc/apprise" target="_blank" rel="noopener" class="s-link">Apprise</a>. Paste a URL, no server setup needed.
+      Only these hosted services work for now, not self-hosted targets or email.
+    </p>
+    {% settings_card %}
+      {% settings_row title="Enable push notifications" help="Turn sending on once you've added at least one URL below." %}
+        {% include "tracker/partials/s_toggle.html" with name="push_notifications_enabled" checked=profile.push_notifications_enabled label="Enable push notifications" %}
+      {% endsettings_row %}
+      <div class="s-row !block">
+        <label class="s-label" for="push-urls">Apprise URLs</label>
+        <textarea
+          id="push-urls" name="push_notification_urls" rows="3" placeholder="discord://webhook_id/webhook_token&#10;tgram://bot_token/chat_id"
+          class="s-field font-mono !py-2.5" aria-describedby="push-urls-help"
+        >{{ profile.get_push_notification_urls }}</textarea>
+        <p id="push-urls-help" class="s-help">One per line. Only discord://, slack://, tgram://, pover://, o365:// and wxteams:// work.</p>
+      </div>
+      <div class="s-foot justify-end">
+        <button type="submit" formaction="{% url 'test_push_notification' %}" class="s-btn">Send test</button>
+      </div>
+    {% endsettings_card %}
+  </section>
+</form>

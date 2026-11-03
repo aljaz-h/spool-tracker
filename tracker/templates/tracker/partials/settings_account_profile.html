@@ -11,14 +11,14 @@
 <script src="{% static 'js/profile-form.js' %}"></script>
 <div x-data="profileForm(JSON.parse($el.dataset.cfg))" data-cfg="{{ profile_form_config }}" class="flex flex-col gap-5">
 
-  <div>
-    <h3 class="text-lg">Profile</h3>
-    <p class="text-[13px] text-ink-dim mt-1">
+  <header class="s-page-head !mb-0">
+    <h2 class="s-page-title">Profile</h2>
+    <p class="s-page-desc">
       Member since {{ profile.created_at|date:"F Y" }}
       {% if connected_apps_count %}&middot; {{ connected_apps_count }} app{{ connected_apps_count|pluralize }} connected{% endif %}
-      &middot; <a href="{% url 'settings' %}?tab=connected_apps" class="underline hover:text-base-content">Manage apps</a>
+      &middot; <a href="{% url 'settings' %}?tab=connected_apps" class="s-link">Manage apps</a>
     </p>
-  </div>
+  </header>
 
   <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] items-start">
 
@@ -86,7 +86,7 @@
       </fieldset>
 
       {# Only while something is unsaved. Sits above the floating tab bar on a phone. #}
-      <div x-show="dirty" x-cloak role="status" class="sticky bottom-24 lg:bottom-4 z-30 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-base-200 px-4 py-3 shadow-[0_12px_32px_rgba(0,0,0,0.45)]">
+      <div x-show="dirty" x-cloak role="status" class="s-unsaved">
         <span class="text-[13px]">You have unsaved changes</span>
         <span class="flex items-center gap-2 ml-auto">
           <button type="button" class="btn btn-ghost min-h-11" @click="discard()">Discard</button>

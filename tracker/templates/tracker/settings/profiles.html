@@ -1,0 +1,83 @@
+{# Settings > Profiles (owners). Included by settings.html. Narrow page: everyone on this server, with promote / reset password / remove, and a form to add a profile. #}
+{% load tracker_extras icons settings_ui %}
+<div x-show="tab === 'profiles'" x-cloak x-data="{ showAddProfile: false }">
+  <header class="s-page-head">
+    <h2 class="s-page-title">Profiles</h2>
+    <p class="s-page-desc">Everyone who uses this server. Owners can manage profiles, integrations and server settings.</p>
+  </header>
+
+  <div class="s-card">
+    {% for p in profiles %}
+      <div {% if p.id != profile.id %}x-data="{ showReset: false }"{% endif %} class="border-b border-line last:border-b-0">
+        <div class="flex items-center gap-3 px-5 py-3 min-h-[4rem]">
+          {% include "tracker/partials/avatar.html" with profile=p size="w-10 h-10" text="text-sm" %}
+          <div class="flex-1 min-w-0">
+            <div class="font-semibold text-[14px]">{{ p.display_name }}</div>
+            <div class="text-[13px] text-ink-dim">{% if p.is_owner %}Owner{% else %}Member{% endif %}</div>
+          </div>
+          {% if p.id != profile.id %}
+            <div class="flex items-center gap-0.5 flex-none">
+              {% if p.is_owner %}
+                <form method="post" action="{% url 'demote_from_owner' p.id %}" onsubmit="return confirm('Demote {{ p.display_name|escapejs }} to member? They will lose access to profiles, integrations, and server settings.');">
+                  {% csrf_token %}
+                  <button type="submit" title="Demote to member - removes access to profiles, integrations, and server settings" aria-label="Demote {{ p.display_name }} to member" class="s-btn s-btn-ghost !w-11 !px-0 justify-center">{% icon "circle" "w-4 h-4" %}</button>
+                </form>
+              {% else %}
+                <form method="post" action="{% url 'promote_to_owner' p.id %}" onsubmit="return confirm('Make {{ p.display_name|escapejs }} an owner? Owners can manage profiles, integrations, and server settings.');">
+                  {% csrf_token %}
+                  <button type="submit" title="Promote to owner - grants full access to profiles, integrations, and server settings" aria-label="Make {{ p.display_name }} an owner" class="s-btn s-btn-ghost !w-11 !px-0 justify-center">{% icon "crown" "w-4 h-4" %}</button>
+                </form>
+              {% endif %}
+              <button type="button" @click="showReset = !showReset" :aria-expanded="showReset.toString()" title="Reset password - sets a new password for this profile and signs them out of any active sessions" aria-label="Reset password for {{ p.display_name }}" class="s-btn s-btn-ghost !w-11 !px-0 justify-center">{% icon "key" "w-4 h-4" %}</button>
+              <form method="post" action="{% url 'delete_profile' p.id %}" onsubmit="return confirm('Remove {{ p.display_name|escapejs }}? This deletes their entire watch history.');">
+                {% csrf_token %}
+                <button type="submit" title="Remove - permanently deletes this profile and its entire watch history" aria-label="Remove {{ p.display_name }}" class="s-btn s-btn-ghost !w-11 !px-0 justify-center hover:!text-error">{% icon "trash-2" "w-4 h-4" %}</button>
+              </form>
+            </div>
+          {% endif %}
+        </div>
+        {% if p.id != profile.id %}
+          <form x-show="showReset" x-cloak method="post" action="{% url 'admin_reset_password' p.id %}" class="s-strip items-end">
+            {% csrf_token %}
+            <div class="flex-1 min-w-[12rem]">
+              <label class="s-label" for="reset-new-{{ p.id }}">New password for {{ p.display_name }}</label>
+              <input id="reset-new-{{ p.id }}" type="password" name="new_password" required minlength="8" autocomplete="new-password" class="s-field">
+            </div>
+            <div class="flex-1 min-w-[12rem]">
+              <label class="s-label" for="reset-confirm-{{ p.id }}">Confirm new password</label>
+              <input id="reset-confirm-{{ p.id }}" type="password" name="confirm_password" required minlength="8" autocomplete="new-password" class="s-field">
+            </div>
+            <button type="submit" class="s-btn flex-none">Set new password</button>
+          </form>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="mt-4">
+    <button type="button" @click="showAddProfile = !showAddProfile" :aria-expanded="showAddProfile.toString()" class="s-btn">Add profile</button>
+  </div>
+
+  <div x-show="showAddProfile" x-cloak class="s-card mt-4">
+    <form method="post" action="{% url 'create_profile' %}">
+      {% csrf_token %}
+      <div class="flex flex-col gap-5 p-5">
+        <div>
+          <label class="s-label" for="new-profile-name">Display name</label>
+          <input id="new-profile-name" type="text" name="display_name" required class="s-field">
+        </div>
+        <div>
+          <label class="s-label" for="new-profile-username">Username (for signing in)</label>
+          <input id="new-profile-username" type="text" name="username" required autocomplete="off" class="s-field">
+        </div>
+        <div>
+          <label class="s-label" for="new-profile-password">Password</label>
+          <input id="new-profile-password" type="password" name="password" required autocomplete="new-password" class="s-field">
+        </div>
+      </div>
+      <div class="s-strip justify-end">
+        <button type="submit" class="s-btn s-btn-primary">Create profile</button>
+      </div>
+    </form>
+  </div>
+</div>

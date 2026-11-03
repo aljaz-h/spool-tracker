@@ -6183,7 +6183,7 @@ class AdminDashboardVisibilityTests(TestCase):
     def test_owner_sees_admin_sidebar_section(self):
         self.client.login(username="owner2", password="pass12345")
         resp = self.client.get(reverse("settings"))
-        self.assertContains(resp, "Server Integrations")
+        self.assertContains(resp, "Integrations</button>")
 
     def test_configured_secret_value_never_rendered_in_html(self):
         InstanceConfig.objects.create(pk=1, encrypted_trakt_client_secret=crypto.encrypt("super-secret-value"))
@@ -6236,7 +6236,7 @@ class SettingsConnectedAppsTests(TestCase):
 
     def test_section_is_renamed(self):
         resp = self.client.get(reverse("settings"))
-        self.assertContains(resp, "Connected Apps")
+        self.assertContains(resp, "Connected apps")
 
     def test_connect_button_disabled_when_trakt_not_configured(self):
         resp = self.client.get(reverse("settings"))
@@ -9436,7 +9436,10 @@ class GroupedLogsTests(TestCase):
     def test_a_healthy_log_has_no_needs_attention_strip(self):
         self._night(0)
         self.client.login(username="groupowner", password="pass12345")
-        self.assertNotContains(self.client.get(reverse("logs_table_partial")), "Needs attention.")
+        # The view reads the real clock; pin it to the day the night was built for.
+        with patch("tracker.selectors.timezone.now", return_value=self.now):
+            resp = self.client.get(reverse("logs_table_partial"))
+        self.assertNotContains(resp, "Needs attention.")
 
     def test_polling_continues_while_a_grouped_entry_is_running(self):
         self._sync(self.timezone.now(), status=SyncLog.Status.RUNNING)
@@ -9545,9 +9548,9 @@ class SyncLogViewTests(TestCase):
     def test_filters_button_shows_active_dot_only_when_a_filter_is_set(self):
         self.client.login(username="logowner", password="pass12345")
         resp = self.client.get(reverse("settings"), {"tab": "logs"})
-        self.assertNotContains(resp, "w-1.5 h-1.5 rounded-full bg-primary")
+        self.assertNotContains(resp, "w-1.5 h-1.5 rounded-full bg-base-content")
         resp = self.client.get(reverse("settings"), {"tab": "logs", "log_status": "failed"})
-        self.assertContains(resp, "w-1.5 h-1.5 rounded-full bg-primary")
+        self.assertContains(resp, "w-1.5 h-1.5 rounded-full bg-base-content")
 
     def test_no_banner_for_a_lone_success(self):
         self.client.login(username="logowner", password="pass12345")
@@ -10581,6 +10584,239 @@ class AvatarComponentTests(TestCase):
         self.assertContains(resp, "background:#e8a63c;color:#1a1305;")
 
 
+class SettingsBuildingBlocksTests(TestCase):
+    """Every Settings page is built from the same blocks (see DESIGN.md >
+    Settings): one page frame, two widths, one status badge, 44px controls, at
+    most one amber button, file dropzones instead of native file inputs,
+    sentence case and light-grey links."""
+
+    TABS = [
+        ("account", "Profile"), ("security", "Security"), ("preferences", "Preferences"),
+        ("notifications", "Notifications"), ("schedule", "My schedule"), ("wrapped", "Wrapped"),
+        ("connected_apps", "Connected apps"), ("advanced", "API and sharing"), ("data", "Import and export"),
+        ("backups", "Backups"), ("danger", "Danger zone"), ("profiles", "Profiles"),
+        ("server_integrations", "Integrations"), ("maintenance", "Maintenance"),
+        ("query_performance", "Query performance"), ("activity_log", "Activity log"), ("logs", "Logs"),
+    ]
+
+    def setUp(self):
+        user = User.objects.create_user("blocksowner", password="pass12345", is_superuser=True)
+        self.profile = Profile.objects.create(user=user, display_name="BlocksOwner")
+        Profile.objects.create(user=User.objects.create_user("blocksother", password="pass12345"), display_name="Other")
+        self.client.login(username="blocksowner", password="pass12345")
+
+    def _html(self):
+        return self.client.get(reverse("settings")).content.decode()
+
+    def _tab(self, html, key):
+        """The markup of one tab (from its x-show to the next tab's)."""
+        marker = f"x-show=\"tab === '{key}'\""
+        start = html.index(marker)
+        keys = [k for k, _title in self.TABS]
+        later = [html.find(f"x-show=\"tab === '{k}'\"", start + 1) for k in keys if k != key]
+        later = [i for i in later if i > start]
+        return html[start : min(later)] if later else html[start:]
+
+    def test_every_page_opens_with_the_same_header_and_no_icon_tile(self):
+        html = self._html()
+        for key, title in self.TABS:
+            tab = self._tab(html, key)
+            self.assertIn('<h2 class="s-page-title', tab, key)
+            self.assertIn(f">{title}</h2>", tab, key)
+            self.assertNotIn("s-card-head", tab.split("</header>")[0], f"{key}: no icon tile in the page header")
+
+    def test_titles_are_sentence_case(self):
+        for _key, title in self.TABS:
+            for word in title.split()[1:]:
+                self.assertTrue(word.islower() or word.isupper(), f"{title!r}: {word!r}")
+
+    def test_the_sidebar_is_sentence_case(self):
+        html = self._html()
+        for good in ("Connected apps", "Import and export", "API and sharing", "Activity log", "Danger zone"):
+            self.assertIn(f"{good}</button>", html)
+        for bad in ("Connected Apps", "Import &amp; Export", "API &amp; Sharing", "Activity Log", "Danger Zone", "Server Integrations"):
+            self.assertNotIn(bad, html)
+
+    def test_only_two_widths_and_the_wide_pages_are_the_listed_ones(self):
+        html = self._html()
+        self.assertIn("wideTabs: ['account', 'notifications', 'connected_apps', 'data', 'logs', 'query_performance']", html)
+        self.assertIn(":class=\"wideTabs.includes(tab) ? 's-wide' : 's-narrow'\"", html)
+        css = open(os.path.join(os.path.dirname(__file__), "..", "static", "src", "app.css"), encoding="utf-8").read()
+        self.assertIn(".s-narrow {\n    max-width: 720px;", css.replace("\r\n", "\n"))
+        self.assertIn(".s-wide {\n    max-width: 1040px;", css.replace("\r\n", "\n"))
+
+    def test_no_page_has_more_than_one_amber_primary_button(self):
+        import re
+
+        html = self._html()
+        primary = re.compile(r'(?<![:\w-])class="[^"]*\b(?:btn-primary|s-btn-primary)\b')
+        for key, _title in self.TABS:
+            self.assertLessEqual(len(primary.findall(self._tab(html, key))), 1, key)
+
+    def test_no_native_file_input_is_left(self):
+        import re
+
+        html = self._html()
+        self.assertNotIn("Choose File", html)
+        self.assertNotIn("No file chosen", html)
+        for tag in re.findall(r'<input[^>]*type="file"[^>]*>', html):
+            self.assertIn('class="hidden"', tag)  # the real input sits hidden under a dropzone / the avatar
+        self.assertGreaterEqual(html.count("Choose file"), 8)
+
+    def test_one_status_badge_replaces_the_near_duplicates(self):
+        html = self._html()
+        self.assertNotIn("chip chip-success", html)
+        self.assertNotIn(">Configured<", html)
+        self.assertNotIn(">Not configured<", html)
+        self.assertIn("s-badge", html)
+
+    def test_links_are_not_amber(self):
+        html = self._html()
+        for tab_key in ("connected_apps", "data", "security", "wrapped"):
+            self.assertNotIn("text-primary hover:underline", self._tab(html, tab_key), tab_key)
+
+    def test_controls_are_44px_and_the_compact_size_is_opt_in(self):
+        css = open(os.path.join(os.path.dirname(__file__), "..", "static", "src", "app.css"), encoding="utf-8").read().replace("\r\n", "\n")
+        self.assertIn(".s-btn {\n    height: 2.75rem;", css.replace(".s-select,\n  .s-input,\n  .s-btn {", ".s-btn {"))
+        self.assertIn("[data-settings] .btn:not(.btn-circle):not(.btn-square):not(.btn-compact)", css)
+        self.assertIn(".s-btn-compact", css)
+
+    # ---- the four pages from the design -------------------------------
+    def test_preferences_uses_sections_toggles_and_chip_genres(self):
+        tab = self._tab(self._html(), "preferences")
+        for heading in ("Appearance", "Date and time", "Browsing", "Discovery"):
+            self.assertIn(f'<h3 class="s-section-title">{heading}</h3>', tab)
+        self.assertIn('class="toggle toggle-primary"', tab)
+        self.assertNotIn('class="checkbox"', tab)
+        self.assertNotIn("s-card-head", tab)  # no icon-tile cards
+
+    def test_genres_load_as_soon_as_the_tab_is_shown_and_can_be_retried(self):
+        tab = self._tab(self._html(), "preferences")
+        self.assertIn('hx-trigger="intersect once, tab-shown once, retry"', tab)
+        self.assertIn("Try again", tab)
+        self.assertIn("Couldn't load the genres", tab)
+
+    @patch("tracker.integrations.tmdb.watch_provider_catalog", return_value=[{"id": 8, "name": "Netflix", "logo_url": None}])
+    @patch("tracker.integrations.tmdb.genres", return_value=[{"id": 18, "name": "Drama"}])
+    def test_the_genre_fragment_is_raised_checked_chips(self, _genres, _providers):
+        resp = self.client.get(reverse("discover_preference_options"))
+        self.assertContains(resp, 'class="s-chip"')
+        self.assertContains(resp, "Drama")
+        self.assertContains(resp, "s-chip-check")
+        self.assertNotContains(resp, "bg-primary")  # picked chips are raised, not amber
+
+    @patch("tracker.integrations.tmdb.watch_provider_catalog", side_effect=RuntimeError("tmdb down"))
+    @patch("tracker.integrations.tmdb.genres", side_effect=RuntimeError("tmdb down"))
+    def test_the_genre_fragment_survives_tmdb_failing_and_says_so(self, _genres, _providers):
+        resp = self.client.get(reverse("discover_preference_options"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Genres aren")
+        self.assertContains(resp, "Streaming services aren")
+
+    def test_security_has_labels_above_fields_one_primary_and_the_standard_badge(self):
+        tab = self._tab(self._html(), "security")
+        for label in ("Current password", "New password", "Confirm new password"):
+            self.assertIn(f">{label}</label>", tab)
+        self.assertIn('class="s-btn s-btn-primary">Change password<', tab)
+        self.assertEqual(tab.count("s-reveal"), 3)  # a 44px show/hide button on each of the three fields
+        self.assertIn("Use a password you don&#x27;t use anywhere else.".replace("&#x27;", "'"), tab)
+        self.assertIn("Must be at least 8 characters.", tab)
+
+    def test_security_turn_off_is_a_danger_button_and_on_is_the_standard_badge(self):
+        Profile.objects.filter(pk=self.profile.pk).update(totp_enabled=True)
+        tab = self._tab(self._html(), "security")
+        self.assertIn("s-badge is-ok", tab)
+        self.assertIn(">On</span>", tab)
+        self.assertIn("s-btn s-btn-danger", tab)
+        self.assertIn(">Turn off<", tab)
+
+    def test_connected_apps_splits_connected_from_available(self):
+        ExternalAccount.objects.create(profile=self.profile, provider="trakt")
+        tab = self._tab(self._html(), "connected_apps")
+        self.assertIn('<h3 class="s-section-title">Connected</h3>', tab)
+        self.assertIn('<h3 class="s-section-title">Available</h3>', tab)
+        connected, available = tab.split('<h3 class="s-section-title">Available</h3>')
+        self.assertIn("Trakt", connected)
+        self.assertNotIn("Trakt", available)
+        for name in ("Nuvio", "Simkl", "WeTrakr", "TMDB", "MyAnimeList", "AniList", "Kitsu"):
+            self.assertIn(name, available)
+        self.assertIn("s-badge is-ok", connected)
+        self.assertIn("Not set up", available)  # an app the server owner hasn't set up
+        self.assertIn("Not connected", available)
+
+    def test_sync_now_is_amber_only_when_a_single_account_is_connected(self):
+        ExternalAccount.objects.create(profile=self.profile, provider="trakt")
+        self.assertIn('s-btn s-btn-primary"><svg', self._tab(self._html(), "connected_apps"))
+        ExternalAccount.objects.create(profile=self.profile, provider="simkl")
+        tab = self._tab(self._html(), "connected_apps")
+        self.assertNotIn("s-btn-primary", tab)
+        i = tab.find("Sync now")
+        self.assertEqual(tab.count("Sync now"), 2, tab[max(0, i - 400) : i + 60])
+
+    def test_connect_is_secondary_and_username_apps_ask_in_the_row(self):
+        tab = self._tab(self._html(), "connected_apps")
+        self.assertIn('class="s-btn"', tab)
+        self.assertNotIn("btn-primary", tab)
+        self.assertIn("AniList username", tab)
+        self.assertIn(reverse("anime_list_connect", args=["anilist"]), tab)
+
+    def test_import_and_export_is_file_based_only(self):
+        tab = self._tab(self._html(), "data")
+        for title in ("Trakt", "Simkl", "Letterboxd", "IMDb", "TV Time", "Anime list", "Spool backup", "Other tracker"):
+            self.assertIn(f"title: '{title}'", tab.replace("title: '", "title: '"))
+        self.assertEqual(tab.count('class="s-dropzone"'), 8)
+        self.assertNotIn("Connect Account", tab)
+        self.assertNotIn("anime_list_connect", tab)  # AniList/Kitsu connect lives in Connected apps
+        self.assertEqual(tab.count("Connect an account instead"), 3)  # Trakt, Simkl, Anime list
+        self.assertIn("Download everything", tab)
+        self.assertIn("Full backup (JSON)", tab)
+        self.assertIn("automatic backups", tab)
+
+    def test_the_dropzone_can_choose_drop_remove_and_upload(self):
+        tab = self._tab(self._html(), "data")
+        for piece in ("@drop.prevent", "@dragover.prevent", ">Choose file<", "Remove the chosen file", "ready to upload", ">Upload<"):
+            self.assertIn(piece, tab)
+        script = open(os.path.join(os.path.dirname(__file__), "..", "static", "js", "file-dropzone.js"), encoding="utf-8").read()
+        for piece in ("DataTransfer", "maxMb", "accepted", "remove()"):
+            self.assertIn(piece, script)
+
+    def test_notifications_keep_the_checkbox_only_for_the_matrix(self):
+        tab = self._tab(self._html(), "notifications")
+        self.assertIn("checkbox checkbox-primary", tab)  # the matrix: checked is amber
+        self.assertIn('class="toggle toggle-primary"', tab)  # push on/off is a toggle
+        self.assertIn("data-save-status", tab)
+
+    def test_toggles_in_the_other_pages_are_switches_not_checkboxes(self):
+        html = self._html()
+        for key in ("wrapped", "schedule"):
+            self.assertIn('role="switch"', self._tab(html, key), key)
+
+    def test_danger_buttons_are_outlined_red_and_one_row_per_connected_service(self):
+        ExternalAccount.objects.create(profile=self.profile, provider="trakt")
+        tab = self._tab(self._html(), "danger")
+        self.assertIn("Disconnect and wipe Trakt", tab)
+        self.assertNotIn("bg-error/10", tab)
+        self.assertGreaterEqual(tab.count("s-btn s-btn-danger"), 3)
+
+    def test_integrations_use_the_unsaved_bar_instead_of_an_always_on_save(self):
+        tab = self._tab(self._html(), "server_integrations")
+        self.assertIn('class="s-unsaved"', tab)
+        self.assertIn("You have unsaved changes", tab)
+        self.assertNotIn('px-6">Save<', tab)
+
+    def test_instant_saving_controls_get_a_saved_indicator(self):
+        html = self._html()
+        self.assertIn("/static/js/settings-save", html)
+        script = open(os.path.join(os.path.dirname(__file__), "..", "static", "js", "settings-save.js"), encoding="utf-8").read()
+        self.assertIn("✓ Saved", script)
+        self.assertIn("htmx:afterRequest", script)
+
+    def test_logs_attention_is_coral_not_amber(self):
+        tab = self._tab(self._html(), "logs")
+        self.assertNotIn("bg-warning/10", tab)
+        self.assertNotIn("text-warning", tab)
+
+
 class NotificationsAndPrivacyOnTheMergedSettingsPageTests(TestCase):
     """Settings & Import, My Profile, and Admin Dashboard all render the
     same merged template now (client-side tabs, not separate pages), so
@@ -10767,7 +11003,7 @@ class AvatarImageRenderingTests(TestCase):
         # The preview avatar starts on the photo: its initial fallback is hidden.
         self.assertContains(resp, 'x-show="!photoUrl" x-cloak')
         self.assertNotContains(resp, 'x-show="photoUrl" x-cloak')
-        self.assertIn(self.profile.avatar_image.url, resp.context["profile_form_config"].replace("\/", "/"))
+        self.assertIn(self.profile.avatar_image.url, resp.context["profile_form_config"])
 
     def test_topbar_active_profile_renders_image_not_initial(self):
         resp = self.client.get(reverse("dashboard"))
@@ -25319,11 +25555,11 @@ class AnimationSystemTests(TestCase):
     def test_settings_animations_toggle_is_off_by_default_and_reflects_the_saved_value(self):
         resp = self.client.get(reverse("settings"))
         self.assertContains(resp, 'name="animations_enabled"')
-        self.assertNotContains(resp, 'name="animations_enabled" class="checkbox" aria-label="Interface animations" checked')
+        self.assertNotContains(resp, 'name="animations_enabled" class="toggle toggle-primary" aria-label="Interface animations" checked')
         self.profile.animations_enabled = True
         self.profile.save(update_fields=["animations_enabled"])
         resp = self.client.get(reverse("settings"))
-        self.assertContains(resp, 'name="animations_enabled" class="checkbox" aria-label="Interface animations" checked')
+        self.assertContains(resp, 'name="animations_enabled" class="toggle toggle-primary" aria-label="Interface animations" checked')
 
     def test_animated_swap_actually_differs_in_rendered_markup(self):
         # Step 4 scope check, end to end: the exact same page (Discover's
@@ -27087,7 +27323,7 @@ class ApiTokenViewsTests(TestCase):
 
     def test_settings_page_shows_the_add_form_with_no_tokens_yet(self):
         resp = self.client.get(reverse("settings"))
-        self.assertContains(resp, "+ Add token")
+        self.assertContains(resp, ">Add token<")
 
     def test_settings_page_lists_an_existing_token_and_its_value(self):
         token = ApiToken.objects.create(profile=self.profile, name="Kodi", token=ApiToken.generate_value())
@@ -27099,7 +27335,7 @@ class ApiTokenViewsTests(TestCase):
         for i in range(ApiToken.MAX_TOKENS_PER_PROFILE):
             ApiToken.objects.create(profile=self.profile, name=f"Token {i}", token=ApiToken.generate_value())
         resp = self.client.get(reverse("settings"))
-        self.assertNotContains(resp, "+ Add token")
+        self.assertNotContains(resp, ">Add token<")
         self.assertContains(resp, "5 of 5 tokens used")
 
 
@@ -28877,12 +29113,12 @@ class MobileLayoutFixesTests(TestCase):
         resp = self.client.get(reverse("settings"))
         self.assertContains(resp, "Clear history")
         # The row wraps and the button holds its own natural width instead -
-        # the fix is flex-none+whitespace-nowrap on the button paired with
-        # flex-wrap on the row, not a change to the label text itself.
-        self.assertContains(resp, "flex-none whitespace-nowrap")
-        self.assertContains(
-            resp, 'class="flex flex-wrap justify-between items-center gap-2 py-3.5 border-b border-error/20"'
-        )
+        # flex-wrap on the row and a no-wrap Settings button (.s-btn), not a
+        # change to the label text itself.
+        self.assertContains(resp, "s-btn s-btn-danger")
+        self.assertContains(resp, "flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-line")
+        css = open(os.path.join(os.path.dirname(__file__), "..", "static", "src", "app.css"), encoding="utf-8").read()
+        self.assertRegex(css.replace("\r\n", "\n"), r"\.s-btn \{[^}]*white-space: nowrap;")
 
     def test_calendar_day_headers_have_a_mobile_single_letter_form(self):
         resp = self.client.get(reverse("calendar"))
@@ -29451,7 +29687,7 @@ class ScheduledBackupTests(TestCase):
 
     def test_settings_shows_the_backups_card(self):
         resp = self.client.get(reverse("settings") + "?tab=backups")
-        self.assertContains(resp, "Automatic Backups")
+        self.assertContains(resp, "Save a full backup (history, ratings and every list) on a schedule")
         self.assertContains(resp, "Server folder")
         self.assertContains(resp, "Not available on this server yet")  # Drive/Dropbox not configured
 
@@ -31681,7 +31917,7 @@ class AnimeListImportFlowTests(TestCase):
         for name, body in (("list.csv", b"a,b"), ("list.xml", b"<other/>"), ("list.xml", b"junk")):
             resp = self.client.post(reverse("import_animexml"), {"csv_file": SimpleUploadedFile(name, body)}, follow=True)
             self.assertFalse(ImportSession.objects.filter(profile=self.profile).exists())
-            self.assertContains(resp, "Import Data")  # back on Settings, with the message
+            self.assertContains(resp, "Import from a file")  # back on Settings, with the message
         resp = self.client.post(reverse("import_animexml"), {}, follow=True)
         self.assertContains(resp, "Choose a file first.")
 
@@ -32838,7 +33074,7 @@ class QueryStatsViewTests(TestCase):
         body = self.client.get(reverse("admin_dashboard")).content.decode()
         self.assertIn("tab === 'query_performance'", body)
         self.assertIn("setTab('query_performance')", body)
-        self.assertIn("tab === 'query_performance') ? 'max-w-7xl'", body)  # same width as Logs
+        self.assertIn("'logs', 'query_performance']", body)  # a wide page, like Logs
         self.assertEqual(body.count('id="query-stats"'), 1)
         self.assertIn(reverse("query_stats_partial"), body)
 

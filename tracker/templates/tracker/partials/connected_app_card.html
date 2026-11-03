@@ -1,0 +1,29 @@
+{% load icons settings_ui %}
+{# context: row (one entry of views._connected_app_rows, connected), primary_sync (bool - Sync now is the page's amber button). A connected account: its head with the Connected badge, then the sync controls. #}
+<div class="s-card mb-4 last:mb-0">
+  <div class="s-card-head items-center">
+    <div class="s-logo {{ row.icon_class }}" aria-hidden="true">{% icon row.icon "w-6 h-6" %}</div>
+    <div class="min-w-0 flex-1">
+      <div class="font-semibold text-[15px] leading-tight">{{ row.name }}</div>
+      <div class="text-[13px] text-ink-dim mt-0.5">{{ row.description }}{% if row.account_label %} &middot; {{ row.account_label }}{% endif %}</div>
+      {% if row.account.wetrakr_plan %}
+        <div class="mt-1.5 text-[12.5px] text-ink-dim">
+          {% if row.account.wetrakr_plan == "vip" or row.account.wetrakr_plan == "patron" %}{{ row.account.wetrakr_plan|title }} plan{% elif row.account.wetrakr_plan == "free" %}Free plan{% endif %}
+          {% if row.account.paused_import_session %}&middot; <a href="{% url 'import_review' row.account.paused_import_session.id %}" class="s-link">Paused - resuming after the quota resets</a>{% endif %}
+        </div>
+      {% endif %}
+    </div>
+    {% include "tracker/partials/status_badge.html" with kind="connected" %}
+  </div>
+  {% include "tracker/partials/sync_settings_panels.html" with provider=row.key account=row.account primary_sync=primary_sync %}
+  {% if row.kind == "username" %}
+    <form method="post" action="{% url 'anime_list_connect' row.key %}" class="s-strip items-end">
+      {% csrf_token %}
+      <div class="flex-1 min-w-[12rem]">
+        <label for="{{ row.key }}-username-change" class="s-label">Read a different {{ row.name }} user</label>
+        <input id="{{ row.key }}-username-change" type="text" name="username" required maxlength="100" autocomplete="off" placeholder="{{ row.account.external_username }}" class="s-field">
+      </div>
+      <button type="submit" class="s-btn flex-none">Change</button>
+    </form>
+  {% endif %}
+</div>

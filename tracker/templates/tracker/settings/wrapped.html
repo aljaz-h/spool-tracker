@@ -1,0 +1,62 @@
+{# Settings > Wrapped. Included by settings.html. Narrow page: toggles that save as you change them. #}
+{% load tracker_extras icons settings_ui %}
+<div x-show="tab === 'wrapped'" x-cloak>
+  <header class="s-page-head flex flex-wrap items-start justify-between gap-4">
+    <div>
+      <h2 class="s-page-title">Wrapped</h2>
+      <p class="s-page-desc">A monthly and yearly recap of what you watched, made for you on a schedule. Changes save as you make them.</p>
+    </div>
+    <a href="{% url 'wrapped' %}" class="s-btn flex-none">Open Wrapped</a>
+  </header>
+
+  <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
+    <input type="hidden" name="wrapped_settings_submitted" value="1">
+    <section class="s-section">
+      <h3 class="s-section-title">Recaps</h3>
+      {% settings_card %}
+        {% settings_row title="Make my recaps" help="Create your Wrapped automatically and tell you when it's ready. You can always open any period yourself from the Wrapped page." %}
+          <span class="spool-spinner" aria-hidden="true"></span>
+          {% include "tracker/partials/s_toggle.html" with name="wrapped_recaps_enabled" checked=profile.wrapped_recaps_enabled label="Make my recaps" %}
+        {% endsettings_row %}
+        {% settings_row title="Monthly recap" help="On the first of each month, for the month before." %}
+          {% include "tracker/partials/s_toggle.html" with name="wrapped_monthly" checked=profile.wrapped_monthly label="Monthly recap" %}
+        {% endsettings_row %}
+        {% settings_row title="Yearly recap" help="Early in January, for the year before." %}
+          {% include "tracker/partials/s_toggle.html" with name="wrapped_yearly" checked=profile.wrapped_yearly label="Yearly recap" %}
+        {% endsettings_row %}
+        {% settings_row title="Year in Review" help="A much longer yearly report: activity charts, most-watched titles, genres, countries, cast and crew." %}
+          {% include "tracker/partials/s_toggle.html" with name="wrapped_year_in_review" checked=profile.wrapped_year_in_review label="Year in Review" %}
+        {% endsettings_row %}
+      {% endsettings_card %}
+      <p class="s-help mt-2">Yearly recaps are kept for good, monthly ones for a year. You also get a notification when a recap is ready (see Notifications).</p>
+    </section>
+
+    <section class="s-section">
+      <h3 class="s-section-title">On the share image</h3>
+      <p class="s-section-desc">What the image shows by default. You can change it for any one image on the Wrapped page.</p>
+      {% settings_card %}
+        <div class="s-row !block">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
+            {% for key, label in wrapped_card_stats %}
+              <label class="flex items-center gap-3 min-h-11 text-[14px] cursor-pointer">
+                <input type="checkbox" name="wrapped_show_{{ key }}" class="checkbox checkbox-primary checkbox-sm" {% if key not in profile.wrapped_hidden_stats %}checked{% endif %}>
+                {{ label }}
+              </label>
+            {% endfor %}
+          </div>
+        </div>
+      {% endsettings_card %}
+    </section>
+
+    <section class="s-section">
+      <h3 class="s-section-title">Discord</h3>
+      {% settings_card %}
+        <div class="s-row !block">
+          <label class="s-label" for="wrapped-webhook">Discord webhook</label>
+          <input id="wrapped-webhook" type="url" name="wrapped_webhook_url" value="{{ profile.wrapped_webhook_url }}" placeholder="https://discord.com/api/webhooks/…" class="s-field font-mono" aria-describedby="wrapped-webhook-help">
+          <p id="wrapped-webhook-help" class="s-help">Optional. Each new recap is also posted to this Discord channel as an image.</p>
+        </div>
+      {% endsettings_card %}
+    </section>
+  </form>
+</div>

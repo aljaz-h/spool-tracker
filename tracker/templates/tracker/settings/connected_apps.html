@@ -1,0 +1,34 @@
+{# Settings > Connected apps. Included by settings.html. Wide page: accounts that keep syncing - the ones connected, then the ones available. Files you bring in once are on Import and export. #}
+{% load tracker_extras icons settings_ui %}
+<div x-show="tab === 'connected_apps'" x-cloak>
+  <header class="s-page-head">
+    <h2 class="s-page-title">Connected apps</h2>
+    <p class="s-page-desc">Accounts that keep your history in sync on a schedule. To bring in a file once, use <a href="{% url 'settings' %}?tab=data" class="s-link">Import and export</a>.</p>
+  </header>
+
+  {% comment %}
+    One flat list per section. A connected account is a card with its sync
+    controls (direction, schedule, last synced, Disconnect); an available one
+    is a row with a Connect button. The one amber button on the page is Sync
+    now, and only when a single account is connected (with several, they would
+    all compete for it, so they are secondary).
+  {% endcomment %}
+  <section class="s-section">
+    <h3 class="s-section-title">Connected</h3>
+    {% for row in connected_app_rows %}{% if row.connected %}
+      {% include "tracker/partials/connected_app_card.html" with row=row primary_sync=sole_connected_app %}
+    {% endif %}{% endfor %}
+    {% if not any_connected_app %}
+      <div class="s-card"><p class="px-5 py-4 text-[13px] text-ink-dim">Nothing is connected yet. Pick one below to start syncing.</p></div>
+    {% endif %}
+  </section>
+
+  <section class="s-section">
+    <h3 class="s-section-title">Available</h3>
+    <div class="s-card">
+      {% for row in connected_app_rows %}{% if not row.connected %}
+        {% include "tracker/partials/available_app_row.html" with row=row %}
+      {% endif %}{% endfor %}
+    </div>
+  </section>
+</div>

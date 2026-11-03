@@ -1,54 +1,62 @@
-{% load tracker_extras %}
-{# context: profile, discover_genres, discover_providers - see views.discover_preference_options #}
+{% load tracker_extras icons %}
+{# context: profile, discover_genres, discover_providers - see views.discover_preference_options. Chips: the ones you pick are raised and checked (not amber). #}
 <div id="discover-preference-options" x-data="{ showAllProviders: false }">
-  <div class="text-ink-dim text-xs mt-4 mb-2">Favorite genres</div>
-  <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="flex flex-wrap gap-1.5">
-    <input type="hidden" name="preferred_genre_ids_submitted" value="1">
-    {% for g in discover_genres %}
-      <label class="text-xs font-medium bg-base-300 text-ink-dim rounded-full px-3 py-1.5 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
-        <input type="checkbox" name="preferred_genre_ids" value="{{ g.id }}" class="sr-only" {% if g.id in profile.preferred_genre_ids %}checked{% endif %}>
-        {{ g.name }}
-      </label>
-    {% endfor %}
-    <span class="spool-spinner self-center" aria-hidden="true"></span>
-  </form>
-  <div class="text-[12px] text-ink-faint mt-1.5">Pre-fills the genre filter on Movies, TV, and Anime, and powers the Dashboard's "For You" row.</div>
-
-  <div class="text-ink-dim text-xs mt-4 mb-2">Streaming services</div>
-  {% comment %}
-    discover_providers is already sorted most-popular-first (see
-    tmdb.watch_provider_catalog) - same top-10-then-"show more" split as
-    Discover's own Filters popover, so this picker doesn't dump TMDB's
-    full ~50-100 entry regional catalog on screen at once. One <form>
-    still covers both halves - the collapsed ones just stay x-show-hidden,
-    not removed, so a provider picked before collapsing still submits.
-  {% endcomment %}
-  <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="flex flex-wrap gap-2">
-    <input type="hidden" name="preferred_provider_ids_submitted" value="1">
-    {% for p in discover_providers|slice:":10" %}
-      <label class="flex items-center gap-1.5 text-xs font-medium bg-base-300 text-ink-dim rounded-full pl-1.5 pr-3 py-1 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
-        <input type="checkbox" name="preferred_provider_ids" value="{{ p.id }}" class="sr-only" {% if p.id in profile.preferred_provider_ids %}checked{% endif %}>
-        {% if p.logo_url %}<img src="{{ p.logo_url|tmdb_size:"w45" }}" alt="" width="20" height="20" loading="lazy" class="w-5 h-5 rounded">{% endif %}
-        {{ p.name }}
-      </label>
-    {% endfor %}
-    {% if discover_providers|length > 10 %}
-      {% for p in discover_providers|slice:"10:" %}
-        <label x-show="showAllProviders" x-cloak class="flex items-center gap-1.5 text-xs font-medium bg-base-300 text-ink-dim rounded-full pl-1.5 pr-3 py-1 cursor-pointer hover:text-base-content has-[:checked]:bg-primary has-[:checked]:text-primary-content">
-          <input type="checkbox" name="preferred_provider_ids" value="{{ p.id }}" class="sr-only" {% if p.id in profile.preferred_provider_ids %}checked{% endif %}>
-          {% if p.logo_url %}<img src="{{ p.logo_url|tmdb_size:"w45" }}" alt="" width="20" height="20" loading="lazy" class="w-5 h-5 rounded">{% endif %}
-          {{ p.name }}
+  <div class="s-row-title">Favorite genres</div>
+  <p class="s-row-help mb-3">Used to shape recommendations and to pre-fill the genre filter on Movies, TV and Anime. Pick as many as you like.</p>
+  {% if discover_genres %}
+    <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="flex flex-wrap items-center gap-2">
+      <input type="hidden" name="preferred_genre_ids_submitted" value="1">
+      {% for g in discover_genres %}
+        <label class="s-chip">
+          <input type="checkbox" name="preferred_genre_ids" value="{{ g.id }}" class="sr-only" {% if g.id in profile.preferred_genre_ids %}checked{% endif %}>
+          {% icon "check" "s-chip-check w-3.5 h-3.5" %}{{ g.name }}
         </label>
       {% endfor %}
-    {% endif %}
-    <span class="spool-spinner self-center" aria-hidden="true"></span>
-  </form>
-  {% if discover_providers|length > 10 %}
-    <button
-      type="button"
-      @click="showAllProviders = !showAllProviders"
-      class="text-xs text-primary hover:underline mt-1.5 cursor-pointer"
-    ><span x-show="!showAllProviders">Show {{ discover_providers|length|add:"-10" }} more streaming services</span><span x-show="showAllProviders" x-cloak>Show fewer streaming services</span></button>
+      <span class="spool-spinner" aria-hidden="true"></span>
+    </form>
+  {% else %}
+    <p class="s-error !mt-0" role="alert">Genres aren't available right now. Check the TMDB key under Integrations, then reload this page.</p>
   {% endif %}
-  <div class="text-[12px] text-ink-faint mt-1.5">Pre-fills the streaming-service filter on Movies &amp; TV.</div>
+
+  <div class="mt-6 pt-5 border-t border-line">
+    <div class="s-row-title">Streaming services</div>
+    <p class="s-row-help mb-3">Pre-fills the streaming-service filter on Movies and TV.</p>
+    {% comment %}
+      discover_providers is already sorted most-popular-first (see
+      tmdb.watch_provider_catalog) - same top-10-then-"show more" split as
+      Discover's own Filters popover, so this picker doesn't dump TMDB's
+      full ~50-100 entry regional catalog on screen at once. One <form>
+      still covers both halves - the collapsed ones just stay x-show-hidden,
+      not removed, so a provider picked before collapsing still submits.
+    {% endcomment %}
+    {% if discover_providers %}
+      <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="flex flex-wrap items-center gap-2">
+        <input type="hidden" name="preferred_provider_ids_submitted" value="1">
+        {% for p in discover_providers|slice:":10" %}
+          <label class="s-chip !pl-2">
+            <input type="checkbox" name="preferred_provider_ids" value="{{ p.id }}" class="sr-only" {% if p.id in profile.preferred_provider_ids %}checked{% endif %}>
+            {% if p.logo_url %}<img src="{{ p.logo_url|tmdb_size:"w45" }}" alt="" width="20" height="20" loading="lazy" class="w-5 h-5 rounded">{% endif %}
+            {% icon "check" "s-chip-check w-3.5 h-3.5" %}{{ p.name }}
+          </label>
+        {% endfor %}
+        {% if discover_providers|length > 10 %}
+          {% for p in discover_providers|slice:"10:" %}
+            <label x-show="showAllProviders" x-cloak class="s-chip !pl-2">
+              <input type="checkbox" name="preferred_provider_ids" value="{{ p.id }}" class="sr-only" {% if p.id in profile.preferred_provider_ids %}checked{% endif %}>
+              {% if p.logo_url %}<img src="{{ p.logo_url|tmdb_size:"w45" }}" alt="" width="20" height="20" loading="lazy" class="w-5 h-5 rounded">{% endif %}
+              {% icon "check" "s-chip-check w-3.5 h-3.5" %}{{ p.name }}
+            </label>
+          {% endfor %}
+        {% endif %}
+        <span class="spool-spinner" aria-hidden="true"></span>
+      </form>
+      {% if discover_providers|length > 10 %}
+        <button type="button" @click="showAllProviders = !showAllProviders" class="s-link text-[13px] mt-3 cursor-pointer inline-flex items-center min-h-11">
+          <span x-show="!showAllProviders">Show {{ discover_providers|length|add:"-10" }} more streaming services</span><span x-show="showAllProviders" x-cloak>Show fewer streaming services</span>
+        </button>
+      {% endif %}
+    {% else %}
+      <p class="s-error !mt-0" role="alert">Streaming services aren't available right now. Check the TMDB key under Integrations, then reload this page.</p>
+    {% endif %}
+  </div>
 </div>

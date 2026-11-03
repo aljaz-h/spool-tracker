@@ -1,0 +1,24 @@
+{# Settings > Activity log (owners). Included by settings.html. Narrow page: who added, removed, promoted or demoted a profile. #}
+{% load tracker_extras icons settings_ui %}
+<div x-show="tab === 'activity_log'" x-cloak>
+  <header class="s-page-head">
+    <h2 class="s-page-title">Activity log</h2>
+    <p class="s-page-desc">Who added, removed, promoted or demoted a profile, most recent first.</p>
+  </header>
+  <div class="s-card">
+    {% if audit_log %}
+      {% for entry in audit_log %}
+        <div class="flex justify-between items-baseline gap-3 px-5 py-3.5 border-b border-line last:border-b-0 text-[13.5px]">
+          <div class="min-w-0">
+            <span class="font-semibold">{{ entry.actor.display_name|default:"(deleted account)" }}</span>
+            <span class="text-ink-dim">{{ entry.get_action_display|lower }}</span>
+            <span class="font-semibold">{{ entry.target_display_name }}</span>
+          </div>
+          <span class="text-ink-dim font-mono text-[12.5px] flex-none">{{ entry.created_at|timesince }} ago</span>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="px-5 py-8 text-center text-[13.5px] text-ink-dim">No activity yet.</p>
+    {% endif %}
+  </div>
+</div>

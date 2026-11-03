@@ -7,10 +7,10 @@
       id="si-{{ name }}" name="{{ name }}" value="{{ value|default:'' }}" aria-label="{{ label }}"
       @keydown.enter.prevent
       placeholder="{% if placeholder %}{{ placeholder }}{% elif configured %}•••• leave blank to keep{% else %}not set{% endif %}"
-      class="s-input w-full font-mono{% if secret %} pr-9{% endif %}"
+      class="s-input w-full font-mono{% if secret %} pr-12{% endif %}"
     >
     {% if secret %}
-      <button type="button" @click="{{ show }} = !{{ show }}" tabindex="-1" title="Show/hide" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content">
+      <button type="button" @click="{{ show }} = !{{ show }}" :aria-label="{{ show }} ? 'Hide {{ label|escapejs }}' : 'Show {{ label|escapejs }}'" class="s-reveal">
         <span x-show="!{{ show }}">{% icon "eye" "w-4 h-4" %}</span>
         <span x-show="{{ show }}" x-cloak>{% icon "eye-off" "w-4 h-4" %}</span>
       </button>

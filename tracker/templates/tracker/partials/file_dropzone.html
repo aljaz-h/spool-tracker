@@ -1,0 +1,40 @@
+{% load icons %}
+{% comment %}
+  The file upload used everywhere in Settings (there is no native "Choose file /
+  No file chosen" input left): a dashed drop area with an icon, a title and a
+  hint, and a Choose file button. After a file is chosen (or dropped) it shows
+  the file's name and size, a remove button and the Upload button. The real
+  file input stays hidden underneath and is what the form posts.
+  context: action (the form's URL), title, hint, accept (e.g. ".zip,.csv"),
+  field (the file field's name, default "csv_file"), max_mb (optional size
+  limit), upload_label (default "Upload"), link_url + link_label (optional,
+  e.g. "Connect an account instead"), id (unique per card).
+  The Upload button turns into the page's amber primary only once there is a
+  file to upload (static/js/file-dropzone.js), so at most one is amber at a time.
+{% endcomment %}
+<form
+  method="post" action="{{ action }}" enctype="multipart/form-data"
+  x-data="fileDropzone({ accept: '{{ accept }}', maxMb: {{ max_mb|default:"200" }}, title: '{{ title|escapejs }}' })"
+  class="s-dropzone" :class="{ 'is-dragging': dragging, 'has-file': file }"
+  @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="onDrop($event)"
+>
+  {% csrf_token %}
+  <input type="file" name="{{ field|default:"csv_file" }}" accept="{{ accept }}" x-ref="input" class="hidden" tabindex="-1" @change="onInput($event)">
+  <span class="s-dropzone-icon" aria-hidden="true">{% icon "upload" "w-5 h-5" %}</span>
+
+  <div class="min-w-0 flex-1" x-show="!file">
+    <div class="text-[14px] font-semibold truncate">{{ title }}</div>
+    <div class="text-[12.5px] text-ink-dim">
+      {{ hint }}{% if link_url %} &middot; <a href="{{ link_url }}" class="s-link">{{ link_label|default:"Connect an account instead" }}</a>{% endif %}
+    </div>
+    <p class="text-[12.5px] text-error mt-1" x-show="error" x-cloak x-text="error" role="alert"></p>
+  </div>
+  <button type="button" class="s-btn flex-none" x-show="!file" @click="choose()">Choose file</button>
+
+  <div class="min-w-0 flex-1" x-show="file" x-cloak>
+    <div class="text-[14px] font-semibold truncate"><span x-text="title"></span> &middot; <span x-text="file && file.name"></span></div>
+    <div class="text-[12.5px] text-ink-dim"><span x-text="sizeLabel"></span>, ready to upload</div>
+  </div>
+  <button type="button" class="s-btn s-btn-ghost flex-none !px-3" x-show="file" x-cloak @click="remove()" aria-label="Remove the chosen file">{% icon "x" "w-4 h-4" %}</button>
+  <button type="submit" class="s-btn flex-none" :class="file ? 's-btn-primary' : ''" x-show="file" x-cloak>{{ upload_label|default:"Upload" }}</button>
+</form>
