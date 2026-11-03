@@ -8,6 +8,12 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.179.3] - 2026-11-03
+
+### Changed
+
+- Settings > Profiles shows each profile's sign-in username next to its display name (for example "Member · Username maya.k"), so an owner can tell who signs in as whom.
+
 ## [0.179.2] - 2026-11-03
 
 ### Fixed

@@ -10598,6 +10598,22 @@ class AvatarComponentTests(TestCase):
         self.assertContains(resp, "background:#e8a63c;color:#1a1305;")
 
 
+class ProfilesTabShowsUsernamesTests(TestCase):
+    """Settings > Profiles lists each profile's sign-in username beside the display name."""
+
+    def test_owner_sees_every_profiles_username(self):
+        owner = User.objects.create_user("ownerlogin", password="pass12345", is_superuser=True)
+        Profile.objects.create(user=owner, display_name="Boss")
+        member = User.objects.create_user("maya.k", password="pass12345")
+        Profile.objects.create(user=member, display_name="Maya")
+        self.client.login(username="ownerlogin", password="pass12345")
+        html = self.client.get(reverse("settings")).content.decode()
+        tab = html[html.index("x-show=\"tab === 'profiles'\""):html.index("x-show=\"tab === 'server_integrations'\"")]
+        self.assertIn(">maya.k</span>", tab)
+        self.assertIn(">ownerlogin</span>", tab)
+        self.assertIn("Maya", tab)
+
+
 class SettingsBuildingBlocksTests(TestCase):
     """Every Settings page is built from the same blocks (see DESIGN.md >
     Settings): one page frame, two widths, one status badge, 44px controls, at

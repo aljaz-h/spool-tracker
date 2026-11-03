@@ -13,7 +13,7 @@
           {% include "tracker/partials/avatar.html" with profile=p size="w-10 h-10" text="text-sm" %}
           <div class="flex-1 min-w-0">
             <div class="font-semibold text-[14px]">{{ p.display_name }}</div>
-            <div class="text-[13px] text-ink-dim">{% if p.is_owner %}Owner{% else %}Member{% endif %}</div>
+            <div class="text-[13px] text-ink-dim">{% if p.is_owner %}Owner{% else %}Member{% endif %} &middot; Username <span class="font-mono text-base-content">{{ p.user.username }}</span></div>
           </div>
           {% if p.id != profile.id %}
             <div class="flex items-center gap-0.5 flex-none">
