@@ -38,7 +38,7 @@
 
         <form
           id="logs-filters-form" method="get" class="flex flex-col gap-4 px-5 pb-5"
-          x-data="{ dateFrom: '{{ log_date_from }}', dateTo: '{{ log_date_to }}' }"
+          x-data="{ dateFrom: '{{ log_date_from|escapejs }}', dateTo: '{{ log_date_to|escapejs }}' }"
         >
           <input type="hidden" name="tab" value="logs">
           <input type="hidden" name="log_sort" value="{{ log_sort }}">

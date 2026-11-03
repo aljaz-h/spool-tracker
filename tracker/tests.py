@@ -9539,6 +9539,20 @@ class SyncLogViewTests(TestCase):
         actions_shown = {entry["action"] for entry in resp.context["logs_page"].object_list}
         self.assertEqual(actions_shown, {"Import"})
 
+    def test_a_date_filter_that_is_not_a_date_never_reaches_the_page(self):
+        # The date filters are put into a script expression on the Logs tab, so
+        # anything that isn't a real date is dropped on the way in.
+        self.client.login(username="logowner", password="pass12345")
+        hostile = "');alert(document.cookie);//"
+        resp = self.client.get(reverse("settings"), {"tab": "logs", "log_date_from": hostile, "log_date_to": hostile})
+        self.assertEqual(resp.context["log_date_from"], "")
+        self.assertEqual(resp.context["log_date_to"], "")
+        self.assertNotContains(resp, "alert(document.cookie)")
+        self.assertNotContains(resp, "alert(document.cookie)".replace("(", "&#x28;"))
+        resp = self.client.get(reverse("settings"), {"tab": "logs", "log_date_from": "2026-10-05", "log_date_to": "2026-10-09"})
+        self.assertEqual((resp.context["log_date_from"], resp.context["log_date_to"]), ("2026-10-05", "2026-10-09"))
+        self.assertContains(resp, "dateFrom: '2026\\u002D10\\u002D05'")  # escapejs writes the dashes as JS escapes
+
     def test_invalid_log_date_is_ignored_rather_than_erroring(self):
         self.client.login(username="logowner", password="pass12345")
         resp = self.client.get(reverse("settings"), {"tab": "logs", "log_date_from": "not-a-date"})

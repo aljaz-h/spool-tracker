@@ -8,6 +8,12 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.179.1] - 2026-11-03
+
+### Fixed
+
+- The date filters on Settings > Logs (`log_date_from`, `log_date_to`) were put into a script expression as typed in the address, so a crafted link could run script on an owner's Logs page. They are now only kept when they are a real date (and written back out as one), and the script expression escapes them as well.
+
 ## [0.179.0] - 2026-11-03
 
 ### Changed

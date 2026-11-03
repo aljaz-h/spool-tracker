@@ -4776,14 +4776,21 @@ def _logs_tab_context(request):
         if request.GET.get("log_category") in dict(selectors.LOG_CATEGORIES)
         else "",
     }
+    # The dates are only ever kept as a real, re-formatted date (or ""): the raw
+    # text comes from the address bar and ends up in the Filters form and in a
+    # script expression, so anything that isn't a date is dropped here.
+    date_from = _parse_log_date(log_params["log_date_from"])
+    date_to = _parse_log_date(log_params["log_date_to"])
+    log_params["log_date_from"] = date_from.isoformat() if date_from else ""
+    log_params["log_date_to"] = date_to.isoformat() if date_to else ""
     filters = {
         "profile_id": log_params["log_profile"] or None,
         "oldest_first": log_params["log_sort"] == "oldest",
         "action_type": log_params["log_action_type"] or None,
         "provider": log_params["log_provider"] or None,
         "status": log_params["log_status"] or None,
-        "date_from": _parse_log_date(log_params["log_date_from"]),
-        "date_to": _parse_log_date(log_params["log_date_to"]),
+        "date_from": date_from,
+        "date_to": date_to,
     }
     grouped = log_params["log_view"] != "flat"
     failure_streaks = selectors.sync_failure_streaks()
