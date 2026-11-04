@@ -66,9 +66,12 @@
       top/left would otherwise stay stuck at that original screen
       position as the page scrolls past it.
     {% endcomment %}
-    <div class="relative" @click.outside="open = false" @scroll.window="open = false" @keydown.escape.window="open = false" x-data="{
+    <div class="relative" @click.outside="open = false" @scroll.window.passive="onScroll()" @keydown.escape.window="open = false" x-data="{
       open: false,
+      btn: null,
+      onScroll() { if (this.open && window.popoverScrolledAway(this.btn, this.$refs.panel)) this.open = false; },
       togglePanel(button) {
+        this.btn = button;
         this.open = !this.open;
         if (!this.open) return;
         this.$nextTick(() => window.positionPopover(button, this.$refs.panel, 224, false, 'right'));

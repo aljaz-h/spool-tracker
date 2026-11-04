@@ -305,6 +305,19 @@
         panel.style.bottom = 'auto';
       }
     };
+    // Filters popovers stay put on screen while the page scrolls (they are
+    // position:fixed under the button) and close once the button has
+    // scrolled away - when no more than 15% of the panel would still be
+    // visible had it followed the button.
+    window.popoverScrolledAway = (button, panel) => {
+      if (!button || !panel) return false;
+      const rect = button.getBoundingClientRect();
+      const height = panel.getBoundingClientRect().height;
+      // Where the panel would sit if it followed the button.
+      const top = panel.style.top === 'auto' ? rect.top - 6 - height : rect.bottom + 6;
+      const bottom = top + height;
+      return bottom < 0.15 * height || top > window.innerHeight - 0.15 * height;
+    };
     // Shared styled-<dialog> replacement for the browser's own native
     // confirm() popup - resolves true/false once the dialog closes,
     // whichever way (Confirm click, Cancel click, backdrop click, Esc).

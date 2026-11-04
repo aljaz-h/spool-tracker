@@ -150,6 +150,11 @@
           {% icon "users" "w-[18px] h-[18px]" %}
         </button>
         <div x-ref="panel" x-cloak :class="{'spool-popover-open': open}" class="spool-popover menu-surface fixed z-40 py-1 px-1">
+          {% if active_profile %}
+            <div class="px-3 pt-2 pb-1.5 text-xs font-semibold text-ink-dim">Me</div>
+            {% include "tracker/partials/friend_row.html" with p=active_profile close="open = false" me=True %}
+            <div class="mx-3 my-1 h-px bg-line"></div>
+          {% endif %}
           <div class="px-3 pt-2 pb-1.5 text-xs font-semibold text-ink-dim">Friends</div>
           {% for p in other_profiles %}
             {% include "tracker/partials/friend_row.html" with p=p close="open = false" %}

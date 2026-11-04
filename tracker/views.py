@@ -4996,6 +4996,7 @@ def _settings_page_context(request, profile):
     context["any_connected_app"] = connected_total > 0
     context["sole_connected_app"] = connected_total == 1  # Sync now is the amber button only when it is alone
     if profile.is_owner:
+        all_profiles = list(Profile.objects.select_related("user").order_by("display_name"))
         db_engine = django_settings.DATABASES["default"]["ENGINE"].rsplit(".", 1)[-1]
         context.update(
             {
@@ -5005,7 +5006,9 @@ def _settings_page_context(request, profile):
                 },
                 "gdrive_backup_configured": all(instance_config.get_backup_credentials("gdrive")),
                 "dropbox_backup_configured": all(instance_config.get_backup_credentials("dropbox")),
-                "profiles": Profile.objects.select_related("user").all(),
+                "profiles": all_profiles,
+                "owner_profiles": [p for p in all_profiles if p.is_owner],
+                "member_profiles": [p for p in all_profiles if not p.is_owner],
                 "cfg": InstanceConfig.load(),
                 "tmdb_configured": bool(instance_config.get_tmdb_api_key()),
                 "mal_configured": bool(instance_config.get_mal_credentials()[0]),

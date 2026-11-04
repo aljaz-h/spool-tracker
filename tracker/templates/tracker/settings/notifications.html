@@ -34,9 +34,9 @@
           <div class="text-[12.5px] text-ink-dim pb-1 w-14 text-center">In app</div>
           <div class="text-[12.5px] text-ink-dim pb-1 w-14 text-center">Push</div>
           {% for group, rows in notification_table %}
-            <div class="col-span-3 text-[13px] font-semibold pt-4 pb-1">{{ group }}</div>
+            <div class="col-span-3 text-[13px] font-semibold pt-4 pb-1 mt-3 border-t border-line">{{ group }}</div>
             {% for setting, app_on, push_on in rows %}
-              <div class="min-w-0 py-1.5">
+              <div class="min-w-0 py-1.5 pl-4">
                 <div class="text-[13.5px]">{{ setting.label }}</div>
                 <div class="text-[12.5px] text-ink-dim">{{ setting.hint }}</div>
               </div>

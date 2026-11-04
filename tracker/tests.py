@@ -6423,17 +6423,17 @@ class AdminDashboardProfileControlsTests(TestCase):
 
     def test_member_row_shows_crown_promote_icon(self):
         resp = self.client.get(reverse("admin_dashboard"))
-        self.assertContains(resp, 'title="Promote to owner')
+        self.assertContains(resp, 'title="Make owner"')
         # crown icon glyph
         self.assertContains(resp, 'd="M11.562 3.266a.5.5 0 0 1 .876 0')
 
     def test_owner_row_shows_circle_demote_icon(self):
         resp = self.client.get(reverse("admin_dashboard"))
-        self.assertContains(resp, 'title="Demote to member')
+        self.assertContains(resp, 'title="Demote to member"')
 
     def test_every_row_shows_trash_remove_icon(self):
         resp = self.client.get(reverse("admin_dashboard"))
-        self.assertContains(resp, 'title="Remove - permanently deletes')
+        self.assertContains(resp, 'title="Delete profile"')
         self.assertContains(resp, 'd="M3 6h18"')  # trash-2 glyph
 
     def test_no_bare_text_buttons_remain(self):
@@ -15862,7 +15862,7 @@ class DiscoverViewTests(TestCase):
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
-    def test_filters_panel_closes_on_scroll(self, mock_discover, mock_genres):
+    def test_filters_panel_stays_put_and_closes_once_scrolled_away(self, mock_discover, mock_genres):
         # The panel is position:fixed with its top/left computed once on
         # open (getBoundingClientRect) - the trigger isn't in a sticky
         # header like the topbar's own dropdowns, so without this the
@@ -15871,7 +15871,7 @@ class DiscoverViewTests(TestCase):
         # or disappearing with it.
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
         resp = self.client.get(reverse("movies", args=["trending"]))
-        self.assertContains(resp, '@scroll.window="open = false"')
+        self.assertContains(resp, '@scroll.window.passive="onScroll()"')
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover_by_decades")
@@ -26292,11 +26292,11 @@ class HistorySearchAndMostWatchedTests(TestCase):
         self.assertContains(resp, "Most watched")
         self.assertContains(resp, "Least watched")
 
-    def test_filters_panel_closes_on_scroll(self):
+    def test_filters_panel_stays_put_and_closes_once_scrolled_away(self):
         # Same fix/reasoning as Discover's own Filters panel - see
         # DiscoverViewTests.test_filters_panel_closes_on_scroll.
         resp = self.client.get(reverse("history"))
-        self.assertContains(resp, '@scroll.window="open = false"')
+        self.assertContains(resp, '@scroll.window.passive="onScroll()"')
 
 
 class HistoryToolbarStaysInSyncTests(TestCase):
@@ -36471,6 +36471,19 @@ class FriendsWatchingTests(TestCase):
         self.assertContains(popup, "3 hours ago")
         self.assertContains(popup, reverse("title_detail", args=[self.show.pk]))
 
+    def test_menu_lists_me_above_friends_and_opens_my_popup(self):
+        Profile.objects.filter(pk=self.viewer.pk).update(
+            watching_title=self.show, watching_season=14, watching_episode=13, watching_percent=40.0,
+            watching_changed_at=timezone.now() - timedelta(hours=1), is_watching=True)
+        self.client.login(username="viewer", password="pass12345")
+        html = self.client.get(reverse("dashboard")).content.decode()
+        me = html.index(">Me</div>")
+        self.assertLess(me, html.index(">Friends</div>"))
+        self.assertIn(reverse("profile_popup", args=[self.viewer.pk]), html[me:html.index(">Friends</div>")])
+        self.assertIn("Active now", html)
+        popup = self.client.get(reverse("profile_popup", args=[self.viewer.pk]))
+        self.assertContains(popup, "Currently watching")
+
     def test_not_watching_shows_neither(self):
         self.client.login(username="viewer", password="pass12345")
         page = self.client.get(reverse("dashboard"))
@@ -36491,3 +36504,56 @@ class FriendsWatchingTests(TestCase):
             rows = [(f.display_name, f.watching_now, f.watching_label) for f in friends]
         self.assertEqual(len(rows), 4)
         self.assertTrue(all(row[1] == self.show for row in rows))
+
+
+class SettingsProfilesSectionsTests(TestCase):
+    """Settings > Profiles: Owners and Members in one panel, the right buttons per role."""
+
+    def setUp(self):
+        self.owner_user = User.objects.create_user("secowner", password="pass12345", is_superuser=True)
+        self.owner = Profile.objects.create(user=self.owner_user, display_name="SecOwner")
+        self.owner2 = Profile.objects.create(user=User.objects.create_user("secowner2", password="pass12345", is_superuser=True), display_name="SecOwnerTwo")
+        self.member = Profile.objects.create(user=User.objects.create_user("secmember", password="pass12345"), display_name="SecMember")
+        self.client.login(username="secowner", password="pass12345")
+
+    def _tab(self):
+        html = self.client.get(reverse("settings")).content.decode()
+        return html[html.index("x-show=\"tab === 'profiles'\""):html.index("x-show=\"tab === 'server_integrations'\"")]
+
+    def _row(self, tab, profile):
+        start = tab.index(f'data-profile-row="{profile.id}"')
+        nxt = tab.find("data-profile-row=", start + 10)
+        return tab[start:nxt if nxt != -1 else len(tab)]
+
+    def test_sections_render_with_counts_and_plain_username_line(self):
+        tab = self._tab()
+        self.assertIn('aria-label="Owners"', tab)
+        self.assertIn('aria-label="Members"', tab)
+        self.assertNotIn("Owner &middot;", tab)
+        self.assertNotIn("Member &middot;", tab)
+        self.assertIn('Username <span class="font-mono text-base-content">secmember</span>', tab)
+
+    def test_signed_in_profile_has_you_badge_and_no_actions(self):
+        row = self._row(self._tab(), self.owner)
+        self.assertIn(">You</span>", row)
+        for label in ("Make owner", "Demote", "Reset password", "Delete profile"):
+            self.assertNotIn(label, row)
+
+    def test_member_has_promote_reset_delete(self):
+        row = self._row(self._tab(), self.member)
+        self.assertIn('title="Make owner"', row)
+        self.assertIn('title="Reset password"', row)
+        self.assertIn('title="Delete profile"', row)
+        self.assertNotIn("Demote", row)
+        self.assertNotIn(">You</span>", row)
+
+    def test_other_owner_has_demote_reset_delete(self):
+        row = self._row(self._tab(), self.owner2)
+        self.assertIn('title="Demote to member"', row)
+        self.assertIn('title="Reset password"', row)
+        self.assertIn('title="Delete profile"', row)
+        self.assertNotIn("Make owner", row)
+
+    def test_members_section_hidden_when_there_are_none(self):
+        self.member.user.delete()
+        self.assertNotIn('aria-label="Members"', self._tab())

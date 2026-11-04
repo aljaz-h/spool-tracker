@@ -132,6 +132,12 @@
       the grid level sidesteps whatever that interaction was entirely.
     {% endcomment %}
     <div class="px-5 pb-4" x-data="{ expanded: false }">
+      {% if active_profile %}
+        <div class="bg-base-300 rounded-xl p-1 mb-3">
+          <div class="px-3 pt-2 pb-1 text-xs font-semibold text-ink-dim">Me</div>
+          {% include "tracker/partials/friend_row.html" with p=active_profile close="bottomSheetOpen = false" stacked=True me=True %}
+        </div>
+      {% endif %}
       <div class="bg-base-300 rounded-xl overflow-hidden">
         <button
           type="button"

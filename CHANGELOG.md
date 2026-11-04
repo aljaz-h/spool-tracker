@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.180.1] - 2026-11-04
+
+### Added
+- The Friends menu (and the mobile More sheet) has a "Me" row above Friends that opens your own popup, including what you are currently watching.
+
+### Changed
+- Filters popovers (Discover, History, Logs) no longer close the moment you scroll. They stay under the Filters button on screen and close when you click the button again, click outside, press Esc, or scroll the button far enough away that only about 15% of the panel would still show.
+- Settings > Profiles has an Owners and a Members section (each with a count) in one panel. Rows show just "Username <username>", the signed-in profile gets a "You" badge and no buttons, and the buttons are labelled "Make owner", "Demote to member", "Reset password" and "Delete profile". The Members section is hidden when there are none.
+- Settings > Notifications indents each setting under its group heading, with a divider line before each group.
+
 ## [0.180.0] - 2026-11-03
 
 ### Added
