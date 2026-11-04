@@ -437,6 +437,37 @@ def upsert_history_items(profile, items, labels_out=None):
 NEAR_COMPLETE_REMAINING_MS = 120_000  # 2 minutes
 
 
+def _is_near_complete(item):
+    position_ms, duration_ms = item.get("position"), item.get("duration")
+    return (
+        isinstance(position_ms, (int, float))
+        and isinstance(duration_ms, (int, float))
+        and duration_ms > 0
+        and (duration_ms - position_ms) <= NEAR_COMPLETE_REMAINING_MS
+    )
+
+
+def _collapse_series_items(items):
+    """Nuvio keeps one progress entry per episode, Spool one row per show, so a
+    show with several entries (S1E8 and an older S1E6) would have each
+    overwrite the row in turn and leave the oldest one standing. Keeps one entry
+    per show: the most recently played one that is still in progress, or, when
+    every entry is finished, the most recently played of those. Movies and
+    entries without an id pass through unchanged."""
+    best = {}
+    out = []
+    for item in items:
+        content_id = item.get("content_id")
+        if item.get("content_type") != "series" or not content_id:
+            out.append(item)
+            continue
+        played = _item_activity_time(item)
+        rank = (not _is_near_complete(item), played.timestamp() if played else 0)
+        if content_id not in best or rank > best[content_id][0]:
+            best[content_id] = (rank, item)
+    return out + [item for _, item in best.values()]
+
+
 def upsert_progress_items(profile, items):
     """items: raw dicts from fetch_watch_progress(). Returns the count of
     WatchProgress rows written WATCHING (created or updated) - keyed by
@@ -468,7 +499,7 @@ def upsert_progress_items(profile, items):
     from tracker.models import Episode, MediaType, Title, WatchProgress
 
     updated = 0
-    for item in items:
+    for item in _collapse_series_items(items):
         content_id = item.get("content_id")
         position_ms = item.get("position")
         if not content_id or not isinstance(position_ms, (int, float)):

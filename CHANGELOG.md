@@ -8,6 +8,11 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.181.3] - 2026-11-04
+
+### Fixed
+- A show with several Nuvio progress entries (one per episode, for example S1E8 and an older S1E6) no longer ends up on the oldest one. The most recently played in-progress episode wins, so the Continue Watching card, its order and the Friends "Watching" status follow what you actually played last.
+
 ## [0.181.2] - 2026-11-04
 
 ### Fixed

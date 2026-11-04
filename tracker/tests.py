@@ -36758,3 +36758,31 @@ class NuvioUnchangedRowResortTests(TestCase):
         nuvio.upsert_progress_items(profile, [{**item, "last_watched": played}])
         row = WatchProgress.objects.get(profile=profile)
         self.assertAlmostEqual(row.last_activity_at.timestamp(), played / 1000, places=0)
+
+
+class NuvioSeveralEpisodesOfOneShowTests(TestCase):
+    """Nuvio keeps a progress entry per episode; the newest in-progress one wins."""
+
+    def setUp(self):
+        user = User.objects.create_user("manyeps", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ManyEps")
+
+    def _ep(self, episode, position, played_minutes_ago, duration=1_400_000):
+        return {"content_id": "tt37532356", "content_type": "series", "season": 1, "episode": episode,
+                "position": position, "duration": duration, "name": "Shadow Show",
+                "last_watched": int((timezone.now() - timedelta(minutes=played_minutes_ago)).timestamp() * 1000)}
+
+    def test_the_newest_in_progress_episode_wins_whatever_the_order(self):
+        for items in ([self._ep(8, 800_000, 5), self._ep(6, 90_000, 60)], [self._ep(6, 90_000, 60), self._ep(8, 800_000, 5)]):
+            WatchProgress.objects.all().delete()
+            nuvio.upsert_progress_items(self.profile, items)
+            row = WatchProgress.objects.get(profile=self.profile)
+            self.assertEqual(row.current_episode.episode, 8)
+            self.assertEqual(row.position_seconds, 800)
+            self.assertLess(timezone.now() - row.last_activity_at, timedelta(minutes=10))
+
+    def test_a_finished_newer_entry_does_not_hide_an_in_progress_one(self):
+        nuvio.upsert_progress_items(self.profile, [self._ep(5, 1_399_000, 1), self._ep(6, 90_000, 30)])
+        row = WatchProgress.objects.get(profile=self.profile)
+        self.assertEqual(row.current_episode.episode, 6)
+        self.assertEqual(row.status, WatchProgress.Status.WATCHING)
