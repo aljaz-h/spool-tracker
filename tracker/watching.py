@@ -13,8 +13,9 @@ in-progress item with the snapshot kept from the previous sync:
   - the item is finished, marked watched, or gone from continue-watching -> not
     watching;
   - an item with no snapshot yet (the first sync, or a title just started) is
-    watching straight away; it stops showing once a later sync sees the same
-    percentage.
+    watching straight away, but only if Nuvio says it was played within the
+    last RECENT_PLAY minutes; an old paused item is not. It stops showing once a
+    later sync sees the same percentage.
 
 The answer is stored on the Profile (watching_title, watching_season,
 watching_episode, watching_percent, watching_changed_at, is_watching) and read
@@ -23,9 +24,16 @@ check is how old the last change is (Profile.watching_now), so a sync that has
 stopped doesn't leave a friend "watching" for days.
 """
 
+import datetime
+
 from django.utils import timezone
 
 from .models import WatchProgress
+
+
+# A little over the 30 minute sync interval: something Nuvio last played longer
+# ago than this isn't being watched now.
+RECENT_PLAY = datetime.timedelta(minutes=45)
 
 
 def progress_percent(row):
@@ -67,7 +75,13 @@ def refresh_nuvio_watching(profile, now=None):
         and profile.watching_season == season
         and profile.watching_episode == number
     )
-    moved = first_look or not same_item or (profile.watching_percent is not None and percent > profile.watching_percent)
+    played_at = row.last_activity_at  # Nuvio's own last_watched time
+    if first_look or not same_item:
+        # A different item can also just be the next one in line once the
+        # previous finished, so it counts only if it was really played lately.
+        moved = now - played_at <= RECENT_PLAY
+    else:
+        moved = profile.watching_percent is not None and percent > profile.watching_percent
 
     profile.watching_title = row.title
     profile.watching_season = season
@@ -76,7 +90,7 @@ def refresh_nuvio_watching(profile, now=None):
     profile.is_watching = moved
     fields = ["watching_title", "watching_season", "watching_episode", "watching_percent", "is_watching"]
     if moved:
-        profile.watching_changed_at = now
+        profile.watching_changed_at = min(played_at, now)
         fields.append("watching_changed_at")
     profile.save(update_fields=fields)
     return moved

@@ -273,7 +273,7 @@ class Profile(models.Model):
     def __str__(self):
         return self.display_name
 
-    WATCHING_FRESH_FOR = datetime.timedelta(hours=6)
+    WATCHING_FRESH_FOR = datetime.timedelta(hours=2)
 
     @property
     def watching_now(self):

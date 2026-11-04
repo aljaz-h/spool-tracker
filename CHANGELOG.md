@@ -8,6 +8,11 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.181.2] - 2026-11-04
+
+### Fixed
+- "Watching" in the Friends menu and popup no longer shows for something that was played long ago. A title that first appears in progress, or a different one than last time, only counts as watching if Nuvio's own last-watched time is within the last 45 minutes; the time shown is that real play time. The status also drops after 2 hours instead of 6.
+
 ## [0.181.1] - 2026-11-04
 
 ### Fixed

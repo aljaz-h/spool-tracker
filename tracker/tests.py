@@ -36407,7 +36407,7 @@ class FriendsWatchingTests(TestCase):
         self.assertTrue(self._sync(30))
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.watching_percent, 30.0)
-        self.assertEqual(self.profile.watching_changed_at, self.now + timedelta(minutes=30))
+        self.assertTrue(self.profile.watching_changed_at <= self.now + timedelta(minutes=30))
 
     def test_unchanged_progress_stops_watching_and_keeps_the_change_time(self):
         self._progress(100); self._sync()
@@ -36415,7 +36415,24 @@ class FriendsWatchingTests(TestCase):
         self.assertFalse(self._sync(60))
         self.profile.refresh_from_db()
         self.assertFalse(self.profile.is_watching)
-        self.assertEqual(self.profile.watching_changed_at, self.now + timedelta(minutes=30))
+        self.assertTrue(self.profile.watching_changed_at <= self.now + timedelta(minutes=30))
+
+    def test_old_play_time_on_first_look_is_not_watching(self):
+        self._progress(100)
+        WatchProgress.objects.filter(profile=self.profile).update(last_activity_at=self.now - timedelta(hours=20))
+        self.assertFalse(self._sync())
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.is_watching)
+        self.assertIsNone(self.profile.watching_now)
+
+    def test_next_item_in_line_after_a_finish_is_not_watching(self):
+        self._progress(100); self._sync()
+        self._progress(300); self.assertTrue(self._sync(30))
+        self._progress(1000, status=WatchProgress.Status.COMPLETED)
+        other = Title.objects.create(media_type="movie", name="Old film", year=2000, runtime_minutes=100)
+        row = WatchProgress.objects.create(profile=self.profile, title=other, position_seconds=600, duration_seconds=6000)
+        WatchProgress.objects.filter(pk=row.pk).update(last_activity_at=self.now - timedelta(days=3))
+        self.assertFalse(self._sync(60))
 
     def test_a_new_episode_is_watching_even_at_lower_percent(self):
         self._progress(900); self._sync()
@@ -36439,13 +36456,13 @@ class FriendsWatchingTests(TestCase):
     def _make_watching(self, **extra):
         Profile.objects.filter(pk=self.profile.pk).update(
             watching_title=self.show, watching_season=14, watching_episode=13, watching_percent=40.0,
-            watching_changed_at=timezone.now() - timedelta(hours=3), is_watching=True, **extra)
+            watching_changed_at=timezone.now() - timedelta(hours=1), is_watching=True, **extra)
         self.profile.refresh_from_db()
 
     def test_label_and_staleness(self):
         self._make_watching()
         self.assertEqual(self.profile.watching_label, "Anime S14 E13")
-        Profile.objects.filter(pk=self.profile.pk).update(watching_changed_at=timezone.now() - timedelta(hours=7))
+        Profile.objects.filter(pk=self.profile.pk).update(watching_changed_at=timezone.now() - timedelta(hours=3))
         self.profile.refresh_from_db()
         self.assertIsNone(self.profile.watching_now)
 
@@ -36468,7 +36485,7 @@ class FriendsWatchingTests(TestCase):
         popup = self.client.get(reverse("profile_popup", args=[self.profile.pk]))
         self.assertContains(popup, "Currently watching")
         self.assertContains(popup, "Frieren")
-        self.assertContains(popup, "3 hours ago")
+        self.assertContains(popup, "1 hour ago")
         self.assertContains(popup, reverse("title_detail", args=[self.show.pk]))
 
     def test_menu_lists_me_above_friends_and_opens_my_popup(self):
