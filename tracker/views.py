@@ -1550,6 +1550,10 @@ def _episode_panel_context(request, profile, title, tmdb_id, details, force_seas
     filler_title = title if (title is not None and title.media_type == MediaType.ANIME) else anime_title
     if filler_title is not None and episodes:
         _apply_anime_filler_flags(filler_title, episodes, season, tv_details)
+    if profile and title is not None and title.media_type == MediaType.ANIME:
+        # Opening an anime's episode list is one of the moments the canon-only
+        # completion is checked (the others are every watch, sync and scrobble).
+        completion.mark_canon_complete(profile, title, tv_details)
     context["episodes"] = episodes
     if profile and title:
         context["season_fully_watched"] = bool(episodes) and all(ep["watched"] for ep in episodes)

@@ -151,6 +151,41 @@ def fetch_watch_progress(access_token, profile_id, limit=200):
     return _rpc("sync_pull_watch_progress", access_token, {"p_profile_id": profile_id, "p_limit": limit})
 
 
+_ACTIVITY_TIME_KEYS = ("last_watched", "last_watched_at", "lastWatched", "updated_at")
+
+
+def _item_activity_time(item):
+    """When Nuvio says the item was last played (an epoch-millisecond number
+    or an ISO string), as an aware datetime, or None when the item carries no
+    usable time. Used to order Continue Watching by when something was really
+    watched instead of when a sync happened to notice."""
+    import datetime
+
+    from django.utils import timezone
+    from django.utils.dateparse import parse_datetime
+
+    for key in _ACTIVITY_TIME_KEYS:
+        value = item.get(key)
+        moment = None
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)) and value > 0:
+            try:
+                moment = datetime.datetime.fromtimestamp(value / 1000 if value > 1e11 else value, tz=datetime.timezone.utc)
+            except (OverflowError, OSError, ValueError):
+                moment = None
+        elif isinstance(value, str):
+            try:
+                moment = parse_datetime(value)
+            except ValueError:
+                moment = None
+            if moment is not None and timezone.is_naive(moment):
+                moment = timezone.make_aware(moment, datetime.timezone.utc)
+        if moment is not None and moment <= timezone.now() + datetime.timedelta(minutes=5):
+            return moment
+    return None
+
+
 def _parse_content_id(content_id):
     """content_id shapes confirmed from scrob's fixtures: "tmdb:550"
     (TMDB id), "tt0137523" (bare IMDb id, movie), "tt0903747:1:1"
@@ -481,11 +516,13 @@ def upsert_progress_items(profile, items):
 
         position_seconds = int(position_ms / 1000)
         duration_seconds = int(duration_ms / 1000) if isinstance(duration_ms, (int, float)) and duration_ms > 0 else None
+        activity_time = _item_activity_time(item) or timezone.now()
         row, created = WatchProgress.objects.get_or_create(
             profile=profile, title=title,
             defaults={
                 "current_episode": current_episode, "position_seconds": position_seconds,
                 "duration_seconds": duration_seconds, "status": WatchProgress.Status.WATCHING,
+                "last_activity_at": activity_time,
             },
         )
         if not created:
@@ -501,7 +538,7 @@ def upsert_progress_items(profile, items):
             row.duration_seconds = duration_seconds or row.duration_seconds
             row.status = WatchProgress.Status.WATCHING
             if moved:
-                row.last_activity_at = timezone.now()
+                row.last_activity_at = activity_time
             row.save()
         updated += 1
     return updated

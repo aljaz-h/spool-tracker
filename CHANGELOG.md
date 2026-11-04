@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.181.0] - 2026-11-04
+
+### Added
+- `manage.py nuvio_dump <username>` prints a few raw Nuvio progress and history items so the fields Nuvio sends can be checked. Read-only; never prints a token.
+- An anime now counts as completed once every canon episode is watched; filler and recap episodes aren't needed. Checked on every watch, sync and scrobble, and when you open the anime's episode list. Only for anime with known filler data, and a dropped show stays dropped. The percentage shown is unchanged.
+
+### Fixed
+- Continue Watching is ordered by when an item was really played (Nuvio's own last-watched time on the item when it sends one) instead of when a sync noticed the change, so a movie you just watched no longer sits below older items.
+
 ## [0.180.1] - 2026-11-04
 
 ### Added

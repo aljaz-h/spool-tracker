@@ -36557,3 +36557,127 @@ class SettingsProfilesSectionsTests(TestCase):
     def test_members_section_hidden_when_there_are_none(self):
         self.member.user.delete()
         self.assertNotIn('aria-label="Members"', self._tab())
+
+
+class AnimeCanonCompletionTests(TestCase):
+    """An anime counts as completed once every canon episode is watched; the
+    filler and recap ones aren't required."""
+
+    def setUp(self):
+        user = User.objects.create_user("canonwatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Canon")
+        self.title = Title.objects.create(media_type="anime", name="Bleachish", year=2004, external_ids={"tmdb": "1", "mal": 269})
+        self.details = {"number_of_episodes": 6, "episode_run_time": 24, "seasons": [
+            {"season_number": 1, "episode_count": 4}, {"season_number": 2, "episode_count": 2}]}
+        # absolute 3 and 5 are filler, 4 a recap
+        self.filler_map = {3: {"filler": True, "recap": False}, 4: {"filler": False, "recap": True}, 5: {"filler": True, "recap": False}}
+
+    def _watch(self, *pairs):
+        for season, number in pairs:
+            ep, _ = Episode.objects.get_or_create(title=self.title, season=season, episode=number)
+            WatchEvent.objects.create(profile=self.profile, title=self.title, episode=ep, watched_at=timezone.now())
+
+    def _canon(self, filler_map=None):
+        with patch("tracker.completion.tenrai.resolve_mal_id", return_value=269), \
+             patch("tracker.completion.tenrai.get_episode_filler_map", return_value=self.filler_map if filler_map is None else filler_map), \
+             patch("tracker.completion.anifiller.get_episode_types", return_value={}):
+            return completion.canon_complete(self.profile, self.title, self.details)
+
+    def test_all_canon_watched_is_complete_across_seasons(self):
+        self._watch((1, 1), (1, 2), (2, 2))  # absolute 1, 2 and 6
+        self.assertTrue(self._canon())
+
+    def test_a_missing_canon_episode_is_not_complete(self):
+        self._watch((1, 1), (1, 2))
+        self.assertFalse(self._canon())
+
+    def test_no_filler_data_never_counts(self):
+        self._watch((1, 1), (1, 2), (2, 2))
+        self.assertFalse(self._canon(filler_map={}))
+
+    def test_seasons_that_do_not_add_up_are_not_guessed(self):
+        self._watch((1, 1), (1, 2), (2, 2))
+        self.details["number_of_episodes"] = 9
+        self.assertFalse(self._canon())
+
+    def test_only_anime_titles(self):
+        self.title.media_type = "tv"
+        self._watch((1, 1), (1, 2), (2, 2))
+        self.assertFalse(self._canon())
+
+    def test_sync_marks_completed_and_a_later_sync_keeps_it(self):
+        self._watch((1, 1), (1, 2), (2, 2))
+        with patch("tracker.completion.tmdb.get_tv_details", return_value=self.details), \
+             patch("tracker.completion.tenrai.resolve_mal_id", return_value=269), \
+             patch("tracker.completion.tenrai.get_episode_filler_map", return_value=self.filler_map), \
+             patch("tracker.completion.anifiller.get_episode_types", return_value={}), \
+             patch("tracker.completion._backfill_episode_runtimes"):
+            completion.sync_show_completion(self.profile, self.title)
+            completion.sync_show_completion(self.profile, self.title)
+        row = WatchProgress.objects.get(profile=self.profile, title=self.title)
+        self.assertEqual(row.status, WatchProgress.Status.COMPLETED)
+
+    def test_mark_canon_complete_leaves_dropped_alone(self):
+        self._watch((1, 1), (1, 2), (2, 2))
+        WatchProgress.objects.create(profile=self.profile, title=self.title, status=WatchProgress.Status.DROPPED)
+        with patch("tracker.completion.tenrai.resolve_mal_id", return_value=269), \
+             patch("tracker.completion.tenrai.get_episode_filler_map", return_value=self.filler_map), \
+             patch("tracker.completion.anifiller.get_episode_types", return_value={}):
+            completion.mark_canon_complete(self.profile, self.title, self.details)
+        self.assertEqual(WatchProgress.objects.get(profile=self.profile, title=self.title).status, WatchProgress.Status.DROPPED)
+
+
+class NuvioProgressOrderTests(TestCase):
+    """Continue Watching is ordered by when an item was really played, taken
+    from Nuvio's own time on the item, not by when a sync noticed."""
+
+    def setUp(self):
+        user = User.objects.create_user("orderwatcher", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Order")
+
+    def _item(self, tmdb_id, **extra):
+        return {"content_id": f"tmdb:{tmdb_id}", "content_type": "movie", "position": 600_000, "duration": 6_000_000,
+                "name": f"Film {tmdb_id}", **extra}
+
+    def test_item_time_is_read_from_ms_or_iso_and_future_is_ignored(self):
+        ms = int((timezone.now() - timedelta(days=1)).timestamp() * 1000)
+        got = nuvio._item_activity_time({"last_watched": ms})
+        self.assertAlmostEqual(got.timestamp(), ms / 1000, places=0)
+        self.assertIsNotNone(nuvio._item_activity_time({"updated_at": "2026-01-02T03:04:05Z"}))
+        self.assertIsNone(nuvio._item_activity_time({"last_watched": int((timezone.now() + timedelta(days=3)).timestamp() * 1000)}))
+        self.assertIsNone(nuvio._item_activity_time({}))
+
+    def test_order_follows_nuvios_time_not_sync_order(self):
+        now = timezone.now()
+        old = int((now - timedelta(days=3)).timestamp() * 1000)
+        recent = int((now - timedelta(hours=1)).timestamp() * 1000)
+        # the recently watched film arrives first in the payload, the older one last
+        nuvio.upsert_progress_items(self.profile, [self._item(1, last_watched=recent), self._item(2, last_watched=old)])
+        names = [p.title.external_ids.get("nuvio") for p in WatchProgress.objects.filter(profile=self.profile)]
+        self.assertEqual(names, ["tmdb:1", "tmdb:2"])
+        # a later sync that sees film 2 move uses its time, which is still older than film 1's
+        nuvio.upsert_progress_items(self.profile, [self._item(2, position=900_000, last_watched=old + 60_000)])
+        names = [p.title.external_ids.get("nuvio") for p in WatchProgress.objects.filter(profile=self.profile)]
+        self.assertEqual(names, ["tmdb:1", "tmdb:2"])
+
+
+class NuvioDumpCommandTests(TestCase):
+    def test_prints_items_and_never_the_tokens(self):
+        from django.core.management import call_command
+
+        user = User.objects.create_user("dumper", password="pass12345")
+        profile = Profile.objects.create(user=user, display_name="Dumper")
+        conn = NuvioConnection.objects.create(profile=profile, email="d@x.com", nuvio_profile_id=0)
+        conn.set_refresh_token("old-refresh")
+        conn.save()
+        out = io.StringIO()
+        with patch("tracker.integrations.nuvio.refresh_access_token", return_value={"access_token": "SECRET-ACCESS", "refresh_token": "new-refresh"}), \
+             patch("tracker.integrations.nuvio.fetch_watch_progress", return_value=[{"content_id": "tmdb:1", "last_watched": 1}]), \
+             patch("tracker.integrations.nuvio.fetch_watched_items", return_value=[]):
+            call_command("nuvio_dump", "dumper", stdout=out)
+        text = out.getvalue()
+        self.assertIn("tmdb:1", text)
+        self.assertNotIn("SECRET-ACCESS", text)
+        self.assertNotIn("new-refresh", text)
+        conn.refresh_from_db()
+        self.assertEqual(conn.get_refresh_token(), "new-refresh")

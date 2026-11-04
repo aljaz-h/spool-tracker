@@ -12,7 +12,7 @@ stats were never wrong, there was just never any data behind them.
 from django.db.models import Q
 from django.utils import timezone
 
-from .integrations import tmdb
+from .integrations import anifiller, tenrai, tmdb
 from .models import Episode, MediaType, Profile, WatchEvent, WatchListItem, WatchProgress
 
 
@@ -144,9 +144,59 @@ def _ensure_watching(profile, title, details=None):
         progress.save(update_fields=["current_episode", "updated_at", "last_activity_at"])
 
 
+def canon_complete(profile, title, details):
+    """True when an anime's every canon episode has been watched - the
+    filler and recap episodes (Tenrai's flags, AniFiller's as a fallback)
+    aren't needed to count the show as finished. Only ever True for an anime
+    that has filler data: no MAL match, no filler/recap episodes known, or
+    seasons that don't add up to TMDB's total all mean "can't tell", never a
+    guess. Filler data numbers episodes across the whole show, so each
+    watched (season, episode) is turned into that absolute number by adding
+    the episode counts of the seasons before it."""
+    if title.media_type != MediaType.ANIME or not details:
+        return False
+    total = details.get("number_of_episodes")
+    offsets, running = {}, 0
+    for season in sorted((s for s in details.get("seasons") or [] if s.get("season_number")), key=lambda s: s["season_number"]):
+        offsets[season["season_number"]] = running
+        running += season.get("episode_count") or 0
+    if not total or running != total:
+        return False
+    mal_id = tenrai.resolve_mal_id(title)
+    if mal_id is None:
+        return False
+    filler = {n for n, flags in tenrai.get_episode_filler_map(mal_id).items() if flags.get("filler") or flags.get("recap")}
+    filler |= {n for n, kind in anifiller.get_episode_types(mal_id).items() if kind == "filler"}
+    canon = set(range(1, total + 1)) - filler
+    if not filler or not canon:
+        return False
+    watched = {
+        offsets[season] + episode
+        for season, episode in WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=False)
+        .values_list("episode__season", "episode__episode")
+        .distinct()
+        if season in offsets
+    }
+    return canon <= watched
+
+
+def mark_canon_complete(profile, title, details):
+    """Marks an anime COMPLETED once all its canon episodes are watched.
+    Leaves a show that is already completed or that was dropped alone, and
+    never un-completes anything."""
+    already = WatchProgress.objects.filter(
+        profile=profile, title=title, status__in=[WatchProgress.Status.COMPLETED, WatchProgress.Status.DROPPED]
+    ).exists()
+    if not already and canon_complete(profile, title, details):
+        WatchProgress.objects.update_or_create(
+            profile=profile, title=title, defaults={"status": WatchProgress.Status.COMPLETED}
+        )
+
+
 def sync_show_completion(profile, title, ensure_watching=False):
     """Marks WatchProgress COMPLETED once a profile has logged at least as
-    many distinct episodes of a show as TMDB reports it has in total.
+    many distinct episodes of a show as TMDB reports it has in total - or,
+    for an anime, every one of its canon episodes (see canon_complete).
     Also backfills Episode.runtime_minutes from TMDB's show-level typical
     duration for any episode that doesn't have one yet, then falls back
     to each episode's own runtime from the season endpoint for whatever
@@ -201,7 +251,7 @@ def sync_show_completion(profile, title, ensure_watching=False):
         if ensure_watching:
             _ensure_watching(profile, title, details)
         return
-    if watched_episode_count >= total_episodes:
+    if watched_episode_count >= total_episodes or canon_complete(profile, title, details):
         WatchProgress.objects.update_or_create(
             profile=profile, title=title, defaults={"status": WatchProgress.Status.COMPLETED}
         )
