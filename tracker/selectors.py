@@ -411,11 +411,21 @@ def continue_watching(profile, media_types=None, limit=8, title_id=None):
             ep = progress.current_episode
             percent, caption = 0, "In progress"
             if ep:
+                # An anime's filler and recap episodes are optional: the card
+                # points at the next canon episode, and an anime whose canon
+                # episodes are all watched is completed and leaves the row.
+                filler_keys = completion.filler_episode_keys(title, show_details_cache.get(title.id))
+                if filler_keys:
+                    completion.mark_canon_complete(profile, title, show_details_cache.get(title.id))
+                    if WatchProgress.objects.filter(
+                        pk=progress.pk, status=WatchProgress.Status.COMPLETED
+                    ).exists():
+                        continue
                 while True:
                     watch_count = watch_counts_by_episode.get(ep.id)
                     if watch_count is None:
                         watch_count = WatchEvent.objects.filter(profile=profile, episode_id=ep.id).count()
-                    if not watch_count:
+                    if not watch_count and (ep.season, ep.episode) not in filler_keys:
                         break
                     next_ep = completion._next_episode_after(title, ep)
                     if next_ep is None or next_ep.id == ep.id:

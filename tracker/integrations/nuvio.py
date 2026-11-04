@@ -516,7 +516,8 @@ def upsert_progress_items(profile, items):
 
         position_seconds = int(position_ms / 1000)
         duration_seconds = int(duration_ms / 1000) if isinstance(duration_ms, (int, float)) and duration_ms > 0 else None
-        activity_time = _item_activity_time(item) or timezone.now()
+        item_time = _item_activity_time(item)
+        activity_time = item_time or timezone.now()
         row, created = WatchProgress.objects.get_or_create(
             profile=profile, title=title,
             defaults={
@@ -537,7 +538,9 @@ def upsert_progress_items(profile, items):
             row.position_seconds = position_seconds
             row.duration_seconds = duration_seconds or row.duration_seconds
             row.status = WatchProgress.Status.WATCHING
-            if moved:
+            if moved or (item_time is not None and row.last_activity_at != item_time):
+                # An unchanged row also takes Nuvio's own play time, so rows
+                # stamped with a sync's time by an older version re-sort once.
                 row.last_activity_at = activity_time
             row.save()
         updated += 1

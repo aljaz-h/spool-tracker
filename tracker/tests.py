@@ -36681,3 +36681,63 @@ class NuvioDumpCommandTests(TestCase):
         self.assertNotIn("new-refresh", text)
         conn.refresh_from_db()
         self.assertEqual(conn.get_refresh_token(), "new-refresh")
+
+
+class ContinueWatchingSkipsFillerTests(TestCase):
+    """Continue Watching points an anime at its next canon episode, and an anime
+    whose canon episodes are all watched leaves the row."""
+
+    def setUp(self):
+        user = User.objects.create_user("fillerskip", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="FillerSkip")
+        self.title = Title.objects.create(media_type="anime", name="Bleachy", year=2004, external_ids={"tmdb": "7", "mal": 269})
+        self.details = {"number_of_episodes": 6, "episode_run_time": 24, "seasons": [{"season_number": 1, "episode_count": 6}]}
+        # 3 and 4 are filler / recap
+        self.filler = {3: {"filler": True, "recap": False}, 4: {"filler": False, "recap": True}}
+        for target, value in (
+            ("tracker.integrations.tmdb.get_tv_details", self.details),
+            ("tracker.integrations.tmdb.get_season_details", {"episodes": [{"episode_number": n, "runtime": 24} for n in range(1, 7)]}),
+            ("tracker.completion.tenrai.resolve_mal_id", 269),
+            ("tracker.completion.tenrai.get_episode_filler_map", self.filler),
+            ("tracker.completion.anifiller.get_episode_types", {}),
+            ("tracker.completion._backfill_episode_runtimes", None),
+        ):
+            patcher = patch(target, return_value=value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _watch(self, *numbers):
+        for n in numbers:
+            ep, _ = Episode.objects.get_or_create(title=self.title, season=1, episode=n)
+            WatchEvent.objects.create(profile=self.profile, title=self.title, episode=ep, watched_at=timezone.now())
+
+    def test_the_card_skips_filler_and_recap_episodes(self):
+        self._watch(1, 2)
+        current, _ = Episode.objects.get_or_create(title=self.title, season=1, episode=3)
+        WatchProgress.objects.create(profile=self.profile, title=self.title, current_episode=current, status=WatchProgress.Status.WATCHING)
+        item = selectors.continue_watching(self.profile)[0]
+        self.assertEqual((item["season"], item["episode_number"]), (1, 5))
+
+    def test_all_canon_watched_completes_it_and_it_leaves_the_row(self):
+        self._watch(1, 2, 5, 6)
+        current, _ = Episode.objects.get_or_create(title=self.title, season=1, episode=3)
+        WatchProgress.objects.create(profile=self.profile, title=self.title, current_episode=current, status=WatchProgress.Status.WATCHING)
+        self.assertEqual(selectors.continue_watching(self.profile), [])
+        self.assertEqual(WatchProgress.objects.get(profile=self.profile, title=self.title).status, WatchProgress.Status.COMPLETED)
+
+    def test_marking_an_episode_resumes_on_the_next_canon_one(self):
+        self._watch(1, 2)
+        completion._ensure_watching(self.profile, self.title, self.details)
+        self.assertEqual(WatchProgress.objects.get(profile=self.profile, title=self.title).current_episode.episode, 5)
+
+
+class NuvioUnchangedRowResortTests(TestCase):
+    def test_an_unchanged_row_adopts_nuvios_play_time(self):
+        user = User.objects.create_user("resort", password="pass12345")
+        profile = Profile.objects.create(user=user, display_name="Resort")
+        item = {"content_id": "tmdb:11", "content_type": "movie", "position": 600_000, "duration": 6_000_000, "name": "Film"}
+        nuvio.upsert_progress_items(profile, [item])  # no time on the item: stamped with now
+        played = int((timezone.now() - timedelta(days=2)).timestamp() * 1000)
+        nuvio.upsert_progress_items(profile, [{**item, "last_watched": played}])
+        row = WatchProgress.objects.get(profile=profile)
+        self.assertAlmostEqual(row.last_activity_at.timestamp(), played / 1000, places=0)

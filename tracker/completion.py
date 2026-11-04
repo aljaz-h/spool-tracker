@@ -123,6 +123,15 @@ def _ensure_watching(profile, title, details=None):
     if latest is None:
         return
     resume_episode = _next_episode_after(title, latest.episode, details) or latest.episode
+    # Optional filler/recap episodes of an anime are skipped over.
+    filler_keys = filler_episode_keys(title, details)
+    for _ in range(len(filler_keys)):
+        if (resume_episode.season, resume_episode.episode) not in filler_keys:
+            break
+        following = _next_episode_after(title, resume_episode, details)
+        if following is None or following.id == resume_episode.id:
+            break
+        resume_episode = following
     progress = WatchProgress.objects.filter(profile=profile, title=title).first()
     if progress is None:
         WatchProgress.objects.create(
@@ -144,31 +153,62 @@ def _ensure_watching(profile, title, details=None):
         progress.save(update_fields=["current_episode", "updated_at", "last_activity_at"])
 
 
-def canon_complete(profile, title, details):
-    """True when an anime's every canon episode has been watched - the
-    filler and recap episodes (Tenrai's flags, AniFiller's as a fallback)
-    aren't needed to count the show as finished. Only ever True for an anime
-    that has filler data: no MAL match, no filler/recap episodes known, or
-    seasons that don't add up to TMDB's total all mean "can't tell", never a
-    guess. Filler data numbers episodes across the whole show, so each
-    watched (season, episode) is turned into that absolute number by adding
-    the episode counts of the seasons before it."""
-    if title.media_type != MediaType.ANIME or not details:
-        return False
-    total = details.get("number_of_episodes")
-    offsets, running = {}, 0
-    for season in sorted((s for s in details.get("seasons") or [] if s.get("season_number")), key=lambda s: s["season_number"]):
-        offsets[season["season_number"]] = running
-        running += season.get("episode_count") or 0
-    if not total or running != total:
-        return False
+def _filler_numbers(title):
+    """Absolute episode numbers of an anime's filler and recap episodes
+    (Tenrai's flags, AniFiller's as a fallback), or an empty set when there is
+    no MAL match or no filler data."""
     mal_id = tenrai.resolve_mal_id(title)
     if mal_id is None:
-        return False
+        return set()
     filler = {n for n, flags in tenrai.get_episode_filler_map(mal_id).items() if flags.get("filler") or flags.get("recap")}
     filler |= {n for n, kind in anifiller.get_episode_types(mal_id).items() if kind == "filler"}
+    return filler
+
+
+def _season_offsets(details):
+    """({season_number: episodes in the seasons before it}, total across seasons).
+    Filler data numbers episodes across the whole show, so a (season, episode)
+    is turned into its absolute number by adding its offset."""
+    offsets, running = {}, 0
+    for season in sorted((s for s in (details or {}).get("seasons") or [] if s.get("season_number")), key=lambda s: s["season_number"]):
+        offsets[season["season_number"]] = running
+        running += season.get("episode_count") or 0
+    return offsets, running
+
+
+def filler_episode_keys(title, details):
+    """{(season, episode), ...} of an anime's filler and recap episodes, or an
+    empty set for anything else, for an anime with no filler data, or when the
+    seasons don't add up to TMDB's episode total (no guessing)."""
+    if title.media_type != MediaType.ANIME or not details:
+        return set()
+    offsets, running = _season_offsets(details)
+    if not running or running != details.get("number_of_episodes"):
+        return set()
+    filler = _filler_numbers(title)
+    if not filler:
+        return set()
+    counts = {s["season_number"]: s.get("episode_count") or 0 for s in details["seasons"] if s.get("season_number")}
+    return {
+        (season, number)
+        for season, offset in offsets.items()
+        for number in range(1, counts[season] + 1)
+        if offset + number in filler
+    }
+
+
+def canon_complete(profile, title, details):
+    """True when an anime's every canon episode has been watched - the
+    filler and recap episodes aren't needed to count the show as finished.
+    Only ever True for an anime that has filler data (see filler_episode_keys)."""
+    filler_keys = filler_episode_keys(title, details)
+    if not filler_keys:
+        return False
+    offsets, _ = _season_offsets(details)
+    total = details["number_of_episodes"]
+    filler = {offsets[season] + number for season, number in filler_keys}
     canon = set(range(1, total + 1)) - filler
-    if not filler or not canon:
+    if not canon:
         return False
     watched = {
         offsets[season] + episode

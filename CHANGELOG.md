@@ -8,6 +8,12 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.181.1] - 2026-11-04
+
+### Fixed
+- Continue Watching points an anime at its next canon episode instead of an unwatched filler or recap episode, and an anime whose canon episodes are all watched is completed and leaves the row. The same skip applies when an episode is marked watched in the app.
+- Continue Watching rows that an older version stamped with a sync's time re-sort once from Nuvio's own play time on the next sync.
+
 ## [0.181.0] - 2026-11-04
 
 ### Added
