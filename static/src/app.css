@@ -4934,19 +4934,31 @@ html[data-theme] {
 @layer components {
   .discover-hero {
     position: relative;
-    height: 340px;
-    border-radius: var(--radius-2xl, 1.25rem);
+    height: clamp(520px, 72vh, 720px);
     overflow: hidden;
     background: var(--color-base-200);
-    box-shadow: inset 0 0 0 1px var(--color-line);
+  }
+  /* The page title and blurb, top-left, over every slide. */
+  .discover-hero-head {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    z-index: 10;
+    padding-top: 1.75rem;
+    pointer-events: none;
+  }
+  @media (min-width: 1024px) {
+    .discover-hero-head {
+      padding-top: 2.5rem;
+    }
   }
   .discover-hero-slide {
     position: absolute;
     inset: 0;
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     background-size: cover;
-    background-position: center;
+    background-position: center 20%;
     opacity: 0;
     visibility: hidden;
     transition: opacity 400ms ease, visibility 400ms;
@@ -4955,22 +4967,25 @@ html[data-theme] {
     opacity: 1;
     visibility: visible;
   }
-  /* Left-to-right dark gradient so the text reads over any backdrop. */
+  /* Dark from the left so the text reads over any backdrop, dark at the top
+     for the page title, and fading into the page background below. */
   .discover-hero-slide::before {
     content: "";
     position: absolute;
     inset: 0;
-    background: linear-gradient(to right, rgb(var(--scrim-rgb) / 0.94) 0%, rgb(var(--scrim-rgb) / 0.78) 38%, rgb(var(--scrim-rgb) / 0.2) 100%);
+    background:
+      linear-gradient(to bottom, var(--color-base-100) 0%, rgb(var(--scrim-rgb) / 0) 22%, rgb(var(--scrim-rgb) / 0) 62%, var(--color-base-100) 100%),
+      linear-gradient(to right, rgb(var(--scrim-rgb) / 0.92) 0%, rgb(var(--scrim-rgb) / 0.7) 36%, rgb(var(--scrim-rgb) / 0.1) 100%);
   }
   .discover-hero-body {
     position: relative;
-    max-width: 38rem;
-    padding: 1.5rem 1.5rem 2.5rem;
+    padding-bottom: 4rem;
   }
-  @media (min-width: 640px) {
-    .discover-hero-body {
-      padding: 0 3.75rem;
-    }
+  .discover-hero-body > * {
+    max-width: 40rem;
+  }
+  .discover-hero-body > .flex {
+    max-width: none;
   }
   .discover-hero-dash {
     position: relative;

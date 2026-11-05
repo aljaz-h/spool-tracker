@@ -8,6 +8,23 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.184.0] - 2026-11-05
+
+### Changed
+- The Movies, TV shows and Anime hero is now full width and much taller
+  (about 70% of the window height), running edge to edge under the top bar.
+  The page title and its one-line description sit in its top-left corner, and
+  the synopsis gets three lines with a "Directed by" line underneath (shows
+  without a credited director say "Created by" instead). Only page 1 has the
+  hero; later pages keep the plain title row.
+- Title pages: the main cast row now starts with the director(s), then a
+  vertical divider, then the cast. Films with more than one director show all
+  of them (in the row, the hero's "Directed by" fact and the Cast & Crew tab).
+
+### Fixed
+- A stale Discover test that asserted History's scroll-away markup against the
+  Movies page.
+
 ## [0.183.0] - 2026-11-05
 
 ### Changed

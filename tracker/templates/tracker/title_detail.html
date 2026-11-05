@@ -310,7 +310,7 @@
             "Released May 01, 2020").
           {% endcomment %}
           <div class="hero-facts">
-            {% if director %}<span class="hero-fact"><span class="hero-label">Directed by</span> {% if director.tmdb_person_id %}<a href="{% url 'person_detail' director.tmdb_person_id %}" class="hover:text-primary">{{ director.name }}</a>{% else %}{{ director.name }}{% endif %}</span>{% endif %}
+            {% if directors %}<span class="hero-fact"><span class="hero-label">Directed by</span> {% for d in directors %}{% if d.tmdb_person_id %}<a href="{% url 'person_detail' d.tmdb_person_id %}" class="hover:text-primary">{{ d.name }}</a>{% else %}{{ d.name }}{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}</span>{% endif %}
             {% if release_info %}<span class="hero-fact"><span class="hero-label">{% if release_info.prefix %}{{ release_info.prefix }}{% else %}Aired{% endif %}</span> {{ release_info.date }}</span>{% endif %}
             {% if details.runtime %}<span class="hero-fact"><span class="hero-label">Runtime</span> {{ details.runtime|runtime_hm }}</span>{% endif %}
             {% if details.number_of_seasons %}<span class="hero-fact"><span class="hero-label">Seasons</span> {{ details.number_of_seasons }} &middot; {{ details.number_of_episodes }} episodes</span>{% endif %}
@@ -346,11 +346,15 @@
           {% endif %}
 
 
-          {% if cast %}
-            {# Main cast - portrait cards; the full list (with the director) is under the Cast & Crew tab. #}
+          {% if cast or directors %}
+            {# Main cast - the director(s) lead, a vertical rule, then the cast; the full list is under the Cast & Crew tab. #}
             <div class="mt-7">
-              <div class="hero-label mb-2.5">Main cast</div>
+              <div class="hero-label mb-2.5">{% if directors %}Director{{ directors|pluralize }} &amp; main cast{% else %}Main cast{% endif %}</div>
               <div class="flex gap-3 overflow-x-auto scroll-row pb-2">
+                {% for d in directors %}
+                  {% include "tracker/partials/title_person.html" with person=d role="Director" %}
+                {% endfor %}
+                {% if directors and cast %}<div class="self-stretch w-px flex-none bg-white/20 mx-1" role="separator" aria-orientation="vertical"></div>{% endif %}
                 {% for actor in cast|slice:":10" %}
                   {% include "tracker/partials/title_person.html" with person=actor role=actor.character %}
                 {% endfor %}
@@ -650,9 +654,9 @@
           <div x-show="tab === 'cast'" x-cloak role="tabpanel">
             <h2 class="sr-only">Cast &amp; Crew</h2>
             <div class="grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-x-4 gap-y-6">
-              {% if director %}
-                {% include "tracker/partials/title_person.html" with person=director role="Director" grid=True %}
-              {% endif %}
+              {% for d in directors %}
+                {% include "tracker/partials/title_person.html" with person=d role="Director" grid=True %}
+              {% endfor %}
               {% for actor in cast %}
                 {% include "tracker/partials/title_person.html" with person=actor role=actor.character grid=True %}
               {% endfor %}

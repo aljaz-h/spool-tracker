@@ -14783,6 +14783,27 @@ class TmdbDetailPageTests(TestCase):
         self.assertIsNone(tmdb.get_director("movie", 42))
 
     @patch("tracker.integrations.tmdb._http_session.get")
+    def test_get_directors_returns_every_credited_director_once(self, mock_get):
+        mock_get.return_value = self._response(
+            {
+                "crew": [
+                    {"id": 1, "name": "Phil Lord", "job": "Director"},
+                    {"id": 2, "name": "Editor Person", "job": "Editor"},
+                    {"id": 3, "name": "Christopher Miller", "job": "Director"},
+                    {"id": 1, "name": "Phil Lord", "job": "Director"},
+                ]
+            }
+        )
+        self.assertEqual([d["name"] for d in tmdb.get_directors("movie", 42)], ["Phil Lord", "Christopher Miller"])
+
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_get_directors_is_empty_on_failure(self, mock_get):
+        import requests
+
+        mock_get.side_effect = requests.RequestException("boom")
+        self.assertEqual(tmdb.get_directors("movie", 1), [])
+
+    @patch("tracker.integrations.tmdb._http_session.get")
     def test_get_director_returns_none_on_failure(self, mock_get):
         import requests
 
@@ -15871,10 +15892,10 @@ class DiscoverViewTests(TestCase):
         # or disappearing with it.
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
         resp = self.client.get(reverse("movies", args=["trending"]))
-        # History's panel still closes once its button has scrolled away
-        # (Discover's drawer no longer does - see DiscoverFiltersDrawerTests).
-        self.assertContains(resp, "@scroll.window.passive")
-        self.assertContains(resp, "popoverScrolledAway")
+        # Discover's drawer is absolute inside a relative wrapper, so it
+        # scrolls with its button and no longer closes on scroll (History's
+        # and Logs' panels still do) - see DiscoverFiltersDrawerTests.
+        self.assertNotContains(resp, "@scroll.window.passive")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover_by_decades")
@@ -18170,7 +18191,7 @@ class TitleDetailViewTests(TestCase):
         # number_of_seasons (default None), but it's patched unconditionally
         # here too so nothing in this class can attempt a real HTTP call.
         for name, default in (
-            ("get_director", None), ("get_watch_providers", []), ("get_season_details", None),
+            ("get_director", None), ("get_directors", []), ("get_watch_providers", []), ("get_season_details", None),
             ("get_trailer", None), ("get_backdrops", []),
         ):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
@@ -18729,7 +18750,7 @@ class TitleEpisodeBrowserTests(TestCase):
             external_ids={"tmdb": "99", "tmdb_kind": "tv"},
         )
         for name, default in (
-            ("get_director", None), ("get_watch_providers", []), ("get_trailer", None), ("get_backdrops", []),
+            ("get_director", None), ("get_directors", []), ("get_watch_providers", []), ("get_trailer", None), ("get_backdrops", []),
         ):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
             patcher.start()
@@ -19481,7 +19502,7 @@ class AnimeFillerBadgeTests(TestCase):
             external_ids={"tmdb": "99", "tmdb_kind": "tv"},
         )
         for name, default in (
-            ("get_director", None), ("get_watch_providers", []), ("get_trailer", None), ("get_backdrops", []),
+            ("get_director", None), ("get_directors", []), ("get_watch_providers", []), ("get_trailer", None), ("get_backdrops", []),
         ):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
             patcher.start()
@@ -19691,7 +19712,7 @@ class AnimeFillerAniFillerFallbackTests(TestCase):
             external_ids={"tmdb": "99", "tmdb_kind": "tv"},
         )
         for name, default in (
-            ("get_director", None), ("get_watch_providers", []), ("get_trailer", None), ("get_backdrops", []),
+            ("get_director", None), ("get_directors", []), ("get_watch_providers", []), ("get_trailer", None), ("get_backdrops", []),
         ):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
             patcher.start()
@@ -20029,7 +20050,7 @@ class AnimeMalDetailContextTests(TestCase):
             external_ids={"tmdb": "99", "tmdb_kind": "tv"},
         )
         for name, default in (
-            ("get_director", None), ("get_watch_providers", []), ("get_trailer", None), ("get_backdrops", []),
+            ("get_director", None), ("get_directors", []), ("get_watch_providers", []), ("get_trailer", None), ("get_backdrops", []),
         ):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
             patcher.start()
@@ -20618,7 +20639,7 @@ class MdblistRatingsContextTests(TestCase):
             media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
         )
         for name, default in (
-            ("get_director", None), ("get_watch_providers", []), ("get_season_details", None),
+            ("get_director", None), ("get_directors", []), ("get_watch_providers", []), ("get_season_details", None),
             ("get_trailer", None), ("get_backdrops", []),
         ):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
@@ -21129,7 +21150,7 @@ class FanartContextTests(TestCase):
             media_type=MediaType.MOVIE, name="Fathom", year=2020, external_ids={"tmdb": "42", "tmdb_kind": "movie"}
         )
         for name, default in (
-            ("get_director", None), ("get_watch_providers", []), ("get_season_details", None),
+            ("get_director", None), ("get_directors", []), ("get_watch_providers", []), ("get_season_details", None),
             ("get_trailer", None), ("get_backdrops", []),
         ):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
@@ -22415,7 +22436,7 @@ class PreviewEpisodeBrowserTests(TestCase):
         self.profile = Profile.objects.create(user=user, display_name="PreviewEpisodeUser")
         self.client.login(username="previewepisodeuser", password="pass12345")
         for name, default in (
-            ("get_director", None), ("get_watch_providers", []), ("get_credits", []), ("get_similar", []),
+            ("get_director", None), ("get_directors", []), ("get_watch_providers", []), ("get_credits", []), ("get_similar", []),
             ("get_trailer", None), ("get_backdrops", []),
         ):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
@@ -23439,7 +23460,7 @@ class TitlePreviewViewTests(TestCase):
         self.mock_dispatch = dispatch.start()  # the Fanart fetch the preview queues
         self.addCleanup(dispatch.stop)
         for name, default in (
-            ("get_director", None), ("get_watch_providers", []), ("get_trailer", None), ("get_backdrops", []),
+            ("get_director", None), ("get_directors", []), ("get_watch_providers", []), ("get_trailer", None), ("get_backdrops", []),
             # completion.sync_show_completion (called by every episode/
             # season mark-watched view below) calls this too - see
             # EpisodeMarkWatchedTests.setUp's own comment for why leaving
@@ -24692,7 +24713,7 @@ class TitleDetailCastRowPersonLinksTests(TestCase):
         dispatch_patcher.start()
         self.addCleanup(dispatch_patcher.stop)
 
-    @patch("tracker.integrations.tmdb.get_director", return_value=None)
+    @patch("tracker.integrations.tmdb.get_directors", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits")
     def test_cast_member_with_a_tmdb_person_id_is_a_link(self, mock_credits, mock_director):
         mock_credits.return_value = [
@@ -24701,7 +24722,7 @@ class TitleDetailCastRowPersonLinksTests(TestCase):
         resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         self.assertContains(resp, reverse("person_detail", args=[501]))
 
-    @patch("tracker.integrations.tmdb.get_director", return_value=None)
+    @patch("tracker.integrations.tmdb.get_directors", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits")
     def test_cast_member_without_a_tmdb_person_id_is_not_a_link(self, mock_credits, mock_director):
         mock_credits.return_value = [
@@ -24714,11 +24735,31 @@ class TitleDetailCastRowPersonLinksTests(TestCase):
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
     def test_director_with_a_tmdb_person_id_is_a_link(self, mock_credits):
         with patch(
-            "tracker.integrations.tmdb.get_director",
-            return_value={"name": "Director Person", "profile_url": None, "tmdb_person_id": 602},
+            "tracker.integrations.tmdb.get_directors",
+            return_value=[{"name": "Director Person", "profile_url": None, "tmdb_person_id": 602}],
         ):
             resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
         self.assertContains(resp, reverse("person_detail", args=[602]))
+
+
+    @patch("tracker.integrations.tmdb.get_credits")
+    def test_directors_lead_the_cast_row_before_a_divider(self, mock_credits):
+        mock_credits.return_value = [
+            {"name": "Actor One", "character": "Hero", "profile_url": None, "tmdb_person_id": 501},
+        ]
+        with patch(
+            "tracker.integrations.tmdb.get_directors",
+            return_value=[
+                {"name": "Director Alpha", "profile_url": None, "tmdb_person_id": 601},
+                {"name": "Director Beta", "profile_url": None, "tmdb_person_id": 602},
+            ],
+        ):
+            html = self.client.get(reverse("title_detail", args=[self.title.pk])).content.decode()
+        alpha, beta = html.index("Director Alpha"), html.index("Director Beta")
+        divider = html.index('role="separator"')
+        actor = html.index("Actor One")
+        self.assertTrue(alpha < beta < divider < actor)
+        self.assertIn("Directors &amp; main cast", html)
 
 
 class PersonDetailViewTests(TestCase):
@@ -35334,7 +35375,7 @@ class TitleTilesBase(TestCase):
         self.trailer = None
         # nothing here may reach TMDB or the task broker
         for name, default in (
-            ("get_director", None), ("get_watch_providers", []), ("get_season_details", None), ("get_credits", []),
+            ("get_director", None), ("get_directors", []), ("get_watch_providers", []), ("get_season_details", None), ("get_credits", []),
             ("get_similar", []), ("get_tv_details", None), ("get_backdrops", []), ("get_trailer", None),
         ):
             patcher = patch(f"tracker.integrations.tmdb.{name}", return_value=default)
@@ -36917,6 +36958,32 @@ class DiscoverPageLayoutTests(TestCase):
         Profile.objects.filter(display_name="LayoutViewer").update(discover_watched_display="hide")
         html = self._get("movies", "trending")[0].content.decode()
         self.assertRegex(html, r'class="toggle toggle-primary toggle-sm" checked')
+
+
+class DiscoverHeroCreditsTests(TestCase):
+    def test_hero_lists_directors_or_creators(self):
+        user = User.objects.create_user("herocredits", password="pass12345")
+        Profile.objects.create(user=user, display_name="HeroCredits")
+        self.client.login(username="herocredits", password="pass12345")
+        hero = [
+            {"tmdb_id": 1, "media_type": "movie", "name": "Hero Movie", "year": "2026", "vote_average": 8.0,
+             "overview": "x", "backdrop_url": "https://example.com/b.jpg", "genre_ids": [], "trailer_key": None,
+             "credit_label": "Directed by", "credit_people": [{"name": "Dir One", "tmdb_person_id": 11}]},
+            {"tmdb_id": 2, "media_type": "movie", "name": "Hero Show", "year": "2026", "vote_average": 8.0,
+             "overview": "x", "backdrop_url": "https://example.com/c.jpg", "genre_ids": [], "trailer_key": None,
+             "credit_label": "Created by", "credit_people": [{"name": "Creator Two", "tmdb_person_id": 12}]},
+        ]
+        with patch("tracker.integrations.tmdb.hero_titles", return_value=hero), patch(
+            "tracker.integrations.tmdb.discover_by_decades", return_value={"results": [], "total_pages": 1, "page": 1}
+        ), patch("tracker.integrations.tmdb.genres", return_value=[]), patch(
+            "tracker.integrations.tmdb.watch_provider_catalog", return_value=[]
+        ):
+            html = self.client.get(reverse("movies", args=["trending"])).content.decode()
+        self.assertIn("Directed by", html)
+        self.assertIn("Dir One", html)
+        self.assertIn("Created by", html)
+        self.assertIn("Creator Two", html)
+        self.assertEqual(html.count('class="page-title"'), 1)
 
 
 class TmdbItemWindowTests(TestCase):

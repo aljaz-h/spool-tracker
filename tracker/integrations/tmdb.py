@@ -1040,7 +1040,10 @@ def hero_titles(media_type, limit=4, api_key=None, **filters):
     picked = [r for r in data["results"] if r.get("backdrop_url")][:limit]
 
     def enrich(item):
-        item = {**item, "runtime_minutes": None, "seasons": None, "episodes": None, "trailer_key": None}
+        item = {
+            **item, "runtime_minutes": None, "seasons": None, "episodes": None, "trailer_key": None,
+            "credit_label": "Directed by", "credit_people": [],
+        }
         try:
             details = _list_request(f"{media_type}/{item['tmdb_id']}", api_key=api_key) or {}
             if media_type == "movie":
@@ -1048,6 +1051,12 @@ def hero_titles(media_type, limit=4, api_key=None, **filters):
             else:
                 item["seasons"] = details.get("number_of_seasons")
                 item["episodes"] = details.get("number_of_episodes")
+            item["credit_people"] = get_directors(media_type, item["tmdb_id"], api_key=api_key)[:3]
+            if not item["credit_people"] and media_type == "tv":
+                # Series rarely credit a "Director" at show level; the
+                # creators are the honest equivalent.
+                item["credit_label"] = "Created by"
+                item["credit_people"] = [_crew_person(c) for c in (details.get("created_by") or [])][:3]
             trailer = get_trailer(media_type, item["tmdb_id"], api_key=api_key)
             item["trailer_key"] = trailer["key"] if trailer else None
         except Exception:
@@ -1501,6 +1510,34 @@ def get_director(media_type, tmdb_id):
         "profile_url": f"{PROFILE_BASE}{profile_path}" if profile_path else None,
         "tmdb_person_id": director.get("id"),
     }
+
+
+def _crew_person(crew_member):
+    profile_path = crew_member.get("profile_path")
+    return {
+        "name": crew_member.get("name") or "",
+        "profile_url": f"{PROFILE_BASE}{profile_path}" if profile_path else None,
+        "tmdb_person_id": crew_member.get("id"),
+    }
+
+
+def get_directors(media_type, tmdb_id, api_key=None):
+    """Every credited director (a film can have several), in TMDB's crew
+    order, shaped like get_director()'s single entry; [] if none. Same
+    /credits endpoint and cache as get_credits()."""
+    data = _list_request(f"{media_type}/{tmdb_id}/credits", api_key=api_key)
+    crew = (data or {}).get("crew") or []
+    seen = set()
+    directors = []
+    for member in crew:
+        if member.get("job") != "Director":
+            continue
+        key = member.get("id") or member.get("name")
+        if key in seen:
+            continue
+        seen.add(key)
+        directors.append(_crew_person(member))
+    return directors
 
 
 # TMDB has no single consistent "the writer" job title the way "Director"

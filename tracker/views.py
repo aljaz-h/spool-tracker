@@ -1645,6 +1645,7 @@ def title_detail(request, pk):
 
     tmdb_id = title.external_ids.get("tmdb")
     details = cast = similar = director = None
+    directors = []
     watch_providers = []
     episode_context = {"seasons": [], "season": None, "episodes": [], "season_avg_rating": None, "season_ratings": {}}
     media_gallery_context = {"trailer": None, "gallery_items": [], "gallery_image_urls": []}
@@ -1687,7 +1688,8 @@ def title_detail(request, pk):
             cast = cast_future.result()
             similar = similar_future.result()
             watch_providers = watch_providers_future.result()
-        director = tmdb.get_director(tmdb_media_type, tmdb_id)
+        directors = tmdb.get_directors(tmdb_media_type, tmdb_id)
+        director = directors[0] if directors else None
         episode_context = _episode_panel_context(request, profile, title, tmdb_id, details)
         media_gallery_context = _media_gallery_context(title, tmdb_media_type, tmdb_id, api_key=api_key)
 
@@ -1702,6 +1704,7 @@ def title_detail(request, pk):
         "cast": cast or [],
         "similar": similar or [],
         "director": director,
+        "directors": directors or [],
         "watch_providers": watch_providers,
         "status_badge": tmdb.status_badge(details["status"]) if details else None,
         "release_info": _release_info(details),
@@ -2832,7 +2835,8 @@ def title_preview(request, media_type, tmdb_id):
         cast = cast_future.result()
         similar = similar_future.result()
         watch_providers = watch_providers_future.result()
-    director = tmdb.get_director(tmdb_kind, tmdb_id)
+    directors = tmdb.get_directors(tmdb_kind, tmdb_id)
+    director = directors[0] if directors else None
     # An untracked anime has no Title to hang its MyAnimeList lookups on -
     # _preview_anime_context stands one in (see _PreviewAnime).
     anime_context = _preview_anime_context(media_type, details, tmdb_id)
@@ -2849,6 +2853,7 @@ def title_preview(request, media_type, tmdb_id):
         "cast": cast,
         "similar": similar,
         "director": director,
+        "directors": directors,
         "watch_providers": watch_providers,
         "status_badge": tmdb.status_badge(details["status"]),
         "release_info": _release_info(details),
