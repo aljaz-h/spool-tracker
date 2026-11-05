@@ -15,8 +15,10 @@
   has no control in that form (it arrives from a title page's country
   link), so its chip is a plain link to the URL without it.
 {% endcomment %}
+{% if not is_collections %}
+<div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 -mt-1 mb-6">
 {% if selected_genres or selected_providers or selected_decades or selected_runtime_bucket or request.GET.rating_from or request.GET.rating_to or selected_language or selected_certification or selected_status or selected_availability or selected_origin_country %}
-<div class="flex flex-wrap items-center gap-2 -mt-1 mb-6" x-data="{
+<div class="flex flex-wrap items-center gap-2" x-data="{
   disable(name) {
     const form = document.getElementById('discover-filters-form');
     form?.querySelectorAll(`[name='${name}']`).forEach((el) => { el.disabled = true; });
@@ -64,6 +66,9 @@
   {% if selected_origin_country %}
     <a href="?{{ query_without_origin_country }}" class="filter-chip" aria-label="Clear country filter">Filtered to <b class="font-semibold">{{ selected_origin_country_name }}</b> {% icon "x" "w-3 h-3" %}</a>
   {% endif %}
-  <a href="?filters_submitted=1" class="text-xs font-medium text-ink-dim hover:text-primary ml-1">Clear all</a>
+  <a href="?filters_submitted=1" class="text-[13px] font-medium text-ink-dim hover:text-base-content ml-1 inline-flex items-center min-h-11">Clear all</a>
+</div>
+{% else %}<span></span>{% endif %}
+<span class="text-[13px] text-ink-dim">{{ sort_label }}</span>
 </div>
 {% endif %}

@@ -15789,14 +15789,14 @@ class DiscoverViewTests(TestCase):
         profile.save(update_fields=["discover_watched_display"])
         mock_discover_by_decades.return_value = {"results": [], "page": 1, "total_pages": 1}
         self.client.get(reverse("movies", args=["popular"]))
-        self.assertEqual(mock_discover_by_decades.call_args.kwargs["page_size"], views.DISCOVER_HIDE_MODE_PAGE_SIZE)
+        self.assertEqual(mock_discover_by_decades.call_args.kwargs["item_count"], views.DISCOVER_HIDE_MODE_ITEMS)
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover_by_decades")
     def test_show_display_uses_the_normal_pool_size(self, mock_discover_by_decades, mock_genres):
         mock_discover_by_decades.return_value = {"results": [], "page": 1, "total_pages": 1}
         self.client.get(reverse("movies", args=["popular"]))
-        self.assertEqual(mock_discover_by_decades.call_args.kwargs["page_size"], tmdb.RESULTS_PAGE_SIZE)
+        self.assertEqual(mock_discover_by_decades.call_args.kwargs["item_count"], views.DISCOVER_PAGE_ITEMS)
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
@@ -15871,11 +15871,10 @@ class DiscoverViewTests(TestCase):
         # or disappearing with it.
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
         resp = self.client.get(reverse("movies", args=["trending"]))
-        # Discover's drawer is absolute inside a relative wrapper (it follows the
-        # button) and nothing closes it on scroll.
-        self.assertContains(resp, 'role="dialog" aria-label="Filters"')
-        self.assertNotContains(resp, "@scroll.window")
-        self.assertContains(resp, "overscroll-contain")
+        # History's panel still closes once its button has scrolled away
+        # (Discover's drawer no longer does - see DiscoverFiltersDrawerTests).
+        self.assertContains(resp, "@scroll.window.passive")
+        self.assertContains(resp, "popoverScrolledAway")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover_by_decades")
@@ -26300,11 +26299,10 @@ class HistorySearchAndMostWatchedTests(TestCase):
         # Same fix/reasoning as Discover's own Filters panel - see
         # DiscoverViewTests.test_filters_panel_closes_on_scroll.
         resp = self.client.get(reverse("history"))
-        # Discover's drawer is absolute inside a relative wrapper (it follows the
-        # button) and nothing closes it on scroll.
-        self.assertContains(resp, 'role="dialog" aria-label="Filters"')
-        self.assertNotContains(resp, "@scroll.window")
-        self.assertContains(resp, "overscroll-contain")
+        # History's panel still closes once its button has scrolled away
+        # (Discover's drawer no longer does - see DiscoverFiltersDrawerTests).
+        self.assertContains(resp, "@scroll.window.passive")
+        self.assertContains(resp, "popoverScrolledAway")
 
 
 class HistoryToolbarStaysInSyncTests(TestCase):
@@ -36857,3 +36855,95 @@ class DiscoverFiltersDrawerTests(TestCase):
         self.assertIn('form="discover-filters-form"', html)
         self.assertIn("Clear all", html)
         self.assertNotIn("@scroll.window", html)
+
+
+class DiscoverPageLayoutTests(TestCase):
+    """Movies / TV shows / Anime pages: hero, tabs, tile meta, 35 per page."""
+
+    def setUp(self):
+        user = User.objects.create_user("layoutviewer", password="pass12345")
+        Profile.objects.create(user=user, display_name="LayoutViewer")
+        self.client.login(username="layoutviewer", password="pass12345")
+        patcher = patch("tracker.integrations.tmdb.genres", return_value=[{"id": 28, "name": "Action"}])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.item = {
+            "tmdb_id": 7, "media_type": "movie", "name": "A Very Long Film Title That Wraps", "year": "2026",
+            "poster_url": None, "backdrop_url": "https://image.tmdb.org/t/p/w1280/b.jpg", "vote_average": 8.5,
+            "overview": "A synopsis.", "genre_ids": [28], "runtime_minutes": 156, "seasons": None,
+            "episodes": None, "trailer_key": "abc123",
+        }
+        self.page = {"results": [dict(self.item)], "page": 1, "total_pages": 3}
+
+    def _get(self, name, category, **params):
+        with patch("tracker.integrations.tmdb.discover_by_decades", return_value=self.page) as mock_page, \
+                patch("tracker.integrations.tmdb.hero_titles", return_value=[dict(self.item)]):
+            response = self.client.get(reverse(name, args=[category]), params)
+        return response, mock_page
+
+    def test_titles_blurbs_and_third_tab_per_type(self):
+        html = self._get("movies", "trending")[0].content.decode()
+        self.assertIn(">Movies</h1>", html)
+        self.assertIn(">Upcoming</a>", html)
+        html = self._get("tv", "trending")[0].content.decode()
+        self.assertIn(">TV shows</h1>", html)
+        self.assertIn(">Airing today</a>", html)
+        self.assertIn(">Top rated</a>", html)
+        html = self._get("anime", "airing")[0].content.decode()
+        self.assertIn(">Airing now</a>", html)
+
+    def test_hero_shows_on_page_one_only_with_its_actions(self):
+        html = self._get("movies", "trending")[0].content.decode()
+        self.assertIn("#1 trending this week", html)
+        self.assertIn("View details", html)
+        self.assertIn("Add to list", html)
+        self.assertIn("https://www.youtube.com/watch?v=abc123", html)
+        self.assertIn("2h 36m", html)
+        self.assertNotIn("trending this week", self._get("movies", "trending", page=2)[0].content.decode())
+
+    def test_each_page_asks_for_35_titles(self):
+        _, mock_page = self._get("movies", "popular")
+        self.assertEqual(mock_page.call_args.kwargs["item_count"], 35)
+
+    def test_tile_meta_carries_the_type_label_and_dot(self):
+        html = self._get("anime", "trending")[0].content.decode()
+        self.assertRegex(html, r'type-dot bg-anime"></span>Anime')
+
+    def test_sort_label_follows_the_tab(self):
+        self.assertIn("Sorted by popularity", self._get("movies", "popular")[0].content.decode())
+        self.assertIn("Sorted by rating", self._get("movies", "top_rated")[0].content.decode())
+
+    def test_hide_watched_toggle_reflects_the_preference(self):
+        Profile.objects.filter(display_name="LayoutViewer").update(discover_watched_display="hide")
+        html = self._get("movies", "trending")[0].content.decode()
+        self.assertRegex(html, r'class="toggle toggle-primary toggle-sm" checked')
+
+
+class TmdbItemWindowTests(TestCase):
+    """tmdb.discover(item_count=35): windows over TMDB's 20-per-page results."""
+
+    def _pages(self):
+        def make(n):
+            resp = Mock()
+            resp.raise_for_status = Mock()
+            resp.json.return_value = {
+                "results": [{"id": (n - 1) * 20 + i, "title": "m", "release_date": "2020-01-01"} for i in range(20)],
+                "total_pages": 6, "total_results": 112,
+            }
+            return resp
+        return lambda url, params=None, timeout=None: make(params["page"])
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_second_page_starts_part_way_into_a_tmdb_page(self, mock_get):
+        mock_get.side_effect = self._pages()
+        page = tmdb.discover("movie", category="popular", page=2, item_count=35)
+        ids = [r["tmdb_id"] for r in page["results"]]
+        self.assertEqual(ids, list(range(35, 70)))
+        self.assertEqual(page["total_pages"], 4)  # 112 results / 35
+
+    @override_settings(TMDB_API_KEY="test-key")
+    @patch("tracker.integrations.tmdb._http_session.get")
+    def test_first_page_is_35_results(self, mock_get):
+        mock_get.side_effect = self._pages()
+        self.assertEqual(len(tmdb.discover("movie", category="popular", page=1, item_count=35)["results"]), 35)

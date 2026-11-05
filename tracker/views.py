@@ -127,7 +127,9 @@ HISTORY_PERIODS = {"today", "yesterday", "7", "30", "365"}
 # "full rewatch" figure) exist for each title within the current filters -
 # see _history_context.
 HISTORY_SORTS = {"new", "old", "most_watched", "least_watched"}
-DISCOVER_CATEGORIES = {"trending", "popular", "upcoming", "top_rated"}
+DISCOVER_CATEGORIES = {"trending", "popular", "upcoming", "airing", "top_rated"}
+# Tiles per Movies/TV/Anime page: 7 columns x 5 rows at desktop width.
+DISCOVER_PAGE_ITEMS = 35
 # discover()'s normal raw-TMDB-page pool (tmdb.RESULTS_PAGE_SIZE) is sized
 # for the common case. When the Display filter is hiding watched/watchlisted
 # titles, a profile that's already watched most of what's popular can filter
@@ -136,7 +138,7 @@ DISCOVER_CATEGORIES = {"trending", "popular", "upcoming", "top_rated"}
 # that case makes a near-empty page far less likely without touching
 # pagination's page-number math at all (still a plain, reversible multiple
 # of tmdb.RESULTS_PAGE_SIZE, just a bigger one).
-DISCOVER_HIDE_MODE_PAGE_SIZE = tmdb.RESULTS_PAGE_SIZE * 3
+DISCOVER_HIDE_MODE_ITEMS = DISCOVER_PAGE_ITEMS * 2
 # Movie-only, and deliberately not composable with the filter panel (see
 # tmdb.collections()'s own docstring for why) - excluded from Anime's own
 # category set in discover() below rather than living in DISCOVER_CATEGORIES
@@ -386,7 +388,30 @@ def _collections_view(request):
     return render(request, "tracker/discover.html", context)
 
 
-DISCOVER_PAGE_TITLES = {"movie": "Movies", "tv": "TV", "anime": "Anime"}
+DISCOVER_PAGE_TITLES = {"movie": "Movies", "tv": "TV shows", "anime": "Anime"}
+# The page's one-line description and its third tab differ per type.
+DISCOVER_PAGE_BLURBS = {
+    "movie": "Browse what is trending, popular, upcoming and top rated on TMDB.",
+    "tv": "Browse what is trending, popular, airing today and top rated on TMDB.",
+    "anime": "Browse what is trending, popular, airing now and top rated.",
+}
+DISCOVER_THIRD_TAB = {
+    "movie": ("upcoming", "Upcoming"),
+    "tv": ("airing", "Airing today"),
+    "anime": ("airing", "Airing now"),
+}
+DISCOVER_SORT_LABELS = {
+    "trending": "Sorted by popularity", "popular": "Sorted by popularity", "airing": "Sorted by popularity",
+    "upcoming": "Sorted by release date", "top_rated": "Sorted by rating",
+}
+
+
+def _discover_hero(tmdb_media_type, is_anime, api_key):
+    """The hero's rotating top titles (see tmdb.hero_titles): the most popular
+    ones for the page's type, whatever filters are active - the hero is
+    "what's trending", not a result of the filters."""
+    filters = {"genre_ids": [tmdb.ANIMATION_GENRE_ID], "origin_country": "JP"} if is_anime else {}
+    return tmdb.hero_titles(tmdb_media_type, api_key=api_key, **filters)
 
 
 @login_required
@@ -497,7 +522,7 @@ def discover(request, media_type, category):
     watched_display = profile.discover_watched_display if profile else Profile.DiscoverDisplay.SHOW
     watchlisted_display = profile.discover_watchlisted_display if profile else Profile.DiscoverDisplay.SHOW
     hide_active = "hide" in (watched_display, watchlisted_display)
-    page_size = DISCOVER_HIDE_MODE_PAGE_SIZE if hide_active else tmdb.RESULTS_PAGE_SIZE
+    item_count = DISCOVER_HIDE_MODE_ITEMS if hide_active else DISCOVER_PAGE_ITEMS
 
     # TMDB refuses page requests beyond 500 regardless of total_pages.
     page_num = min(_discover_int_param(request, "page") or 1, 500)
@@ -507,11 +532,12 @@ def discover(request, media_type, category):
     # after another. api_key resolved once here, not by each of the three
     # worker threads independently - same reasoning as every other
     # parallel-TMDB-call site in this app.
+    hero_items = _discover_hero(tmdb_media_type, is_anime, api_key) if page_num == 1 else []
     with ThreadPoolExecutor(max_workers=2) as executor:
         page_future = executor.submit(
             tmdb.discover_by_decades,
-            tmdb_media_type, category=category, page=page_num, decades=decades, page_size=page_size,
-            api_key=api_key, **filters,
+            tmdb_media_type, category=category, page=page_num, decades=decades, item_count=item_count,
+            api_key=api_key, air_days=7 if is_anime else 0, **filters,
         )
         genre_catalog_future = executor.submit(tmdb.genres, tmdb_media_type, api_key=api_key)
         page = page_future.result()
@@ -539,6 +565,12 @@ def discover(request, media_type, category):
     context = {
         "profile": profile,
         "page_title": DISCOVER_PAGE_TITLES[media_type],
+        "page_blurb": DISCOVER_PAGE_BLURBS[media_type],
+        "third_tab_category": DISCOVER_THIRD_TAB[media_type][0],
+        "third_tab_label": DISCOVER_THIRD_TAB[media_type][1],
+        "sort_label": DISCOVER_SORT_LABELS.get(category, "Sorted by popularity"),
+        "type_key": media_type,
+        "hero_items": hero_items,
         "is_anime": is_anime,
         "library_url_name": "movies" if media_type == "movie" else media_type,
         "category": category,
@@ -577,6 +609,8 @@ def discover(request, media_type, category):
         "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
         "collections_enabled": COLLECTIONS_ENABLED,
     }
+    for item in context["hero_items"]:
+        item["genre_name"] = next((genre_names_by_id[g] for g in item.get("genre_ids") or [] if g in genre_names_by_id), "")
     # The Filters button's badge and the drawer's "N active": one per filter
     # that has a value (genres count once however many are picked).
     context["active_filter_count"] = sum(

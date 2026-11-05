@@ -331,6 +331,7 @@ _TTL_RULES = [
 # rows at typical desktop column counts). Each underlying TMDB page is still
 # cached/requested individually, so this doesn't change caching behavior.
 RESULTS_PAGE_SIZE = 3
+TMDB_PAGE_LENGTH = 20  # results TMDB itself returns per page
 
 
 def _cache_key(path, params):
@@ -472,6 +473,7 @@ def _normalize_result(item, media_type):
         "name": title or "Untitled",
         "year": date[:4] if date else None,
         "poster_url": f"{IMAGE_BASE}{poster_path}" if poster_path else None,
+        "backdrop_url": f"{BACKDROP_BASE}{item['backdrop_path']}" if item.get("backdrop_path") else None,
         "vote_average": item.get("vote_average"),
         # Only read by search()'s re-ranking (search_text.match_tier ties
         # break on popularity; zero-vote entries sink).
@@ -752,7 +754,7 @@ def discover(media_type, category="popular", page=1, genre_ids=None, year_from=N
              runtime_from=None, runtime_to=None, rating_from=None, rating_to=None,
              original_language=None, origin_country=None, with_companies=None, certification=None,
              status=None, availability=None, watch_providers=None, region=None, page_size=RESULTS_PAGE_SIZE,
-             api_key=None):
+             item_count=None, air_days=0, api_key=None):
     """Returns {"results": [...normalized, up to page_size*20...], "page": int,
     "total_pages": int}. category picks a sort/date preset (see module docstring);
     every other param is an optional filter layered on top of that preset, all of
@@ -776,11 +778,27 @@ def discover(media_type, category="popular", page=1, genre_ids=None, year_from=N
     math (still a plain, reversible page-number multiple, just a bigger
     one).
 
+    item_count, when given, replaces page_size: a logical page is exactly that
+    many consecutive results (page N = results (N-1)*item_count onward of
+    TMDB's own 20-per-page sequence), which is how the Movies/TV/Anime grid
+    gets its 35 per page (7 columns x 5 rows) - 35 isn't a whole number of
+    TMDB pages, so the window can start part-way into one. total_pages is
+    then counted in item_count-sized pages.
+
+    category "airing" (TV/Anime) lists shows with an episode airing from
+    air_days ago through today - 0 for "Airing today", 7 for "Airing now".
+
     include_adult/without_keywords are always applied, not opt-in filters -
     see _UNSAFE_KEYWORD_IDS for why (TMDB's own adult flag alone isn't
     reliable for this)."""
     date_field = "primary_release_date" if media_type == "movie" else "first_air_date"
     params = {"sort_by": "popularity.desc", "include_adult": "false", "without_keywords": _UNSAFE_KEYWORD_IDS}
+    if category == "airing" and media_type == "tv":
+        import datetime
+
+        today = datetime.date.today()
+        params["air_date.gte"] = (today - datetime.timedelta(days=air_days)).isoformat()
+        params["air_date.lte"] = today.isoformat()
 
     if category == "top_rated":
         params["sort_by"] = "vote_average.desc"
@@ -858,7 +876,15 @@ def discover(media_type, category="popular", page=1, genre_ids=None, year_from=N
     # that should never need to touch the DB independently/concurrently
     # themselves.
     api_key = api_key if api_key is not None else _api_key()
-    tmdb_start_page = (page - 1) * page_size + 1
+    if item_count:
+        # TMDB serves a fixed 20 per page; the window may start part-way in.
+        first_index = (page - 1) * item_count
+        tmdb_start_page = first_index // TMDB_PAGE_LENGTH + 1
+        skip = first_index - (tmdb_start_page - 1) * TMDB_PAGE_LENGTH
+        page_size = -(-(skip + item_count) // TMDB_PAGE_LENGTH)
+    else:
+        tmdb_start_page = (page - 1) * page_size + 1
+        skip = 0
     results = []
     first_data = _list_request(f"discover/{media_type}", {**params, "page": tmdb_start_page}, api_key=api_key)
     total_pages_raw = first_data.get("total_pages") or 0
@@ -883,6 +909,13 @@ def discover(media_type, category="popular", page=1, genre_ids=None, year_from=N
                     page_results = page_data.get("results") or []
                     results.extend(_normalize_result(r, media_type) for r in page_results)
 
+    if item_count:
+        total_results = first_data.get("total_results") or total_pages_raw * TMDB_PAGE_LENGTH
+        return {
+            "results": results[skip:skip + item_count],
+            "page": page,
+            "total_pages": -(-total_results // item_count) if total_results else 0,
+        }
     return {
         "results": results,
         "page": page,
@@ -986,7 +1019,45 @@ def discover_by_decades(media_type, category="popular", page=1, decades=None, pa
             seen.add(key)
             results.append(item)
 
+    item_count = filters.get("item_count")
+    if item_count:
+        results = results[:item_count]
     return {"results": results, "page": page, "total_pages": total_pages_estimate}
+
+
+def hero_titles(media_type, limit=4, api_key=None, **filters):
+    """The top `limit` most popular titles that have a backdrop, for the
+    Movies/TV/Anime pages' hero: normalized results plus "runtime_minutes"
+    (movies), "seasons"/"episodes" (TV) and "trailer_key". Built from
+    discover()'s first page (cached like any list) plus one details and one
+    videos lookup per title, in parallel. Any TMDB failure returns what it
+    has (down to []), so the hero just doesn't render."""
+    api_key = api_key if api_key is not None else _api_key()
+    try:
+        data = discover(media_type, category="trending", page=1, page_size=1, api_key=api_key, **filters)
+    except Exception:
+        return []
+    picked = [r for r in data["results"] if r.get("backdrop_url")][:limit]
+
+    def enrich(item):
+        item = {**item, "runtime_minutes": None, "seasons": None, "episodes": None, "trailer_key": None}
+        try:
+            details = _list_request(f"{media_type}/{item['tmdb_id']}", api_key=api_key) or {}
+            if media_type == "movie":
+                item["runtime_minutes"] = details.get("runtime")
+            else:
+                item["seasons"] = details.get("number_of_seasons")
+                item["episodes"] = details.get("number_of_episodes")
+            trailer = get_trailer(media_type, item["tmdb_id"], api_key=api_key)
+            item["trailer_key"] = trailer["key"] if trailer else None
+        except Exception:
+            pass
+        return item
+
+    if not picked:
+        return []
+    with ThreadPoolExecutor(max_workers=len(picked)) as executor:
+        return list(executor.map(enrich, picked))
 
 
 # Movie franchises (John Wick, Indiana Jones, ...) for the Movies & TV

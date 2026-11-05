@@ -62,10 +62,9 @@ opacity until hovered/focused (discover-tile-dim, see app.css).
     <span class="media-title">{{ item.name }}</span>
     {% if item.known_line %}<span class="block text-[13px] text-ink-dim truncate">{{ item.known_line }}</span>{% endif %}
     <span class="meta">
-      {% if not hide_type_badge %}<span class="inline-flex items-center gap-1.5"><span class="type-dot {{ item.media_type|media_dot_class }}"></span>{{ item.media_type|media_label }}</span>{% endif %}
+      {% if not hide_type_badge %}{% with tk=type_key|default:item.media_type %}<span class="inline-flex items-center gap-1.5"><span class="type-dot {{ tk|media_dot_class }}"></span>{{ tk|media_label }}</span>{% endwith %}{% endif %}
       <span>{{ item.year|default:"—" }}</span>
       {% if item.vote_average %}<span><span class="text-primary">&#9733;</span> {{ item.vote_average|floatformat:1 }}</span>{% endif %}
-      {% if hide_type_badge and item.genre_names %}<span class="truncate max-sm:hidden">{{ item.genre_names.0 }}</span>{% endif %}
     </span>
   </a>
 </div>

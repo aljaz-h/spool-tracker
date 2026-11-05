@@ -8,6 +8,20 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.183.0] - 2026-11-05
+
+### Changed
+- Movies, TV shows and Anime pages rebuilt to the new mockups: a 340px hero
+  for the top trending titles (TMDB backdrop, left-to-right gradient, meta
+  line, two-line synopsis, View details / Add to list / Trailer, four
+  rotating progress dashes), underline tabs (Trending, Popular, Upcoming /
+  Airing today / Airing now, Top rated), a "Hide watched" toggle beside the
+  Filters button, an active-filter row with "Clear all" and the sort label,
+  and a 7-column poster grid with 35 titles per page (5 rows).
+- Tiles show the full title (wrapping to two lines) and a coloured type dot,
+  type, year and rating; pagination buttons are 44px.
+- "Airing today" (TV) and "Airing now" (anime, the last 7 days) are new tabs.
+
 ## [0.182.0] - 2026-11-05
 
 ### Changed

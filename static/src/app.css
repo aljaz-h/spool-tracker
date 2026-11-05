@@ -4926,3 +4926,91 @@ html[data-theme] {
     }
   }
 }
+
+/* --------------------------------------------------------------------------
+   Movies / TV shows / Anime discover pages: hero, 7-column poster grid and
+   its tile text.
+   -------------------------------------------------------------------------- */
+@layer components {
+  .discover-hero {
+    position: relative;
+    height: 340px;
+    border-radius: var(--radius-2xl, 1.25rem);
+    overflow: hidden;
+    background: var(--color-base-200);
+    box-shadow: inset 0 0 0 1px var(--color-line);
+  }
+  .discover-hero-slide {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    background-size: cover;
+    background-position: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 400ms ease, visibility 400ms;
+  }
+  .discover-hero-slide[data-active] {
+    opacity: 1;
+    visibility: visible;
+  }
+  /* Left-to-right dark gradient so the text reads over any backdrop. */
+  .discover-hero-slide::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to right, rgb(var(--scrim-rgb) / 0.94) 0%, rgb(var(--scrim-rgb) / 0.78) 38%, rgb(var(--scrim-rgb) / 0.2) 100%);
+  }
+  .discover-hero-body {
+    position: relative;
+    max-width: 38rem;
+    padding: 1.5rem 1.5rem 2.5rem;
+  }
+  @media (min-width: 640px) {
+    .discover-hero-body {
+      padding: 0 3.75rem;
+    }
+  }
+  .discover-hero-dash {
+    position: relative;
+    width: 1.5rem;
+    height: 2.75rem; /* 44px touch target; the visible dash is the ::after */
+    cursor: pointer;
+  }
+  .discover-hero-dash::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 3px;
+    margin-top: -1.5px;
+    border-radius: 2px;
+    background: rgb(var(--white-rgb) / 0.35);
+  }
+  .discover-hero-dash[aria-current="true"]::after {
+    background: var(--color-base-content);
+  }
+
+  /* Seven columns at desktop width, fewer as the page narrows (the minimum
+     track width grows until 7 no longer fit). */
+  .discover-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 1.5rem 0.75rem;
+  }
+  @media (min-width: 640px) {
+    .discover-grid {
+      grid-template-columns: repeat(auto-fill, minmax(max(140px, calc((100% - 6 * 1rem) / 7)), 1fr));
+      gap: 1.75rem 1rem;
+    }
+  }
+  /* Full title, up to two lines, never an ellipsis. */
+  .discover-tile .media-title {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+}

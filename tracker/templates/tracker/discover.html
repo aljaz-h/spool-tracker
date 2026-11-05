@@ -7,9 +7,66 @@
   <div class="page-head !mb-6">
     <div>
       <h1 class="page-title">{{ page_title }}</h1>
-      <p class="page-subtitle">Browse what's trending, popular, upcoming and top rated on TMDB{% if not is_anime and collections_enabled %}, or explore collections{% endif %}.</p>
+      <p class="page-subtitle">{% if is_collections %}Explore movie franchises.{% else %}{{ page_blurb }}{% endif %}</p>
     </div>
   </div>
+
+  {% if hero_items %}
+    {% comment %}
+      The most popular titles for this page's type, rotating every 8 seconds
+      (not at all with reduced motion; the dashes always work). Text sits on a
+      left-to-right dark gradient over the TMDB backdrop.
+    {% endcomment %}
+    <section
+      class="discover-hero mb-8"
+      aria-roledescription="carousel" aria-label="Trending now"
+      x-data="{
+        i: 0, n: {{ hero_items|length }}, timer: null,
+        go(k) { this.i = k; this.restart(); },
+        restart() {
+          clearInterval(this.timer);
+          if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || this.n < 2) return;
+          this.timer = setInterval(() => { this.i = (this.i + 1) % this.n; }, 8000);
+        },
+      }"
+      x-init="restart()"
+      @mouseenter="clearInterval(timer)" @mouseleave="restart()" @focusin="clearInterval(timer)" @focusout="restart()"
+    >
+      {% for h in hero_items %}
+        {% url 'title_preview' type_key h.tmdb_id as hero_url %}
+        <div class="discover-hero-slide" style="background-image: url('{{ h.backdrop_url }}')" {% if forloop.first %}data-active{% endif %} :data-active="i === {{ forloop.counter0 }} ? '' : null" :aria-hidden="i !== {{ forloop.counter0 }}">
+          <div class="discover-hero-body">
+            <p class="text-xs font-semibold text-ink-dim mb-2">#{{ forloop.counter }} trending this week</p>
+            <h2 class="font-display text-3xl sm:text-5xl font-bold leading-[1.05] tracking-tight">{{ h.name }}</h2>
+            <p class="meta meta-sm mt-3 !text-[13px]">
+              <span class="inline-flex items-center gap-1.5"><span class="type-dot {{ type_key|media_dot_class }}"></span>{{ type_key|media_label }}</span>
+              {% if h.year %}<span>{{ h.year }}</span>{% endif %}
+              {% if h.vote_average %}<span><span class="text-primary">&#9733;</span> {{ h.vote_average|floatformat:1 }}</span>{% endif %}
+              {% if h.genre_name %}<span>{{ h.genre_name }}</span>{% endif %}
+              {% if h.runtime_minutes %}<span>{{ h.runtime_minutes|runtime_hm }}</span>{% endif %}
+              {% if type_key == "tv" and h.seasons %}<span>{{ h.seasons }} season{{ h.seasons|pluralize }}</span>{% endif %}
+              {% if type_key == "anime" and h.episodes %}<span>{{ h.episodes }} episodes</span>{% endif %}
+            </p>
+            {% if h.overview %}<p class="mt-3 text-[15px] text-ink-dim line-clamp-2">{{ h.overview }}</p>{% endif %}
+            <div class="mt-5 flex flex-wrap items-center gap-2">
+              <a href="{{ hero_url }}" class="btn btn-primary min-h-11" :tabindex="i === {{ forloop.counter0 }} ? 0 : -1">View details</a>
+              <a href="{{ hero_url }}" class="btn btn-soft min-h-11" :tabindex="i === {{ forloop.counter0 }} ? 0 : -1">Add to list</a>
+              {% if h.trailer_key %}
+                <a href="https://www.youtube.com/watch?v={{ h.trailer_key }}" target="_blank" rel="noopener noreferrer" class="btn btn-soft min-h-11" :tabindex="i === {{ forloop.counter0 }} ? 0 : -1">Trailer</a>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+      {% if hero_items|length > 1 %}
+        <div class="absolute bottom-1 right-4 sm:right-6 flex items-center gap-1 z-10">
+          {% for h in hero_items %}
+            <button type="button" class="discover-hero-dash" :aria-current="i === {{ forloop.counter0 }}" @click="go({{ forloop.counter0 }})" aria-label="Show {{ h.name }}"></button>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
+  {% endif %}
 
   {% comment %}
     Toolbar: category tabs on the left (underline tabs - the page's own
@@ -20,19 +77,31 @@
     {% url library_url_name category="trending" as trending_url %}
     {% url library_url_name category="popular" as popular_url %}
     {% url library_url_name category="upcoming" as upcoming_url %}
+    {% url library_url_name category="airing" as airing_url %}
     {% url library_url_name category="top_rated" as top_rated_url %}
     <nav class="tabs-line !border-b-0 min-w-0" aria-label="Category">
       <a href="{{ trending_url }}" class="tab-line" {% if category == "trending" %}aria-current="page"{% endif %}>Trending</a>
       <a href="{{ popular_url }}" class="tab-line" {% if category == "popular" %}aria-current="page"{% endif %}>Popular</a>
-      <a href="{{ upcoming_url }}" class="tab-line" {% if category == "upcoming" %}aria-current="page"{% endif %}>Upcoming</a>
-      <a href="{{ top_rated_url }}" class="tab-line" {% if category == "top_rated" %}aria-current="page"{% endif %}>Top Rated</a>
+      <a href="{% if third_tab_category == 'airing' %}{{ airing_url }}{% else %}{{ upcoming_url }}{% endif %}" class="tab-line" {% if category == third_tab_category %}aria-current="page"{% endif %}>{{ third_tab_label }}</a>
+      <a href="{{ top_rated_url }}" class="tab-line" {% if category == "top_rated" %}aria-current="page"{% endif %}>Top rated</a>
       {% if not is_anime and collections_enabled %}
         {% url library_url_name category="collections" as collections_url %}
         <a href="{{ collections_url }}" class="tab-line" {% if is_collections %}aria-current="page"{% endif %}>Collections</a>
       {% endif %}
     </nav>
-    <div class="pb-2 flex-none">
+    <div class="pb-2 flex-none flex items-center gap-4">
     {% if not is_collections %}
+      {% comment %}
+        "Hide watched" is the Watched Display preference set to Hide (the same
+        setting as Filters > Display); the page reloads so the grid refills.
+      {% endcomment %}
+      <label class="flex items-center gap-2.5 cursor-pointer text-sm min-h-11 max-sm:hidden">
+        <input type="checkbox" role="switch" class="toggle toggle-primary toggle-sm" {% if watched_display == "hide" %}checked{% endif %}
+          hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none"
+          hx-vals="js:{discover_watched_display: event.target.checked ? 'hide' : 'show'}"
+          hx-on::after-request="window.location.reload()">
+        <span class="text-ink-dim">Hide watched</span>
+      </label>
       {% comment %}
         The Filters drawer, shared by Movies, TV shows and Anime. A plain
         Alpine popover, not daisyUI's sliding drawer (whose permanent
@@ -59,7 +128,7 @@
           if (this.open) this.$nextTick(() => this.fit());
         },
       }">
-        <button type="button" x-ref="trigger" @click="toggle()" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-sm btn-soft gap-2 cursor-pointer">
+        <button type="button" x-ref="trigger" @click="toggle()" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-soft gap-2 cursor-pointer min-h-11">
           {% icon "filter" "w-3.5 h-3.5" %}
           <span class="max-sm:sr-only">Filters</span>
           {% if active_filter_count %}
@@ -354,7 +423,7 @@
       "incomplete") changes with it.
     {% endcomment %}
     <div
-      class="media-grid"
+      class="discover-grid"
       x-data="{
         resizeTimer: null,
         trimIncompleteLastRow() {
@@ -390,7 +459,7 @@
             MOVIE/TV label would just repeat what the page's own
             toggle/heading already says.
           {% endcomment %}
-          {% include "tracker/partials/discover_tile.html" with item=item hide_type_badge=True eager=forloop.counter|in_list:"1,2,3,4,5,6" %}
+          {% include "tracker/partials/discover_tile.html" with item=item type_key=type_key eager=forloop.counter|in_list:"1,2,3,4,5,6" %}
         {% endif %}
       {% endfor %}
     </div>
@@ -400,19 +469,19 @@
         <span class="text-[13px] text-ink-dim tabular-nums">Page {{ current_page }} of {{ total_pages }}</span>
         <div class="flex items-center gap-1">
           {% if current_page > 1 %}
-            <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"-1" }}" class="btn btn-sm btn-ghost">&larr; Previous</a>
+            <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"-1" }}" class="btn btn-ghost min-h-11">&larr; Previous</a>
           {% endif %}
           {% for p in current_page|page_window:total_pages %}
             {% if p is None %}
               <span class="w-6 text-center text-ink-faint max-sm:hidden" aria-hidden="true">&hellip;</span>
             {% elif p == current_page %}
-              <span class="max-sm:hidden min-w-9 h-9 px-2 inline-flex items-center justify-center rounded-lg bg-base-300 text-sm font-semibold tabular-nums" aria-current="page">{{ p }}</span>
+              <span class="max-sm:hidden min-w-11 h-11 px-2 inline-flex items-center justify-center rounded-lg bg-base-300 text-sm font-semibold tabular-nums" aria-current="page">{{ p }}</span>
             {% else %}
-              <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ p }}" class="max-sm:hidden min-w-9 h-9 px-2 inline-flex items-center justify-center rounded-lg text-sm text-ink-dim hover:text-base-content hover:bg-base-200 tabular-nums">{{ p }}</a>
+              <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ p }}" class="max-sm:hidden min-w-11 h-11 px-2 inline-flex items-center justify-center rounded-lg text-sm text-ink-dim hover:text-base-content hover:bg-base-200 tabular-nums">{{ p }}</a>
             {% endif %}
           {% endfor %}
           {% if current_page < total_pages %}
-            <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"1" }}" class="btn btn-sm btn-soft">Next &rarr;</a>
+            <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"1" }}" class="btn btn-soft min-h-11">Next &rarr;</a>
           {% endif %}
         </div>
       </nav>
