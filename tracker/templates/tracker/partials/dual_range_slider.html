@@ -32,21 +32,10 @@ live during the drag itself, not just on release.
 <div>
   {% if label %}<div class="text-[12px] text-ink-dim mb-4 font-semibold">{{ label }}</div>{% endif %}
   <div class="relative h-4 {% if not label %}mt-1{% endif %}" x-data="{ _min: {{ min }}, _max: {{ max }} }">
-    <span
-      x-cloak
-      class="absolute bottom-full mb-1.5 -translate-x-1/2 whitespace-nowrap font-mono text-[10px] font-semibold text-primary"
-      :style="`left:calc(${(({{ from_var }} - _min) / (_max - _min))} * (100% - 16px) + 8px)`"
-    ><span x-text="{{ from_var }}"></span>{{ suffix }}</span>
-    <span
-      x-cloak
-      class="absolute bottom-full mb-1.5 -translate-x-1/2 whitespace-nowrap font-mono text-[10px] font-semibold text-primary"
-      :style="`left:calc(${(({{ to_var }} - _min) / (_max - _min))} * (100% - 16px) + 8px)`"
-    ><span x-text="{{ to_var }}"></span>{{ suffix }}</span>
-
     <div class="absolute top-1/2 inset-x-0 h-1.5 -translate-y-1/2 rounded-full bg-base-100"></div>
     <div
       x-cloak
-      class="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-primary"
+      class="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-base-content/60"
       :style="`left:calc(${(({{ from_var }} - _min) / (_max - _min))} * (100% - 16px) + 8px); right:calc(100% - (${(({{ to_var }} - _min) / (_max - _min))} * (100% - 16px) + 8px))`"
     ></div>
 

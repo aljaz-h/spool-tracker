@@ -188,10 +188,10 @@ DISCOVER_AVAILABILITY_LABELS = [
 # changed. Bounds are non-overlapping (120min lands in the "2-2.5h" band,
 # not "90-120min") so a title can only ever match exactly one.
 DISCOVER_RUNTIME_BUCKETS = [
-    ("under_90", "< 90min", None, 89),
+    ("under_90", "Under 90 min", None, 89),
     ("90_120", "90–120 min", 90, 120),
-    ("120_150", "120–150min", 121, 150),
-    ("150_plus", ">150min", 151, None),
+    ("120_150", "120–150 min", 121, 150),
+    ("150_plus", "Over 150 min", 151, None),
 ]
 
 # Settings → Appearance's personal Timezone dropdown (Profile.timezone,
@@ -577,6 +577,18 @@ def discover(request, media_type, category):
         "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
         "collections_enabled": COLLECTIONS_ENABLED,
     }
+    # The Filters button's badge and the drawer's "N active": one per filter
+    # that has a value (genres count once however many are picked).
+    context["active_filter_count"] = sum(
+        1
+        for active in (
+            genre_ids, selected_providers, decades, selected_runtime_bucket,
+            request.GET.get("rating_from") or request.GET.get("rating_to"),
+            filters["original_language"], selected_availability, selected_certification,
+            selected_status, filters.get("origin_country") if not is_anime else None,
+        )
+        if active
+    )
     if profile is not None:
         context.update(selectors.discover_action_context(profile, page["results"]))
         _apply_display_modes(

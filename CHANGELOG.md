@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.182.0] - 2026-11-05
+
+### Changed
+- The Filters drawer on Movies, TV shows and Anime is rebuilt: 440px wide, "Filters · N active" header, and sections for Genres, Year, Runtime, Rating, Language and availability, and Display (Genres and Year open, the rest collapsed, each showing its current value). Picked chips are raised with a check, the rating slider has white handles and a neutral fill with the range in mono, "Show N more services" is a neutral underlined link, and the Filters button shows a count instead of an amber dot. Amber is only the Apply button, which sits in a fixed footer with Clear all. The stray "Discover" and "Access" headings are gone.
+- Display has a Show / Dim / Hide control with text labels for Watched and Watchlisted.
+- Runtime options read "Under 90 min", "90–120 min", "120–150 min" and "Over 150 min".
+
+### Fixed
+- The Filters drawer stays attached to the Filters button when the page scrolls, and scrolling never closes it. It closes on the X, Escape, a click outside, the button again, or Apply. Scrolling inside it no longer scrolls the page behind it, and it fits the space under the button (above the tab bar on small screens).
+
 ## [0.181.3] - 2026-11-04
 
 ### Fixed

@@ -1164,7 +1164,7 @@ select:not(:disabled) {
   width: 16px;
   height: 16px;
   border-radius: 9999px;
-  background: var(--color-primary);
+  background: var(--color-base-content);
   border: 2px solid var(--color-base-100);
   box-shadow: 0 1px 3px rgb(var(--shadow-rgb) / 0.5);
   cursor: pointer;
@@ -1175,7 +1175,7 @@ select:not(:disabled) {
   width: 16px;
   height: 16px;
   border-radius: 9999px;
-  background: var(--color-primary);
+  background: var(--color-base-content);
   border: 2px solid var(--color-base-100);
   box-shadow: 0 1px 3px rgb(var(--shadow-rgb) / 0.5);
   cursor: pointer;
@@ -1183,11 +1183,11 @@ select:not(:disabled) {
 }
 .dual-range-thumb:active::-webkit-slider-thumb,
 .dual-range-thumb:focus-visible::-webkit-slider-thumb {
-  box-shadow: 0 0 0 6px rgb(var(--primary-rgb) / 0.28);
+  box-shadow: 0 0 0 6px color-mix(in oklab, var(--color-base-content) 22%, transparent);
 }
 .dual-range-thumb:active::-moz-range-thumb,
 .dual-range-thumb:focus-visible::-moz-range-thumb {
-  box-shadow: 0 0 0 6px rgb(var(--primary-rgb) / 0.28);
+  box-shadow: 0 0 0 6px color-mix(in oklab, var(--color-base-content) 22%, transparent);
 }
 
 /* title_detail's full-bleed hero scrim - two layered gradients rather

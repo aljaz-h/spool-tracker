@@ -15851,14 +15851,14 @@ class DiscoverViewTests(TestCase):
         profile.save(update_fields=["discover_watched_display"])
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
         resp = self.client.get(reverse("movies", args=["trending"]))
-        self.assertNotContains(resp, 'w-1.5 h-1.5 rounded-full bg-primary')
+        self.assertNotContains(resp, " active</span>")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
     def test_an_active_genre_filter_lights_up_the_filters_dot(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
         resp = self.client.get(reverse("movies", args=["trending"]), {"genre": ["28"], "filters_submitted": "1"})
-        self.assertContains(resp, 'w-1.5 h-1.5 rounded-full bg-primary')
+        self.assertContains(resp, " active</span>")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
@@ -15871,21 +15871,25 @@ class DiscoverViewTests(TestCase):
         # or disappearing with it.
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
         resp = self.client.get(reverse("movies", args=["trending"]))
-        self.assertContains(resp, '@scroll.window.passive="onScroll()"')
+        # Discover's drawer is absolute inside a relative wrapper (it follows the
+        # button) and nothing closes it on scroll.
+        self.assertContains(resp, 'role="dialog" aria-label="Filters"')
+        self.assertNotContains(resp, "@scroll.window")
+        self.assertContains(resp, "overscroll-contain")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover_by_decades")
     def test_an_active_decade_filter_lights_up_the_filters_dot(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
         resp = self.client.get(reverse("movies", args=["trending"]), {"decade": ["1980"]})
-        self.assertContains(resp, 'w-1.5 h-1.5 rounded-full bg-primary')
+        self.assertContains(resp, " active</span>")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
     def test_an_active_runtime_bucket_lights_up_the_filters_dot(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
         resp = self.client.get(reverse("movies", args=["trending"]), {"runtime_bucket": "under_90"})
-        self.assertContains(resp, 'w-1.5 h-1.5 rounded-full bg-primary')
+        self.assertContains(resp, " active</span>")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
@@ -15897,17 +15901,17 @@ class DiscoverViewTests(TestCase):
         current_decade_start = (datetime.date.today().year // 10) * 10
         self.assertContains(resp, '<input type="checkbox" name="decade" value="1950"')
         self.assertContains(resp, f'<input type="checkbox" name="decade" value="{current_decade_start}"')
-        self.assertContains(resp, "(so far)")
+        self.assertContains(resp, "2020s")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
     def test_runtime_row_shows_all_four_buckets(self, mock_discover, mock_genres):
         mock_discover.return_value = {"results": [], "page": 1, "total_pages": 1}
         resp = self.client.get(reverse("movies", args=["trending"]))
-        self.assertContains(resp, "&lt; 90min")
+        self.assertContains(resp, "Under 90 min")
         self.assertContains(resp, "90–120 min")
-        self.assertContains(resp, "120–150min")
-        self.assertContains(resp, "&gt;150min")
+        self.assertContains(resp, "120–150 min")
+        self.assertContains(resp, "Over 150 min")
 
     @patch("tracker.integrations.tmdb.genres", return_value=[])
     @patch("tracker.integrations.tmdb.discover")
@@ -26296,7 +26300,11 @@ class HistorySearchAndMostWatchedTests(TestCase):
         # Same fix/reasoning as Discover's own Filters panel - see
         # DiscoverViewTests.test_filters_panel_closes_on_scroll.
         resp = self.client.get(reverse("history"))
-        self.assertContains(resp, '@scroll.window.passive="onScroll()"')
+        # Discover's drawer is absolute inside a relative wrapper (it follows the
+        # button) and nothing closes it on scroll.
+        self.assertContains(resp, 'role="dialog" aria-label="Filters"')
+        self.assertNotContains(resp, "@scroll.window")
+        self.assertContains(resp, "overscroll-contain")
 
 
 class HistoryToolbarStaysInSyncTests(TestCase):
@@ -36786,3 +36794,66 @@ class NuvioSeveralEpisodesOfOneShowTests(TestCase):
         row = WatchProgress.objects.get(profile=self.profile)
         self.assertEqual(row.current_episode.episode, 6)
         self.assertEqual(row.status, WatchProgress.Status.WATCHING)
+
+
+class DiscoverFiltersDrawerTests(TestCase):
+    """The shared Movies / TV / Anime Filters drawer."""
+
+    def setUp(self):
+        user = User.objects.create_user("drawerviewer", password="pass12345")
+        Profile.objects.create(user=user, display_name="DrawerViewer")
+        self.client.login(username="drawerviewer", password="pass12345")
+        patcher = patch("tracker.integrations.tmdb.genres", return_value=[{"id": 28, "name": "Action"}, {"id": 16, "name": "Animation"}])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = patch("tracker.integrations.tmdb.discover", return_value={"results": [], "page": 1, "total_pages": 1})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _get(self, **params):
+        return self.client.get(reverse("movies", args=["trending"]), params)
+
+    def test_sections_in_order_with_genres_and_year_open_and_no_stray_headings(self):
+        html = self._get().content.decode()
+        order = [html.index(f">{name}</span>") for name in ("Genres", "Year", "Runtime", "Rating", "Language and availability", "Display")]
+        self.assertEqual(order, sorted(order))
+        self.assertNotIn(">Discover</div>", html)
+        self.assertNotIn(">Access</div>", html)
+        for name in ("Genres", "Year"):
+            self.assertRegex(html, r'<details class="group border-t border-line" open>\s*<summary[^>]*>\s*<span[^>]*>%s</span>' % name)
+        self.assertNotRegex(html, r'<details class="group border-t border-line" open>\s*<summary[^>]*>\s*<span[^>]*>Runtime</span>')
+
+    def test_header_and_button_show_the_active_count(self):
+        html = self._get(filters_submitted=1, genre=[28, 16], decade=2020, runtime_bucket="90_120").content.decode()
+        self.assertIn("3 active", html)
+        self.assertIn('aria-label="3 active">3</span>', html)
+        self.assertEqual(self.client.get(reverse("movies", args=["trending"])).context["active_filter_count"], 0)
+
+    def test_section_headers_show_their_current_value(self):
+        html = self._get(filters_submitted=1, genre=[28, 16], decade=2020, runtime_bucket="90_120", rating_from=6).content.decode()
+        self.assertIn("2 selected", html)
+        self.assertIn("2020s", html)
+        self.assertIn("90–120 min", html)
+        self.assertIn('x-text="fmt(ratingFrom)"', html)
+
+    def test_selected_chips_use_the_raised_check_chip_not_amber(self):
+        html = self._get(filters_submitted=1, genre=28).content.decode()
+        self.assertIn('class="s-chip !min-h-9 !px-3.5 text-[13px]"', html)
+        self.assertNotIn("has-[:checked]:bg-primary", html)
+
+    def test_display_is_a_labelled_show_dim_hide_control_for_both_kinds(self):
+        html = self._get().content.decode()
+        for field in ("discover_watched_display", "discover_watchlisted_display"):
+            for value in ("show", "dim", "hide"):
+                self.assertIn(f'name="{field}" value="{value}"', html)
+        for label in ("Show", "Dim", "Hide"):
+            self.assertRegex(html, r"%s\s*</label>" % label)
+
+    def test_drawer_is_attached_to_the_button_and_has_a_fixed_apply_footer(self):
+        html = self._get().content.decode()
+        self.assertIn("absolute right-0 top-full", html)
+        self.assertIn("w-[440px]", html)
+        self.assertIn("overscroll-contain", html)
+        self.assertIn('form="discover-filters-form"', html)
+        self.assertIn("Clear all", html)
+        self.assertNotIn("@scroll.window", html)
