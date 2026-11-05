@@ -8,6 +8,12 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.184.1] - 2026-11-05
+
+### Changed
+- The discover hero rotates every 6 seconds (was 8) and keeps rotating even when the system's "reduce motion"
+  setting is on.
+
 ## [0.184.0] - 2026-11-05
 
 ### Changed

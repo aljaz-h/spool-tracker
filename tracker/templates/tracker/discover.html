@@ -15,8 +15,8 @@
 
   {% if hero_items %}
     {% comment %}
-      The most popular titles for this page's type, rotating every 8 seconds
-      (not at all with reduced motion; the dashes always work). Text sits on a
+      The most popular titles for this page's type, rotating every 6 seconds
+      (also with reduced motion, by choice). Text sits on a
       left-to-right dark gradient over the TMDB backdrop.
     {% endcomment %}
     <section
@@ -27,8 +27,8 @@
         go(k) { this.i = k; this.restart(); },
         restart() {
           clearInterval(this.timer);
-          if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || this.n < 2) return;
-          this.timer = setInterval(() => { this.i = (this.i + 1) % this.n; }, 8000);
+          if (this.n < 2) return;
+          this.timer = setInterval(() => { this.i = (this.i + 1) % this.n; }, 6000);
         },
       }"
       x-init="restart()"
