@@ -34054,6 +34054,24 @@ class EstimateTests(PlannerTestBase):
         minutes, _ = _planner.remaining_minutes(self.profile, self.plan, self.now)
         self.assertEqual(minutes, 4 * 40)
 
+    def test_watched_lookups_do_not_grow_with_the_number_of_titles(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        shows = [self.add_show(f"Show {i}", 100 + i, self.eps(4, runtime=40), runtime=40) for i in range(2)]
+        self.add_movie("Heat", 120)
+        self.start_tmdb()
+        self.watch(shows[0], 1)
+        with CaptureQueriesContext(connection) as few:
+            _planner.remaining_minutes(self.profile, self.plan, self.now)
+        for i in range(2, 8):
+            self.add_show(f"Show {i}", 100 + i, self.eps(4, runtime=40), runtime=40)
+        self.start_tmdb()
+        with CaptureQueriesContext(connection) as many:
+            minutes, titles = _planner.remaining_minutes(self.profile, self.plan, self.now)
+        self.assertEqual(titles, 9)
+        self.assertEqual(len(many), len(few))
+
     def test_the_date_follows_the_free_time(self):
         # 3h of free time on each of Mon-Fri (19:00-22:30 is 210 min); 1000 minutes needs ~5.3 evenings at 90%
         self.assertEqual(_planner.finish_date(self.plan, 100, self.now, self.tz), _dt.date(2026, 10, 26))
@@ -36958,6 +36976,26 @@ class DiscoverPageLayoutTests(TestCase):
         Profile.objects.filter(display_name="LayoutViewer").update(discover_watched_display="hide")
         html = self._get("movies", "trending")[0].content.decode()
         self.assertRegex(html, r'class="toggle toggle-primary toggle-sm" checked')
+
+
+class ExternalIdsLookupTests(TestCase):
+    def test_matches_on_every_key_and_not_on_a_partial_match(self):
+        from tracker.models import external_ids_q
+
+        title = Title.objects.create(media_type="movie", name="Match Me", year=2020,
+                                     external_ids={"tmdb": "5", "tmdb_kind": "movie"})
+        self.assertEqual(Title.objects.filter(external_ids_q({"tmdb": "5", "tmdb_kind": "movie"})).first(), title)
+        self.assertFalse(Title.objects.filter(external_ids_q({"tmdb": "5", "tmdb_kind": "tv"})).exists())
+        self.assertFalse(Title.objects.filter(external_ids_q({"tmdb": "6"})).exists())
+
+    def test_postgres_uses_containment_so_the_gin_index_applies(self):
+        from unittest.mock import patch as _patch
+
+        from tracker.models import external_ids_q
+
+        with _patch("django.db.connection.vendor", "postgresql"):
+            q = external_ids_q({"nuvio": "tt1"})
+        self.assertEqual(q.children, [("external_ids__contains", {"nuvio": "tt1"})])
 
 
 class DiscoverHeroCreditsTests(TestCase):

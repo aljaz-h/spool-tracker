@@ -41,7 +41,7 @@ from datetime import datetime
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from .models import Episode, MediaType, Title, WatchEvent
+from .models import Episode, MediaType, Title, WatchEvent, external_ids_q
 
 COLUMN_ALIASES = {
     "title": ["title", "name"],
@@ -443,7 +443,7 @@ def _get_or_create_title(media_type, name, year, trakt_id=None, tmdb_id=None, tm
     # tmdb_kind: "movie" for an anime film (see tracker/media_kinds.py).
     kind = tmdb_kind_for(media_type, explicit=tmdb_kind) if tmdb_kind else ("movie" if media_type == MediaType.MOVIE else "tv")
     if tmdb_id:
-        title = Title.objects.filter(external_ids__tmdb=str(tmdb_id), external_ids__tmdb_kind=kind).first()
+        title = Title.objects.filter(external_ids_q({"tmdb": str(tmdb_id), "tmdb_kind": kind})).first()
         if title:
             if trakt_id and title.external_ids.get("trakt") != str(trakt_id):
                 title.external_ids = {**title.external_ids, "trakt": str(trakt_id)}
@@ -456,14 +456,14 @@ def _get_or_create_title(media_type, name, year, trakt_id=None, tmdb_id=None, tm
         found = tmdb_integration.find_by_imdb_id(imdb_id, search_type)
         if found:
             tmdb_id, kind = found["id"], found["kind"]
-            title = Title.objects.filter(external_ids__tmdb=str(tmdb_id), external_ids__tmdb_kind=kind).first()
+            title = Title.objects.filter(external_ids_q({"tmdb": str(tmdb_id), "tmdb_kind": kind})).first()
             if title:
                 return title
     if trakt_id:
         # Not filtered by media_type - see the tmdb_id lookup above/
         # nuvio.py's own _get_or_create_title docstring for why a title
         # already reclassified from TV to ANIME must still match here.
-        title = Title.objects.filter(external_ids__trakt=str(trakt_id)).first()
+        title = Title.objects.filter(external_ids_q({"trakt": str(trakt_id)})).first()
         if title:
             if tmdb_id and not title.external_ids.get("tmdb"):
                 title.external_ids = {**title.external_ids, "tmdb": str(tmdb_id), "tmdb_kind": kind}

@@ -805,11 +805,25 @@ def remaining_minutes(profile, plan, now=None):
     released episodes and movies only - nothing unaired or upcoming."""
     now = now or timezone.now()
     total, counted = 0, 0
-    for item in candidates(profile, plan, now):
+    items = list(candidates(profile, plan, now))
+    # One query for the whole list instead of one per title (this ran once
+    # per show/movie: an N+1 on every Schedule page load).
+    title_ids = {item.title.id for item in items}
+    watched_titles = set(
+        WatchEvent.objects.filter(profile=profile, title_id__in=title_ids).values_list("title_id", flat=True).distinct()
+    )
+    watched_episode_counts = {}
+    for title_id, _season, _episode in (
+        WatchEvent.objects.filter(profile=profile, title_id__in=title_ids, episode__isnull=False)
+        .values_list("title_id", "episode__season", "episode__episode")
+        .distinct()
+    ):
+        watched_episode_counts[title_id] = watched_episode_counts.get(title_id, 0) + 1
+    for item in items:
         title = item.title
         is_movie = title.media_type == MediaType.MOVIE or tmdb.media_type_for(title) == "movie"
         if is_movie:
-            if WatchEvent.objects.filter(profile=profile, title=title).exists() or not _movie_released(title, now):
+            if title.id in watched_titles or not _movie_released(title, now):
                 continue
             total += title.runtime_minutes or DEFAULT_MOVIE_MINUTES
             counted += 1
@@ -819,12 +833,7 @@ def remaining_minutes(profile, plan, now=None):
         if not details:
             continue
         aired = show_progress.aired_episode_count(details)
-        watched = (
-            WatchEvent.objects.filter(profile=profile, title=title, episode__isnull=False)
-            .values("episode__season", "episode__episode")
-            .distinct()
-            .count()
-        )
+        watched = watched_episode_counts.get(title.id, 0)
         left = max(0, aired - watched)
         if left:
             total += left * (details.get("episode_runtime") or _default_episode_minutes(title))

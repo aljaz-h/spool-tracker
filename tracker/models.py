@@ -467,6 +467,20 @@ def attach_reports_metadata(title, metadata):
     title.save(update_fields=["country", "studio", "network", "cast", "cast_genders", "directors", "writers"])
 
 
+def external_ids_q(ids):
+    """Q matching titles whose external_ids hold every key/value in `ids`.
+    On Postgres that is jsonb containment (@>), which the GIN index on
+    external_ids serves; the equivalent per-key `external_ids__k=v` form
+    compiles to `(external_ids -> 'k') = 'v'`, which that index cannot
+    serve and so scans the whole table. SQLite (dev/tests) has no JSON
+    containment, so it keeps the per-key form."""
+    from django.db import connection
+
+    if connection.vendor == "postgresql":
+        return models.Q(external_ids__contains=ids)
+    return models.Q(**{f"external_ids__{key}": value for key, value in ids.items()})
+
+
 class Title(models.Model):
     """A movie, show, or anime. media_type is what routes a title into the
     Movies & TV vs. Anime sections — never genre (spool-product-spec.md §5)."""

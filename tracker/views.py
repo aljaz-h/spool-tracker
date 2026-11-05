@@ -96,6 +96,7 @@ from .models import (
     SeasonRating,
     ServiceAPIKey,
     Title,
+    external_ids_q,
     PreviewFanartCache,
     PreviewRatingsCache,
     TitleFanartCache,
@@ -738,7 +739,7 @@ def search(request):
             r
             for r in raw_results
             if not Title.objects.filter(
-                external_ids__tmdb=str(r["tmdb_id"]), external_ids__tmdb_kind=r["media_type"]
+                external_ids_q({"tmdb": str(r["tmdb_id"]), "tmdb_kind": r["media_type"]})
             ).exists()
             and (selected_type == "all" or _search_result_category(r) == selected_type)
         ]
@@ -2811,7 +2812,7 @@ def title_preview(request, media_type, tmdb_id):
     # this could redirect to a same-numbered but unrelated title from the
     # other catalog (see discover_action_context's own docstring for a
     # live case this exact gap caused).
-    existing = Title.objects.filter(external_ids__tmdb=str(tmdb_id), external_ids__tmdb_kind=tmdb_kind).first()
+    existing = Title.objects.filter(external_ids_q({"tmdb": str(tmdb_id), "tmdb_kind": tmdb_kind})).first()
     if existing is not None:
         return redirect("title_detail", pk=existing.pk)
 
@@ -3227,7 +3228,7 @@ def _get_or_create_preview_title(media_type, tmdb_id):
     _apply_anime_filler_flags/_anime_mal_context) rather than a plain
     MediaType.TV that code never looks at."""
     tmdb_kind = _tmdb_kind(media_type)
-    title = Title.objects.filter(external_ids__tmdb=str(tmdb_id), external_ids__tmdb_kind=tmdb_kind).first()
+    title = Title.objects.filter(external_ids_q({"tmdb": str(tmdb_id), "tmdb_kind": tmdb_kind})).first()
     if title is not None:
         return title
     details = tmdb.get_full_details(tmdb_kind, tmdb_id)

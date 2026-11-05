@@ -95,7 +95,7 @@ def resolve_title_match(
     fuzzy name search, matching nuvio.py's own prior matching exactly
     (its fuzzy-match branch never overwrote the hint it searched with)."""
     from tracker.integrations import tmdb as tmdb_integration
-    from tracker.models import MediaType, Title
+    from tracker.models import MediaType, Title, external_ids_q
 
     # tmdb_kind: given for an anime film (see tracker/media_kinds.py) -
     # anime is otherwise matched as a TMDB tv show.
@@ -108,7 +108,7 @@ def resolve_title_match(
     # "None" and could spuriously match a Title that genuinely has that
     # value stored (has never happened, but a real edge case, not a
     # hypothetical one worth defending against for free).
-    existing = Title.objects.filter(**{f"external_ids__{provider}": str(provider_id)}).first() if provider_id else None
+    existing = Title.objects.filter(external_ids_q({provider: str(provider_id)})).first() if provider_id else None
     if existing:
         return TitleMatch(
             existing_title=existing,
@@ -186,7 +186,7 @@ def resolve_title_match(
 
         # Step 3 - cross-provider reuse.
         existing = Title.objects.filter(
-            external_ids__tmdb=matched_tmdb_id, external_ids__tmdb_kind=matched_tmdb_kind
+            external_ids_q({"tmdb": matched_tmdb_id, "tmdb_kind": matched_tmdb_kind})
         ).first()
         if existing:
             return TitleMatch(

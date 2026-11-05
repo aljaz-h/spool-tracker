@@ -8,6 +8,18 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.184.2] - 2026-11-05
+
+### Fixed
+- Title lookups by an external id (Nuvio/Trakt/Simkl sync, CSV import,
+  scrobbling, Discover and search) now use Postgres JSON containment, which
+  the existing GIN index serves. The previous per-key form could not use that
+  index and scanned the whole titles table on every call, which added up to
+  minutes of database time across a big sync.
+- The Schedule page's "Finish line" estimate ran its own watched-episode
+  query for every show and movie on your lists (Sentry flagged it as an N+1
+  query on /calendar/schedule/estimate/). It now asks once for the whole list.
+
 ## [0.184.1] - 2026-11-05
 
 ### Changed

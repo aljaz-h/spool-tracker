@@ -14,7 +14,7 @@ close it excludes someone who stopped a few seconds before the credits."""
 
 from django.utils import timezone
 
-from tracker.models import Episode, MediaType, Title, WatchEvent, WatchProgress, attach_genres, attach_reports_metadata
+from tracker.models import Episode, MediaType, Title, WatchEvent, WatchProgress, attach_genres, external_ids_q, attach_reports_metadata
 
 STOP_WATCHED_THRESHOLD = 90.0
 
@@ -36,7 +36,7 @@ def _get_or_create_title(media_type, tmdb_id, name_hint="", year_hint=None):
     # reclassified from TV to ANIME (see the reclassify_anime_titles
     # management command/task) must still match here, not fork a
     # duplicate (same bug documented in nuvio.py's _get_or_create_title).
-    existing = Title.objects.filter(external_ids__tmdb=str(tmdb_id), external_ids__tmdb_kind=kind).first()
+    existing = Title.objects.filter(external_ids_q({"tmdb": str(tmdb_id), "tmdb_kind": kind})).first()
     if existing:
         return existing
 

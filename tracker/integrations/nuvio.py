@@ -496,7 +496,7 @@ def upsert_progress_items(profile, items):
     all either way."""
     from django.utils import timezone
 
-    from tracker.models import Episode, MediaType, Title, WatchProgress
+    from tracker.models import Episode, MediaType, Title, WatchProgress, external_ids_q
 
     updated = 0
     for item in _collapse_series_items(items):
@@ -522,7 +522,7 @@ def upsert_progress_items(profile, items):
         if near_complete:
             # Not filtered by media_type - see _get_or_create_title's own
             # resync-dedup lookup for why.
-            existing_title = Title.objects.filter(external_ids__nuvio=content_id).first()
+            existing_title = Title.objects.filter(external_ids_q({"nuvio": content_id})).first()
             if existing_title:
                 WatchProgress.objects.filter(profile=profile, title=existing_title).update(
                     status=WatchProgress.Status.COMPLETED
