@@ -5011,6 +5011,11 @@ def _settings_page_context(request, profile):
         "simkl_configured": bool(instance_config.get_simkl_credentials()[0]),
         "wetrakr_configured": bool(instance_config.get_wetrakr_credentials()[0]),
         "wetrakr_redirect_uri": instance_config.get_wetrakr_redirect_uri(),
+        # The paste-a-code box only while a started connection still matches
+        # the configured out-of-band Redirect URI (changing or clearing it
+        # drops the box instead of leaving it stuck on screen).
+        "wetrakr_awaiting_code": bool(request.session.get("wetrakr_awaiting_code"))
+        and request.session.get("wetrakr_awaiting_code") == instance_config.get_wetrakr_redirect_uri(),
         "timezones": PROFILE_TIMEZONES,
         "server_time_zone": django_settings.TIME_ZONE,
         "avatar_swatches": _avatar_swatches(profile),
@@ -5256,12 +5261,17 @@ def save_instance_config(request):
     # a field) - a blank field only ever means the admin didn't type a
     # replacement.
     for field in [
-        "trakt_client_id", "simkl_client_id", "wetrakr_client_id", "wetrakr_redirect_uri", "mal_client_id",
+        "trakt_client_id", "simkl_client_id", "wetrakr_client_id", "mal_client_id",
         "spool_wrapped_url", "google_client_id", "dropbox_app_key",
     ]:
         value = request.POST.get(field, "").strip()
         if value:
             setattr(cfg, field, value)
+    # The Redirect URI is shown pre-filled (it is not a secret), so for it a
+    # blank submission means "clear it" - the way to go back to Spool's own
+    # callback without wiping the client ID and secret too.
+    if "wetrakr_redirect_uri" in request.POST:
+        cfg.wetrakr_redirect_uri = request.POST["wetrakr_redirect_uri"].strip()
     # Secret fields are encrypted at rest (see InstanceConfig's own
     # get_*/set_* accessors) - set_* handles the encryption, so these
     # can't go through the same plain setattr loop as the client ids above.
@@ -6841,6 +6851,10 @@ def wetrakr_paste_code(request):
     profile = Profile.objects.filter(user=request.user).first()
     if profile is None:
         raise Http404
+    if "cancel" in request.POST:
+        request.session.pop("wetrakr_awaiting_code", None)
+        request.session.pop("wetrakr_oauth_verifier", None)
+        return redirect(f"{reverse('settings')}?tab=connected_apps")
     redirect_uri = request.session.get("wetrakr_awaiting_code")
     code_verifier = request.session.get("wetrakr_oauth_verifier")
     code = request.POST.get("code", "").strip()

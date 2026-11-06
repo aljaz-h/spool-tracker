@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.185.1] - 2026-11-06
+
+### Fixed
+- Server Integrations: blanking the WeTrakr Redirect URI field now clears it
+  (it used to mean "leave unchanged", so it could only be removed together
+  with the client ID and secret). The docs now say to add Spool's callback to
+  the WeTrakr app instead of relying on its default `urn:` redirect.
+- The "Code from WeTrakr" box no longer stays stuck on Connected apps: it
+  disappears once the Redirect URI is cleared or changed, and it has a Cancel
+  button.
+
 ## [0.185.0] - 2026-11-06
 
 ### Added

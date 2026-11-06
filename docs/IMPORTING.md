@@ -13,7 +13,8 @@
      added on request during their testing phase - ask on their Discord). It
      lists your `client_id` and `client_secret`. A new app may only have
      `urn:ietf:wg:oauth:2.0:oob` as its redirect URI, which Spool cannot use:
-     edit the app and add Spool's callback below as well.
+     edit the app and add Spool's callback below as well (leave Spool's
+     optional WeTrakr "Redirect URI" setting blank in that case).
 2. Set the app's redirect URI to exactly what Spool will send — scheme,
    host, port, and trailing slash all have to match character-for-character,
    since OAuth2 redirect URIs are matched exactly, not just by origin:

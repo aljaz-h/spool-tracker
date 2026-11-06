@@ -7920,6 +7920,18 @@ class WetrakrPkceOAuthFlowTests(TestCase):
         page = self.client.get(reverse("settings"), {"tab": "connected_apps"})
         self.assertContains(page, reverse("wetrakr_paste_code"))
 
+    def test_the_paste_box_goes_away_when_the_redirect_uri_is_cleared_or_cancelled(self):
+        self._use_oob()
+        self.client.get(reverse("wetrakr_connect"))
+        url = reverse("settings") + "?tab=connected_apps"
+        self.assertContains(self.client.get(url), reverse("wetrakr_paste_code"))
+        InstanceConfig.objects.filter(pk=1).update(wetrakr_redirect_uri="")
+        self.assertNotContains(self.client.get(url), reverse("wetrakr_paste_code"))
+        self._use_oob()
+        self.assertContains(self.client.get(url), reverse("wetrakr_paste_code"))
+        self.client.post(reverse("wetrakr_paste_code"), {"cancel": "1"})
+        self.assertNotContains(self.client.get(url), reverse("wetrakr_paste_code"))
+
     @patch("tracker.views._dispatch_sync_task_safely")
     @patch("tracker.integrations.wetrakr.exchange_code")
     def test_pasting_the_code_finishes_the_connection(self, mock_exchange, mock_dispatch):
@@ -7952,6 +7964,15 @@ class WetrakrPkceOAuthFlowTests(TestCase):
         resp = self.client.post(reverse("wetrakr_paste_code"), {"code": "nope"})
         self.assertRedirects(resp, f"{reverse('settings')}?tab=connected_apps")
         self.assertFalse(ExternalAccount.objects.filter(profile=self.profile, provider="wetrakr").exists())
+
+    def test_a_blank_redirect_uri_clears_it_without_touching_the_credentials(self):
+        self._use_oob()
+        self.user.is_superuser = True
+        self.user.save()
+        self.client.post(reverse("save_instance_config"), {"wetrakr_redirect_uri": "", "wetrakr_client_id": ""})
+        cfg = InstanceConfig.load()
+        self.assertEqual(cfg.wetrakr_redirect_uri, "")
+        self.assertEqual(cfg.wetrakr_client_id, "wcid")
 
     def test_the_redirect_uri_can_be_saved_from_server_integrations(self):
         self.user.is_superuser = True
