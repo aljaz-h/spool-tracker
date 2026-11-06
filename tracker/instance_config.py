@@ -25,6 +25,12 @@ def get_simkl_credentials():
     )
 
 
+def get_wetrakr_redirect_uri():
+    """The Redirect URI registered on the WeTrakr app when it is not Spool's
+    own callback ("" = use the callback). See InstanceConfig.wetrakr_redirect_uri."""
+    return (InstanceConfig.load().wetrakr_redirect_uri or settings.WETRAKR_REDIRECT_URI).strip()
+
+
 def get_wetrakr_credentials():
     cfg = InstanceConfig.load()
     return (

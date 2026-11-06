@@ -7895,6 +7895,70 @@ class WetrakrPkceOAuthFlowTests(TestCase):
         self.assertRedirects(resp, reverse("sync_direction_setup", args=["wetrakr"]))
         self.assertFalse(ImportSession.objects.filter(profile=self.profile, source="wetrakr").exists())  # nothing is scanned until they choose
 
+    OOB = "urn:ietf:wg:oauth:2.0:oob"
+
+    def _use_oob(self):
+        InstanceConfig.objects.filter(pk=1).update(wetrakr_redirect_uri=self.OOB)
+
+    def test_a_configured_redirect_uri_is_sent_instead_of_the_callback(self):
+        InstanceConfig.objects.filter(pk=1).update(wetrakr_redirect_uri="https://spool.example/custom/")
+        resp = self.client.get(reverse("wetrakr_connect"))
+        self.assertIn("redirect_uri=https%3A%2F%2Fspool.example%2Fcustom%2F", resp.url)
+        self.assertNotIn("wetrakr_awaiting_code", self.client.session)
+
+    def test_without_a_configured_redirect_uri_the_callback_is_sent(self):
+        from urllib.parse import quote
+
+        resp = self.client.get(reverse("wetrakr_connect"))
+        self.assertIn(quote(reverse("wetrakr_callback"), safe=""), resp.url)
+
+    def test_an_out_of_band_redirect_uri_waits_for_a_pasted_code(self):
+        self._use_oob()
+        resp = self.client.get(reverse("wetrakr_connect"))
+        self.assertIn("redirect_uri=urn%3Aietf%3Awg%3Aoauth%3A2.0%3Aoob", resp.url)
+        self.assertEqual(self.client.session["wetrakr_awaiting_code"], self.OOB)
+        page = self.client.get(reverse("settings"), {"tab": "connected_apps"})
+        self.assertContains(page, reverse("wetrakr_paste_code"))
+
+    @patch("tracker.views._dispatch_sync_task_safely")
+    @patch("tracker.integrations.wetrakr.exchange_code")
+    def test_pasting_the_code_finishes_the_connection(self, mock_exchange, mock_dispatch):
+        self._use_oob()
+        mock_exchange.return_value = {"access_token": "tok", "refresh_token": "rtok", "expires_in": 3600}
+        self.client.get(reverse("wetrakr_connect"))
+        verifier = self.client.session["wetrakr_oauth_verifier"]
+
+        resp = self.client.post(reverse("wetrakr_paste_code"), {"code": "  abc-code  "})
+
+        mock_exchange.assert_called_once_with("abc-code", self.OOB, "wcid", "wcsecret", verifier)
+        self.assertRedirects(resp, reverse("sync_direction_setup", args=["wetrakr"]))
+        self.assertTrue(ExternalAccount.objects.filter(profile=self.profile, provider="wetrakr").exists())
+        self.assertNotIn("wetrakr_awaiting_code", self.client.session)
+        self.assertNotIn("wetrakr_oauth_verifier", self.client.session)
+
+    @patch("tracker.integrations.wetrakr.exchange_code")
+    def test_pasting_a_code_without_starting_a_connection_is_refused(self, mock_exchange):
+        resp = self.client.post(reverse("wetrakr_paste_code"), {"code": "abc"})
+        self.assertRedirects(resp, reverse("settings"))
+        mock_exchange.assert_not_called()
+
+    @patch("tracker.integrations.wetrakr.exchange_code")
+    def test_a_rejected_code_keeps_the_user_on_connected_apps(self, mock_exchange):
+        import requests
+
+        self._use_oob()
+        mock_exchange.side_effect = requests.RequestException("bad code")
+        self.client.get(reverse("wetrakr_connect"))
+        resp = self.client.post(reverse("wetrakr_paste_code"), {"code": "nope"})
+        self.assertRedirects(resp, f"{reverse('settings')}?tab=connected_apps")
+        self.assertFalse(ExternalAccount.objects.filter(profile=self.profile, provider="wetrakr").exists())
+
+    def test_the_redirect_uri_can_be_saved_from_server_integrations(self):
+        self.user.is_superuser = True
+        self.user.save()
+        self.client.post(reverse("save_instance_config"), {"wetrakr_redirect_uri": self.OOB})
+        self.assertEqual(InstanceConfig.load().wetrakr_redirect_uri, self.OOB)
+
     @patch("tracker.integrations.trakt.exchange_code")
     def test_trakt_connect_is_unaffected_by_the_wetrakr_branch(self, mock_exchange):
         InstanceConfig.objects.update_or_create(

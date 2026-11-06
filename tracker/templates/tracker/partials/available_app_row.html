@@ -35,6 +35,18 @@
     {% endif %}
   </div>
 
+  {% if row.key == "wetrakr" and request.session.wetrakr_awaiting_code %}
+    <form method="post" action="{% url 'wetrakr_paste_code' %}" class="s-strip items-end">
+      {% csrf_token %}
+      <div class="flex-1 min-w-[12rem]">
+        <label for="wetrakr-code" class="s-label">Code from WeTrakr</label>
+        <input id="wetrakr-code" type="text" name="code" required autocomplete="off" spellcheck="false" class="s-field font-mono">
+      </div>
+      <button type="submit" class="s-btn flex-none">Finish connecting</button>
+      <p class="s-help w-full">After you approve Spool on WeTrakr it shows a code. Paste it here to finish. It works once and expires quickly.</p>
+    </form>
+  {% endif %}
+
   {% if row.kind == "nuvio" %}
     <form x-show="open" x-cloak method="post" action="{% url 'nuvio_connect_submit' %}" class="s-strip items-end">
       {% csrf_token %}

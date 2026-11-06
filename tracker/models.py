@@ -1362,6 +1362,11 @@ class InstanceConfig(models.Model):
     simkl_client_id = models.CharField(max_length=255, blank=True)
     encrypted_simkl_client_secret = models.TextField(blank=True, default="")
     wetrakr_client_id = models.CharField(max_length=255, blank=True)
+    # Optional: the exact Redirect URI registered on the WeTrakr app, when it
+    # is not Spool's own callback (WeTrakr apps can be locked to the
+    # out-of-band value urn:ietf:wg:oauth:2.0:oob, which shows the user a code
+    # to paste back instead of redirecting). Blank = Spool's own callback URL.
+    wetrakr_redirect_uri = models.CharField(max_length=255, blank=True)
     encrypted_wetrakr_client_secret = models.TextField(blank=True, default="")
     mal_client_id = models.CharField(max_length=255, blank=True)
     encrypted_mal_client_secret = models.TextField(blank=True, default="")

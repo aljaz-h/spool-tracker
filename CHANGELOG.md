@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.185.0] - 2026-11-06
+
+### Added
+- WeTrakr can now be connected when its app is locked to a Redirect URI other
+  than Spool's own callback, such as the out-of-band `urn:ietf:wg:oauth:2.0:oob`.
+  Server Integrations has a new optional Redirect URI field (or set
+  `WETRAKR_REDIRECT_URI`); leave it blank to keep using Spool's callback. With
+  an out-of-band URI, WeTrakr shows a code after you approve, and Connected
+  apps shows a "Code from WeTrakr" box to paste it into and finish connecting.
+  Needs `python manage.py migrate` (one new column).
+
 ## [0.184.2] - 2026-11-05
 
 ### Fixed

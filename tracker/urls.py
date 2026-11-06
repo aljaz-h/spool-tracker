@@ -248,6 +248,7 @@ urlpatterns = [
     path("import/simkl/connect/", views.oauth_connect, {"provider": "simkl"}, name="simkl_connect"),
     path("import/simkl/callback/", views.oauth_callback, {"provider": "simkl"}, name="simkl_callback"),
     path("import/wetrakr/connect/", views.oauth_connect, {"provider": "wetrakr"}, name="wetrakr_connect"),
+    path("import/wetrakr/code/", views.wetrakr_paste_code, name="wetrakr_paste_code"),
     path("import/wetrakr/callback/", views.oauth_callback, {"provider": "wetrakr"}, name="wetrakr_callback"),
     path("import/tmdb/connect/", views.oauth_connect, {"provider": "tmdb"}, name="tmdb_connect"),
     path("import/tmdb/callback/", views.oauth_callback, {"provider": "tmdb"}, name="tmdb_callback"),

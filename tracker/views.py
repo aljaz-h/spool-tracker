@@ -5010,6 +5010,7 @@ def _settings_page_context(request, profile):
         "trakt_configured": bool(instance_config.get_trakt_credentials()[0]),
         "simkl_configured": bool(instance_config.get_simkl_credentials()[0]),
         "wetrakr_configured": bool(instance_config.get_wetrakr_credentials()[0]),
+        "wetrakr_redirect_uri": instance_config.get_wetrakr_redirect_uri(),
         "timezones": PROFILE_TIMEZONES,
         "server_time_zone": django_settings.TIME_ZONE,
         "avatar_swatches": _avatar_swatches(profile),
@@ -5210,7 +5211,7 @@ def logs_table_partial(request):
 _INSTANCE_CONFIG_FIELDS = [
     "trakt_client_id", "trakt_client_secret",
     "simkl_client_id", "simkl_client_secret",
-    "wetrakr_client_id", "wetrakr_client_secret",
+    "wetrakr_client_id", "wetrakr_client_secret", "wetrakr_redirect_uri",
     "mal_client_id", "mal_client_secret",
     "tmdb_api_key", "mdblist_api_key", "fanart_api_key",
     "spool_wrapped_url", "sso_shared_secret",
@@ -5255,7 +5256,7 @@ def save_instance_config(request):
     # a field) - a blank field only ever means the admin didn't type a
     # replacement.
     for field in [
-        "trakt_client_id", "simkl_client_id", "wetrakr_client_id", "mal_client_id",
+        "trakt_client_id", "simkl_client_id", "wetrakr_client_id", "wetrakr_redirect_uri", "mal_client_id",
         "spool_wrapped_url", "google_client_id", "dropbox_app_key",
     ]:
         value = request.POST.get(field, "").strip()
@@ -5314,6 +5315,7 @@ def clear_instance_config_field(request, provider):
         cfg.set_simkl_client_secret("")
     elif provider == "wetrakr":
         cfg.wetrakr_client_id = ""
+        cfg.wetrakr_redirect_uri = ""
         cfg.set_wetrakr_client_secret("")
     elif provider == "mal":
         cfg.mal_client_id = ""
@@ -6727,6 +6729,13 @@ def oauth_connect(request, provider):
     request.session[f"{provider}_oauth_state"] = state
     redirect_uri = request.build_absolute_uri(reverse(f"{provider}_callback"))
     if provider == "wetrakr":
+        redirect_uri = _wetrakr_redirect_uri(request)
+        # An out-of-band Redirect URI (urn:...) never comes back to Spool:
+        # WeTrakr shows a code, which the user pastes into Connected apps.
+        if _is_out_of_band(redirect_uri):
+            request.session["wetrakr_awaiting_code"] = redirect_uri
+        else:
+            request.session.pop("wetrakr_awaiting_code", None)
         # WeTrakr requires PKCE on top of the plain authorization-code
         # flow Trakt/Simkl use - the verifier only ever needs to survive
         # this one connect->callback round trip, so it's stashed in the
@@ -6812,6 +6821,50 @@ def _finish_tmdb_connect(request, profile):
     return redirect("settings")
 
 
+def _wetrakr_redirect_uri(request):
+    """What Spool sends WeTrakr as redirect_uri: the one registered on the app
+    when the admin set it under Server Integrations, else Spool's callback."""
+    return instance_config.get_wetrakr_redirect_uri() or request.build_absolute_uri(reverse("wetrakr_callback"))
+
+
+def _is_out_of_band(redirect_uri):
+    return not redirect_uri.lower().startswith(("http://", "https://"))
+
+
+@login_required
+@require_POST
+def wetrakr_paste_code(request):
+    """Finishes a WeTrakr connection whose app uses the out-of-band Redirect URI
+    (urn:ietf:wg:oauth:2.0:oob): WeTrakr shows the user a code instead of
+    redirecting, and they paste it here. PKCE ties it to the browser session
+    that started the connection, so no `state` comes back to check."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    redirect_uri = request.session.get("wetrakr_awaiting_code")
+    code_verifier = request.session.get("wetrakr_oauth_verifier")
+    code = request.POST.get("code", "").strip()
+    if not redirect_uri or not code_verifier:
+        messages.error(request, "Start the WeTrakr connection again, then paste the code it shows you.")
+        return redirect("settings")
+    if not code:
+        messages.error(request, "Paste the code WeTrakr showed you.")
+        return redirect(f"{reverse('settings')}?tab=connected_apps")
+    client_id, client_secret = instance_config.get_credentials("wetrakr")
+    try:
+        token_data = wetrakr.exchange_code(code, redirect_uri, client_id, client_secret, code_verifier)
+    except requests.RequestException as e:
+        DataLog.objects.create(
+            profile=profile, action=CONNECT_ACTIONS["wetrakr"], provider="wetrakr", status=DataLog.Status.FAILED,
+            error_message=str(e)[:500],
+        )
+        messages.error(request, "WeTrakr didn't accept that code - it may have expired. Click Connect to get a new one.")
+        return redirect(f"{reverse('settings')}?tab=connected_apps")
+    request.session.pop("wetrakr_awaiting_code", None)
+    request.session.pop("wetrakr_oauth_verifier", None)
+    return _finish_oauth_connect(request, profile, "wetrakr", token_data, redirect_uri)
+
+
 @login_required
 def oauth_callback(request, provider):
     profile = Profile.objects.filter(user=request.user).first()
@@ -6840,6 +6893,8 @@ def oauth_callback(request, provider):
         return redirect("settings")
 
     redirect_uri = request.build_absolute_uri(reverse(f"{provider}_callback"))
+    if provider == "wetrakr":
+        redirect_uri = _wetrakr_redirect_uri(request)
     client_id, client_secret = instance_config.get_credentials(provider)
     try:
         if provider == "wetrakr":
@@ -6858,6 +6913,14 @@ def oauth_callback(request, provider):
         messages.error(request, f"Couldn't complete the {provider.title()} connection — please try again.")
         return redirect("settings")
 
+    return _finish_oauth_connect(request, profile, provider, token_data, redirect_uri)
+
+
+def _finish_oauth_connect(request, profile, provider, token_data, redirect_uri):
+    """Stores the tokens an OAuth exchange returned and starts the first import
+    review (new connection) or a sync (reconnect). Shared by oauth_callback and
+    WeTrakr's paste-the-code step."""
+    connect_action = CONNECT_ACTIONS[provider]
     expires_in = token_data.get("expires_in")
     # access_token/refresh_token are encrypted at rest (see
     # ExternalAccount's own set_access_token/set_refresh_token) - update_
