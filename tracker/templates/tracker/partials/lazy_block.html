@@ -1,0 +1,16 @@
+{% comment %}
+  context: url (the partial view to load), trigger ("load" for a block above the fold, "intersect once" for one below it), skeleton (template path of its placeholder), heading (the section title, shown on the skeleton and the error), label (what the error message says couldn't load).
+  A block that arrives after the page: the skeleton shows first, the response replaces this whole element, and if the request fails there is a message and a Try again button instead of a gap that never fills.
+{% endcomment %}
+<div
+  x-data="{ failed: false }"
+  hx-get="{{ url }}" hx-trigger="{{ trigger }}, retry" hx-swap="outerHTML"
+  @htmx:before-request="failed = false" @htmx:response-error="failed = true" @htmx:send-error="failed = true"
+>
+  <div x-show="!failed">{% include skeleton %}</div>
+  <div x-show="failed" x-cloak role="alert">
+    {% if heading %}<div class="section-head"><h2 class="section-title">{{ heading }}</h2></div>{% endif %}
+    <p class="text-sm text-ink-dim">Couldn't load {{ label }}.</p>
+    <button type="button" class="btn btn-soft min-h-11 mt-2" @click="htmx.trigger($el.closest('[hx-get]'), 'retry')">Try again</button>
+  </div>
+</div>

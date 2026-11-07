@@ -263,33 +263,18 @@ def dashboard(request):
         watchlist_qs = selectors.library_watchlist(profile, [MediaType.MOVIE, MediaType.TV, MediaType.ANIME])
         watchlist_count = watchlist_qs.count()
         watchlist_items = list(watchlist_qs[:12])
-        # All three run their TMDB calls from one shared worker pool
-        # (each type's own DB read still happens first, sequentially,
-        # on this thread) instead of one pool per type run one after
-        # another - see recommended_for_you_batch's own docstring for
-        # why the naive "just thread the three calls themselves"
-        # version of this (tried first) doesn't work.
+        # The Recommended rows, Recently Watched, Social Activity and On This
+        # Day (several TMDB-backed or heavier reads) are not built here: the
+        # page frame and the fast local rows above go out first, and each of
+        # those blocks loads on its own afterwards (dashboard_recommended,
+        # dashboard_recently_watched, dashboard_social_activity,
+        # dashboard_on_this_day below), behind a skeleton.
         media_types = [MediaType.MOVIE, MediaType.TV, MediaType.ANIME]
-        recommended = selectors.recommended_for_you_batch(profile, media_types)
-        recommended_movies = recommended[MediaType.MOVIE]
-        recommended_tv = recommended[MediaType.TV]
-        recommended_anime = recommended[MediaType.ANIME]
         start_watching = selectors.start_watching(profile, media_types)
-        # Recently Watched uses its own watch_event_card.html (episode
-        # stills, no watched-toggle/list-popover action bar - those cards
-        # are about what already happened, not library management), so it
-        # doesn't need to feed poster_action_context below. Social Activity
-        # is back to poster_card.html (normal vertical poster + full action
-        # bar), so its titles do need to be in there like everything else.
-        recently_watched = selectors.recently_watched(profile, media_types)
-        social_activity = selectors.social_activity(profile)
-        on_this_day = selectors.on_this_day(profile)
         all_titles = (
             [item["title"] for item in continue_watching]
             + [item.title for item in watchlist_items]
             + start_watching
-            + [event.title for event in social_activity]
-            + [entry["title"] for entry in on_this_day]
         )
         context.update(
             {
@@ -297,31 +282,80 @@ def dashboard(request):
                 "watchlist_items": watchlist_items,
                 "watchlist_count": watchlist_count,
                 "start_watching": start_watching,
-                "recently_watched": recently_watched,
-                "social_activity": social_activity,
-                "on_this_day": on_this_day,
                 "up_next": selectors.up_next(profile, limit=4),
                 "stats": stats,
                 "monthly_stats": selectors.monthly_stats(profile),
                 "milestone": selectors.milestone_message(stats["streak"], stats["movies_this_year"]),
-                "recommended_rows": [
-                    ("Recommended Movies", recommended_movies),
-                    ("Recommended TV", recommended_tv),
-                    ("Recommended Anime", recommended_anime),
+                "recommended_types": [
+                    (MediaType.MOVIE, "Recommended Movies"),
+                    (MediaType.TV, "Recommended TV"),
+                    (MediaType.ANIME, "Recommended Anime"),
                 ],
                 "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")),
                 "featured_lists": selectors.featured_lists(),
                 **_recommendations_context(profile),
                 **selectors.poster_action_context(profile, all_titles),
-                **selectors.discover_action_context(
-                    profile,
-                    (recommended_movies["results"] if recommended_movies else [])
-                    + (recommended_tv["results"] if recommended_tv else [])
-                    + (recommended_anime["results"] if recommended_anime else []),
-                ),
             }
         )
     return render(request, "tracker/dashboard.html", context)
+
+
+DASHBOARD_RECOMMENDED_TITLES = {
+    MediaType.MOVIE: "Recommended Movies", MediaType.TV: "Recommended TV", MediaType.ANIME: "Recommended Anime",
+}
+DASHBOARD_MEDIA_TYPES = [MediaType.MOVIE, MediaType.TV, MediaType.ANIME]
+
+
+def _dashboard_profile(request):
+    """The signed-in user's profile for one of the Dashboard's lazy blocks -
+    the same "no profile, nothing to show" the Dashboard itself has."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    return profile
+
+
+@login_required
+def dashboard_recommended(request, media_type):
+    """One Recommended row, loaded after the Dashboard (its TMDB calls are the
+    slowest thing on the page). Empty when there is nothing to recommend."""
+    if media_type not in DASHBOARD_RECOMMENDED_TITLES:
+        raise Http404
+    profile = _dashboard_profile(request)
+    row = selectors.recommended_for_you_batch(profile, [media_type])[media_type]
+    context = {
+        "row_title": DASHBOARD_RECOMMENDED_TITLES[media_type],
+        "row": row,
+        "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")),
+        **selectors.discover_action_context(profile, row["results"] if row else []),
+    }
+    return render(request, "tracker/partials/dashboard_recommended_row.html", context)
+
+
+@login_required
+def dashboard_recently_watched(request):
+    profile = _dashboard_profile(request)
+    # Recently Watched uses watch_event_card.html (episode stills, no
+    # watched-toggle/list-popover action bar), so it needs no action context.
+    context = {"recently_watched": selectors.recently_watched(profile, DASHBOARD_MEDIA_TYPES)}
+    return render(request, "tracker/partials/dashboard_recently_watched.html", context)
+
+
+@login_required
+def dashboard_on_this_day(request):
+    profile = _dashboard_profile(request)
+    return render(
+        request, "tracker/partials/dashboard_on_this_day.html", {"on_this_day": selectors.on_this_day(profile)}
+    )
+
+
+@login_required
+def dashboard_social_activity(request):
+    profile = _dashboard_profile(request)
+    return render(
+        request, "tracker/partials/dashboard_social_activity.html",
+        {"social_activity": selectors.social_activity(profile)},
+    )
 
 
 @login_required

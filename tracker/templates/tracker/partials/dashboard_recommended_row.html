@@ -1,0 +1,14 @@
+{% load tracker_extras %}
+{# context: row_title, row (selectors.recommended_for_you_batch()'s per-type result, or None), my_lists plus selectors.discover_action_context()'s keys. One Recommended row; renders nothing when there is nothing to recommend, so the skeleton just goes away. #}
+{% if row %}
+  <section class="section">
+    <div class="section-head">
+      <h2 class="section-title">{{ row_title }}</h2>
+    </div>
+    <div class="media-row media-row-sm">
+      {% for item in row.results %}
+        {% include "tracker/partials/discover_tile.html" with item=item %}
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}

@@ -1,0 +1,14 @@
+{# Placeholder for a row of poster cards that loads late (Dashboard's Recommended rows): the section heading, then one row in the same media-row grid, so it takes the same room. context: heading #}
+<section class="section" role="status" aria-busy="true">
+  <span class="sr-only">Loading {{ heading }}</span>
+  <div class="section-head"><h2 class="section-title">{{ heading }}</h2></div>
+  <div class="media-row media-row-sm" aria-hidden="true">
+    {% for _ in "abcdefghijkl" %}
+      <div class="min-w-0">
+        <div class="skel aspect-[2/3] w-full"></div>
+        <div class="skel skel-line mt-2.5 w-3/4 !h-[14px]"></div>
+        <div class="skel skel-line mt-1.5 w-1/2 !h-[12px]"></div>
+      </div>
+    {% endfor %}
+  </div>
+</section>

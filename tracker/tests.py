@@ -16595,11 +16595,11 @@ class RecommendedForYouBatchSelectorTests(TestCase):
 
     @patch("tracker.views.instance_config.get_tmdb_api_key", return_value="the-resolved-key")
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
-    def test_dashboard_resolves_the_api_key_once_for_the_whole_batch(self, mock_get_similar, mock_get_key):
+    def test_dashboard_row_resolves_the_api_key_once_and_passes_it_on(self, mock_get_similar, mock_get_key):
         self._watched(MediaType.MOVIE, "1", "Movie A")
         self._watched(MediaType.TV, "2", "Show A")
         self.client.login(username="batchrecs", password="pass12345")
-        self.client.get(reverse("dashboard"))
+        self.client.get(reverse("dashboard_recommended", args=["movie"]))
         mock_get_key.assert_called_once()
         for call in mock_get_similar.call_args_list:
             self.assertEqual(call.kwargs.get("api_key"), "the-resolved-key")
@@ -16608,7 +16608,7 @@ class RecommendedForYouBatchSelectorTests(TestCase):
     def test_dashboard_still_renders_the_recommended_rows_end_to_end(self, mock_get_similar):
         self._watched(MediaType.MOVIE, "1", "Movie A")
         self.client.login(username="batchrecs", password="pass12345")
-        resp = self.client.get(reverse("dashboard"))
+        resp = self.client.get(reverse("dashboard_recommended", args=["movie"]))
         self.assertContains(resp, "Recommended Movies")
         self.assertContains(resp, "Similar")
 
@@ -16794,10 +16794,18 @@ class DashboardRecommendedForYouTests(TestCase):
         self.client.login(username="dashforyou", password="pass12345")
 
     def test_no_rows_without_preferences_or_history(self):
+        # Each row is its own request after the page; with nothing to
+        # recommend it comes back empty, so its skeleton just goes away.
+        for media_type in ("movie", "tv", "anime"):
+            resp = self.client.get(reverse("dashboard_recommended", args=[media_type]))
+            self.assertEqual(resp.status_code, 200)
+            self.assertNotContains(resp, "Recommended")
+
+    def test_the_dashboard_lists_the_three_rows_as_lazy_blocks(self):
         resp = self.client.get(reverse("dashboard"))
-        self.assertNotContains(resp, "Recommended Movies")
-        self.assertNotContains(resp, "Recommended TV")
-        self.assertNotContains(resp, "Recommended Anime")
+        for media_type in ("movie", "tv", "anime"):
+            self.assertContains(resp, f'hx-get="{reverse("dashboard_recommended", args=[media_type])}"')
+        self.assertContains(resp, "Recommended Movies")  # the skeleton's own heading
 
     @patch("tracker.integrations.tmdb.discover")
     def test_preference_based_row_shown_once_a_genre_preference_is_set(self, mock_discover):
@@ -16806,7 +16814,7 @@ class DashboardRecommendedForYouTests(TestCase):
         mock_discover.return_value = {
             "results": [{"tmdb_id": 42, "media_type": "movie", "name": "Preferred Movie", "year": "2020", "poster_url": None, "vote_average": 7.0}]
         }
-        resp = self.client.get(reverse("dashboard"))
+        resp = self.client.get(reverse("dashboard_recommended", args=["movie"]))
         self.assertContains(resp, "Recommended Movies")
         self.assertContains(resp, "Preferred Movie")
 
@@ -16819,29 +16827,25 @@ class DashboardRecommendedForYouTests(TestCase):
         mock_get_similar.return_value = [
             {"tmdb_id": 42, "media_type": "tv", "name": "Naruto", "year": "2002", "poster_url": None, "vote_average": 8.0}
         ]
-        resp = self.client.get(reverse("dashboard"))
+        resp = self.client.get(reverse("dashboard_recommended", args=["tv"]))
         self.assertContains(resp, "Recommended TV")
         self.assertContains(resp, "Naruto")
 
 
     @patch("tracker.views.instance_config.get_tmdb_api_key", return_value="the-resolved-key")
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
-    def test_the_three_recommended_rows_share_one_resolved_api_key(self, mock_get_similar, mock_get_key):
-        # One DB-backed key resolution shared by all three Movie/TV/Anime
-        # rows, instead of each one resolving its own - a small, always-
-        # safe win (they still run one after another: each one starts
-        # with its own WatchEvent DB query, which - unlike this single
-        # shared value - can't be hoisted out and threaded across workers
-        # without worker threads touching the DB independently, which
-        # broke outright under this project's own test transaction
-        # handling the one time it was tried).
+    def test_each_recommended_row_resolves_the_api_key_once(self, mock_get_similar, mock_get_key):
+        # The three rows are separate requests now; each resolves the
+        # DB-backed key once and hands it to every TMDB call it makes
+        # (worker threads must never read it from the DB themselves).
         for media_type, name in [(MediaType.MOVIE, "M"), (MediaType.TV, "T"), (MediaType.ANIME, "A")]:
             title = Title.objects.create(
                 media_type=media_type, name=name, year=2020, external_ids={"tmdb": "1", "tmdb_kind": media_type}
             )
             WatchEvent.objects.create(profile=self.profile, title=title, watched_at="2024-01-01T00:00:00Z")
-        self.client.get(reverse("dashboard"))
-        mock_get_key.assert_called_once()
+        for media_type in ("movie", "tv", "anime"):
+            self.client.get(reverse("dashboard_recommended", args=[media_type]))
+        self.assertEqual(mock_get_key.call_count, 3)
         self.assertEqual(mock_get_similar.call_count, 3)
         for call in mock_get_similar.call_args_list:
             self.assertEqual(call.kwargs.get("api_key"), "the-resolved-key")
@@ -17071,7 +17075,7 @@ class DashboardWatchingWatchlistTests(TestCase):
 
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Watched Movie", year=2020)
         WatchEvent.objects.create(profile=self.profile, title=title, watched_at=timezone.now())
-        resp = self.client.get(reverse("dashboard"))
+        resp = self.client.get(reverse("dashboard_recently_watched"))
         self.assertContains(resp, "Recently Watched")
         self.assertContains(resp, "Watched Movie")
         self.assertContains(resp, f'href="{reverse("history")}"')
@@ -17085,7 +17089,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         WatchEvent.objects.create(profile=other_profile, title=their_title, watched_at=timezone.now())
         my_title = Title.objects.create(media_type=MediaType.MOVIE, name="My Own Movie", year=2022)
         WatchEvent.objects.create(profile=self.profile, title=my_title, watched_at=timezone.now())
-        resp = self.client.get(reverse("dashboard"))
+        resp = self.client.get(reverse("dashboard_social_activity"))
         self.assertContains(resp, "Social Activity")
         self.assertContains(resp, "Their Movie")
         self.assertNotIn(my_title, [event.title for event in resp.context["social_activity"]])
@@ -17097,7 +17101,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         other_profile = Profile.objects.create(user=other_user, display_name="SocialWatcher")
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Shared Movie", year=2020)
         WatchEvent.objects.create(profile=other_profile, title=title, watched_at=timezone.now())
-        resp = self.client.get(reverse("dashboard"))
+        resp = self.client.get(reverse("dashboard_social_activity"))
         self.assertContains(resp, "SocialWatcher")
 
     def test_social_activity_card_shows_the_season_and_episode_watched(self):
@@ -17108,7 +17112,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         show = Title.objects.create(media_type=MediaType.TV, name="Shared Show", year=2020)
         episode = Episode.objects.create(title=show, season=1, episode=5)
         WatchEvent.objects.create(profile=other_profile, title=show, episode=episode, watched_at=timezone.now())
-        resp = self.client.get(reverse("dashboard"))
+        resp = self.client.get(reverse("dashboard_social_activity"))
         self.assertContains(resp, "S1:E5")
 
     def test_social_activity_card_has_no_episode_pill_for_a_movie(self):
@@ -17118,7 +17122,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         other_profile = Profile.objects.create(user=other_user, display_name="MovieWatcher")
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Shared Movie Two", year=2021)
         WatchEvent.objects.create(profile=other_profile, title=title, watched_at=timezone.now())
-        resp = self.client.get(reverse("dashboard"))
+        resp = self.client.get(reverse("dashboard_social_activity"))
         self.assertNotContains(resp, "S1:E")
 
     def test_recently_watched_episode_card_links_straight_to_that_episode(self):
@@ -17127,7 +17131,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         title = Title.objects.create(media_type=MediaType.TV, name="Linked Show", year=2022)
         episode = Episode.objects.create(title=title, season=2, episode=5, name="Five")
         WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
-        resp = self.client.get(reverse("dashboard"))
+        resp = self.client.get(reverse("dashboard_recently_watched"))
         self.assertContains(resp, f'href="{reverse("title_detail", args=[title.pk])}?season=2#episode-2-5"')
 
     def test_recently_watched_movie_card_links_to_the_plain_title_page(self):
@@ -17135,7 +17139,7 @@ class DashboardWatchingWatchlistTests(TestCase):
 
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Plain Link Movie", year=2020)
         WatchEvent.objects.create(profile=self.profile, title=title, watched_at=timezone.now())
-        resp = self.client.get(reverse("dashboard"))
+        resp = self.client.get(reverse("dashboard_recently_watched"))
         self.assertContains(resp, f'href="{reverse("title_detail", args=[title.pk])}" class="media-card group block min-w-0"')
 
     def test_recently_watched_shows_each_episode_separately_not_deduped_by_title(self):
@@ -17145,7 +17149,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         for n in (1, 2, 3):
             episode = Episode.objects.create(title=title, season=1, episode=n, name=f"Episode {n}")
             WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
-        resp = self.client.get(reverse("dashboard"))
+        resp = self.client.get(reverse("dashboard_recently_watched"))
         self.assertEqual(len(resp.context["recently_watched"]), 3)
 
     def test_on_this_day_shows_a_title_watched_on_this_date_in_a_previous_year(self):
@@ -17156,7 +17160,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         WatchEvent.objects.create(
             profile=self.profile, title=title, watched_at=today.replace(year=today.year - 3)
         )
-        resp = self.client.get(reverse("dashboard"))
+        resp = self.client.get(reverse("dashboard_on_this_day"))
         self.assertContains(resp, "On This Day")
         self.assertContains(resp, "Nostalgic Movie")
         self.assertContains(resp, "3 years ago today")
@@ -17166,7 +17170,7 @@ class DashboardWatchingWatchlistTests(TestCase):
 
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Watched Earlier This Year", year=2024)
         WatchEvent.objects.create(profile=self.profile, title=title, watched_at=timezone.now())
-        resp = self.client.get(reverse("dashboard"))
+        resp = self.client.get(reverse("dashboard_on_this_day"))
         self.assertNotContains(resp, "On This Day")
 
     def test_on_this_day_excludes_a_title_watched_on_a_different_date(self):
@@ -17176,7 +17180,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         other_day = today.replace(year=today.year - 1, day=1, month=1) if (today.month, today.day) != (1, 1) else today.replace(year=today.year - 1, day=2)
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Different Day Movie", year=2020)
         WatchEvent.objects.create(profile=self.profile, title=title, watched_at=other_day)
-        resp = self.client.get(reverse("dashboard"))
+        resp = self.client.get(reverse("dashboard_on_this_day"))
         self.assertNotContains(resp, "On This Day")
 
     def test_on_this_day_dedupes_a_same_day_rewatch_in_the_same_past_year(self):
@@ -17187,8 +17191,39 @@ class DashboardWatchingWatchlistTests(TestCase):
         title = Title.objects.create(media_type=MediaType.MOVIE, name="Rewatched Same Day", year=2018)
         WatchEvent.objects.create(profile=self.profile, title=title, watched_at=past)
         WatchEvent.objects.create(profile=self.profile, title=title, watched_at=past, is_rewatch=True)
-        resp = self.client.get(reverse("dashboard"))
+        resp = self.client.get(reverse("dashboard_on_this_day"))
         self.assertEqual(len(resp.context["on_this_day"]), 1)
+
+    def test_the_page_ships_without_the_lazy_blocks_and_points_at_their_urls(self):
+        from django.utils import timezone
+
+        other = Profile.objects.create(user=User.objects.create_user("lazyother", password="pass12345"), display_name="LazyOther")
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Only In The Partial", year=2021)
+        WatchEvent.objects.create(profile=other, title=title, watched_at=timezone.now())
+        WatchEvent.objects.create(profile=self.profile, title=title, watched_at=timezone.now())
+        resp = self.client.get(reverse("dashboard"))
+        self.assertNotContains(resp, "Only In The Partial")
+        for name in ("dashboard_recently_watched", "dashboard_on_this_day", "dashboard_social_activity"):
+            self.assertContains(resp, f'hx-get="{reverse(name)}"')
+        self.assertNotIn("recently_watched", resp.context)
+        self.assertNotIn("social_activity", resp.context)
+        self.assertNotIn("on_this_day", resp.context)
+
+    def test_the_lazy_blocks_have_a_retry_state(self):
+        resp = self.client.get(reverse("dashboard"))
+        self.assertContains(resp, "Try again")
+        self.assertContains(resp, "htmx:response-error")
+
+    def test_the_lazy_blocks_need_a_login(self):
+        self.client.logout()
+        for url in (
+            reverse("dashboard_recently_watched"), reverse("dashboard_on_this_day"),
+            reverse("dashboard_social_activity"), reverse("dashboard_recommended", args=["movie"]),
+        ):
+            self.assertEqual(self.client.get(url).status_code, 302, url)
+
+    def test_an_unknown_recommended_type_is_a_404(self):
+        self.assertEqual(self.client.get(reverse("dashboard_recommended", args=["music"])).status_code, 404)
 
     def test_shows_all_watching_items_not_just_a_teaser(self):
         for i in range(10):

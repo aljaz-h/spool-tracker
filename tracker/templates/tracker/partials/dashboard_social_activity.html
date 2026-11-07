@@ -1,0 +1,14 @@
+{# context: social_activity (selectors.social_activity()), show_activity_nav (context processor). What the other profiles in the household watched most recently, capped to 5; nothing when there is none. #}
+{% if social_activity %}
+  <section>
+    <div class="section-head">
+      <h2 class="section-title section-title-sm">Social Activity</h2>
+      {% if show_activity_nav %}<a href="{% url 'activity' %}" class="section-link">All activity &rarr;</a>{% endif %}
+    </div>
+    <div class="rows">
+      {% for event in social_activity|slice:":5" %}
+        {% include "tracker/partials/dashboard_social_activity_item.html" with event=event %}
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}

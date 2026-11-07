@@ -6,6 +6,10 @@ from . import schedule_views, views, wrapped_views
 urlpatterns = [
     path("sw.js", views.service_worker, name="service_worker"),
     path("", views.dashboard, name="dashboard"),
+    path("dashboard/recommended/<str:media_type>/", views.dashboard_recommended, name="dashboard_recommended"),
+    path("dashboard/recently-watched/", views.dashboard_recently_watched, name="dashboard_recently_watched"),
+    path("dashboard/on-this-day/", views.dashboard_on_this_day, name="dashboard_on_this_day"),
+    path("dashboard/social-activity/", views.dashboard_social_activity, name="dashboard_social_activity"),
     path("profile/<int:profile_id>/popup/", views.profile_popup, name="profile_popup"),
     path("movies/<str:category>/", views.discover, {"media_type": "movie"}, name="movies"),
     path("tv/<str:category>/", views.discover, {"media_type": "tv"}, name="tv"),

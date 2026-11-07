@@ -1,0 +1,15 @@
+{% load tracker_extras %}
+{# context: recently_watched (selectors.recently_watched()). The Dashboard's Recently Watched row; nothing when there is no history. #}
+{% if recently_watched %}
+  <section class="section">
+    <div class="section-head">
+      <h2 class="section-title">Recently Watched</h2>
+      <a href="{% url 'history' %}" class="section-link">History &rarr;</a>
+    </div>
+    <div class="landscape-row">
+      {% for event in recently_watched %}
+        {% include "tracker/partials/watch_event_card.html" with event=event eager=forloop.counter|in_list:"1,2,3" %}
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}

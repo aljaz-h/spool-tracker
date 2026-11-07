@@ -1,0 +1,13 @@
+{# context: on_this_day (selectors.on_this_day()). Titles watched on today's date in a previous year, capped to 5; nothing when there are none. #}
+{% if on_this_day %}
+  <section>
+    <div class="section-head">
+      <h2 class="section-title section-title-sm">On This Day</h2>
+    </div>
+    <div class="rows">
+      {% for entry in on_this_day|slice:":5" %}
+        {% include "tracker/partials/dashboard_on_this_day_item.html" with entry=entry %}
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}

@@ -1,0 +1,16 @@
+{# Placeholder for a short list of poster-and-text rows that loads late (Dashboard's On This Day and Social Activity): the small section heading, then three rows the size of the real ones. context: heading #}
+<section role="status" aria-busy="true">
+  <span class="sr-only">Loading {{ heading }}</span>
+  <div class="section-head"><h2 class="section-title section-title-sm">{{ heading }}</h2></div>
+  <div class="rows" aria-hidden="true">
+    {% for _ in "abc" %}
+      <div class="flex items-center gap-3 py-2.5">
+        <div class="skel w-10 aspect-[2/3] rounded-md flex-none"></div>
+        <div class="min-w-0 flex-1">
+          <div class="skel skel-line w-3/4 !h-[14px]"></div>
+          <div class="skel skel-line mt-2 w-1/2 !h-[12px]"></div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</section>

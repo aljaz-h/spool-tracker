@@ -58,20 +58,11 @@
   {% endcomment %}
   <div class="section grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_340px] gap-x-12 xl:gap-x-16 gap-y-12 items-start">
     <div class="min-w-0">
-      {# ---- Recently watched: this profile's own last watch events (not deduped by title - a binge shows every episode), newest first - see selectors.recently_watched(). ---- #}
-      {% if recently_watched %}
-        <section class="section">
-          <div class="section-head">
-            <h2 class="section-title">Recently Watched</h2>
-            <a href="{% url 'history' %}" class="section-link">History &rarr;</a>
-          </div>
-          <div class="landscape-row">
-            {% for event in recently_watched %}
-              {% include "tracker/partials/watch_event_card.html" with event=event eager=forloop.counter|in_list:"1,2,3" %}
-            {% endfor %}
-          </div>
-        </section>
-      {% endif %}
+      {# ---- Recently watched: this profile's own last watch events (not deduped by title - a binge shows every episode), newest first - see selectors.recently_watched(). Loaded after the page. ---- #}
+      <div class="section">
+        {% url 'dashboard_recently_watched' as recently_watched_url %}
+        {% include "tracker/partials/lazy_block.html" with url=recently_watched_url trigger="load" skeleton="tracker/partials/skeleton_landscape_row.html" heading="Recently Watched" label="your recently watched" %}
+      </div>
 
       <section class="section">
         <div class="section-head">
@@ -117,19 +108,11 @@
         so they fill the space beside the household rail rather than
         trailing below it. An empty row is left out.
       {% endcomment %}
-      {% for row_title, row in recommended_rows %}
-        {% if row %}
-          <section class="section">
-            <div class="section-head">
-              <h2 class="section-title">{{ row_title }}</h2>
-            </div>
-            <div class="media-row media-row-sm">
-              {% for item in row.results %}
-                {% include "tracker/partials/discover_tile.html" with item=item %}
-              {% endfor %}
-            </div>
-          </section>
-        {% endif %}
+      {% for media_type, row_title in recommended_types %}
+        <div class="section">
+          {% url 'dashboard_recommended' media_type as recommended_url %}
+          {% include "tracker/partials/lazy_block.html" with url=recommended_url trigger="intersect once" skeleton="tracker/partials/skeleton_poster_row.html" heading=row_title label=row_title %}
+        </div>
       {% endfor %}
 
       {% include "tracker/partials/dashboard_featured_lists.html" %}
@@ -185,33 +168,12 @@
       {% include "tracker/partials/dashboard_monthly_stats.html" %}
 
       {# ---- On This Day: titles this profile watched on today's date in a previous year - see selectors.on_this_day(). Capped to 5. ---- #}
-      {% if on_this_day %}
-        <section>
-          <div class="section-head">
-            <h2 class="section-title section-title-sm">On This Day</h2>
-          </div>
-          <div class="rows">
-            {% for entry in on_this_day|slice:":5" %}
-              {% include "tracker/partials/dashboard_on_this_day_item.html" with entry=entry %}
-            {% endfor %}
-          </div>
-        </section>
-      {% endif %}
+      {% url 'dashboard_on_this_day' as on_this_day_url %}
+      {% include "tracker/partials/lazy_block.html" with url=on_this_day_url trigger="intersect once" skeleton="tracker/partials/skeleton_poster_list.html" heading="On This Day" label="On This Day" %}
 
       {# ---- Social Activity: what other profiles in the household have watched most recently - see selectors.social_activity(). ---- #}
-      {% if social_activity %}
-        <section>
-          <div class="section-head">
-            <h2 class="section-title section-title-sm">Social Activity</h2>
-            {% if show_activity_nav %}<a href="{% url 'activity' %}" class="section-link">All activity &rarr;</a>{% endif %}
-          </div>
-          <div class="rows">
-            {% for event in social_activity|slice:":5" %}
-              {% include "tracker/partials/dashboard_social_activity_item.html" with event=event %}
-            {% endfor %}
-          </div>
-        </section>
-      {% endif %}
+      {% url 'dashboard_social_activity' as social_activity_url %}
+      {% include "tracker/partials/lazy_block.html" with url=social_activity_url trigger="intersect once" skeleton="tracker/partials/skeleton_poster_list.html" heading="Social Activity" label="Social Activity" %}
     </aside>
   </div>
 

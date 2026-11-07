@@ -8,6 +8,17 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.186.0] - 2026-11-08
+
+### Changed
+- The Dashboard now shows its frame and the fast local rows (stats, Up Next,
+  Continue Watching, the watchlist, Start Watching) straight away, and loads
+  the slower blocks afterwards behind skeletons of the same size: the three
+  Recommended rows, Recently Watched, On This Day and Social Activity. Each is
+  its own small request with the same login and profile checks as the page,
+  and a block that fails shows "Couldn't load ..." with a Try again button. A
+  block with nothing to show disappears once it has loaded.
+
 ## [0.185.1] - 2026-11-06
 
 ### Fixed
