@@ -8,6 +8,38 @@
   <title>{% block title %}Spool{% endblock %}</title>
   <meta name="description" content="{% block meta_description %}Spool tracks the movies, TV shows and anime your household watches: history, progress, ratings and what is coming next.{% endblock %}">
   <script>
+    // Warm the main nav: a moment before a boosted nav link is clicked (a
+    // short hover, or the first touch) ask for its page once, so whatever
+    // that page needs from the server's caches (TMDB lists, mostly) is ready
+    // when the real request arrives a beat later. It does not hand the HTML
+    // to the click - the click still fetches and swaps normally. Skipped on
+    // data-saver and 2g connections, for the page you are already on, and
+    // for a page asked for in the last 30 seconds.
+    (() => {
+      const conn = navigator.connection;
+      if (conn && (conn.saveData || /(^|-)2g$/.test(conn.effectiveType || ''))) return;
+      const warmed = new Map();
+      let timer = null;
+      const linkOf = (e) => {
+        const a = e.target && e.target.closest ? e.target.closest('[data-prefetch] a[href]') : null;
+        return a && a.origin === location.origin && a.pathname !== location.pathname ? a : null;
+      };
+      const warm = (a) => {
+        const now = Date.now();
+        if (now - (warmed.get(a.href) || 0) < 30000) return;
+        warmed.set(a.href, now);
+        fetch(a.href, { credentials: 'same-origin', headers: { 'HX-Boosted': 'true' }, priority: 'low' }).catch(() => {});
+      };
+      document.addEventListener('mouseover', (e) => {
+        const a = linkOf(e);
+        clearTimeout(timer);
+        if (a) timer = setTimeout(() => warm(a), 120);
+      });
+      document.addEventListener('mouseout', () => clearTimeout(timer));
+      // A click is the real request; don't also warm the same page.
+      document.addEventListener('click', () => clearTimeout(timer), true);
+      document.addEventListener('touchstart', (e) => { const a = linkOf(e); if (a) warm(a); }, { passive: true });
+    })();
     // "/" jumps to the global search field from anywhere that isn't
     // already a text input - the usual media-app shortcut.
     document.addEventListener('keydown', (e) => {
@@ -31,6 +63,8 @@
   </script>
   {% include "tracker/partials/fonts_head.html" %}
   <link rel="stylesheet" href="{% static 'dist/app.css' %}">
+  {# htmx keeps page snapshots for the back button in localStorage by default; a snapshot of a page with Alpine state in it restores badly, and this one holds household data. A boosted back/forward navigation refetches the page instead (HtmxFullPageMiddleware serves it whole). #}
+  <meta name="htmx-config" content='{"historyCacheSize": 0}'>
   <script defer src="{% static 'vendor/htmx.js' %}"></script>
   {% comment %}
     Alpine plugins register via a document-level "alpine:init" listener

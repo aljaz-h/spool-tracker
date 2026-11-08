@@ -88,6 +88,9 @@ MIDDLEWARE = [
     # this is a no-op for those - it only ever applies to dynamic pages,
     # which WhiteNoise doesn't touch.
     "django.middleware.gzip.GZipMiddleware",
+    # Before anything reads request.headers: a boosted nav request must reach
+    # the views as a plain page request (see the class's own docstring).
+    "tracker.middleware.HtmxFullPageMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",

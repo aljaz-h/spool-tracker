@@ -3,6 +3,7 @@
 {% with url_name=request.resolver_match.url_name %}
 <nav
   aria-label="Primary"
+  hx-boost="true" data-prefetch
   class="dock-bar lg:hidden fixed inset-x-3 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-[440px] bottom-[calc(0.625rem+env(safe-area-inset-bottom))] z-40 flex items-stretch p-1.5 rounded-[28px]"
 >
   {% url 'dashboard' as home_url %}

@@ -15,10 +15,10 @@
   {% endcomment %}
   <div class="page h-full grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 lg:gap-6">
   <div class="flex items-center h-full min-w-0 justify-self-start col-start-1">
-    <a href="{% url 'dashboard' %}" class="flex items-center flex-none lg:mr-5" title="Home">
+    <a href="{% url 'dashboard' %}" hx-boost="true" class="flex items-center flex-none lg:mr-5" title="Home">
       <span class="font-brand text-[26px] text-marquee leading-none">SPOOL</span>
     </a>
-    <nav aria-label="Primary" class="hidden lg:flex items-center h-full">
+    <nav aria-label="Primary" hx-boost="true" data-prefetch class="hidden lg:flex items-center h-full">
       {% url 'dashboard' as home_url %}
       {% include "tracker/partials/nav_top_item.html" with href=home_url label="Home" icon_name="home" is_active=url_name|eq:"dashboard" %}
       <span class="w-px h-4 bg-line mx-1.5 xl:mx-2" aria-hidden="true"></span>

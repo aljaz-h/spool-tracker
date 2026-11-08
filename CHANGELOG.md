@@ -8,6 +8,27 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.188.0] - 2026-11-08
+
+### Changed
+- Moving around the main navigation (the top bar, the phone's bottom bar and
+  the Movies / TV / Anime switcher) no longer reloads the whole document: the
+  fonts, styles and scripts stay loaded and only the page body is swapped,
+  with the address, title and back button still working. Back and forward now
+  refetch the page instead of restoring a saved snapshot (htmx's snapshot
+  cache is turned off: it stored household data in the browser and restored
+  Alpine-driven pages badly).
+- Hovering a nav link for a moment (or touching it) asks the server for that
+  page once, ahead of the click, so what it needs from the server's caches -
+  mostly TMDB lists - is warm when you open it. It does not hand the page to
+  the click, and it is skipped on data-saver and 2g connections.
+
+### Fixed
+- Pages that had to survive a swapped body now clean up after themselves: the
+  Movies / TV / Anime hero stops its rotation timer when you leave, the
+  Discover grid's resize handling is removed with the grid, and the Calendar's
+  month-sync listener is registered once however often the page is opened.
+
 ## [0.187.0] - 2026-11-08
 
 ### Changed

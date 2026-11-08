@@ -37150,6 +37150,46 @@ class ExternalIdsLookupTests(TestCase):
         self.assertEqual(q.children, [("external_ids__contains", {"nuvio": "tt1"})])
 
 
+class BoostedNavigationTests(TestCase):
+    """The main nav is hx-boosted: a click fetches the whole page with htmx
+    and swaps it into <body>. HtmxFullPageMiddleware makes sure the views
+    answer that with the whole page (several of them answer a plain
+    HX-Request with just a fragment)."""
+
+    def setUp(self):
+        user = User.objects.create_user("boostnav", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="BoostNav")
+        self.client.login(username="boostnav", password="pass12345")
+
+    def test_a_plain_htmx_request_still_gets_the_fragment(self):
+        resp = self.client.get(reverse("history"), HTTP_HX_REQUEST="true")
+        self.assertTemplateUsed(resp, "tracker/partials/history_content.html")
+        self.assertTemplateNotUsed(resp, "tracker/history.html")
+
+    def test_a_boosted_request_gets_the_whole_page(self):
+        for name in ("history", "calendar"):
+            resp = self.client.get(reverse(name), HTTP_HX_REQUEST="true", HTTP_HX_BOOSTED="true")
+            self.assertEqual(resp.status_code, 200, name)
+            self.assertTemplateUsed(resp, f"tracker/{name}.html")
+            self.assertContains(resp, "<title>", msg_prefix=name)
+
+    def test_a_history_restore_refetch_gets_the_whole_page(self):
+        resp = self.client.get(
+            reverse("history"), HTTP_HX_REQUEST="true", HTTP_HX_HISTORY_RESTORE_REQUEST="true"
+        )
+        self.assertTemplateUsed(resp, "tracker/history.html")
+
+    def test_the_main_nav_is_boosted_and_warmed_and_the_back_button_is_not_cached(self):
+        resp = self.client.get(reverse("dashboard"))
+        html = resp.content.decode()
+        self.assertGreaterEqual(html.count('hx-boost="true"'), 3)  # logo, top nav, bottom nav
+        self.assertIn("data-prefetch", html)
+        self.assertIn('name="htmx-config"', html)
+        self.assertIn('"historyCacheSize": 0', html)
+        # Only navigation is boosted - never a form or a lazy block.
+        self.assertNotRegex(html, r'<form[^>]*hx-boost')
+
+
 class DiscoverHeroCreditsTests(TestCase):
     def test_hero_lists_directors_or_creators(self):
         user = User.objects.create_user("herocredits", password="pass12345")

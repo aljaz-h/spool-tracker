@@ -24,7 +24,7 @@
     three (sidebar.html/topbar.html), for the same at-a-glance
     recognition this row's own text-only version didn't have.
   {% endcomment %}
-  <div class="lg:hidden mb-5 seg w-full">
+  <div class="lg:hidden mb-5 seg w-full" hx-boost="true" data-prefetch>
     {% url 'movies' category=category as movies_url %}
     <a href="{{ movies_url }}" class="seg-item flex-1 justify-center {% if url_name == "movies" %}is-active{% endif %}">{% icon "clapperboard" "w-3.5 h-3.5" %}Movies</a>
     <a href="{{ tv_url }}" class="seg-item flex-1 justify-center {% if url_name == "tv" %}is-active{% endif %}">{% icon "tv" "w-3.5 h-3.5" %}TV</a>

@@ -79,3 +79,30 @@ class LastSeenMiddleware:
             if profile is not None and (profile.last_seen_at is None or now - profile.last_seen_at > self.STALE_AFTER):
                 Profile.objects.filter(pk=profile.pk).update(last_seen_at=now)
         return self.get_response(request)
+
+
+class HtmxFullPageMiddleware:
+    """Makes htmx's boosted navigation (the main nav, see base.html) and its
+    history-restore refetch look like ordinary page requests to the views.
+
+    Those requests carry `HX-Request` like any htmx request, but unlike one
+    they want the whole page back and swap it into <body>. Several views read
+    `HX-Request` to mean "send just the fragment" (History, Calendar, a list's
+    items, ...), so without this a boosted click on History would swap a
+    fragment into the page. Only these two kinds of request are touched; every
+    other htmx request (a lazy block, a filter, a form) is left exactly as it
+    is."""
+
+    HTMX_HEADERS = (
+        "HTTP_HX_REQUEST", "HTTP_HX_TARGET", "HTTP_HX_TRIGGER", "HTTP_HX_TRIGGER_NAME", "HTTP_HX_CURRENT_URL",
+    )
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        meta = request.META
+        if meta.get("HTTP_HX_BOOSTED") == "true" or meta.get("HTTP_HX_HISTORY_RESTORE_REQUEST") == "true":
+            for key in self.HTMX_HEADERS:
+                meta.pop(key, None)
+        return self.get_response(request)

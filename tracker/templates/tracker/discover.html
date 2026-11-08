@@ -25,6 +25,7 @@
       x-data="{
         i: 0, n: {{ hero_items|length }}, timer: null,
         go(k) { this.i = k; this.restart(); },
+        destroy() { clearInterval(this.timer); },
         restart() {
           clearInterval(this.timer);
           if (this.n < 2) return;
@@ -452,13 +453,8 @@
           }
         },
       }"
-      x-init="
-        trimIncompleteLastRow();
-        window.addEventListener('resize', () => {
-          clearTimeout(resizeTimer);
-          resizeTimer = setTimeout(() => trimIncompleteLastRow(), 150);
-        });
-      "
+      x-init="trimIncompleteLastRow()"
+      @resize.window.debounce.150ms="trimIncompleteLastRow()"
     >
       {% for item in results %}
         {% if is_collections %}

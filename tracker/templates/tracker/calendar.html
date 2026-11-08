@@ -157,11 +157,16 @@
     // Keep the filter form's hidden "month" field in sync with whatever
     // month calendar_main.html last rendered, so a filter change doesn't
     // silently reset the user back to the current month.
-    document.body.addEventListener('htmx:afterSwap', (e) => {
-      const monthEl = e.target.querySelector('[data-active-month]');
-      const field = document.getElementById('calendar-month-field');
-      if (monthEl && field) field.value = monthEl.dataset.activeMonth;
-    });
+    // <body> outlives a boosted navigation, so register this once however
+    // many times the Calendar page is opened.
+    if (!window.spoolCalendarMonthSync) {
+      window.spoolCalendarMonthSync = true;
+      document.body.addEventListener('htmx:afterSwap', (e) => {
+        const monthEl = e.target.querySelector('[data-active-month]');
+        const field = document.getElementById('calendar-month-field');
+        if (monthEl && field) field.value = monthEl.dataset.activeMonth;
+      });
+    }
   </script>
   </div>
 
