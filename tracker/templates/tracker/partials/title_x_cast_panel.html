@@ -1,0 +1,31 @@
+{% comment %}
+  context: cast, directors, pending, oob. The Cast & Crew tab's panel: every director, then the cast, in one grid.
+{% endcomment %}
+<div id="tl-cast-panel" {% if oob %}hx-swap-oob="true"{% endif %}>
+{% if pending %}
+  <div x-show="tab === 'cast'" x-cloak role="tabpanel">
+    <div role="status" aria-busy="true" class="grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-x-4 gap-y-6">
+      <span class="sr-only">Loading the cast</span>
+      {% for _ in "abcdefghijkl" %}
+        <div class="min-w-0" aria-hidden="true">
+          <div class="skel aspect-[3/4] rounded-lg"></div>
+          <div class="skel skel-line mt-2 mx-auto w-4/5 !h-[13px]"></div>
+          <div class="skel skel-line mt-1.5 mx-auto w-3/5 !h-[12px]"></div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+{% elif cast or directors %}
+  <div x-show="tab === 'cast'" x-cloak role="tabpanel">
+    <h2 class="sr-only">Cast &amp; Crew</h2>
+    <div class="grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-x-4 gap-y-6">
+      {% for d in directors %}
+        {% include "tracker/partials/title_person.html" with person=d role="Director" grid=True %}
+      {% endfor %}
+      {% for actor in cast %}
+        {% include "tracker/partials/title_person.html" with person=actor role=actor.character grid=True %}
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
+</div>

@@ -18432,7 +18432,7 @@ class TitleDetailViewTests(TestCase):
         # and passed through explicitly - confirmed here by asserting the
         # DB read happens exactly once, not once per parallel call.
         mock_details.return_value = self._details()
-        self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.client.get(reverse("title_extras", args=[self.title.pk]))
         mock_get_key.assert_called_once()
         mock_credits.assert_called_once_with("movie", "42", api_key="the-resolved-key")
         mock_similar.assert_called_once_with("movie", "42", api_key="the-resolved-key")
@@ -18472,6 +18472,37 @@ class TitleDetailViewTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         mock_details.assert_not_called()
 
+    @patch("tracker.integrations.tmdb.get_similar", return_value=[{"tmdb_id": 7, "media_type": "movie", "name": "Alike"}])
+    @patch("tracker.integrations.tmdb.get_watch_providers", return_value=[{"name": "StreamCo", "logo_url": None}])
+    @patch("tracker.integrations.tmdb.get_credits", return_value=[{"name": "Lead Actor", "character": "Hero", "profile_url": None, "tmdb_person_id": 9}])
+    @patch("tracker.integrations.tmdb.get_full_details")
+    def test_the_page_ships_skeletons_and_the_extras_fill_them_out_of_band(
+        self, mock_details, mock_credits, mock_providers, mock_similar
+    ):
+        mock_details.return_value = self._details()
+        page = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        # The page itself: a loader pointing at the extras, skeletons where they go, none of their content.
+        self.assertContains(page, f'hx-get="{reverse("title_extras", args=[self.title.pk])}"')
+        for block in ("tl-cast-row", "tl-gallery", "tl-providers", "tl-similar", "tl-directed-by"):
+            self.assertContains(page, f'id="{block}"')
+        for text in ("Lead Actor", "StreamCo", "Alike"):
+            self.assertNotContains(page, text)
+        self.assertContains(page, "Try again")
+        # The extras response: the same blocks, swapped in out of band.
+        extras = self.client.get(reverse("title_extras", args=[self.title.pk]))
+        for text in ("Lead Actor", "StreamCo", "Alike"):
+            self.assertContains(extras, text)
+        for block in ("tl-cast-row", "tl-cast-tab", "tl-cast-panel", "tl-providers", "tl-similar", "tl-gallery"):
+            self.assertContains(extras, f'id="{block}"')
+        self.assertContains(extras, 'hx-swap-oob="true"')
+
+    def test_the_extras_need_a_login_and_a_tmdb_id(self):
+        url = reverse("title_extras", args=[self.title.pk])
+        no_tmdb = Title.objects.create(media_type=MediaType.MOVIE, name="No Tmdb", year=2020)
+        self.assertEqual(self.client.get(reverse("title_extras", args=[no_tmdb.pk])).status_code, 404)
+        self.client.logout()
+        self.assertEqual(self.client.get(url).status_code, 302)
+
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
     @patch("tracker.integrations.tmdb.get_full_details")
@@ -18479,12 +18510,13 @@ class TitleDetailViewTests(TestCase):
     def test_watch_trailer_button_shown_when_a_trailer_exists(self, mock_trailer, mock_details, mock_credits, mock_similar):
         mock_trailer.return_value = {"key": "abc123", "name": "Official Trailer"}
         mock_details.return_value = self._details()
-        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        resp = self.client.get(reverse("title_extras", args=[self.title.pk]))
         self.assertContains(resp, "<span>Trailer</span>")
         self.assertContains(resp, f"openTrailerModal('trailer-modal-{self.title.pk}', this)")
         self.assertEqual(resp.context["trailer_videos_json"], '[{"key": "abc123", "name": "Official Trailer", "kind": "Trailer"}]')
         self.assertContains(resp, 'class="trailer-modal"')
-        self.assertContains(resp, "youtube-nocookie.com/embed/")  # in the player script (base.html)
+        page = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        self.assertContains(page, "youtube-nocookie.com/embed/")  # in the player script (base.html), on the page itself
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
     @patch("tracker.integrations.tmdb.get_credits", return_value=[])
@@ -18492,7 +18524,7 @@ class TitleDetailViewTests(TestCase):
     def test_watch_trailer_button_hidden_when_no_trailer(self, mock_details, mock_credits, mock_similar):
         # get_trailer defaults to None via setUp's own unconditional mock.
         mock_details.return_value = self._details()
-        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        resp = self.client.get(reverse("title_extras", args=[self.title.pk]))
         self.assertNotContains(resp, "<span>Trailer</span>")
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
@@ -18509,7 +18541,7 @@ class TitleDetailViewTests(TestCase):
             {"url": "https://image.tmdb.org/t/p/w1280/b.jpg", "thumbnail_url": "https://image.tmdb.org/t/p/w300/b.jpg"},
         ]
         mock_details.return_value = self._details()
-        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        resp = self.client.get(reverse("title_extras", args=[self.title.pk]))
         self.assertContains(resp, '<h2 class="section-title">Media</h2>')
         self.assertContains(resp, "https://img.youtube.com/vi/abc123/hqdefault.jpg")
         self.assertContains(resp, "https://image.tmdb.org/t/p/w300/a.jpg")
@@ -18523,7 +18555,7 @@ class TitleDetailViewTests(TestCase):
     def test_media_gallery_absent_when_nothing_available(self, mock_details, mock_credits, mock_similar):
         # get_trailer/get_backdrops both default to empty via setUp.
         mock_details.return_value = self._details()
-        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        resp = self.client.get(reverse("title_extras", args=[self.title.pk]))
         self.assertNotContains(resp, '<h2 class="section-title">Media</h2>')
         self.assertNotContains(resp, "gallery-image-urls")
 
@@ -18541,7 +18573,7 @@ class TitleDetailViewTests(TestCase):
             for i in range(6)
         ]
         mock_details.return_value = self._details()
-        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        resp = self.client.get(reverse("title_extras", args=[self.title.pk]))
         self.assertContains(resp, ">+1<")
 
     def test_header_shows_mark_as_watched_before_any_plain_watch(self):
@@ -18723,7 +18755,7 @@ class TitleDetailViewTests(TestCase):
             "id": 131292, "name": "Iron Man Collection", "overview": "", "poster_url": None,
             "backdrop_url": None, "parts": self._collection_parts(),
         }
-        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        resp = self.client.get(reverse("title_extras", args=[self.title.pk]))
         self.assertContains(resp, '<h2 class="section-title">Collection</h2>')
         self.assertContains(resp, "Iron Man 3")
         mock_collection.assert_called_once_with(131292)
@@ -18742,7 +18774,7 @@ class TitleDetailViewTests(TestCase):
             "id": 131292, "name": "Iron Man Collection", "overview": "", "poster_url": None,
             "backdrop_url": None, "parts": self._collection_parts(),
         }
-        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        resp = self.client.get(reverse("title_extras", args=[self.title.pk]))
         self.assertEqual([p["tmdb_id"] for p in resp.context["collection_parts"]], [1726, 42, 10138])
 
     @patch("tracker.integrations.tmdb.get_similar", return_value=[])
@@ -18752,7 +18784,7 @@ class TitleDetailViewTests(TestCase):
         # collection_id=None short-circuits before ever calling
         # get_collection_details - no mock needed to prove no HTTP call.
         mock_details.return_value = self._details(collection_id=None)
-        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        resp = self.client.get(reverse("title_extras", args=[self.title.pk]))
         self.assertEqual(resp.context["collection_parts"], [])
         self.assertNotContains(resp, '<h2 class="section-title">Collection</h2>')
 
@@ -24839,7 +24871,7 @@ class TitleDetailCastRowPersonLinksTests(TestCase):
         mock_credits.return_value = [
             {"name": "Actor One", "character": "Hero", "profile_url": None, "tmdb_person_id": 501},
         ]
-        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        resp = self.client.get(reverse("title_extras", args=[self.title.pk]))
         self.assertContains(resp, reverse("person_detail", args=[501]))
 
     @patch("tracker.integrations.tmdb.get_directors", return_value=[])
@@ -24848,7 +24880,7 @@ class TitleDetailCastRowPersonLinksTests(TestCase):
         mock_credits.return_value = [
             {"name": "Actor One", "character": "Hero", "profile_url": None, "tmdb_person_id": None},
         ]
-        resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+        resp = self.client.get(reverse("title_extras", args=[self.title.pk]))
         self.assertContains(resp, "Actor One")
         self.assertNotContains(resp, "/person/None/")
 
@@ -24858,7 +24890,7 @@ class TitleDetailCastRowPersonLinksTests(TestCase):
             "tracker.integrations.tmdb.get_directors",
             return_value=[{"name": "Director Person", "profile_url": None, "tmdb_person_id": 602}],
         ):
-            resp = self.client.get(reverse("title_detail", args=[self.title.pk]))
+            resp = self.client.get(reverse("title_extras", args=[self.title.pk]))
         self.assertContains(resp, reverse("person_detail", args=[602]))
 
 
@@ -24874,7 +24906,7 @@ class TitleDetailCastRowPersonLinksTests(TestCase):
                 {"name": "Director Beta", "profile_url": None, "tmdb_person_id": 602},
             ],
         ):
-            html = self.client.get(reverse("title_detail", args=[self.title.pk])).content.decode()
+            html = self.client.get(reverse("title_extras", args=[self.title.pk])).content.decode()
         alpha, beta = html.index("Director Alpha"), html.index("Director Beta")
         divider = html.index('role="separator"')
         actor = html.index("Actor One")

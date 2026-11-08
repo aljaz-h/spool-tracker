@@ -1,0 +1,33 @@
+{% comment %}
+  context: collection_parts, details, pending, oob, my_lists plus selectors.discover_action_context()'s keys. The Overview's Collection row (a movie's franchise). The wrapper carries the .section spacing (and is hidden when there is nothing to show) so it still sits right next to the other sections.
+{% endcomment %}
+{% if pending %}
+  {% if details.collection_id %}
+    <div id="tl-collection" class="section" {% if oob %}hx-swap-oob="true"{% endif %}>
+      <section x-show="!extrasFailed" role="status" aria-busy="true">
+        <span class="sr-only">Loading the collection</span>
+        <div class="section-head"><h2 class="section-title">Collection</h2></div>
+        <div class="media-row media-row-sm" aria-hidden="true">
+          {% for _ in "abcdefgh" %}
+            <div class="min-w-0"><div class="skel aspect-[2/3] w-full"></div><div class="skel skel-line mt-2.5 w-3/4 !h-[14px]"></div><div class="skel skel-line mt-1.5 w-1/2 !h-[12px]"></div></div>
+          {% endfor %}
+        </div>
+      </section>
+    </div>
+  {% else %}
+    <div id="tl-collection" hidden {% if oob %}hx-swap-oob="true"{% endif %}></div>
+  {% endif %}
+{% elif collection_parts %}
+  <div id="tl-collection" class="section" {% if oob %}hx-swap-oob="true"{% endif %}>
+    <section>
+      <div class="section-head"><h2 class="section-title">Collection</h2></div>
+      <div class="media-row media-row-sm">
+        {% for item in collection_parts %}
+          {% include "tracker/partials/discover_tile.html" with item=item %}
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+{% else %}
+  <div id="tl-collection" hidden {% if oob %}hx-swap-oob="true"{% endif %}></div>
+{% endif %}

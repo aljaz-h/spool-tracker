@@ -1684,6 +1684,11 @@ def title_detail(request, pk):
     watch_providers = []
     episode_context = {"seasons": [], "season": None, "episodes": [], "season_avg_rating": None, "season_ratings": {}}
     media_gallery_context = {"trailer": None, "gallery_items": [], "gallery_image_urls": []}
+    # Cast and directors, similar titles, where to watch, the trailer and
+    # media gallery, and the collection are not built here: the page goes out
+    # with skeletons for them and views.title_extras fills them in right after
+    # (one request, run the same way these used to be - see its docstring).
+    lazy_blocks = bool(tmdb_id)
     if tmdb_id:
         tmdb_media_type = tmdb.media_type_for(title)
         details = tmdb.get_full_details(tmdb_media_type, tmdb_id)
@@ -1714,22 +1719,10 @@ def title_detail(request, pk):
         # multiple threads/connections at once errors ("database table is
         # locked"), confirmed while first building this.
         api_key = instance_config.get_tmdb_api_key()
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            cast_future = executor.submit(tmdb.get_credits, tmdb_media_type, tmdb_id, api_key=api_key)
-            similar_future = executor.submit(tmdb.get_similar, tmdb_media_type, tmdb_id, api_key=api_key)
-            watch_providers_future = executor.submit(
-                tmdb.get_watch_providers, tmdb_media_type, tmdb_id, api_key=api_key
-            )
-            cast = cast_future.result()
-            similar = similar_future.result()
-            watch_providers = watch_providers_future.result()
-        directors = tmdb.get_directors(tmdb_media_type, tmdb_id)
-        director = directors[0] if directors else None
         episode_context = _episode_panel_context(request, profile, title, tmdb_id, details)
-        media_gallery_context = _media_gallery_context(title, tmdb_media_type, tmdb_id, api_key=api_key)
 
     local_context = selectors.title_local_context(profile, title)
-    collection_context = _collection_context(details) if tmdb_id else {"collection_name": None, "collection_parts": []}
+    collection_context = {"collection_name": None, "collection_parts": []}
     fanart_images = _fanart_context(title)
     context = {
         "profile": profile,
@@ -1741,6 +1734,7 @@ def title_detail(request, pk):
         "director": director,
         "directors": directors or [],
         "watch_providers": watch_providers,
+        "lazy_blocks": lazy_blocks,
         "status_badge": tmdb.status_badge(details["status"]) if details else None,
         "release_info": _release_info(details),
         "tmdb_pill": _tmdb_pill(details),
@@ -1756,9 +1750,6 @@ def title_detail(request, pk):
         **collection_context,
         **media_gallery_context,
     }
-    discover_items = (similar or []) + collection_context["collection_parts"]
-    if profile is not None and discover_items:
-        context.update(selectors.discover_action_context(profile, discover_items))
     context["star_fill"] = _star_fill(context["latest_rating"])
     context["show_progress"] = show_progress.build(profile, title, details) if profile else None
     # The rating popup under the poster stays open after one of its own
@@ -1768,6 +1759,67 @@ def title_detail(request, pk):
         _season_rating_rows(profile, title, context.get("season_cards") or []) if profile else []
     )
     return render(request, "tracker/title_detail.html", context)
+
+
+@login_required
+def title_extras(request, pk):
+    """The slow, TMDB-backed blocks of a tracked title's page, loaded right
+    after the page itself (title_detail ships skeletons for them): cast and
+    directors, similar titles, where to watch, the trailer and media gallery,
+    and the collection. One response of out-of-band swaps, each landing in
+    its own placeholder (templates/tracker/partials/title_x_*.html).
+
+    Runs exactly the way title_detail used to build them: the three
+    independent TMDB reads (credits, similar, providers) concurrently in
+    network-only worker threads with the API key resolved up front, while
+    everything that can touch the database (the directors read, the
+    gallery - an anime's MAL lookup can write a resolved id back to the
+    Title - and the watched/list state for the tiles) stays on this
+    request's own thread. Nothing here changes who can see what: a title
+    page is open to any signed-in profile, and so is this."""
+    title = get_object_or_404(Title, pk=pk)
+    profile = Profile.objects.filter(user=request.user).first()
+    tmdb_id = title.external_ids.get("tmdb")
+    if not tmdb_id:
+        raise Http404
+    tmdb_media_type = tmdb.media_type_for(title)
+    details = tmdb.get_full_details(tmdb_media_type, tmdb_id)
+    api_key = instance_config.get_tmdb_api_key()
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        cast_future = executor.submit(tmdb.get_credits, tmdb_media_type, tmdb_id, api_key=api_key)
+        similar_future = executor.submit(tmdb.get_similar, tmdb_media_type, tmdb_id, api_key=api_key)
+        watch_providers_future = executor.submit(tmdb.get_watch_providers, tmdb_media_type, tmdb_id, api_key=api_key)
+        cast = cast_future.result()
+        similar = similar_future.result()
+        watch_providers = watch_providers_future.result()
+    directors = tmdb.get_directors(tmdb_media_type, tmdb_id)
+    media_gallery_context = _media_gallery_context(title, tmdb_media_type, tmdb_id, api_key=api_key)
+    collection_context = _collection_context(details)
+    # The dialog's name and poster come from the same place the hero's do;
+    # only what is already cached (never queues a Fanart fetch - the page did).
+    fanart_cache = TitleFanartCache.objects.filter(title=title).first()
+    fanart_images = {"clearlogo_url": fanart_cache.clearlogo_url or None, "backdrop_url": fanart_cache.backdrop_url or None} if fanart_cache else {}
+    context = {
+        "profile": profile,
+        "title": title,
+        "poster_seed": title.pk,
+        "details": details,
+        "cast": cast or [],
+        "similar": similar or [],
+        "directors": directors or [],
+        "watch_providers": watch_providers,
+        "status_badge": tmdb.status_badge(details["status"]) if details else None,
+        "oob": True,
+        "pending": False,
+        "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
+        **_title_display(title, details, fanart_images),
+        **media_gallery_context,
+        **collection_context,
+    }
+    discover_items = (similar or []) + collection_context["collection_parts"]
+    if profile is not None and discover_items:
+        context.update(selectors.discover_action_context(profile, discover_items))
+    return render(request, "tracker/partials/title_extras.html", context)
 
 
 @login_required

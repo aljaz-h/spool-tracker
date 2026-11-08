@@ -8,6 +8,24 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.187.0] - 2026-11-08
+
+### Changed
+- A tracked title's page now goes out with its header, poster, synopsis and
+  your own watch state straight away, and loads the slow TMDB-backed parts
+  right after behind skeletons of the same size: the cast and director(s)
+  (hero row, "Directed by" and the Cast & Crew tab), the trailer and media
+  gallery, the collection, where to watch and similar titles. They arrive in
+  one request (`/titles/<id>/extras/`, signed-in profiles only, like the page
+  itself); if it fails, each placeholder says what couldn't load with a Try
+  again button. Pages for titles not yet tracked (the preview page) are
+  unchanged. Fan art was already filled in from a background fetch, so it
+  is untouched.
+
+### Fixed
+- "Directed by" no longer shows a stray space before the comma between two
+  directors.
+
 ## [0.186.0] - 2026-11-08
 
 ### Changed

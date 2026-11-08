@@ -1,0 +1,103 @@
+{% load tracker_extras icons %}
+{% comment %}
+  context: gallery_items, gallery_image_urls, poster_seed, pending, oob. The Overview's "Media" section: the trailer tile, then backdrop stills with a lightbox.
+{% endcomment %}
+{% if pending %}
+  <div id="tl-gallery" class="section" {% if oob %}hx-swap-oob="true"{% endif %}>
+    <section x-show="!extrasFailed" role="status" aria-busy="true">
+      <span class="sr-only">Loading the media gallery</span>
+      <div class="section-head"><h2 class="section-title">Media</h2></div>
+      <div class="flex gap-3 overflow-hidden pb-2" aria-hidden="true">
+        {% for _ in "abcd" %}<div class="skel w-44 sm:w-60 aspect-video flex-none rounded-lg"></div>{% endfor %}
+      </div>
+    </section>
+    <div x-show="extrasFailed" x-cloak role="alert">
+      <p class="text-sm text-ink-dim">Couldn't load the trailer, stills, cast and collection.</p>
+      <button type="button" class="btn btn-soft min-h-11 mt-2" @click="extrasFailed = false; htmx.trigger('#tl-loader', 'retry')">Try again</button>
+    </div>
+  </div>
+{% elif gallery_items %}
+  <div id="tl-gallery" class="section" {% if oob %}hx-swap-oob="true"{% endif %}>
+            {% comment %}
+      json_script (not a template-side |escapejs chain) for the
+      lightbox's own image list - only ever one of these per page
+      render (this section doesn't repeat), so a fixed element id is
+      fine. The trailer tile (if any) is always gallery_items[0] but
+      isn't in this list at all - its own onclick opens the trailer
+      <dialog> above directly, never the lightbox.
+    {% endcomment %}
+    {{ gallery_image_urls|json_script:"gallery-image-urls" }}
+    <section>
+    <div class="section-head"><h2 class="section-title">Media</h2></div>
+    <div
+      class="relative"
+      x-data="{
+        showAll: false,
+        images: JSON.parse(document.getElementById('gallery-image-urls').textContent),
+        currentIndex: 0,
+        openLightbox(i) {
+          this.currentIndex = i;
+          this.$refs.lightboxImg.src = this.images[i];
+          this.$refs.lightbox.showModal();
+        },
+        step(dir) {
+          this.currentIndex = (this.currentIndex + dir + this.images.length) % this.images.length;
+          this.$refs.lightboxImg.src = this.images[this.currentIndex];
+        },
+      }"
+    >
+      <div class="flex gap-3 overflow-x-auto scroll-row pb-2">
+        {% for item in gallery_items %}
+          <button
+            type="button"
+            {% if forloop.counter0 >= 5 %}x-show="showAll" x-cloak{% endif %}
+            {% if item.kind == "trailer" %}
+              onclick="openTrailerModal('trailer-modal-{{ poster_seed }}', this)"
+            {% else %}
+              @click="openLightbox({{ item.index }})"
+            {% endif %}
+            class="relative w-44 sm:w-60 aspect-video flex-none rounded-lg overflow-hidden bg-base-300 group"
+          >
+            <img src="{{ item.thumbnail_url }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover group-hover:brightness-110">
+            {% if item.kind == "trailer" %}
+              <span class="absolute inset-0 bg-black/30 flex items-center justify-center group-hover:bg-black/50 transition-colors">
+                <span class="w-11 h-11 rounded-full bg-black/70 ring-1 ring-white/30 flex items-center justify-center text-white">
+                  {% icon "play" "w-4 h-4 ml-0.5" %}
+                </span>
+              </span>
+            {% endif %}
+          </button>
+        {% endfor %}
+        {% if gallery_items|length > 5 %}
+          <button
+            type="button"
+            x-show="!showAll"
+            @click="showAll = true"
+            class="w-44 sm:w-60 aspect-video flex-none rounded-lg bg-base-200 flex items-center justify-center text-sm font-medium text-ink-dim hover:text-base-content hover:bg-base-300"
+          >+{{ gallery_items|length|add:"-5" }}</button>
+        {% endif %}
+      </div>
+
+      {% comment %}
+        The lightbox - one per page (like the trailer dialog above),
+        reused across every still tile. @close clears the <img> src
+        so a large image isn't left decoded in memory/re-shown stale
+        for a half-second the next time this same dialog opens.
+      {% endcomment %}
+      <dialog x-ref="lightbox" class="modal" @close="$refs.lightboxImg.src = ''">
+        <div class="modal-box max-w-5xl bg-base-200 p-2">
+          <form method="dialog"><button class="btn btn-xs btn-circle btn-ghost absolute right-1.5 top-1.5 z-10 bg-base-300/90">✕</button></form>
+          <img x-ref="lightboxImg" src="" alt="" class="w-full h-auto rounded-lg">
+          {% if gallery_image_urls|length > 1 %}
+            <button type="button" @click="step(-1)" aria-label="Previous image" class="btn btn-sm btn-circle absolute left-2 top-1/2 -translate-y-1/2 bg-base-300/90">{% icon "chevron-left" "w-4 h-4" %}</button>
+            <button type="button" @click="step(1)" aria-label="Next image" class="btn btn-sm btn-circle absolute right-2 top-1/2 -translate-y-1/2 bg-base-300/90">{% icon "chevron-right" "w-4 h-4" %}</button>
+          {% endif %}
+        </div>
+        <form method="dialog" class="modal-backdrop bg-black/80"><button>close</button></form>
+      </dialog>
+    </div>
+    </section>
+  </div>
+{% else %}
+  <div id="tl-gallery" hidden {% if oob %}hx-swap-oob="true"{% endif %}></div>
+{% endif %}

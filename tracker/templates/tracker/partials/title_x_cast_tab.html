@@ -1,0 +1,4 @@
+{% comment %}
+  context: cast, directors, pending, oob. The "Cast & Crew" tab button; absent until the credits are known, and when there are none. display:contents wrapper so the button stays a flex item of the tab bar.
+{% endcomment %}
+<span id="tl-cast-tab" class="contents" {% if oob %}hx-swap-oob="true"{% endif %}>{% if cast or directors %}<button type="button" role="tab" class="tab-line" :class="tab === 'cast' && 'is-active'" :aria-selected="(tab === 'cast').toString()" @click="go('cast')">Cast &amp; Crew</button>{% endif %}</span>

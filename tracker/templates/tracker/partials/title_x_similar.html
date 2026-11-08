@@ -1,0 +1,29 @@
+{% comment %}
+  context: similar, pending, oob, my_lists plus selectors.discover_action_context()'s keys. The rail's "More Like This" grid (display:contents wrapper: the section stays a flex item of the rail).
+{% endcomment %}
+<div id="tl-similar" class="contents" {% if oob %}hx-swap-oob="true"{% endif %}>
+{% if pending %}
+  <section>
+    <h2 class="subhead">More Like This</h2>
+    <div x-show="!extrasFailed" role="status" aria-busy="true" class="grid grid-cols-2 gap-x-3 gap-y-5">
+      <span class="sr-only">Loading similar titles</span>
+      {% for _ in "abcd" %}
+        <div class="min-w-0" aria-hidden="true"><div class="skel aspect-[2/3] w-full"></div><div class="skel skel-line mt-2.5 w-3/4 !h-[14px]"></div><div class="skel skel-line mt-1.5 w-1/2 !h-[12px]"></div></div>
+      {% endfor %}
+    </div>
+    <div x-show="extrasFailed" x-cloak role="alert">
+        <p class="text-sm text-ink-dim">Couldn't load where to watch and similar titles.</p>
+        <button type="button" class="btn btn-soft min-h-11 mt-2" @click="extrasFailed = false; htmx.trigger('#tl-loader', 'retry')">Try again</button>
+      </div>
+  </section>
+{% elif similar %}
+  <section>
+    <h2 class="subhead">More Like This</h2>
+    <div class="grid grid-cols-2 gap-x-3 gap-y-5">
+      {% for item in similar|slice:":4" %}
+        {% include "tracker/partials/discover_tile.html" with item=item width_class="min-w-0" %}
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
+</div>

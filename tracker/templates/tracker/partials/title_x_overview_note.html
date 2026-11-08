@@ -1,0 +1,8 @@
+{% comment %}
+  context: gallery_items, collection_parts, status_badge, details, pending, oob. "TMDB doesn't have trailers, stills or details" - only once the gallery and collection are known to be empty too.
+{% endcomment %}
+<div id="tl-overview-note" {% if oob %}hx-swap-oob="true"{% endif %}>
+{% if not pending and not gallery_items and not collection_parts and not status_badge and not details.original_language_display and not details.digital_release_date and not details.budget and not details.revenue and not details.production_companies and not details.countries_display %}
+  <p class="text-sm text-ink-dim">TMDB doesn't have trailers, stills or details for this one yet.</p>
+{% endif %}
+</div>

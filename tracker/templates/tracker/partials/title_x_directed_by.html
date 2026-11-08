@@ -1,0 +1,4 @@
+{% comment %}
+  context: directors, pending (True while the page is waiting for them), oob (True when views.title_extras sends it back as an out-of-band swap). The "Directed by" fact in the hero's fact row. The wrapper is display:contents so the fact stays a flex item of .hero-facts.
+{% endcomment %}
+<span id="tl-directed-by" class="contents" {% if oob %}hx-swap-oob="true"{% endif %}>{% if pending %}<span class="hero-fact" x-show="!extrasFailed" aria-hidden="true"><span class="skel skel-line w-32 !h-[13px] align-middle"></span></span>{% elif directors %}<span class="hero-fact"><span class="hero-label">Directed by</span><span>{% for d in directors %}{% if d.tmdb_person_id %}<a href="{% url 'person_detail' d.tmdb_person_id %}" class="hover:text-primary">{{ d.name }}</a>{% else %}{{ d.name }}{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}</span></span>{% endif %}</span>

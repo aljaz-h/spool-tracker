@@ -17,6 +17,7 @@ urlpatterns = [
     path("movies/collections/<int:collection_id>/", views.collection_detail, name="collection_detail"),
     path("search/", views.search, name="search"),
     path("titles/<int:pk>/", views.title_detail, name="title_detail"),
+    path("titles/<int:pk>/extras/", views.title_extras, name="title_extras"),
     path("titles/<int:pk>/episodes/", views.title_episodes, name="title_episodes"),
     path("titles/<int:pk>/mark-watched/", views.title_mark_watched, name="title_mark_watched"),
     path("titles/<int:pk>/unmark-watched/", views.title_unmark_watched, name="title_unmark_watched"),

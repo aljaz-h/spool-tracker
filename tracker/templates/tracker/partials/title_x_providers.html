@@ -1,0 +1,33 @@
+{% load tracker_extras %}
+{% comment %}
+  context: watch_providers, pending, oob. The rail's "Where to watch" list (display:contents wrapper: the section stays a flex item of the rail).
+{% endcomment %}
+<div id="tl-providers" class="contents" {% if oob %}hx-swap-oob="true"{% endif %}>
+{% if pending %}
+  <section x-show="!extrasFailed" role="status" aria-busy="true">
+    <span class="sr-only">Loading where to watch</span>
+    <h2 class="subhead mb-2.5">Where to watch</h2>
+    <div class="flex flex-col gap-2" aria-hidden="true">
+      {% for _ in "abc" %}
+        <div class="flex items-center gap-2.5"><div class="skel w-7 h-7 rounded-md flex-none"></div><div class="skel skel-line w-28 !h-[14px]"></div></div>
+      {% endfor %}
+    </div>
+  </section>
+{% elif watch_providers %}
+  <section>
+    <h2 class="subhead mb-2.5">Where to watch</h2>
+    <div class="flex flex-col gap-2">
+      {% for p in watch_providers %}
+        <div class="flex items-center gap-2.5">
+          {% if p.logo_url %}
+            <div class="w-7 h-7 rounded-md bg-cover bg-center flex-none" style="background-image:url('{{ p.logo_url|tmdb_size:'w92' }}')"></div>
+          {% else %}
+            <div class="w-7 h-7 rounded-md bg-base-300 flex-none"></div>
+          {% endif %}
+          <span class="text-[13.5px]">{{ p.name }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
+</div>

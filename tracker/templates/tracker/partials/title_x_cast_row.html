@@ -1,0 +1,39 @@
+{% comment %}
+  context: cast, directors, pending, oob. The hero's main cast row: the director(s) lead, a vertical rule, then the cast; the full list is under the Cast & Crew tab.
+{% endcomment %}
+<div id="tl-cast-row" {% if oob %}hx-swap-oob="true"{% endif %}>
+{% if pending %}
+  <div class="mt-7">
+    <div x-show="!extrasFailed" role="status" aria-busy="true">
+      <span class="sr-only">Loading the cast</span>
+      <div class="skel skel-line w-32 !h-[12px] mb-2.5"></div>
+      <div class="flex gap-3 overflow-hidden pb-2" aria-hidden="true">
+        {% for _ in "abcdefgh" %}
+          <div class="w-[92px] lg:w-[100px] flex-none">
+            <div class="skel aspect-[3/4] rounded-lg"></div>
+            <div class="skel skel-line mt-2 mx-auto w-4/5 !h-[13px]"></div>
+            <div class="skel skel-line mt-1.5 mx-auto w-3/5 !h-[12px]"></div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div x-show="extrasFailed" x-cloak role="alert">
+        <p class="text-sm text-ink-dim">Couldn't load the cast.</p>
+        <button type="button" class="btn btn-soft min-h-11 mt-2" @click="extrasFailed = false; htmx.trigger('#tl-loader', 'retry')">Try again</button>
+      </div>
+  </div>
+{% elif cast or directors %}
+  <div class="mt-7">
+    <div class="hero-label mb-2.5">{% if directors %}Director{{ directors|pluralize }} &amp; main cast{% else %}Main cast{% endif %}</div>
+    <div class="flex gap-3 overflow-x-auto scroll-row pb-2">
+      {% for d in directors %}
+        {% include "tracker/partials/title_person.html" with person=d role="Director" %}
+      {% endfor %}
+      {% if directors and cast %}<div class="self-stretch w-px flex-none bg-white/20 mx-1" role="separator" aria-orientation="vertical"></div>{% endif %}
+      {% for actor in cast|slice:":10" %}
+        {% include "tracker/partials/title_person.html" with person=actor role=actor.character %}
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
+</div>

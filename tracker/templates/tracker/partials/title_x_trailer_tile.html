@@ -1,0 +1,13 @@
+{% comment %}
+  context: trailer, poster_seed, pending, oob. The hero's Trailer action tile (display:contents wrapper: the tile stays a flex item of the action row).
+{% endcomment %}
+{% load icons %}
+<div id="tl-trailer-tile" class="contents" {% if oob %}hx-swap-oob="true"{% endif %}>
+{% if pending %}
+  <div class="flex-1 min-w-0" x-show="!extrasFailed" aria-hidden="true"><div class="skel w-full h-full min-h-[3.25rem] rounded-lg"></div></div>
+{% elif trailer %}
+  <div class="flex-1 min-w-0">
+    <button type="button" onclick="openTrailerModal('trailer-modal-{{ poster_seed }}', this)" class="atile">{% icon "play" %}<span>Trailer</span></button>
+  </div>
+{% endif %}
+</div>
