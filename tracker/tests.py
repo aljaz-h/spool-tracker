@@ -20264,7 +20264,7 @@ class AnimeMalDetailContextTests(TestCase):
             {"key": "tmdb-teaser", "name": "Teaser", "kind": "Teaser"},
         ]}
         with patch("tracker.integrations.tmdb.get_trailer", return_value=tmdb_trailer):
-            resp = self.client.get(reverse("title_detail", args=[self.anime.pk]))
+            resp = self.client.get(reverse("title_extras", args=[self.anime.pk]))
         # MAL's trailer plays first; TMDB is only consulted for the "More videos" extras
         keys = [v["key"] for v in json.loads(resp.context["trailer_videos_json"])]
         self.assertEqual(keys, ["mal-trailer", "tmdb-trailer", "tmdb-teaser"])
@@ -20284,7 +20284,7 @@ class AnimeMalDetailContextTests(TestCase):
         mock_find_match.return_value = {"mal_id": 269}
         mock_mal_details.return_value = self._mal_details()  # no trailer_youtube_id key at all
         with patch("tracker.integrations.tmdb.get_trailer", return_value={"key": "tmdb-trailer", "name": ""}):
-            resp = self.client.get(reverse("title_detail", args=[self.anime.pk]))
+            resp = self.client.get(reverse("title_extras", args=[self.anime.pk]))
         self.assertEqual([v["key"] for v in json.loads(resp.context["trailer_videos_json"])], ["tmdb-trailer"])
 
     @patch("tracker.integrations.tenrai.get_episode_filler_map", return_value={})
@@ -35614,8 +35614,14 @@ class TitleTilesLayoutTests(TitleTilesBase):
     def test_the_tiles_run_in_order_status_list_rating_trailer(self):
         self.trailer = {"key": "abc", "name": "Official"}
         body = self.get(self.movie)
-        order = [body.index(x) for x in ("<span>Track</span>", "<span>Add to list</span>", "<span>Rate</span>", "<span>Trailer</span>")]
+        # The Trailer tile arrives with the lazy blocks: its slot is where it will land, after the other three.
+        order = [body.index(x) for x in ("<span>Track</span>", "<span>Add to list</span>", "<span>Rate</span>", 'id="tl-trailer-tile"')]
         self.assertEqual(order, sorted(order))
+        with patch("tracker.integrations.tmdb.get_full_details", return_value=self.details("movie")), patch(
+            "tracker.views._media_gallery_context", return_value={"trailer": self.trailer, "gallery_items": [], "gallery_image_urls": []}
+        ):
+            extras = self.client.get(reverse("title_extras", args=[self.movie.pk])).content.decode()
+        self.assertIn("<span>Trailer</span>", extras)
 
 
 class TitleStatusTileTests(TitleTilesBase):
