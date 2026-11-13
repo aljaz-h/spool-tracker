@@ -8,6 +8,24 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.189.0] - 2026-11-13
+
+### Changed
+- Movies, TV shows and Anime now open with their heading, tabs and Filters
+  straight away and load the two slow parts right after, behind placeholders
+  of the same size: the full-width hero (its title and blurb already in place)
+  and the poster grid with its pagination. Both come from the same page with
+  your filters carried over (`?_part=hero` / `?_part=grid`); if one fails
+  there is a Try again button, and a hero with nothing to show falls back to
+  the plain heading. Nothing about what is listed, the Display preference or
+  caching changed.
+- Stats loads the Watch Activity heatmap and the Your Top Genres card after
+  the rest of the page, behind skeleton charts, from their existing endpoints
+  (the genre card keeps the page's By items / By watch time and type choice).
+- Calendar opens with its tabs, filters and month switcher at once and fetches
+  the Releases month grid and agenda behind a skeleton month with the right
+  number of week rows; changing the month or a filter works as before.
+
 ## [0.188.0] - 2026-11-08
 
 ### Changed

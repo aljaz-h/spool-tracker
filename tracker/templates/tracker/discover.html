@@ -4,81 +4,38 @@
 {% block content %}
 
 <div>
-  {% if not hero_items %}
-  <div class="page-head !mb-6">
-    <div>
-      <h1 class="page-title">{{ page_title }}</h1>
-      <p class="page-subtitle">{% if is_collections %}Explore movie franchises.{% else %}{{ page_blurb }}{% endif %}</p>
-    </div>
-  </div>
-  {% endif %}
-
-  {% if hero_items %}
+{% if hero_lazy %}
     {% comment %}
-      The most popular titles for this page's type, rotating every 6 seconds
-      (also with reduced motion, by choice). Text sits on a
-      left-to-right dark gradient over the TMDB backdrop.
+      The hero arrives after the page: this holds its exact room (same height, same full-bleed
+      band, the page title and blurb already in place) until partials/discover_hero.html
+      replaces it. If the request fails, the plain heading and a Try again button.
     {% endcomment %}
-    <section
-      class="discover-hero bleed -mt-6 sm:-mt-8 lg:-mt-10 mb-8"
-      aria-roledescription="carousel" aria-label="Trending now"
-      x-data="{
-        i: 0, n: {{ hero_items|length }}, timer: null,
-        go(k) { this.i = k; this.restart(); },
-        destroy() { clearInterval(this.timer); },
-        restart() {
-          clearInterval(this.timer);
-          if (this.n < 2) return;
-          this.timer = setInterval(() => { this.i = (this.i + 1) % this.n; }, 6000);
-        },
-      }"
-      x-init="restart()"
-      @mouseenter="clearInterval(timer)" @mouseleave="restart()" @focusin="clearInterval(timer)" @focusout="restart()"
+    <div
+      x-data="{ failed: false }"
+      hx-get="{{ hero_url }}" hx-trigger="load, retry" hx-swap="outerHTML"
+      @htmx:before-request="failed = false" @htmx:response-error="failed = true" @htmx:send-error="failed = true"
     >
-      {# Page title + blurb sit top-left over every slide #}
-      <div class="discover-hero-head page">
-        <h1 class="page-title">{{ page_title }}</h1>
-        <p class="page-subtitle">{{ page_blurb }}</p>
-      </div>
-      {% for h in hero_items %}
-        {% url 'title_preview' type_key h.tmdb_id as hero_url %}
-        <div class="discover-hero-slide" style="background-image: url('{{ h.backdrop_url }}')" {% if forloop.first %}data-active{% endif %} :data-active="i === {{ forloop.counter0 }} ? '' : null" :aria-hidden="i !== {{ forloop.counter0 }}">
-          <div class="discover-hero-body page">
-            <p class="text-xs font-semibold text-ink-dim mb-2">#{{ forloop.counter }} trending this week</p>
-            <h2 class="font-display text-3xl sm:text-5xl font-bold leading-[1.05] tracking-tight">{{ h.name }}</h2>
-            <p class="meta meta-sm mt-3 !text-[13px]">
-              <span class="inline-flex items-center gap-1.5"><span class="type-dot {{ type_key|media_dot_class }}"></span>{{ type_key|media_label }}</span>
-              {% if h.year %}<span>{{ h.year }}</span>{% endif %}
-              {% if h.vote_average %}<span><span class="text-primary">&#9733;</span> {{ h.vote_average|floatformat:1 }}</span>{% endif %}
-              {% if h.genre_name %}<span>{{ h.genre_name }}</span>{% endif %}
-              {% if h.runtime_minutes %}<span>{{ h.runtime_minutes|runtime_hm }}</span>{% endif %}
-              {% if type_key == "tv" and h.seasons %}<span>{{ h.seasons }} season{{ h.seasons|pluralize }}</span>{% endif %}
-              {% if type_key == "anime" and h.episodes %}<span>{{ h.episodes }} episodes</span>{% endif %}
-            </p>
-            {% if h.overview %}<p class="mt-3 text-[15px] sm:text-base text-[#d3d6de] max-w-2xl line-clamp-3">{{ h.overview }}</p>{% endif %}
-            {% if h.credit_people %}
-              <p class="mt-3 text-[14px] text-ink-dim">{{ h.credit_label }}
-                {% for d in h.credit_people %}{% if d.tmdb_person_id %}<a href="{% url 'person_detail' d.tmdb_person_id %}" class="font-medium text-base-content hover:text-primary" :tabindex="i === {{ forloop.parentloop.counter0 }} ? 0 : -1">{{ d.name }}</a>{% else %}<span class="font-medium text-base-content">{{ d.name }}</span>{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}
-              </p>
-            {% endif %}
-            <div class="mt-5 flex flex-wrap items-center gap-2">
-              <a href="{{ hero_url }}" class="btn btn-primary min-h-11" :tabindex="i === {{ forloop.counter0 }} ? 0 : -1">View details</a>
-              <a href="{{ hero_url }}" class="btn btn-soft min-h-11" :tabindex="i === {{ forloop.counter0 }} ? 0 : -1">Add to list</a>
-              {% if h.trailer_key %}
-                <a href="https://www.youtube.com/watch?v={{ h.trailer_key }}" target="_blank" rel="noopener noreferrer" class="btn btn-soft min-h-11" :tabindex="i === {{ forloop.counter0 }} ? 0 : -1">Trailer</a>
-              {% endif %}
-            </div>
+      <section x-show="!failed" class="discover-hero bleed -mt-6 sm:-mt-8 lg:-mt-10 mb-8" role="status" aria-busy="true">
+        <span class="sr-only">Loading trending titles</span>
+        <div class="skel absolute inset-0 !rounded-none" aria-hidden="true"></div>
+        <div class="discover-hero-head page">
+          <h1 class="page-title">{{ page_title }}</h1>
+          <p class="page-subtitle">{{ page_blurb }}</p>
+        </div>
+      </section>
+      <div x-show="failed" x-cloak role="alert" class="mb-6">
+        <div class="page-head !mb-3">
+          <div>
+            <h1 class="page-title">{{ page_title }}</h1>
+            <p class="page-subtitle">{{ page_blurb }}</p>
           </div>
         </div>
-      {% endfor %}
-      {% if hero_items|length > 1 %}
-        <div class="page absolute inset-x-0 bottom-1 flex items-center justify-end gap-1 z-10">
-          {% for h in hero_items %}
-            <button type="button" class="discover-hero-dash" :aria-current="i === {{ forloop.counter0 }}" @click="go({{ forloop.counter0 }})" aria-label="Show {{ h.name }}"></button>
-          {% endfor %}
-        </div>
-      {% endif %}
-    </section>
+        <p class="text-sm text-ink-dim">Couldn't load what's trending.</p>
+        <button type="button" class="btn btn-soft min-h-11 mt-2" @click="htmx.trigger($el.closest('[hx-get]'), 'retry')">Try again</button>
+      </div>
+    </div>
+  {% else %}
+    {% include "tracker/partials/discover_hero.html" %}
   {% endif %}
 
   {% comment %}
@@ -418,82 +375,10 @@
   </div>
 
   {% include "tracker/partials/discover_active_filters.html" %}
-  {% if not results %}
-    <div class="empty py-16">
-      {% if not profile %}Your account isn't linked to a household profile yet.{% elif is_collections %}Nothing found — check that a TMDB API key is configured in Settings.{% else %}Nothing found — try widening your filters, or check that a TMDB API key is configured in Settings.{% endif %}
-    </div>
+{% if grid_lazy %}
+    {% include "tracker/partials/lazy_block.html" with url=grid_url trigger="load" skeleton="tracker/partials/skeleton_discover_grid.html" heading="" label="titles" %}
   {% else %}
-    {% comment %}
-      TMDB's own per-page result count isn't a clean multiple of however
-      many columns this auto-fill grid ends up rendering at the current
-      viewport width (that's determined purely by CSS, not knowable
-      server-side), so the last row is often left with just one or two
-      stray tiles. Rather than guess a column count to truncate results
-      to server-side (which would only be right at one specific
-      viewport width), this measures the actually-rendered grid after
-      paint and hides whichever tiles landed in an incomplete final row
-      - re-run on resize since the column count (and so what counts as
-      "incomplete") changes with it.
-    {% endcomment %}
-    <div
-      class="discover-grid"
-      x-data="{
-        resizeTimer: null,
-        trimIncompleteLastRow() {
-          const tiles = Array.from(this.$el.children);
-          tiles.forEach((el) => { el.style.display = ''; });
-          const rowTops = [...new Set(tiles.map((el) => el.offsetTop))];
-          if (rowTops.length < 2) return;
-          const lastRowTop = rowTops[rowTops.length - 1];
-          const priorRowTop = rowTops[rowTops.length - 2];
-          const lastRowTiles = tiles.filter((el) => el.offsetTop === lastRowTop);
-          const priorRowCount = tiles.filter((el) => el.offsetTop === priorRowTop).length;
-          if (lastRowTiles.length < priorRowCount) {
-            lastRowTiles.forEach((el) => { el.style.display = 'none'; });
-          }
-        },
-      }"
-      x-init="trimIncompleteLastRow()"
-      @resize.window.debounce.150ms="trimIncompleteLastRow()"
-    >
-      {% for item in results %}
-        {% if is_collections %}
-          {% include "tracker/partials/collection_tile.html" with item=item %}
-        {% else %}
-          {% comment %}
-            hide_type_badge=True - every tile on this page is already
-            the one media type the Movies/TV toggle (or, for Anime,
-            always "tv" - see views.discover) picked, so the per-tile
-            MOVIE/TV label would just repeat what the page's own
-            toggle/heading already says.
-          {% endcomment %}
-          {% include "tracker/partials/discover_tile.html" with item=item type_key=type_key eager=forloop.counter|in_list:"1,2,3,4,5,6" %}
-        {% endif %}
-      {% endfor %}
-    </div>
-
-    {% if not is_collections %}
-      <nav class="flex justify-between items-center flex-wrap gap-4 mt-14" aria-label="Pagination">
-        <span class="text-[13px] text-ink-dim tabular-nums">Page {{ current_page }} of {{ total_pages }}</span>
-        <div class="flex items-center gap-1">
-          {% if current_page > 1 %}
-            <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"-1" }}" class="btn btn-ghost min-h-11">&larr; Previous</a>
-          {% endif %}
-          {% for p in current_page|page_window:total_pages %}
-            {% if p is None %}
-              <span class="w-6 text-center text-ink-faint max-sm:hidden" aria-hidden="true">&hellip;</span>
-            {% elif p == current_page %}
-              <span class="max-sm:hidden min-w-11 h-11 px-2 inline-flex items-center justify-center rounded-lg bg-base-300 text-sm font-semibold tabular-nums" aria-current="page">{{ p }}</span>
-            {% else %}
-              <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ p }}" class="max-sm:hidden min-w-11 h-11 px-2 inline-flex items-center justify-center rounded-lg text-sm text-ink-dim hover:text-base-content hover:bg-base-200 tabular-nums">{{ p }}</a>
-            {% endif %}
-          {% endfor %}
-          {% if current_page < total_pages %}
-            <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"1" }}" class="btn btn-soft min-h-11">Next &rarr;</a>
-          {% endif %}
-        </div>
-      </nav>
-    {% endif %}
+    {% include "tracker/partials/discover_grid.html" %}
   {% endif %}
 
 </div>

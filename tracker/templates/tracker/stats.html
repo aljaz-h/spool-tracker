@@ -102,12 +102,12 @@
     </div>
     </div>
     <div class="min-w-0 xl:pl-6">
-      {% include "tracker/partials/stats_heatmap.html" %}
+      {% include "tracker/partials/lazy_block.html" with url=heatmap_url trigger="load" skeleton="tracker/partials/skeleton_stats_heatmap.html" heading="Watch Activity" label="your watch activity" %}
     </div>
     </div>
   </section>
 
-  {% include "tracker/partials/stats_genre_breakdown.html" %}
+  {% include "tracker/partials/lazy_block.html" with wrapper_class="section" url=genre_breakdown_url trigger="intersect once" skeleton="tracker/partials/skeleton_stats_genres.html" heading="Your Top Genres" label="your top genres" %}
 
   <section class="section grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-12 gap-y-10 md:divide-x divide-line">
     <div class="min-w-0 md:pr-6">

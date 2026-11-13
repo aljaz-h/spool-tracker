@@ -1,8 +1,9 @@
 {% comment %}
-  context: url (the partial view to load), trigger ("load" for a block above the fold, "intersect once" for one below it), skeleton (template path of its placeholder), heading (the section title, shown on the skeleton and the error), label (what the error message says couldn't load).
+  context: wrapper_class (optional: classes for the block's own element - "section" where it sits between .section siblings, so their spacing still applies), url (the partial view to load), trigger ("load" for a block above the fold, "intersect once" for one below it), skeleton (template path of its placeholder), heading (the section title, shown on the skeleton and the error), label (what the error message says couldn't load).
   A block that arrives after the page: the skeleton shows first, the response replaces this whole element, and if the request fails there is a message and a Try again button instead of a gap that never fills.
 {% endcomment %}
 <div
+  {% if wrapper_class %}class="{{ wrapper_class }}"{% endif %}
   x-data="{ failed: false }"
   hx-get="{{ url }}" hx-trigger="{{ trigger }}, retry" hx-swap="outerHTML"
   @htmx:before-request="failed = false" @htmx:response-error="failed = true" @htmx:send-error="failed = true"

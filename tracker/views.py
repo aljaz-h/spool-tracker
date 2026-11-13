@@ -567,16 +567,23 @@ def discover(request, media_type, category):
     # after another. api_key resolved once here, not by each of the three
     # worker threads independently - same reasoning as every other
     # parallel-TMDB-call site in this app.
-    hero_items = _discover_hero(tmdb_media_type, is_anime, api_key) if page_num == 1 else []
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        page_future = executor.submit(
-            tmdb.discover_by_decades,
+    # The page itself (filters, tabs, heading) is answered straight away from cached
+    # catalogs; the two slow, network-bound blocks - the hero and the results grid - are
+    # separate requests to this same view (?_part=hero / ?_part=grid, same query string),
+    # fetched by the page behind skeletons.
+    part = request.GET.get("_part")
+    if part not in ("hero", "grid"):
+        part = ""
+    genre_catalog = tmdb.genres(tmdb_media_type, api_key=api_key)
+    hero_items = []
+    page = {"results": [], "total_pages": 1}
+    if part == "hero" and page_num == 1:
+        hero_items = _discover_hero(tmdb_media_type, is_anime, api_key)
+    elif part == "grid":
+        page = tmdb.discover_by_decades(
             tmdb_media_type, category=category, page=page_num, decades=decades, item_count=item_count,
             api_key=api_key, air_days=7 if is_anime else 0, **filters,
         )
-        genre_catalog_future = executor.submit(tmdb.genres, tmdb_media_type, api_key=api_key)
-        page = page_future.result()
-        genre_catalog = genre_catalog_future.result()
 
     # Every result carries genre_ids, not names (see tmdb._normalize_result's
     # own comment) - resolved here against the same genre catalog the
@@ -591,6 +598,15 @@ def discover(request, media_type, category):
 
     query_without_page = request.GET.copy()
     query_without_page.pop("page", None)
+    query_without_page.pop("_part", None)
+    part_query = query_without_page.copy()
+    if page_num > 1:
+        part_query["page"] = str(page_num)
+
+    def part_url(name):
+        part_query["_part"] = name
+        return f"{request.path}?{part_query.urlencode()}"
+
     # The origin_country filter banner's own "×" link - clears just that
     # one param (e.g. landed here from a title_detail country chip)
     # while keeping every other active filter untouched.
@@ -606,6 +622,10 @@ def discover(request, media_type, category):
         "sort_label": DISCOVER_SORT_LABELS.get(category, "Sorted by popularity"),
         "type_key": media_type,
         "hero_items": hero_items,
+        "hero_lazy": not part and page_num == 1,
+        "hero_url": part_url("hero"),
+        "grid_lazy": not part,
+        "grid_url": part_url("grid"),
         "is_anime": is_anime,
         "library_url_name": "movies" if media_type == "movie" else media_type,
         "category": category,
@@ -658,12 +678,17 @@ def discover(request, media_type, category):
         )
         if active
     )
-    if profile is not None:
-        context.update(selectors.discover_action_context(profile, page["results"]))
-        _apply_display_modes(
-            page["results"], context["discover_watched"], context["discover_list_membership"],
-            profile, watched_display, watchlisted_display,
-        )
+    if part == "hero":
+        return render(request, "tracker/partials/discover_hero.html", context)
+    if part == "grid":
+        # Only this block needs the user's watched/list state for the tiles.
+        if profile is not None:
+            context.update(selectors.discover_action_context(profile, page["results"]))
+            _apply_display_modes(
+                page["results"], context["discover_watched"], context["discover_list_membership"],
+                profile, watched_display, watchlisted_display,
+            )
+        return render(request, "tracker/partials/discover_grid.html", context)
     return render(request, "tracker/discover.html", context)
 
 
@@ -3895,7 +3920,13 @@ def calendar_view(request):
         # history_tile.html already uses.
         "time_format_str": _time_format_str(profile),
     }
-    if profile is not None:
+    weeks = calendar_stdlib.Calendar(firstweekday=0).monthdatescalendar(base_date.year, base_date.month)
+    # The page itself is just the shell (tabs, filters, month switcher): the month grid and
+    # the agenda load right after it from this same view as an htmx request, and the
+    # skeleton holds as many week rows as the month will have.
+    shell_only = not request.headers.get("HX-Request")
+    context["skeleton_rows"] = range(len(weeks))
+    if profile is not None and not shell_only:
         # The grid is scoped to the specific month being viewed (not just
         # "upcoming from now") so navigating to a past month still shows
         # its releases, instead of every past month rendering blank.
@@ -3908,7 +3939,6 @@ def calendar_view(request):
         for rs in month_releases:
             by_date.setdefault(timezone.localtime(rs.release_date).date(), []).append(rs)
 
-        weeks = calendar_stdlib.Calendar(firstweekday=0).monthdatescalendar(base_date.year, base_date.month)
         grid = []
         for week in weeks:
             row = []
@@ -4597,6 +4627,12 @@ def stats(request, profile_id=None):
         "history_url": reverse("history") if is_own_stats or profile is None else reverse("member_history", args=[profile.pk]),
         "genre_breakdown_base_url": reverse("stats_genre_breakdown") if is_own_stats or profile is None else reverse("member_stats_genre_breakdown", args=[profile.pk]),
     }
+    # The heatmap and the genre card load after the page (stats.html's lazy blocks),
+    # each from its own endpoint, with the page's own genre toggles carried over.
+    context["heatmap_url"] = context["heatmap_base_url"]
+    context["genre_breakdown_url"] = (
+        f"{context['genre_breakdown_base_url']}?genre_type={genre_type}&genre_metric={genre_metric}"
+    )
     if profile is not None:
         overview = selectors.stats_overview(profile)
         overview["split"]["movie_end"] = overview["split"]["movie_pct"]
@@ -4604,10 +4640,6 @@ def stats(request, profile_id=None):
         context.update(overview)
 
         context["watch_time_breakdown"] = selectors.watch_time_breakdown(profile)
-        genres = selectors.genre_breakdown(profile, GENRE_TYPES[genre_type], genre_metric)
-        context["genre_breakdown"] = genres
-        context["most_genre"] = genres[0] if genres else None
-        context["least_genre"] = genres[-1] if genres else None
         context["release_years"] = selectors.release_year_breakdown(profile)
         context["daily_breakdown"] = selectors.daily_breakdown(profile)
         context["daily_average"] = selectors.daily_average(profile)
@@ -4615,15 +4647,6 @@ def stats(request, profile_id=None):
         top_peak_bucket = max(context["peak_hours"], key=lambda b: b["count"])
         context["peak_hours_prime"] = top_peak_bucket if top_peak_bucket["count"] else None
 
-        context["heatmap_years"] = selectors.heatmap_available_years(profile)
-        year = context["heatmap_years"][0]
-        context["heatmap_year"] = year
-        context["heatmap_weeks"], context["heatmap_months"] = _build_heatmap_grid(
-            selectors.heatmap_counts_by_day(profile, year), year
-        )
-        context["heatmap_active_days"] = sum(
-            1 for w in context["heatmap_weeks"] for c in w if c and c["count"] > 0
-        )
         earned_achievements = achievements.achievement_progress(profile)
         context["achievements"] = earned_achievements
         context["achievements_earned_count"] = sum(1 for a in earned_achievements if a["earned"])

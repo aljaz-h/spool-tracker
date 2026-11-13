@@ -1,0 +1,11 @@
+{# Placeholder for the Discover results grid: the same .discover-grid (so the same column count at any width), poster-shaped tiles with a title and a meta line. #}
+<div class="discover-grid" role="status" aria-busy="true">
+  <span class="sr-only">Loading titles</span>
+  {% for _ in "abcdefghijklmnopqrstuvwxyzAB" %}
+    <div class="min-w-0" aria-hidden="true">
+      <div class="skel aspect-[2/3] w-full"></div>
+      <div class="skel skel-line mt-2.5 w-3/4 !h-[14px]"></div>
+      <div class="skel skel-line mt-1.5 w-1/2 !h-[12px]"></div>
+    </div>
+  {% endfor %}
+</div>

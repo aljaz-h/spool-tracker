@@ -1,0 +1,17 @@
+{# Placeholder for Calendar > Releases while partials/calendar_body.html loads: the month grid (weekday row, one row of day cells per week of the month, same cell heights) beside the 320px agenda rail. context: skeleton_rows #}
+<div role="status" aria-busy="true" class="flex gap-8 items-stretch lg:items-start flex-col lg:flex-row">
+  <span class="sr-only">Loading the calendar</span>
+  <div class="flex-1 min-w-0" aria-hidden="true">
+    <div class="grid grid-cols-7 mb-2">
+      {% for _ in "1234567" %}<span class="text-[12.5px] leading-[1.15rem] text-center">&nbsp;</span>{% endfor %}
+    </div>
+    <div class="grid grid-cols-7 gap-px bg-line border border-line rounded-xl overflow-hidden">
+      {% for _ in skeleton_rows %}{% for _ in "1234567" %}
+        <div class="bg-base-100 p-1 sm:p-2 min-h-[48px] sm:min-h-[108px]"><div class="skel skel-line w-4 !h-[12px]"></div></div>
+      {% endfor %}{% endfor %}
+    </div>
+  </div>
+  <div class="w-full lg:w-[320px] flex-none lg:self-stretch flex flex-col gap-3" aria-hidden="true">
+    {% for _ in "123456" %}<div class="skel w-full h-16 rounded-lg"></div>{% endfor %}
+  </div>
+</div>

@@ -149,8 +149,24 @@
     </div>
   </form>
 
-  <div id="calendar-body">
-    {% include "tracker/partials/calendar_body.html" %}
+  {% comment %}
+    The month grid and the agenda arrive right after the page (the same view, asked as an
+    htmx request - see views.calendar_view), so the tabs, filters and month switcher are
+    there straight away and a skeleton month holds the grid's room. Filter and month
+    changes swap this element's contents just as before.
+  {% endcomment %}
+  <div
+    id="calendar-body"
+    x-data="{ failed: false }"
+    hx-get="{% url 'calendar' %}?month={{ current_month_param }}&type={{ type_filter }}&source={{ source_filter }}"
+    hx-trigger="load, retry" hx-swap="innerHTML"
+    @htmx:before-request="failed = false" @htmx:response-error="failed = true" @htmx:send-error="failed = true"
+  >
+    <div x-show="!failed">{% include "tracker/partials/skeleton_calendar_month.html" %}</div>
+    <div x-show="failed" x-cloak role="alert">
+      <p class="text-sm text-ink-dim">Couldn't load the calendar.</p>
+      <button type="button" class="btn btn-soft min-h-11 mt-2" @click="htmx.trigger($el.closest('[hx-get]'), 'retry')">Try again</button>
+    </div>
   </div>
 
   <script>
