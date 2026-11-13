@@ -8,7 +8,7 @@
   <div class="page-head">
     <div>
       <h1 class="page-title">Lists</h1>
-      <p class="page-subtitle">{{ watchlists|length }} list{{ watchlists|length|pluralize }}</p>
+      <p class="page-subtitle">{{ watchlists|length }} list{{ watchlists|length|pluralize }} &middot; {{ total_titles }} title{{ total_titles|pluralize }}<span id="lists-total-time"></span></p>
     </div>
     <div class="flex gap-2">
       {% if watchlists %}
@@ -36,10 +36,22 @@
       </div>
     {% endif %}
     {% if watchlists %}
-      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-x-6 xl:gap-x-8 gap-y-10">
-        {% for wl in watchlists %}
-          {% include "tracker/partials/list_card.html" with wl=wl show_featured_toggle=profile.is_owner %}
-        {% endfor %}
+      {% comment %}
+        Each card's stats (and the total time in the heading) are asked for after the page, in one
+        request, and fill their slots out-of-band; a failed request swaps the skeletons for a retry.
+      {% endcomment %}
+      <div x-data="{ statsFailed: false }">
+        <div hidden hx-get="{{ stats_url }}" hx-trigger="load, retry" hx-swap="none"
+          @htmx:before-request="statsFailed = false" @htmx:response-error="statsFailed = true" @htmx:send-error="statsFailed = true"></div>
+        <p x-show="statsFailed" x-cloak role="alert" class="text-sm text-ink-dim mb-4">
+          Couldn't load the list stats.
+          <button type="button" class="underline decoration-dotted underline-offset-2 hover:text-base-content" @click="htmx.trigger($el.closest('[x-data]').querySelector('[hx-get]'), 'retry')">Try again</button>
+        </p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-x-6 xl:gap-x-8 gap-y-10">
+          {% for wl in watchlists %}
+            {% include "tracker/partials/list_card.html" with wl=wl show_featured_toggle=profile.is_owner show_stats=True %}
+          {% endfor %}
+        </div>
       </div>
     {% else %}
       <div class="empty py-20">

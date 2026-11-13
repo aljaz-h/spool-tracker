@@ -1,0 +1,5 @@
+{# context: s (list_stats.summarize), thin (bool) #}
+{% load tracker_extras %}
+<div class="flex gap-0.5 overflow-hidden rounded-full {% if thin %}h-[7px]{% else %}h-2.5{% endif %}" aria-hidden="true">
+  {% for seg in s.segments %}<div class="{{ seg.key|media_dot_class }}" style="flex: {{ seg.count }} 1 0"></div>{% endfor %}
+</div>

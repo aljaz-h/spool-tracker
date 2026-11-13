@@ -96,6 +96,25 @@
       </div>
     {% endif %}
 
+    {% comment %}
+      The strip is asked for after the page (it needs TMDB's episode counts for the shows),
+      behind a skeleton of the same size, and again whenever an item is added or removed
+      (the add/remove response says list-changed). It also fills in each tile's runtime /
+      time-left line out-of-band.
+    {% endcomment %}
+    <div
+      id="list-stats"
+      x-data="{ failed: false }"
+      hx-get="{% url 'list_stats' watchlist.id %}?tiles={{ stats_tiles }}" hx-trigger="load, retry, list-changed from:body" hx-swap="innerHTML"
+      @htmx:before-request="failed = false" @htmx:response-error="failed = true" @htmx:send-error="failed = true"
+    >
+      <div x-show="!failed">{% include "tracker/partials/skeleton_list_stats.html" %}</div>
+      <div x-show="failed" x-cloak role="alert" class="mb-7">
+        <p class="text-sm text-ink-dim">Couldn't load the list stats.</p>
+        <button type="button" class="btn btn-soft min-h-11 mt-2" @click="htmx.trigger($el.closest('[hx-get]'), 'retry')">Try again</button>
+      </div>
+    </div>
+
     <div id="list-page">
       {% include "tracker/partials/list_toolbar_and_items.html" %}
     </div>
@@ -126,7 +145,7 @@
           hx-get="{% url 'list_detail' watchlist.id %}"
           hx-target="#list-page"
           hx-push-url="true"
-          hx-include="[name='type']:checked"
+          hx-include="[name='type']:checked,[name='sort'],[name='hide_watched']:checked"
           class="select select-sm w-full"
         >
           <option value="all" {% if period == "all" %}selected{% endif %}>All time</option>
@@ -137,23 +156,6 @@
           <option value="365" {% if period == "365" %}selected{% endif %}>Last year</option>
         </select>
       </div>
-
-      <div>
-        <div class="text-xs text-ink-dim mb-1.5 font-medium">Sort</div>
-        <select
-          name="sort"
-          hx-get="{% url 'list_detail' watchlist.id %}"
-          hx-target="#list-page"
-          hx-push-url="true"
-          hx-include="[name='type']:checked"
-          class="select select-sm w-full"
-        >
-          <option value="manual" {% if sort == "manual" %}selected{% endif %}>Manual order</option>
-          <option value="added_new" {% if sort == "added_new" %}selected{% endif %}>Recently added</option>
-          <option value="added_old" {% if sort == "added_old" %}selected{% endif %}>Oldest added</option>
-          <option value="name" {% if sort == "name" %}selected{% endif %}>Name (A-Z)</option>
-          <option value="year" {% if sort == "year" %}selected{% endif %}>Release year</option>
-        </select>
       </div>
     </div>
   </div>

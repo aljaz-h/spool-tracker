@@ -51,6 +51,7 @@ from . import (
     ical,
     imdb_import,
     import_pipeline,
+    list_stats,
     instance_config,
     letterboxd_import,
     notification_prefs,
@@ -4096,7 +4097,7 @@ def calendar_feed(request, token):
 
 
 LIST_PERIODS = {"today", "yesterday", "7", "30", "365"}
-LIST_SORTS = {"manual", "added_new", "added_old", "name", "year"}
+LIST_SORTS = {"manual", "added_new", "added_old", "name", "year", "time_left"}
 LIST_PAGE_SIZE = 60  # tiles per page - a list view was previously loaded/sliced in full in Python regardless of size
 
 
@@ -4115,8 +4116,60 @@ def lists(request):
         selected_tag = request.GET.get("tag", "")
         if selected_tag:
             watchlists = [wl for wl in watchlists if selected_tag in wl.tags]
-        context.update({"watchlists": watchlists, "all_tags": all_tags, "selected_tag": selected_tag})
+        context.update({
+            "watchlists": watchlists, "all_tags": all_tags, "selected_tag": selected_tag,
+            "total_titles": sum(len(wl.items.all()) for wl in watchlists),
+            "stats_url": reverse("lists_stats") + "?ids=" + ",".join(str(wl.pk) for wl in watchlists),
+        })
     return render(request, "tracker/lists.html", context)
+
+
+@login_required
+def lists_stats(request):
+    """The Lists page's per-card stats and the "N hours to watch in total" in its heading,
+    asked for after the page (it needs TMDB's episode counts for the shows) and swapped
+    in out-of-band: ?ids= is the lists the page is showing."""
+    profile = Profile.objects.filter(user=request.user).first()
+    if profile is None:
+        raise Http404
+    ids = [int(i) for i in request.GET.get("ids", "").split(",") if i.isdigit()]
+    watchlists = [wl for wl in selectors.visible_lists(profile) if wl.pk in ids]
+    titles = {item.title.pk: item.title for wl in watchlists for item in wl.items.all()}
+    infos = list_stats.title_infos(profile, titles.values())
+    cards = []
+    total_minutes = 0
+    for wl in watchlists:
+        summary = list_stats.summarize([item.title for item in wl.items.all()], infos)
+        total_minutes += summary.get("total_minutes", 0)
+        cards.append({"wl": wl, "s": summary})
+    return render(
+        request,
+        "tracker/partials/lists_stats_response.html",
+        {"cards": cards, "total_time": list_stats.hm_headline(total_minutes) if total_minutes else ""},
+    )
+
+
+@login_required
+def list_stats_view(request, list_id):
+    """The list page's stats strip (composition, time to watch, progress), asked for after
+    the page; ?tiles= are the page's tile ids, whose runtime / time-left line comes back
+    out-of-band (a show's needs TMDB's episode counts, so it can't be in the first paint)."""
+    profile = Profile.objects.filter(user=request.user).first()
+    watchlist = _get_visible_list_or_404(profile, list_id)
+    titles = [item.title for item in watchlist.items.select_related("title")]
+    infos = list_stats.title_infos(profile, titles)
+    tile_ids = {int(i) for i in request.GET.get("tiles", "").split(",") if i.isdigit()}
+    by_id = {t.pk: t for t in titles}
+    return render(
+        request,
+        "tracker/partials/list_stats_response.html",
+        {
+            "watchlist": watchlist,
+            "can_edit": watchlist.can_edit(profile),
+            "s": list_stats.summarize(titles, infos),
+            "tile_times": {pk: list_stats.tile_text(by_id[pk], infos.get(pk)) for pk in tile_ids if pk in by_id},
+        },
+    )
 
 
 def _get_visible_list_or_404(profile, list_id):
@@ -4139,10 +4192,17 @@ def _list_detail_context(request, watchlist, profile):
     type_filter = request.GET.get("type", "all")
     period = request.GET.get("period", "all") if request.GET.get("period") in LIST_PERIODS else "all"
     sort = request.GET.get("sort") if request.GET.get("sort") in LIST_SORTS else "manual"
+    hide_watched = request.GET.get("hide_watched") == "1"
 
     items = watchlist.items.select_related("title").prefetch_related("title__ratings")
     if type_filter in (MediaType.MOVIE, MediaType.TV, MediaType.ANIME):
         items = items.filter(title__media_type=type_filter)
+    if hide_watched:
+        # Watched = a movie with a watch, or a show marked completed (what the tile's check means).
+        items = items.exclude(
+            Q(title__media_type=MediaType.MOVIE, title_id__in=WatchEvent.objects.filter(profile=profile).values("title_id"))
+            | Q(title_id__in=WatchProgress.objects.filter(profile=profile, status=WatchProgress.Status.COMPLETED).values("title_id"))
+        )
 
     now = timezone.now()
     today_start = timezone.localtime(now).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -4155,6 +4215,12 @@ def _list_detail_context(request, watchlist, profile):
 
     sort_field = {"added_new": "-added_at", "added_old": "added_at", "name": "title__name", "year": "-title__year"}.get(sort)
     items = items.order_by(sort_field) if sort_field else items
+    if sort == "time_left":
+        # Needs every item's time left (TMDB's episode counts for the shows, cached after the first time).
+        items = list(items)
+        infos = list_stats.title_infos(profile, [item.title for item in items])
+        order = {t.pk: n for n, t in enumerate(list_stats.time_left_order([item.title for item in items], infos))}
+        items.sort(key=lambda item: order[item.title.pk])
 
     page_obj = Paginator(items, LIST_PAGE_SIZE).get_page(request.GET.get("page"))
     items = list(page_obj.object_list)
@@ -4165,13 +4231,15 @@ def _list_detail_context(request, watchlist, profile):
     return {
         "watchlist": watchlist,
         "can_edit": watchlist.can_edit(profile),
-        "can_reorder": type_filter == "all" and period == "all" and sort == "manual",
+        "can_reorder": type_filter == "all" and period == "all" and sort == "manual" and not hide_watched,
         "items": items,
         "page_obj": page_obj,
         "base_query": query_without_page.urlencode(),
         "type_filter": type_filter,
         "period": period,
         "sort": sort,
+        "hide_watched": hide_watched,
+        "list_times": list_stats.tile_texts(profile, [item.title for item in items]),
         **selectors.poster_action_context(profile, [item.title for item in items]),
     }
 
@@ -4187,7 +4255,13 @@ def list_detail(request, list_id):
     profile = Profile.objects.filter(user=request.user).first()
     watchlist = _get_visible_list_or_404(profile, list_id)
     context = _list_detail_context(request, watchlist, profile)
-    context["total_count"] = watchlist.items.count()
+    type_counts = {row["title__media_type"]: row["n"] for row in watchlist.items.values("title__media_type").annotate(n=Count("id"))}
+    context["type_counts"] = {
+        "movie": type_counts.get(MediaType.MOVIE, 0), "tv": type_counts.get(MediaType.TV, 0),
+        "anime": type_counts.get(MediaType.ANIME, 0),
+    }
+    context["total_count"] = sum(context["type_counts"].values())
+    context["stats_tiles"] = ",".join(str(item.title.pk) for item in context["items"])
     hx_target = request.headers.get("HX-Target") or ""
     if hx_target == "list-page":
         template = "tracker/partials/list_toolbar_and_items.html"
@@ -4389,9 +4463,13 @@ def _render_list_items(request, watchlist, profile):
         "items": items,
         "page_obj": page_obj,
         "base_query": "",
+        "list_times": list_stats.tile_texts(profile, [item.title for item in items]),
         **selectors.poster_action_context(profile, [item.title for item in items]),
     }
-    return render(request, "tracker/partials/list_detail_items.html", context)
+    response = render(request, "tracker/partials/list_detail_items.html", context)
+    # The stats strip above the grid reloads itself on this.
+    response["HX-Trigger"] = "list-changed"
+    return response
 
 
 def _render_poster_actions(request, profile, title):

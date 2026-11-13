@@ -1323,7 +1323,7 @@ def language_display(language_code):
     return {"code": language_code, "name": name, "flag": country_flag(flag_country) if flag_country else ""}
 
 
-def get_full_details(media_type, tmdb_id):
+def get_full_details(media_type, tmdb_id, api_key=None):
     """{"name", "year", "overview", "tagline", "genres": [str,...],
     "runtime": int|None (movie), "number_of_seasons"/"number_of_episodes":
     int|None (tv), "backdrop_url", "poster_url", "vote_average",
@@ -1363,7 +1363,7 @@ def get_full_details(media_type, tmdb_id):
     error)."""
     is_movie = media_type == "movie"
     append = "release_dates" if is_movie else "content_ratings"
-    data = _list_request(f"{media_type}/{tmdb_id}", {"append_to_response": append})
+    data = _list_request(f"{media_type}/{tmdb_id}", {"append_to_response": append}, api_key=api_key)
     if not data or data.get("id") is None:
         return None
     date = data.get("release_date") if is_movie else data.get("first_air_date")

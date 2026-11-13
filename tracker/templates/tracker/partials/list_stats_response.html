@@ -1,0 +1,3 @@
+{# The list page's stats strip, plus every tile's runtime / time-left line out-of-band. context: s, can_edit, tile_times ({title pk: text}) #}
+{% include "tracker/partials/list_stats_strip.html" %}
+{% for pk, text in tile_times.items %}<span id="tl-{{ pk }}" class="empty:hidden" hx-swap-oob="true">{{ text }}</span>{% endfor %}

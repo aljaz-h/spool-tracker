@@ -5,30 +5,47 @@
   hx-target="#list-page"
   hx-trigger="change"
   hx-push-url="true"
-  hx-include="[name='period'],[name='sort']"
+  hx-include="[name='period']"
   class="flex justify-between items-center flex-wrap gap-3 mb-6"
 >
   <div class="seg">
     <label class="seg-item cursor-pointer has-checked:bg-base-300 has-checked:text-base-content">
-      <input type="radio" name="type" value="all" class="hidden" {% if type_filter == "all" %}checked{% endif %}>All
+      <input type="radio" name="type" value="all" class="hidden" {% if type_filter == "all" %}checked{% endif %}>All <span class="ml-1.5 text-ink-faint tabular-nums">{{ total_count }}</span>
     </label>
     <label class="seg-item cursor-pointer has-checked:bg-base-300 has-checked:text-base-content">
-      <input type="radio" name="type" value="movie" class="hidden" {% if type_filter == "movie" %}checked{% endif %}>Movies
+      <input type="radio" name="type" value="movie" class="hidden" {% if type_filter == "movie" %}checked{% endif %}>Movies <span class="ml-1.5 text-ink-faint tabular-nums">{{ type_counts.movie }}</span>
     </label>
     <label class="seg-item cursor-pointer has-checked:bg-base-300 has-checked:text-base-content">
-      <input type="radio" name="type" value="tv" class="hidden" {% if type_filter == "tv" %}checked{% endif %}>TV
+      <input type="radio" name="type" value="tv" class="hidden" {% if type_filter == "tv" %}checked{% endif %}>TV <span class="ml-1.5 text-ink-faint tabular-nums">{{ type_counts.tv }}</span>
     </label>
     <label class="seg-item cursor-pointer has-checked:bg-base-300 has-checked:text-base-content">
-      <input type="radio" name="type" value="anime" class="hidden" {% if type_filter == "anime" %}checked{% endif %}>Anime
+      <input type="radio" name="type" value="anime" class="hidden" {% if type_filter == "anime" %}checked{% endif %}>Anime <span class="ml-1.5 text-ink-faint tabular-nums">{{ type_counts.anime }}</span>
     </label>
   </div>
-  <label for="list-filters-drawer" class="btn btn-sm btn-ghost gap-1.5 cursor-pointer text-ink-dim hover:text-base-content">
-    {% icon "filter" "w-3.5 h-3.5" %}
-    Filters
-    {% if period != "all" or sort != "manual" %}
-      <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
-    {% endif %}
-  </label>
+  <div class="flex items-center gap-3 flex-wrap">
+    <label class="flex items-center gap-2 text-sm text-ink-dim">
+      Sort
+      <select name="sort" class="select select-sm w-auto text-base-content" aria-label="Sort">
+        <option value="manual" {% if sort == "manual" %}selected{% endif %}>Manual order</option>
+        <option value="added_new" {% if sort == "added_new" %}selected{% endif %}>Date added</option>
+        <option value="added_old" {% if sort == "added_old" %}selected{% endif %}>Oldest added</option>
+        <option value="name" {% if sort == "name" %}selected{% endif %}>Name (A-Z)</option>
+        <option value="year" {% if sort == "year" %}selected{% endif %}>Release year</option>
+        <option value="time_left" {% if sort == "time_left" %}selected{% endif %}>Shortest to watch</option>
+      </select>
+    </label>
+    <label class="flex items-center gap-2.5 cursor-pointer text-sm min-h-11">
+      <input type="checkbox" role="switch" name="hide_watched" value="1" class="toggle toggle-primary toggle-sm" {% if hide_watched %}checked{% endif %}>
+      <span class="text-ink-dim">Hide watched</span>
+    </label>
+    <label for="list-filters-drawer" class="btn btn-sm btn-ghost gap-1.5 cursor-pointer text-ink-dim hover:text-base-content">
+      {% icon "filter" "w-3.5 h-3.5" %}
+      Filters
+      {% if period != "all" %}
+        <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+      {% endif %}
+    </label>
+  </div>
 </form>
 
 {% include "tracker/partials/list_detail_items.html" %}

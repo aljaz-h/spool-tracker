@@ -14183,7 +14183,7 @@ class StreamingServiceGroupingTests(TestCase):
         user = User.objects.create_user("grouppicker", password="pass12345")
         Profile.objects.create(user=user, display_name="GroupPicker")
         self.client.login(username="grouppicker", password="pass12345")
-        resp = self.client.get(reverse("movies", args=["popular"]), {"filters_submitted": "1", "provider": "530"})
+        resp = self.client.get(reverse("movies", args=["popular"]), {"filters_submitted": "1", "provider": "530", "_part": "grid"})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(mock_discover.call_args.kwargs["watch_providers"], [531, 532, 530])
         self.assertEqual(resp.context["selected_providers"], {530})
@@ -26013,6 +26013,210 @@ class IconTagTests(TestCase):
         self.assertIn('class="w-5 h-5 text-primary"', svg)
 
 
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class ListStatsTests(TestCase):
+    """Composition, time to watch and progress for a list (tracker/list_stats.py), the lazy
+    strip on the list page, the mini stats on the Lists cards and the tile runtime line."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        from tracker import list_stats
+
+        cache.clear()
+        self.ls = list_stats
+        user = User.objects.create_user("liststats", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="ListStats")
+        self.client.login(username="liststats", password="pass12345")
+        self.wl = WatchList.objects.create(profile=self.profile, name="Stats list")
+        self.details = {"episode_runtime": 40, "number_of_episodes": 12, "status": "Returning Series",
+                        "seasons": [(1, 10), (2, 2)], "last_episode_to_air": {"season_number": 1, "episode_number": 10}}
+        for target, value in (
+            ("tracker.integrations.tmdb.get_full_details", None),
+            ("tracker.instance_config.get_tmdb_api_key", "key"),
+        ):
+            patcher = patch(target, return_value=value) if value else patch(target, side_effect=lambda *a, **k: self.details)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _title(self, name, media_type=MediaType.MOVIE, runtime=100, add=True, **ids):
+        title = Title.objects.create(
+            media_type=media_type, name=name, year=2020, runtime_minutes=runtime if media_type == MediaType.MOVIE else None,
+            external_ids={"tmdb": str(abs(hash(name)) % 10**6), "tmdb_kind": "movie" if media_type == MediaType.MOVIE else "tv", **ids},
+        )
+        if add:
+            WatchListItem.objects.create(watchlist=self.wl, title=title, position=title.pk)
+        return title
+
+    def _watch_episodes(self, title, n):
+        from tracker.models import Episode
+
+        for number in range(1, n + 1):
+            episode = Episode.objects.create(title=title, season=1, episode=number)
+            WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=timezone.now())
+
+    def test_durations_format_like_the_design(self):
+        ls = self.ls
+        self.assertEqual(ls.hm_full(612 * 60 + 10), "612h 10m")
+        self.assertEqual(ls.hm_full(0), "0h")
+        self.assertEqual(ls.hm_headline(68 * 60 + 40), "68h 40m")
+        self.assertEqual(ls.hm_headline(1418 * 60 + 5), "1,418h")
+        self.assertEqual(ls.hm_short(17 * 60 + 30), "17h 30m")
+        self.assertEqual(ls.hm_short(143 * 60 + 30), "144h")
+        self.assertEqual(ls.days_note(1418 * 60), "about 59 days")
+        self.assertEqual(ls.days_note(24 * 60 + 10), "about 1 day")
+        self.assertEqual(ls.days_note(5 * 60), "")
+
+    def test_composition_label_follows_the_rule(self):
+        from types import SimpleNamespace
+
+        def label(movies, tv, anime):
+            titles = [SimpleNamespace(pk=i, media_type=m) for i, m in enumerate(
+                [MediaType.MOVIE] * movies + [MediaType.TV] * tv + [MediaType.ANIME] * anime)]
+            infos = {t.pk: {"total": 60, "watched_min": 0, "left_min": 60, "unaired": 0, "done": False, "partial": False, "known": True} for t in titles}
+            summary = self.ls.summarize(titles, infos)
+            return summary["label"], summary["label_note"]
+
+        self.assertEqual(label(32, 0, 0), ("Movies only", "all 32 are movies"))
+        self.assertEqual(label(0, 5, 0), ("TV only", "all 5 are TV shows"))
+        self.assertEqual(label(0, 0, 41), ("Anime only", "all 41 are anime"))
+        self.assertEqual(label(4, 33, 3), ("Mostly TV", "82% of the list"))
+        self.assertEqual(label(10, 2, 0), ("Mostly movies", "83% of the list"))
+        self.assertEqual(label(128, 124, 34), ("Mixed", "mostly movies and TV"))
+
+    def test_movies_count_their_runtime_and_a_watch_moves_them_to_watched(self):
+        seen, unseen = self._title("Seen", runtime=120), self._title("Unseen", runtime=90)
+        WatchEvent.objects.create(profile=self.profile, title=seen, watched_at=timezone.now())
+        summary = self.ls.summarize([seen, unseen], self.ls.title_infos(self.profile, [seen, unseen]))
+        self.assertEqual((summary["watched"], summary["left"], summary["total"]), ("2h", "1h 30m", "3h 30m"))
+        self.assertEqual((summary["percent"], summary["titles_done"], summary["titles_left"]), (57, 1, 1))
+        self.assertFalse(summary["all_watched"])
+
+    def test_a_show_counts_unwatched_aired_episodes_and_mentions_the_unaired(self):
+        show = self._title("Show", MediaType.TV)
+        self._watch_episodes(show, 4)
+        info = self.ls.title_infos(self.profile, [show])[show.pk]
+        # 10 aired, 4 watched, 40 minutes each; 2 of the 12 are not out yet and are not counted.
+        self.assertEqual((info["watched_min"], info["left_min"], info["unaired"]), (160, 240, 2))
+        self.assertTrue(info["partial"])
+        summary = self.ls.summarize([show], {show.pk: info})
+        self.assertEqual((summary["percent"], summary["unaired"], summary["partial_shows"]), (40, 2, True))
+
+    def test_a_finished_list_reads_all_watched(self):
+        movie = self._title("Done", runtime=100)
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=timezone.now())
+        summary = self.ls.summarize([movie], self.ls.title_infos(self.profile, [movie]))
+        self.assertTrue(summary["all_watched"])
+        self.assertEqual((summary["percent"], summary["left"], summary["titles_left"]), (100, "0h", 0))
+
+    def test_an_empty_list_is_summarized_as_empty(self):
+        self.assertTrue(self.ls.summarize([], {})["empty"])
+
+    def test_a_show_with_no_tmdb_data_is_not_guessed_at(self):
+        show = self._title("Unknown", MediaType.TV)
+        with patch("tracker.integrations.tmdb.get_full_details", return_value=None):
+            info = self.ls.title_infos(self.profile, [show])[show.pk]
+        self.assertFalse(info["known"])
+        self.assertEqual(info["left_min"], 0)
+
+    def test_a_watch_changes_the_cached_answer_at_once(self):
+        show = self._title("Cached", MediaType.TV)
+        first = self.ls.title_infos(self.profile, [show])[show.pk]
+        self._watch_episodes(show, 1)
+        second = self.ls.title_infos(self.profile, [show])[show.pk]
+        self.assertEqual((first["watched_min"], second["watched_min"]), (0, 40))
+
+    def test_tile_texts_never_call_tmdb(self):
+        movie, show = self._title("Movie tile", runtime=115), self._title("Show tile", MediaType.TV)
+        with patch("tracker.integrations.tmdb.get_full_details") as details:
+            texts = self.ls.tile_texts(self.profile, [movie, show])
+        details.assert_not_called()
+        self.assertEqual(texts[movie.pk], "1h 55m")
+        self.assertEqual(texts[show.pk], "")
+        self.ls.title_infos(self.profile, [show])  # warms the cache
+        self.assertEqual(self.ls.tile_texts(self.profile, [show])[show.pk], "6h 40m left")
+
+    def test_the_list_page_is_instant_and_holds_room_for_the_strip(self):
+        self._title("A movie")
+        with patch("tracker.integrations.tmdb.get_full_details") as details:
+            resp = self.client.get(reverse("list_detail", args=[self.wl.id]))
+        details.assert_not_called()
+        self.assertContains(resp, "Loading list stats")
+        self.assertContains(resp, f'hx-get="{reverse("list_stats", args=[self.wl.id])}?tiles=')
+        self.assertContains(resp, "list-changed from:body")
+
+    def test_the_strip_endpoint_returns_the_strip_and_fills_the_tiles(self):
+        movie, show = self._title("Strip movie", runtime=100), self._title("Strip show", MediaType.TV)
+        self._watch_episodes(show, 5)
+        resp = self.client.get(reverse("list_stats", args=[self.wl.id]), {"tiles": f"{movie.pk},{show.pk}"})
+        self.assertContains(resp, "Composition")
+        self.assertContains(resp, "Mixed")
+        self.assertContains(resp, "Time to watch")
+        self.assertContains(resp, "not aired yet, not counted")
+        self.assertContains(resp, f'id="tl-{movie.pk}"')
+        self.assertContains(resp, "1h 40m")
+        self.assertContains(resp, "3h 20m left")
+
+    def test_the_strip_for_an_empty_list_offers_to_add_a_title(self):
+        resp = self.client.get(reverse("list_stats", args=[self.wl.id]))
+        self.assertContains(resp, "Nothing to total yet")
+        self.assertContains(resp, "Add title")
+
+    def test_another_profiles_private_list_stats_404(self):
+        other = User.objects.create_user("liststats2", password="pass12345")
+        stranger = Profile.objects.create(user=other, display_name="Stranger")
+        private = WatchList.objects.create(profile=stranger, name="Private")
+        self.assertEqual(self.client.get(reverse("list_stats", args=[private.id])).status_code, 404)
+
+    def test_tabs_carry_counts(self):
+        self._title("M1")
+        self._title("M2")
+        self._title("T1", MediaType.TV)
+        self._title("A1", MediaType.ANIME)
+        resp = self.client.get(reverse("list_detail", args=[self.wl.id]))
+        self.assertEqual(resp.context["type_counts"], {"movie": 2, "tv": 1, "anime": 1})
+        self.assertContains(resp, '>All <span class="ml-1.5 text-ink-faint tabular-nums">4</span>')
+
+    def test_shortest_to_watch_sorts_by_time_left_with_finished_titles_last(self):
+        long_, short, done = self._title("Long", runtime=180), self._title("Short", runtime=80), self._title("Done", runtime=10)
+        WatchEvent.objects.create(profile=self.profile, title=done, watched_at=timezone.now())
+        resp = self.client.get(reverse("list_detail", args=[self.wl.id]), {"sort": "time_left"})
+        self.assertEqual([i.title.name for i in resp.context["items"]], ["Short", "Long", "Done"])
+        self.assertContains(resp, '<option value="time_left" selected>')
+
+    def test_hide_watched_drops_watched_movies_and_completed_shows(self):
+        watched, unwatched = self._title("Watched movie"), self._title("Unwatched movie")
+        finished, ongoing = self._title("Finished show", MediaType.TV), self._title("Ongoing show", MediaType.TV)
+        WatchEvent.objects.create(profile=self.profile, title=watched, watched_at=timezone.now())
+        WatchProgress.objects.create(profile=self.profile, title=finished, status=WatchProgress.Status.COMPLETED)
+        resp = self.client.get(reverse("list_detail", args=[self.wl.id]), {"hide_watched": "1"})
+        self.assertEqual({i.title.name for i in resp.context["items"]}, {"Unwatched movie", "Ongoing show"})
+        self.assertFalse(resp.context["can_reorder"])
+        self.assertContains(resp, 'name="hide_watched" value="1"')
+
+    def test_adding_or_removing_an_item_tells_the_strip_to_reload(self):
+        title = self._title("Reload me", add=False)
+        resp = self.client.post(reverse("add_to_list", args=[self.wl.id]), {"title_id": title.pk}, HTTP_HX_REQUEST="true")
+        self.assertEqual(resp["HX-Trigger"], "list-changed")
+
+    def test_the_lists_page_holds_room_for_each_cards_stats(self):
+        self._title("In a card")
+        with patch("tracker.integrations.tmdb.get_full_details") as details:
+            resp = self.client.get(reverse("lists"))
+        details.assert_not_called()
+        self.assertContains(resp, f'id="list-stats-{self.wl.pk}"')
+        self.assertContains(resp, f'{reverse("lists_stats")}?ids={self.wl.pk}')
+        self.assertContains(resp, 'id="lists-total-time"')
+        self.assertContains(resp, "1 title")
+
+    def test_the_lists_stats_endpoint_fills_cards_and_the_heading_total(self):
+        self._title("Card movie", runtime=90)
+        resp = self.client.get(reverse("lists_stats"), {"ids": str(self.wl.pk)})
+        self.assertContains(resp, f'id="list-stats-{self.wl.pk}" hx-swap-oob="innerHTML"')
+        self.assertContains(resp, "Movies only")
+        self.assertContains(resp, "1h 30m to watch in total")
+
+
 class ListDetailFiltersTests(TestCase):
     """list_detail's type/period/sort filters (_list_detail_context) -
     History's own filter shape, adapted to a list: period narrows by
@@ -37152,20 +37356,20 @@ class DiscoverPageLayoutTests(TestCase):
         self.assertIn(">Airing now</a>", html)
 
     def test_hero_shows_on_page_one_only_with_its_actions(self):
-        html = self._get("movies", "trending")[0].content.decode()
+        html = self._get("movies", "trending", _part="hero")[0].content.decode()
         self.assertIn("#1 trending this week", html)
         self.assertIn("View details", html)
         self.assertIn("Add to list", html)
         self.assertIn("https://www.youtube.com/watch?v=abc123", html)
         self.assertIn("2h 36m", html)
-        self.assertNotIn("trending this week", self._get("movies", "trending", page=2)[0].content.decode())
+        self.assertNotIn("trending this week", self._get("movies", "trending", page=2, _part="hero")[0].content.decode())
 
     def test_each_page_asks_for_35_titles(self):
-        _, mock_page = self._get("movies", "popular")
+        _, mock_page = self._get("movies", "popular", _part="grid")
         self.assertEqual(mock_page.call_args.kwargs["item_count"], 35)
 
     def test_tile_meta_carries_the_type_label_and_dot(self):
-        html = self._get("anime", "trending")[0].content.decode()
+        html = self._get("anime", "trending", _part="grid")[0].content.decode()
         self.assertRegex(html, r'type-dot bg-anime"></span>Anime')
 
     def test_sort_label_follows_the_tab(self):

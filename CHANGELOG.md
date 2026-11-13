@@ -8,6 +8,38 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.190.0] - 2026-11-13
+
+### Added
+- Lists now show what they are made of, how long they take to watch and how far
+  through them you are. A list's page has a stats strip under the title:
+  **Composition** (a bar in the movie, TV and anime colours with counts, labelled
+  "Movies only" / "TV only" / "Anime only", "Mostly X" from 80% of one type, or
+  "Mixed"), **Time to watch** (the total, split into watched and left, with a
+  per-type breakdown; a movie counts its runtime, a show or anime its unwatched
+  aired episodes at an average episode length, and unaired episodes are only
+  mentioned) and **Progress** (the filled block by time, "142 of 286 titles
+  watched", partly watched shows counting by episode). It covers the states
+  movies only, anime only, mostly TV, finished ("All watched") and empty.
+- The Lists page cards get a composition label and bar, the total time and a
+  compact progress block, and the heading says how many hours the lists add up
+  to.
+- A list's All / Movies / TV / Anime tabs show counts, there is a Sort select in
+  the toolbar (now including "Shortest to watch", shows with nothing left and
+  finished titles last), a "Hide watched" switch, and tiles show a movie's
+  runtime or a show's time left.
+
+### Fixed
+- Four Discover tests from 0.189.0 now ask for the lazy hero/grid parts
+  (`?_part=hero|grid`) instead of the page shell. Test-only; no behaviour change.
+
+### Changed
+- The stats load right after the page behind skeletons of the same size (they
+  need TMDB's episode counts for the shows, which are cached for hours; each
+  show's result is cached and changes the moment you watch an episode). The
+  strip refreshes when a title is added to or removed from the list. The Sort
+  select moved out of the Filters drawer, which keeps "Added".
+
 ## [0.189.0] - 2026-11-13
 
 ### Changed
