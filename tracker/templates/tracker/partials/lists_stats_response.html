@@ -1,3 +1,0 @@
-{# The Lists page: each card's stats slot and the heading's total time, all out-of-band. context: cards ([{wl, s}]), total_time #}
-{% for card in cards %}<div id="list-stats-{{ card.wl.pk }}" hx-swap-oob="innerHTML">{% include "tracker/partials/list_stats_mini.html" with s=card.s %}</div>{% endfor %}
-<span id="lists-total-time" hx-swap-oob="true">{% if total_time %} &middot; {{ total_time }} to watch in total{% endif %}</span>

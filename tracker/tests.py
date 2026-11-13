@@ -26199,23 +26199,6 @@ class ListStatsTests(TestCase):
         resp = self.client.post(reverse("add_to_list", args=[self.wl.id]), {"title_id": title.pk}, HTTP_HX_REQUEST="true")
         self.assertEqual(resp["HX-Trigger"], "list-changed")
 
-    def test_the_lists_page_holds_room_for_each_cards_stats(self):
-        self._title("In a card")
-        with patch("tracker.integrations.tmdb.get_full_details") as details:
-            resp = self.client.get(reverse("lists"))
-        details.assert_not_called()
-        self.assertContains(resp, f'id="list-stats-{self.wl.pk}"')
-        self.assertContains(resp, f'{reverse("lists_stats")}?ids={self.wl.pk}')
-        self.assertContains(resp, 'id="lists-total-time"')
-        self.assertContains(resp, "1 title")
-
-    def test_the_lists_stats_endpoint_fills_cards_and_the_heading_total(self):
-        self._title("Card movie", runtime=90)
-        resp = self.client.get(reverse("lists_stats"), {"ids": str(self.wl.pk)})
-        self.assertContains(resp, f'id="list-stats-{self.wl.pk}" hx-swap-oob="innerHTML"')
-        self.assertContains(resp, "Movies only")
-        self.assertContains(resp, "1h 30m to watch in total")
-
 
 class ListDetailFiltersTests(TestCase):
     """list_detail's type/period/sort filters (_list_detail_context) -

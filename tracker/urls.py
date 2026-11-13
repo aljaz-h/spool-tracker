@@ -162,7 +162,6 @@ urlpatterns = [
     path("calendar/feed/<str:token>.ics", views.calendar_feed, name="calendar_feed"),
     path("lists/", views.lists, name="lists"),
     path("lists/create/", views.create_list, name="create_list"),
-    path("lists/stats/", views.lists_stats, name="lists_stats"),
     path("lists/<int:list_id>/stats/", views.list_stats_view, name="list_stats"),
     path("lists/<int:list_id>/", views.list_detail, name="list_detail"),
     path("lists/<int:list_id>/delete/", views.delete_list, name="delete_list"),

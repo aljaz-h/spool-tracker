@@ -4118,35 +4118,8 @@ def lists(request):
             watchlists = [wl for wl in watchlists if selected_tag in wl.tags]
         context.update({
             "watchlists": watchlists, "all_tags": all_tags, "selected_tag": selected_tag,
-            "total_titles": sum(len(wl.items.all()) for wl in watchlists),
-            "stats_url": reverse("lists_stats") + "?ids=" + ",".join(str(wl.pk) for wl in watchlists),
         })
     return render(request, "tracker/lists.html", context)
-
-
-@login_required
-def lists_stats(request):
-    """The Lists page's per-card stats and the "N hours to watch in total" in its heading,
-    asked for after the page (it needs TMDB's episode counts for the shows) and swapped
-    in out-of-band: ?ids= is the lists the page is showing."""
-    profile = Profile.objects.filter(user=request.user).first()
-    if profile is None:
-        raise Http404
-    ids = [int(i) for i in request.GET.get("ids", "").split(",") if i.isdigit()]
-    watchlists = [wl for wl in selectors.visible_lists(profile) if wl.pk in ids]
-    titles = {item.title.pk: item.title for wl in watchlists for item in wl.items.all()}
-    infos = list_stats.title_infos(profile, titles.values())
-    cards = []
-    total_minutes = 0
-    for wl in watchlists:
-        summary = list_stats.summarize([item.title for item in wl.items.all()], infos)
-        total_minutes += summary.get("total_minutes", 0)
-        cards.append({"wl": wl, "s": summary})
-    return render(
-        request,
-        "tracker/partials/lists_stats_response.html",
-        {"cards": cards, "total_time": list_stats.hm_headline(total_minutes) if total_minutes else ""},
-    )
 
 
 @login_required

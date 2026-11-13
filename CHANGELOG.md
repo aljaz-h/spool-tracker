@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.190.1] - 2026-11-13
+
+### Removed
+- The Lists page is back to how it was: the per-card composition label, bar and
+  progress block and the total time in the heading from 0.190.0 are gone. The
+  stats strip, tab counts, sort, Hide watched and tile times stay inside a
+  list's own page.
+
 ## [0.190.0] - 2026-11-13
 
 ### Added

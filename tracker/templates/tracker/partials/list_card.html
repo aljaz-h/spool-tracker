@@ -34,12 +34,6 @@
         <div class="mt-1.5 flex flex-wrap gap-x-2 text-[12.5px] text-ink-faint">{% for tag in wl.tags %}<span>#{{ tag }}</span>{% endfor %}</div>
       {% endif %}
     </div>
-    {% if show_stats %}
-      {# Filled out-of-band by views.lists_stats; the skeleton holds its room until then. #}
-      <div id="list-stats-{{ wl.pk }}" class="mt-4">
-        <div x-show="!statsFailed">{% include "tracker/partials/skeleton_list_stats_mini.html" %}</div>
-      </div>
-    {% endif %}
   </a>
   {% if show_featured_toggle and wl.is_shared %}
     {# Owner-only curation control (views.toggle_list_featured) - a positioned sibling of the <a> above, not nested inside it (invalid HTML, and would double as a navigation click). #}
