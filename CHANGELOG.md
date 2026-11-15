@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.190.2] - 2026-11-15
+
+### Fixed
+- Dashboard: the Watching row no longer runs two queries for every watched
+  episode it steps over to reach the next unwatched one (Sentry N+1 on `/`), nor
+  a count query for each card whose current episode is unwatched. A show's watch
+  counts and local episodes are read once, only when a card has to step forward.
+- Stats: Taste Compatibility reads everyone's genre counts in one grouped query
+  instead of two queries per other profile (Sentry N+1 on `/stats/`).
+
 ## [0.190.1] - 2026-11-13
 
 ### Removed

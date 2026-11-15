@@ -421,13 +421,34 @@ def continue_watching(profile, media_types=None, limit=8, title_id=None):
                         pk=progress.pk, status=WatchProgress.Status.COMPLETED
                     ).exists():
                         continue
+                # Walking past watched (or filler) episodes: the show's watched
+                # counts and local episodes are each read once, on the first
+                # step that needs them, not once per episode stepped over. A
+                # current episode missing from watch_counts_by_episode simply
+                # has no watches (that query only returns watched ones).
+                title_watch_counts = local_episodes = None
+                current_episode_id = ep.id
                 while True:
-                    watch_count = watch_counts_by_episode.get(ep.id)
-                    if watch_count is None:
-                        watch_count = WatchEvent.objects.filter(profile=profile, episode_id=ep.id).count()
+                    if ep.id == current_episode_id:
+                        watch_count = watch_counts_by_episode.get(ep.id, 0)
+                    else:
+                        if title_watch_counts is None:
+                            title_watch_counts = dict(
+                                WatchEvent.objects.filter(profile=profile, episode__title=title)
+                                .values_list("episode_id")
+                                .annotate(n=Count("id"))
+                                .order_by()
+                            )
+                        watch_count = title_watch_counts.get(ep.id, 0)
                     if not watch_count and (ep.season, ep.episode) not in filler_keys:
                         break
-                    next_ep = completion._next_episode_after(title, ep)
+                    if local_episodes is None:
+                        local_episodes = list(Episode.objects.filter(title=title).order_by("season", "episode"))
+                    here = (ep.season, ep.episode)
+                    next_ep = next((e for e in local_episodes if (e.season, e.episode) > here), None)
+                    if next_ep is None:
+                        # Nothing later is stored locally: TMDB's next one, if any.
+                        next_ep = completion._next_episode_after(title, ep)
                     if next_ep is None or next_ep.id == ep.id:
                         break
                     ep = next_ep
@@ -2231,7 +2252,36 @@ def top_genres(profile, limit=3):
     return [{"name": row["title__genres__name"], "value": row["value"]} for row in qs if row["value"]]
 
 
-def taste_compatibility(profile_a, profile_b):
+def _genre_counts_by_profile(profiles):
+    """{profile_id: {genre name: watch count}} for several profiles in one query."""
+    counts = {p.id: {} for p in profiles}
+    rows = (
+        WatchEvent.objects.filter(profile__in=profiles, title__genres__isnull=False)
+        .values("profile_id", "title__genres__name")
+        .annotate(value=Count("id"))
+        .values_list("profile_id", "title__genres__name", "value")
+    )
+    for profile_id, genre, value in rows:
+        counts[profile_id][genre] = value
+    return counts
+
+
+def taste_compatibility_many(profile, others):
+    """taste_compatibility(profile, other) for each of others. The pairs that
+    aren't cached share one grouped query for everyone's genre counts, instead
+    of two queries per pair (the Stats page's N+1 with a big household)."""
+    others = list(others)
+    loaded = []
+
+    def counts_for(p):
+        if not loaded:
+            loaded.append(_genre_counts_by_profile([profile, *others]))
+        return loaded[0].get(p.id, {})
+
+    return [taste_compatibility(profile, other, counts_for=counts_for) for other in others]
+
+
+def taste_compatibility(profile_a, profile_b, counts_for=None):
     """Stats page's "Taste Compatibility" panel - how much two profiles'
     genre tastes overlap, plus which shared genre they lean on most.
     Jaccard similarity (shared genres / either profile's total distinct
@@ -2254,18 +2304,11 @@ def taste_compatibility(profile_a, profile_b):
     cache, so the two directions never collide on one cache entry."""
 
     def _compute():
-        counts_a = dict(
-            WatchEvent.objects.filter(profile=profile_a, title__genres__isnull=False)
-            .values("title__genres__name")
-            .annotate(value=Count("id"))
-            .values_list("title__genres__name", "value")
-        )
-        counts_b = dict(
-            WatchEvent.objects.filter(profile=profile_b, title__genres__isnull=False)
-            .values("title__genres__name")
-            .annotate(value=Count("id"))
-            .values_list("title__genres__name", "value")
-        )
+        if counts_for is not None:
+            counts_a, counts_b = counts_for(profile_a), counts_for(profile_b)
+        else:
+            both = _genre_counts_by_profile([profile_a, profile_b])
+            counts_a, counts_b = both[profile_a.id], both[profile_b.id]
         genres_a, genres_b = set(counts_a), set(counts_b)
         if not genres_a or not genres_b:
             return None

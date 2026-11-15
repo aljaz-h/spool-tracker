@@ -12024,6 +12024,19 @@ class TasteCompatibilityTests(TestCase):
         for _ in range(count):
             WatchEvent.objects.create(profile=profile, title=title, watched_at=timezone.now())
 
+    def test_many_profiles_share_one_genre_query(self):
+        others = [self.profile_b]
+        for n in range(4):
+            user = User.objects.create_user("tastemany%d" % n, password="pass12345")
+            others.append(Profile.objects.create(user=user, display_name="Many%d" % n))
+        self._watch(self.profile_a, "A1", self.action)
+        for n, other in enumerate(others):
+            self._watch(other, "M%d" % n, self.action)
+        with self.assertNumQueries(1):
+            results = selectors.taste_compatibility_many(self.profile_a, others)
+        self.assertEqual([r["overlap_pct"] for r in results], [100] * 5)
+        self.assertEqual([r["profile"] for r in results], others)
+
     def test_identical_genres_are_100_percent_overlap(self):
         self._watch(self.profile_a, "A1", self.action)
         self._watch(self.profile_a, "A2", self.comedy)
@@ -17568,6 +17581,31 @@ class ContinueWatchingEpisodeDisplayTests(TestCase):
         item = selectors.continue_watching(self.profile)[0]
         self.assertEqual((item["season"], item["episode_number"]), (1, 2))
         self.assertEqual(item["watch_count"], 0)
+
+    @patch("tracker.integrations.tmdb.get_season_details")
+    def test_skipping_many_watched_episodes_costs_no_more_queries_than_skipping_one(self, mock_season):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        mock_season.return_value = {"episodes": [{"episode_number": n, "runtime": 25} for n in range(1, 13)]}
+        episodes = [Episode.objects.create(title=self.title, season=1, episode=n) for n in range(1, 13)]
+        WatchProgress.objects.create(
+            profile=self.profile, title=self.title, current_episode=episodes[0], status=WatchProgress.Status.WATCHING
+        )
+
+        def watch_and_count(upto):
+            for episode in episodes[:upto]:
+                WatchEvent.objects.get_or_create(
+                    profile=self.profile, title=self.title, episode=episode, defaults={"watched_at": "2024-01-01T00:00:00Z"}
+                )
+            with CaptureQueriesContext(connection) as queries:
+                item = selectors.continue_watching(self.profile)[0]
+            return item["episode_number"], len(queries)
+
+        landed_short, queries_short = watch_and_count(2)
+        landed_long, queries_long = watch_and_count(10)
+        self.assertEqual((landed_short, landed_long), (3, 11))
+        self.assertLessEqual(queries_long, queries_short)
 
     @patch("tracker.integrations.tmdb.get_season_details")
     def test_season_finale_true_on_tmdbs_own_last_episode(self, mock_season):

@@ -4703,7 +4703,7 @@ def stats(request, profile_id=None):
         context["achievements_earned_count"] = sum(1 for a in earned_achievements if a["earned"])
         if is_own_stats:
             other_profiles = Profile.objects.exclude(pk=profile.pk).order_by("display_name")
-            compatibility = [selectors.taste_compatibility(profile, other) for other in other_profiles]
+            compatibility = selectors.taste_compatibility_many(profile, other_profiles)
             context["taste_compatibility"] = sorted(
                 (c for c in compatibility if c is not None), key=lambda c: -c["overlap_pct"]
             )
