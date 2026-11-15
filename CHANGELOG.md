@@ -8,6 +8,37 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.191.0] - 2026-11-15
+
+### Added
+- Shared UI components (the Components 1 and 2 boards), one template tag per
+  component in `templatetags/ui.py` with the markup in `templates/tracker/ui/`
+  and the styling in app.css's "Spool UI kit" block: buttons (primary,
+  secondary, ghost, danger, compact, disabled, icon), the three tab patterns
+  (underline, segmented, single-select chips), chips (multi-select, removable,
+  person), checkbox / radio / toggle / mark watched, search (with the "/"
+  shortcut), text field (focus and error states), select, the Filters button
+  with a count, pagination, page and section headers, the meta line, badges,
+  stat tile, panel, skeleton, empty state, banner and toast.
+- `/ui-kit/` shows every component, as the reference pages are checked against.
+- One episode format: `tracker.formatting.episode_code` and `{% epcode %}` give
+  `S1E9` in mono (ranges `S1E1–S1E5`). Every template now uses it; the
+  `S1:E9`, `S1 E9` and zero-padded `S01E09` spellings are gone.
+
+### Changed
+- Movies, TV shows and Anime take their tabs, Filters button, pagination and
+  tile meta line from the shared components; the layout is unchanged.
+- Colour rules: a selected segment, chip or page number is raised grey
+  (`#2a2d34`) with white text; the underline under an in-page tab is white;
+  applied-filter chips are grey; the star in a meta line is no longer amber;
+  section links hover white. Amber stays on the primary button, switches and
+  checkboxes that are on, the focus ring and the top nav's current page.
+- The thin (playback) progress bar is green; plain figure bars on Stats are
+  white. Fields focus with a white border and an amber ring.
+- Media colours are movie `#e8a935`, TV `#8c82d9`, anime `#2fb5a5`, and the
+  type dot is 7px.
+- "TV Shows" is "TV shows" in the top nav and the Stats genre switch.
+
 ## [0.190.3] - 2026-11-15
 
 ### Fixed

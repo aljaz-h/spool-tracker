@@ -31,7 +31,7 @@
       <div class="flex items-baseline gap-1.5"><span class="figure !text-[2.5rem] text-primary">{{ current_streak }}</span><span class="text-sm text-ink-dim">day streak</span></div>
       {% if longest_streak %}
         <div class="figure-label">Record {{ longest_streak }} days</div>
-        <div class="progress-track mt-2.5 max-w-[180px]"><div class="progress-fill" style="width:{{ dial_pct }}%"></div></div>
+        <div class="progress-track mt-2.5 max-w-[180px]"><div class="progress-fill progress-fill-neutral" style="width:{{ dial_pct }}%"></div></div>
       {% endif %}
     </div>
     <div class="lg:px-6">
@@ -314,7 +314,7 @@
                 <div class="text-[12.5px] font-medium text-success mt-1.5">Unlocked</div>
               {% else %}
                 <div class="flex items-center gap-2 mt-2">
-                  <div class="progress-track flex-1"><div class="progress-fill" style="width:{{ a.pct }}%"></div></div>
+                  <div class="progress-track flex-1"><div class="progress-fill progress-fill-neutral" style="width:{{ a.pct }}%"></div></div>
                   <span class="text-[12px] text-ink-faint tabular-nums">{{ a.current }}/{{ a.target }}</span>
                 </div>
               {% endif %}

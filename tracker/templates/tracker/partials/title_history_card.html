@@ -1,4 +1,4 @@
-{# context: title, progress (WatchProgress or None), history_status ({label, tone} or None), timeline (sittings.build_timeline() dict or None), household_enabled (bool), oob (bool, optional - true when this is being sent as an hx-swap-oob fragment alongside some other response, e.g. episode_mark_watched). recent_events is still in the context for callers but the card now renders `timeline`. #}
+{% load ui %}{# context: title, progress (WatchProgress or None), history_status ({label, tone} or None), timeline (sittings.build_timeline() dict or None), household_enabled (bool), oob (bool, optional - true when this is being sent as an hx-swap-oob fragment alongside some other response, e.g. episode_mark_watched). recent_events is still in the context for callers but the card now renders `timeline`. #}
 <section id="history-card" class="tl-{% firstof title.media_type preview_media_type %}-c" {% if oob %}hx-swap-oob="true"{% endif %} {% if household_enabled %}x-show="view === 'you'"{% endif %}>
   <div class="flex items-center justify-between gap-3 mb-3">
     <h2 class="section-title section-title-sm">Your history</h2>
@@ -10,7 +10,7 @@
       <div class="flex items-center gap-2 text-[13px] text-ink-dim">
         Status
         <span class="chip{% if history_status.tone %} chip-{{ history_status.tone }}{% endif %}">{{ history_status.label }}</span>
-        {% if progress.current_episode and progress.status == "watching" %}<span class="font-mono">S{{ progress.current_episode.season }}E{{ progress.current_episode.episode }}</span>{% endif %}
+        {% if progress.current_episode and progress.status == "watching" %}{% epcode progress.current_episode.season progress.current_episode.episode %}{% endif %}
       </div>
       {% if progress.status == "dropped" %}
         <button

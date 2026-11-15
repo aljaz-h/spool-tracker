@@ -1,0 +1,6 @@
+{% load icons %}{# ui_filters_button: a count when filters are on, never a dot #}
+<button type="button" class="btn btn-soft gap-2 cursor-pointer min-h-11" {{ attrs }}>
+  {% icon "filter" "w-3.5 h-3.5" %}
+  <span class="max-sm:sr-only">{{ label }}</span>
+  {% if count %}<span class="count-badge" aria-label="{{ count }} active">{{ count }}</span>{% endif %}
+</button>

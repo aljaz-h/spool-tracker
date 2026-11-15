@@ -160,6 +160,7 @@ urlpatterns = [
     path("calendar/subscribe/", views.calendar_subscribe_panel, name="calendar_subscribe_panel"),
     path("calendar/subscribe/regenerate/", views.calendar_feed_regenerate, name="calendar_feed_regenerate"),
     path("calendar/feed/<str:token>.ics", views.calendar_feed, name="calendar_feed"),
+    path("ui-kit/", views.ui_kit, name="ui_kit"),
     path("lists/", views.lists, name="lists"),
     path("lists/create/", views.create_list, name="create_list"),
     path("lists/<int:list_id>/stats/", views.list_stats_view, name="list_stats"),

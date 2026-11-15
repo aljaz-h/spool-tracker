@@ -33,7 +33,7 @@
     {% else %}
       <div class="seg w-full">
         {% for value, label in settings.mode_choices %}
-          <label class="seg-item flex-1 justify-center cursor-pointer has-checked:bg-base-300 has-checked:text-base-content">
+          <label class="seg-item flex-1 justify-center cursor-pointer">
             <input type="radio" name="mode" value="{{ value }}" class="hidden" x-model="mode" {% if plan.mode == value %}checked{% endif %}>{{ label }}
           </label>
         {% endfor %}
@@ -47,7 +47,7 @@
       <div class="sch-eyebrow mb-1.5">Media</div>
       <div class="seg w-full">
         {% for value, label in settings.media_choices %}
-          <label class="seg-item flex-1 justify-center cursor-pointer has-checked:bg-base-300 has-checked:text-base-content">
+          <label class="seg-item flex-1 justify-center cursor-pointer">
             <input type="radio" name="media" value="{{ value }}" class="hidden" {% if plan.media == value %}checked{% endif %}>{{ label }}
           </label>
         {% endfor %}
@@ -99,7 +99,7 @@
       <div class="sch-eyebrow mb-1.5">Order</div>
       <div class="seg w-full">
         {% for value, label in settings.order_choices %}
-          <label class="seg-item flex-1 justify-center cursor-pointer has-checked:bg-base-300 has-checked:text-base-content">
+          <label class="seg-item flex-1 justify-center cursor-pointer">
             <input type="radio" name="order" value="{{ value }}" class="hidden" {% if plan.order == value %}checked{% endif %}>{{ label }}
           </label>
         {% endfor %}

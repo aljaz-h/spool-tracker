@@ -37518,7 +37518,7 @@ class DiscoverLazyBlocksTests(TestCase):
         self.assertTemplateNotUsed(resp, "tracker/discover.html")
         self.assertContains(resp, "Lazy Tile")
         self.assertContains(resp, "Page 1 of 3")
-        self.assertContains(resp, "?language=fr&page=2")  # no _part in the pagination links
+        self.assertContains(resp, "?language=fr&amp;page=2")  # no _part in the pagination links
         self.assertNotContains(resp, "_part")
 
 
@@ -37576,3 +37576,104 @@ class TmdbItemWindowTests(TestCase):
     def test_first_page_is_35_results(self, mock_get):
         mock_get.side_effect = self._pages()
         self.assertEqual(len(tmdb.discover("movie", category="popular", page=1, item_count=35)["results"]), 35)
+
+
+class UiKitTests(TestCase):
+    """The shared components (templatetags/ui.py) and the one episode format."""
+
+    def setUp(self):
+        user = User.objects.create_user("kituser", password="pass12345")
+        Profile.objects.create(user=user, display_name="Kit")
+        self.client.login(username="kituser", password="pass12345")
+
+    def render(self, source, **context):
+        from django.template import Context, Template
+
+        return Template("{% load ui %}" + source).render(Context(context))
+
+    def test_episode_code_is_one_format(self):
+        from tracker.formatting import episode_code
+
+        self.assertEqual(episode_code(1, 9), "S1E9")
+        self.assertEqual(episode_code(1, 1, 5), "S1E1–S1E5")
+        self.assertEqual(episode_code(1, 12, 2, season_to=2), "S1E12–S2E2")
+        self.assertEqual(episode_code(1, 3, 3), "S1E3")
+        self.assertEqual(episode_code(None, 3), "")
+
+    def test_epcode_tag_is_mono_and_has_a_plain_form(self):
+        self.assertEqual(self.render("{% epcode 1 9 %}"), '<span class="epcode">S1E9</span>')
+        self.assertEqual(self.render("{% epcode 1 9 plain=True %}"), "S1E9")
+        self.assertEqual(self.render("{% epcode 2 1 4 %}"), '<span class="epcode">S2E1–S2E4</span>')
+
+    def test_no_template_spells_an_episode_code_by_hand(self):
+        import re
+        from pathlib import Path
+
+        from django.conf import settings
+
+        pattern = re.compile(r"S\{\{[^}]*\}\}:? ?E\{\{")
+        offenders = [
+            str(path.name)
+            for path in (Path(settings.BASE_DIR) / "tracker" / "templates").rglob("*.html")
+            if pattern.search(path.read_text(encoding="utf-8"))
+        ]
+        self.assertEqual(offenders, [])
+
+    def test_tabs_mark_the_current_one_without_amber_classes(self):
+        items = [{"label": "Trending", "url": "/a/", "active": True}, {"label": "Popular", "url": "/b/"}]
+        for style, item_class in (("underline", "tab-line"), ("segmented", "seg-item"), ("chips", "fchip")):
+            html = self.render('{% ui_tabs items style "Sections" %}', items=items, style=style)
+            self.assertIn(f'<a href="/a/" class="{item_class}" aria-current="page">Trending</a>', html)
+            self.assertIn(f'<a href="/b/" class="{item_class}">Popular</a>', html)
+            self.assertNotIn("primary", html)
+
+    def test_buttons_are_44px_or_compact_and_name_icon_buttons(self):
+        self.assertIn('class="btn btn-primary min-h-11 "', self.render('{% ui_button "New list" "primary" %}'))
+        self.assertIn("btn-compact", self.render('{% ui_button "Compact" compact=True %}'))
+        self.assertIn("btn-danger", self.render('{% ui_button "Disconnect" "danger" %}'))
+        icon_button = self.render('{% ui_button "Close" "ghost" icon="x" icon_only=True %}')
+        self.assertIn('aria-label="Close"', icon_button)
+        self.assertIn("btn-icon", icon_button)
+        self.assertIn("disabled", self.render('{% ui_button "Disabled" disabled=True %}'))
+
+    def test_filters_button_shows_a_count_only_when_filters_are_on(self):
+        self.assertIn('<span class="count-badge" aria-label="2 active">2</span>', self.render("{% ui_filters_button 2 %}"))
+        self.assertNotIn("count-badge", self.render("{% ui_filters_button 0 %}"))
+
+    def test_pagination_has_the_note_numbers_and_next(self):
+        html = self.render('{% ui_pagination 2 20 "language=fr" %}')
+        self.assertIn("Page 2 of 20", html)
+        self.assertIn('href="?language=fr&amp;page=1"', html)
+        self.assertIn('<span class="pager-num" aria-current="page">2</span>', html)
+        self.assertIn("Next &rarr;", html)
+        last = self.render("{% ui_pagination 20 20 %}")
+        self.assertNotIn("Next &rarr;", last)
+        self.assertIn('href="?page=19"', last)
+
+    def test_meta_line_has_the_dot_year_and_an_unstyled_star(self):
+        html = self.render('{% ui_meta "tv" 2022 8.12 %}')
+        self.assertIn('<span class="type-dot bg-tv"></span>TV', html)
+        self.assertIn("<span>2022</span>", html)
+        self.assertIn("<span>&#9733; 8.1</span>", html)
+        self.assertNotIn("text-primary", html)
+        self.assertNotIn("type-dot", self.render('{% ui_meta "" 2022 %}'))
+
+    def test_field_error_is_announced_and_tied_to_the_input(self):
+        html = self.render('{% ui_field "Username" "username" "admin" error="That username is taken." %}')
+        self.assertIn('<label for="f-username" class="ui-label">Username</label>', html)
+        self.assertIn('aria-invalid="true" aria-describedby="f-username-msg"', html)
+        self.assertIn('role="alert">That username is taken.</p>', html)
+
+    def test_the_kit_page_renders_every_component(self):
+        resp = self.client.get(reverse("ui_kit"))
+        self.assertEqual(resp.status_code, 200)
+        for marker in ("btn-danger", "tabs-line", 'class="seg ', "fchip", "filter-chip", "toggle-primary", "mark-watched",
+                       "ui-search", "pager", "section-head", "epcode", "chip-attention", "stat-tile", "empty-state", "banner", "ui-toast"):
+            self.assertContains(resp, marker)
+
+    def test_discover_pages_take_their_tabs_from_the_shared_component(self):
+        with patch("tracker.integrations.tmdb.genres", return_value=[]), \
+                patch("tracker.integrations.tmdb.watch_provider_catalog", return_value=[]):
+            resp = self.client.get(reverse("tv", args=["popular"]))
+        self.assertEqual([t["label"] for t in resp.context["category_tabs"]], ["Trending", "Popular", "Airing today", "Top rated"])
+        self.assertContains(resp, f'<a href="{reverse("tv", args=["popular"])}" class="tab-line" aria-current="page">Popular</a>')

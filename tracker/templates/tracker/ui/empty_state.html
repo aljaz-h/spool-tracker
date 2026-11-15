@@ -1,0 +1,9 @@
+{% load icons %}{# ui_empty_state: what is missing and the action that fixes it #}
+<div class="empty-state">
+  {% if icon %}<span class="empty-state-icon" aria-hidden="true">{% icon icon "w-4 h-4" %}</span>{% endif %}
+  <div class="min-w-0 flex-1">
+    <p class="empty-state-title">{{ title }}</p>
+    {% if text %}<p class="empty-state-text">{{ text }}</p>{% endif %}
+  </div>
+  {% if action_label %}{% if action_url %}<a href="{{ action_url }}" class="btn btn-soft min-h-11 flex-none" {{ action_attrs }}>{{ action_label }}</a>{% else %}<button type="button" class="btn btn-soft min-h-11 flex-none" {{ action_attrs }}>{{ action_label }}</button>{% endif %}{% endif %}
+</div>

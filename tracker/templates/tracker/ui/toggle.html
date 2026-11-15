@@ -1,0 +1,5 @@
+{# ui_toggle: the on/off switch, amber when on, 44px tap area #}
+<label class="ui-check {{ extra_class }}">
+  <input type="checkbox" role="switch"{% if name %} name="{{ name }}"{% endif %}{% if value %} value="{{ value }}"{% endif %} class="toggle toggle-primary toggle-sm"{% if checked %} checked{% endif %}{% if hide_label %} aria-label="{{ label }}"{% endif %} {{ attrs }}>
+  {% if not hide_label %}<span class="text-ink-dim">{{ label }}</span>{% endif %}
+</label>

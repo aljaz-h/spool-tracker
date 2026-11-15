@@ -1,4 +1,4 @@
-{% load tracker_extras icons %}
+{% load ui %}{% load tracker_extras icons %}
 {# The Discover results grid and its pagination, loaded after the page (discover.html asks for it with ?_part=grid). context: the discover() context. #}
   {% if not results %}
     <div class="empty py-16">
@@ -55,25 +55,6 @@
     </div>
 
     {% if not is_collections %}
-      <nav class="flex justify-between items-center flex-wrap gap-4 mt-14" aria-label="Pagination">
-        <span class="text-[13px] text-ink-dim tabular-nums">Page {{ current_page }} of {{ total_pages }}</span>
-        <div class="flex items-center gap-1">
-          {% if current_page > 1 %}
-            <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"-1" }}" class="btn btn-ghost min-h-11">&larr; Previous</a>
-          {% endif %}
-          {% for p in current_page|page_window:total_pages %}
-            {% if p is None %}
-              <span class="w-6 text-center text-ink-faint max-sm:hidden" aria-hidden="true">&hellip;</span>
-            {% elif p == current_page %}
-              <span class="max-sm:hidden min-w-11 h-11 px-2 inline-flex items-center justify-center rounded-lg bg-base-300 text-sm font-semibold tabular-nums" aria-current="page">{{ p }}</span>
-            {% else %}
-              <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ p }}" class="max-sm:hidden min-w-11 h-11 px-2 inline-flex items-center justify-center rounded-lg text-sm text-ink-dim hover:text-base-content hover:bg-base-200 tabular-nums">{{ p }}</a>
-            {% endif %}
-          {% endfor %}
-          {% if current_page < total_pages %}
-            <a href="?{% if base_query %}{{ base_query }}&{% endif %}page={{ current_page|add:"1" }}" class="btn btn-soft min-h-11">Next &rarr;</a>
-          {% endif %}
-        </div>
-      </nav>
+      <div class="mt-14">{% ui_pagination current_page total_pages base_query %}</div>
     {% endif %}
   {% endif %}

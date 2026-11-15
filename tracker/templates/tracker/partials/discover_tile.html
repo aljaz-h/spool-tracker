@@ -1,4 +1,4 @@
-{% load tracker_extras %}
+{% load ui %}{% load tracker_extras %}
 {# context: item (dict: tmdb_id, media_type, name, year, poster_url, vote_average, genre_names (list of str, optional - see views.discover's own stamping; absent anywhere else this partial renders), optional display_mode), my_lists (list of WatchList, for the list-picker popover), discover_title_by_key/discover_watched/discover_watch_count/discover_in_progress/discover_list_membership from selectors.discover_action_context(), hide_type_badge (bool, optional - Movies/TV/Anime's own grid passes this, since every tile on that page is already the one type the page picked; every other renderer mixes types and still shows "Movie"/"TV"/"Anime" in the meta line) #}
 {% comment %}
 Poster-first media card (same family as poster_card.html): the artwork,
@@ -61,11 +61,7 @@ opacity until hovered/focused (discover-tile-dim, see app.css).
   <a href="{{ preview_url }}" class="block min-w-0" title="{{ item.name }}{% if item.genre_names %} — {{ item.genre_names|join:", " }}{% endif %}">
     <span class="media-title">{{ item.name }}</span>
     {% if item.known_line %}<span class="block text-[13px] text-ink-dim truncate">{{ item.known_line }}</span>{% endif %}
-    <span class="meta">
-      {% if not hide_type_badge %}{% with tk=type_key|default:item.media_type %}<span class="inline-flex items-center gap-1.5"><span class="type-dot {{ tk|media_dot_class }}"></span>{{ tk|media_label }}</span>{% endwith %}{% endif %}
-      <span>{{ item.year|default:"—" }}</span>
-      {% if item.vote_average %}<span><span class="text-primary">&#9733;</span> {{ item.vote_average|floatformat:1 }}</span>{% endif %}
-    </span>
+    {% if hide_type_badge %}{% ui_meta "" item.year item.vote_average %}{% else %}{% ui_meta type_key|default:item.media_type item.year item.vote_average %}{% endif %}
   </a>
 </div>
 {% endwith %}

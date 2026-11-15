@@ -1,0 +1,5 @@
+{# ui_section_head: title, optional count, one link on the right with an arrow #}
+<div class="section-head">
+  <h2 class="section-title"{% if id %} id="{{ id }}"{% endif %}>{{ title }}{% if count is not None %} <span class="section-count">{{ count }}</span>{% endif %}</h2>
+  {% if url %}<a href="{{ url }}" class="section-link">{{ link_label }} &rarr;</a>{% endif %}
+</div>

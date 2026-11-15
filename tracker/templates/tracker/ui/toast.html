@@ -1,0 +1,2 @@
+{% load icons %}{# ui_toast: the look of one toast; partials/toasts.html stacks the live ones #}
+<div class="ui-toast" role="status">{% if tone == "error" %}<span class="text-error" aria-hidden="true">{% icon "x" "w-4 h-4" %}</span>{% else %}<span class="text-success" aria-hidden="true">{% icon "check" "w-4 h-4" %}</span>{% endif %}<span>{{ text }}</span></div>

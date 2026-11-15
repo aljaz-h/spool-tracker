@@ -1,4 +1,4 @@
-{% load tracker_extras icons %}
+{% load ui %}{% load tracker_extras icons %}
 {# context: title (Title or None - preview titles have no local row yet), seasons, season, episodes (each carrying watched (bool) and watch_count (int, 0 when unwatched - the checkmark's own ×N badge, see episode_watched_button.html), optionally filler/recap bools - anime only, from Jikan/MyAnimeList, see views._apply_anime_filler_flags - absent entirely rather than False when there's no match/data, which {% if %} already treats as falsy - and release_in, a "In N days/weeks/months" countdown string for a not-yet-aired episode, None once it's aired, and aired_on, the episode's own air date as a date object or None when TMDB has none), season_avg_rating, season_total_runtime (str, format_duration of the selected season's episodes with a known runtime), season_ratings (dict {season_number: TMDB rating}), season_cards ([{"number", "poster_url", "total_episodes", "watched_count", "percent"}, ...] - the season picker's own poster-card row), season_watched_count/season_remaining_count/season_remaining_runtime (str|None - the selected season's own "N watched · N left · runtime left" summary strip), season_fully_watched/show_completed (bool - whether the "Mark episodes" popover's own rows below should show their unmark reverse instead), preview_media_type/preview_tmdb_id/preview_name (only set when title is None - each per-episode watched button materializes the title on click, see episode_watched_button.html) #}
 <div id="episodes-panel">
   {% if seasons %}
@@ -79,7 +79,7 @@
           </div>
           <div class="min-w-0 flex-1">
             <div class="meta meta-sm">
-              <span class="ep-code font-mono text-base-content">S{{ season|stringformat:"02d" }}E{{ ep.episode_number|stringformat:"02d" }}</span>
+              <span class="ep-code font-mono text-base-content">{% epcode season ep.episode_number plain=True %}</span>
               {% if ep.aired_on %}<span>{{ ep.aired_on|date:"M j, Y" }}</span>{% endif %}
               {% if ep.runtime %}<span>{{ ep.runtime }}m</span>{% endif %}
               {% if ep.vote_average %}<span>&#9733; {{ ep.vote_average|floatformat:1 }}</span>{% endif %}

@@ -25,7 +25,7 @@
       {% url 'movies' category="trending" as movies_url %}
       {% include "tracker/partials/nav_top_item.html" with href=movies_url label="Movies" icon_name="clapperboard" is_active=url_name|eq:"movies" %}
       {% url 'tv' category="trending" as tv_url %}
-      {% include "tracker/partials/nav_top_item.html" with href=tv_url label="TV Shows" icon_name="tv" is_active=url_name|eq:"tv" %}
+      {% include "tracker/partials/nav_top_item.html" with href=tv_url label="TV shows" icon_name="tv" is_active=url_name|eq:"tv" %}
       {% url 'anime' category="trending" as anime_url %}
       {% include "tracker/partials/nav_top_item.html" with href=anime_url label="Anime" icon_name="sparkles" is_active=url_name|eq:"anime" %}
       <span class="w-px h-4 bg-line mx-1.5 xl:mx-2" aria-hidden="true"></span>

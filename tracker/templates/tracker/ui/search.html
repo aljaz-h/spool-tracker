@@ -1,0 +1,6 @@
+{% load icons %}{# ui_search: the search field; shortcut="/" shows the key and focuses the field #}
+<label class="field ui-search"{% if shortcut %} x-data @keydown.window="if ($event.key === '{{ shortcut }}' && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName) && !document.activeElement.isContentEditable) { $event.preventDefault(); $refs.q.focus(); }"{% endif %}>
+  <span class="text-ink-dim flex-none" aria-hidden="true">{% icon "search" "w-4 h-4" %}</span>
+  <input type="search" name="{{ name }}" value="{{ value }}" placeholder="{{ placeholder }}" aria-label="{{ label }}" autocomplete="off"{% if shortcut %} x-ref="q" aria-keyshortcuts="{{ shortcut }}"{% endif %} {{ attrs }}>
+  {% if shortcut %}<kbd class="ui-kbd" aria-hidden="true">{{ shortcut }}</kbd>{% endif %}
+</label>

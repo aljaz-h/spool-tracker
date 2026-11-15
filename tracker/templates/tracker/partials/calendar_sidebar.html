@@ -1,4 +1,4 @@
-{% load icons tracker_extras %}
+{% load ui %}{% load icons tracker_extras %}
 {# context: featured/queue (the next new episode ready to watch, plus the rest of that queue), agenda_groups (releases grouped by date), today. The agenda beside the month grid - date headings with compact poster rows, no box around it. #}
 {% if featured %}
   <section class="mb-6">
@@ -9,7 +9,7 @@
       </div>
       <div class="min-w-0 flex-1">
         <div class="text-[14px] font-semibold truncate group-hover:text-white">{{ featured.title.name }}</div>
-        <div class="text-xs text-ink-dim"><span class="font-mono text-primary">S{{ featured.episode.season }} E{{ featured.episode.episode }}</span> · New episode</div>
+        <div class="text-xs text-ink-dim"><span class="text-base-content">{% epcode featured.episode.season featured.episode.episode %}</span> · New episode</div>
       </div>
       <span class="btn btn-sm btn-primary gap-1 flex-none">{% icon "play" "w-3.5 h-3.5" %} Watch now</span>
     </a>
@@ -18,7 +18,7 @@
         {% for q in queue %}
           <div class="flex justify-between gap-3 py-1.5 text-[12.5px] text-ink-dim">
             <a href="{% url 'title_detail' q.title.pk %}" class="truncate hover:text-base-content">{{ q.title.name }}</a>
-            <span class="font-mono text-ink-faint flex-none">S{{ q.episode.season }} E{{ q.episode.episode }}</span>
+            <span class="text-ink-dim flex-none">{% epcode q.episode.season q.episode.episode %}</span>
           </div>
         {% endfor %}
       </div>
@@ -45,7 +45,7 @@
           </div>
           <span class="min-w-0 flex-1 text-[13px] truncate {% if group.date == today %}text-base-content font-medium{% else %}text-ink-dim{% endif %} group-hover:text-base-content">{{ rs.title.name }}</span>
           <span class="flex-none text-[12.5px] {% if rs.episode %}font-mono{% endif %} text-ink-faint">
-            {% if rs.episode %}S{{ rs.episode.season }} E{{ rs.episode.episode }}{% else %}{{ rs.get_release_type_display }}{% endif %}{% if rs.has_exact_time %} <span class="font-sans text-ink-dim">&middot; {{ rs.release_date|time:time_format_str }}</span>{% endif %}
+            {% if rs.episode %}{% epcode rs.episode.season rs.episode.episode %}{% else %}{{ rs.get_release_type_display }}{% endif %}{% if rs.has_exact_time %} <span class="font-sans text-ink-dim">&middot; {{ rs.release_date|time:time_format_str }}</span>{% endif %}
           </span>
         </a>
       {% endfor %}

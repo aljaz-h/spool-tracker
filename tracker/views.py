@@ -421,6 +421,7 @@ def _collections_view(request):
         "total_pages": 1,
         "my_lists": [],
     }
+    context["category_tabs"] = _discover_category_tabs("movie", COLLECTIONS_CATEGORY)
     return render(request, "tracker/discover.html", context)
 
 
@@ -436,6 +437,45 @@ DISCOVER_THIRD_TAB = {
     "tv": ("airing", "Airing today"),
     "anime": ("airing", "Airing now"),
 }
+
+
+@login_required
+def ui_kit(request):
+    """Every shared UI component on one page (templatetags/ui.py), with sample
+    data: the reference a page is checked against."""
+    return render(
+        request,
+        "tracker/ui_kit.html",
+        {
+            "tabs": [
+                {"label": "Trending", "url": "#", "active": True}, {"label": "Popular", "url": "#"},
+                {"label": "Upcoming", "url": "#"}, {"label": "Top rated", "url": "#"},
+            ],
+            "ranges": [{"label": "Week", "url": "#", "active": True}, {"label": "3 days", "url": "#"}, {"label": "Day", "url": "#"}],
+            "types": [
+                {"label": "All", "url": "#", "active": True}, {"label": "Movies", "url": "#"},
+                {"label": "TV", "url": "#"}, {"label": "Anime", "url": "#"},
+            ],
+            "sort_options": [("new", "Newest first"), ("old", "Oldest first"), ("rated", "Highest rated")],
+        },
+    )
+
+
+def _discover_category_tabs(media_type, category):
+    """The Movies / TV shows / Anime pages' section tabs, for {% ui_tabs %}:
+    Trending, Popular, the type's third tab, Top rated and (Movies and TV
+    shows, when it is on) Collections."""
+    url_name = "movies" if media_type == "movie" else media_type
+    third_category, third_label = DISCOVER_THIRD_TAB[media_type]
+    tabs = [("trending", "Trending"), ("popular", "Popular"), (third_category, third_label), ("top_rated", "Top rated")]
+    if media_type != "anime" and COLLECTIONS_ENABLED:
+        tabs.append((COLLECTIONS_CATEGORY, "Collections"))
+    return [
+        {"label": label, "url": reverse(url_name, kwargs={"category": key}), "active": key == category}
+        for key, label in tabs
+    ]
+
+
 DISCOVER_SORT_LABELS = {
     "trending": "Sorted by popularity", "popular": "Sorted by popularity", "airing": "Sorted by popularity",
     "upcoming": "Sorted by release date", "top_rated": "Sorted by rating",
@@ -664,6 +704,7 @@ def discover(request, media_type, category):
         "base_query": query_without_page.urlencode(),
         "my_lists": list(WatchList.objects.filter(profile=profile).order_by("name")) if profile else [],
         "collections_enabled": COLLECTIONS_ENABLED,
+        "category_tabs": _discover_category_tabs(media_type, category),
     }
     for item in context["hero_items"]:
         item["genre_name"] = next((genre_names_by_id[g] for g in item.get("genre_ids") or [] if g in genre_names_by_id), "")

@@ -1,0 +1,7 @@
+{# ui_select: options are (value, label) pairs #}
+<div class="ui-field">
+  {% if hide_label %}{% else %}<label for="{{ id }}" class="ui-label">{{ label }}</label>{% endif %}
+  <select id="{{ id }}" name="{{ name }}" class="select w-full min-h-11"{% if hide_label %} aria-label="{{ label }}"{% endif %} {{ attrs }}>
+    {% for option_value, option_label in options %}<option value="{{ option_value }}"{% if option_value|stringformat:"s" == value %} selected{% endif %}>{{ option_label }}</option>{% endfor %}
+  </select>
+</div>

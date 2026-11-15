@@ -1,0 +1,8 @@
+{# ui_skeleton: a loading block, replaced by the content or by an empty state #}
+<div class="flex items-center gap-3" role="status" aria-busy="true">
+  <span class="sr-only">{{ label }}</span>
+  {% if thumb %}<div class="skel w-9 h-12 flex-none" aria-hidden="true"></div>{% endif %}
+  <div class="flex-1 flex flex-col gap-2" aria-hidden="true">
+    {% for line in lines %}<div class="skel skel-line {% if forloop.first %}w-2/3{% else %}w-2/5{% endif %}"></div>{% endfor %}
+  </div>
+</div>

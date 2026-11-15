@@ -1,0 +1,13 @@
+{# ui_pagination: "Page 1 of N", number buttons, "Next →". target: optional hx-target #}
+<nav class="pager" aria-label="Pagination">
+  <span class="pager-note">Page {{ page }} of {{ total }}{% if note %} · {{ note }}{% endif %}</span>
+  <div class="flex items-center gap-1">
+    {% if prev_url %}<a href="{{ prev_url }}"{% if target %} hx-get="{{ prev_url }}" hx-target="{{ target }}" hx-push-url="true"{% endif %} class="btn btn-ghost min-h-11">&larr; Previous</a>{% endif %}
+    {% for p in window %}
+      {% if p is None %}<span class="pager-gap" aria-hidden="true">&hellip;</span>
+      {% elif p.current %}<span class="pager-num" aria-current="page">{{ p.n }}</span>
+      {% else %}<a href="{{ p.url }}"{% if target %} hx-get="{{ p.url }}" hx-target="{{ target }}" hx-push-url="true"{% endif %} class="pager-num">{{ p.n }}</a>{% endif %}
+    {% endfor %}
+    {% if next_url %}<a href="{{ next_url }}"{% if target %} hx-get="{{ next_url }}" hx-target="{{ target }}" hx-push-url="true"{% endif %} class="btn btn-soft min-h-11">Next &rarr;</a>{% endif %}
+  </div>
+</nav>

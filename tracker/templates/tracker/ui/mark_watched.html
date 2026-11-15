@@ -1,0 +1,2 @@
+{% load icons %}{# ui_mark_watched: green when watched (a result, not a setting) #}
+<button type="button" class="mark-watched" aria-pressed="{% if watched %}true{% else %}false{% endif %}" {{ attrs }}><span class="mark-watched-box" aria-hidden="true">{% icon "check" "w-4 h-4" %}</span><span>{{ label }}</span></button>

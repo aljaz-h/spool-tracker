@@ -1,0 +1,142 @@
+{% extends "tracker/base.html" %}
+{% load ui icons %}
+{% block title %}UI kit · Spool{% endblock %}
+{% block content %}
+{% comment %}
+  Every shared component (Components 1 and 2), rendered from the same tags the
+  pages use (templatetags/ui.py). A page that needs one of these takes it from
+  here; it does not restyle its own.
+{% endcomment %}
+{% page_head "UI kit" "The controls and content blocks every page reuses." %}{% endpage_head %}
+
+<div class="grid gap-6 lg:grid-cols-2">
+  {% panel title="Buttons" %}
+    <div class="flex flex-wrap items-center gap-3">
+      {% ui_button "New list" "primary" %}
+      {% ui_button "Refresh" "secondary" icon="refresh-cw" %}
+      {% ui_button "Clear all" "ghost" %}
+      {% ui_button "Disconnect" "danger" %}
+    </div>
+    <div class="flex flex-wrap items-center gap-3 mt-3">
+      {% ui_button "Compact" compact=True %}
+      {% ui_button "Disabled" disabled=True %}
+      {% ui_button "More" icon="ellipsis" icon_only=True %}
+      {% ui_button "Close" "ghost" icon="x" icon_only=True %}
+    </div>
+  {% endpanel %}
+
+  {% panel title="Tabs: three patterns, one job each" %}
+    <p class="ui-help mb-1">Underline · page sections</p>
+    {% ui_tabs tabs "underline" "Sections" %}
+    <p class="ui-help mt-4 mb-1">Segmented · view or range</p>
+    {% ui_tabs ranges "segmented" "Range" %}
+    <p class="ui-help mt-4 mb-1">Chips · filters (single select)</p>
+    {% ui_tabs types "chips" "Type" %}
+  {% endpanel %}
+
+  {% panel title="Chips: multi-select, removable, people" %}
+    <div class="fchips">
+      {% ui_chip "Watchlist" selected=True check=True %}
+      {% ui_chip "Anime" check=True %}
+      {% ui_chip "Marvel" check=True %}
+    </div>
+    <div class="flex flex-wrap items-center gap-2 mt-3">
+      {% ui_chip "English" removable=True %}
+      {% ui_button "Clear all" "ghost" compact=True %}
+    </div>
+    <div class="fchips mt-3">
+      {% ui_chip "All members" selected=True count=9 %}
+      {% ui_chip "Timi" dot="#f0604a" %}
+      {% ui_chip "gider" dot="#6b9be8" %}
+      {% ui_chip "TV" dot="tv" %}
+    </div>
+  {% endpanel %}
+
+  {% panel title="Checkbox, radio, toggle, mark watched" %}
+    <div class="flex flex-wrap items-center gap-x-6 gap-y-1">
+      {% ui_checkbox "Off" %}
+      {% ui_checkbox "On" checked=True %}
+      {% ui_checkbox "Some" indeterminate=True %}
+      {% ui_radio "Radio" name="kit-radio" %}
+      {% ui_radio "Radio on" name="kit-radio" checked=True %}
+    </div>
+    <div class="flex flex-wrap items-center gap-x-6 gap-y-1">
+      {% ui_toggle "Toggle off" %}
+      {% ui_toggle "Toggle on" checked=True %}
+    </div>
+    <div class="flex flex-wrap items-center gap-x-6 gap-y-1 mt-1">
+      {% ui_mark_watched %}
+      {% ui_mark_watched watched=True %}
+    </div>
+  {% endpanel %}
+
+  {% panel title="Inputs and select" %}
+    {% ui_search "q" "Search history…" shortcut="/" %}
+    <div class="grid gap-4 sm:grid-cols-2 mt-4">
+      {% ui_field "List name" "kit_name" "Horror classics" help="Focus: white border and amber ring" %}
+      {% ui_field "Username" "kit_user" "admin" error="That username is taken." %}
+      {% ui_select "Sort" "kit_sort" sort_options "new" %}
+    </div>
+  {% endpanel %}
+
+  {% panel title="Toolbar and pagination" %}
+    <div class="toolbar justify-between">
+      {% ui_tabs types "segmented" "Type" %}
+      <div class="flex items-center gap-2">
+        {% ui_filters_button 2 %}
+        <div class="seg" role="group" aria-label="Layout">
+          <button type="button" class="seg-item" aria-pressed="true" aria-label="Grid">{% icon "layout-grid" "w-4 h-4" %}</button>
+          <button type="button" class="seg-item" aria-pressed="false" aria-label="List">{% icon "list" "w-4 h-4" %}</button>
+        </div>
+      </div>
+    </div>
+    <div class="mt-5">{% ui_pagination 1 100 "" "992 days" %}</div>
+  {% endpanel %}
+
+  {% panel title="Section header, meta line, episode code and badges" %}
+    {% ui_section_head "Recently watched" 28 "#" "History" %}
+    <div class="flex flex-col gap-1.5">
+      {% ui_meta "movie" 2026 7.8 %}
+      {% ui_meta "tv" 2022 8.1 %}
+      {% ui_meta "anime" 2024 8.0 %}
+    </div>
+    <p class="mt-3 text-sm">{% epcode 1 9 %} <span class="text-ink-dim">Embrace and Whisper</span> &nbsp; {% epcode 1 1 5 %} <span class="text-ink-dim">range</span></p>
+    <div class="flex flex-wrap items-center gap-2 mt-3">
+      {% ui_badge "Nuvio" %}
+      {% ui_badge "Binge session" %}
+      {% ui_badge "Season finale" %}
+      {% ui_badge "Moved" "attention" dot=True %}
+      {% ui_badge "Synced" "success" dot=True %}
+      {% ui_badge "Next" "outline" %}
+    </div>
+  {% endpanel %}
+
+  {% panel title="Stat tile, panel and progress" %}
+    <div class="grid grid-cols-3 gap-4">
+      {% ui_stat_tile "33" "day streak" note="Record 36 days" percent=92 %}
+      {% ui_stat_tile "2,051" "movies watched" note="2,819 total plays" %}
+      {% ui_stat_tile "445" "total watch time" unit="days" note="10,684 h 24 m" %}
+    </div>
+    <p class="ui-help mt-5 mb-1.5">Playback progress · the thin bar on tiles</p>
+    <div class="progress-track max-w-[260px]"><div class="progress-fill" style="width: 68%"></div></div>
+    <p class="ui-help mt-4">Show or list progress is the filled block (the detail page and a list's page); the two never share a style.</p>
+  {% endpanel %}
+
+  {% panel title="Loading, empty, banner and toast" %}
+    {% ui_skeleton %}
+    <div class="mt-4">{% ui_empty_state "My schedule is off" "Plan what to watch around the hours you are free." icon="clock" action_label="Turn on" %}</div>
+    <div class="mt-4">{% ui_banner "Automatic backup on 20 Oct failed." action_label="Show problems" %}</div>
+    <div class="mt-4">{% ui_toast "Saved" %}</div>
+  {% endpanel %}
+
+  {% panel title="Tiles and rows" %}
+    <p class="text-sm text-ink-dim">These already exist as shared partials and are the only ones a page should use:</p>
+    <ul class="mt-2 text-sm flex flex-col gap-1">
+      <li><span class="epcode">partials/poster_card.html</span> — poster tile and the backdrop tile (Continue watching)</li>
+      <li><span class="epcode">partials/discover_tile.html</span> — poster tile for titles not tracked yet</li>
+      <li><span class="epcode">partials/activity_item.html</span> — activity row</li>
+      <li><span class="epcode">partials/toasts.html</span> — the live toast stack</li>
+    </ul>
+  {% endpanel %}
+</div>
+{% endblock %}

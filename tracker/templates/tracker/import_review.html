@@ -1,5 +1,5 @@
 {% extends "tracker/base.html" %}
-{% block title %}Review import · Spool{% endblock %}
+{% load ui %}{% block title %}Review import · Spool{% endblock %}
 {% block content %}
 
   <div class="page-head !block">
@@ -157,7 +157,7 @@
                       {% if candidate.matched_title %}<div class="text-[12px] text-ink-faint">→ {{ candidate.matched_title.name }}</div>{% endif %}
                     </td>
                     <td class="py-2 pr-3 font-mono text-[12px]">{{ candidate.media_type }}</td>
-                    <td class="py-2 pr-3">{% if candidate.season %}S{{ candidate.season }}E{{ candidate.episode }}{% else %}—{% endif %}</td>
+                    <td class="py-2 pr-3">{% if candidate.season %}{% epcode candidate.season candidate.episode %}{% else %}—{% endif %}</td>
                     <td class="py-2 pr-3 font-mono text-[12px]">{{ candidate.watched_at|date:"Y-m-d H:i"|default:"—" }}</td>
                     <td class="py-2 pr-3">{{ candidate.rating|default:"—" }}</td>
                     <td class="py-2 pr-3">

@@ -1,0 +1,14 @@
+{# ui_tabs: items (label, url, active, count), style underline|segmented|chips, label (aria) #}
+{% if style == "segmented" %}
+<nav class="seg {{ extra_class }}"{% if label %} aria-label="{{ label }}"{% endif %}>
+  {% for item in items %}<a href="{{ item.url }}" class="seg-item"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}{% if item.count is not None %} <span class="seg-count">{{ item.count }}</span>{% endif %}</a>{% endfor %}
+</nav>
+{% elif style == "chips" %}
+<nav class="fchips {{ extra_class }}"{% if label %} aria-label="{{ label }}"{% endif %}>
+  {% for item in items %}<a href="{{ item.url }}" class="fchip"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}{% if item.count is not None %} <span class="fchip-count">{{ item.count }}</span>{% endif %}</a>{% endfor %}
+</nav>
+{% else %}
+<nav class="tabs-line {{ extra_class }}"{% if label %} aria-label="{{ label }}"{% endif %}>
+  {% for item in items %}<a href="{{ item.url }}" class="tab-line"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}{% if item.count is not None %} <span class="seg-count">{{ item.count }}</span>{% endif %}</a>{% endfor %}
+</nav>
+{% endif %}

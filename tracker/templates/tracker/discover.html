@@ -1,5 +1,5 @@
 {% extends "tracker/base.html" %}
-{% load tracker_extras icons %}
+{% load ui %}{% load tracker_extras icons %}
 {% block title %}{{ page_title }} · Spool{% endblock %}
 {% block content %}
 
@@ -44,28 +44,14 @@
     filters show as removable chips underneath (see below).
   {% endcomment %}
   <div class="flex items-end justify-between gap-4 mb-7 border-b border-line">
-    {% url library_url_name category="trending" as trending_url %}
-    {% url library_url_name category="popular" as popular_url %}
-    {% url library_url_name category="upcoming" as upcoming_url %}
-    {% url library_url_name category="airing" as airing_url %}
-    {% url library_url_name category="top_rated" as top_rated_url %}
-    <nav class="tabs-line !border-b-0 min-w-0" aria-label="Category">
-      <a href="{{ trending_url }}" class="tab-line" {% if category == "trending" %}aria-current="page"{% endif %}>Trending</a>
-      <a href="{{ popular_url }}" class="tab-line" {% if category == "popular" %}aria-current="page"{% endif %}>Popular</a>
-      <a href="{% if third_tab_category == 'airing' %}{{ airing_url }}{% else %}{{ upcoming_url }}{% endif %}" class="tab-line" {% if category == third_tab_category %}aria-current="page"{% endif %}>{{ third_tab_label }}</a>
-      <a href="{{ top_rated_url }}" class="tab-line" {% if category == "top_rated" %}aria-current="page"{% endif %}>Top rated</a>
-      {% if not is_anime and collections_enabled %}
-        {% url library_url_name category="collections" as collections_url %}
-        <a href="{{ collections_url }}" class="tab-line" {% if is_collections %}aria-current="page"{% endif %}>Collections</a>
-      {% endif %}
-    </nav>
+    {% ui_tabs category_tabs "underline" "Category" "!border-b-0 min-w-0" %}
     <div class="pb-2 flex-none flex items-center gap-4">
     {% if not is_collections %}
       {% comment %}
         "Hide watched" is the Watched Display preference set to Hide (the same
         setting as Filters > Display); the page reloads so the grid refills.
       {% endcomment %}
-      <label class="flex items-center gap-2.5 cursor-pointer text-sm min-h-11 max-sm:hidden">
+      <label class="ui-check max-sm:hidden">
         <input type="checkbox" role="switch" class="toggle toggle-primary toggle-sm" {% if watched_display == "hide" %}checked{% endif %}
           hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none"
           hx-vals="js:{discover_watched_display: event.target.checked ? 'hide' : 'show'}"
@@ -98,13 +84,7 @@
           if (this.open) this.$nextTick(() => this.fit());
         },
       }">
-        <button type="button" x-ref="trigger" @click="toggle()" :aria-expanded="open.toString()" aria-haspopup="true" class="btn btn-soft gap-2 cursor-pointer min-h-11">
-          {% icon "filter" "w-3.5 h-3.5" %}
-          <span class="max-sm:sr-only">Filters</span>
-          {% if active_filter_count %}
-            <span class="min-w-5 h-5 px-1.5 rounded-full bg-base-100 text-base-content text-[11px] font-semibold leading-5 text-center tabular-nums" aria-label="{{ active_filter_count }} active">{{ active_filter_count }}</span>
-          {% endif %}
-        </button>
+        {% ui_filters_button active_filter_count 'x-ref="trigger" @click="toggle()" :aria-expanded="open.toString()" aria-haspopup="true"' %}
 
         <div x-ref="panel" x-cloak :class="{'spool-popover-open': open}" role="dialog" aria-label="Filters" class="spool-popover absolute right-0 top-full mt-2 w-[440px] max-w-[calc(100vw-2rem)] max-h-[720px] menu-surface z-40 flex flex-col overflow-hidden">
           <div class="flex items-center justify-between px-6 pt-5 pb-4 flex-none">
@@ -329,15 +309,15 @@
               <div class="flex items-center justify-between gap-3 flex-wrap">
                 <span class="text-sm font-medium">Watched</span>
                 <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="seg">
-                <label class="seg-item cursor-pointer has-[:checked]:bg-base-300 has-[:checked]:text-base-content">
+                <label class="seg-item cursor-pointer">
                   <input type="radio" name="discover_watched_display" value="show" class="sr-only" {% if profile.discover_watched_display == "show" %}checked{% endif %}>
                   {% icon "eye" "w-3.5 h-3.5" %}Show
                 </label>
-                <label class="seg-item cursor-pointer has-[:checked]:bg-base-300 has-[:checked]:text-base-content">
+                <label class="seg-item cursor-pointer">
                   <input type="radio" name="discover_watched_display" value="dim" class="sr-only" {% if profile.discover_watched_display == "dim" %}checked{% endif %}>
                   {% icon "eye-half" "w-3.5 h-3.5" %}Dim
                 </label>
-                <label class="seg-item cursor-pointer has-[:checked]:bg-base-300 has-[:checked]:text-base-content">
+                <label class="seg-item cursor-pointer">
                   <input type="radio" name="discover_watched_display" value="hide" class="sr-only" {% if profile.discover_watched_display == "hide" %}checked{% endif %}>
                   {% icon "eye-off" "w-3.5 h-3.5" %}Hide
                 </label>
@@ -346,15 +326,15 @@
               <div class="flex items-center justify-between gap-3 flex-wrap">
                 <span class="text-sm font-medium">Watchlisted</span>
                 <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none" class="seg">
-                <label class="seg-item cursor-pointer has-[:checked]:bg-base-300 has-[:checked]:text-base-content">
+                <label class="seg-item cursor-pointer">
                   <input type="radio" name="discover_watchlisted_display" value="show" class="sr-only" {% if profile.discover_watchlisted_display == "show" %}checked{% endif %}>
                   {% icon "eye" "w-3.5 h-3.5" %}Show
                 </label>
-                <label class="seg-item cursor-pointer has-[:checked]:bg-base-300 has-[:checked]:text-base-content">
+                <label class="seg-item cursor-pointer">
                   <input type="radio" name="discover_watchlisted_display" value="dim" class="sr-only" {% if profile.discover_watchlisted_display == "dim" %}checked{% endif %}>
                   {% icon "eye-half" "w-3.5 h-3.5" %}Dim
                 </label>
-                <label class="seg-item cursor-pointer has-[:checked]:bg-base-300 has-[:checked]:text-base-content">
+                <label class="seg-item cursor-pointer">
                   <input type="radio" name="discover_watchlisted_display" value="hide" class="sr-only" {% if profile.discover_watchlisted_display == "hide" %}checked{% endif %}>
                   {% icon "eye-off" "w-3.5 h-3.5" %}Hide
                 </label>

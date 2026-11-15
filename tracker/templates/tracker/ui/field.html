@@ -1,0 +1,6 @@
+{# ui_field: label above, one line of help or the error below #}
+<div class="ui-field">
+  <label for="{{ id }}" class="ui-label">{{ label }}</label>
+  <input type="{{ type }}" id="{{ id }}" name="{{ name }}" value="{{ value }}"{% if placeholder %} placeholder="{{ placeholder }}"{% endif %} class="input w-full min-h-11{% if error %} input-invalid{% endif %}"{% if error %} aria-invalid="true" aria-describedby="{{ id }}-msg"{% elif help %} aria-describedby="{{ id }}-msg"{% endif %} {{ attrs }}>
+  {% if error %}<p id="{{ id }}-msg" class="ui-help ui-help-error" role="alert">{{ error }}</p>{% elif help %}<p id="{{ id }}-msg" class="ui-help">{{ help }}</p>{% endif %}
+</div>

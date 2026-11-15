@@ -1,0 +1,2 @@
+{# ui_meta: the one meta line, ● Movie · 2026 · ★ 7.8. The star is the text colour, never amber. #}
+<span class="meta{% if small %} meta-sm{% endif %}">{% if kind_label %}<span class="inline-flex items-center gap-1.5"><span class="type-dot {{ dot_class }}"></span>{{ kind_label }}</span>{% endif %}<span>{{ year|default:"—" }}</span>{% if rating %}<span>&#9733; {{ rating|floatformat:1 }}</span>{% endif %}{% if extra %}<span>{{ extra }}</span>{% endif %}</span>

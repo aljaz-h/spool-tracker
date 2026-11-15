@@ -1,4 +1,4 @@
-{% load static icons tracker_extras %}
+{% load ui %}{% load static icons tracker_extras %}
 {% comment %}
   Settings > Account: the profile form on the left (photo, display name, bio,
   avatar colour, and an unsaved-changes bar that appears only when something
@@ -113,7 +113,7 @@
               </div>
               <div class="min-w-0">
                 <div class="text-[13px] font-semibold truncate">Watching {{ profile_now_watching.title.name }}</div>
-                <div class="text-[12.5px] text-ink-dim">{% if profile_now_watching.episode %}S{{ profile_now_watching.episode.season }} E{{ profile_now_watching.episode.episode }} &middot; {% endif %}{{ profile_now_watching.watched_at|timesince }} ago</div>
+                <div class="text-[12.5px] text-ink-dim">{% if profile_now_watching.episode %}{{ profile_now_watching.episode|epcode_text }} &middot; {% endif %}{{ profile_now_watching.watched_at|timesince }} ago</div>
               </div>
             </div>
           {% endif %}

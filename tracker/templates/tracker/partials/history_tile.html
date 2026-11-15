@@ -1,4 +1,4 @@
-{% load tracker_extras %}
+{% load ui %}{% load tracker_extras %}
 {# context: event (WatchEvent) - one play on History's day-grouped poster grid (the classic Trakt-style history wall): poster with the episode code on it, then title and a "episode name / year · time" line. Remove and select controls sit on the poster corner. #}
 {% if event.episode %}
   {% episode_detail_url event.title.pk event.episode.season event.episode.episode as detail_url %}
@@ -16,7 +16,7 @@
         <img src="{{ event.title.poster_url|poster_size:"w342" }}" srcset="{{ event.title.poster_url|poster_srcset }}" alt="" loading="lazy" class="absolute inset-0 group-hover:brightness-110">
       {% endif %}
       {% if event.episode %}
-        <span class="absolute top-2 left-2 z-10 chip chip-scrim font-mono">S{{ event.episode.season }}:E{{ event.episode.episode }}</span>
+        <span class="absolute top-2 left-2 z-10 chip chip-scrim font-mono">{{ event.episode|epcode_text }}</span>
       {% endif %}
       {% comment %} Synced/imported from a third-party app - rows logged directly in Spool leave source blank and get no marker. See WatchEvent.Source. {% endcomment %}
       {% if event.source == "nuvio" %}<span class="absolute bottom-2 right-2 z-10 flex items-center justify-center w-5 h-5 rounded-md bg-info/90 text-info-content text-[10px] font-mono font-bold" title="Added by Nuvio sync">N</span>

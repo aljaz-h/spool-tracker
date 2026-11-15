@@ -1,0 +1,5 @@
+{# ui_banner: "Needs attention" in coral, never the amber of the primary action #}
+<div class="banner" role="status">
+  <p class="min-w-0 flex-1">{% if lead %}<b class="banner-lead">{{ lead }}</b> {% endif %}{{ text }}</p>
+  {% if action_label %}{% if action_url %}<a href="{{ action_url }}" class="btn btn-soft min-h-11 flex-none" {{ action_attrs }}>{{ action_label }}</a>{% else %}<button type="button" class="btn btn-soft min-h-11 flex-none" {{ action_attrs }}>{{ action_label }}</button>{% endif %}{% endif %}
+</div>

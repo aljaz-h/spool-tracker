@@ -1,0 +1,5 @@
+{# ui_checkbox / ui_radio: 22px control, 44px hit area, amber when on #}
+<label class="ui-check">
+  <input type="{{ kind }}"{% if name %} name="{{ name }}"{% endif %}{% if value %} value="{{ value }}"{% endif %} class="{% if kind == "radio" %}radio radio-primary{% else %}checkbox checkbox-primary{% endif %}"{% if checked %} checked{% endif %}{% if indeterminate %} x-init="$el.indeterminate = true"{% endif %}{% if hide_label %} aria-label="{{ label }}"{% endif %} {{ attrs }}>
+  {% if not hide_label %}<span>{{ label }}</span>{% endif %}
+</label>

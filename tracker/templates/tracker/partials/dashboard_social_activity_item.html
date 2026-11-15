@@ -1,4 +1,4 @@
-{% load tracker_extras %}
+{% load ui %}{% load tracker_extras %}
 {# context: event (WatchEvent, select_related title/episode/profile - selectors.social_activity()) #}
 {% if event.episode %}
   {% episode_detail_url event.title.pk event.episode.season event.episode.episode as detail_url %}
@@ -15,7 +15,7 @@
     <div class="text-[13px] leading-snug text-ink-dim">
       <span class="font-semibold text-base-content">{{ event.profile.display_name }}</span>
       {% if event.user_rating %}rated{% else %}watched{% endif %}
-      <span class="font-medium text-base-content group-hover:text-white">{{ event.title.name }}{% if event.episode %} <span class="font-mono text-[12px] text-ink-dim">S{{ event.episode.season }}:E{{ event.episode.episode }}</span>{% endif %}</span>
+      <span class="font-medium text-base-content group-hover:text-white">{{ event.title.name }}{% if event.episode %} <span class="font-mono text-[12px] text-ink-dim">{{ event.episode|epcode_text }}</span>{% endif %}</span>
       {% if event.user_rating %}<span class="text-primary">&#9733;{{ event.user_rating }}</span>{% endif %}
     </div>
     <div class="text-[12.5px] text-ink-faint mt-0.5">{{ event.watched_at|timesince }} ago{% if event.source %} · {{ event.get_source_display }}{% endif %}</div>
