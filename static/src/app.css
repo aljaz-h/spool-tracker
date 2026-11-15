@@ -5413,3 +5413,69 @@ html[data-theme] {
   color: var(--color-ink-dim);
   opacity: 0.7;
 }
+
+/* Switches and boxes (UI kit): a solid amber track with a dark knob when on,
+   grey when off; an unchecked box or radio has a grey border, not an amber one.
+   Outside any layer so it wins over daisyUI's own rules. */
+.toggle {
+  background-color: #4a4e5a;
+  border-color: #4a4e5a;
+  color: #c9ccd6;
+}
+.toggle:checked,
+.toggle[aria-checked="true"] {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-content);
+}
+.checkbox:not(:checked):not(:indeterminate),
+.radio:not(:checked) {
+  border-color: var(--color-ink-faint);
+}
+
+/* Movies / TV shows / Anime as a list: the same tiles, laid out as rows (the
+   toolbar's grid / list switch sets data-discover-layout on <html>). */
+[data-discover-layout="list"] .discover-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.25rem 2rem;
+}
+@media (min-width: 1024px) {
+  [data-discover-layout="list"] .discover-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+[data-discover-layout="list"] .discover-grid .discover-tile {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 0.5rem;
+  border-radius: var(--radius-xl);
+}
+[data-discover-layout="list"] .discover-grid .discover-tile:hover {
+  background: var(--color-base-200);
+}
+[data-discover-layout="list"] .discover-grid .media-card-art {
+  position: static;
+  width: 3.5rem;
+  flex: none;
+}
+[data-discover-layout="list"] .discover-grid .discover-tile > a {
+  flex: 1;
+  min-width: 0;
+}
+[data-discover-layout="list"] .discover-grid .media-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The action bar moves to the row's right edge (no transform: its buttons open
+   fixed-position popovers). */
+[data-discover-layout="list"] .discover-grid .card-actions {
+  left: auto;
+  right: 0.5rem;
+  top: 50%;
+  bottom: auto;
+  margin-top: -1.25rem;
+}

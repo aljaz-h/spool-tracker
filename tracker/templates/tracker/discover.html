@@ -350,6 +350,23 @@
           </div>
         </div>
       </div>
+      {% comment %}
+        Sort belongs to the Filters form (form=...), so changing it applies exactly
+        like pressing Apply and every filter stays as it is. The grid / list switch
+        is a per-browser preference (localStorage): base.html sets
+        data-discover-layout before first paint and app.css lays the same tiles out
+        as rows.
+      {% endcomment %}
+      <label class="flex items-center gap-2 text-sm text-ink-dim max-sm:hidden">
+        Sort
+        <select name="sort" form="discover-filters-form" class="select select-sm w-auto text-base-content min-h-11" onchange="this.form.requestSubmit()">
+          {% for value, sort_name in sort_options %}<option value="{{ value }}"{% if value == selected_sort %} selected{% endif %}>{{ sort_name }}</option>{% endfor %}
+        </select>
+      </label>
+      <div class="seg" role="group" aria-label="Layout" x-data="{ layout: document.documentElement.dataset.discoverLayout || 'grid', set(value) { this.layout = value; document.documentElement.dataset.discoverLayout = value; try { localStorage.setItem('spool.discoverLayout', value); } catch (e) {} window.dispatchEvent(new Event('resize')); } }">
+        <button type="button" class="seg-item !h-9" :aria-pressed="(layout === 'grid').toString()" aria-label="Grid" @click="set('grid')">{% icon "layout-grid" "w-4 h-4" %}</button>
+        <button type="button" class="seg-item !h-9" :aria-pressed="(layout === 'list').toString()" aria-label="List" @click="set('list')">{% icon "list" "w-4 h-4" %}</button>
+      </div>
     {% endif %}
     </div>
   </div>

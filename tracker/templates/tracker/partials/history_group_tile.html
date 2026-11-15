@@ -75,7 +75,7 @@
         :aria-expanded="open.toString()"
         aria-haspopup="true"
         title="{{ group.count }} episodes - click to remove one"
-        class="chip !h-6 !px-2 bg-primary text-primary-content tabular-nums hover:brightness-110"
+        class="chip !h-6 !px-2 bg-selected text-white tabular-nums hover:brightness-110"
       >{{ group.count }}&times;</button>
       {% comment %}
         Teleported to <body> - a plain fixed-position panel here would
@@ -122,7 +122,7 @@
   {% endcomment %}
   <div class="flex gap-px h-1 rounded-full overflow-hidden mt-2 bg-base-300" aria-hidden="true">
     {% for event in group.timeline_events %}
-      <div class="flex-1 bg-primary/55 hover:bg-primary" title="{{ event.episode|epcode_text }} · {{ event.watched_at|time:time_format_str }}"></div>
+      <div class="flex-1 bg-base-content/45 hover:bg-base-content/80" title="{{ event.episode|epcode_text }} · {{ event.watched_at|time:time_format_str }}"></div>
     {% endfor %}
   </div>
   {% with last_event=group.timeline_events|last first_event=group.timeline_events|first %}

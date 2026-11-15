@@ -8,6 +8,27 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.192.0] - 2026-11-15
+
+### Added
+- Movies, TV shows and Anime have a Sort select (the tab's own order, Rating,
+  Newest, Name) that applies with the current filters, and a grid / list
+  switch. The list shows the same tiles as rows, two columns on desktop; the
+  choice is remembered per browser.
+
+### Changed
+- Amber is gone from figures, bars, chips and highlights on Stats, Home,
+  History and Calendar: they are white or raised grey now (the streak figure,
+  peak-hour and daily bars, the heatmap, the unlocked achievement, today on the
+  calendar, the current page number, the Filters dot). Charts keep the media
+  colours.
+- Switches are a solid amber track with a dark knob when on and grey when off;
+  an unchecked box or radio has a grey border.
+- The "Sorted by ..." text on Movies / TV shows / Anime is replaced by the Sort
+  select.
+
+To go back to the look before this release: `git reset --hard backup-before-amber-pass`.
+
 ## [0.191.0] - 2026-11-15
 
 ### Added

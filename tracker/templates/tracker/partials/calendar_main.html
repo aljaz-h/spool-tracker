@@ -39,9 +39,9 @@
         {% if day.items %}href="#agenda-{{ day.date|date:'Y-m-d' }}"{% endif %}
         @click="selected = '{{ day.date|date:'Y-m-d' }}'"
         class="relative p-1 sm:p-2 flex flex-col items-center sm:items-stretch min-h-[48px] sm:min-h-[108px] {% if not day.in_month %}bg-[#0b0d10] text-ink-faint{% else %}bg-base-100{% endif %} {% if day.items %}hover:bg-base-200{% endif %}"
-        :class="selected === '{{ day.date|date:'Y-m-d' }}' ? 'shadow-[inset_0_0_0_1px_var(--color-primary)]' : ''"
+        :class="selected === '{{ day.date|date:'Y-m-d' }}' ? 'shadow-[inset_0_0_0_1px_var(--color-base-content)]' : ''"
       >
-        <span class="text-[12px] sm:text-[12.5px] tabular-nums {% if day.is_today %}inline-flex items-center justify-center w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-primary text-primary-content font-bold{% elif not day.in_month %}opacity-50{% else %}text-ink-dim{% endif %}">{{ day.date.day }}</span>
+        <span class="text-[12px] sm:text-[12.5px] tabular-nums {% if day.is_today %}inline-flex items-center justify-center w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-selected text-white font-bold{% elif not day.in_month %}opacity-50{% else %}text-ink-dim{% endif %}">{{ day.date.day }}</span>
         {% comment %}
           Full poster thumbnails only from sm: up - a 7-column month grid
           on a ~370-400px phone leaves each cell only ~40-50px wide, far
@@ -61,7 +61,7 @@
         </div>
         {% if day.items %}
           <div class="sm:hidden flex justify-center mt-auto mb-0.5">
-            <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+            <span class="w-1.5 h-1.5 rounded-full bg-base-content/80"></span>
           </div>
         {% endif %}
         {% if day.more_count %}<div class="hidden sm:block text-[12px] text-ink-faint mt-1">+{{ day.more_count }} more</div>{% endif %}

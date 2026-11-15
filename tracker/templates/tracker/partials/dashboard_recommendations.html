@@ -20,7 +20,7 @@ once the list has shrunk.
   <section id="recommendations-block" class="surface p-4" x-data="{ active: 0 }" aria-label="Recommended by Friends">
     <h2 class="text-[15px] font-semibold">Recommended by Friends</h2>
     <div class="flex items-center justify-between gap-2 mt-1 mb-3">
-      <span class="chip chip-primary">{% if received_recommendations|length > 1 %}{{ received_recommendations|length }} New{% else %}New{% endif %}</span>
+      <span class="chip">{% if received_recommendations|length > 1 %}{{ received_recommendations|length }} New{% else %}New{% endif %}</span>
       {% if received_recommendations|length > 1 %}
         <div class="flex items-center gap-1">
           <button type="button" @click="active = (active - 1 + {{ received_recommendations|length }}) % {{ received_recommendations|length }}" aria-label="Previous recommendation" class="w-6 h-6 rounded-full flex items-center justify-center text-ink-dim hover:text-base-content hover:bg-base-300 cursor-pointer">{% icon "chevron-left" "w-3.5 h-3.5" %}</button>
@@ -62,7 +62,7 @@ once the list has shrunk.
               {% endif %}
             </a>
             <div class="min-w-0 flex-1">
-              <a href="{% url 'title_detail' rec.title.pk %}" class="text-sm font-semibold truncate block hover:text-primary transition-colors">{{ rec.title.name }}</a>
+              <a href="{% url 'title_detail' rec.title.pk %}" class="text-sm font-semibold truncate block hover:text-base-content transition-colors">{{ rec.title.name }}</a>
               <div class="meta meta-sm mt-0.5"><span>{{ rec.title.media_type|media_label }}</span>{% if rec.title.year %}<span>{{ rec.title.year }}</span>{% endif %}</div>
               <div class="flex items-center gap-1.5 mt-1">
                 {% if rec.from_profile.avatar_image %}
@@ -114,7 +114,7 @@ once the list has shrunk.
                         {% csrf_token %}
                         <input type="hidden" name="title_id" value="{{ rec.title.pk }}">
                         <button type="submit" class="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full">
-                          <span class="w-7 h-7 rounded-md flex items-center justify-center flex-none {% if list.id in in_list_ids %}bg-primary/15 text-primary{% else %}bg-base-300 text-ink-dim{% endif %}">{% if list.id in in_list_ids %}{% icon "check" "w-4 h-4" %}{% else %}{% icon "list-checks" "w-4 h-4" %}{% endif %}</span>
+                          <span class="w-7 h-7 rounded-md flex items-center justify-center flex-none {% if list.id in in_list_ids %}bg-selected text-white{% else %}bg-base-300 text-ink-dim{% endif %}">{% if list.id in in_list_ids %}{% icon "check" "w-4 h-4" %}{% else %}{% icon "list-checks" "w-4 h-4" %}{% endif %}</span>
                           <span class="min-w-0 flex-1">
                             <span class="block text-[13px] font-semibold truncate">{{ list.name }}</span>
                             <span class="block text-[12px] text-ink-faint">{% if list.id in in_list_ids %}In this list — tap to remove{% else %}Add to this list{% endif %}</span>
@@ -155,28 +155,28 @@ once the list has shrunk.
                     <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
                       {% csrf_token %}
                       <input type="hidden" name="reply_reaction" value="watchlisting">
-                      <button type="submit" aria-label="Adding to Watchlist" class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-base bg-base-300 hover:bg-primary transition-colors cursor-pointer spool-tooltip" data-tooltip="Adding to Watchlist">&#128077;</button>
+                      <button type="submit" aria-label="Adding to Watchlist" class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-base bg-base-300 hover:bg-base-content/80 transition-colors cursor-pointer spool-tooltip" data-tooltip="Adding to Watchlist">&#128077;</button>
                     </form>
                     <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
                       {% csrf_token %}
                       <input type="hidden" name="reply_reaction" value="already_seen">
-                      <button type="submit" aria-label="Already Seen It" class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-base bg-base-300 hover:bg-primary transition-colors cursor-pointer spool-tooltip" data-tooltip="Already Seen It">&#128525;</button>
+                      <button type="submit" aria-label="Already Seen It" class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-base bg-base-300 hover:bg-base-content/80 transition-colors cursor-pointer spool-tooltip" data-tooltip="Already Seen It">&#128525;</button>
                     </form>
                     <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
                       {% csrf_token %}
                       <input type="hidden" name="reply_reaction" value="excited">
-                      <button type="submit" aria-label="Excited" class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-base bg-base-300 hover:bg-primary transition-colors cursor-pointer spool-tooltip" data-tooltip="Excited">&#128293;</button>
+                      <button type="submit" aria-label="Excited" class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-base bg-base-300 hover:bg-base-content/80 transition-colors cursor-pointer spool-tooltip" data-tooltip="Excited">&#128293;</button>
                     </form>
                     <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}">
                       {% csrf_token %}
                       <input type="hidden" name="reply_reaction" value="not_for_me">
-                      <button type="submit" aria-label="Not For Me" class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-base bg-base-300 hover:bg-primary transition-colors cursor-pointer spool-tooltip" data-tooltip="Not For Me">&#128517;</button>
+                      <button type="submit" aria-label="Not For Me" class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-base bg-base-300 hover:bg-base-content/80 transition-colors cursor-pointer spool-tooltip" data-tooltip="Not For Me">&#128517;</button>
                     </form>
                   </div>
                   <form hx-post="{% url 'reply_to_recommendation' rec.pk %}" hx-target="#recommendations-block" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" class="flex items-center gap-1.5 mt-2">
                     {% csrf_token %}
                     <input type="text" name="reply_message" maxlength="160" placeholder="Reply…" aria-label="Reply" class="input input-xs flex-1 min-w-0">
-                    <button type="submit" aria-label="Send" class="w-7 h-7 rounded-full flex items-center justify-center flex-none bg-primary text-primary-content hover:brightness-110 transition-colors cursor-pointer">{% icon "send" "w-3.5 h-3.5" %}</button>
+                    <button type="submit" aria-label="Send" class="w-7 h-7 rounded-full flex items-center justify-center flex-none bg-selected text-white hover:brightness-110 transition-colors cursor-pointer">{% icon "send" "w-3.5 h-3.5" %}</button>
                   </form>
                 </div>
               </div>

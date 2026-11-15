@@ -476,6 +476,9 @@ def _discover_category_tabs(media_type, category):
     ]
 
 
+# The Sort select: "" keeps the tab's own order (named per tab below).
+DISCOVER_SORTS = {"rating": "Rating", "newest": "Newest", "name": "Name (A-Z)"}
+DISCOVER_DEFAULT_SORT_LABELS = {"top_rated": "Top rated", "upcoming": "Release date"}
 DISCOVER_SORT_LABELS = {
     "trending": "Sorted by popularity", "popular": "Sorted by popularity", "airing": "Sorted by popularity",
     "upcoming": "Sorted by release date", "top_rated": "Sorted by rating",
@@ -577,6 +580,10 @@ def discover(request, media_type, category):
         "watch_providers": tmdb.expand_provider_ids(provider_ids, providers) or None,
         "region": region,
     }
+    selected_sort = request.GET.get("sort", "")
+    if selected_sort not in DISCOVER_SORTS:
+        selected_sort = ""
+    filters["sort"] = selected_sort or None
     if is_anime:
         filters["origin_country"] = "JP"
     else:
@@ -699,6 +706,8 @@ def discover(request, media_type, category):
         "selected_status": selected_status,
         "availability_choices": DISCOVER_AVAILABILITY_LABELS,
         "selected_availability": selected_availability,
+        "selected_sort": selected_sort,
+        "sort_options": [("", DISCOVER_DEFAULT_SORT_LABELS.get(category, "Popularity"))] + list(DISCOVER_SORTS.items()),
         "watched_display": watched_display,
         "watchlisted_display": watchlisted_display,
         "base_query": query_without_page.urlencode(),

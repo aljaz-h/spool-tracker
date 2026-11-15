@@ -23,13 +23,13 @@
     <p class="text-[13px] text-ink-faint">{% now "l, F j" %}</p>
     <h1 class="page-title mt-1">Welcome back, {{ profile.display_name }}</h1>
     <div class="meta mt-2.5 text-[13.5px]">
-      <span class="inline-flex items-center gap-1.5 text-base-content">{% icon "flame" "w-4 h-4 text-primary" %}<span><b class="font-semibold">{{ stats.streak }} day streak</b>{% if stats.longest_streak %} <span class="text-ink-faint">(longest {{ stats.longest_streak }})</span>{% endif %}</span></span>
+      <span class="inline-flex items-center gap-1.5 text-base-content">{% icon "flame" "w-4 h-4 text-base-content" %}<span><b class="font-semibold">{{ stats.streak }} day streak</b>{% if stats.longest_streak %} <span class="text-ink-faint">(longest {{ stats.longest_streak }})</span>{% endif %}</span></span>
       <span>{{ stats.movies_this_year }} movies</span>
       <span>{{ stats.shows_completed }} shows</span>
       <span>{{ stats.total_watch_time }} watched</span>
     </div>
     {% if milestone %}
-      <p class="mt-3 inline-flex items-center gap-2 text-[13px] text-primary font-medium"><span aria-hidden="true">&#9733;</span>{{ milestone }}</p>
+      <p class="mt-3 inline-flex items-center gap-2 text-[13px] text-base-content font-medium"><span aria-hidden="true">&#9733;</span>{{ milestone }}</p>
     {% endif %}
   </header>
 
@@ -69,7 +69,7 @@
           <div class="flex items-baseline gap-4 min-w-0">
             <h2 class="section-title">Watchlist Queue{% if watchlist_count %}<span class="section-count">{{ watchlist_count }}</span>{% endif %}</h2>
             {% if watchlist_items %}
-              <a href="{% url 'surprise_me' %}?next={{ request.path|urlencode }}" class="max-sm:hidden text-[13.5px] text-ink-dim hover:text-primary inline-flex items-center gap-1.5">{% icon "sparkles" "w-3.5 h-3.5" %} Surprise me</a>
+              <a href="{% url 'surprise_me' %}?next={{ request.path|urlencode }}" class="max-sm:hidden text-[13.5px] text-ink-dim hover:text-base-content inline-flex items-center gap-1.5">{% icon "sparkles" "w-3.5 h-3.5" %} Surprise me</a>
             {% endif %}
           </div>
           {% if watchlist_items %}<a href="{% url 'lists' %}" class="section-link">All lists &rarr;</a>{% endif %}
@@ -149,9 +149,9 @@
                 </div>
                 <div class="min-w-0 flex-1">
                   <div class="text-[14px] font-medium truncate group-hover:text-white">{{ item.title.name }}</div>
-                  <div class="text-[13px] text-ink-dim truncate mt-0.5">{% if item.count > 1 %}<span class="text-primary font-semibold">{{ item.count }}&times;</span> {% endif %}{{ item.caption }}</div>
+                  <div class="text-[13px] text-ink-dim truncate mt-0.5">{% if item.count > 1 %}<span class="text-base-content font-semibold">{{ item.count }}&times;</span> {% endif %}{{ item.caption }}</div>
                 </div>
-                <div class="flex-none text-right text-[12.5px] font-semibold tabular-nums {% if item.when == "TODAY" or item.when == "TOMORROW" %}text-primary{% else %}text-ink-dim{% endif %}">
+                <div class="flex-none text-right text-[12.5px] font-semibold tabular-nums {% if item.when == "TODAY" or item.when == "TOMORROW" %}text-base-content{% else %}text-ink-dim{% endif %}">
                   {{ item.when|title }}{% if item.exact_time %}<div class="font-normal text-ink-faint">{{ item.exact_time }}</div>{% endif %}
                 </div>
               </a>

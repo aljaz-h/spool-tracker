@@ -32,8 +32,8 @@
     <div class="{% if not forloop.first %}mt-5{% endif %}">
       <div
         id="agenda-{{ group.date|date:'Y-m-d' }}"
-        class="flex items-baseline justify-between pb-1.5 mb-1 border-b scroll-mt-20 {% if group.date == today %}text-primary{% endif %}"
-        :class="selected === '{{ group.date|date:'Y-m-d' }}' ? 'border-primary/60' : 'border-line'"
+        class="flex items-baseline justify-between pb-1.5 mb-1 border-b scroll-mt-20 {% if group.date == today %}text-base-content{% endif %}"
+        :class="selected === '{{ group.date|date:'Y-m-d' }}' ? 'border-base-content/60' : 'border-line'"
       >
         <span class="text-[13.5px] font-semibold">{% if group.date == today %}Today{% else %}{{ group.date|date:"D, M j" }}{% endif %}</span>
         {% if group.date == today %}<span class="text-[12.5px] text-ink-faint">{{ group.date|date:"M j" }}</span>{% endif %}

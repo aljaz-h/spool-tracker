@@ -24,6 +24,8 @@
         trimIncompleteLastRow() {
           const tiles = Array.from(this.$el.children);
           tiles.forEach((el) => { el.style.display = ''; });
+          // The list layout has no ragged last row to hide.
+          if (document.documentElement.dataset.discoverLayout === 'list') return;
           const rowTops = [...new Set(tiles.map((el) => el.offsetTop))];
           if (rowTops.length < 2) return;
           const lastRowTop = rowTops[rowTops.length - 1];

@@ -12755,7 +12755,7 @@ class StatsPageLast30DaysCombinedTests(TestCase):
 
     def test_combined_rows_lead_with_days_and_show_hours_in_parentheses(self):
         resp = self.client.get(reverse("stats"))
-        self.assertContains(resp, "<b class=\"text-primary\">0 days</b> <span class=\"text-ink-faint\">(&asymp; 2h)</span>")
+        self.assertContains(resp, "<b class=\"text-base-content\">0 days</b> <span class=\"text-ink-faint\">(&asymp; 2h)</span>")
 
 
 class BackfillPostersCommandTests(TestCase):
@@ -26785,7 +26785,7 @@ class HistoryToolbarStaysInSyncTests(TestCase):
             reverse("history"), {"period": "7", "type": "movie"}, HTTP_HX_REQUEST="true", HTTP_HX_TARGET="history-page"
         )
         self.assertContains(resp, "<form")
-        self.assertContains(resp, "bg-primary")  # the dot itself
+        self.assertContains(resp, "rounded-full bg-base-content/80")  # the dot itself, white not amber
         self.assertContains(resp, 'value="movie" class="hidden" checked')
 
     def test_history_content_target_returns_only_the_results_no_toolbar(self):
@@ -37393,9 +37393,26 @@ class DiscoverPageLayoutTests(TestCase):
         html = self._get("anime", "trending", _part="grid")[0].content.decode()
         self.assertRegex(html, r'type-dot bg-anime"></span>Anime')
 
-    def test_sort_label_follows_the_tab(self):
-        self.assertIn("Sorted by popularity", self._get("movies", "popular")[0].content.decode())
-        self.assertIn("Sorted by rating", self._get("movies", "top_rated")[0].content.decode())
+    def test_sort_select_names_the_tabs_own_order_first(self):
+        self.assertIn('<option value="" selected>Popularity</option>', self._get("movies", "popular")[0].content.decode())
+        html = self._get("movies", "top_rated")[0].content.decode()
+        self.assertIn('<option value="" selected>Top rated</option>', html)
+        self.assertIn('<select name="sort" form="discover-filters-form"', html)
+        self.assertIn('<option value="rating">Rating</option>', html)
+
+    def test_a_picked_sort_reaches_tmdb_and_stays_selected(self):
+        response, mock_page = self._get("movies", "popular", sort="newest", _part="grid")
+        self.assertEqual(mock_page.call_args.kwargs["sort"], "newest")
+        self.assertIn("sort=newest", response.context["base_query"])
+        self.assertIn('<option value="newest" selected>Newest</option>', self._get("movies", "popular", sort="newest")[0].content.decode())
+        _, mock_page = self._get("movies", "popular", sort="bogus", _part="grid")
+        self.assertIsNone(mock_page.call_args.kwargs["sort"])
+
+    def test_the_toolbar_has_a_grid_list_switch(self):
+        html = self._get("movies", "popular")[0].content.decode()
+        self.assertIn('aria-label="Layout"', html)
+        self.assertIn('aria-label="Grid"', html)
+        self.assertIn('aria-label="List"', html)
 
     def test_hide_watched_toggle_reflects_the_preference(self):
         Profile.objects.filter(display_name="LayoutViewer").update(discover_watched_display="hide")
@@ -37677,3 +37694,36 @@ class UiKitTests(TestCase):
             resp = self.client.get(reverse("tv", args=["popular"]))
         self.assertEqual([t["label"] for t in resp.context["category_tabs"]], ["Trending", "Popular", "Airing today", "Top rated"])
         self.assertContains(resp, f'<a href="{reverse("tv", args=["popular"])}" class="tab-line" aria-current="page">Popular</a>')
+
+
+class DiscoverSortTests(TestCase):
+    """tmdb.discover's optional sort, on top of a tab's own order."""
+
+    def _params(self, media_type, category, **kwargs):
+        from tracker.integrations import tmdb
+
+        with patch("tracker.integrations.tmdb._list_request", return_value={"results": [], "total_pages": 1}) as request:
+            tmdb.discover(media_type, category=category, api_key="k", **kwargs)
+        return request.call_args_list[0].args[1]
+
+    def test_no_sort_keeps_the_tabs_own_order(self):
+        self.assertEqual(self._params("movie", "popular")["sort_by"], "popularity.desc")
+        self.assertEqual(self._params("movie", "top_rated")["sort_by"], "vote_average.desc")
+
+    def test_rating_needs_enough_votes(self):
+        params = self._params("tv", "popular", sort="rating")
+        self.assertEqual(params["sort_by"], "vote_average.desc")
+        self.assertEqual(params["vote_count.gte"], 200)
+
+    def test_newest_stops_at_today_except_on_upcoming(self):
+        import datetime
+
+        params = self._params("movie", "popular", sort="newest")
+        self.assertEqual(params["sort_by"], "primary_release_date.desc")
+        self.assertEqual(params["primary_release_date.lte"], datetime.date.today().isoformat())
+        upcoming = self._params("movie", "upcoming", sort="newest")
+        self.assertNotIn("primary_release_date.lte", upcoming)
+
+    def test_name_uses_the_types_own_title_field(self):
+        self.assertEqual(self._params("movie", "popular", sort="name")["sort_by"], "title.asc")
+        self.assertEqual(self._params("tv", "popular", sort="name")["sort_by"], "name.asc")

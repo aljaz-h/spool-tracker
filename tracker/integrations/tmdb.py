@@ -754,7 +754,7 @@ def discover(media_type, category="popular", page=1, genre_ids=None, year_from=N
              runtime_from=None, runtime_to=None, rating_from=None, rating_to=None,
              original_language=None, origin_country=None, with_companies=None, certification=None,
              status=None, availability=None, watch_providers=None, region=None, page_size=RESULTS_PAGE_SIZE,
-             item_count=None, air_days=0, api_key=None):
+             item_count=None, air_days=0, api_key=None, sort=None):
     """Returns {"results": [...normalized, up to page_size*20...], "page": int,
     "total_pages": int}. category picks a sort/date preset (see module docstring);
     every other param is an optional filter layered on top of that preset, all of
@@ -818,6 +818,21 @@ def discover(media_type, category="popular", page=1, genre_ids=None, year_from=N
         gte_candidates.append(datetime.date.today().isoformat())
     # "trending" and "popular" both use the popularity.desc default above -
     # see the module docstring for why they're not more differentiated here.
+
+    # sort (the page's Sort select) replaces the category's own order:
+    # "rating" needs the same vote floor as Top rated, "newest" stops at today
+    # so unreleased titles don't lead (except on Upcoming, which is the future).
+    if sort == "rating":
+        params["sort_by"] = "vote_average.desc"
+        params["vote_count.gte"] = 200
+    elif sort == "newest":
+        import datetime
+
+        params["sort_by"] = f"{date_field}.desc"
+        if category != "upcoming":
+            lte_candidates.append(datetime.date.today().isoformat())
+    elif sort == "name":
+        params["sort_by"] = "title.asc" if media_type == "movie" else "name.asc"
 
     if genre_ids:
         params["with_genres"] = ",".join(str(g) for g in genre_ids)
