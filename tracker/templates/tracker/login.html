@@ -39,7 +39,7 @@
           class="input w-full pr-10"
         >
         <button
-          type="button" @click="showPassword = !showPassword" tabindex="-1" title="Show/hide password"
+          type="button" @click="showPassword = !showPassword" tabindex="-1" title="Show/hide password" aria-label="Show/hide password"
           class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-base-content"
         >
           <span x-show="!showPassword">{% icon "eye" "w-4 h-4" %}</span>

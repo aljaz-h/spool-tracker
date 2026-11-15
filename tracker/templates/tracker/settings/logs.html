@@ -115,9 +115,9 @@
           <div>
             <div class="text-xs text-ink-dim mb-1.5 font-medium">Date Range</div>
             <div class="flex items-center gap-2 mb-2">
-              <input type="date" name="log_date_from" x-model="dateFrom" class="input input-sm text-xs flex-1">
+              <input type="date" name="log_date_from" aria-label="From date" x-model="dateFrom" class="input input-sm text-xs flex-1">
               <span class="text-ink-faint text-xs">–</span>
-              <input type="date" name="log_date_to" x-model="dateTo" class="input input-sm text-xs flex-1">
+              <input type="date" name="log_date_to" aria-label="To date" x-model="dateTo" class="input input-sm text-xs flex-1">
             </div>
             <div class="flex flex-wrap gap-1.5">
               <button type="button" class="btn btn-xs btn-soft" @click="const d = new Date().toISOString().slice(0,10); dateFrom = d; dateTo = d;">Today</button>
@@ -145,7 +145,7 @@
       <input type="hidden" name="log_date_to" value="{{ log_date_to }}">
       <input type="hidden" name="log_view" value="{{ log_view }}">
       <input type="hidden" name="log_category" value="{{ log_category }}">
-      <select name="log_sort" onchange="this.form.submit()" class="select select-sm text-xs">
+      <select name="log_sort" aria-label="Sort" onchange="this.form.submit()" class="select select-sm text-xs">
         <option value="newest" {% if log_sort == "newest" %}selected{% endif %}>Newest first</option>
         <option value="oldest" {% if log_sort == "oldest" %}selected{% endif %}>Oldest first</option>
       </select>

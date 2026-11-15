@@ -73,19 +73,19 @@
     <span class="text-xs text-ink-faint">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }} · {{ page_obj.paginator.count }} title{{ page_obj.paginator.count|pluralize }}</span>
     <div class="flex gap-1.5">
       {% if page_obj.has_previous %}
-        <a hx-get="{% url 'list_detail' watchlist.id %}?{{ base_query }}&page={{ page_obj.previous_page_number }}" hx-target="#list-items" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" hx-push-url="true"
+        <a href="{% url 'list_detail' watchlist.id %}?{{ base_query }}&page={{ page_obj.previous_page_number }}" hx-get="{% url 'list_detail' watchlist.id %}?{{ base_query }}&page={{ page_obj.previous_page_number }}" hx-target="#list-items" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" hx-push-url="true"
            class="btn btn-sm btn-ghost text-ink-dim">&larr; Prev</a>
       {% endif %}
       {% for num in page_obj.paginator.page_range %}
         {% if num == page_obj.number %}
           <span class="btn btn-sm btn-square bg-primary/15 border-transparent text-primary" aria-current="page">{{ num }}</span>
         {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}
-          <a hx-get="{% url 'list_detail' watchlist.id %}?{{ base_query }}&page={{ num }}" hx-target="#list-items" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" hx-push-url="true"
+          <a href="{% url 'list_detail' watchlist.id %}?{{ base_query }}&page={{ num }}" hx-get="{% url 'list_detail' watchlist.id %}?{{ base_query }}&page={{ num }}" hx-target="#list-items" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" hx-push-url="true"
              class="btn btn-sm btn-square btn-ghost text-ink-dim">{{ num }}</a>
         {% endif %}
       {% endfor %}
       {% if page_obj.has_next %}
-        <a hx-get="{% url 'list_detail' watchlist.id %}?{{ base_query }}&page={{ page_obj.next_page_number }}" hx-target="#list-items" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" hx-push-url="true"
+        <a href="{% url 'list_detail' watchlist.id %}?{{ base_query }}&page={{ page_obj.next_page_number }}" hx-get="{% url 'list_detail' watchlist.id %}?{{ base_query }}&page={{ page_obj.next_page_number }}" hx-target="#list-items" hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}" hx-push-url="true"
            class="btn btn-sm btn-ghost text-ink-dim">Next &rarr;</a>
       {% endif %}
     </div>

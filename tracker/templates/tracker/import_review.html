@@ -74,7 +74,7 @@
     <form method="get" class="flex flex-wrap gap-2.5 items-end mb-3.5">
       <div>
         <label class="block text-xs text-ink-dim mb-1">Content type</label>
-        <select name="content_type" class="select select-sm" onchange="this.form.submit()">
+        <select name="content_type" aria-label="Content type" class="select select-sm" onchange="this.form.submit()">
           <option value="">All</option>
           <option value="movie" {% if content_type == "movie" %}selected{% endif %}>Movies</option>
           <option value="tv" {% if content_type == "tv" %}selected{% endif %}>TV</option>
@@ -83,7 +83,7 @@
       </div>
       <div>
         <label class="block text-xs text-ink-dim mb-1">Status</label>
-        <select name="status" class="select select-sm" onchange="this.form.submit()">
+        <select name="status" aria-label="Status" class="select select-sm" onchange="this.form.submit()">
           <option value="">All</option>
           <option value="new" {% if status_filter == "new" %}selected{% endif %}>New</option>
           <option value="existing" {% if status_filter == "existing" %}selected{% endif %}>Existing</option>
@@ -94,7 +94,7 @@
       </div>
       <div class="flex-1 min-w-[160px]">
         <label class="block text-xs text-ink-dim mb-1">Search</label>
-        <input type="text" name="q" value="{{ q }}" placeholder="Title…" class="input input-sm w-full">
+        <input type="text" name="q" value="{{ q }}" aria-label="Search by title" placeholder="Title…" class="input input-sm w-full">
       </div>
       <button type="submit" class="btn btn-sm btn-soft">Filter</button>
     </form>
@@ -147,7 +147,7 @@
                       <td class="py-2 pr-3">
                         <input type="hidden" name="candidate_id" value="{{ candidate.id }}">
                         {% if candidate.status != "failed" %}
-                          <input type="checkbox" name="selected_id" value="{{ candidate.id }}" {% if candidate.selected %}checked{% endif %} class="checkbox checkbox-xs">
+                          <input type="checkbox" name="selected_id" value="{{ candidate.id }}" aria-label="Select this match" {% if candidate.selected %}checked{% endif %} class="checkbox checkbox-xs">
                         {% endif %}
                       </td>
                     {% endif %}

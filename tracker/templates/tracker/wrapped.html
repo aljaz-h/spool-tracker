@@ -43,7 +43,7 @@
       <div class="wp-saved-grid">
         {% for item in saved %}
           <div class="wp-saved-item">
-            <a href="{{ item.url }}" class="wp-saved-thumb">
+            <a href="{{ item.url }}" aria-label="{{ item.report.period_label }}" class="wp-saved-thumb">
               {% if item.report.token %}<img src="{% url 'wrapped_image' item.report.token %}" alt="" loading="lazy">{% endif %}
             </a>
             <a href="{{ item.url }}">

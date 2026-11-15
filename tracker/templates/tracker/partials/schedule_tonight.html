@@ -14,7 +14,7 @@
             <span>{{ slot.start|time:time_format_str }}</span>
             <span class="text-ink-faint">{{ slot.end|time:time_format_str }}</span>
           </div>
-          <a href="{% url 'title_detail' slot.title.pk %}" class="sch-tonight-poster {% if not slot.title.poster_url %}{{ slot.title.pk|gradient_class }}{% endif %}">
+          <a href="{% url 'title_detail' slot.title.pk %}" aria-label="{{ slot.title.name }}" class="sch-tonight-poster {% if not slot.title.poster_url %}{{ slot.title.pk|gradient_class }}{% endif %}">
             {% if slot.title.poster_url %}<img src="{{ slot.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy">{% endif %}
           </a>
           <div class="min-w-0 flex-1">

@@ -15,7 +15,7 @@
     @click="togglePanel($el)"
     :aria-expanded="open.toString()"
     aria-haspopup="true"
-    title="Mark as watched"
+    title="Mark as watched" aria-label="Mark as watched"
     class="w-full h-8 rounded-md flex items-center justify-center text-white/80 hover:text-white hover:bg-white/10"
   >{% icon "check" "w-4 h-4" %}</button>
   <div

@@ -5,7 +5,7 @@
     <div class="font-semibold text-sm">Mark as watched</div>
     <div class="text-xs text-ink-faint truncate">{% if season %}S{{ season }}E{{ episode_number }} · {% endif %}{% firstof title.name name %}</div>
   </div>
-  <button type="button" @click="open = false; showCustom = false" title="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 flex-none">{% icon "x" "w-4 h-4" %}</button>
+  <button type="button" @click="open = false; showCustom = false" title="Close" aria-label="Close" class="text-ink-faint hover:text-base-content leading-none p-0.5 flex-none">{% icon "x" "w-4 h-4" %}</button>
 </div>
 
 <div x-show="!showCustom">
@@ -54,7 +54,7 @@
 
 <div x-show="showCustom" class="px-2 pb-1 pt-1">
   <label class="block text-[12px] text-ink-faint mb-1">Watched at</label>
-  <input type="datetime-local" name="custom_datetime" value="{% now 'Y-m-d\TH:i' %}" @keydown.enter.prevent class="input input-sm w-full mb-2">
+  <input type="datetime-local" name="custom_datetime" aria-label="Watched at" value="{% now 'Y-m-d\TH:i' %}" @keydown.enter.prevent class="input input-sm w-full mb-2">
   <div class="flex gap-1.5">
     <button type="button" @click="showCustom = false" class="btn btn-xs btn-soft flex-1">Back</button>
     <button

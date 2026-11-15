@@ -68,7 +68,7 @@
               {% if list_all %}<input type="hidden" name="all" value="1">{% endif %}
               <button
                 type="submit"
-                title="Recommend to {{ op.display_name }}"
+                title="Recommend to {{ op.display_name }}" aria-label="Recommend to {{ op.display_name }}"
                 class="w-7 h-7 rounded-md flex items-center justify-center text-ink-dim hover:bg-base-300 hover:text-primary"
               >{% icon "send" "w-3.5 h-3.5" %}</button>
             </form>

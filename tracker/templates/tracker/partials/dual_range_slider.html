@@ -39,10 +39,10 @@ live during the drag itself, not just on release.
       :style="`left:calc(${(({{ from_var }} - _min) / (_max - _min))} * (100% - 16px) + 8px); right:calc(100% - (${(({{ to_var }} - _min) / (_max - _min))} * (100% - 16px) + 8px))`"
     ></div>
 
-    <input type="range" name="{{ name_from }}" min="{{ min }}" :max="{{ to_var }}" step="{{ step|default:1 }}"
+    <input type="range" name="{{ name_from }}" aria-label="From" min="{{ min }}" :max="{{ to_var }}" step="{{ step|default:1 }}"
       x-model.number="{{ from_var }}"
       class="dual-range-thumb absolute inset-x-0 top-1/2 h-5 w-full -translate-y-1/2 cursor-pointer appearance-none bg-transparent pointer-events-none">
-    <input type="range" name="{{ name_to }}" :min="{{ from_var }}" max="{{ max }}" step="{{ step|default:1 }}"
+    <input type="range" name="{{ name_to }}" aria-label="To" :min="{{ from_var }}" max="{{ max }}" step="{{ step|default:1 }}"
       x-model.number="{{ to_var }}"
       class="dual-range-thumb absolute inset-x-0 top-1/2 h-5 w-full -translate-y-1/2 cursor-pointer appearance-none bg-transparent pointer-events-none">
   </div>

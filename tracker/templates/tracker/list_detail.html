@@ -52,7 +52,7 @@
             >
               {% csrf_token %}
               <input
-                type="text" name="tags" value="{{ watchlist.tags|join:', ' }}"
+                type="text" name="tags" aria-label="Tags, comma-separated" value="{{ watchlist.tags|join:', ' }}"
                 placeholder="comfort watches, in progress"
                 class="input input-xs w-56"
               >
@@ -88,7 +88,7 @@
     {% if can_edit %}
       <div x-show="showSearch" x-cloak class="surface p-4 mb-7 max-w-2xl">
         <input
-          type="search" name="q" placeholder="Search titles to add…" autocomplete="off"
+          type="search" name="q" aria-label="Search titles to add" placeholder="Search titles to add…" autocomplete="off"
           hx-get="{% url 'search_titles' watchlist.id %}" hx-trigger="input changed delay:200ms" hx-target="#search-results"
           class="input w-full"
         >
@@ -141,7 +141,7 @@
           along with the results.
         {% endcomment %}
         <select
-          name="period"
+          name="period" aria-label="Added"
           hx-get="{% url 'list_detail' watchlist.id %}"
           hx-target="#list-page"
           hx-push-url="true"

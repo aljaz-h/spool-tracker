@@ -56,9 +56,9 @@
       <form method="post" action="{% url 'create_list' %}">
         {% csrf_token %}
         <label class="block text-xs text-ink-dim mb-1">Name</label>
-        <input type="text" name="name" required autofocus class="input w-full mb-4">
+        <input type="text" name="name" aria-label="Name" required autofocus class="input w-full mb-4">
         <label class="block text-xs text-ink-dim mb-1">Tags <span class="font-normal text-ink-faint">(optional, comma-separated)</span></label>
-        <input type="text" name="tags" placeholder="comfort watches, in progress" class="input w-full mb-4">
+        <input type="text" name="tags" aria-label="Tags (optional, comma-separated)" placeholder="comfort watches, in progress" class="input w-full mb-4">
         <label class="flex items-center gap-2 text-sm mb-5 cursor-pointer">
           <input type="checkbox" name="is_shared" class="checkbox checkbox-sm">
           Shared with household

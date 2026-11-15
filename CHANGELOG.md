@@ -8,6 +8,19 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.190.3] - 2026-11-15
+
+### Fixed
+- Accessibility (WCAG 2.2 AA pass, attributes only, no visual change):
+  - History and list pagination, History's clear-search link and the Calendar
+    month arrows are reachable by keyboard (they had `hx-get` but no `href`).
+  - Inputs and selects that had no accessible label now have one (list search,
+    tags and Added filter, New list form, "Watched at" fields, import review and
+    CSV mapping, History Period/Sort, Spin filters, range sliders, log filters).
+  - Icon buttons named only by `title` also carry a matching `aria-label`.
+  - Poster-only links in the activity feed, tonight's schedule and saved
+    Wrapped reports announce the title or period.
+
 ## [0.190.2] - 2026-11-15
 
 ### Fixed

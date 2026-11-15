@@ -14,7 +14,7 @@
       hx-get="{% url 'profile_popup' item.profile.id %}"
       hx-target="#profile-popup-content"
       hx-swap="innerHTML"
-      title="{{ item.profile.display_name }}"
+      title="{{ item.profile.display_name }}" aria-label="{{ item.profile.display_name }}"
       class="flex-none rounded-full hover:opacity-80 transition-opacity"
     >
       {% include "tracker/partials/avatar.html" with profile=item.profile size="w-9 h-9" text="text-[13px]" %}
@@ -29,7 +29,7 @@
       {% else %}
         {% url 'title_detail' item.title.pk as detail_url %}
       {% endif %}
-      <a href="{{ detail_url }}" class="w-12 aspect-[2/3] rounded-md relative overflow-hidden flex-none bg-base-300 {% if not item.title.poster_url %}{{ item.title.pk|gradient_class }}{% endif %}">
+      <a href="{{ detail_url }}" aria-label="{{ item.title.name }}" class="w-12 aspect-[2/3] rounded-md relative overflow-hidden flex-none bg-base-300 {% if not item.title.poster_url %}{{ item.title.pk|gradient_class }}{% endif %}">
         {% if item.title.poster_url %}
           <img src="{{ item.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
         {% endif %}
@@ -61,7 +61,7 @@
       </div>
 
     {% elif item.kind == "watched_group" %}
-      <a href="{% url 'title_detail' item.title.pk %}" class="w-12 aspect-[2/3] rounded-md relative overflow-hidden flex-none bg-base-300 {% if not item.title.poster_url %}{{ item.title.pk|gradient_class }}{% endif %}">
+      <a href="{% url 'title_detail' item.title.pk %}" aria-label="{{ item.title.name }}" class="w-12 aspect-[2/3] rounded-md relative overflow-hidden flex-none bg-base-300 {% if not item.title.poster_url %}{{ item.title.pk|gradient_class }}{% endif %}">
         {% if item.title.poster_url %}
           <img src="{{ item.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
         {% endif %}

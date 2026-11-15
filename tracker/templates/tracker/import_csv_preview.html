@@ -29,7 +29,7 @@
             <label class="block text-xs text-ink-dim mb-1">
               {{ field }}{% if field in required_fields %} <span class="text-error">*</span>{% endif %}
             </label>
-            <select name="map_{{ field }}" class="select select-sm w-full">
+            <select name="map_{{ field }}" aria-label="Column for {{ field }}" class="select select-sm w-full">
               <option value="">— none —</option>
               {% for header in headers %}
                 <option value="{{ header }}" {% if header == mapping|get_item:field %}selected{% endif %}>{{ header }}</option>
