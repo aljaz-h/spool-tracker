@@ -10663,7 +10663,7 @@ class ProfileAccountFormTests(TestCase):
         event = WatchEvent.objects.create(profile=self.profile, title=title, episode=episode, watched_at=_tz.now() - timedelta(hours=2))
         resp = self.client.get(reverse("my_profile"))
         self.assertContains(resp, "Watching Andor")
-        self.assertContains(resp, "S2 E4")
+        self.assertContains(resp, "S2E4")
         WatchEvent.objects.filter(pk=event.pk).update(watched_at=_tz.now() - timedelta(days=30))
         self.assertNotContains(self.client.get(reverse("my_profile")), "Watching Andor")
 
@@ -17168,7 +17168,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         episode = Episode.objects.create(title=show, season=1, episode=5)
         WatchEvent.objects.create(profile=other_profile, title=show, episode=episode, watched_at=timezone.now())
         resp = self.client.get(reverse("dashboard_social_activity"))
-        self.assertContains(resp, "S1:E5")
+        self.assertContains(resp, "S1E5")
 
     def test_social_activity_card_has_no_episode_pill_for_a_movie(self):
         from django.utils import timezone
@@ -27517,7 +27517,7 @@ class HistoryDeleteEpisodeTests(TestCase):
         resp = self.client.post(
             reverse("history_delete_episode", args=[e2.pk]), {"remaining_ids": str(e1.pk)}
         )
-        self.assertContains(resp, "S1:E1")
+        self.assertContains(resp, "S1E1")
         self.assertNotContains(resp, "episodes")
 
     def test_last_episode_removed_returns_empty(self):
