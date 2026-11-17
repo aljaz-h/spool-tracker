@@ -55,8 +55,25 @@ LEVELS = (
     ("Cinephile", 400),
     ("Curator", 650),
     ("Expert", 1000),
-    ("Legend", 1500),
+    ("Virtuoso", 1500),
+    ("Master", 2200),
+    ("Grandmaster", 3000),
+    ("Legend", 4000),
 )
+
+# The medal drawn for a level: three stages of three steps (grey, blue, white),
+# then Legend alone in amber. The colours themselves are the --color-medal-*
+# tokens in app.css; the stage picks the outline, the step the frames/pips.
+MEDAL_STAGES = ("grey", "blue", "white", "amber")
+
+
+def medal_stage(level):
+    """(stage index 0-3, step 1-3 within the stage) for a level; Legend is
+    stage 3 with no steps (step 0)."""
+    level = max(1, min(level, len(LEVELS)))
+    if level == len(LEVELS):
+        return 3, 0
+    return (level - 1) // 3, (level - 1) % 3 + 1
 
 
 @dataclass(frozen=True)
@@ -198,8 +215,9 @@ def level_block(info, fill=TEAL_FILL):
     return {
         "percent": info.percent,
         "headline": f"Level {info.level} · {info.name}" if fill == LEVEL_FILL else f"{info.percent}%",
-        "sub": f"{info.xp:,} / {info.next_floor:,} XP",
-        "side_title": f"Next: {info.next_name}" if fill != LEVEL_FILL else f"{info.to_next:,} to {info.next_name}",
+        # XP into this level over the level's span ("553 / 1,000 XP"), not the running total.
+        "sub": f"{info.xp - info.floor:,} / {info.next_floor - info.floor:,} XP",
+        "side_title": f"Next: {info.next_name}" if fill != LEVEL_FILL else f"{info.to_next:,} XP to {info.next_name}",
         "side_sub": f"{info.to_next:,} XP to go" if fill != LEVEL_FILL else "",
         "fill": fill,
         "label": f"Level {info.level}, {info.name}: {info.xp} of {info.next_floor} XP, {info.to_next} XP to {info.next_name}",

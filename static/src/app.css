@@ -131,6 +131,11 @@
   --color-habits: #5b8fe0;
   --color-household: #e0629f;
   --color-level: #4f86d8;
+  /* Level medal stages: grey, blue, white, then amber for Legend. */
+  --color-medal-grey: #8a8fa0;
+  --color-medal-blue: #5b8fd9;
+  --color-medal-white: #f2f3f5;
+  --color-medal-amber: #e8a63c;
 
   --color-imdb: #f5c518;
   --color-rt: #fa5a3d;
@@ -5602,64 +5607,32 @@ html[data-theme] {
     color: var(--color-ink-dim);
   }
 
-  /* Level: the circle on an avatar, the big ring, the steps. */
+  /* Level medals: one flat SVG per level (see badges_ui.medal_svg). The stage
+     sets the colour, the size class the width. */
+  .medal { display: block; height: auto; flex: none; }
+  .medal-lg { width: 7.5rem; }
+  .medal-sm { width: 2.5rem; }
+  .medal-xs { width: 1.875rem; }
+  .medal-stage-0 { color: var(--color-medal-grey); }
+  .medal-stage-1 { color: var(--color-medal-blue); }
+  .medal-stage-2 { color: var(--color-medal-white); }
+  .medal-stage-3 { color: var(--color-medal-amber); }
+  /* The small medal on an avatar's bottom-right corner, about 10px out. */
   .level-dot {
     position: absolute;
-    right: -0.25rem;
-    bottom: -0.25rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 1.25rem;
-    height: 1.25rem;
-    padding: 0 0.1875rem;
-    border-radius: 9999px;
-    border: 2px solid var(--color-level);
-    background: var(--color-base-100);
-    color: var(--color-white);
-    font-size: 0.75rem;
-    font-weight: 700;
-    line-height: 1;
-    font-variant-numeric: tabular-nums;
+    right: -0.625rem;
+    bottom: -0.625rem;
+    display: block;
+    line-height: 0;
+    filter: none;
   }
-  .level-dot-lg {
-    min-width: 1.75rem;
-    height: 1.75rem;
-    font-size: 0.875rem;
-    right: -0.125rem;
-    bottom: -0.125rem;
-  }
-  .level-ring {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    width: 6.5rem;
-    height: 6.5rem;
-    border-radius: 9999px;
-    border: 4px solid var(--color-level);
-  }
-  .level-ring-num {
-    font-size: 2.75rem;
-    font-weight: 700;
-    line-height: 1;
-  }
-  .level-step {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2.75rem;
-    height: 2.75rem;
-    border-radius: 9999px;
-    border: 2px solid var(--color-line-strong);
-    color: var(--color-ink-dim);
-    font-size: 0.9375rem;
-    font-weight: 650;
-  }
-  .level-step.is-reached {
-    border-color: var(--color-level);
-    color: var(--color-white);
-  }
+  .level-dot .medal { width: 1.875rem; }
+  .level-dot-lg .medal { width: 2.5rem; }
+  .level-dot-lg { right: -0.75rem; bottom: -0.75rem; }
+  /* The Badges page strip: levels not reached yet are dimmed. */
+  .level-strip-item { opacity: 0.4; }
+  .level-strip-item .medal { width: 3rem; }
+  .level-strip-item.is-reached { opacity: 1; }
   .tier-mark {
     display: inline-flex;
     align-items: center;

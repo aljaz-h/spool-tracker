@@ -37667,19 +37667,20 @@ class BadgeEngineTests(TestCase):
         from tracker import badges
 
         cases = [(0, 1, "Newcomer"), (99, 1, "Newcomer"), (100, 2, "Explorer"), (249, 2, "Explorer"), (250, 3, "Regular"),
-                 (399, 3, "Regular"), (400, 4, "Cinephile"), (650, 5, "Curator"), (1000, 6, "Expert"), (1500, 7, "Legend"),
-                 (99999, 7, "Legend")]
+                 (399, 3, "Regular"), (400, 4, "Cinephile"), (650, 5, "Curator"), (1000, 6, "Expert"), (1499, 6, "Expert"),
+                 (1500, 7, "Virtuoso"), (2199, 7, "Virtuoso"), (2200, 8, "Master"), (3000, 9, "Grandmaster"),
+                 (3999, 9, "Grandmaster"), (4000, 10, "Legend"), (99999, 10, "Legend")]
         for xp, level, name in cases:
             info = badges.level_info(xp)
             self.assertEqual((info.level, info.name), (level, name), xp)
         info = badges.level_info(210)
         self.assertEqual((info.level, info.next_name, info.to_next, info.percent), (2, "Regular", 40, 73))
-        self.assertEqual(badges.level_info(2000).next_floor, None)
+        self.assertEqual(badges.level_info(4000).next_floor, None)
 
     def test_pin_limit_is_three_then_grows_from_curator(self):
         from tracker import badges
 
-        self.assertEqual([badges.pin_limit(n) for n in range(1, 8)], [3, 3, 3, 3, 4, 5, 6])
+        self.assertEqual([badges.pin_limit(n) for n in range(1, 11)], [3, 3, 3, 3, 4, 5, 6, 7, 8, 9])
 
     def test_rare_tiers_pay_one_and_a_half_times_only_in_a_household(self):
         from tracker import badges
@@ -38224,3 +38225,125 @@ class StatsCompareTests(TestCase):
         self.assertTrue(badges.visible_to(self.me, self.buddy))
         self.assertFalse(badges.visible_to(self.me, self.private))
         self.assertEqual(self.client.get(reverse("badge_detail", args=["first_watch"]), {"profile": self.private.pk}).status_code, 404)
+
+
+class WetrakrConnectNewTabTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("wetrakrtab", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="WetrakrTab")
+        InstanceConfig.objects.update_or_create(
+            pk=1,
+            defaults={"wetrakr_client_id": "wcid", "encrypted_wetrakr_client_secret": crypto.encrypt("wcsecret")},
+        )
+        self.client.login(username="wetrakrtab", password="pass12345")
+
+    def test_wetrakr_connect_opens_in_a_new_tab_and_others_do_not(self):
+        import re
+
+        html = self.client.get(reverse("settings") + "?tab=connected").content.decode()
+        tags = re.findall(r"<a [^>]*href=\"[^\"]*/connect/\"[^>]*>", html)
+        wetrakr_tags = [t for t in tags if reverse("wetrakr_connect") in t]
+        self.assertEqual(len(wetrakr_tags), 1)
+        self.assertIn('target="_blank"', wetrakr_tags[0])
+        self.assertIn('rel="noopener"', wetrakr_tags[0])
+        self.assertIn("(opens in a new tab)", html)
+        for tag in tags:
+            if tag not in wetrakr_tags:
+                self.assertNotIn("_blank", tag)
+
+
+class LevelMedalTests(TestCase):
+    def test_ten_levels_with_the_agreed_names_and_thresholds(self):
+        from tracker import badges
+
+        self.assertEqual(
+            badges.LEVELS,
+            (("Newcomer", 0), ("Explorer", 100), ("Regular", 250), ("Cinephile", 400), ("Curator", 650), ("Expert", 1000),
+             ("Virtuoso", 1500), ("Master", 2200), ("Grandmaster", 3000), ("Legend", 4000)),
+        )
+
+    def test_progress_toward_legend_and_the_top_level(self):
+        from tracker import badges
+
+        info = badges.level_info(3553)
+        self.assertEqual((info.level, info.name, info.next_name), (9, "Grandmaster", "Legend"))
+        self.assertEqual((info.xp - info.floor, info.percent, info.to_next), (553, 55, 447))
+        block = badges.level_block(info, badges.LEVEL_FILL)
+        self.assertEqual((block["sub"], block["side_title"]), ("553 / 1,000 XP", "447 XP to Legend"))
+        top = badges.level_info(4300)
+        self.assertEqual((top.level, top.percent, top.next_floor), (10, 100, None))
+        self.assertEqual(badges.level_block(top)["side_title"], "Top level")
+
+    def test_the_old_legend_becomes_virtuoso_and_big_totals_keep_climbing(self):
+        from tracker import badges
+
+        # Nobody drops a level: levels 1-6 are untouched, the old Legend (1,500 XP)
+        # is now Virtuoso, and an old Legend with more XP lands on level 9 or 10.
+        for xp, level in ((1000, 6), (1500, 7), (3553, 9), (4000, 10)):
+            self.assertEqual(badges.level_info(xp).level, level)
+
+    def test_levels_are_recalculated_from_existing_xp_without_a_reset(self):
+        profile = Profile.objects.create(
+            user=User.objects.create_user("oldlegend", password="pass12345"), display_name="Old", badge_xp=3553, badge_level_seen=7
+        )
+        from tracker import badges
+
+        self.assertEqual(badges.level_info(profile.badge_xp).level, 9)
+        profile.refresh_from_db()
+        self.assertEqual(profile.badge_xp, 3553)
+
+    def test_medal_stages_and_steps(self):
+        from tracker import badges
+
+        got = [badges.medal_stage(n) for n in range(1, 11)]
+        self.assertEqual(got, [(0, 1), (0, 2), (0, 3), (1, 1), (1, 2), (1, 3), (2, 1), (2, 2), (2, 3), (3, 0)])
+
+    def test_medal_svg_is_flat_and_built_from_the_level(self):
+        import re
+
+        from tracker.templatetags.badges_ui import medal_svg
+
+        for n in range(1, 11):
+            svg = str(medal_svg(n, "lg"))
+            self.assertNotIn("Gradient", svg)
+            self.assertNotIn("filter", svg)
+            self.assertIn(f'aria-label="Level {n},', svg)
+        self.assertEqual(len(re.findall("<rect ", str(medal_svg(2, "lg")))), 2)  # two film frames
+        self.assertEqual(len(re.findall("<rect ", str(medal_svg(9, "lg")))), 3)
+        legend = str(medal_svg(10, "lg"))
+        self.assertIn("medal-stage-3", legend)
+        self.assertNotIn("<text", legend)
+        small = str(medal_svg(5, "sm"))
+        self.assertIn(">5</text>", small)
+        self.assertEqual(small.count('opacity=".3"'), 1)  # step 2 of 3: one dim pip
+        self.assertEqual(len(re.findall("<line ", str(medal_svg(8, "sm")))), 5)  # white stage: rays
+        self.assertEqual(len(re.findall("<line ", str(medal_svg(5, "sm")))), 0)
+
+    def test_the_badges_page_shows_the_large_medal_and_ten_small_ones(self):
+        profile = Profile.objects.create(
+            user=User.objects.create_user("medalpage", password="pass12345"), display_name="Medal", badge_xp=3553,
+            badge_level_seen=9, badges_stale=False, badges_checked_at=timezone.now(),
+        )
+        self.client.login(username="medalpage", password="pass12345")
+        resp = self.client.get(reverse("badges"))
+        self.assertContains(resp, "medal-lg")
+        self.assertContains(resp, "Level 9")
+        self.assertContains(resp, "553 / 1,000 XP")
+        self.assertContains(resp, "447 XP to go")
+        self.assertContains(resp, "level-strip-item", count=10)
+        self.assertContains(resp, "level-strip-item is-reached", count=9)
+        self.assertContains(resp, "Grandmaster")
+
+
+class StatsAmberChartsTests(TestCase):
+    def test_the_four_charts_use_the_amber_primary_colour(self):
+        profile = Profile.objects.create(user=User.objects.create_user("amberstats", password="pass12345"), display_name="Amber")
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="A", year=2001, runtime_minutes=90)
+        WatchEvent.objects.create(profile=profile, title=movie, watched_at=timezone.now())
+        self.client.login(username="amberstats", password="pass12345")
+        html = self.client.get(reverse("stats")).content.decode()
+        self.assertIn("bg-primary", html)  # release years, peak hours and daily breakdown bars
+        self.assertIn("text-primary font-semibold", html)  # peak hour's own count
+        heat = self.client.get(reverse("stats_heatmap")).content.decode()
+        self.assertIn("bg-primary", heat)  # watch activity cells and legend
+        self.assertNotIn("bg-base-content/80", heat)

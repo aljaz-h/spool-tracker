@@ -24,17 +24,17 @@
 {% else %}
   <section class="surface p-5 sm:p-6" aria-label="Level">
     <div class="flex flex-wrap items-center gap-x-8 gap-y-5">
-      <div class="level-ring flex-none" aria-hidden="true"><span class="text-[13px] text-ink-dim">Level</span><span class="level-ring-num">{{ data.level.level }}</span></div>
+      <div class="flex-none flex flex-col items-center gap-1">{% level_medal data.level.level "lg" %}<span class="text-[13px] text-ink-dim">Level {{ data.level.level }}</span></div>
       <div class="min-w-[16rem] flex-1">
         <div class="text-[13px] text-ink-dim">{% if is_self %}Your level{% else %}{{ target.display_name }}&rsquo;s level{% endif %}</div>
         <div class="text-3xl font-bold leading-tight">{{ data.level.name }}</div>
         <div class="mt-3 max-w-xl">{% include "tracker/badges/progress_block.html" with b=data.level_block %}</div>
       </div>
-      <ol class="flex flex-wrap gap-x-5 gap-y-3 list-none" aria-label="Levels">
+      <ol class="grid grid-cols-5 gap-x-4 gap-y-3 list-none w-full xl:w-auto" aria-label="Levels">
         {% for lv in data.levels %}
-          <li class="flex flex-col items-center gap-1.5 w-[4.5rem]"{% if lv.level == data.level.level %} aria-current="true"{% endif %}>
-            <span class="level-step{% if lv.reached %} is-reached{% endif %}">{{ lv.level }}</span>
-            <span class="text-[12px] {% if lv.reached %}text-base-content{% else %}text-ink-dim{% endif %}">{{ lv.name }}</span>
+          <li class="level-strip-item{% if lv.reached %} is-reached{% endif %} flex flex-col items-center gap-1 min-w-0 xl:w-[4.75rem]"{% if lv.level == data.level.level %} aria-current="true"{% endif %}>
+            {% level_medal lv.level "sm" %}
+            <span class="text-[12px] text-center truncate max-w-full {% if lv.reached %}text-base-content{% else %}text-ink-dim{% endif %}">{{ lv.name }}</span>
           </li>
         {% endfor %}
       </ol>

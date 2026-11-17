@@ -48,7 +48,7 @@
             {% for cell in week %}
               {% if cell %}
                 <div
-                  class="w-[11px] h-[11px] rounded-sm {% if cell.level == 0 %}bg-base-200{% elif cell.level == 1 %}bg-base-content/20{% elif cell.level == 2 %}bg-base-content/40{% elif cell.level == 3 %}bg-base-content/65{% else %}bg-base-content/80{% endif %}"
+                  class="w-[11px] h-[11px] rounded-sm {% if cell.level == 0 %}bg-base-200{% elif cell.level == 1 %}bg-primary/25{% elif cell.level == 2 %}bg-primary/50{% elif cell.level == 3 %}bg-primary/75{% else %}bg-primary{% endif %}"
                   title="{{ cell.date|date:'M j, Y' }} · {{ cell.count }} watched"
                 ></div>
               {% else %}
@@ -66,10 +66,10 @@
     <div class="flex items-center gap-1.5">
       <span class="text-[12px] text-ink-faint">Less</span>
       <span class="w-2.5 h-2.5 rounded-sm bg-base-200"></span>
-      <span class="w-2.5 h-2.5 rounded-sm bg-base-content/20"></span>
-      <span class="w-2.5 h-2.5 rounded-sm bg-base-content/40"></span>
-      <span class="w-2.5 h-2.5 rounded-sm bg-base-content/65"></span>
-      <span class="w-2.5 h-2.5 rounded-sm bg-base-content/80"></span>
+      <span class="w-2.5 h-2.5 rounded-sm bg-primary/25"></span>
+      <span class="w-2.5 h-2.5 rounded-sm bg-primary/50"></span>
+      <span class="w-2.5 h-2.5 rounded-sm bg-primary/75"></span>
+      <span class="w-2.5 h-2.5 rounded-sm bg-primary"></span>
       <span class="text-[12px] text-ink-faint">More</span>
     </div>
   </div>

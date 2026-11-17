@@ -118,10 +118,10 @@
           <div>
             <div class="flex justify-between items-baseline mb-1.5">
               <span class="text-[13px] text-ink-dim">{{ bucket.label }} <span class="text-[12.5px] text-ink-faint">{{ bucket.range }}</span></span>
-              <span class="text-xs tabular-nums {% if bucket.pct == 100 %}text-base-content font-semibold{% else %}text-ink-faint{% endif %}">{{ bucket.count }} play{{ bucket.count|pluralize }}</span>
+              <span class="text-xs tabular-nums {% if bucket.pct == 100 %}text-primary font-semibold{% else %}text-ink-faint{% endif %}">{{ bucket.count }} play{{ bucket.count|pluralize }}</span>
             </div>
             <div tabindex="0" aria-label="{{ bucket.count }} play{{ bucket.count|pluralize }}" class="w-full h-1.5 rounded-full bg-base-300 overflow-hidden spool-tooltip" data-tooltip="{{ bucket.count }} play{{ bucket.count|pluralize }}">
-              <div class="h-full rounded-full {% if bucket.pct == 100 %}bg-base-content/80{% else %}bg-base-content/25{% endif %}" style="width:{{ bucket.pct }}%"></div>
+              <div class="h-full rounded-full {% if bucket.pct == 100 %}bg-primary{% else %}bg-primary/40{% endif %}" style="width:{{ bucket.pct }}%"></div>
             </div>
           </div>
         {% endfor %}
@@ -144,7 +144,7 @@
               <div class="text-[12px] font-semibold text-ink-dim mb-1 tabular-nums">{{ d.count }}</div>
               <div
                 tabindex="0" aria-label="{{ d.label }} · {{ d.count }} title{{ d.count|pluralize }}"
-                class="w-full max-w-[28px] rounded-t spool-tooltip {% if d.pct == 100 %}bg-base-content/80{% else %}bg-base-content/25{% endif %}"
+                class="w-full max-w-[28px] rounded-t spool-tooltip {% if d.pct == 100 %}bg-primary{% else %}bg-primary/35{% endif %}"
                 style="height:{{ d.pct }}%"
                 data-tooltip="{{ d.label }} · {{ d.count }} title{{ d.count|pluralize }}"
               ></div>
@@ -248,7 +248,7 @@
             </div>
             <div
               tabindex="0" aria-label="{{ d.label }} · {{ d.duration }}"
-              class="w-full max-w-[26px] rounded-t spool-tooltip {% if daily_breakdown.peak_minutes and d.minutes == daily_breakdown.peak_minutes %}bg-base-content/80{% else %}bg-base-content/25{% endif %}"
+              class="w-full max-w-[26px] rounded-t spool-tooltip {% if daily_breakdown.peak_minutes and d.minutes == daily_breakdown.peak_minutes %}bg-primary{% else %}bg-primary/35{% endif %}"
               style="height:{{ d.height_pct }}%"
               data-tooltip="{{ d.label }} · {{ d.duration }}"
             ></div>

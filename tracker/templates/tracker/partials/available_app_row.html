@@ -25,7 +25,8 @@
     {% elif row.configured %}
       <div class="flex items-center gap-3">
         {% include "tracker/partials/status_badge.html" with kind="not_connected" %}
-        <a href="{{ row.connect_url }}" class="s-btn">Connect</a>
+        {# WeTrakr's approval page opens in a new tab so this page (and the code box that appears for an out-of-band redirect) stays put. #}
+        <a href="{{ row.connect_url }}" class="s-btn"{% if row.key == "wetrakr" %} target="_blank" rel="noopener"{% endif %}>Connect{% if row.key == "wetrakr" %}<span class="sr-only"> (opens in a new tab)</span>{% endif %}</a>
       </div>
     {% else %}
       <div class="flex items-center gap-3">

@@ -8,6 +8,24 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.195.1] - 2026-11-17
+
+### Changed
+- Stats: the daily breakdown, peak hours, release years and watch activity charts are amber again (the streak and watch-time figures stay neutral).
+
+## [0.195.0] - 2026-11-17
+
+### Changed
+- Badge levels grow from 7 to 10: Virtuoso (1,500 XP), Master (2,200), Grandmaster (3,000) and Legend (4,000) on top of Newcomer to Expert. Levels 1-6 are unchanged, so nobody drops a level; the old Legend is now Virtuoso, and levels are recalculated from existing XP.
+- Each level has its own flat medal: grey plain rings (1-3), blue with sprocket holes and film-strip wings (4-6), white with longer wings and light rays (7-9), and an amber Legend medal with a star, reel crown and ribbon. The large medal (frames show the step) is on the Badges page and the level-up popup; the small one (number with three step pips) is on the avatar in the navbar, friends list and quick profile, and in the Badges page level strip, where levels not reached yet are dimmed.
+- The level progress block shows XP into the current level ("553 / 1,000 XP", "447 XP to Legend").
+- The medals are on the UI kit page, and the levels are documented in docs/BADGES.md.
+
+## [0.194.1] - 2026-11-17
+
+### Changed
+- The WeTrakr Connect button in Connected apps opens WeTrakr's approval page in a new tab, so the Spool page (and the code box shown for an out-of-band redirect) stays where it was.
+
 ## [0.194.0] - 2026-11-17
 
 ### Added

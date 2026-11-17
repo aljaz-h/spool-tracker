@@ -449,6 +449,7 @@ def ui_kit(request):
         request,
         "tracker/ui_kit.html",
         {
+            "medal_levels": [{"level": i + 1, "name": n, "floor": f"{f:,}"} for i, (n, f) in enumerate(badges.LEVELS)],
             "tabs": [
                 {"label": "Trending", "url": "#", "active": True}, {"label": "Popular", "url": "#"},
                 {"label": "Upcoming", "url": "#"}, {"label": "Top rated", "url": "#"},
