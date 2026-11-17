@@ -1,4 +1,4 @@
-{% load static %}
+{% load static badges_ui %}
 <!doctype html>
 <html lang="en" data-theme="spool">
 <head>
@@ -548,5 +548,14 @@
   </dialog>
 
   {% include "tracker/partials/toasts.html" %}
+
+  {# Badge detail popup (opened from the Badges page, a toast or a profile card) and the unlock toasts / level-up popup. #}
+  <dialog id="badge_modal" class="modal" aria-modal="true" aria-labelledby="badge-modal-title">
+    <div class="modal-box bg-base-200 rounded-2xl p-5 sm:p-6 max-w-md">
+      <div id="badge-modal-content" aria-live="polite"><div class="py-10 text-center text-ink-dim text-sm">Loading…</div></div>
+    </div>
+    <form method="dialog" class="modal-backdrop bg-black/70"><button>close</button></form>
+  </dialog>
+  {% if active_profile %}{% badge_unlocks %}{% endif %}
 </body>
 </html>

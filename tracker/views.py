@@ -44,7 +44,7 @@ from django.views.decorators.http import require_GET, require_POST
 from itsdangerous import URLSafeTimedSerializer
 
 from . import (
-    achievements,
+    badges,
     completion,
     crypto,
     csv_import,
@@ -365,7 +365,9 @@ def profile_popup(request, profile_id):
     if viewer is None:
         raise Http404
     target = get_object_or_404(Profile, pk=profile_id)
-    return render(request, "tracker/partials/profile_popup.html", selectors.profile_popup_context(viewer, target))
+    context = selectors.profile_popup_context(viewer, target)
+    context.update(badges.popup_context(viewer, target))
+    return render(request, "tracker/partials/profile_popup.html", context)
 
 
 def _discover_int_param(request, name):
@@ -4748,9 +4750,7 @@ def stats(request, profile_id=None):
         top_peak_bucket = max(context["peak_hours"], key=lambda b: b["count"])
         context["peak_hours_prime"] = top_peak_bucket if top_peak_bucket["count"] else None
 
-        earned_achievements = achievements.achievement_progress(profile)
-        context["achievements"] = earned_achievements
-        context["achievements_earned_count"] = sum(1 for a in earned_achievements if a["earned"])
+        context["badge_summary"] = badges.popup_context(profile, profile) if is_own_stats or profile.show_badges else {"badges_shown": False}
         if is_own_stats:
             other_profiles = Profile.objects.exclude(pk=profile.pk).order_by("display_name")
             compatibility = selectors.taste_compatibility_many(profile, other_profiles)
@@ -6323,6 +6323,10 @@ def save_appearance(request):
     if "blur_unwatched_episodes_submitted" in request.POST:
         profile.blur_unwatched_episodes = bool(request.POST.get("blur_unwatched_episodes"))
         update_fields.append("blur_unwatched_episodes")
+    for badge_field in ("show_badges", "badge_notifications", "badges_to_feed"):
+        if f"{badge_field}_submitted" in request.POST:
+            setattr(profile, badge_field, bool(request.POST.get(badge_field)))
+            update_fields.append(badge_field)
     time_format = request.POST.get("time_format")
     if time_format in Profile.TimeFormat.values:
         profile.time_format = time_format

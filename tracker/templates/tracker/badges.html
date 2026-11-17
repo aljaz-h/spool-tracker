@@ -1,0 +1,88 @@
+{% extends "tracker/base.html" %}
+{% load ui icons badges_ui %}
+{% block title %}Badges · Spool{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div class="min-w-0">
+    <h1 class="page-title">Badges</h1>
+    <p class="page-subtitle">Earn badges by watching. Each category has its own shape. Each badge has 5 tiers, shown as film sprocket holes, and every tier adds XP.</p>
+  </div>
+  {% if household|length > 1 %}
+    <form method="get" class="flex-none">
+      <label class="flex items-center gap-2 text-sm text-ink-dim">
+        Viewing
+        <select name="profile" class="select min-h-11 w-auto text-base-content" onchange="this.form.submit()">
+          {% for p in household %}<option value="{{ p.pk }}"{% if p.pk == target.pk %} selected{% endif %}>{{ p.display_name }}</option>{% endfor %}
+        </select>
+      </label>
+    </form>
+  {% endif %}
+</div>
+
+{% if hidden %}
+  {% ui_empty_state hidden_title "They turned badges off in Settings, so their level and tiers aren't shown." icon="lock" %}
+{% else %}
+  <section class="surface p-5 sm:p-6" aria-label="Level">
+    <div class="flex flex-wrap items-center gap-x-8 gap-y-5">
+      <div class="level-ring flex-none" aria-hidden="true"><span class="text-[13px] text-ink-dim">Level</span><span class="level-ring-num">{{ data.level.level }}</span></div>
+      <div class="min-w-[16rem] flex-1">
+        <div class="text-[13px] text-ink-dim">{% if is_self %}Your level{% else %}{{ target.display_name }}&rsquo;s level{% endif %}</div>
+        <div class="text-3xl font-bold leading-tight">{{ data.level.name }}</div>
+        <div class="mt-3 max-w-xl">{% include "tracker/badges/progress_block.html" with b=data.level_block %}</div>
+      </div>
+      <ol class="flex flex-wrap gap-x-5 gap-y-3 list-none" aria-label="Levels">
+        {% for lv in data.levels %}
+          <li class="flex flex-col items-center gap-1.5 w-[4.5rem]"{% if lv.level == data.level.level %} aria-current="true"{% endif %}>
+            <span class="level-step{% if lv.reached %} is-reached{% endif %}">{{ lv.level }}</span>
+            <span class="text-[12px] {% if lv.reached %}text-base-content{% else %}text-ink-dim{% endif %}">{{ lv.name }}</span>
+          </li>
+        {% endfor %}
+      </ol>
+    </div>
+  </section>
+
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-5 py-6 border-b border-line">
+    {% ui_stat_tile data.badges_earned "Badges earned" unit=data.badges_unit note=data.not_earned_note %}
+    {% ui_stat_tile data.tiers_earned "Tiers unlocked" unit=data.tiers_unit note="across all badges" %}
+    {% ui_stat_tile data.xp "Total XP" unit="XP" note="rare tiers add more" %}
+    {% if data.rarest %}
+      {% ui_stat_tile data.rarest.badge.name "Rarest tier" note=data.rarest.note %}
+    {% else %}
+      {% ui_stat_tile "None yet" "Rarest tier" note="Earn a tier to see it" %}
+    {% endif %}
+  </div>
+
+  <div class="flex flex-wrap items-center justify-between gap-3 mt-6">
+    {% ui_tabs filters "chips" "Filter badges" %}
+    <div class="flex items-center gap-3">
+      <span class="text-sm text-ink-dim">Sort</span>
+      {% ui_tabs sorts "segmented" "Sort badges" %}
+    </div>
+  </div>
+
+  {% for group in data.categories %}
+    <section class="mt-8" aria-labelledby="cat-{{ group.category.key }}">
+      <div class="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 pb-2.5 border-b border-line">
+        <h2 id="cat-{{ group.category.key }}" class="flex flex-wrap items-baseline gap-x-2.5 text-lg font-semibold">
+          <span class="cat-dot self-center" data-cat="{{ group.category.key }}" aria-hidden="true"></span>{{ group.category.name }}
+          <span class="text-[13px] font-normal text-ink-dim">{{ group.category.blurb }}</span>
+        </h2>
+        <span class="font-mono text-[12.5px] text-ink-dim">Tiers {{ group.tiers_done }} of {{ group.tiers_total }} &middot; Badges {{ group.badges_done }} of {{ group.badges_total }}</span>
+      </div>
+      <div class="badge-grid">
+        {% for c in group.visible %}
+          <button type="button" class="badge-card" hx-get="{% url 'badge_detail' c.key %}{% if not is_self %}?profile={{ target.pk }}{% endif %}" hx-target="#badge-modal-content" hx-swap="innerHTML" onclick="badge_modal.showModal()">
+            {% badge_icon c "md" %}
+            <span class="badge-card-name">{{ c.name }}</span>
+            {% badge_pips c %}
+            <span class="badge-card-caption">{{ c.caption }}</span>
+            <span class="sr-only">{{ c.tiers_done }} of {{ c.tier_total }} tiers{% if c.masked %}, hidden until earned{% endif %}</span>
+          </button>
+        {% endfor %}
+      </div>
+    </section>
+  {% empty %}
+    <div class="mt-8">{% ui_empty_state "No badges match" "Try another filter." icon="filter" %}</div>
+  {% endfor %}
+{% endif %}
+{% endblock %}

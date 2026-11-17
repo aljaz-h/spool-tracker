@@ -1,4 +1,4 @@
-from . import update_check
+from . import badges, update_check
 from .models import Notification, Profile
 from .version import APP_VERSION
 
@@ -32,12 +32,17 @@ def active_profile(request):
         profile = Profile.objects.select_related("user", "watching_title").filter(user=request.user).first()
         if profile is not None:
             unread_notification_count = Notification.objects.filter(profile=profile, in_app=True, read=False).count()
+            # Badges catch up on the next full page after the history moved (a
+            # partial response, e.g. a mark-watched swap, stays fast).
+            if not request.headers.get("HX-Request"):
+                badges.ensure_fresh(profile)
             if profile.is_owner:
                 latest_available_version = update_check.available_version()
     all_profiles = Profile.objects.all()
     other_profiles = (all_profiles.exclude(pk=profile.pk) if profile is not None else all_profiles).select_related("watching_title")
     return {
         "active_profile": profile,
+        "my_level": badges.level_info(profile.badge_xp) if profile is not None else None,
         "all_profiles": all_profiles,
         "other_profiles": other_profiles,
         "show_activity_nav": Profile.objects.count() > 1,

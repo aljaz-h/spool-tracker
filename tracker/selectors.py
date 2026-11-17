@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # Dashboard/Stats computed-data cache - tracker/selectors.py had no caching
 # at all before this (confirmed: every one of quick_stats/monthly_stats/
 # stats_overview/watch_time_breakdown/genre_breakdown/release_year_breakdown/
-# daily_breakdown/daily_average/peak_hours/achievements.achievement_progress/
+# daily_breakdown/daily_average/peak_hours/badges/
 # up_next recomputed from the DB on every single request). None of these are
 # expensive N+1 patterns individually (each is a handful of indexed
 # aggregate queries), but a Stats page load alone costs ~15-20 round trips
@@ -115,7 +115,6 @@ def invalidate_profile_stats_cache(profile_id):
         f"stats:daily_breakdown:{profile_id}:7",
         f"stats:daily_average:{profile_id}:7",
         f"stats:peak_hours:{profile_id}",
-        f"stats:achievements:{profile_id}",
         f"stats:up_next:{profile_id}:4",
     ] + [
         f"stats:genre:{profile_id}:{mt}:{metric}"
@@ -2555,6 +2554,9 @@ def activity_feed(limit=30):
                 "watchlist": wli.watchlist,
             }
         )
+    from . import badges  # local: badges imports this module
+
+    items.extend(badges.feed_items(limit))
     items.sort(key=lambda i: i["timestamp"], reverse=True)
     grouped = _group_consecutive_watches(items[:limit])
     # A single (ungrouped) episode watch/rate never goes through

@@ -1,4 +1,4 @@
-{% load icons tracker_extras %}
+{% load icons tracker_extras badges_ui %}
 {% with url_name=request.resolver_match.url_name %}
 <header class="app-topbar h-14 lg:h-15 flex-none sticky top-0 z-30 bg-base-100/95 border-b border-line">
   {% comment %}
@@ -163,8 +163,9 @@
       </div>
     {% endif %}
     {% if active_profile %}
-      <div class="relative max-lg:hidden" @click.outside="open = false" @keydown.escape.window="open = false" x-data="{
+      <div class="relative max-lg:hidden" @click.outside="open = false" @keydown.escape.window="open = false" @mouseenter="hover = true" @mouseleave="hover = false" @focusin="hover = true" @focusout="hover = false" x-data="{
         open: false,
+        hover: false,
         togglePanel(button) {
           this.open = !this.open;
           if (!this.open) return;
@@ -184,17 +185,29 @@
           class="flex items-center gap-2 h-9 pl-0.5 sm:pr-2 rounded-full hover:bg-base-300 flex-none"
           title="{{ active_profile.display_name }}"
         >
-          <div
+          <span class="relative flex-none"><div
             class="w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-semibold border-2 flex-none {% if active_profile.avatar_image %}bg-cover bg-center{% endif %}"
             style="border-color:{{ active_profile.avatar_color }};{% if active_profile.avatar_image %}background-image:url('{{ active_profile.avatar_image.url }}'){% else %}background:{{ active_profile.avatar_color }};color:{{ active_profile.avatar_color|on_color }};{% endif %}"
-          >{% if not active_profile.avatar_image %}{{ active_profile.display_name|first|upper }}{% endif %}</div>
+          >{% if not active_profile.avatar_image %}{{ active_profile.display_name|first|upper }}{% endif %}</div>{% level_dot active_profile own=True %}</span>
           <span class="hidden 2xl:inline text-[13px] font-medium text-base-content truncate max-w-[110px]">{{ active_profile.display_name }}</span>
           <span class="hidden sm:flex flex-none transition-transform" :class="open ? 'rotate-180' : ''">
             {% icon "chevron-down" "w-3.5 h-3.5 text-ink-dim" %}
           </span>
         </button>
+        {# The level card: name and XP, only where there is room (hover or focus on the avatar). #}
+        <div x-show="hover && !open" x-cloak role="status" class="absolute right-0 top-full mt-2 w-72 menu-surface z-40 p-4">
+          <div class="flex items-baseline justify-between gap-3">
+            <span class="text-[15px] font-semibold">Level {{ my_level.level }} &middot; {{ my_level.name }}</span>
+            <span class="font-mono text-[12.5px] text-ink-dim">{% if my_level.next_floor %}{{ my_level.xp }} / {{ my_level.next_floor }} XP{% else %}{{ my_level.xp }} XP{% endif %}</span>
+          </div>
+          <div class="mt-2.5 h-8 rounded-lg bg-base-300 overflow-hidden"><div class="h-full" style="width: {{ my_level.percent }}%; background: color-mix(in oklab, var(--color-level) 80%, var(--color-base-100))"></div></div>
+          <div class="mt-2 text-[13px] text-ink-dim">{% if my_level.next_floor %}{{ my_level.to_next }} XP to {{ my_level.next_name }}{% else %}Top level{% endif %}</div>
+        </div>
         <div x-ref="panel" x-cloak :class="{'spool-popover-open': open}" class="spool-popover menu-surface fixed w-52 z-40 py-1">
           <div class="px-3 pt-2 pb-2 text-sm font-semibold truncate border-b border-line">{{ active_profile.display_name }}</div>
+          <a href="{% url 'badges' %}" class="flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-base-300">
+            {% icon "sparkles" "w-4 h-4 text-ink-dim" %} Badges
+          </a>
           <a href="{% url 'settings' %}" class="flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-base-300">
             {% icon "settings" "w-4 h-4 text-ink-dim" %} Settings
           </a>

@@ -167,6 +167,24 @@ class Profile(models.Model):
     # (selectors.activity_feed). Only ever shown/relevant with >1 profile
     # on the instance, same gating Activity itself already uses.
     share_activity = models.BooleanField(default=True)
+    # Badges and levels (tracker/badges.py). badge_xp is the sum of the XP of
+    # every ProfileBadgeTier, kept here so a level circle on an avatar costs no
+    # query of its own. badges_stale is set whenever the watch history (or
+    # anything a badge counts) changes and cleared by badges.rebuild();
+    # badges_checked_at lets household-wide badges catch up now and then even
+    # when this profile's own history hasn't moved. badge_level_seen is the
+    # highest level whose level-up popup has been shown (0 = badges never
+    # computed yet, so the first rebuild backfills silently).
+    badge_xp = models.PositiveIntegerField(default=0)
+    badges_stale = models.BooleanField(default=True)
+    badges_checked_at = models.DateTimeField(null=True, blank=True)
+    badge_level_seen = models.PositiveSmallIntegerField(default=0)
+    # Settings -> Preferences -> Badges.
+    show_badges = models.BooleanField(default=True)
+    badge_notifications = models.BooleanField(default=True)
+    badges_to_feed = models.BooleanField(default=False)
+    # Up to badges.pin_limit(level) badge keys, in the order shown.
+    pinned_badges = models.JSONField(default=list, blank=True)
     # Settings → Notifications - per notification type, whether it reaches
     # the in-app bell and/or push: {"digital_release": {"app": true}, ...}.
     # Only choices that differ from the defaults are stored; the types,
@@ -1781,6 +1799,48 @@ class ProfileAchievement(models.Model):
 
     def __str__(self):
         return f"{self.profile}: {self.key}"
+
+
+class ProfileBadgeTier(models.Model):
+    """One tier of one badge a profile has earned (the catalog itself is the
+    static registry in tracker/badges.py). Rows are only ever added: an earned
+    tier is kept if the title behind it is later deleted. xp is what the tier
+    paid when it was earned (rare tiers pay 1.5x). earned_at is NULL for tiers
+    backfilled the first time badges were computed, whose real date is
+    unknown. notified is whether the unlock toast has been shown."""
+
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="badge_tiers")
+    badge_key = models.CharField(max_length=40)
+    tier = models.PositiveSmallIntegerField()
+    xp = models.PositiveSmallIntegerField()
+    earned_at = models.DateTimeField(null=True, blank=True)
+    notified = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["profile", "badge_key", "tier"], name="unique_profile_badge_tier")
+        ]
+        indexes = [models.Index(fields=["badge_key", "tier"], name="badge_tier_key_idx")]
+
+    def __str__(self):
+        return f"{self.profile}: {self.badge_key} tier {self.tier}"
+
+
+class ProfileLevelUp(models.Model):
+    """The moment a profile reached a level (Household activity shows it).
+    shown is whether the level-up popup has been shown."""
+
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="level_ups")
+    level = models.PositiveSmallIntegerField()
+    xp_total = models.PositiveIntegerField()
+    reached_at = models.DateTimeField(auto_now_add=True)
+    shown = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["profile", "level"], name="unique_profile_level_up")]
+
+    def __str__(self):
+        return f"{self.profile}: level {self.level}"
 
 
 class ImportSession(models.Model):

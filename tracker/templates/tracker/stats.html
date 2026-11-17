@@ -293,35 +293,16 @@
     {% endif %}
   </section>
 
-  {% if achievements %}
+  {% if badge_summary.badges_shown %}
     <section class="section">
       <div class="section-head">
         <div>
-          <h2 class="section-title">Achievements</h2>
-          <p class="text-xs text-ink-faint mt-1">{{ achievements_earned_count }} of {{ achievements|length }} unlocked · {% widthratio achievements_earned_count achievements|length 100 %}% completed</p>
+          <h2 class="section-title">Badges</h2>
+          <p class="text-xs text-ink-faint mt-1">{{ badge_summary.badges_earned }} earned &middot; Level {{ badge_summary.level.level }} {{ badge_summary.level.name }}</p>
         </div>
+        <a href="{% url 'badges' %}" class="text-sm text-ink-dim hover:text-primary">All badges</a>
       </div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-x-6 gap-y-5">
-        {% for a in achievements %}
-          <div class="flex items-start gap-3 min-w-0">
-            <div class="w-9 h-9 rounded-full flex-none flex items-center justify-center {% if a.earned %}bg-selected text-white{% else %}bg-base-200 text-ink-faint{% endif %}">
-              {% icon "crown" "w-[18px] h-[18px]" %}
-            </div>
-            <div class="min-w-0 flex-1">
-              <div class="text-[13.5px] font-medium {% if not a.earned %}text-ink-dim{% endif %}">{{ a.name }}</div>
-              <div class="text-[12.5px] text-ink-faint leading-snug mt-0.5">{{ a.description }}</div>
-              {% if a.earned %}
-                <div class="text-[12.5px] font-medium text-success mt-1.5">Unlocked</div>
-              {% else %}
-                <div class="flex items-center gap-2 mt-2">
-                  <div class="progress-track flex-1"><div class="progress-fill progress-fill-neutral" style="width:{{ a.pct }}%"></div></div>
-                  <span class="text-[12px] text-ink-faint tabular-nums">{{ a.current }}/{{ a.target }}</span>
-                </div>
-              {% endif %}
-            </div>
-          </div>
-        {% endfor %}
-      </div>
+      <div class="max-w-md">{% include "tracker/badges/progress_block.html" with b=badge_summary.level_block %}</div>
     </section>
   {% endif %}
 

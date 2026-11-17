@@ -1,6 +1,17 @@
 from django.apps import AppConfig
 
 
+def _mark_badges_stale_on_history_change(sender, instance, **kwargs):
+    # Module-level for the same weak-reference reason as the receiver below.
+    # Cheap on purpose (one UPDATE, a no-op once flagged): the recount itself
+    # happens on the next page that needs a level - see tracker/badges.py.
+    from .badges import mark_stale
+
+    profile_id = getattr(instance, "profile_id", None) or getattr(instance, "from_profile_id", None)
+    if profile_id:
+        mark_stale(profile_id)
+
+
 def _invalidate_stats_cache_on_watchevent_change(sender, instance, **kwargs):
     # Module-level, not a closure inside ready() below - Signal.connect()
     # keeps only a *weak* reference to its receiver by default, so a
@@ -56,6 +67,16 @@ class TrackerConfig(AppConfig):
             sender=WatchEvent,
             dispatch_uid="watchevent_stats_cache_invalidate_delete",
         )
+
+        from .models import Recommendation, WatchProgress
+
+        for model in (WatchEvent, WatchProgress, Recommendation):
+            for signal, name in ((post_save, "save"), (post_delete, "delete")):
+                signal.connect(
+                    _mark_badges_stale_on_history_change,
+                    sender=model,
+                    dispatch_uid=f"badges_stale_{model.__name__}_{name}",
+                )
 
         from .models import Profile
 

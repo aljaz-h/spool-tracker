@@ -20,7 +20,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
-from . import achievements, completion, crypto, csv_import, episode_matching, ical, imdb_import, import_pipeline, instance_config, letterboxd_import, notifications, push, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, title_matching, totp, tvtime_import, update_check, views
+from . import completion, crypto, csv_import, episode_matching, ical, imdb_import, import_pipeline, instance_config, letterboxd_import, notifications, push, ratelimit, recommendations, release_sync, rewatches, scheduling, selectors, tasks, title_matching, totp, tvtime_import, update_check, views
 from django.utils import timezone as _tz
 from .watchlists import ensure_watchlist
 from .integrations import anifiller, animelist, fanart, mdblist, myanimelist, nuvio, scrobble, simkl, tenrai, tmdb, tmdb_account, trakt, tvmaze, wetrakr
@@ -41,7 +41,8 @@ from .models import (
     Notification,
     NuvioConnection,
     Profile,
-    ProfileAchievement,
+    ProfileBadgeTier,
+    ProfileLevelUp,
     Recommendation,
     ReleaseSchedule,
     ServiceAPIKey,
@@ -12159,123 +12160,6 @@ class ReleaseYearBreakdownTests(TestCase):
         self.assertContains(resp, "Release Years")
         self.assertContains(resp, "80s")
         self.assertNotContains(resp, "No release-year data yet")
-
-
-class AchievementsTests(TestCase):
-    """tracker/achievements.py - static achievement registry checked
-    against existing streak/genre/watch-time data, persisted in
-    ProfileAchievement once earned."""
-
-    def setUp(self):
-        user = User.objects.create_user("achiever", password="pass12345")
-        self.profile = Profile.objects.create(user=user, display_name="Achiever")
-
-    def _movie(self, name, genre=None, media_type=MediaType.MOVIE):
-        title = Title.objects.create(media_type=media_type, name=name, year=2020)
-        if genre:
-            title.genres.add(genre)
-        return title
-
-    def _watch(self, title, watched_at):
-        return WatchEvent.objects.create(profile=self.profile, title=title, watched_at=watched_at)
-
-    def _local(self, *args):
-        from datetime import datetime
-
-        from django.utils import timezone
-
-        return timezone.make_aware(datetime(*args), timezone.get_current_timezone())
-
-    def test_genre_explorer_requires_every_genre_watched(self):
-        action = Genre.objects.create(name="Action")
-        comedy = Genre.objects.create(name="Comedy")
-        self._watch(self._movie("A", action), self._local(2024, 1, 1, 12))
-        genre_explorer = next(a for a in achievements.ACHIEVEMENTS if a.key == "genre_explorer")
-        self.assertFalse(genre_explorer.check(self.profile))
-        self._watch(self._movie("B", comedy), self._local(2024, 1, 2, 12))
-        self.assertTrue(genre_explorer.check(self.profile))
-
-    def test_night_owl_requires_20_late_night_watches(self):
-        for day in range(1, 20):
-            self._watch(self._movie(f"Night {day}"), self._local(2024, 1, day, 23))
-        self.assertFalse(achievements._night_owl(self.profile))
-        self._watch(self._movie("Night 20"), self._local(2024, 1, 20, 23))
-        self.assertTrue(achievements._night_owl(self.profile))
-
-    def test_night_owl_daytime_watches_do_not_count(self):
-        for day in range(1, 25):
-            self._watch(self._movie(f"Day {day}"), self._local(2024, 1, day, 12))
-        self.assertFalse(achievements._night_owl(self.profile))
-
-    def test_century_club_requires_100_unique_movies_not_plays(self):
-        title = self._movie("Rewatched")
-        for day in range(1, 100):
-            self._watch(title, self._local(2024, 1, (day % 28) + 1, 12))
-        # 99 rewatches of the same movie is still just 1 unique movie.
-        self.assertFalse(achievements._century_club(self.profile))
-        for i in range(100):
-            self._watch(self._movie(f"Unique {i}"), self._local(2024, 1, (i % 28) + 1, 12))
-        self.assertTrue(achievements._century_club(self.profile))
-
-    def test_streak_master_requires_a_30_day_streak(self):
-        from datetime import timedelta
-
-        from django.utils import timezone
-
-        start = timezone.localdate() - timedelta(days=29)
-        for i in range(29):
-            self._watch(self._movie(f"Streak {i}"), self._local(start.year, start.month, start.day) + timedelta(days=i))
-        self.assertFalse(achievements._streak_master(self.profile))
-        self._watch(self._movie("Streak 29"), self._local(start.year, start.month, start.day) + timedelta(days=29))
-        self.assertTrue(achievements._streak_master(self.profile))
-
-    def test_marathoner_requires_5_watches_in_a_single_day(self):
-        for i in range(4):
-            self._watch(self._movie(f"Binge {i}"), self._local(2024, 1, 1, 10 + i))
-        self.assertFalse(achievements._marathoner(self.profile))
-        self._watch(self._movie("Binge 4"), self._local(2024, 1, 1, 20))
-        self.assertTrue(achievements._marathoner(self.profile))
-
-    def test_check_and_award_persists_a_newly_earned_achievement(self):
-        for i in range(4):
-            self._watch(self._movie(f"Binge {i}"), self._local(2024, 1, 1, 10 + i))
-        self._watch(self._movie("Binge 4"), self._local(2024, 1, 1, 20))
-        achievements.check_and_award(self.profile)
-        self.assertTrue(
-            ProfileAchievement.objects.filter(profile=self.profile, key="marathoner").exists()
-        )
-
-    def test_check_and_award_is_idempotent_on_rerun(self):
-        for i in range(5):
-            self._watch(self._movie(f"Binge {i}"), self._local(2024, 1, 1, 10 + i))
-        achievements.check_and_award(self.profile)
-        achievements.check_and_award(self.profile)
-        self.assertEqual(
-            ProfileAchievement.objects.filter(profile=self.profile, key="marathoner").count(), 1
-        )
-
-    def test_achievement_progress_lists_every_achievement_earned_or_not(self):
-        progress = achievements.achievement_progress(self.profile)
-        self.assertEqual(len(progress), len(achievements.ACHIEVEMENTS))
-        self.assertTrue(all(not a["earned"] for a in progress))
-
-    def test_achievement_progress_marks_earned_ones(self):
-        for i in range(5):
-            self._watch(self._movie(f"Binge {i}"), self._local(2024, 1, 1, 10 + i))
-        progress = achievements.achievement_progress(self.profile)
-        by_key = {a["key"]: a for a in progress}
-        self.assertTrue(by_key["marathoner"]["earned"])
-        self.assertIsNotNone(by_key["marathoner"]["earned_at"])
-        self.assertFalse(by_key["century_club"]["earned"])
-
-    def test_stats_page_shows_achievements(self):
-        for i in range(5):
-            self._watch(self._movie(f"Binge {i}"), self._local(2024, 1, 1, 10 + i))
-        self.client.login(username="achiever", password="pass12345")
-        resp = self.client.get(reverse("stats"))
-        self.assertContains(resp, "Achievements")
-        self.assertContains(resp, "Marathoner")
-        self.assertEqual(resp.context["achievements_earned_count"], 1)
 
 
 class TopGenresSelectorTests(TestCase):
@@ -25300,6 +25184,7 @@ class PersonDetailViewTests(TestCase):
 
         def queries_for(count):
             mock_credits.return_value = self._credits(acting=seed(count), directing=[], production=[])
+            Profile.objects.update(badges_stale=False, badge_level_seen=1, badges_checked_at=timezone.now())  # seeding marked the badges stale; count only the page's own queries
             with CaptureQueriesContext(connection) as ctx:
                 resp = self.client.get(reverse("person_detail", args=[500]))
             self.assertEqual(resp.status_code, 200)
@@ -25314,6 +25199,7 @@ class PersonDetailViewTests(TestCase):
 
         def counted(count):
             mock_credits.return_value = self._credits(acting=seed(count), directing=[], production=[])
+            Profile.objects.update(badges_stale=False, badge_level_seen=1, badges_checked_at=timezone.now())
             with CaptureQueriesContext(connection) as ctx:
                 self.client.get(reverse("person_detail", args=[500]))
             return Counter(shape(q["sql"]) for q in ctx.captured_queries)
@@ -27262,6 +27148,9 @@ class HistoryPaginatesByDateTests(TestCase):
             return [q for q in ctx.captured_queries if "tracker_watchevent" in q["sql"]]
 
         self.client.login(username="tileuser", password="pass12345")
+        # The badges catch up on the first page after the history moved; settle
+        # them so only the history's own queries are counted.
+        Profile.objects.update(badges_stale=False, badge_level_seen=1, badges_checked_at=timezone.now())
         with CaptureQueriesContext(connection) as ctx:
             self.client.get(reverse("history"))
         page_1_we_queries = watchevent_queries(ctx)
@@ -37727,3 +37616,561 @@ class DiscoverSortTests(TestCase):
     def test_name_uses_the_types_own_title_field(self):
         self.assertEqual(self._params("movie", "popular", sort="name")["sort_by"], "title.asc")
         self.assertEqual(self._params("tv", "popular", sort="name")["sort_by"], "name.asc")
+
+
+class BadgeEngineTests(TestCase):
+    """tracker/badges.py: counters, XP, levels, rarity, rebuilding."""
+
+    def setUp(self):
+        user = User.objects.create_user("badger", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Badger")
+        self.n = 0
+
+    def _title(self, kind=MediaType.MOVIE, **kwargs):
+        self.n += 1
+        kwargs.setdefault("year", 2020)
+        return Title.objects.create(media_type=kind, name=f"Title {self.n}", **kwargs)
+
+    def _watch(self, title, when=None, profile=None, episode=None, **kwargs):
+        from django.utils import timezone
+
+        return WatchEvent.objects.create(
+            profile=profile or self.profile, title=title, episode=episode,
+            watched_at=when or timezone.now(), **kwargs,
+        )
+
+    def _at(self, year, month, day, hour=12):
+        from datetime import datetime
+
+        from django.utils import timezone
+
+        return timezone.make_aware(datetime(year, month, day, hour), timezone.get_current_timezone())
+
+    def _episodes(self, show, count, season=1):
+        return [Episode.objects.create(title=show, season=season, episode=n) for n in range(1, count + 1)]
+
+    def test_registry_matches_the_spec(self):
+        from tracker import badges
+
+        self.assertEqual(badges.TOTAL_BADGES, 29)
+        self.assertEqual(badges.TOTAL_TIERS, 145)
+        self.assertEqual(badges.TIER_XP, (5, 10, 20, 40, 80))
+        self.assertEqual(sum(badges.TIER_XP), 155)
+        self.assertEqual([c.key for c in badges.CATEGORIES], ["movies", "tv", "anime", "habits", "household", "unique"])
+        self.assertEqual(len({b.key for b in badges.BADGES}), 29)
+        for badge in badges.BADGES:
+            self.assertEqual(len(badge.tiers), 5, badge.key)
+            self.assertEqual(list(badge.tiers), sorted(set(badge.tiers)), badge.key)
+        self.assertEqual({b.key for b in badges.BADGES if b.hidden}, {"time_capsule", "globetrotter", "critic", "genre_explorer"})
+
+    def test_levels_follow_the_xp_thresholds(self):
+        from tracker import badges
+
+        cases = [(0, 1, "Newcomer"), (99, 1, "Newcomer"), (100, 2, "Explorer"), (249, 2, "Explorer"), (250, 3, "Regular"),
+                 (399, 3, "Regular"), (400, 4, "Cinephile"), (650, 5, "Curator"), (1000, 6, "Expert"), (1500, 7, "Legend"),
+                 (99999, 7, "Legend")]
+        for xp, level, name in cases:
+            info = badges.level_info(xp)
+            self.assertEqual((info.level, info.name), (level, name), xp)
+        info = badges.level_info(210)
+        self.assertEqual((info.level, info.next_name, info.to_next, info.percent), (2, "Regular", 40, 73))
+        self.assertEqual(badges.level_info(2000).next_floor, None)
+
+    def test_pin_limit_is_three_then_grows_from_curator(self):
+        from tracker import badges
+
+        self.assertEqual([badges.pin_limit(n) for n in range(1, 8)], [3, 3, 3, 3, 4, 5, 6])
+
+    def test_rare_tiers_pay_one_and_a_half_times_only_in_a_household(self):
+        from tracker import badges
+
+        self.assertEqual(badges.tier_xp(1, 0, 1), 5)  # alone: nothing is rare
+        self.assertEqual(badges.tier_xp(1, 0, 4), 8)  # 0 of 4 hold it: rare
+        self.assertEqual(badges.tier_xp(5, 0, 4), 120)
+        self.assertEqual(badges.tier_xp(2, 1, 4), 10)  # exactly a quarter: not rare
+        self.assertEqual(badges.tier_xp(2, 2, 4), 10)
+        self.assertEqual(badges.tier_xp(3, 1, 5), 30)  # under a quarter
+
+    def test_counters_for_movies(self):
+        from tracker import badges
+
+        long_one = self._title(runtime_minutes=170, studio="A24", directors=["Ana", "Bo"])
+        for studio in ("A24", "Neon", "Neon"):
+            self._title(studio=studio, directors=["Ana"])
+        for title in Title.objects.all():
+            self._watch(title, self._at(2024, 3, 1))
+        self._watch(self._title(), self._at(2024, 3, 2))
+        counts = badges.compute_counts(self.profile)
+        self.assertEqual(counts["projectionist"], 5)
+        self.assertEqual(counts["epic_length"], 1)
+        self.assertEqual(counts["double_bill"], 1)  # one day with several movies
+        self.assertEqual(counts["saga_keeper"], 1)  # Ana has 4 films
+        self.assertEqual(counts["studio_tour"], 2)
+        self.assertEqual(long_one.runtime_minutes, 170)
+
+    def test_counters_for_tv_habits_and_marathons(self):
+        from tracker import badges
+
+        show = self._title(MediaType.TV)
+        episodes = self._episodes(show, 6)
+        for episode in episodes[:5]:
+            self._watch(show, self._at(2024, 5, 3, 22), episode=episode)  # a Friday night
+        self._watch(show, self._at(2024, 5, 4, 7), episode=episodes[5])  # Saturday morning
+        self._watch(show, self._at(2024, 5, 5, 14), episode=episodes[0])  # Sunday afternoon
+        counts = badges.compute_counts(self.profile)
+        self.assertEqual(counts["pilot_season"], 1)
+        self.assertEqual(counts["marathoner"], 5)
+        self.assertEqual(counts["credits_roll"], 6)
+        self.assertEqual(counts["night_owl"], 5)
+        self.assertEqual(counts["matinee"], 1)
+        self.assertEqual(counts["weekender"], 1)
+        self.assertEqual(counts["three_in_a_row"], 1)  # Fri, Sat, Sun
+        self.assertEqual(counts["comfort_title"], 2)  # episode 1 twice
+        self.assertEqual(counts["first_watch"], 7)
+
+    def test_sunrise_to_sunset_needs_morning_and_night_on_one_day(self):
+        from tracker import badges
+
+        movie = self._title()
+        self._watch(movie, self._at(2024, 6, 1, 8))
+        self._watch(movie, self._at(2024, 6, 1, 22))
+        self._watch(movie, self._at(2024, 6, 2, 8))
+        self.assertEqual(badges.compute_counts(self.profile)["sunrise_to_sunset"], 1)
+
+    def test_anime_counters(self):
+        from tracker import badges
+
+        for n in range(3):
+            anime = self._title(MediaType.ANIME)
+            self._watch(anime, self._at(2024, 7, 1), episode=self._episodes(anime, 1)[0])
+        counts = badges.compute_counts(self.profile)
+        self.assertEqual(counts["opening_theme"], 3)
+        self.assertEqual(counts["simulcast"], 1)
+        long_show = self._title(MediaType.ANIME)
+        for episode in self._episodes(long_show, 12):
+            self._watch(long_show, self._at(2024, 7, 2), episode=episode)
+        self.assertEqual(badges.compute_counts(self.profile)["season_sweep"], 1)
+
+    def test_finished_shows_come_from_completed_progress(self):
+        from tracker import badges
+
+        show = self._title(MediaType.TV)
+        anime = self._title(MediaType.ANIME)
+        WatchProgress.objects.create(profile=self.profile, title=show, status=WatchProgress.Status.COMPLETED)
+        WatchProgress.objects.create(profile=self.profile, title=anime, status=WatchProgress.Status.COMPLETED)
+        counts = badges.compute_counts(self.profile)
+        self.assertEqual((counts["series_finale"], counts["filler_free"]), (1, 1))
+
+    def test_unique_counters(self):
+        from tracker import badges
+
+        action, drama = Genre.objects.create(name="Action"), Genre.objects.create(name="Drama")
+        for year, country, genre in ((1985, "France", action), (1999, "Japan", drama), (2021, "France", drama)):
+            title = self._title(year=year, country=country)
+            title.genres.add(genre)
+            self._watch(title, user_rating=9)
+        counts = badges.compute_counts(self.profile)
+        self.assertEqual(counts["time_capsule"], 3)
+        self.assertEqual(counts["globetrotter"], 2)
+        self.assertEqual(counts["critic"], 3)
+        self.assertEqual(counts["genre_explorer"], 2)
+
+    def test_household_counters_use_the_other_profiles(self):
+        from tracker import badges
+
+        other = Profile.objects.create(user=User.objects.create_user("other", password="pass12345"), display_name="Other")
+        movie, show = self._title(), self._title(MediaType.TV)
+        episode = self._episodes(show, 1)[0]
+        day = self._at(2024, 8, 1, 20)
+        self._watch(movie, day, user_rating=9)
+        self._watch(show, day, episode=episode)
+        self._watch(movie, day, profile=other, user_rating=8)
+        self._watch(show, day, profile=other, episode=episode)
+        counts = badges.compute_counts(self.profile)
+        self.assertEqual((counts["movie_night"], counts["group_binge"], counts["shared_taste"]), (1, 1, 1))
+        Recommendation.objects.create(
+            from_profile=self.profile, to_profile=other, title=movie, status=Recommendation.Status.WATCHED
+        )
+        self.assertEqual(badges.compute_counts(self.profile)["cheering_section"], 1)
+
+    def test_first_rebuild_backfills_silently(self):
+        from tracker import badges
+
+        for _ in range(10):
+            self._watch(self._title())
+        result = badges.rebuild(self.profile)
+        self.assertTrue(result.silent)
+        tiers = ProfileBadgeTier.objects.filter(profile=self.profile)
+        self.assertTrue(tiers.exists())
+        self.assertFalse(tiers.filter(notified=False).exists())
+        self.assertFalse(tiers.filter(earned_at__isnull=False).exists())
+        self.assertFalse(ProfileLevelUp.objects.filter(profile=self.profile).exists())
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.badge_xp, sum(t.xp for t in tiers))
+        self.assertEqual(self.profile.badge_level_seen, badges.level_info(self.profile.badge_xp).level)
+        self.assertFalse(self.profile.badges_stale)
+
+    def test_later_rebuilds_award_unlock_and_level_up(self):
+        from tracker import badges
+
+        badges.rebuild(self.profile)  # silent, nothing yet
+        self.profile.refresh_from_db()
+        show = self._title(MediaType.TV)
+        for episode in self._episodes(show, 3):
+            self._watch(show, episode=episode)
+        result = badges.rebuild(self.profile)
+        self.assertFalse(result.silent)
+        keys = {(t.badge_key, t.tier) for t in result.new_tiers}
+        self.assertIn(("marathoner", 1), keys)
+        self.assertIn(("first_watch", 1), keys)
+        fresh = ProfileBadgeTier.objects.filter(profile=self.profile, notified=False)
+        self.assertEqual(fresh.count(), len(result.new_tiers))
+        self.assertTrue(all(t.earned_at for t in fresh))
+        again = badges.rebuild(self.profile)
+        self.assertEqual(again.new_tiers, [])
+
+    def test_a_tier_is_kept_when_the_title_is_deleted(self):
+        from tracker import badges
+
+        badges.rebuild(self.profile)
+        self.profile.refresh_from_db()
+        movie = self._title()
+        self._watch(movie)
+        badges.rebuild(self.profile)
+        self.assertTrue(ProfileBadgeTier.objects.filter(profile=self.profile, badge_key="first_watch", tier=1).exists())
+        movie.delete()
+        badges.rebuild(self.profile)
+        self.assertTrue(ProfileBadgeTier.objects.filter(profile=self.profile, badge_key="first_watch", tier=1).exists())
+
+    def test_rare_tiers_pay_extra_when_earned_in_a_household(self):
+        from tracker import badges
+
+        other = Profile.objects.create(user=User.objects.create_user("peer", password="pass12345"), display_name="Peer")
+        for p in (self.profile, other):
+            badges.rebuild(p)
+            p.refresh_from_db()
+        self._watch(self._title())
+        badges.rebuild(self.profile)
+        tier = ProfileBadgeTier.objects.get(profile=self.profile, badge_key="first_watch", tier=1)
+        self.assertEqual(tier.xp, 8)  # nobody else holds it: 5 x 1.5, rounded
+
+    def test_history_changes_mark_the_profile_stale(self):
+        from tracker import badges
+
+        badges.rebuild(self.profile)
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.badges_stale)
+        movie = self._title()
+        event = self._watch(movie)
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.badges_stale)
+        badges.rebuild(self.profile)
+        event.delete()
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.badges_stale)
+
+    def test_ensure_fresh_only_rebuilds_when_needed(self):
+        from datetime import timedelta
+        from unittest.mock import patch as mock_patch
+
+        from django.utils import timezone
+
+        from tracker import badges
+
+        badges.rebuild(self.profile)
+        self.profile.refresh_from_db()
+        with mock_patch("tracker.badges.rebuild") as rebuild:
+            badges.ensure_fresh(self.profile)
+            rebuild.assert_not_called()
+            self.profile.badges_checked_at = timezone.now() - timedelta(hours=7)
+            badges.ensure_fresh(self.profile)
+            rebuild.assert_called_once()
+
+    def test_a_failing_rebuild_never_raises(self):
+        from unittest.mock import patch as mock_patch
+
+        from tracker import badges
+
+        with mock_patch("tracker.badges.rebuild", side_effect=RuntimeError("boom")):
+            self.assertIsNone(badges.ensure_fresh(self.profile))
+
+    def test_cards_mask_hidden_badges_until_earned(self):
+        from tracker import badges
+
+        data = badges.profile_cards(self.profile)
+        hidden = [c for c in data["cards"] if c["key"] in {"critic", "time_capsule", "globetrotter", "genre_explorer"}]
+        self.assertEqual(len(hidden), 4)
+        for card in hidden:
+            self.assertEqual((card["state"], card["name"], card["icon"], card["description"]), ("hidden", "Hidden badge", "lock", ""))
+            self.assertEqual(card["caption"], "Keep watching")
+        movie = self._title()
+        self._watch(movie, user_rating=9)
+        self.profile.refresh_from_db()
+        data = badges.profile_cards(self.profile)
+        critic = next(c for c in data["cards"] if c["key"] == "critic")
+        self.assertNotEqual(critic["state"], "hidden")
+        self.assertEqual(critic["name"], "Critic")
+
+    def test_card_states(self):
+        from tracker import badges
+
+        self.profile.badge_level_seen = 1
+        self.profile.save()
+        for _ in range(3):
+            self._watch(self._title())
+        data = badges.profile_cards(self.profile)
+        by_key = {c["key"]: c for c in data["cards"]}
+        self.assertEqual(by_key["projectionist"]["state"], "progress")  # 3 of 10, no tier yet
+        self.assertEqual(by_key["projectionist"]["caption"], "3 / 10")
+        self.assertEqual(by_key["saga_keeper"]["state"], "locked")
+        self.assertEqual(by_key["first_watch"]["tiers_done"], 1)
+        self.assertEqual(by_key["first_watch"]["state"], "new")  # earned just now
+
+    def test_complete_badge(self):
+        from tracker import badges
+
+        ProfileBadgeTier.objects.bulk_create(
+            ProfileBadgeTier(profile=self.profile, badge_key="first_watch", tier=t, xp=5, notified=True) for t in range(1, 6)
+        )
+        card = next(c for c in badges.profile_cards(self.profile)["cards"] if c["key"] == "first_watch")
+        self.assertEqual((card["state"], card["caption"], card["pips"]), ("complete", "Complete", ["complete"] * 5))
+
+    def test_pinning_needs_an_earned_tier_and_respects_the_limit(self):
+        from tracker import badges
+
+        self.assertFalse(badges.pin_badge(self.profile, "first_watch", True)[0])
+        for key in ("first_watch", "projectionist", "night_owl", "matinee"):
+            ProfileBadgeTier.objects.create(profile=self.profile, badge_key=key, tier=1, xp=5, notified=True)
+        self.assertTrue(badges.pin_badge(self.profile, "first_watch", True)[0])
+        self.assertTrue(badges.pin_badge(self.profile, "projectionist", True)[0])
+        self.assertTrue(badges.pin_badge(self.profile, "night_owl", True)[0])
+        ok, message = badges.pin_badge(self.profile, "matinee", True)
+        self.assertFalse(ok)
+        self.assertIn("no pins", message)
+        self.assertTrue(badges.pin_badge(self.profile, "night_owl", False)[0])
+        self.assertEqual(self.profile.pinned_badges, ["first_watch", "projectionist"])
+        self.assertFalse(badges.pin_badge(self.profile, "nope", True)[0])
+
+    def test_pending_unlocks_are_returned_once(self):
+        from tracker import badges
+
+        ProfileBadgeTier.objects.create(profile=self.profile, badge_key="first_watch", tier=1, xp=5)
+        ProfileLevelUp.objects.create(profile=self.profile, level=2, xp_total=120)
+        tiers, levels = badges.pending_unlocks(self.profile)
+        self.assertEqual((len(tiers), len(levels)), (1, 1))
+        self.assertEqual(badges.pending_unlocks(self.profile), ([], []))
+
+    def test_notifications_off_still_marks_them_shown(self):
+        from tracker import badges
+
+        self.profile.badge_notifications = False
+        self.profile.save()
+        ProfileBadgeTier.objects.create(profile=self.profile, badge_key="first_watch", tier=1, xp=5)
+        self.assertEqual(badges.pending_unlocks(self.profile), ([], []))
+        self.assertFalse(ProfileBadgeTier.objects.filter(notified=False).exists())
+
+    def test_rarest_tier_is_the_one_fewest_profiles_hold(self):
+        from tracker import badges
+
+        other = Profile.objects.create(user=User.objects.create_user("rare", password="pass12345"), display_name="Rare")
+        ProfileBadgeTier.objects.create(profile=self.profile, badge_key="first_watch", tier=1, xp=5, notified=True)
+        ProfileBadgeTier.objects.create(profile=other, badge_key="first_watch", tier=1, xp=5, notified=True)
+        ProfileBadgeTier.objects.create(profile=self.profile, badge_key="night_owl", tier=1, xp=5, notified=True)
+        data = badges.profile_cards(self.profile)
+        self.assertEqual(data["rarest"]["badge"].key, "night_owl")
+        self.assertEqual(data["rarest"]["holders"], 1)
+        self.assertIn("1 of 2 profiles has it", data["rarest"]["note"])
+
+
+class BadgePagesTests(TestCase):
+    """The Badges page, the detail popup, the level circle and Settings."""
+
+    def setUp(self):
+        user = User.objects.create_user("pager", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="Pager")
+        self.other = Profile.objects.create(
+            user=User.objects.create_user("buddy", password="pass12345"), display_name="Buddy", badge_xp=260
+        )
+        self.client.login(username="pager", password="pass12345")
+
+    def test_badges_page_shows_the_level_panel_stats_and_every_category(self):
+        resp = self.client.get(reverse("badges"))
+        self.assertEqual(resp.status_code, 200)
+        for text in ("Newcomer", "Badges earned", "Tiers unlocked", "Total XP", "Rarest tier", "Movies", "TV shows", "Anime",
+                     "Habits", "Household", "Unique", "Projectionist", "Hidden badge", "Keep watching"):
+            self.assertContains(resp, text)
+        self.assertNotContains(resp, "Studio tour</span>\n            <span class=\"sr-only\">0 of 5 tiers, hidden")
+        self.assertContains(resp, "of 29")
+        self.assertContains(resp, "of 145")
+
+    def test_hidden_badges_never_leak_their_name_or_goal(self):
+        resp = self.client.get(reverse("badges"))
+        for secret in ("Time capsule", "Globetrotter", "Genre explorer", "different decades", "different countries"):
+            self.assertNotContains(resp, secret)
+        detail = self.client.get(reverse("badge_detail", args=["time_capsule"]))
+        for secret in ("Time capsule", "decades", "Watch titles from many"):
+            self.assertNotContains(detail, secret)
+        self.assertContains(detail, "Hidden badge")
+
+    def test_filters_and_sorts(self):
+        ProfileBadgeTier.objects.create(profile=self.profile, badge_key="first_watch", tier=1, xp=5, notified=True)
+        earned = self.client.get(reverse("badges"), {"filter": "earned"})
+        self.assertContains(earned, 'badge-card-name">First watch')
+        self.assertNotContains(earned, 'badge-card-name">Projectionist')
+        locked = self.client.get(reverse("badges"), {"filter": "locked"})
+        self.assertContains(locked, 'badge-card-name">Projectionist')
+        self.assertNotContains(locked, 'badge-card-name">First watch')
+        self.assertEqual(self.client.get(reverse("badges"), {"filter": "bogus", "sort": "bogus"}).status_code, 200)
+        by_name = self.client.get(reverse("badges"), {"sort": "name"}).content.decode()
+        self.assertLess(by_name.index("Double bill"), by_name.index("Epic length"))
+
+    def test_viewing_another_profile_and_their_privacy(self):
+        self.assertContains(self.client.get(reverse("badges"), {"profile": self.other.pk}), "Buddy")
+        self.other.show_badges = False
+        self.other.save()
+        resp = self.client.get(reverse("badges"), {"profile": self.other.pk})
+        self.assertContains(resp, "keeps their badges private")
+        self.assertNotContains(resp, "Projectionist")
+        self.assertEqual(self.client.get(reverse("badge_detail", args=["first_watch"]), {"profile": self.other.pk}).status_code, 404)
+
+    def test_detail_popup_shows_the_ladder_household_and_pin(self):
+        for tier in (1, 2):
+            ProfileBadgeTier.objects.create(profile=self.profile, badge_key="marathoner", tier=tier, xp=5, notified=True)
+        ProfileBadgeTier.objects.create(profile=self.other, badge_key="marathoner", tier=1, xp=5, notified=True)
+        resp = self.client.get(reverse("badge_detail", args=["marathoner"]))
+        self.assertContains(resp, "3 episodes in one day")
+        self.assertContains(resp, "30 episodes in one day")
+        self.assertContains(resp, "Pin to profile")
+        self.assertContains(resp, "3 of 3 pins free")
+        self.assertContains(resp, "Buddy")
+        self.assertEqual(self.client.get(reverse("badge_detail", args=["nope"])).status_code, 404)
+
+    def test_pin_endpoint_pins_and_unpins(self):
+        ProfileBadgeTier.objects.create(profile=self.profile, badge_key="first_watch", tier=1, xp=5, notified=True)
+        resp = self.client.post(reverse("badge_pin", args=["first_watch"]), {"pinned": "1"})
+        self.assertContains(resp, "Unpin from profile")
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pinned_badges, ["first_watch"])
+        self.client.post(reverse("badge_pin", args=["first_watch"]), {"pinned": "0"})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pinned_badges, [])
+        self.assertEqual(self.client.get(reverse("badge_pin", args=["first_watch"])).status_code, 405)
+
+    def test_level_circle_shows_on_the_navbar_and_in_the_friends_list(self):
+        resp = self.client.get(reverse("badges"))
+        self.assertContains(resp, 'class="level-dot"')
+        self.assertContains(resp, "Level 1 &middot; Newcomer")
+        self.assertContains(resp, "Regular &middot; No activity yet")  # the friend's row: level name before the activity text
+
+    def test_a_profile_with_badges_off_shows_no_circle_to_others(self):
+        self.other.show_badges = False
+        self.other.save()
+        resp = self.client.get(reverse("badges"))
+        self.assertNotContains(resp, "Regular &middot;")
+        self.assertContains(resp, "No activity yet")
+        self.profile.show_badges = False
+        self.profile.save()
+        self.assertContains(self.client.get(reverse("badges")), 'class="level-dot"')  # one's own circle always shows
+
+    def test_quick_profile_shows_level_pinned_badges_and_count(self):
+        ProfileBadgeTier.objects.create(profile=self.other, badge_key="night_owl", tier=2, xp=10, notified=True)
+        self.other.pinned_badges = ["night_owl"]
+        self.other.save()
+        resp = self.client.get(reverse("profile_popup", args=[self.other.pk]))
+        self.assertContains(resp, 'class="level-dot level-dot-lg"')
+        self.assertContains(resp, "Pinned badges")
+        self.assertContains(resp, "Night owl")
+        self.assertContains(resp, ">Badges<")
+        self.other.show_badges = False
+        self.other.save()
+        resp = self.client.get(reverse("profile_popup", args=[self.other.pk]))
+        self.assertNotContains(resp, "Pinned badges")
+        self.assertNotContains(resp, "level-dot")
+
+    def test_unlock_toasts_and_the_level_up_popup_show_once_on_a_full_page(self):
+        ProfileBadgeTier.objects.create(profile=self.profile, badge_key="marathoner", tier=4, xp=40)
+        ProfileLevelUp.objects.create(profile=self.profile, level=5, xp_total=650)
+        resp = self.client.get(reverse("badges"))
+        self.assertContains(resp, "Badge unlocked")
+        self.assertContains(resp, "Marathoner &middot; Tier 4")
+        self.assertContains(resp, "+40 XP")
+        self.assertContains(resp, "You reached level 5")
+        self.assertContains(resp, "You can now pin up to 4 badges")
+        self.assertNotContains(self.client.get(reverse("badges")), "Badge unlocked")
+
+    def test_partial_responses_leave_unlocks_for_the_next_full_page(self):
+        ProfileBadgeTier.objects.create(profile=self.profile, badge_key="marathoner", tier=1, xp=5)
+        self.client.get(reverse("badges"), HTTP_HX_REQUEST="true")
+        self.assertTrue(ProfileBadgeTier.objects.filter(notified=False).exists())
+
+    def test_settings_save_the_three_badge_preferences(self):
+        resp = self.client.post(reverse("save_appearance"), {
+            "show_badges_submitted": "1", "badge_notifications_submitted": "1", "badges_to_feed_submitted": "1",
+            "badges_to_feed": "on",
+        })
+        self.assertEqual(resp.status_code, 204)
+        self.profile.refresh_from_db()
+        self.assertEqual((self.profile.show_badges, self.profile.badge_notifications, self.profile.badges_to_feed), (False, False, True))
+
+    def test_preferences_page_has_the_badge_toggles(self):
+        resp = self.client.get(reverse("settings") + "?tab=preferences")
+        for text in ("Show my badges to the household", "Badge notifications", "Post badges to the activity feed"):
+            self.assertContains(resp, text)
+
+    def test_history_change_then_next_page_rebuilds(self):
+        movie = Title.objects.create(media_type=MediaType.MOVIE, name="Fresh", year=2020)
+        self.client.get(reverse("badges"))
+        WatchEvent.objects.create(profile=self.profile, title=movie, watched_at=_tz.now())
+        resp = self.client.get(reverse("badges"))
+        self.assertContains(resp, "First watch")
+        self.assertTrue(ProfileBadgeTier.objects.filter(profile=self.profile, badge_key="first_watch").exists())
+
+
+class BadgeFeedAndHooksTests(TestCase):
+    def setUp(self):
+        self.profile = Profile.objects.create(
+            user=User.objects.create_user("feeder", password="pass12345"), display_name="Feeder",
+            badges_to_feed=True, badge_level_seen=1,
+        )
+
+    def test_feed_has_tier_and_level_entries_only_when_opted_in(self):
+        now = timezone.now()
+        ProfileBadgeTier.objects.create(profile=self.profile, badge_key="marathoner", tier=4, xp=40, earned_at=now, notified=True)
+        ProfileLevelUp.objects.create(profile=self.profile, level=4, xp_total=400, reached_at=now, shown=True)
+        kinds = {i["kind"] for i in selectors.activity_feed()}
+        self.assertEqual(kinds, {"badge_tier", "level_up"})
+        self.profile.badges_to_feed = False
+        self.profile.save()
+        self.assertEqual(selectors.activity_feed(), [])
+
+    def test_silent_tiers_never_reach_the_feed(self):
+        ProfileBadgeTier.objects.create(profile=self.profile, badge_key="first_watch", tier=1, xp=5, earned_at=None, notified=True)
+        self.assertEqual(selectors.activity_feed(), [])
+
+    def test_rebuild_badges_command_runs(self):
+        from django.core.management import call_command
+
+        call_command("rebuild_badges", stdout=io.StringIO())
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.badges_stale)
+
+    def test_stats_page_shows_the_badge_summary(self):
+        self.client.login(username="feeder", password="pass12345")
+        resp = self.client.get(reverse("stats"))
+        self.assertContains(resp, "Badges")
+
+
+class StatsBadgeSummaryPrivacyTests(TestCase):
+    def test_member_stats_hide_badges_when_the_member_keeps_them_private(self):
+        me = Profile.objects.create(user=User.objects.create_user("viewer1", password="pass12345"), display_name="Viewer")
+        other = Profile.objects.create(
+            user=User.objects.create_user("priv1", password="pass12345"), display_name="Private", show_badges=False
+        )
+        self.client.login(username="viewer1", password="pass12345")
+        resp = self.client.get(reverse("member_stats", args=[other.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.context["badge_summary"]["badges_shown"])
+        other.show_badges = True
+        other.save()
+        resp = self.client.get(reverse("member_stats", args=[other.pk]))
+        self.assertTrue(resp.context["badge_summary"]["badges_shown"])

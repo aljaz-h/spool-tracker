@@ -30,6 +30,33 @@
   </section>
 
   <section class="s-section">
+    <h3 class="s-section-title">Badges</h3>
+    {% settings_card %}
+      <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
+        <input type="hidden" name="show_badges_submitted" value="1">
+        {% settings_row title="Show my badges to the household" help="Others can see your level, pinned badges and tiers." %}
+          <span class="spool-spinner" aria-hidden="true"></span>
+          {% include "tracker/partials/s_toggle.html" with name="show_badges" checked=profile.show_badges label="Show my badges to the household" %}
+        {% endsettings_row %}
+      </form>
+      <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
+        <input type="hidden" name="badge_notifications_submitted" value="1">
+        {% settings_row title="Badge notifications" help="Toasts for new tiers and a popup for new levels." %}
+          <span class="spool-spinner" aria-hidden="true"></span>
+          {% include "tracker/partials/s_toggle.html" with name="badge_notifications" checked=profile.badge_notifications label="Badge notifications" %}
+        {% endsettings_row %}
+      </form>
+      <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">
+        <input type="hidden" name="badges_to_feed_submitted" value="1">
+        {% settings_row title="Post badges to the activity feed" help="Tier and level unlocks appear in Household activity." %}
+          <span class="spool-spinner" aria-hidden="true"></span>
+          {% include "tracker/partials/s_toggle.html" with name="badges_to_feed" checked=profile.badges_to_feed label="Post badges to the activity feed" %}
+        {% endsettings_row %}
+      </form>
+    {% endsettings_card %}
+  </section>
+
+  <section class="s-section">
     <h3 class="s-section-title">Date and time</h3>
     {% settings_card %}
       <form hx-post="{% url 'save_appearance' %}" hx-trigger="change" hx-swap="none">

@@ -1,0 +1,12 @@
+{% load icons %}{# badge_icon: card (badges.badge_card), shape (ticket|screen|reel|arch|house|diamond), size (sm|md|lg) #}
+<span class="bdg bdg-{{ card.category }} bdg-{{ card.state }} bdg-{{ shape }} bdg-{{ size }}" aria-hidden="true">
+  <svg class="bdg-frame" viewBox="0 0 56 64" focusable="false">
+    {% if shape == "ticket" %}<path d="M8 6h40a2 2 0 0 1 2 2v14a6 6 0 0 0 0 12v22a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V34a6 6 0 0 0 0-12V8a2 2 0 0 1 2-2z"/>
+    {% elif shape == "screen" %}<rect x="4" y="8" width="48" height="38" rx="8"/><path d="M19 56h18"/>
+    {% elif shape == "reel" %}<circle cx="28" cy="32" r="26"/><circle class="bdg-hole" cx="28" cy="13" r="3"/><circle class="bdg-hole" cx="28" cy="51" r="3"/><circle class="bdg-hole" cx="9" cy="32" r="3"/><circle class="bdg-hole" cx="47" cy="32" r="3"/>
+    {% elif shape == "arch" %}<path d="M7 60V31C7 17 16 6 28 6s21 11 21 25v29z"/>
+    {% elif shape == "house" %}<path d="M28 5 6 26v33h44V26z"/>
+    {% else %}<path d="M28 3 53 32 28 61 3 32z"/>{% endif %}
+  </svg>
+  <span class="bdg-glyph">{% icon card.icon "w-full h-full" %}</span>
+</span>

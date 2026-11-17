@@ -1,0 +1,57 @@
+{% load ui icons badges_ui %}
+{# Badge detail popup. context: d (badges.badge_detail), target, is_self, can_pin, pinned, pins_free, pin_limit #}
+<div class="relative">
+  <form method="dialog" class="absolute right-0 top-0">
+    <button class="btn btn-sm btn-circle btn-ghost" aria-label="Close" autofocus>{% icon "x" "w-4 h-4" %}</button>
+  </form>
+  <div class="flex flex-col items-center text-center pt-2">
+    {% badge_icon d.card "lg" %}
+    <h2 id="badge-modal-title" class="mt-4 text-3xl font-bold">{{ d.card.name }}</h2>
+    {% if d.card.masked %}
+      <p class="mt-2 text-sm text-ink-dim">Keep watching. This badge&rsquo;s name and goal stay secret until you earn it.</p>
+    {% else %}
+      <p class="mt-2 text-sm text-ink-dim inline-flex items-center gap-2"><span class="cat-dot" data-cat="{{ d.category.key }}" aria-hidden="true"></span>{{ d.category.name }} &middot; Tier {{ d.card.tiers_done }} of {{ d.card.tier_total }} &middot; {{ d.card.xp_earned }} XP earned</p>
+      <p class="mt-2 text-[15px] text-ink-dim max-w-sm">{{ d.card.description }}</p>
+    {% endif %}
+  </div>
+
+  {% if not d.card.masked %}
+    <div class="mt-6">{% include "tracker/badges/progress_block.html" with b=d.block %}</div>
+
+    <ol class="mt-4 list-none divide-y divide-line border-t border-line" aria-label="Tiers">
+      {% for row in d.ladder %}
+        <li class="flex items-center gap-3.5 py-3">
+          {% if row.earned %}<span class="tier-mark is-done" aria-hidden="true">{% icon "check" "w-4 h-4" %}</span>
+          {% else %}<span class="tier-mark{% if row.locked %} is-locked{% endif %}" aria-hidden="true">{{ row.tier }}</span>{% endif %}
+          <div class="min-w-0 flex-1">
+            <div class="text-[15px] font-semibold{% if row.locked %} text-ink-dim{% endif %}">{{ row.goal }}</div>
+            <div class="text-[13px] text-ink-dim">{% if row.earned %}Earned{% if row.earned_at %} {{ row.earned_at|date:"M j" }}{% endif %}{% elif row.current %}{{ d.progress_label }}{% else %}Locked{% endif %}</div>
+          </div>
+          <span class="font-mono text-sm {% if row.earned %}text-success{% else %}text-ink-dim{% endif %}">+{{ row.xp }} XP</span>
+        </li>
+      {% endfor %}
+    </ol>
+
+    <section class="mt-4 pt-4 border-t border-line" aria-label="Household">
+      <h3 class="text-[13px] text-ink-dim">Household &middot; {{ d.household_text }}</h3>
+      {% if d.members %}
+        <div class="mt-3 flex flex-wrap gap-2">
+          {% for m in d.members %}
+            <span class="fchip !cursor-default"><span class="fchip-dot" style="background: {{ m.profile.avatar_color }}" aria-hidden="true"></span>{{ m.profile.display_name }} <span class="font-mono text-[12.5px] text-ink-dim">Tier {{ m.tier }}</span></span>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
+  {% endif %}
+
+  {% if can_pin %}
+    <div class="mt-6 flex items-center justify-between gap-3">
+      <form hx-post="{% url 'badge_pin' d.badge.key %}" hx-target="#badge-modal-content" hx-swap="innerHTML">
+        {% csrf_token %}
+        <input type="hidden" name="pinned" value="{% if pinned %}0{% else %}1{% endif %}">
+        <button type="submit" class="btn btn-soft min-h-11"{% if not pinned and not pins_free %} disabled{% endif %}>{% if pinned %}Unpin from profile{% else %}Pin to profile{% endif %}</button>
+      </form>
+      <span class="text-sm text-ink-dim">{{ pins_free }} of {{ pin_limit }} pin{{ pin_limit|pluralize }} free</span>
+    </div>
+  {% endif %}
+</div>

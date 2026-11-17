@@ -1,0 +1,28 @@
+{% load icons badges_ui %}{# badge_unlocks: a quiet toast for each tier, a bigger moment for a new level #}
+{% if tiers %}
+<div class="badge-toasts" role="region" aria-label="Badge unlocks">
+  {% for item in tiers %}
+    <div class="badge-toast" x-data="{ open: true }" x-show="open" x-init="setTimeout(() => open = false, 6000)" role="status">
+      {% badge_icon item.card "sm" %}
+      <div class="min-w-0 flex-1">
+        <div class="text-[12px] text-ink-dim">Badge unlocked</div>
+        <div class="text-sm font-semibold truncate">{{ item.badge.name }} &middot; Tier {{ item.tier }}</div>
+        <div class="font-mono text-[12px] text-success">+{{ item.xp }} XP</div>
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm min-h-11" hx-get="{% url 'badge_detail' item.badge.key %}" hx-target="#badge-modal-content" hx-swap="innerHTML" onclick="badge_modal.showModal()" @click="open = false">View</button>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% for lv in levels %}
+<dialog id="level_up_modal" class="modal" aria-modal="true" aria-labelledby="level-up-title" x-data x-init="$nextTick(() => $el.showModal())">
+  <div class="modal-box bg-base-200 rounded-2xl p-6 max-w-sm text-center">
+    <div class="level-ring mx-auto" aria-hidden="true"><span class="text-[13px] text-ink-dim">Level</span><span class="level-ring-num">{{ lv.level }}</span></div>
+    <p class="mt-5 text-sm text-ink-dim">You reached level {{ lv.level }}</p>
+    <h2 id="level-up-title" class="mt-1 text-3xl font-bold">{{ lv.name }}</h2>
+    <p class="mt-3 text-sm text-ink-dim">{{ lv.xp }} XP total.{% if lv.level >= 5 %} You can now pin up to {{ lv.pins }} badges on your profile.{% endif %}</p>
+    <form method="dialog" class="mt-6"><button class="btn btn-primary w-full min-h-11" autofocus>Nice</button></form>
+  </div>
+  <form method="dialog" class="modal-backdrop bg-black/70"><button>close</button></form>
+</dialog>
+{% endfor %}

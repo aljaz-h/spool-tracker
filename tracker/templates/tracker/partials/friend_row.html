@@ -1,4 +1,4 @@
-{% load tracker_extras %}
+{% load tracker_extras badges_ui %}
 {# One friend in the Friends menu. context: me (true for the signed-in profile's own row: "Active now"), p (a Profile from other_profiles, watching_title already joined), close (the Alpine statement that shuts the menu), stacked (true in the mobile sheet: the watching text goes under the name instead of in a right-hand column). The row opens the friend popup; the title on the right is its own link, a separate 44px target, so no link sits inside the button. Both read p.watching_now, which is empty when they aren't watching or have "Share my activity" off. #}
 {% with watching=p.watching_now %}
 <div class="flex items-stretch gap-1 rounded-lg hover:bg-base-300 {% if stacked %}hover:!bg-base-200{% endif %}">
@@ -12,18 +12,18 @@
     {% if not stacked and not me %}title="{{ p.display_name }}"{% endif %}
     class="flex-1 min-w-0 flex items-center gap-2.5 px-3 py-2 text-left cursor-pointer"
   >
-    <div
+    <span class="relative flex-none"><div
       class="w-8 h-8 rounded-full flex-none flex items-center justify-center font-mono text-xs font-semibold {% if p.avatar_image %}bg-cover bg-center{% endif %}"
       style="{% if p.avatar_image %}background-image:url('{{ p.avatar_image.url }}'){% else %}background:{{ p.avatar_color }};color:{{ p.avatar_color|on_color }};{% endif %}"
-    >{% if not p.avatar_image %}{{ p.display_name|first|upper }}{% endif %}</div>
+    >{% if not p.avatar_image %}{{ p.display_name|first|upper }}{% endif %}</div>{% level_dot p own=me %}</span>
     <div class="min-w-0 flex-1">
       <div class="text-sm font-medium truncate">{{ p.display_name }}</div>
       {% if watching and stacked %}
         <div class="text-[12px] text-ink-dim truncate"><span class="inline-block w-1.5 h-1.5 rounded-full bg-success align-middle mr-1" aria-hidden="true"></span>Watching {{ watching.name }} &middot; {{ p.watching_label }}</div>
       {% elif me %}
-        <div class="text-[12px] text-ink-faint">Active now</div>
+        <div class="text-[12px] text-ink-faint">{{ my_level.name }} &middot; Active now</div>
       {% else %}
-        <div class="text-[12px] text-ink-faint">{% if p.last_seen_at %}Active {{ p.last_seen_at|timesince }} ago{% else %}No activity yet{% endif %}</div>
+        <div class="text-[12px] text-ink-faint">{% with level_name=p|badge_level_name %}{% if level_name %}{{ level_name }} &middot; {% endif %}{% endwith %}{% if p.last_seen_at %}Active {{ p.last_seen_at|timesince }} ago{% else %}No activity yet{% endif %}</div>
       {% endif %}
     </div>
   </button>

@@ -107,6 +107,16 @@
         <div class="mt-2 flex items-center gap-2"><span class="chip chip-primary">Movie Marathon</span>{% if item.total_runtime_display %}<span class="text-xs text-ink-faint">{{ item.total_runtime_display }} total</span>{% endif %}</div>
       </div>
 
+    {% elif item.kind == "badge_tier" or item.kind == "level_up" %}
+      <div class="min-w-0 flex-1 self-center">
+        <div class="text-[15px] text-ink-dim leading-snug">
+          <b class="font-semibold text-base-content">{{ item.profile.display_name }}</b>
+          {% if item.kind == "badge_tier" %}earned <a href="{% url 'badges' %}?profile={{ item.profile.pk }}" class="font-semibold text-base-content hover:text-primary">{{ item.badge_name }} &middot; Tier {{ item.tier }}</a>
+          {% else %}reached <span class="font-semibold text-base-content">Level {{ item.level }} &middot; {{ item.level_name }}</span>{% endif %}
+        </div>
+        <div class="meta meta-sm mt-1"><span>{% if item.kind == "badge_tier" %}Badge unlocked{% else %}Level up{% endif %}</span></div>
+      </div>
+
     {% elif item.kind == "added_to_list" or item.kind == "added_to_list_group" %}
       <div class="flex -space-x-6 flex-none">
         {% if item.kind == "added_to_list_group" %}

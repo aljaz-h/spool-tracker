@@ -1,12 +1,15 @@
-{% load tracker_extras icons %}
+{% load tracker_extras icons badges_ui %}
 {# context: target, is_self, private (bool, optional), and - unless private - movies_watched, shows_completed, watch_hours, current_streak, longest_streak, split_30/split_all, top_genres, recent_groups, you_and. See selectors.profile_popup_context(). A private profile never gets the stats keys at all. #}
 <div x-data="{ range: 'all' }">
   <div class="flex items-center gap-3.5">
+    <span class="relative flex-none">
     {% if target.avatar_image %}
       <div class="w-12 h-12 rounded-full flex-none bg-cover bg-center" style="background-image:url('{{ target.avatar_image.url }}')" aria-hidden="true"></div>
     {% else %}
       <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg font-semibold flex-none" style="background:{{ target.avatar_color }};color:{{ target.avatar_color|on_color }};" aria-hidden="true">{{ target.display_name|first|upper }}</div>
     {% endif %}
+    {% if badges_shown %}{% level_dot target own=True size="lg" %}{% endif %}
+    </span>
     <div class="min-w-0 flex-1">
       <h2 id="profile-popup-title" class="text-lg font-semibold leading-tight truncate">{{ target.display_name }}</h2>
       <div class="text-[13px] text-ink-dim">Member since {{ target.created_at|date:"F Y" }}</div>
@@ -18,6 +21,23 @@
       <button class="btn btn-sm btn-circle btn-ghost" aria-label="Close" autofocus>{% icon "x" "w-4 h-4" %}</button>
     </form>
   </div>
+
+  {% if badges_shown %}
+    <div class="mt-4">{% include "tracker/badges/progress_block.html" with b=level_block %}</div>
+    {% if pinned %}
+      <section class="mt-4" aria-label="Pinned badges">
+        <h3 class="text-[13px] text-ink-dim mb-2">Pinned badges</h3>
+        <div class="flex flex-wrap gap-x-4 gap-y-3">
+          {% for c in pinned %}
+            <button type="button" class="badge-card !w-24" hx-get="{% url 'badge_detail' c.key %}{% if badges_link %}{{ badges_link }}{% endif %}" hx-target="#badge-modal-content" hx-swap="innerHTML" onclick="profile_popup_modal.close(); badge_modal.showModal()">
+              {% badge_icon c "md" %}
+              <span class="badge-card-name">{{ c.name }}</span>
+            </button>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+  {% endif %}
 
   {% if private %}
     <p class="mt-5 pt-5 border-t border-line text-[13px] text-ink-dim">{{ target.display_name }} keeps their activity private.</p>
@@ -53,7 +73,8 @@
       </section>
     {% endif %}
 
-    <dl class="mt-5 pt-5 border-t border-line grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-4">
+    <dl class="mt-5 pt-5 border-t border-line grid grid-cols-2 sm:grid-cols-5 gap-x-3 gap-y-4">
+      {% if badges_shown %}<div><dd class="text-xl font-bold tabular-nums leading-none"><a href="{% url 'badges' %}{{ badges_link }}" class="hover:underline">{{ badges_earned }}</a></dd><dt class="text-[12px] text-ink-dim mt-1.5">Badges</dt></div>{% endif %}
       <div><dd class="text-xl font-bold tabular-nums leading-none">{{ movies_watched }}</dd><dt class="text-[12px] text-ink-dim mt-1.5">Movies</dt></div>
       <div><dd class="text-xl font-bold tabular-nums leading-none">{{ shows_completed }}</dd><dt class="text-[12px] text-ink-dim mt-1.5">Shows finished</dt></div>
       <div><dd class="text-xl font-bold tabular-nums leading-none">{{ watch_hours }}</dd><dt class="text-[12px] text-ink-dim mt-1.5">Watch time</dt></div>

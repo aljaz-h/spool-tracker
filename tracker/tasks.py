@@ -125,6 +125,10 @@ def _run_sync(profile, provider, fetch_and_upsert, direction="pull"):
     log.imported_titles = labels[:IMPORTED_TITLES_LOG_CAP]
     log.finished_at = timezone.now()
     log.save(update_fields=["status", "item_count", "imported_titles", "finished_at"])
+    if created:
+        from . import badges
+
+        badges.mark_stale(profile.pk)
     return created
 
 

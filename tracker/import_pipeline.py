@@ -570,7 +570,7 @@ def _sync_downstream(profile, result, on_progress=None):
     completion/runtime pass makes TMDB calls per touched title, so on a
     large import this phase alone can run for many minutes after every
     row is already written."""
-    from . import completion, recommendations, rewatches
+    from . import badges, completion, recommendations, rewatches
 
     for title_id, episode_id in result.touched_watch_keys:
         rewatches.recompute_is_rewatch(
@@ -594,6 +594,9 @@ def _sync_downstream(profile, result, on_progress=None):
         done += 1
         if on_progress:
             on_progress(done, total)
+    # bulk_create fires no signals, so say so explicitly: the badges catch up
+    # (counted from the whole history) on this profile's next page.
+    badges.mark_stale(profile.pk)
 
 
 # --------------------------------------------------------------------

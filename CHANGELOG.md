@@ -8,6 +8,20 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.193.0] - 2026-11-17
+
+### Added
+- Achievement badges: 29 badges in six categories (Movies, TV shows, Anime, Habits, Household and hidden Unique ones), five tiers each, counted from your whole watch history (Nuvio, Trakt and other imports, manual) and rebuilt after an import. Earned tiers stay even if a title is deleted.
+- XP per tier (5/10/20/40/80, 1.5x for tiers held by under 25% of the household) and seven levels, Newcomer to Legend.
+- New Badges page (level panel, stat tiles, filters, sorting, category sections) and a badge detail popup with the tier ladder, household progress and pin to profile.
+- Level circle on the avatar in the navbar (hover card with XP), the friends list and the quick profile, which also shows pinned badges.
+- Toast for each unlocked tier, a popup for each level-up, and optional activity-feed entries.
+- Settings, Preferences, Badges: show my badges to the household, badge notifications, post badges to the activity feed.
+- `manage.py rebuild_badges` backfills every profile silently.
+
+### Changed
+- The Stats page's Achievements section is replaced by a Badges summary; the old achievements module is removed.
+
 ## [0.192.0] - 2026-11-15
 
 ### Added

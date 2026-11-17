@@ -1,7 +1,7 @@
 from django.contrib.auth import views as auth_views
 from django.urls import path
 
-from . import schedule_views, views, wrapped_views
+from . import badge_views, schedule_views, views, wrapped_views
 
 urlpatterns = [
     path("sw.js", views.service_worker, name="service_worker"),
@@ -161,6 +161,9 @@ urlpatterns = [
     path("calendar/subscribe/regenerate/", views.calendar_feed_regenerate, name="calendar_feed_regenerate"),
     path("calendar/feed/<str:token>.ics", views.calendar_feed, name="calendar_feed"),
     path("ui-kit/", views.ui_kit, name="ui_kit"),
+    path("badges/", badge_views.badges_page, name="badges"),
+    path("badges/<slug:key>/", badge_views.badge_detail, name="badge_detail"),
+    path("badges/<slug:key>/pin/", badge_views.badge_pin, name="badge_pin"),
     path("lists/", views.lists, name="lists"),
     path("lists/create/", views.create_list, name="create_list"),
     path("lists/<int:list_id>/stats/", views.list_stats_view, name="list_stats"),
