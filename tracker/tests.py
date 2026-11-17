@@ -38456,3 +38456,226 @@ class SharedListEditorsTests(TestCase):
         self._login("le_editor")
         self.assertEqual(self.client.get(reverse("list_stats", args=[self.wl.pk])).status_code, 200)
         self.assertEqual(self.client.get(reverse("list_detail", args=[self.wl.pk])).status_code, 200)
+
+
+class ShiftForwardTests(PlannerTestBase):
+    def planned_numbers(self, title):
+        out = []
+        for slot in self.slots(status="planned", title=title):
+            out.extend(sorted(e.episode for e in slot.episodes.all()))
+        return out
+
+    def test_unwatched_episodes_shift_forward_in_order(self):
+        show = self.add_show("Black Clover", 7, self.eps(40))
+        self.start_tmdb()
+        _planner.ensure_plan(self.profile, self.now)
+        first_day = self.slots(status="planned", title=show)[0].start.astimezone(self.tz).date()
+        # Nothing is watched; the next morning the whole first day was missed.
+        later = _dt.datetime.combine(first_day + timedelta(days=1), _dt.time(8, 0), tzinfo=self.tz)
+        _planner.ensure_plan(self.profile, later)
+        moved = self.slots(status="moved", title=show)
+        self.assertTrue(moved)
+        missed = sorted(e.episode for s in moved for e in s.episodes.all())
+        planned = self.planned_numbers(show)
+        # The first planned episode is the first missed one, and the order never goes backwards.
+        self.assertEqual(planned[0], missed[0])
+        self.assertEqual(planned, sorted(planned))
+        self.assertEqual(len(planned), len(set(planned)))
+        first = self.slots(status="planned", title=show)[0]
+        self.assertEqual(first.start.astimezone(self.tz).date(), first_day + timedelta(days=1))
+
+    def test_skip_shifts_the_rest_forward_too(self):
+        show = self.add_show("Andor", 8, self.eps(30))
+        self.start_tmdb()
+        _planner.fill(self.profile, self.plan, self.now)
+        slot = self.slots(status="planned", title=show)[0]
+        skipped = sorted(e.episode for e in slot.episodes.all())
+        _planner.skip_slot(self.profile, slot, self.now)
+        planned = self.planned_numbers(show)
+        self.assertEqual(planned[: len(skipped)], skipped)
+        self.assertEqual(planned, sorted(planned))
+
+    def test_a_manual_plan_is_never_shifted(self):
+        show = self.add_show("Manual Show", 9, self.eps(20))
+        self.start_tmdb()
+        self.plan.mode = "manual"
+        self.plan.save()
+        later_slot = _ScheduledSlot.objects.create(
+            profile=self.profile, title=show, start=self.now + timedelta(days=2), end=self.now + timedelta(days=2, hours=1)
+        )
+        past = _ScheduledSlot.objects.create(
+            profile=self.profile, title=show, start=self.now - timedelta(hours=3), end=self.now - timedelta(hours=2)
+        )
+        _planner.ensure_plan(self.profile, self.now)
+        past.refresh_from_db()
+        self.assertEqual(past.status, "moved")
+        self.assertTrue(_ScheduledSlot.objects.filter(pk=later_slot.pk, status="planned").exists())
+
+
+class WatchTogetherTests(TestCase):
+    def setUp(self):
+        from tracker import watch_together
+        from tracker.watchlists import ensure_watchlist
+
+        self.wt = watch_together
+        self.a = Profile.objects.create(user=User.objects.create_user("wt_a", password="pass12345"), display_name="Alex")
+        self.b = Profile.objects.create(user=User.objects.create_user("wt_b", password="pass12345"), display_name="Blake")
+        self.c = Profile.objects.create(
+            user=User.objects.create_user("wt_c", password="pass12345"), display_name="Casey", share_activity=False
+        )
+        self.wl = {p.pk: ensure_watchlist(p) for p in (self.a, self.b, self.c)}
+        self.now = timezone.now()
+        self.action = Genre.objects.create(name="Action")
+        self.drama = Genre.objects.create(name="Drama")
+
+    def movie(self, name, genres=(), minutes=100):
+        title = Title.objects.create(media_type=MediaType.MOVIE, name=name, year=2020, runtime_minutes=minutes)
+        for g in genres:
+            title.genres.add(g)
+        return title
+
+    def put(self, wl, title):
+        WatchListItem.objects.get_or_create(watchlist=wl, title=title, defaults={"position": WatchListItem.objects.count()})
+
+    def watch(self, profile, title):
+        WatchEvent.objects.create(profile=profile, title=title, watched_at=self.now - timedelta(days=5))
+
+    def names(self, profiles, **kwargs):
+        return [s["title"].name for s in self.wt.suggest(self.a, profiles, self.now, **kwargs)]
+
+    def test_anything_a_selected_profile_has_watched_is_left_out(self):
+        seen_by_b, fresh = self.movie("Seen by Blake"), self.movie("Fresh")
+        for t in (seen_by_b, fresh):
+            self.put(self.wl[self.a.pk], t)
+        self.watch(self.b, seen_by_b)
+        self.assertEqual(self.names([self.a, self.b]), ["Fresh"])
+        self.assertEqual(sorted(self.names([self.a])), ["Fresh", "Seen by Blake"])  # Blake is not watching tonight
+
+    def test_dropped_and_completed_shows_are_left_out(self):
+        show = Title.objects.create(media_type=MediaType.TV, name="Dropped show", year=2020)
+        self.put(self.wl[self.a.pk], show)
+        WatchProgress.objects.create(profile=self.b, title=show, status=WatchProgress.Status.DROPPED)
+        self.assertEqual(self.names([self.a, self.b]), [])
+
+    def test_titles_on_several_selected_profiles_lists_come_first(self):
+        both, only_a, only_b = self.movie("Both"), self.movie("Only Alex"), self.movie("Only Blake")
+        self.put(self.wl[self.a.pk], both)
+        self.put(self.wl[self.b.pk], both)
+        self.put(self.wl[self.a.pk], only_a)
+        self.put(self.wl[self.b.pk], only_b)
+        ranked = self.wt.suggest(self.a, [self.a, self.b], self.now)
+        self.assertEqual(ranked[0]["title"].name, "Both")
+        self.assertEqual(ranked[0]["backers"], ["Alex", "Blake"])
+        self.assertEqual({r["title"].name for r in ranked[1:]}, {"Only Alex", "Only Blake"})
+
+    def test_shared_genres_break_ties(self):
+        # Both watch Action; only Alex watches Drama.
+        for profile, genres in ((self.a, [self.action, self.drama]), (self.b, [self.action])):
+            for i, g in enumerate(genres):
+                self.watch(profile, self.movie(f"History {profile.display_name} {i}", [g]))
+        drama_pick, action_pick = self.movie("Drama pick", [self.drama]), self.movie("Action pick", [self.action])
+        for t in (drama_pick, action_pick):
+            self.put(self.wl[self.a.pk], t)
+        ranked = self.wt.suggest(self.a, [self.a, self.b], self.now)
+        self.assertEqual([r["title"].name for r in ranked], ["Action pick", "Drama pick"])
+        self.assertEqual(ranked[0]["genres"], ["Action"])
+        self.assertEqual(ranked[1]["genres"], [])
+
+    def test_shared_lists_count_and_a_private_watchlist_is_ignored_for_a_profile_not_sharing(self):
+        private_pick, shared_pick = self.movie("Casey private"), self.movie("Casey shared")
+        self.put(self.wl[self.c.pk], private_pick)
+        shared = WatchList.objects.create(profile=self.c, name="Casey picks", is_shared=True)
+        self.put(shared, shared_pick)
+        ranked = self.wt.suggest(self.a, [self.a, self.c], self.now)
+        self.assertEqual([r["title"].name for r in ranked], ["Casey shared"])
+        self.assertEqual(ranked[0]["backers"], ["Casey"])  # a list they shared still counts for them
+        # The viewer's own Watchlist always counts in full.
+        mine = self.movie("Mine")
+        self.put(self.wl[self.a.pk], mine)
+        self.assertIn("Mine", self.names([self.a, self.c]))
+
+    def test_a_profile_not_sharing_adds_no_genre_preference(self):
+        self.watch(self.a, self.movie("A history", [self.action]))
+        self.watch(self.c, self.movie("C history", [self.drama]))
+        action_pick = self.movie("Action pick", [self.action])
+        self.put(self.wl[self.a.pk], action_pick)
+        ranked = self.wt.suggest(self.a, [self.a, self.c], self.now)
+        self.assertEqual(ranked[0]["genres"], ["Action"])  # Casey's private history does not empty the shared set
+
+    def test_a_private_watch_history_never_filters_the_suggestions(self):
+        pick = self.movie("Casey saw this")
+        shared = WatchList.objects.create(profile=self.c, name="Casey picks", is_shared=True)
+        self.put(shared, pick)
+        self.watch(self.c, pick)  # Casey keeps their activity private
+        self.assertEqual(self.names([self.a, self.c]), ["Casey saw this"])
+        self.c.share_activity = True
+        self.c.save()
+        self.assertEqual(self.names([self.a, self.c]), [])  # once shared, it counts
+
+    def test_runtime_is_set_against_the_free_evening(self):
+        long_film, short_film = self.movie("Long", minutes=170), self.movie("Short", minutes=80)
+        for t in (long_film, short_film):
+            self.put(self.wl[self.a.pk], t)
+        by_name = {r["title"].name: r for r in self.wt.suggest(self.a, [self.a], self.now, free_minutes=120)}
+        self.assertFalse(by_name["Long"]["fits"])
+        self.assertTrue(by_name["Short"]["fits"])
+        self.assertEqual(by_name["Long"]["runtime_label"], "2h 50m")
+
+    def test_selection_defaults_to_the_viewer_and_drops_unknown_ids(self):
+        self.assertEqual(self.wt.parse_selection(self.a, []), [self.a])
+        self.assertEqual(self.wt.parse_selection(self.a, ["999999", "x"]), [self.a])
+        self.assertEqual([p.pk for p in self.wt.parse_selection(self.a, [str(self.b.pk), str(self.a.pk)])], [self.a.pk, self.b.pk])
+
+    def test_the_view_shows_chips_and_saves_nothing(self):
+        title = self.movie("Evening pick")
+        self.put(self.wl[self.a.pk], title)
+        plan = _planner.get_plan(self.a)
+        plan.enabled = True
+        plan.save()
+        slots_before = _ScheduledSlot.objects.count()
+        self.client.login(username="wt_a", password="pass12345")
+        resp = self.client.get(reverse("schedule_together"), {"with": [self.a.pk, self.b.pk]})
+        self.assertContains(resp, "Who&rsquo;s watching?")
+        self.assertContains(resp, 'name="with"', count=3)  # every household profile has a chip
+        self.assertContains(resp, "Evening pick")
+        self.assertContains(resp, "nothing is saved")
+        self.assertEqual(_ScheduledSlot.objects.count(), slots_before)
+        self.assertEqual(plan.__class__.objects.get(pk=plan.pk).source_lists.count(), 0)
+
+    def test_the_tonight_card_offers_the_picker_only_in_a_household(self):
+        plan = _planner.get_plan(self.a)
+        plan.enabled = True
+        plan.save()
+        self.client.login(username="wt_a", password="pass12345")
+        self.assertContains(self.client.get(reverse("schedule_tonight")), "together-details")
+        Profile.objects.exclude(pk=self.a.pk).delete()
+        self.assertNotContains(self.client.get(reverse("schedule_tonight")), "together-details")
+
+
+class EditorFeedConsentTests(TestCase):
+    def test_an_editors_additions_need_the_list_to_be_shared_and_the_owner_to_share(self):
+        owner = Profile.objects.create(user=User.objects.create_user("fc_o", password="pass12345"), display_name="O")
+        editor = Profile.objects.create(user=User.objects.create_user("fc_e", password="pass12345"), display_name="E")
+        wl = WatchList.objects.create(profile=owner, name="L", is_shared=True)
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="T", year=2000)
+        WatchListItem.objects.create(watchlist=wl, title=title, position=1, added_by=editor)
+
+        def feed():
+            return [i for i in selectors.activity_feed() if i["kind"] == "added_to_list"]
+
+        self.assertEqual(len(feed()), 1)
+        wl.is_shared = False
+        wl.save()
+        self.assertEqual(feed(), [])  # no longer shared
+        wl.is_shared = True
+        wl.save()
+        owner.share_activity = False
+        owner.save()
+        self.assertEqual(feed(), [])  # the creator keeps their activity private
+        owner.share_activity = True
+        owner.save()
+        WatchListItem.objects.all().delete()
+        WatchListItem.objects.create(watchlist=wl, title=title, position=1, added_by=owner)
+        wl.is_shared = False
+        wl.save()
+        self.assertEqual(len(feed()), 1)  # the creator's own additions behave as before

@@ -420,8 +420,10 @@ def sync_caught_up(profile, since, now):
     return all(stamp is not None and stamp >= since for stamp in stamps)
 
 
-def reconcile(profile, now=None):
-    """Settles planned slots against real watches; returns how many changed."""
+def reconcile(profile, now=None, moved=None):
+    """Settles planned slots against real watches; returns how many changed.
+    moved, when given, is a set that collects the title ids of slots that were
+    missed (so the caller can shift those shows forward)."""
     now = now or timezone.now()
     slots = list(
         ScheduledSlot.objects.filter(profile=profile, status=ScheduledSlot.Status.PLANNED)
@@ -456,6 +458,8 @@ def reconcile(profile, now=None):
         elif slot.end <= now and sync_caught_up(profile, slot.end, now):
             slot.status = ScheduledSlot.Status.MOVED
             slot.save(update_fields=["status"])
+            if moved is not None:
+                moved.add(slot.title_id)
             changed += 1
         elif eps and len(left) < len(eps) and slot.start > now:
             # Part of a block that has not started was watched early.
@@ -465,6 +469,18 @@ def reconcile(profile, now=None):
             slot.save(update_fields=["end"])
             changed += 1
     return changed
+
+
+def shift_forward(profile, title_ids, now):
+    """Missed episodes go back to the front of their show's queue. The show's
+    later planned blocks are dropped, so the next fill() lays the show out
+    again from its first unwatched episode, in order, starting in the next free
+    slot (Monday's unwatched E1-E4 become Tuesday's E1-E4, and what Tuesday had
+    moves on) instead of tacking the missed ones on after everything planned."""
+    if title_ids:
+        ScheduledSlot.objects.filter(
+            profile=profile, title_id__in=title_ids, status=ScheduledSlot.Status.PLANNED, start__gt=now
+        ).delete()
 
 
 @contextlib.contextmanager
@@ -499,7 +515,8 @@ def ensure_plan(profile, now=None):
         if locked is None:
             return plan  # someone else is planning right now - show what is there
         plan = locked
-        changed = reconcile(profile, now)
+        moved = set()
+        changed = reconcile(profile, now, moved)
         key = f"schedule:fill:{profile.id}"
         if plan.mode == SchedulePlan.Mode.MANUAL:
             if plan.dirty:
@@ -511,6 +528,7 @@ def ensure_plan(profile, now=None):
             rebuild(profile, plan, now)
             cache.set(key, 1, FILL_CACHE_SECONDS)
         elif changed or cache.add(key, 1, FILL_CACHE_SECONDS):
+            shift_forward(profile, moved, now)
             fill(profile, plan, now)
             if changed:
                 cache.set(key, 1, FILL_CACHE_SECONDS)
@@ -615,10 +633,12 @@ def skip_slot(profile, slot, now=None):
         # Nothing re-plans a manual schedule, so skipping takes it off.
         slot.delete()
         return
+    now = now or timezone.now()
     slot.status = ScheduledSlot.Status.MOVED
     slot.save(update_fields=["status"])
     invalidate(profile)
-    fill(profile, plan, now or timezone.now())
+    shift_forward(profile, {slot.title_id}, now)
+    fill(profile, plan, now)
 
 
 # ---------------------------------------------------------------------------

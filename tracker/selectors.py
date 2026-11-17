@@ -10,7 +10,7 @@ from datetime import datetime, time, timedelta
 from functools import reduce
 
 from django.conf import settings
-from django.db.models import Count, Max, Q, Sum
+from django.db.models import Count, F, Max, Q, Sum
 from django.db.models import Value
 from django.db.models.functions import Coalesce, ExtractDay, ExtractHour, ExtractMonth, Replace
 from django.template.defaultfilters import time as django_time_filter
@@ -2540,11 +2540,18 @@ def activity_feed(limit=30):
                 "source_display": event.get_source_display() if event.source else "",
             }
         )
-    # An item an editor added belongs to the editor (their own share_activity
-    # decides), everything else to the list's creator as before.
+    # An item an editor added belongs to the editor and needs both people's
+    # consent: the editor shares their activity, and the list's creator does
+    # too and still has the list shared. Everything else (the creator's own
+    # additions, items from before editors existed) belongs to the creator as before.
     for wli in (
         WatchListItem.objects.filter(
-            Q(added_by__isnull=True, watchlist__profile__share_activity=True) | Q(added_by__share_activity=True)
+            Q(added_by__isnull=True, watchlist__profile__share_activity=True)
+            | Q(added_by=F("watchlist__profile"), added_by__share_activity=True)
+            | (
+                ~Q(added_by=F("watchlist__profile"))
+                & Q(added_by__share_activity=True, watchlist__profile__share_activity=True, watchlist__is_shared=True)
+            )
         )
         .select_related("watchlist__profile", "added_by", "title")
         .order_by("-added_at")[:limit]

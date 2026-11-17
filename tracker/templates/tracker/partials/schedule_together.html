@@ -1,0 +1,45 @@
+{% load tracker_extras %}
+{# context: viewer, profiles (the household), chosen_ids, suggestions (watch_together.suggest), evening ({"day","is_today","minutes"} or None), free_label. Swaps itself on every chip change; nothing here is saved. #}
+<div id="together-body" class="text-[13px]">
+  <form hx-get="{% url 'schedule_together' %}" hx-trigger="change" hx-target="#together-body" hx-swap="outerHTML">
+    <div class="sch-eyebrow mb-1.5">Who&rsquo;s watching?</div>
+    <div class="flex flex-wrap gap-1.5" role="group" aria-label="Who is watching">
+      {% for p in profiles %}
+        <label class="sch-pill cursor-pointer">
+          <input type="checkbox" name="with" value="{{ p.pk }}" class="hidden peer"{% if p.pk in chosen_ids %} checked{% endif %}>
+          <span class="sch-pill-face">{% if p.pk == viewer.pk %}You{% else %}{{ p.display_name }}{% endif %}</span>
+        </label>
+      {% endfor %}
+    </div>
+  </form>
+
+  <p class="text-[12px] text-ink-faint mt-2.5">
+    {% if evening %}{{ free_label }} free {% if evening.is_today %}tonight{% else %}on {{ evening.day|date:"l" }}{% endif %}.{% else %}Turn on My schedule to compare against a free evening.{% endif %}
+    Only used for this look, nothing is saved.
+  </p>
+
+  <ul class="flex flex-col gap-2 mt-3 list-none">
+    {% for s in suggestions %}
+      <li class="sch-tonight-row" data-kind="{{ s.kind }}">
+        <a href="{% url 'title_detail' s.title.pk %}" aria-label="{{ s.title.name }}" class="sch-tonight-poster {% if not s.title.poster_url %}{{ s.title.pk|gradient_class }}{% endif %}">
+          {% if s.title.poster_url %}<img src="{{ s.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy">{% endif %}
+        </a>
+        <div class="min-w-0 flex-1">
+          <a href="{% url 'title_detail' s.title.pk %}" class="block text-[14px] font-semibold truncate hover:text-white">{{ s.title.name }}</a>
+          <div class="flex items-center gap-1.5 mt-1 text-[11.5px] text-ink-dim flex-wrap">
+            <span class="chip chip-{{ s.kind }}">{% if s.kind == "movie" %}Movie{% elif s.kind == "anime" %}Anime{% else %}TV{% endif %}</span>
+            <span class="font-mono">{{ s.runtime_label }}{% if s.kind != "movie" %} / episode{% endif %}</span>
+            {% if evening %}<span class="{% if s.fits %}text-success{% else %}text-ink-faint{% endif %}">{% if s.fits %}fits{% else %}too long for tonight{% endif %}</span>{% endif %}
+          </div>
+          {% if s.backers or s.genres %}
+            <div class="text-[11.5px] text-ink-faint mt-1 truncate">
+              {% if s.backers %}On {{ s.backers|join:", " }}&rsquo;s {% if s.backers|length == 1 %}list{% else %}lists{% endif %}{% endif %}{% if s.backers and s.genres %} · {% endif %}{{ s.genres|join:", " }}
+            </div>
+          {% endif %}
+        </div>
+      </li>
+    {% empty %}
+      <li class="text-[12.5px] text-ink-dim">Nothing on the shared lists or your Watchlists that all of you haven&rsquo;t seen.</li>
+    {% endfor %}
+  </ul>
+</div>

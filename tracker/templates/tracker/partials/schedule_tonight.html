@@ -49,4 +49,12 @@
       {% if plan.enabled and plan.mode == "manual" %}Nothing is scheduled yet. Add something from the schedule tab.{% elif plan.enabled %}No free time with something releasable to watch in the next two weeks. Check the free days, or add titles to a source list.{% else %}Turn on My schedule to plan your evenings.{% endif %}
     </p>
   {% endif %}
+  {% if together_possible and plan.enabled %}
+    {# Watching with others? Loads when opened; the people picked are only used for this look. #}
+    <details class="mt-4 pt-3 border-t border-line" id="together-details">
+      <summary class="cursor-pointer text-[13px] text-ink-dim hover:text-base-content w-fit"
+        hx-get="{% url 'schedule_together' %}" hx-trigger="click once" hx-target="#together-body" hx-swap="outerHTML">Who&rsquo;s watching tonight?</summary>
+      <div id="together-body" class="mt-3 text-[12.5px] text-ink-faint">Loading&hellip;</div>
+    </details>
+  {% endif %}
 </div>

@@ -14,7 +14,7 @@ from django.utils import timezone
 from django.utils.timesince import timesince
 from django.views.decorators.http import require_POST
 
-from . import planner, selectors
+from . import planner, selectors, watch_together
 from .models import ApiToken, ExternalAccount, NuvioConnection, Profile, ScheduledSlot, SchedulePlan
 
 DAY_CHOICES = {"1": 1, "3": 3, "7": 7}
@@ -127,6 +127,7 @@ def _pane_context(request, profile, error=""):
     if plan.enabled:
         context["week"] = planner.week_context(profile, plan, start, days, now)
         context["tonight"] = planner.tonight_context(profile, plan, now)
+        context["together_possible"] = Profile.objects.count() > 1
         if plan.mode == SchedulePlan.Mode.MANUAL:
             context["add_form"] = _add_form_context(profile, plan, tz, now)
             context["add_error"] = error
@@ -263,10 +264,35 @@ def _tonight_response(request, profile):
     context = {
         "plan": plan,
         "tonight": planner.tonight_context(profile, plan, now) if plan.enabled else None,
+        "together_possible": Profile.objects.count() > 1,
         "time_format_str": _time_format_str(profile),
         "target": "tonight",
     }
     return render(request, "tracker/partials/schedule_tonight.html", context)
+
+
+@login_required
+def schedule_together(request):
+    """"Who's watching tonight?": titles that suit the people picked (?with=<id>,
+    repeated), against the viewer's free evening. Nothing is saved."""
+    profile = _profile(request)
+    plan = planner.get_plan(profile)
+    now = timezone.now()
+    chosen = watch_together.parse_selection(profile, request.GET.getlist("with"))
+    evening = watch_together.free_evening(profile, plan, now)
+    free = evening["minutes"] if evening else None
+    return render(
+        request,
+        "tracker/partials/schedule_together.html",
+        {
+            "viewer": profile,
+            "profiles": watch_together.household(),
+            "chosen_ids": {p.pk for p in chosen},
+            "suggestions": watch_together.suggest(profile, chosen, now, free),
+            "evening": evening,
+            "free_label": planner._duration_label(free) if free is not None else "",
+        },
+    )
 
 
 @login_required

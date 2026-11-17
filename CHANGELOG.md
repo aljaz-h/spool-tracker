@@ -8,6 +8,22 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.197.0] - 2026-11-17
+
+### Added
+- My schedule: "Who's watching tonight?" on the Tonight card. Pick household profiles (you are selected by default) and get titles that suit everyone: nothing any of them has watched or dropped, drawn from the shared lists and each person's Watchlist. Titles on several of the picked profiles' lists come first, then the genres they all watch. Each suggestion shows its runtime against your free time that evening. The picked profiles are only used for that look; nothing is saved to anyone's schedule.
+- A profile that doesn't share its activity only counts through the lists it has shared, and its private watch history neither filters the suggestions nor affects the shared-genre ranking.
+
+## [0.196.2] - 2026-11-17
+
+### Fixed
+- Activity feed: titles an editor added to a shared list only show up while the list is still shared and its creator shares their activity (and the editor does too).
+
+## [0.196.1] - 2026-11-17
+
+### Fixed
+- My schedule: episodes you didn't watch now shift forward in order. If Monday's E1-E4 were missed (or skipped), Tuesday shows E1-E4 and what was planned after moves on, instead of the missed episodes being added after everything already planned. Manual schedules are untouched.
+
 ## [0.196.0] - 2026-11-17
 
 ### Added

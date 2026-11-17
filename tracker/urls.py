@@ -155,6 +155,7 @@ urlpatterns = [
     path("calendar/schedule/rebuild/", schedule_views.schedule_rebuild, name="schedule_rebuild"),
     path("calendar/schedule/add/", schedule_views.schedule_add, name="schedule_add"),
     path("calendar/schedule/tonight/", schedule_views.schedule_tonight, name="schedule_tonight"),
+    path("calendar/schedule/together/", schedule_views.schedule_together, name="schedule_together"),
     path("calendar/schedule/estimate/", schedule_views.schedule_estimate, name="schedule_estimate"),
     path("calendar/schedule/slot/<int:pk>/<str:action>/", schedule_views.schedule_slot_action, name="schedule_slot_action"),
     path("calendar/subscribe/", views.calendar_subscribe_panel, name="calendar_subscribe_panel"),
