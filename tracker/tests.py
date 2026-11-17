@@ -38679,3 +38679,93 @@ class EditorFeedConsentTests(TestCase):
         wl.is_shared = False
         wl.save()
         self.assertEqual(len(feed()), 1)  # the creator's own additions behave as before
+
+
+class FocusShowTests(PlannerTestBase):
+    def setUp(self):
+        super().setUp()
+        self.focus = self.add_show("Black Clover", 70, self.eps(120, runtime=24), media=MediaType.ANIME)
+        self.other = self.add_show("Andor", 71, self.eps(20, runtime=50))
+        self.movie = self.add_movie("Heat", 100)
+        self.start_tmdb()
+        self.plan.focus_title = self.focus
+        self.plan.save()
+
+    def test_only_the_focus_show_is_planned_across_the_free_days(self):
+        _planner.fill(self.profile, self.plan, self.now)
+        slots = self.slots()
+        self.assertTrue(slots)
+        self.assertEqual({s.title_id for s in slots}, {self.focus.pk})
+        days = {s.start.astimezone(self.tz).date() for s in slots}
+        self.assertGreaterEqual(len(days), 5)  # spread over the free days, not piled on one
+        # Every window is filled from its start, and the episodes run in order.
+        numbers = [e.episode for s in slots for e in s.episodes.order_by("episode")]
+        self.assertEqual(numbers, sorted(numbers))
+        self.assertEqual(numbers[0], 1)
+        first_day = [s for s in slots if s.start.astimezone(self.tz).date() == min(days)]
+        self.assertEqual(first_day[0].start.astimezone(self.tz).time(), _dt.time(19, 0))
+        self.assertGreater(len(first_day), 1)  # a long window holds several blocks
+
+    def test_a_different_window_changes_how_much_is_planned(self):
+        _planner.fill(self.profile, self.plan, self.now)
+        short_total = sum((s.end - s.start).total_seconds() for s in self.slots())
+        _ScheduledSlot.objects.all().delete()
+        self.plan.window_end = _dt.time(23, 59)
+        self.plan.save()
+        _planner.fill(self.profile, self.plan, self.now)
+        self.assertGreater(sum((s.end - s.start).total_seconds() for s in self.slots()), short_total)
+
+    def test_media_choice_and_other_lists_do_not_matter_while_focused(self):
+        self.plan.media = "movie"
+        self.plan.save()
+        _planner.fill(self.profile, self.plan, self.now)
+        self.assertEqual({s.title_id for s in self.slots()}, {self.focus.pk})
+
+    def test_clearing_the_focus_goes_back_to_the_lists(self):
+        self.plan.focus_title = None
+        self.plan.save()
+        _planner.fill(self.profile, self.plan, self.now)
+        self.assertGreater(len({s.title_id for s in self.slots()}), 1)
+
+    def test_a_manual_plan_ignores_the_focus(self):
+        self.plan.mode = "manual"
+        self.plan.save()
+        self.assertEqual({i.title_id for i in _planner.candidates(self.profile, self.plan, self.now)}, {self.focus.pk, self.other.pk, self.movie.pk})
+
+    def test_the_choices_are_tv_and_anime_only_and_the_form_saves_one(self):
+        names = [t.name for t in _planner.focus_choices(self.profile, self.plan)]
+        self.assertEqual(names, ["Andor", "Black Clover"])
+        self.client.login(username="planuser", password="pass12345")
+        resp = self.client.post(reverse("schedule_save"), {"focus_title": str(self.other.pk), "mode": "auto", "free_days": ["0"]})
+        self.assertEqual(resp.status_code, 200)
+        self.plan.refresh_from_db()
+        self.assertEqual(self.plan.focus_title_id, self.other.pk)
+        self.assertEqual({s.title_id for s in self.slots(status="planned")}, {self.other.pk})  # replanned right away
+        self.client.post(reverse("schedule_save"), {"focus_title": str(self.movie.pk), "mode": "auto", "free_days": ["0"]})
+        self.plan.refresh_from_db()
+        self.assertIsNone(self.plan.focus_title_id)  # a movie is not a choice
+        self.assertContains(self.client.get(reverse("schedule_pane")), "Focus on one show")
+
+    def test_rebuild_replaces_the_old_plan_with_the_focus_show(self):
+        self.plan.focus_title = None
+        self.plan.save()
+        _planner.fill(self.profile, self.plan, self.now)
+        self.plan.focus_title = self.focus
+        self.plan.dirty = True
+        self.plan.save()
+        _planner.ensure_plan(self.profile, self.now)
+        self.assertEqual({s.title_id for s in self.slots(status="planned")}, {self.focus.pk})
+
+
+class ActivityListAddLinksTests(TestCase):
+    def test_titles_added_to_a_list_link_to_their_page(self):
+        profile = Profile.objects.create(user=User.objects.create_user("al_u", password="pass12345"), display_name="Linker")
+        Profile.objects.create(user=User.objects.create_user("al_v", password="pass12345"), display_name="Other")
+        wl = WatchList.objects.create(profile=profile, name="Watchlist", is_shared=True)
+        single = Title.objects.create(media_type=MediaType.MOVIE, name="Lucky", year=2024)
+        WatchListItem.objects.create(watchlist=wl, title=single, position=1, added_by=profile)
+        self.client.login(username="al_u", password="pass12345")
+        html = self.client.get(reverse("activity")).content.decode()
+        url = reverse("title_detail", args=[single.pk])
+        self.assertGreaterEqual(html.count(f'href="{url}"'), 2)  # the poster and the name
+        self.assertIn(f'aria-label="Lucky"', html)

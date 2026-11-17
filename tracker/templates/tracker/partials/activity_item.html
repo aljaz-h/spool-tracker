@@ -121,24 +121,24 @@
       <div class="flex -space-x-6 flex-none">
         {% if item.kind == "added_to_list_group" %}
           {% for i in item.items|slice:":3" %}
-            <div class="w-12 aspect-[2/3] rounded-md relative overflow-hidden ring-2 ring-base-100 bg-base-300 {% if not i.title.poster_url %}{{ i.title.pk|gradient_class }}{% endif %}">
+            <a href="{% url 'title_detail' i.title.pk %}" aria-label="{{ i.title.name }}" class="w-12 aspect-[2/3] rounded-md relative overflow-hidden ring-2 ring-base-100 bg-base-300 {% if not i.title.poster_url %}{{ i.title.pk|gradient_class }}{% endif %}">
               {% if i.title.poster_url %}
                 <img src="{{ i.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
               {% endif %}
-            </div>
+            </a>
           {% endfor %}
         {% else %}
-          <div class="w-12 aspect-[2/3] rounded-md relative overflow-hidden bg-base-300 {% if not item.title.poster_url %}{{ item.title.pk|gradient_class }}{% endif %}">
+          <a href="{% url 'title_detail' item.title.pk %}" aria-label="{{ item.title.name }}" class="w-12 aspect-[2/3] rounded-md relative overflow-hidden bg-base-300 {% if not item.title.poster_url %}{{ item.title.pk|gradient_class }}{% endif %}">
             {% if item.title.poster_url %}
               <img src="{{ item.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover">
             {% endif %}
-          </div>
+          </a>
         {% endif %}
       </div>
       <div class="min-w-0 flex-1">
         <div class="text-[15px] text-ink-dim leading-snug">
           <b class="font-semibold text-base-content">{{ item.profile.display_name }}</b> added
-          {% if item.kind == "added_to_list_group" %}<b class="font-semibold text-base-content">{{ item.count }}</b> titles to{% else %}<b class="font-semibold text-base-content">{{ item.title.name }}</b> to{% endif %}
+          {% if item.kind == "added_to_list_group" %}<b class="font-semibold text-base-content">{{ item.count }}</b> titles to{% else %}<a href="{% url 'title_detail' item.title.pk %}" class="font-semibold text-base-content hover:text-white">{{ item.title.name }}</a> to{% endif %}
           <a href="{% url 'list_detail' item.watchlist.id %}" class="font-semibold text-base-content hover:text-primary">&ldquo;{{ item.watchlist.name }}&rdquo;</a>
         </div>
         <div class="meta meta-sm mt-1">

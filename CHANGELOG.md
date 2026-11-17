@@ -8,6 +8,16 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.198.1] - 2026-11-17
+
+### Fixed
+- Activity: the poster and title of a "added ... to a list" entry are links to the title now, like the watched entries (and each stacked poster in a grouped add).
+
+## [0.198.0] - 2026-11-17
+
+### Added
+- My schedule: "Focus on one show". Pick a TV show or anime (from your lists and what you're watching) in the plan settings and the schedule spreads just that show over your free windows, in episode order, for as long as your free days and times allow. Turn it off to go back to planning from your lists. It only applies to automatic plans.
+
 ## [0.197.0] - 2026-11-17
 
 ### Added

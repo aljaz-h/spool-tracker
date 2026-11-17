@@ -43,9 +43,11 @@ from .models import (
     ReleaseSchedule,
     SchedulePlan,
     ScheduledSlot,
+    Title,
     WatchEvent,
     WatchList,
     WatchListItem,
+    WatchProgress,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,6 +63,9 @@ DEFAULT_ANIME_EPISODE_MINUTES = 24
 # A missed slot is rolled on even if a sync source never reports back.
 ROLL_AFTER = timedelta(hours=36)
 FEED_LIMIT = 40
+# One focused show has the whole plan to itself: enough episodes to fill every
+# free window of the horizon even for 20-minute episodes.
+FOCUS_FEED_LIMIT = 250
 # Real time is never packed perfectly - gaps, a long ending, a pause.
 PACKING_EFFICIENCY = 0.9
 ESTIMATE_CACHE_SECONDS = 1800
@@ -131,6 +136,26 @@ def source_lists(profile, plan):
     return list(WatchList.objects.filter(profile=profile, is_watchlist=True)[:1])
 
 
+def focus_choices(profile, plan):
+    """The shows "Focus on one show" can pick: the TV shows and anime on the
+    lists the profile can see, plus the ones being watched, plus the current
+    focus. [Title...] by name."""
+    ids = set(
+        WatchListItem.objects.filter(
+            Q(watchlist__profile=profile) | Q(watchlist__is_shared=True),
+            title__media_type__in=[MediaType.TV, MediaType.ANIME],
+        ).values_list("title_id", flat=True)
+    )
+    ids |= set(
+        WatchProgress.objects.filter(
+            profile=profile, status=WatchProgress.Status.WATCHING, title__media_type__in=[MediaType.TV, MediaType.ANIME]
+        ).values_list("title_id", flat=True)
+    )
+    if plan.focus_title_id:
+        ids.add(plan.focus_title_id)
+    return list(Title.objects.filter(pk__in=ids, media_type__in=[MediaType.TV, MediaType.ANIME]).order_by("name"))
+
+
 def list_choices(profile, plan):
     """[(list, selected)] for the settings chips - every list the profile
     can see, with the Watchlist standing in as selected when none is."""
@@ -147,7 +172,10 @@ def list_choices(profile, plan):
 
 def candidates(profile, plan, now):
     """Titles to plan, in plan order: [WatchListItem...] deduplicated by
-    title, filtered by the media choice."""
+    title, filtered by the media choice. With a focus show set (automatic
+    plans), that show alone."""
+    if plan.focus_title_id and plan.mode == SchedulePlan.Mode.AUTO:
+        return [WatchListItem(title=plan.focus_title)]
     lists = source_lists(profile, plan)
     if not lists:
         return []
@@ -263,8 +291,9 @@ class _State:
     already planned, and how many blocks it has in the horizon (the fewer,
     the sooner it is picked - that is what rotates the plan between titles)."""
 
-    def __init__(self, profile, items, planned_slots, today):
+    def __init__(self, profile, items, planned_slots, today, feed_limit=FEED_LIMIT):
         self.profile = profile
+        self.feed_limit = feed_limit
         self.items = items
         self.today = today
         self.planned_count = {}
@@ -288,7 +317,7 @@ class _State:
     def remaining_episodes(self, title):
         if title.id not in self._feeds:
             watched = _watched_pairs(self.profile, title) | self.planned_pairs.get(title.id, set())
-            self._feeds[title.id] = episode_feed(title, watched, self.today)
+            self._feeds[title.id] = episode_feed(title, watched, self.today, self.feed_limit)
         return self._feeds[title.id]
 
     def is_movie(self, title):
@@ -348,7 +377,8 @@ def fill(profile, plan, now=None):
             profile=profile, status=ScheduledSlot.Status.PLANNED, end__gt=now, start__lt=horizon_end
         ).prefetch_related("episodes")
     )
-    state = _State(profile, items, planned, today)
+    focused = plan.focus_title_id and plan.mode == SchedulePlan.Mode.AUTO
+    state = _State(profile, items, planned, today, FOCUS_FEED_LIMIT if focused else FEED_LIMIT)
     created = 0
     for offset in range(HORIZON_DAYS):
         day = today + timedelta(days=offset)

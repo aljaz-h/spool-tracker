@@ -65,6 +65,7 @@ def _settings_context(profile, plan):
         "list_choices": planner.list_choices(profile, plan),
         "media_choices": SchedulePlan.Media.choices,
         "order_choices": SchedulePlan.Order.choices,
+        "focus_choices": planner.focus_choices(profile, plan),
         "weekday_rows": [
             {
                 "index": index,
@@ -152,6 +153,9 @@ def _parse_settings(plan, post, profile):
         plan.media = post["media"]
     if post.get("order") in SchedulePlan.Order.values:
         plan.order = post["order"]
+    if "focus_title" in post:
+        allowed = {str(t.pk): t for t in planner.focus_choices(profile, plan)}
+        plan.focus_title = allowed.get(post.get("focus_title"))  # blank or unknown clears it
     plan.free_days = sorted({int(d) for d in post.getlist("free_days") if d in {str(i) for i in range(7)}})
     start, end = planner.parse_time(post.get("window_start")), planner.parse_time(post.get("window_end"))
     if start and end and end > start:

@@ -55,6 +55,19 @@
     </div>
   {% endif %}
 
+  {% if not setup %}
+    <div x-show="mode === 'auto'">
+      <label class="sch-eyebrow mb-1.5 block" for="sch-focus">Focus on one show</label>
+      <select id="sch-focus" name="focus_title" class="select select-sm bg-base-200 border-line w-full">
+        <option value="">Off, use my lists</option>
+        {% for t in settings.focus_choices %}
+          <option value="{{ t.pk }}"{% if plan.focus_title_id == t.pk %} selected{% endif %}>{{ t.name }}</option>
+        {% endfor %}
+      </select>
+      <p class="text-[11.5px] text-ink-faint mt-1.5">Spreads that show over your free time, in episode order, and plans nothing else.</p>
+    </div>
+  {% endif %}
+
   <div>
     <div class="sch-eyebrow mb-1.5">Free days</div>
     <div class="flex gap-1.5">

@@ -2153,6 +2153,11 @@ class SchedulePlan(models.Model):
     # Optional per-weekday override of the window: {"5": ["14:00", "23:00"]}.
     day_windows = models.JSONField(default=dict, blank=True)
     order = models.CharField(max_length=7, choices=Order.choices, default=Order.OLDEST)
+    # "Focus on one show": a TV show or anime the plan spreads over every free
+    # window, in episode order, instead of rotating through the lists.
+    focus_title = models.ForeignKey(
+        "Title", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
     # Set when the settings change, so the next view rebuilds the plan
     # instead of only topping it up.
     dirty = models.BooleanField(default=True)
