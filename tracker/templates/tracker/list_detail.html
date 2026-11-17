@@ -20,8 +20,8 @@
         <h1 class="page-title mt-2">{{ watchlist.name }}</h1>
         <div class="text-ink-dim text-sm mt-2 flex items-center gap-1.5 flex-wrap">
           {{ total_count }} title{{ total_count|pluralize }} ·
-          {% if can_edit %}
-            {# Only the list's own creator can (un)share it - can_edit, not is_owner, unlike the Featured Lists star which is an owner-only curation power (list_card.html). #}
+          {% if can_manage %}
+            {# Only the list's own creator can (un)share it - can_manage, not is_owner, unlike the Featured Lists star which is an owner-only curation power (list_card.html). #}
             <form method="post" action="{% url 'toggle_list_shared' watchlist.id %}">
               {% csrf_token %}
               <button
@@ -36,12 +36,31 @@
             {% if watchlist.is_shared %}shared{% else %}private{% endif %}
           {% endif %}
           · by {{ watchlist.profile.display_name }}
+          {% if editors and not can_manage %}· editors: {% for p in editors %}{{ p.display_name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}
         </div>
+        {% if can_manage and watchlist.is_shared and not watchlist.is_watchlist and editor_candidates %}
+          <details class="mt-2 text-[13px]">
+            <summary class="cursor-pointer text-ink-dim hover:text-base-content w-fit underline decoration-dotted underline-offset-2">
+              Editors{% if editors %} ({{ editors|length }}){% endif %}
+            </summary>
+            <form method="post" action="{% url 'update_list_editors' watchlist.id %}" class="mt-2 flex flex-col gap-2 max-w-sm">
+              {% csrf_token %}
+              <p class="text-xs text-ink-faint">Editors can add, remove and reorder titles. Only you can change the list&rsquo;s settings.</p>
+              {% for p in editor_candidates %}
+                <label class="flex items-center gap-2 min-h-8 cursor-pointer">
+                  <input type="checkbox" name="editors" value="{{ p.pk }}" class="checkbox checkbox-sm"{% if p.pk in editor_ids %} checked{% endif %}>
+                  <span>{{ p.display_name }}</span>
+                </label>
+              {% endfor %}
+              <button type="submit" class="btn btn-sm btn-soft w-fit">Save editors</button>
+            </form>
+          </details>
+        {% endif %}
         <div class="flex flex-wrap items-center gap-1.5 mt-2" x-data="{ editingTags: false }">
           {% for tag in watchlist.tags %}
             <span class="text-xs text-ink-dim">#{{ tag }}</span>
           {% endfor %}
-          {% if can_edit %}
+          {% if can_manage %}
             <button
               type="button" @click="editingTags = true" x-show="!editingTags"
               class="text-[12px] text-ink-faint hover:text-base-content underline decoration-dotted underline-offset-2"
@@ -74,6 +93,8 @@
         {% endif %}
         {% if can_edit %}
           <button @click="showSearch = !showSearch" class="btn btn-primary btn-sm">+ Add title</button>
+        {% endif %}
+        {% if can_manage %}
           {% if not watchlist.is_watchlist %}
             {# The auto-managed Watchlist can't be deleted - see views.delete_list. #}
             <form method="post" action="{% url 'delete_list' watchlist.id %}" onsubmit="return confirm('Delete \'{{ watchlist.name|escapejs }}\'? This can\'t be undone.');">

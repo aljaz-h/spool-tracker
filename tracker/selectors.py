@@ -2540,14 +2540,18 @@ def activity_feed(limit=30):
                 "source_display": event.get_source_display() if event.source else "",
             }
         )
+    # An item an editor added belongs to the editor (their own share_activity
+    # decides), everything else to the list's creator as before.
     for wli in (
-        WatchListItem.objects.filter(watchlist__profile__share_activity=True)
-        .select_related("watchlist__profile", "title")
+        WatchListItem.objects.filter(
+            Q(added_by__isnull=True, watchlist__profile__share_activity=True) | Q(added_by__share_activity=True)
+        )
+        .select_related("watchlist__profile", "added_by", "title")
         .order_by("-added_at")[:limit]
     ):
         items.append(
             {
-                "profile": wli.watchlist.profile,
+                "profile": wli.added_by or wli.watchlist.profile,
                 "timestamp": wli.added_at,
                 "kind": "added_to_list",
                 "title": wli.title,

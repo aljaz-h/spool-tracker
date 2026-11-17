@@ -38347,3 +38347,112 @@ class StatsAmberChartsTests(TestCase):
         heat = self.client.get(reverse("stats_heatmap")).content.decode()
         self.assertIn("bg-primary", heat)  # watch activity cells and legend
         self.assertNotIn("bg-base-content/80", heat)
+
+
+class SharedListEditorsTests(TestCase):
+    def setUp(self):
+        self.owner = Profile.objects.create(user=User.objects.create_user("le_owner", password="pass12345"), display_name="Owner")
+        self.editor = Profile.objects.create(user=User.objects.create_user("le_editor", password="pass12345"), display_name="Gider")
+        self.viewer = Profile.objects.create(user=User.objects.create_user("le_viewer", password="pass12345"), display_name="Viewer")
+        self.wl = WatchList.objects.create(profile=self.owner, name="Movie night", is_shared=True)
+        self.wl.editors.add(self.editor)
+        self.a = Title.objects.create(media_type=MediaType.MOVIE, name="Alpha", year=2000)
+        self.b = Title.objects.create(media_type=MediaType.MOVIE, name="Beta", year=2001)
+
+    def _login(self, name):
+        self.client.logout()
+        self.client.login(username=name, password="pass12345")
+
+    def test_can_edit_covers_the_owner_and_editors_of_a_shared_list_only(self):
+        self.assertTrue(self.wl.can_edit(self.owner))
+        self.assertTrue(self.wl.can_edit(self.editor))
+        self.assertFalse(self.wl.can_edit(self.viewer))
+        self.assertFalse(self.wl.can_edit(None))
+        self.assertTrue(self.wl.can_manage(self.owner))
+        self.assertFalse(self.wl.can_manage(self.editor))
+        self.wl.is_shared = False
+        self.wl.save()
+        self.assertFalse(self.wl.can_edit(self.editor))  # an editor needs to be able to see the list
+
+    def test_an_editor_can_add_remove_and_reorder_and_is_recorded(self):
+        self._login("le_editor")
+        self.client.post(reverse("add_to_list", args=[self.wl.pk]), {"title_id": self.a.pk})
+        self.client.post(reverse("add_to_list", args=[self.wl.pk]), {"title_id": self.b.pk})
+        items = list(self.wl.items.order_by("position"))
+        self.assertEqual([i.added_by_id for i in items], [self.editor.pk, self.editor.pk])
+        resp = self.client.post(reverse("reorder_list", args=[self.wl.pk]), {"item_id": [items[1].pk, items[0].pk]})
+        self.assertEqual(resp.status_code, 204)
+        self.assertEqual([i.title_id for i in self.wl.items.order_by("position")], [self.b.pk, self.a.pk])
+        self.client.post(reverse("remove_from_list", args=[self.wl.pk]), {"title_id": self.a.pk})
+        self.assertEqual(self.wl.items.count(), 1)
+
+    def test_a_plain_viewer_cannot_edit(self):
+        self._login("le_viewer")
+        for name, data in (("add_to_list", {"title_id": self.a.pk}), ("remove_from_list", {"title_id": self.a.pk}),
+                           ("reorder_list", {"item_id": [1]})):
+            self.assertEqual(self.client.post(reverse(name, args=[self.wl.pk]), data).status_code, 404, name)
+        self.assertEqual(self.client.get(reverse("search_titles", args=[self.wl.pk]), {"q": "a"}).status_code, 404)
+
+    def test_owner_only_actions_stay_owner_only(self):
+        self._login("le_editor")
+        self.assertEqual(self.client.post(reverse("toggle_list_shared", args=[self.wl.pk])).status_code, 404)
+        self.assertEqual(self.client.post(reverse("update_list_tags", args=[self.wl.pk]), {"tags": "x"}).status_code, 404)
+        self.assertEqual(self.client.post(reverse("update_list_editors", args=[self.wl.pk]), {"editors": [self.viewer.pk]}).status_code, 404)
+        self.client.post(reverse("delete_list", args=[self.wl.pk]))
+        self.wl.refresh_from_db()
+        self.assertTrue(self.wl.is_shared)
+        self.assertEqual(self.wl.tags, [])
+        self.assertEqual(list(self.wl.editors.all()), [self.editor])
+        self.assertTrue(WatchList.objects.filter(pk=self.wl.pk).exists())
+
+    def test_the_owner_sets_editors_but_never_themselves(self):
+        self._login("le_owner")
+        resp = self.client.post(reverse("update_list_editors", args=[self.wl.pk]), {"editors": [self.viewer.pk, self.owner.pk, "x"]})
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(list(self.wl.editors.all()), [self.viewer])
+        self.client.post(reverse("update_list_editors", args=[self.wl.pk]), {})
+        self.assertEqual(self.wl.editors.count(), 0)
+
+    def test_the_watchlist_cannot_have_editors(self):
+        wl = WatchList.objects.create(profile=self.owner, name="Watchlist", is_watchlist=True, is_shared=True)
+        self._login("le_owner")
+        self.client.post(reverse("update_list_editors", args=[wl.pk]), {"editors": [self.editor.pk]})
+        self.assertEqual(wl.editors.count(), 0)
+
+    def test_list_page_shows_editor_controls_to_the_owner_and_added_by_to_everyone(self):
+        WatchListItem.objects.create(watchlist=self.wl, title=self.a, position=1, added_by=self.editor)
+        self._login("le_owner")
+        html = self.client.get(reverse("list_detail", args=[self.wl.pk])).content.decode()
+        self.assertIn("Save editors", html)
+        self.assertIn("Added by Gider", html)
+        self._login("le_editor")
+        html = self.client.get(reverse("list_detail", args=[self.wl.pk])).content.decode()
+        self.assertNotIn("Save editors", html)
+        self.assertNotIn("Delete list", html)
+        self.assertIn("+ Add title", html)
+        self.assertIn("Added by Gider", html)
+        self._login("le_viewer")
+        html = self.client.get(reverse("list_detail", args=[self.wl.pk])).content.decode()
+        self.assertNotIn("+ Add title", html)
+        self.assertIn("Added by Gider", html)
+
+    def test_no_added_by_when_a_list_has_no_editors(self):
+        solo = WatchList.objects.create(profile=self.owner, name="Solo", is_shared=True)
+        WatchListItem.objects.create(watchlist=solo, title=self.a, position=1, added_by=self.owner)
+        self._login("le_owner")
+        self.assertNotIn("Added by", self.client.get(reverse("list_detail", args=[solo.pk])).content.decode())
+
+    def test_activity_feed_credits_the_editor(self):
+        WatchListItem.objects.create(watchlist=self.wl, title=self.a, position=1, added_by=self.editor)
+        feed = [i for i in selectors.activity_feed() if i["kind"] == "added_to_list"]
+        self.assertEqual([i["profile"].pk for i in feed], [self.editor.pk])
+        self.editor.share_activity = False
+        self.editor.save()
+        self.assertEqual([i for i in selectors.activity_feed() if i["kind"] == "added_to_list"], [])
+
+    def test_list_stats_stay_per_viewer(self):
+        WatchListItem.objects.create(watchlist=self.wl, title=self.a, position=1, added_by=self.owner)
+        WatchEvent.objects.create(profile=self.editor, title=self.a, watched_at=timezone.now())
+        self._login("le_editor")
+        self.assertEqual(self.client.get(reverse("list_stats", args=[self.wl.pk])).status_code, 200)
+        self.assertEqual(self.client.get(reverse("list_detail", args=[self.wl.pk])).status_code, 200)

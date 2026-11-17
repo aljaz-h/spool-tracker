@@ -48,6 +48,7 @@
       {% endif %}
     >
       {% include "tracker/partials/poster_card.html" with title=item.title show_ratings=True width_class="w-full" %}
+      {% if show_added_by and item.added_by %}<div class="text-[12px] text-ink-faint truncate mt-1">Added by {{ item.added_by.display_name }}</div>{% endif %}
       {% if can_edit and can_reorder %}
         <div class="absolute top-1.5 right-9 z-20 w-6 h-6 rounded-md bg-black/75 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-grab" title="Drag to reorder">
           {% icon "grip-vertical" "w-3.5 h-3.5" %}

@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.196.0] - 2026-11-17
+
+### Added
+- Shared lists can have editors. On a shared list's page the creator picks household profiles under "Editors"; editors can add, remove and reorder titles. Only the creator can share or unshare the list, edit its tags, delete it or change the editors. An editor only counts while the list is shared, and the auto-managed Watchlist can't have editors.
+- Items show "Added by <name>" on lists that have editors.
+- The Activity feed credits the editor (not the list's creator) when an editor adds titles, and says whose list it is.
+- Time to watch and progress on a list stay per viewer, as before.
+
 ## [0.195.1] - 2026-11-17
 
 ### Changed

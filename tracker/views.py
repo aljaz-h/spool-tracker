@@ -3357,7 +3357,7 @@ def person_add_unwatched(request, person_id):
         if title.pk in on_list:
             continue
         position += 1
-        WatchListItem.objects.create(watchlist=watchlist, title=title, position=position)
+        WatchListItem.objects.create(watchlist=watchlist, title=title, position=position, added_by=profile)
         on_list.add(title.pk)
         added += 1
     if added:
@@ -3582,7 +3582,7 @@ def title_preview_add_to_list(request, media_type, tmdb_id, list_id):
     title = _get_or_create_preview_title(media_type, tmdb_id)
     if title is None:
         raise Http404
-    WatchListItem.objects.get_or_create(watchlist=watchlist, title=title)
+    WatchListItem.objects.get_or_create(watchlist=watchlist, title=title, defaults={"added_by": profile})
     if not request.headers.get("HX-Request"):
         return redirect("title_detail", pk=title.pk)
     return _render_poster_actions(request, profile, title)
@@ -4220,7 +4220,7 @@ def _list_detail_context(request, watchlist, profile):
     sort = request.GET.get("sort") if request.GET.get("sort") in LIST_SORTS else "manual"
     hide_watched = request.GET.get("hide_watched") == "1"
 
-    items = watchlist.items.select_related("title").prefetch_related("title__ratings")
+    items = watchlist.items.select_related("title", "added_by").prefetch_related("title__ratings")
     if type_filter in (MediaType.MOVIE, MediaType.TV, MediaType.ANIME):
         items = items.filter(title__media_type=type_filter)
     if hide_watched:
@@ -4254,9 +4254,18 @@ def _list_detail_context(request, watchlist, profile):
     query_without_page = request.GET.copy()
     query_without_page.pop("page", None)
 
+    editors = list(watchlist.editors.order_by("display_name"))
+    can_manage = watchlist.can_manage(profile)
     return {
         "watchlist": watchlist,
         "can_edit": watchlist.can_edit(profile),
+        "can_manage": can_manage,
+        "editors": editors,
+        "show_added_by": bool(editors),
+        "editor_candidates": (
+            list(Profile.objects.exclude(pk=watchlist.profile_id).order_by("display_name")) if can_manage else []
+        ),
+        "editor_ids": {p.pk for p in editors},
         "can_reorder": type_filter == "all" and period == "all" and sort == "manual" and not hide_watched,
         "items": items,
         "page_obj": page_obj,
@@ -4403,7 +4412,7 @@ def update_list_tags(request, list_id):
     (toggle_list_shared, delete_list)."""
     profile = Profile.objects.filter(user=request.user).first()
     watchlist = get_object_or_404(WatchList, pk=list_id)
-    if profile is None or not watchlist.can_edit(profile):
+    if profile is None or not watchlist.can_manage(profile):
         raise Http404
     watchlist.tags = _parse_tags(request.POST.get("tags", ""))
     watchlist.save(update_fields=["tags"])
@@ -4415,7 +4424,7 @@ def update_list_tags(request, list_id):
 def delete_list(request, list_id):
     profile = Profile.objects.filter(user=request.user).first()
     watchlist = get_object_or_404(WatchList, pk=list_id)
-    if profile is None or not watchlist.can_edit(profile):
+    if profile is None or not watchlist.can_manage(profile):
         messages.error(request, "Only the creator of a list can delete it.")
         return redirect("list_detail", list_id=list_id)
     if watchlist.is_watchlist:
@@ -4440,13 +4449,32 @@ def toggle_list_shared(request, list_id):
     it later expecting it to still need featuring."""
     profile = Profile.objects.filter(user=request.user).first()
     watchlist = get_object_or_404(WatchList, pk=list_id)
-    if profile is None or not watchlist.can_edit(profile):
+    if profile is None or not watchlist.can_manage(profile):
         raise Http404
     watchlist.is_shared = not watchlist.is_shared
     if not watchlist.is_shared:
         watchlist.is_featured = False
     watchlist.save(update_fields=["is_shared", "is_featured"])
     return redirect("list_detail", list_id=watchlist.id)
+
+
+@login_required
+@require_POST
+def update_list_editors(request, list_id):
+    """Who besides the creator may add, remove and reorder this list's titles:
+    any other household profile, picked on the list page. Creator only, and not
+    for the auto-managed Watchlist (finished titles leave it by themselves)."""
+    profile = Profile.objects.filter(user=request.user).first()
+    watchlist = get_object_or_404(WatchList, pk=list_id)
+    if profile is None or not watchlist.can_manage(profile):
+        raise Http404
+    if watchlist.is_watchlist:
+        messages.error(request, "Your Watchlist can't have editors.")
+        return redirect("list_detail", list_id=list_id)
+    wanted = {int(v) for v in request.POST.getlist("editors") if v.isdigit()}
+    chosen = Profile.objects.filter(pk__in=wanted).exclude(pk=watchlist.profile_id)
+    watchlist.editors.set(chosen)
+    return redirect("list_detail", list_id=list_id)
 
 
 @login_required
@@ -4479,11 +4507,12 @@ def _render_list_items(request, watchlist, profile):
     to thread filter state through every action (including which page -
     always page 1). Not a regression: before list filtering existed, this
     was the only view there was."""
-    items_qs = watchlist.items.select_related("title").prefetch_related("title__ratings")
+    items_qs = watchlist.items.select_related("title", "added_by").prefetch_related("title__ratings")
     page_obj = Paginator(items_qs, LIST_PAGE_SIZE).get_page(1)
     items = list(page_obj.object_list)
     context = {
         "watchlist": watchlist,
+        "show_added_by": watchlist.editors.exists(),
         "can_edit": True,
         "can_reorder": True,
         "items": items,
@@ -4566,7 +4595,7 @@ def add_to_list(request, list_id):
     title = get_object_or_404(Title, pk=request.POST.get("title_id"))
     if not WatchListItem.objects.filter(watchlist=watchlist, title=title).exists():
         next_position = (WatchListItem.objects.filter(watchlist=watchlist).aggregate(Max("position"))["position__max"] or 0) + 1
-        WatchListItem.objects.create(watchlist=watchlist, title=title, position=next_position)
+        WatchListItem.objects.create(watchlist=watchlist, title=title, position=next_position, added_by=profile)
     hx_target = request.headers.get("HX-Target") or ""
     if hx_target == "recommendations-block":
         return render(request, "tracker/partials/dashboard_recommendations.html", _recommendations_context(profile))

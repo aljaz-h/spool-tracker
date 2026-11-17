@@ -886,8 +886,10 @@ class WrappedReport(models.Model):
 
 
 class WatchList(models.Model):
-    """A shared list is visible to every profile on the instance, but only
-    its creator may edit/delete it (spool-product-spec.md §5)."""
+    """A shared list is visible to every profile on the instance. Its creator
+    manages it (rename-level settings, sharing, tags, delete, editors) and may
+    pick other profiles as editors, who can add, remove and reorder its titles
+    (spool-product-spec.md §5)."""
 
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="watchlists")
     name = models.CharField(max_length=100)
@@ -914,6 +916,10 @@ class WatchList(models.Model):
     # overhead of a real M2M isn't worth it for what's fundamentally
     # small, per-list, creator-only free text.
     tags = models.JSONField(default=list, blank=True)
+    # Profiles, besides the creator, who may add/remove/reorder titles on this
+    # list. Only counts while the list is shared (an editor has to be able to
+    # see it); only the creator changes this set.
+    editors = models.ManyToManyField(Profile, related_name="editable_lists", blank=True)
 
     class Meta:
         ordering = ["name"]
@@ -921,8 +927,17 @@ class WatchList(models.Model):
     def __str__(self):
         return self.name
 
+    def can_manage(self, profile):
+        """The creator only: sharing, tags, delete, who the editors are."""
+        return profile is not None and self.profile_id == profile.id
+
     def can_edit(self, profile):
-        return self.profile_id == profile.id
+        """Titles: the creator, or an editor of a shared list."""
+        if profile is None:
+            return False
+        if self.profile_id == profile.id:
+            return True
+        return self.is_shared and self.editors.filter(pk=profile.pk).exists()
 
 
 class WatchListItem(models.Model):
@@ -934,6 +949,9 @@ class WatchListItem(models.Model):
     # added (views.add_to_list), so new titles land at the end instead of
     # colliding with 0.
     position = models.PositiveIntegerField(default=0)
+    # Who put it there ("Added by gider"); empty for items from before this
+    # existed, imports and automatic additions.
+    added_by = models.ForeignKey(Profile, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
 
     class Meta:
         ordering = ["position"]
