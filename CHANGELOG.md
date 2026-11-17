@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.194.0] - 2026-11-17
+
+### Added
+- Stats: compare two profiles side by side. A "Compare with" select (only profiles that share their activity; hidden when there are none) shows watch time, titles, shows finished, streak and top genres for both, plus genre bars and release-decade bars for both profiles on one chart each. Movie, TV and anime keep their media colours; the two profiles are white and grey. The taste compatibility score is unchanged.
+
+### Fixed
+- Badges of a profile that keeps its activity private are no longer shown to others (Badges page, badge detail, quick profile, member Stats), and a private profile's watches no longer feed other profiles' household badge counters.
+
 ## [0.193.0] - 2026-11-17
 
 ### Added

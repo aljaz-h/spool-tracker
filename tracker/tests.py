@@ -38174,3 +38174,53 @@ class StatsBadgeSummaryPrivacyTests(TestCase):
         other.save()
         resp = self.client.get(reverse("member_stats", args=[other.pk]))
         self.assertTrue(resp.context["badge_summary"]["badges_shown"])
+
+
+class StatsCompareTests(TestCase):
+    def setUp(self):
+        self.me = Profile.objects.create(user=User.objects.create_user("cmp_me", password="pass12345"), display_name="Me")
+        self.buddy = Profile.objects.create(user=User.objects.create_user("cmp_b", password="pass12345"), display_name="Buddy")
+        self.private = Profile.objects.create(
+            user=User.objects.create_user("cmp_p", password="pass12345"), display_name="Hidden One", share_activity=False
+        )
+        action = Genre.objects.create(name="Action")
+        for profile, year in ((self.me, 1995), (self.buddy, 2015)):
+            movie = Title.objects.create(media_type=MediaType.MOVIE, name=f"M{year}", year=year, runtime_minutes=100)
+            movie.genres.add(action)
+            WatchEvent.objects.create(profile=profile, title=movie, watched_at=timezone.now())
+        self.client.login(username="cmp_me", password="pass12345")
+
+    def test_select_lists_only_profiles_that_share_their_activity(self):
+        resp = self.client.get(reverse("stats"))
+        self.assertContains(resp, 'id="compare-select"')
+        self.assertContains(resp, f'value="{self.buddy.pk}"')
+        self.assertNotContains(resp, f'value="{self.private.pk}"')
+
+    def test_select_is_hidden_when_nobody_shares(self):
+        self.buddy.share_activity = False
+        self.buddy.save()
+        resp = self.client.get(reverse("stats"))
+        self.assertNotContains(resp, 'id="compare-select"')
+
+    def test_comparison_shows_figures_and_both_charts(self):
+        resp = self.client.get(reverse("stats"), {"compare": self.buddy.pk})
+        self.assertContains(resp, "Release decades")
+        self.assertContains(resp, "Shows finished")
+        compare = resp.context["compare"]
+        self.assertEqual([g["label"] for g in compare["genres"]], ["Action"])
+        self.assertEqual([d["label"] for d in compare["decades"]], ["90s", "10s"])
+        self.assertContains(resp, "Taste Compatibility")
+
+    def test_a_private_profile_cannot_be_compared(self):
+        resp = self.client.get(reverse("stats"), {"compare": self.private.pk})
+        self.assertIsNone(resp.context["compare"])
+        self.assertIsNone(self.client.get(reverse("stats"), {"compare": "abc"}).context["compare"])
+        self.assertIsNone(self.client.get(reverse("stats"), {"compare": self.me.pk}).context["compare"])
+
+    def test_badges_of_a_private_history_stay_private(self):
+        from tracker import badges
+
+        self.assertTrue(badges.visible_to(self.me, self.me))
+        self.assertTrue(badges.visible_to(self.me, self.buddy))
+        self.assertFalse(badges.visible_to(self.me, self.private))
+        self.assertEqual(self.client.get(reverse("badge_detail", args=["first_watch"]), {"profile": self.private.pk}).status_code, 404)

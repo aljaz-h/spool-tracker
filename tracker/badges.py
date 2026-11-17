@@ -382,7 +382,7 @@ class Counts:
         """Other profiles' watches of the titles this profile watched."""
         ids = {r.title_id for r in self.rows}
         raw = (
-            WatchEvent.objects.filter(title_id__in=ids)
+            WatchEvent.objects.filter(title_id__in=ids, profile__share_activity=True)
             .exclude(profile=self.profile)
             .values_list("title_id", "title__media_type", "watched_at", "user_rating")
         )
@@ -467,6 +467,13 @@ class RebuildResult:
     level_before: int
     level_after: int
     silent: bool
+
+
+def visible_to(viewer, target):
+    """May `viewer` see `target`'s badge data? Always their own; someone else's
+    only when they show their badges and share their activity (the badges are
+    derived from the watch history, so a private history keeps them private)."""
+    return viewer.pk == target.pk or (target.show_badges and target.share_activity)
 
 
 def mark_stale(profile_id):
@@ -688,7 +695,7 @@ def badge_detail(profile, key):
     if not card["masked"]:
         for pk, tier in ProfileBadgeTier.objects.filter(badge_key=key).values_list("profile_id", "tier"):
             by_profile[pk] = max(by_profile[pk], tier)
-        for other in Profile.objects.filter(pk__in=by_profile, show_badges=True).order_by("display_name"):
+        for other in Profile.objects.filter(pk__in=by_profile, show_badges=True, share_activity=True).order_by("display_name"):
             members.append({"profile": other, "tier": by_profile[other.pk]})
         members.sort(key=lambda m: (-m["tier"], m["profile"].display_name.lower()))
     viewer_tiers = max(earned, default=0)
@@ -784,7 +791,7 @@ def popup_context(viewer, target):
     """The quick profile's badge section: the level, its progress block, the
     pinned badges and the count. Nothing for someone who keeps badges private
     (the viewer's own always shows)."""
-    if viewer.pk != target.pk and not target.show_badges:
+    if not visible_to(viewer, target):
         return {"badges_shown": False}
     ensure_fresh(target)
     info = level_info(target.badge_xp)

@@ -69,7 +69,7 @@ def badges_page(request):
         flt = "all"
     if sort not in dict(SORTS):
         sort = "progress"
-    hidden = target.pk != me.pk and not target.show_badges
+    hidden = not badges.visible_to(me, target)
     data = None if hidden else badges.profile_cards(target)
     if data:
         key = _sort_key(sort)
@@ -126,7 +126,7 @@ def _detail_response(request, me, target, key):
 def badge_detail(request, key):
     me = _me(request)
     target = _target(request, me)
-    if target.pk != me.pk and not target.show_badges:
+    if not badges.visible_to(me, target):
         raise Http404
     return _detail_response(request, me, target, key)
 

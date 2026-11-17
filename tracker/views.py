@@ -4715,6 +4715,39 @@ def _resolve_stats_profile(request, profile_id):
     return target, is_own
 
 
+def _stats_compare_context(request, profile):
+    """The Compare section: who `profile` can be compared with (only profiles
+    that share their activity) and, when ?compare=<id> names one of them, the
+    side-by-side data. An id that is not in that list (private, unknown, the
+    profile itself, not a number) is ignored as if nothing was chosen."""
+    candidates = selectors.compare_candidates(profile)
+    context = {"compare_candidates": candidates, "compare": None}
+    raw = request.GET.get("compare", "")
+    chosen = next((c for c in candidates if str(c.pk) == raw), None)
+    if chosen is None:
+        return context
+    compare = selectors.compare_profiles(profile, chosen)
+    a, b = compare["a"], compare["b"]
+    context["compare"] = compare
+    context["compare_sides"] = (a, b)
+    context["compare_rows"] = [
+        {"label": "Watch time", "a": a["watch_time"], "b": b["watch_time"]},
+        {"label": "Titles", "a": a["titles"]["total"], "b": b["titles"]["total"]},
+        {"label": "Shows finished", "a": a["shows_finished"], "b": b["shows_finished"]},
+        {
+            "label": "Streak",
+            "a": f"{a['streak']} days", "a_note": f"Record {a['longest_streak']} days",
+            "b": f"{b['streak']} days", "b_note": f"Record {b['longest_streak']} days",
+        },
+        {
+            "label": "Top genres",
+            "a": ", ".join(a["top_genres"]) or "None yet",
+            "b": ", ".join(b["top_genres"]) or "None yet",
+        },
+    ]
+    return context
+
+
 @login_required
 def stats(request, profile_id=None):
     profile, is_own_stats = _resolve_stats_profile(request, profile_id)
@@ -4750,7 +4783,8 @@ def stats(request, profile_id=None):
         top_peak_bucket = max(context["peak_hours"], key=lambda b: b["count"])
         context["peak_hours_prime"] = top_peak_bucket if top_peak_bucket["count"] else None
 
-        context["badge_summary"] = badges.popup_context(profile, profile) if is_own_stats or profile.show_badges else {"badges_shown": False}
+        context["badge_summary"] = badges.popup_context(profile if is_own_stats else Profile.objects.filter(user=request.user).first(), profile)
+        context.update(_stats_compare_context(request, profile))
         if is_own_stats:
             other_profiles = Profile.objects.exclude(pk=profile.pk).order_by("display_name")
             compatibility = selectors.taste_compatibility_many(profile, other_profiles)

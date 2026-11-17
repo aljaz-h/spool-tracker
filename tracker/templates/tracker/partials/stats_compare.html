@@ -1,0 +1,102 @@
+{% load tracker_extras %}
+{# Stats → Compare. context: profile, compare_candidates (profiles that share), compare (selectors.compare_profiles result or None), compare_rows, compare_sides, genre_type, genre_metric. #}
+{% if compare_candidates %}
+  <section class="section" aria-labelledby="compare-title">
+    <div class="section-head">
+      <div>
+        <h2 id="compare-title" class="section-title">Compare</h2>
+        <p class="text-xs text-ink-faint mt-1">Put {% if is_own_stats %}your{% else %}{{ profile.display_name }}&rsquo;s{% endif %} stats next to another profile&rsquo;s.</p>
+      </div>
+      <form method="get" class="flex items-center gap-2">
+        <input type="hidden" name="genre_type" value="{{ genre_type }}">
+        <input type="hidden" name="genre_metric" value="{{ genre_metric }}">
+        <label for="compare-select" class="text-sm text-ink-dim">Compare with</label>
+        <select id="compare-select" name="compare" class="select select-sm bg-base-200 border-line min-w-0 max-w-[10rem]" onchange="this.form.submit()">
+          <option value="">Choose a profile</option>
+          {% for c in compare_candidates %}
+            <option value="{{ c.pk }}"{% if compare and compare.b.profile.pk == c.pk %} selected{% endif %}>{{ c.display_name }}</option>
+          {% endfor %}
+        </select>
+        <noscript><button type="submit" class="btn btn-sm btn-soft">Compare</button></noscript>
+      </form>
+    </div>
+
+    {% if compare %}
+      <div class="flex items-center gap-5 text-[13px] text-ink-dim mb-5">
+        <span class="inline-flex items-center gap-2"><span class="w-3 h-3 rounded-sm" style="background:var(--color-base-content)"></span>{{ compare.a.profile.display_name }}</span>
+        <span class="inline-flex items-center gap-2"><span class="w-3 h-3 rounded-sm" style="background:var(--color-ink-faint)"></span>{{ compare.b.profile.display_name }}</span>
+      </div>
+
+      <dl class="grid grid-cols-1 gap-y-5">
+        {% for row in compare_rows %}
+          <div>
+            <dt class="text-[13px] text-ink-dim mb-2">{{ row.label }}</dt>
+            <dd class="grid grid-cols-2 gap-x-4">
+              <div class="min-w-0"><span class="figure !text-[1.5rem] break-words">{{ row.a }}</span>{% if row.a_note %}<div class="text-[12.5px] text-ink-faint">{{ row.a_note }}</div>{% endif %}</div>
+              <div class="min-w-0"><span class="figure !text-[1.5rem] !text-ink-dim break-words">{{ row.b }}</span>{% if row.b_note %}<div class="text-[12.5px] text-ink-faint">{{ row.b_note }}</div>{% endif %}</div>
+            </dd>
+          </div>
+        {% endfor %}
+        <div>
+          <dt class="text-[13px] text-ink-dim mb-2">Titles by type</dt>
+          <dd class="grid grid-cols-2 gap-x-4">
+            {% for side in compare_sides %}
+              <div class="min-w-0">
+                {% if side.titles.total %}
+                  <div class="flex h-2.5 rounded-full overflow-hidden bg-base-300" role="img" aria-label="{{ side.profile.display_name }}: {{ side.titles.movie }} movies, {{ side.titles.tv }} TV shows, {{ side.titles.anime }} anime">
+                    <span style="width:{% widthratio side.titles.movie side.titles.total 100 %}%; background:var(--color-movie)"></span>
+                    <span style="width:{% widthratio side.titles.tv side.titles.total 100 %}%; background:var(--color-tv)"></span>
+                    <span style="width:{% widthratio side.titles.anime side.titles.total 100 %}%; background:var(--color-anime)"></span>
+                  </div>
+                  <div class="text-[12.5px] text-ink-faint mt-1.5">{{ side.titles.movie }} movies, {{ side.titles.tv }} TV, {{ side.titles.anime }} anime</div>
+                {% else %}<div class="text-[12.5px] text-ink-faint">Nothing watched yet</div>{% endif %}
+              </div>
+            {% endfor %}
+          </dd>
+        </div>
+      </dl>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-8 mt-8">
+        <div class="min-w-0">
+          <h3 class="section-title !text-base mb-1">Genres</h3>
+          <p class="text-xs text-ink-faint mb-4">Share of each profile&rsquo;s own watching</p>
+          {% if compare.genres %}
+            <ul class="flex flex-col gap-3">
+              {% for g in compare.genres %}
+                <li class="min-w-0">
+                  <div class="text-[13px] mb-1 truncate">{{ g.label }}</div>
+                  <div class="flex flex-col gap-1">
+                    <div class="flex items-center gap-2"><div class="h-2 rounded-full spool-tooltip" tabindex="0" aria-label="{{ compare.a.profile.display_name }}: {{ g.a_pct }}% of genre watches" data-tooltip="{{ compare.a.profile.display_name }}: {{ g.a }} watched" style="width:{{ g.a_pct }}%; min-width:{% if g.a %}3px{% else %}0{% endif %}; background:var(--color-base-content)"></div><span class="text-[12px] text-ink-dim tabular-nums">{{ g.a_pct }}%</span></div>
+                    <div class="flex items-center gap-2"><div class="h-2 rounded-full spool-tooltip" tabindex="0" aria-label="{{ compare.b.profile.display_name }}: {{ g.b_pct }}% of genre watches" data-tooltip="{{ compare.b.profile.display_name }}: {{ g.b }} watched" style="width:{{ g.b_pct }}%; min-width:{% if g.b %}3px{% else %}0{% endif %}; background:var(--color-ink-faint)"></div><span class="text-[12px] text-ink-dim tabular-nums">{{ g.b_pct }}%</span></div>
+                  </div>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="text-sm text-ink-dim">No genre history to compare yet.</p>
+          {% endif %}
+        </div>
+
+        <div class="min-w-0">
+          <h3 class="section-title !text-base mb-1">Release decades</h3>
+          <p class="text-xs text-ink-faint mb-4">Share of each profile&rsquo;s own titles</p>
+          {% if compare.decades %}
+            <div class="flex items-end justify-between gap-1.5 h-[160px]">
+              {% for d in compare.decades %}
+                <div class="flex flex-col items-center justify-end flex-1 min-w-0 h-full">
+                  <div class="flex items-end justify-center gap-[2px] w-full flex-1">
+                    <div class="w-full max-w-[12px] rounded-t spool-tooltip" tabindex="0" aria-label="{{ d.label }}, {{ compare.a.profile.display_name }}: {{ d.a }} title{{ d.a|pluralize }}" data-tooltip="{{ compare.a.profile.display_name }}: {{ d.a }} title{{ d.a|pluralize }}" style="height:{{ d.a_pct }}%; min-height:{% if d.a %}3px{% else %}0{% endif %}; background:var(--color-base-content)"></div>
+                    <div class="w-full max-w-[12px] rounded-t spool-tooltip" tabindex="0" aria-label="{{ d.label }}, {{ compare.b.profile.display_name }}: {{ d.b }} title{{ d.b|pluralize }}" data-tooltip="{{ compare.b.profile.display_name }}: {{ d.b }} title{{ d.b|pluralize }}" style="height:{{ d.b_pct }}%; min-height:{% if d.b %}3px{% else %}0{% endif %}; background:var(--color-ink-faint)"></div>
+                  </div>
+                  <div class="text-[12px] text-ink-faint mt-1.5">{{ d.label }}</div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <p class="text-sm text-ink-dim">No release-year data to compare yet.</p>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+  </section>
+{% endif %}

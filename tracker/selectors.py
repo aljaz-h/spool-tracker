@@ -3456,3 +3456,73 @@ def person_in_progress_details(profile, action_context):
             "pct": min(100, round(100 * seen / total)) if total else 0,
         }
     return details
+
+
+def compare_candidates(profile):
+    """Profiles Stats can compare `profile` with: everyone else who shares
+    their activity (Settings → Privacy), alphabetically."""
+    return list(Profile.objects.filter(share_activity=True).exclude(pk=profile.pk).order_by("display_name"))
+
+
+def _titles_by_type(profile):
+    rows = (
+        Title.objects.filter(watch_events__profile=profile)
+        .values("media_type")
+        .annotate(n=Count("id", distinct=True))
+        .order_by()
+    )
+    counts = {row["media_type"]: row["n"] for row in rows}
+    movie, tv, anime = (counts.get(t, 0) for t in (MediaType.MOVIE, MediaType.TV, MediaType.ANIME))
+    return {"movie": movie, "tv": tv, "anime": anime, "total": movie + tv + anime}
+
+
+def _compare_side(profile, genre_counts):
+    overview = stats_overview(profile)
+    titles = _titles_by_type(profile)
+    genre_total = sum(genre_counts.values())
+    years = release_year_breakdown(profile)
+    decades = {d["label"]: d["count"] for d in years["decades"]} if years else {}
+    return {
+        "profile": profile,
+        "watch_time": overview["total_watch_hours_display"],
+        "watch_minutes": overview["total_watch_hours"],
+        "titles": titles,
+        "shows_finished": overview["shows_completed"],
+        "streak": overview["current_streak"],
+        "longest_streak": overview["longest_streak"],
+        "top_genres": [g for g, _ in sorted(genre_counts.items(), key=lambda kv: -kv[1])[:3]],
+        "genre_counts": genre_counts,
+        "genre_total": genre_total,
+        "decades": decades,
+        "decade_total": sum(decades.values()),
+    }
+
+
+def _bar_pair(label, a_count, a_total, b_count, b_total):
+    a_pct = round(a_count / a_total * 100) if a_total else 0
+    b_pct = round(b_count / b_total * 100) if b_total else 0
+    return {"label": label, "a": a_count, "b": b_count, "a_pct": a_pct, "b_pct": b_pct}
+
+
+def compare_profiles(profile_a, profile_b, genre_limit=8):
+    """Side-by-side figures and two paired charts (genres, release decades) for
+    two profiles. The bars are each profile's own share of its own history, so a
+    big library doesn't flatten a small one; the raw counts ride along for the
+    tooltips. Callers check `share_activity` first (compare_candidates)."""
+    counts = _genre_counts_by_profile([profile_a, profile_b])
+    a = _compare_side(profile_a, counts[profile_a.id])
+    b = _compare_side(profile_b, counts[profile_b.id])
+    combined = {}
+    for side in (a, b):
+        for genre, n in side["genre_counts"].items():
+            combined[genre] = combined.get(genre, 0) + n
+    genres = [
+        _bar_pair(g, a["genre_counts"].get(g, 0), a["genre_total"], b["genre_counts"].get(g, 0), b["genre_total"])
+        for g in sorted(combined, key=lambda g: -combined[g])[:genre_limit]
+    ]
+    decade_labels = sorted(set(a["decades"]) | set(b["decades"]), key=lambda lbl: int(lbl[:2]) + (100 if int(lbl[:2]) < 30 else 0))
+    decades = [
+        _bar_pair(lbl, a["decades"].get(lbl, 0), a["decade_total"], b["decades"].get(lbl, 0), b["decade_total"])
+        for lbl in decade_labels
+    ]
+    return {"a": a, "b": b, "genres": genres, "decades": decades}
