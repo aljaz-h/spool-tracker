@@ -136,6 +136,9 @@
   --color-medal-blue: #5b8fd9;
   --color-medal-white: #f2f3f5;
   --color-medal-amber: #e8a63c;
+  /* Compare: the first profile is white, the one it is compared with grey. */
+  --color-compare-a: #f2f3f5;
+  --color-compare-b: #8a8fa0;
 
   --color-imdb: #f5c518;
   --color-rt: #fa5a3d;
@@ -5762,5 +5765,80 @@ html[data-theme] {
     border-radius: var(--radius-xl);
     background: var(--color-base-300);
     box-shadow: 0 8px 24px rgb(var(--shadow-rgb) / 0.5);
+  }
+}
+
+/* Stats -> Compare: a head-to-head with hairlines, no cards. */
+@layer components {
+  .cmp-a { background: var(--color-compare-a); }
+  .cmp-b { background: var(--color-compare-b); }
+  .cmp-key {
+    display: inline-block;
+    flex: none;
+    width: 0.875rem;
+    height: 0.375rem;
+    border-radius: 9999px;
+  }
+  .cmp-key-sq {
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 3px;
+  }
+  .cmp-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    padding: 0 0.875rem 0 0.5rem;
+    border: 1px solid var(--color-line);
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    color: var(--color-base-content);
+  }
+  .cmp-pill-button {
+    cursor: pointer;
+    padding-right: 0.75rem;
+  }
+  .cmp-pill-button:hover {
+    background: color-mix(in oklab, var(--color-base-content) 5%, transparent);
+  }
+  .cmp-track {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 0.375rem;
+    border-radius: 9999px;
+    background: var(--color-line);
+  }
+  .cmp-track-mirror {
+    justify-content: flex-end;
+  }
+  .cmp-fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+  }
+  .cmp-val {
+    flex: none;
+    min-width: 9rem;
+    font-size: 1.5rem;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+  }
+  .cmp-val-sm {
+    min-width: 2.5rem;
+    font-size: 0.8125rem;
+  }
+  .cmp-val-m {
+    min-width: 5.5rem;
+    font-size: 0.9375rem;
+  }
+  .cmp-val.is-lead {
+    color: var(--color-base-content);
+    font-weight: 700;
+  }
+  .cmp-val.is-trail {
+    color: var(--color-ink-dim);
+    font-weight: 500;
   }
 }

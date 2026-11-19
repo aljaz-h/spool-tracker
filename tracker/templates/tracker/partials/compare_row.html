@@ -1,0 +1,25 @@
+{# One head-to-head / genre row. context: row ({label, a_label, b_label, a_w, b_w, leader}), small (True for the genre rows). Desktop: the first profile's value and bar, the label in a centre column between hairlines, the second profile's bar and value (bars grow outward from the label). Phone: the label, then the two bars one under the other. The higher value is bold white, the lower dimmed. #}
+<div class="hidden md:grid {% if small %}md:grid-cols-[minmax(0,1fr)_9rem_minmax(0,1fr)]{% else %}md:grid-cols-[minmax(0,1fr)_9.5rem_minmax(0,1fr)]{% endif %} items-stretch border-b border-line last:border-b-0">
+  <div class="flex items-center gap-4 {% if small %}py-3 pr-5{% else %}py-4 pr-6{% endif %}">
+    <span class="cmp-val {% if small %}cmp-val-sm{% endif %} {% if row.leader == 'b' %}is-trail{% else %}is-lead{% endif %}">{{ row.a_label }}</span>
+    <span class="cmp-track cmp-track-mirror" aria-hidden="true"><span class="cmp-fill cmp-a" style="width: {{ row.a_w }}%"></span></span>
+  </div>
+  <div class="flex items-center justify-center text-center px-2 border-x border-line text-[13px] font-medium {% if row.leader == 'tie' %}text-ink-dim{% else %}text-ink-dim{% endif %}">{{ row.label }}</div>
+  <div class="flex items-center gap-4 {% if small %}py-3 pl-5{% else %}py-4 pl-6{% endif %}">
+    <span class="cmp-track" aria-hidden="true"><span class="cmp-fill cmp-b" style="width: {{ row.b_w }}%"></span></span>
+    <span class="cmp-val {% if small %}cmp-val-sm{% endif %} text-right {% if row.leader == 'a' %}is-trail{% else %}is-lead{% endif %}">{{ row.b_label }}</span>
+  </div>
+</div>
+<div class="md:hidden py-4 border-b border-line last:border-b-0">
+  <div class="text-[13px] text-ink-dim mb-2.5">{{ row.label }}</div>
+  <div class="flex flex-col gap-2.5">
+    <div class="flex items-center gap-3">
+      <span class="cmp-track" aria-hidden="true"><span class="cmp-fill cmp-a" style="width: {{ row.a_w }}%"></span></span>
+      <span class="cmp-val cmp-val-m text-right {% if row.leader == 'b' %}is-trail{% else %}is-lead{% endif %}">{{ row.a_label }}</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <span class="cmp-track" aria-hidden="true"><span class="cmp-fill cmp-b" style="width: {{ row.b_w }}%"></span></span>
+      <span class="cmp-val cmp-val-m text-right {% if row.leader == 'a' %}is-trail{% else %}is-lead{% endif %}">{{ row.b_label }}</span>
+    </div>
+  </div>
+</div>

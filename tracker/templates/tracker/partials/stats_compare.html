@@ -1,102 +1,173 @@
-{% load tracker_extras %}
-{# Stats → Compare. context: profile, compare_candidates (profiles that share), compare (selectors.compare_profiles result or None), compare_rows, compare_sides, genre_type, genre_metric. #}
-{% if compare_candidates %}
-  <section class="section" aria-labelledby="compare-title">
-    <div class="section-head">
-      <div>
-        <h2 id="compare-title" class="section-title">Compare</h2>
-        <p class="text-xs text-ink-faint mt-1">Put {% if is_own_stats %}your{% else %}{{ profile.display_name }}&rsquo;s{% endif %} stats next to another profile&rsquo;s.</p>
-      </div>
-      <form method="get" class="flex items-center gap-2">
-        <input type="hidden" name="genre_type" value="{{ genre_type }}">
-        <input type="hidden" name="genre_metric" value="{{ genre_metric }}">
-        <label for="compare-select" class="text-sm text-ink-dim">Compare with</label>
-        <select id="compare-select" name="compare" class="select select-sm bg-base-200 border-line min-w-0 max-w-[10rem]" onchange="this.form.submit()">
-          <option value="">Choose a profile</option>
-          {% for c in compare_candidates %}
-            <option value="{{ c.pk }}"{% if compare and compare.b.profile.pk == c.pk %} selected{% endif %}>{{ c.display_name }}</option>
+{% load tracker_extras icons badges_ui %}
+{# Stats -> Compare, a head-to-head. context: profile, compare_available, compare_sharing, compare_picker (rows), compare (selectors.compare_profiles or None), compare_rows, compare_match, level_a/level_b, genre_type, genre_metric, is_own_stats. Hairline dividers like the rest of Stats, no cards, no filled panels; the first profile is white, the compared one grey. #}
+{% if compare_available %}
+<section class="section" aria-labelledby="compare-title">
+  <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 pb-5 border-b border-line">
+    <div class="min-w-0">
+      <h2 id="compare-title" class="section-title">Compare</h2>
+      <p class="text-[13px] text-ink-dim mt-1">Put {% if is_own_stats %}your{% else %}{{ profile.display_name }}&rsquo;s{% endif %} stats next to another profile&rsquo;s.</p>
+    </div>
+    {% if compare_sharing %}
+      <div class="relative" x-data="{ open: false }" @keydown.escape.window="open = false" @click.outside="open = false">
+        <div class="flex items-center gap-2.5">
+          <span class="cmp-pill">{% include "tracker/partials/avatar.html" with profile=profile size="w-7 h-7" text="text-[12px]" %}<span class="font-semibold truncate max-w-[8rem]">{{ profile.display_name }}</span></span>
+          <span class="text-[13px] text-ink-dim">vs</span>
+          <button type="button" class="cmp-pill cmp-pill-button" aria-haspopup="listbox" :aria-expanded="open.toString()" @click="open = !open">
+            {% if compare %}{% include "tracker/partials/avatar.html" with profile=compare.b.profile size="w-7 h-7" text="text-[12px]" %}<span class="font-semibold truncate max-w-[8rem]">{{ compare.b.profile.display_name }}</span>{% else %}<span class="font-semibold">Choose a profile</span>{% endif %}
+            {% icon "chevron-down" "w-4 h-4 text-ink-dim" %}
+          </button>
+        </div>
+        <div x-show="open" x-cloak role="listbox" aria-label="Compare with" class="absolute right-0 top-full mt-2 w-[19rem] max-w-[calc(100vw-2rem)] menu-surface z-30 py-2">
+          {% for row in compare_picker %}
+            {% if row.shares %}
+              <a href="{{ row.url }}" role="option" aria-selected="{% if row.selected %}true{% else %}false{% endif %}" class="flex items-center gap-3 px-4 min-h-14 hover:bg-base-300">
+                {% include "tracker/partials/avatar.html" with profile=row.profile size="w-9 h-9" text="text-[14px]" %}
+                <span class="min-w-0 flex-1"><span class="block text-[14px] font-semibold truncate">{{ row.profile.display_name }}</span><span class="block text-[12.5px] text-ink-dim truncate">{{ row.subtitle }}</span></span>
+                {% if row.selected %}{% icon "check" "w-4 h-4" %}{% endif %}
+              </a>
+            {% else %}
+              <div role="option" aria-selected="false" aria-disabled="true" class="flex items-center gap-3 px-4 min-h-14 opacity-45 cursor-not-allowed">
+                {% include "tracker/partials/avatar.html" with profile=row.profile size="w-9 h-9" text="text-[14px]" %}
+                <span class="min-w-0 flex-1"><span class="block text-[14px] font-semibold truncate">{{ row.profile.display_name }}</span><span class="block text-[12.5px] truncate">{{ row.subtitle }}</span></span>
+              </div>
+            {% endif %}
           {% endfor %}
-        </select>
-        <noscript><button type="submit" class="btn btn-sm btn-soft">Compare</button></noscript>
-      </form>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  {% if not compare_sharing %}
+    <div class="py-12 flex flex-col items-center text-center">
+      <span class="text-ink-dim">{% icon "users" "w-8 h-8" %}</span>
+      <h3 class="mt-4 text-[17px] font-semibold">No one to compare with yet</h3>
+      <p class="mt-2 text-[14px] text-ink-dim max-w-sm">Compare shows up once another profile on this server shares its activity.</p>
+      <a href="{% url 'settings' %}?tab=account" class="btn btn-soft min-h-11 mt-5">Privacy settings</a>
+    </div>
+  {% elif not compare %}
+    <p class="py-8 text-[14px] text-ink-dim">Pick a profile to compare with.</p>
+  {% elif not compare.b.has_history %}
+    <div class="py-6 max-w-xl">
+      <div class="flex items-center gap-3">
+        {% include "tracker/partials/avatar.html" with profile=compare.b.profile size="w-12 h-12" text="text-lg" %}
+        <div class="min-w-0"><div class="text-[17px] font-semibold truncate">{{ compare.b.profile.display_name }}</div><div class="text-[13px] text-ink-dim">No activity yet</div></div>
+      </div>
+      <p class="mt-4 text-[14px] text-ink-dim leading-relaxed">{{ compare.b.profile.display_name }} has not watched anything yet, so there is nothing to compare. Your numbers show on their own until they do.</p>
+      <dl class="mt-5 border-t border-line">
+        <div class="flex items-baseline justify-between gap-4 py-3 border-b border-line"><dt class="text-[14px] text-ink-dim">Watch time</dt><dd class="text-xl font-bold tabular-nums">{{ compare.a.watch_time }}</dd></div>
+        <div class="flex items-baseline justify-between gap-4 py-3 border-b border-line"><dt class="text-[14px] text-ink-dim">Titles</dt><dd class="text-xl font-bold tabular-nums">{{ compare.a.titles_label }}</dd></div>
+      </dl>
+    </div>
+  {% else %}
+    {# Verdict: both profiles and the genre match between them. #}
+    <div class="grid grid-cols-[minmax(0,1fr)_7rem_minmax(0,1fr)] md:grid-cols-[minmax(0,1fr)_16rem_minmax(0,1fr)] md:divide-x divide-line py-6 border-b border-line items-center">
+      <div class="min-w-0 flex items-center gap-4 md:pr-6">
+        <span class="hidden md:block">{% include "tracker/partials/avatar.html" with profile=compare.a.profile size="w-24 h-24" text="text-3xl" %}</span>
+        <div class="min-w-0">
+          <div class="flex items-center gap-2 min-w-0"><span class="cmp-key cmp-a" aria-hidden="true"></span><span class="text-xl md:text-2xl font-bold truncate">{{ compare.a.profile.display_name }}</span></div>
+          {% if level_a %}<div class="flex items-center gap-2 mt-1 text-[13px] text-ink-dim">{% level_medal level_a.level "sm" %}<span><span class="max-md:hidden">Level {{ level_a.level }} &middot; </span>{{ level_a.name }}</span></div>{% endif %}
+        </div>
+      </div>
+      <div class="px-1 md:px-6 flex flex-col items-center text-center">
+        {% if compare_match %}
+          <div class="relative w-20 h-20 md:w-32 md:h-32" role="img" aria-label="{{ compare_match.overlap_pct }} percent genre match">
+            <svg viewBox="0 0 36 36" class="w-full h-full -rotate-90" aria-hidden="true">
+              <circle cx="18" cy="18" r="15.5" fill="none" stroke="var(--color-base-300)" stroke-width="3"></circle>
+              <circle cx="18" cy="18" r="15.5" fill="none" stroke="var(--color-compare-a)" stroke-width="3" stroke-linecap="round" stroke-dasharray="{% widthratio compare_match.overlap_pct 100 97 %} 100"></circle>
+            </svg>
+            <div class="absolute inset-0 flex flex-col items-center justify-center"><span class="text-base md:text-3xl font-bold tabular-nums leading-none">{{ compare_match.overlap_pct }}%</span><span class="text-[12px] text-ink-dim mt-1">match</span></div>
+          </div>
+          <div class="mt-2 text-[12.5px] text-ink-dim">Genre overlap{% if compare_match.top_shared_genre %} &middot; both love <b class="text-base-content font-semibold">{{ compare_match.top_shared_genre }}</b>{% endif %}</div>
+        {% else %}
+          <div class="text-[13px] text-ink-dim max-w-[12rem]">Not enough genre history to match yet.</div>
+        {% endif %}
+      </div>
+      <div class="min-w-0 flex items-center justify-end gap-4 md:pl-6 text-right">
+        <div class="min-w-0">
+          <div class="flex items-center justify-end gap-2 min-w-0"><span class="text-xl md:text-2xl font-bold truncate">{{ compare.b.profile.display_name }}</span><span class="cmp-key cmp-b" aria-hidden="true"></span></div>
+          {% if level_b %}<div class="flex items-center justify-end gap-2 mt-1 text-[13px] text-ink-dim"><span><span class="max-md:hidden">Level {{ level_b.level }} &middot; </span>{{ level_b.name }}</span>{% level_medal level_b.level "sm" %}</div>{% endif %}
+        </div>
+        <span class="hidden md:block">{% include "tracker/partials/avatar.html" with profile=compare.b.profile size="w-24 h-24" text="text-3xl" %}</span>
+      </div>
     </div>
 
-    {% if compare %}
-      <div class="flex items-center gap-5 text-[13px] text-ink-dim mb-5">
-        <span class="inline-flex items-center gap-2"><span class="w-3 h-3 rounded-sm" style="background:var(--color-base-content)"></span>{{ compare.a.profile.display_name }}</span>
-        <span class="inline-flex items-center gap-2"><span class="w-3 h-3 rounded-sm" style="background:var(--color-ink-faint)"></span>{{ compare.b.profile.display_name }}</span>
+    <div class="py-6 border-b border-line">
+      <h3 class="section-title !text-lg">Head to head</h3>
+      <p class="text-[12.5px] text-ink-dim mt-1 mb-4">The higher number is bold. Bars are scaled to the higher of the two.</p>
+      <div>{% for row in compare_rows %}{% include "tracker/partials/compare_row.html" with row=row %}{% endfor %}</div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:divide-x divide-line">
+      <div class="py-6 min-w-0 lg:pr-8">
+        <div class="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
+          <h3 class="section-title !text-lg">Genres</h3>
+          <p class="text-[12.5px] text-ink-dim">Share of each profile&rsquo;s own watching</p>
+        </div>
+        {% if compare.genres %}
+          <div>{% for row in compare.genres %}{% include "tracker/partials/compare_row.html" with row=row small=True %}{% endfor %}</div>
+        {% else %}
+          <p class="text-sm text-ink-dim">No genre history to compare yet.</p>
+        {% endif %}
       </div>
 
-      <dl class="grid grid-cols-1 gap-y-5">
-        {% for row in compare_rows %}
-          <div>
-            <dt class="text-[13px] text-ink-dim mb-2">{{ row.label }}</dt>
-            <dd class="grid grid-cols-2 gap-x-4">
-              <div class="min-w-0"><span class="figure !text-[1.5rem] break-words">{{ row.a }}</span>{% if row.a_note %}<div class="text-[12.5px] text-ink-faint">{{ row.a_note }}</div>{% endif %}</div>
-              <div class="min-w-0"><span class="figure !text-[1.5rem] !text-ink-dim break-words">{{ row.b }}</span>{% if row.b_note %}<div class="text-[12.5px] text-ink-faint">{{ row.b_note }}</div>{% endif %}</div>
-            </dd>
-          </div>
-        {% endfor %}
+      <div class="py-6 min-w-0 lg:pl-8 flex flex-col gap-8">
         <div>
-          <dt class="text-[13px] text-ink-dim mb-2">Titles by type</dt>
-          <dd class="grid grid-cols-2 gap-x-4">
+          <h3 class="section-title !text-lg mb-4">Titles by type</h3>
+          <div class="flex flex-col gap-5">
             {% for side in compare_sides %}
-              <div class="min-w-0">
+              <div>
+                <div class="flex items-baseline justify-between gap-3"><span class="text-[14px] font-semibold truncate">{{ side.profile.display_name }}</span><span class="text-[13px] text-ink-dim tabular-nums">{{ side.titles_label }} title{{ side.titles.total|pluralize }}</span></div>
                 {% if side.titles.total %}
-                  <div class="flex h-2.5 rounded-full overflow-hidden bg-base-300" role="img" aria-label="{{ side.profile.display_name }}: {{ side.titles.movie }} movies, {{ side.titles.tv }} TV shows, {{ side.titles.anime }} anime">
+                  <div class="flex h-2.5 rounded-full overflow-hidden bg-base-300 mt-2" role="img" aria-label="{{ side.profile.display_name }}: {{ side.titles.movie }} movies, {{ side.titles.tv }} TV shows, {{ side.titles.anime }} anime">
                     <span style="width:{% widthratio side.titles.movie side.titles.total 100 %}%; background:var(--color-movie)"></span>
                     <span style="width:{% widthratio side.titles.tv side.titles.total 100 %}%; background:var(--color-tv)"></span>
                     <span style="width:{% widthratio side.titles.anime side.titles.total 100 %}%; background:var(--color-anime)"></span>
                   </div>
-                  <div class="text-[12.5px] text-ink-faint mt-1.5">{{ side.titles.movie }} movies, {{ side.titles.tv }} TV, {{ side.titles.anime }} anime</div>
-                {% else %}<div class="text-[12.5px] text-ink-faint">Nothing watched yet</div>{% endif %}
+                  <div class="text-[12.5px] text-ink-dim mt-1.5">{{ side.titles.movie }} movie{{ side.titles.movie|pluralize }} &middot; {{ side.titles.tv }} TV &middot; {{ side.titles.anime }} anime</div>
+                {% endif %}
               </div>
             {% endfor %}
-          </dd>
-        </div>
-      </dl>
-
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-8 mt-8">
-        <div class="min-w-0">
-          <h3 class="section-title !text-base mb-1">Genres</h3>
-          <p class="text-xs text-ink-faint mb-4">Share of each profile&rsquo;s own watching</p>
-          {% if compare.genres %}
-            <ul class="flex flex-col gap-3">
-              {% for g in compare.genres %}
-                <li class="min-w-0">
-                  <div class="text-[13px] mb-1 truncate">{{ g.label }}</div>
-                  <div class="flex flex-col gap-1">
-                    <div class="flex items-center gap-2"><div class="h-2 rounded-full spool-tooltip" tabindex="0" aria-label="{{ compare.a.profile.display_name }}: {{ g.a_pct }}% of genre watches" data-tooltip="{{ compare.a.profile.display_name }}: {{ g.a }} watched" style="width:{{ g.a_pct }}%; min-width:{% if g.a %}3px{% else %}0{% endif %}; background:var(--color-base-content)"></div><span class="text-[12px] text-ink-dim tabular-nums">{{ g.a_pct }}%</span></div>
-                    <div class="flex items-center gap-2"><div class="h-2 rounded-full spool-tooltip" tabindex="0" aria-label="{{ compare.b.profile.display_name }}: {{ g.b_pct }}% of genre watches" data-tooltip="{{ compare.b.profile.display_name }}: {{ g.b }} watched" style="width:{{ g.b_pct }}%; min-width:{% if g.b %}3px{% else %}0{% endif %}; background:var(--color-ink-faint)"></div><span class="text-[12px] text-ink-dim tabular-nums">{{ g.b_pct }}%</span></div>
-                  </div>
-                </li>
-              {% endfor %}
-            </ul>
-          {% else %}
-            <p class="text-sm text-ink-dim">No genre history to compare yet.</p>
-          {% endif %}
+          </div>
+          <div class="flex items-center gap-4 mt-4 text-[12.5px] text-ink-dim">
+            <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-movie"></span>Movies</span>
+            <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-tv"></span>TV</span>
+            <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-anime"></span>Anime</span>
+          </div>
         </div>
 
-        <div class="min-w-0">
-          <h3 class="section-title !text-base mb-1">Release decades</h3>
-          <p class="text-xs text-ink-faint mb-4">Share of each profile&rsquo;s own titles</p>
+        <div class="border-t border-line pt-6">
+          <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
+            <h3 class="section-title !text-lg">Release decades</h3>
+            <div class="flex items-center gap-3 text-[12.5px] text-ink-dim">
+              <span class="inline-flex items-center gap-1.5"><span class="cmp-key cmp-key-sq cmp-a"></span>{{ compare.a.profile.display_name }}</span>
+              <span class="inline-flex items-center gap-1.5"><span class="cmp-key cmp-key-sq cmp-b"></span>{{ compare.b.profile.display_name }}</span>
+            </div>
+          </div>
           {% if compare.decades %}
-            <div class="flex items-end justify-between gap-1.5 h-[160px]">
+            <div class="flex items-end justify-between gap-1 sm:gap-2 h-[11rem] border-b border-line pt-6">
               {% for d in compare.decades %}
-                <div class="flex flex-col items-center justify-end flex-1 min-w-0 h-full">
-                  <div class="flex items-end justify-center gap-[2px] w-full flex-1">
-                    <div class="w-full max-w-[12px] rounded-t spool-tooltip" tabindex="0" aria-label="{{ d.label }}, {{ compare.a.profile.display_name }}: {{ d.a }} title{{ d.a|pluralize }}" data-tooltip="{{ compare.a.profile.display_name }}: {{ d.a }} title{{ d.a|pluralize }}" style="height:{{ d.a_pct }}%; min-height:{% if d.a %}3px{% else %}0{% endif %}; background:var(--color-base-content)"></div>
-                    <div class="w-full max-w-[12px] rounded-t spool-tooltip" tabindex="0" aria-label="{{ d.label }}, {{ compare.b.profile.display_name }}: {{ d.b }} title{{ d.b|pluralize }}" data-tooltip="{{ compare.b.profile.display_name }}: {{ d.b }} title{{ d.b|pluralize }}" style="height:{{ d.b_pct }}%; min-height:{% if d.b %}3px{% else %}0{% endif %}; background:var(--color-ink-faint)"></div>
+                <div class="flex-1 min-w-0 h-full flex items-end justify-center gap-[3px] sm:gap-1">
+                  <div class="h-full flex flex-col items-center justify-end flex-1 max-w-[1.5rem] spool-tooltip" tabindex="0" aria-label="{{ d.label }}, {{ compare.a.profile.display_name }}: {{ d.a_share|floatformat:"-1" }}% of titles ({{ d.a }})" data-tooltip="{{ compare.a.profile.display_name }}: {{ d.a_share|floatformat:"-1" }}% ({{ d.a }})">
+                    <span class="hidden sm:block font-mono text-[11px] text-ink-dim mb-1 whitespace-nowrap">{{ d.a_share|floatformat:"-1" }}</span>
+                    <span class="w-full rounded-t cmp-a" style="height: {{ d.a_h }}%"></span>
                   </div>
-                  <div class="text-[12px] text-ink-faint mt-1.5">{{ d.label }}</div>
+                  <div class="h-full flex flex-col items-center justify-end flex-1 max-w-[1.5rem] spool-tooltip" tabindex="0" aria-label="{{ d.label }}, {{ compare.b.profile.display_name }}: {{ d.b_share|floatformat:"-1" }}% of titles ({{ d.b }})" data-tooltip="{{ compare.b.profile.display_name }}: {{ d.b_share|floatformat:"-1" }}% ({{ d.b }})">
+                    <span class="hidden sm:block font-mono text-[11px] text-ink-dim mb-1 whitespace-nowrap">{{ d.b_share|floatformat:"-1" }}</span>
+                    <span class="w-full rounded-t cmp-b" style="height: {{ d.b_h }}%"></span>
+                  </div>
                 </div>
               {% endfor %}
             </div>
+            <div class="flex justify-between gap-1 sm:gap-2 mt-2">
+              {% for d in compare.decades %}<div class="flex-1 min-w-0 text-center text-[12.5px] text-ink-dim">{{ d.label }}</div>{% endfor %}
+            </div>
+            <p class="sm:hidden text-[12.5px] text-ink-dim mt-3">Share of each profile&rsquo;s own titles. Tap a decade for exact numbers.</p>
           {% else %}
             <p class="text-sm text-ink-dim">No release-year data to compare yet.</p>
           {% endif %}
         </div>
       </div>
-    {% endif %}
-  </section>
+    </div>
+  {% endif %}
+</section>
 {% endif %}

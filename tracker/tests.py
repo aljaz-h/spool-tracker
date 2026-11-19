@@ -38185,47 +38185,134 @@ class StatsCompareTests(TestCase):
         self.private = Profile.objects.create(
             user=User.objects.create_user("cmp_p", password="pass12345"), display_name="Hidden One", share_activity=False
         )
-        action = Genre.objects.create(name="Action")
-        for profile, year in ((self.me, 1995), (self.buddy, 2015)):
-            movie = Title.objects.create(media_type=MediaType.MOVIE, name=f"M{year}", year=year, runtime_minutes=100)
-            movie.genres.add(action)
-            WatchEvent.objects.create(profile=profile, title=movie, watched_at=timezone.now())
+        self.action = Genre.objects.create(name="Action")
+        self.drama = Genre.objects.create(name="Drama")
+        self.n = 0
         self.client.login(username="cmp_me", password="pass12345")
 
-    def test_select_lists_only_profiles_that_share_their_activity(self):
-        resp = self.client.get(reverse("stats"))
-        self.assertContains(resp, 'id="compare-select"')
-        self.assertContains(resp, f'value="{self.buddy.pk}"')
-        self.assertNotContains(resp, f'value="{self.private.pk}"')
+    def watch(self, profile, year, genre=None, media=MediaType.MOVIE):
+        self.n += 1
+        title = Title.objects.create(media_type=media, name=f"T{self.n}", year=year, runtime_minutes=100)
+        if genre:
+            title.genres.add(genre)
+        WatchEvent.objects.create(profile=profile, title=title, watched_at=timezone.now())
+        return title
 
-    def test_select_is_hidden_when_nobody_shares(self):
+    def compare(self, profile=None, **extra):
+        return self.client.get(reverse("stats"), {"compare": (profile or self.buddy).pk, **extra})
+
+    def test_picker_lists_everyone_but_only_sharing_profiles_can_be_picked(self):
+        resp = self.client.get(reverse("stats"))
+        picker = {row["profile"].display_name: row for row in resp.context["compare_picker"]}
+        self.assertEqual(set(picker), {"Buddy", "Hidden One"})
+        self.assertTrue(picker["Buddy"]["shares"])
+        self.assertFalse(picker["Hidden One"]["shares"])
+        self.assertEqual(picker["Hidden One"]["subtitle"], "Does not share activity")
+        html = resp.content.decode()
+        self.assertIn('aria-disabled="true"', html)
+        self.assertIn(f"?compare={self.buddy.pk}&amp;genre_type", html.replace("&amp;", "&amp;"))
+        self.assertNotIn(f"?compare={self.private.pk}", html)  # no link to it at all
+
+    def test_a_private_profile_cannot_be_compared_even_by_id(self):
+        resp = self.compare(self.private)
+        self.assertIsNone(resp.context["compare"])
+        for raw in ("abc", str(self.me.pk), "999999"):
+            self.assertIsNone(self.client.get(reverse("stats"), {"compare": raw}).context["compare"])
+
+    def test_nobody_sharing_shows_the_empty_state_and_no_charts(self):
         self.buddy.share_activity = False
         self.buddy.save()
         resp = self.client.get(reverse("stats"))
-        self.assertNotContains(resp, 'id="compare-select"')
+        self.assertContains(resp, "No one to compare with yet")
+        self.assertContains(resp, "Privacy settings")
+        self.assertNotContains(resp, "Head to head")
+        self.assertFalse(resp.context["compare_sharing"])
 
-    def test_comparison_shows_figures_and_both_charts(self):
-        resp = self.client.get(reverse("stats"), {"compare": self.buddy.pk})
-        self.assertContains(resp, "Release decades")
-        self.assertContains(resp, "Shows finished")
-        compare = resp.context["compare"]
-        self.assertEqual([g["label"] for g in compare["genres"]], ["Action"])
-        self.assertEqual([d["label"] for d in compare["decades"]], ["90s", "10s"])
-        self.assertContains(resp, "Taste Compatibility")
+    def test_the_section_is_hidden_when_there_is_no_other_profile_at_all(self):
+        Profile.objects.exclude(pk=self.me.pk).delete()
+        resp = self.client.get(reverse("stats"))
+        self.assertNotContains(resp, 'id="compare-title"')
 
-    def test_a_private_profile_cannot_be_compared(self):
-        resp = self.client.get(reverse("stats"), {"compare": self.private.pk})
-        self.assertIsNone(resp.context["compare"])
-        self.assertIsNone(self.client.get(reverse("stats"), {"compare": "abc"}).context["compare"])
-        self.assertIsNone(self.client.get(reverse("stats"), {"compare": self.me.pk}).context["compare"])
+    def test_a_profile_with_no_history_shows_only_your_numbers(self):
+        self.watch(self.me, 2010, self.action)
+        resp = self.compare()
+        self.assertContains(resp, "has not watched anything yet")
+        self.assertContains(resp, "Your numbers show on their own")
+        self.assertNotContains(resp, "Head to head")
 
-    def test_badges_of_a_private_history_stay_private(self):
-        from tracker import badges
+    def test_head_to_head_marks_the_leader_and_scales_bars_to_the_higher_value(self):
+        for year in (2010, 2012, 2014, 2016):
+            self.watch(self.me, year, self.action)
+        self.watch(self.buddy, 2011, self.drama)
+        resp = self.compare()
+        rows = {r["label"]: r for r in resp.context["compare_rows"]}
+        titles = rows["Titles"]
+        self.assertEqual((titles["leader"], titles["a_label"], titles["b_label"]), ("a", "4", "1"))
+        self.assertEqual(titles["a_w"], 100)
+        self.assertEqual(titles["b_w"], 25)
+        streak = rows["Current streak"]
+        self.assertEqual(streak["leader"], "tie") if streak["a_label"] == streak["b_label"] else None
+        self.assertContains(resp, "Head to head")
+        self.assertContains(resp, "The higher number is bold")
+        self.assertContains(resp, "is-lead")
+        self.assertContains(resp, "is-trail")
 
-        self.assertTrue(badges.visible_to(self.me, self.me))
-        self.assertTrue(badges.visible_to(self.me, self.buddy))
-        self.assertFalse(badges.visible_to(self.me, self.private))
-        self.assertEqual(self.client.get(reverse("badge_detail", args=["first_watch"]), {"profile": self.private.pk}).status_code, 404)
+    def test_a_small_value_still_gets_a_visible_bar_and_zero_gets_none(self):
+        from tracker import selectors as sel
+
+        row = sel._two_sided("X", 1000, 1, "1,000", "1")
+        self.assertEqual(row["b_w"], sel.COMPARE_MIN_BAR)
+        zero = sel._two_sided("X", 5, 0, "5", "0")
+        self.assertEqual((zero["a_w"], zero["b_w"], zero["leader"]), (100, 0, "a"))
+        tie = sel._two_sided("X", 3, 3, "3", "3")
+        self.assertEqual(tie["leader"], "tie")
+
+    def test_genres_share_one_scale_and_decades_group_everything_before_the_80s(self):
+        for year in (1955, 1972, 1985, 1995, 2005, 2015, 2024):
+            self.watch(self.me, year, self.action)
+        self.watch(self.buddy, 1990, self.drama)
+        self.watch(self.buddy, 2020, self.action)
+        compare = self.compare().context["compare"]
+        labels = [c["label"] for c in compare["decades"]]
+        self.assertEqual(labels, ["Earlier", "80s", "90s", "00s", "10s", "20s"])
+        earlier = compare["decades"][0]
+        self.assertEqual((earlier["a"], earlier["b"]), (2, 0))  # 1955 and 1972
+        self.assertEqual(earlier["a_share"], round(2 / 7 * 100, 1))
+        top = max(c[k] for c in compare["decades"] for k in ("a_h", "b_h"))
+        self.assertEqual(top, 100)  # one scale for every bar
+        genre_widths = [g["a_w"] for g in compare["genres"]] + [g["b_w"] for g in compare["genres"]]
+        self.assertEqual(max(genre_widths), 100)
+
+    def test_the_verdict_row_shows_the_match_and_the_levels(self):
+        self.watch(self.me, 2010, self.action)
+        self.watch(self.buddy, 2011, self.action)
+        self.me.badge_xp = 3553
+        self.me.badge_level_seen = 9
+        self.me.badges_stale = False
+        self.me.badges_checked_at = timezone.now()
+        self.me.save()
+        resp = self.compare()
+        self.assertEqual(resp.context["compare_match"]["overlap_pct"], 100)
+        self.assertContains(resp, "Genre overlap")
+        self.assertContains(resp, "both love")
+        self.assertContains(resp, "Grandmaster")
+        self.buddy.show_badges = False
+        self.buddy.save()
+        self.assertIsNone(self.compare().context["level_b"])  # their level stays private
+
+    def test_titles_by_type_and_no_cards_or_amber(self):
+        self.watch(self.me, 2010, self.action)
+        self.watch(self.buddy, 2011, self.drama, media=MediaType.TV)
+        html = self.compare().content.decode()
+        section = html[html.index('id="compare-title"'):]
+        section = section[: section.index("</section>")]
+        self.assertIn("Titles by type", section)
+        self.assertIn("Release decades", section)
+        self.assertNotIn('class="surface', section)  # no cards (the picker's dropdown is a menu, not a card)
+        self.assertNotIn(" surface ", section)
+        self.assertNotIn("text-primary", section)
+        self.assertNotIn("bg-primary", section)
+        self.assertIn("1 movie &middot;", section)
 
 
 class WetrakrConnectNewTabTests(TestCase):
@@ -38814,6 +38901,8 @@ class ScheduleStripTests(PlannerTestBase):
         evening = _dt.datetime.combine(local.date(), _dt.time(23, 0), tzinfo=self.tz)
         self.make_slot(movie, evening, 30)
         self.make_slot(show, evening + timedelta(minutes=35), 15)
+        self.plan.mode = "manual"  # nothing gets re-planned over the seeded slots, whatever the time of day
+        self.plan.save()
         self.client.login(username="planuser", password="pass12345")
         html = self.client.get(reverse("schedule_tonight")).content.decode()
         self.assertEqual(html.count('class="sch-bar'), 1)

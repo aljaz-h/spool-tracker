@@ -8,6 +8,12 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.200.0] - 2026-11-19
+
+### Changed
+- Stats, Compare is now a head-to-head in the Stats page style (hairline dividers, no cards, no filled panels). A picker "you vs <profile>" lists every other profile; only the ones that share their activity can be picked, the rest are greyed out. A verdict row shows both profiles with their level medal and the genre match ring ("92% match, both love Drama"). Head to head has watch time, titles, shows finished and current and longest streak as two-sided bars that grow outward from a centre label: the higher value is bold white, the lower is dimmed, and bars are scaled to the higher of the two. Genres use the same two-sided bars on one scale. Titles by type is one stacked bar per profile in the movie, TV and anime colours. Release decades are grouped columns on one shared scale with the share above each bar, with everything before the 80s grouped as "Earlier". You are white and the other profile grey; no amber. On a phone each metric stacks its label above two bars.
+- Empty states: "No one to compare with yet" with a link to Privacy settings when nobody shares their activity; only your own numbers with a short explanation when the compared profile has no history. The section is hidden when you are the only profile on the server.
+
 ## [0.199.1] - 2026-11-19
 
 ### Changed

@@ -4745,36 +4745,51 @@ def _resolve_stats_profile(request, profile_id):
     return target, is_own
 
 
-def _stats_compare_context(request, profile):
-    """The Compare section: who `profile` can be compared with (only profiles
-    that share their activity) and, when ?compare=<id> names one of them, the
-    side-by-side data. An id that is not in that list (private, unknown, the
-    profile itself, not a number) is ignored as if nothing was chosen."""
-    candidates = selectors.compare_candidates(profile)
-    context = {"compare_candidates": candidates, "compare": None}
+def _stats_compare_context(request, profile, viewer, genre_type, genre_metric):
+    """The Compare section. The picker lists every other profile (greyed out and
+    not pickable unless they share their activity); ?compare=<id> only takes
+    effect for one that does - a private, unknown, own or non-numeric id is
+    ignored as if nothing was chosen."""
+    from django.utils.timesince import timesince
+
+    others = selectors.compare_others(profile)
+    context = {"compare_available": bool(others), "compare_sharing": False, "compare_picker": [], "compare": None}
+    if not others:
+        return context
+    sharing = [p for p in others if p.share_activity]
+    context["compare_sharing"] = bool(sharing)
     raw = request.GET.get("compare", "")
-    chosen = next((c for c in candidates if str(c.pk) == raw), None)
+    chosen = next((p for p in sharing if str(p.pk) == raw), None)
+    query = f"genre_type={genre_type}&genre_metric={genre_metric}"
+    picker = []
+    for p in others:
+        if p.share_activity:
+            bits = []
+            if badges.visible_to(viewer, p):
+                bits.append(f"Level {badges.level_info(p.badge_xp).level}")
+            bits.append(f"Active {timesince(p.last_seen_at).split(',')[0].replace(chr(160), ' ')} ago" if p.last_seen_at else "No activity yet")
+            subtitle = " · ".join(bits)
+        else:
+            subtitle = "Does not share activity"
+        picker.append(
+            {
+                "profile": p,
+                "shares": p.share_activity,
+                "subtitle": subtitle,
+                "selected": chosen is not None and p.pk == chosen.pk,
+                "url": f"?compare={p.pk}&{query}",
+            }
+        )
+    context["compare_picker"] = picker
     if chosen is None:
         return context
     compare = selectors.compare_profiles(profile, chosen)
-    a, b = compare["a"], compare["b"]
     context["compare"] = compare
-    context["compare_sides"] = (a, b)
-    context["compare_rows"] = [
-        {"label": "Watch time", "a": a["watch_time"], "b": b["watch_time"]},
-        {"label": "Titles", "a": a["titles"]["total"], "b": b["titles"]["total"]},
-        {"label": "Shows finished", "a": a["shows_finished"], "b": b["shows_finished"]},
-        {
-            "label": "Streak",
-            "a": f"{a['streak']} days", "a_note": f"Record {a['longest_streak']} days",
-            "b": f"{b['streak']} days", "b_note": f"Record {b['longest_streak']} days",
-        },
-        {
-            "label": "Top genres",
-            "a": ", ".join(a["top_genres"]) or "None yet",
-            "b": ", ".join(b["top_genres"]) or "None yet",
-        },
-    ]
+    context["compare_sides"] = (compare["a"], compare["b"])
+    context["compare_rows"] = selectors.compare_rows(compare["a"], compare["b"])
+    context["compare_match"] = compare["match"]
+    context["level_a"] = badges.level_info(profile.badge_xp) if badges.visible_to(viewer, profile) else None
+    context["level_b"] = badges.level_info(chosen.badge_xp) if badges.visible_to(viewer, chosen) else None
     return context
 
 
@@ -4814,7 +4829,8 @@ def stats(request, profile_id=None):
         context["peak_hours_prime"] = top_peak_bucket if top_peak_bucket["count"] else None
 
         context["badge_summary"] = badges.popup_context(profile if is_own_stats else Profile.objects.filter(user=request.user).first(), profile)
-        context.update(_stats_compare_context(request, profile))
+        viewer = profile if is_own_stats else Profile.objects.filter(user=request.user).first()
+        context.update(_stats_compare_context(request, profile, viewer, genre_type, genre_metric))
         if is_own_stats:
             other_profiles = Profile.objects.exclude(pk=profile.pk).order_by("display_name")
             compatibility = selectors.taste_compatibility_many(profile, other_profiles)

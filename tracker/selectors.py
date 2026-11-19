@@ -3469,10 +3469,16 @@ def person_in_progress_details(profile, action_context):
     return details
 
 
+def compare_others(profile):
+    """Every other profile on the server, alphabetically - the picker lists them
+    all, greyed out when they do not share their activity."""
+    return list(Profile.objects.exclude(pk=profile.pk).order_by("display_name"))
+
+
 def compare_candidates(profile):
     """Profiles Stats can compare `profile` with: everyone else who shares
     their activity (Settings → Privacy), alphabetically."""
-    return list(Profile.objects.filter(share_activity=True).exclude(pk=profile.pk).order_by("display_name"))
+    return [p for p in compare_others(profile) if p.share_activity]
 
 
 def _titles_by_type(profile):
@@ -3496,8 +3502,10 @@ def _compare_side(profile, genre_counts):
     return {
         "profile": profile,
         "watch_time": overview["total_watch_hours_display"],
-        "watch_minutes": overview["total_watch_hours"],
+        "watch_hours": overview["total_watch_hours"],
         "titles": titles,
+        "titles_label": f"{titles['total']:,}",
+        "has_history": titles["total"] > 0,
         "shows_finished": overview["shows_completed"],
         "streak": overview["current_streak"],
         "longest_streak": overview["longest_streak"],
@@ -3509,17 +3517,96 @@ def _compare_side(profile, genre_counts):
     }
 
 
-def _bar_pair(label, a_count, a_total, b_count, b_total):
-    a_pct = round(a_count / a_total * 100) if a_total else 0
-    b_pct = round(b_count / b_total * 100) if b_total else 0
-    return {"label": label, "a": a_count, "b": b_count, "a_pct": a_pct, "b_pct": b_pct}
+# A bar never gets thinner than this (percent of its track) unless the value is 0.
+COMPARE_MIN_BAR = 3
+
+
+def _two_sided(label, a, b, a_label, b_label, top=None):
+    """One row of the head-to-head: both values, the bar widths (percent of the
+    track, scaled to the higher of the two - or to `top` when a whole table
+    shares one scale) and who leads."""
+    top = top if top is not None else max(a, b)
+
+    def width(value):
+        if value <= 0 or top <= 0:
+            return 0
+        return max(COMPARE_MIN_BAR, round(value / top * 100, 1))
+
+    return {
+        "label": label,
+        "a_label": a_label,
+        "b_label": b_label,
+        "a_w": width(a),
+        "b_w": width(b),
+        "leader": "a" if a > b else "b" if b > a else "tie",
+    }
+
+
+def _days(n):
+    return f"{n} day{'' if n == 1 else 's'}"
+
+
+def compare_rows(a, b):
+    """The head-to-head rows for two compare sides."""
+    return [
+        _two_sided("Watch time", a["watch_hours"], b["watch_hours"], a["watch_time"], b["watch_time"]),
+        _two_sided("Titles", a["titles"]["total"], b["titles"]["total"], a["titles_label"], b["titles_label"]),
+        _two_sided("Shows finished", a["shows_finished"], b["shows_finished"], f"{a['shows_finished']:,}", f"{b['shows_finished']:,}"),
+        _two_sided("Current streak", a["streak"], b["streak"], _days(a["streak"]), _days(b["streak"])),
+        _two_sided("Longest streak", a["longest_streak"], b["longest_streak"], _days(a["longest_streak"]), _days(b["longest_streak"])),
+    ]
+
+
+def _decade_year(label):
+    decade = int(label[:2])
+    return 2000 + decade if decade < 30 else 1900 + decade
+
+
+def _grouped_decades(decades):
+    """{"Earlier": n, 1980: n, 1990: n, ...}: everything before the 80s is one group."""
+    grouped = {}
+    for label, n in decades.items():
+        year = _decade_year(label)
+        key = "Earlier" if year < 1980 else year
+        grouped[key] = grouped.get(key, 0) + n
+    return grouped
+
+
+def _decade_columns(a, b):
+    """Grouped columns for the release-decades chart: each profile's share of its
+    own titles (one decimal), on one scale shared by every bar."""
+    ga, gb = _grouped_decades(a["decades"]), _grouped_decades(b["decades"])
+    years = sorted({k for k in (*ga, *gb) if k != "Earlier"})
+    keys = (["Earlier"] if ga.get("Earlier") or gb.get("Earlier") else []) + (
+        list(range(1980, years[-1] + 1, 10)) if years else []
+    )
+    a_total, b_total = a["decade_total"], b["decade_total"]
+
+    def share(n, total):
+        return round(n / total * 100, 1) if total else 0
+
+    columns = [
+        {
+            "label": key if key == "Earlier" else f"{key % 100:02d}s",
+            "a": ga.get(key, 0),
+            "b": gb.get(key, 0),
+            "a_share": share(ga.get(key, 0), a_total),
+            "b_share": share(gb.get(key, 0), b_total),
+        }
+        for key in keys
+    ]
+    top = max([c["a_share"] for c in columns] + [c["b_share"] for c in columns] + [0])
+    for c in columns:
+        c["a_h"] = max(2, round(c["a_share"] / top * 100, 1)) if c["a_share"] and top else 0
+        c["b_h"] = max(2, round(c["b_share"] / top * 100, 1)) if c["b_share"] and top else 0
+    return columns
 
 
 def compare_profiles(profile_a, profile_b, genre_limit=8):
-    """Side-by-side figures and two paired charts (genres, release decades) for
-    two profiles. The bars are each profile's own share of its own history, so a
-    big library doesn't flatten a small one; the raw counts ride along for the
-    tooltips. Callers check `share_activity` first (compare_candidates)."""
+    """Everything the Compare head-to-head draws for two profiles: both sides'
+    figures, the genre rows (each profile's share of its own watching, one scale
+    for the whole table), the release-decade columns and the genre match. Callers
+    check `share_activity` first (compare_candidates)."""
     counts = _genre_counts_by_profile([profile_a, profile_b])
     a = _compare_side(profile_a, counts[profile_a.id])
     b = _compare_side(profile_b, counts[profile_b.id])
@@ -3527,13 +3614,20 @@ def compare_profiles(profile_a, profile_b, genre_limit=8):
     for side in (a, b):
         for genre, n in side["genre_counts"].items():
             combined[genre] = combined.get(genre, 0) + n
+
+    def pct(side, genre):
+        return round(side["genre_counts"].get(genre, 0) / side["genre_total"] * 100) if side["genre_total"] else 0
+
+    names = sorted(combined, key=lambda g: -combined[g])[:genre_limit]
+    top = max([pct(a, g) for g in names] + [pct(b, g) for g in names] + [0])
     genres = [
-        _bar_pair(g, a["genre_counts"].get(g, 0), a["genre_total"], b["genre_counts"].get(g, 0), b["genre_total"])
-        for g in sorted(combined, key=lambda g: -combined[g])[:genre_limit]
+        _two_sided(g, pct(a, g), pct(b, g), f"{pct(a, g)}%", f"{pct(b, g)}%", top=top)
+        for g in names
     ]
-    decade_labels = sorted(set(a["decades"]) | set(b["decades"]), key=lambda lbl: int(lbl[:2]) + (100 if int(lbl[:2]) < 30 else 0))
-    decades = [
-        _bar_pair(lbl, a["decades"].get(lbl, 0), a["decade_total"], b["decades"].get(lbl, 0), b["decade_total"])
-        for lbl in decade_labels
-    ]
-    return {"a": a, "b": b, "genres": genres, "decades": decades}
+    return {
+        "a": a,
+        "b": b,
+        "genres": genres,
+        "decades": _decade_columns(a, b),
+        "match": taste_compatibility(profile_a, profile_b),
+    }
