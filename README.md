@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  Track what your household watches — movies, TV, and anime — on your own
+  Track what your household watches - movies, TV, and anime - on your own
   server, not someone else's. A self-hosted Trakt/Simkl/WeTrakr
   alternative: Django + Postgres + Redis/Celery, server-rendered with HTMX,
   shipped as a five-container Docker Compose stack you can be running in
@@ -17,26 +17,26 @@
 </p>
 
 > **Why not just use Trakt or Simkl?** Your watch history stays on your
-> own server instead of a third party's — no account limits, no ads, no
+> own server instead of a third party's - no account limits, no ads, no
 > paywalled features, and multiple household members can share one
 > instance without separate paid accounts each.
 
 ## Screenshots
 
 Every screenshot below is a real render of the app against seeded demo
-data (`manage.py seed_demo`) — nothing mocked up.
+data (`manage.py seed_demo`) - nothing mocked up.
 
 |  |  |
 |---|---|
-| ![Dashboard](docs/images/screenshots/dashboard.png) Dashboard — streak, up next, watching, watchlist | ![Movies & TV](docs/images/screenshots/discover.png) Movies & TV — trending/popular/upcoming/top rated, live from TMDB |
-| ![Title detail](docs/images/screenshots/title-detail.png) Title detail — cast, lists, recommend-to-a-housemate | ![Stats](docs/images/screenshots/stats.png) Stats — streaks, genre breakdown, watch time |
-| ![History](docs/images/screenshots/history.png) History — every play, day-grouped, filterable | ![Activity](docs/images/screenshots/activity.png) Activity — household feed and leaderboard |
+| ![Dashboard](docs/images/screenshots/dashboard.png) Dashboard - streak, up next, watching, watchlist | ![Movies & TV](docs/images/screenshots/discover.png) Movies & TV - trending/popular/upcoming/top rated, live from TMDB |
+| ![Title detail](docs/images/screenshots/title-detail.png) Title detail - cast, lists, recommend-to-a-housemate | ![Stats](docs/images/screenshots/stats.png) Stats - streaks, genre breakdown, watch time |
+| ![History](docs/images/screenshots/history.png) History - every play, day-grouped, filterable | ![Activity](docs/images/screenshots/activity.png) Activity - household feed and leaderboard |
 
-<p align="center"><img src="docs/images/screenshots/calendar.png" alt="Calendar" width="720"><br>Calendar — episodes, season premieres, and movie releases from what you're watching and your watchlists</p>
+<p align="center"><img src="docs/images/screenshots/calendar.png" alt="Calendar" width="720"><br>Calendar - episodes, season premieres, and movie releases from what you're watching and your watchlists</p>
 
 |  |  |
 |---|---|
-| ![Lists](docs/images/screenshots/lists.png) Lists — shared and private, plus "Surprise me" | ![Automatic backups](docs/images/screenshots/backups.png) Automatic backups — to a server folder, WebDAV, Google Drive, or Dropbox |
+| ![Lists](docs/images/screenshots/lists.png) Lists - shared and private, plus "Surprise me" | ![Automatic backups](docs/images/screenshots/backups.png) Automatic backups - to a server folder, WebDAV, Google Drive, or Dropbox |
 
 A household member can each get their own profile, watch history, lists,
 and stats on one instance. History can be logged manually, imported from
@@ -51,13 +51,13 @@ account.
 - Calendar of upcoming episodes/season premieres/movie releases, synced nightly from TMDB for anything you're watching, have watchlisted, or have watch history for
 - Shared and private lists (shared lists are creator-only for edit/delete)
 - Stats: watch streaks, genre breakdown, year breakdown, activity heatmap, achievement badges, taste compatibility with other profiles
-- Recommend a title to a housemate — including an anonymous "mystery" recommendation
-- Anime enrichment via MyAnimeList (score, studio, source, filler/recap episode badges) and automatic season-numbering reconciliation against TMDB — no separate account or API key needed
+- Recommend a title to a housemate - including an anonymous "mystery" recommendation
+- Anime enrichment via MyAnimeList (score, studio, source, filler/recap episode badges) and automatic season-numbering reconciliation against TMDB - no separate account or API key needed
 - Activity feed across profiles (only shown once a second profile exists)
 - Per-title activity timeline: your plays grouped into sittings (a one-night binge by time of day, a slow watch on a proportional axis, a movie's rewatches over the years), plus a Household view of who else has watched it and how far they are - only profiles that share their activity appear
 - Import Review: CSV/JSON/ZIP file import (with column-mapping) and a first Trakt/Simkl/WeTrakr/Nuvio connection both scan and stage what they'd bring in - filterable, selectable, nothing written until you confirm
 - Trakt / Simkl / WeTrakr OAuth connect, Nuvio email/password connect, + a daily background sync job - a large first WeTrakr import that outlasts the free plan's daily quota pauses and resumes automatically, never gets stuck or fails
-- [Automatic backups](docs/BACKUPS.md) per profile, on a schedule, to WebDAV (Nextcloud/NAS), Google Drive, or Dropbox — plus a one-off full export/import
+- [Automatic backups](docs/BACKUPS.md) per profile, on a schedule, to WebDAV (Nextcloud/NAS), Google Drive, or Dropbox - plus a one-off full export/import
 - A generic [Scrobble API](docs/SCROBBLE_API.md) for any player/script, and a read-only [Reports API](docs/REPORTS_API.md) for external services like spool-wrapped
 - [Push notifications](docs/NOTIFICATIONS.md) to Discord/Slack/Telegram/Pushover/Teams/Webex via Apprise, self-service per profile, mirroring a subset of the in-app bell
 
@@ -66,7 +66,7 @@ account.
 ```bash
 git clone https://github.com/aljaz-h/spool-tracker.git
 cd spool-tracker
-./setup.sh          # or .\setup.ps1 on Windows — writes a working .env and brings the stack up
+./setup.sh          # or .\setup.ps1 on Windows - writes a working .env and brings the stack up
 ```
 
 Already running other Docker Compose stacks and don't want to clone the
@@ -92,6 +92,6 @@ instead.
 | 📝 **[Changelog](CHANGELOG.md)** | What shipped in each version. |
 
 Bug reports and feature requests are welcome as
-[GitHub issues](https://github.com/aljaz-h/spool-tracker/issues) — see
+[GitHub issues](https://github.com/aljaz-h/spool-tracker/issues) - see
 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community guidelines and
 [SECURITY.md](SECURITY.md) for reporting a vulnerability.
