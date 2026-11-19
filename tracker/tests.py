@@ -34768,19 +34768,19 @@ class NoPointlessScrollTests(PlannerTestBase):
         # half a label (about 6px) below the last line must still be inside the grid
         self.assertGreaterEqual(week["grid_height"] - hours[-1]["top"], _planner.GRID_PAD)
 
-    def test_the_card_is_filled_by_the_whole_day_and_opens_on_the_free_time(self):
+    def test_the_grid_is_trimmed_to_the_planned_window_and_opens_on_the_free_time(self):
         week = _planner.week_context(self.profile, self.plan, _dt.date(2026, 10, 26), 7, self.now)
-        self.assertEqual([h["hour"] for h in week["hours"]], list(range(7, 25)))  # morning to midnight
-        # 19:00-22:30 is what the card should open on
-        self.assertEqual(week["focus_top"], round(12 * _planner.PIXELS_PER_HOUR + _planner.GRID_PAD))
-        self.assertEqual(week["focus_bottom"], round(15.5 * _planner.PIXELS_PER_HOUR + _planner.GRID_PAD))
+        # 19:00-22:30 free: two hours of lead-in before it, then on to midnight
+        self.assertEqual([h["hour"] for h in week["hours"]], list(range(17, 25)))
+        self.assertEqual(week["focus_top"], round(2 * _planner.PIXELS_PER_HOUR + _planner.GRID_PAD))
+        self.assertEqual(week["focus_bottom"], round(5.5 * _planner.PIXELS_PER_HOUR + _planner.GRID_PAD))
 
     def test_something_planned_in_the_small_hours_pulls_the_day_start_earlier(self):
         movie = self.add_movie("Late", 90)
         start = _dt.datetime(2026, 10, 27, 2, 0, tzinfo=self.tz)
         _ScheduledSlot.objects.create(profile=self.profile, title=movie, start=start, end=start + timedelta(minutes=90))
         week = _planner.week_context(self.profile, self.plan, _dt.date(2026, 10, 26), 7, self.now)
-        self.assertEqual(week["hours"][0]["hour"], 1)
+        self.assertEqual(week["hours"][0]["hour"], 0)
 
     def test_the_scroller_is_laid_over_a_card_that_matches_the_sidebar_and_draws_no_scrollbar(self):
         css = (Path(django_settings.BASE_DIR) / "static" / "src" / "app.css").read_text(encoding="utf-8")
@@ -34789,10 +34789,11 @@ class NoPointlessScrollTests(PlannerTestBase):
         self.assertIn("position: absolute", scroll)
         self.assertIn("scrollbar-width: none", scroll)
         self.assertNotIn("max-height", scroll)
-        self.assertIn("min-height: 34rem", css[css.index(".sch-fill {"):])
+        # The box is as tall as the trimmed grid plus its day header (--sch-h is set on it).
+        self.assertIn("height: calc(var(--sch-h", css[css.index(".sch-fill {"):])
         self.client.login(username="planuser", password="pass12345")
         body = self.client.get(reverse("schedule_pane")).content.decode()
-        self.assertIn("items-stretch", body)  # the card stretches to the sidebar's height
+        self.assertIn("items-stretch", body)  # the columns still stretch to each other
         self.assertIn('class="sch-fill"', body)
 
     def test_slots_tall_enough_get_a_poster(self):
@@ -38769,3 +38770,63 @@ class ActivityListAddLinksTests(TestCase):
         url = reverse("title_detail", args=[single.pk])
         self.assertGreaterEqual(html.count(f'href="{url}"'), 2)  # the poster and the name
         self.assertIn(f'aria-label="Lucky"', html)
+
+
+class ScheduleStripTests(PlannerTestBase):
+    def make_slot(self, title, start, minutes, status="planned"):
+        return _ScheduledSlot.objects.create(
+            profile=self.profile, title=title, start=start, end=start + timedelta(minutes=minutes), status=status
+        )
+
+    def test_the_strip_shows_real_tonight_and_week_figures_and_no_cards(self):
+        from django.utils import timezone as _tz
+
+        now = _tz.now()
+        local = now.astimezone(self.tz)
+        movie, other = self.add_movie("Heat", 100), self.add_movie("Alien", 90)
+        evening = _dt.datetime.combine(local.date(), _dt.time(23, 0), tzinfo=self.tz)
+        self.make_slot(movie, evening, 40)
+        self.make_slot(other, evening + timedelta(minutes=45), 10)
+        monday = local.date() - timedelta(days=local.weekday())
+        self.make_slot(movie, _dt.datetime.combine(monday, _dt.time(8, 0), tzinfo=self.tz), 60, status="moved")
+        self.client.login(username="planuser", password="pass12345")
+        self.plan.free_days = [0, 1, 2, 3, 4, 5, 6]
+        self.plan.mode = "manual"  # nothing else gets planned on top of the seeded slots
+        self.plan.save()
+        resp = self.client.get(reverse("schedule_pane"), {"days": "7"})
+        summary = resp.context["summary"]
+        self.assertEqual(summary["tonight"]["titles"], 2)
+        self.assertEqual(summary["tonight"]["planned"], "50m")
+        self.assertEqual(summary["week"]["moved"], 1)
+        self.assertEqual(summary["week"]["slots"], summary["week"]["on_track"] + 1)
+        html = resp.content.decode()
+        for text in ("Planned tonight", "Finish line", "This week", "Watch sync", "Plan settings"):
+            self.assertIn(text, html)
+        self.assertEqual(html.count("Finish line"), 1)  # once, in the strip, not again in the rail
+        self.assertNotIn("surface", html)  # hairlines, not cards
+        self.assertNotIn("text-primary", html)  # amber only on Apply, toggles, focus, nav
+
+    def test_the_tonight_bar_has_one_segment_per_planned_slot(self):
+        from django.utils import timezone as _tz
+
+        local = _tz.now().astimezone(self.tz)
+        movie, show = self.add_movie("Heat", 100), self.add_movie("Alien", 90)
+        evening = _dt.datetime.combine(local.date(), _dt.time(23, 0), tzinfo=self.tz)
+        self.make_slot(movie, evening, 30)
+        self.make_slot(show, evening + timedelta(minutes=35), 15)
+        self.client.login(username="planuser", password="pass12345")
+        html = self.client.get(reverse("schedule_tonight")).content.decode()
+        self.assertEqual(html.count('class="sch-bar'), 1)
+        self.assertEqual(html.count('data-kind="movie" style="width:'), 2)  # both are movies here
+
+
+class HeroTopTenTests(TestCase):
+    def test_the_hero_goes_through_the_top_ten_titles_that_have_a_backdrop(self):
+        from tracker.integrations import tmdb as tmdb_api
+
+        results = [{"tmdb_id": i, "name": f"T{i}", "backdrop_url": f"http://x/{i}.jpg"} for i in range(1, 21)]
+        results.insert(2, {"tmdb_id": 99, "name": "No backdrop", "backdrop_url": ""})
+        with patch("tracker.integrations.tmdb.discover", return_value={"results": results}),                 patch("tracker.integrations.tmdb._list_request", return_value={}),                 patch("tracker.integrations.tmdb.get_directors", return_value=[]),                 patch("tracker.integrations.tmdb.get_trailer", return_value=None):
+            hero = tmdb_api.hero_titles("movie", api_key="k")
+        self.assertEqual(tmdb_api.HERO_TITLES, 10)
+        self.assertEqual([h["tmdb_id"] for h in hero], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])  # trending order, 99 skipped

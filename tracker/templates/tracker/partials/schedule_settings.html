@@ -20,7 +20,7 @@
   {% include "tracker/partials/schedule_fields.html" %}
 
   <div class="flex items-center gap-3">
-    <button type="submit" class="btn btn-primary btn-sm">{% if variant == "sidebar" %}Apply{% else %}Save{% endif %}</button>
+    <button type="submit" class="btn btn-primary btn-sm min-h-11 px-5">{% if variant == "sidebar" %}Apply{% else %}Save{% endif %}</button>
     <span class="text-[12.5px] text-ink-dim" x-show="changed" x-cloak>Not applied yet</span>
   </div>
 </form>

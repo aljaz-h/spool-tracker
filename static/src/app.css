@@ -1982,48 +1982,57 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 }
 
 /* Calendar -> My schedule (tracker/planner.py, partials/schedule_*.html).
-   The week is a CSS grid whose columns share the width (min 5.25rem each),
-   so seven days fit without a sideways scrollbar; .sch-scroll only
-   scrolls sideways when the screen is narrower than that, and always
-   vertically, for the hours. Slot positions are pixel offsets computed
-   server-side from the shown hour range. */
+   Same look as Stats: no cards, thin hairlines, white Public Sans figures,
+   neutral selected states (amber is only the Apply button, toggles that are
+   on, focus rings and the nav underline). The week is a CSS grid whose
+   columns share the width (min 5.25rem each), so seven days fit without a
+   sideways scrollbar; .sch-scroll only scrolls sideways when the screen is
+   narrower than that, and always vertically, for the hours. Slot positions
+   are pixel offsets computed server-side from the shown hour range. */
 @layer components {
   .sch-eyebrow {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 600;
-    color: var(--color-ink-faint);
+    color: var(--color-ink-dim);
   }
   .sch-heading {
-    font-family: var(--font-brand);
     font-size: 1.5rem;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
-    line-height: 1.1;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    color: var(--color-base-content);
+  }
+  .sch-block-title {
+    font-size: 1.125rem;
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--color-base-content);
   }
   .sch-big {
-    font-family: var(--font-brand);
-    font-size: 2.6rem;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
-    line-height: 1;
-    color: var(--color-primary);
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-base-content);
   }
-  /* The timeline fills the card, and the card is as tall as the sidebar
-     beside it (the pane grid stretches it): .sch-fill only asks for a
-     phone-sized minimum itself, the scroller inside is laid over it, so
-     the whole day can be there without making the card taller. The hours
-     outside the free time are a scroll away, with no scrollbar drawn. */
+  /* The timeline fills the column, which is as tall as the rail beside it
+     (the pane grid stretches it): .sch-fill only asks for a phone-sized
+     minimum itself, the scroller inside is laid over it, so the whole day
+     can be there without making the page taller. The hours outside the
+     free time are a scroll away, with no scrollbar drawn. */
   .sch-fill {
     position: relative;
-    flex: 1 1 auto;
-    min-height: 34rem;
+    flex: 0 0 auto;
+    /* the trimmed grid plus its sticky day header */
+    height: calc(var(--sch-h, 30rem) + 6.75rem);
+    max-height: 48rem;
   }
   .sch-scroll {
     position: absolute;
     inset: 0;
     overflow: auto;
-    border-radius: var(--radius-xl);
-    background: var(--color-base-100);
+    background: transparent;
     scrollbar-width: none;
   }
   .sch-scroll::-webkit-scrollbar {
@@ -2042,33 +2051,51 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     top: 0;
     z-index: 4;
     background: var(--color-base-100);
+    border-bottom: 1px solid var(--color-line);
   }
   .sch-day {
-    padding: 0.5rem 0.5rem 0.4rem;
+    padding: 0.5rem 0.5rem 0.5rem;
     min-width: 0;
+    border-left: 1px solid var(--color-line);
   }
   .sch-day-name {
-    font-size: 0.625rem;
+    font-size: 0.6875rem;
     font-weight: 600;
     color: var(--color-ink-faint);
   }
   .sch-day-num {
-    font-family: var(--font-brand);
-    font-size: 1.5rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.875rem;
+    height: 1.875rem;
+    margin-block: 0.125rem;
+    border-radius: 9999px;
+    font-size: 1.125rem;
+    font-weight: 700;
     font-variant-numeric: tabular-nums;
-    line-height: 1.1;
+    line-height: 1;
   }
   .sch-day-month {
     font-size: 0.75rem;
+    font-weight: 500;
     color: var(--color-ink-dim);
+    margin-left: 0.25rem;
   }
-  .sch-day.is-today .sch-day-name,
+  .sch-day.is-today .sch-day-name {
+    color: var(--color-base-content);
+  }
+  /* Today's date: a white filled circle with dark text. */
   .sch-day.is-today .sch-day-num {
-    color: var(--color-primary);
+    background: var(--color-base-content);
+    color: var(--color-base-100);
+  }
+  .sch-day.is-past {
+    opacity: 0.55;
   }
   .sch-day-window {
     font-family: var(--font-mono);
-    font-size: 0.625rem;
+    font-size: 0.6875rem;
     line-height: 1.3;
     color: var(--color-ink-dim);
   }
@@ -2083,32 +2110,34 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     right: 0.4rem;
     transform: translateY(-50%);
     font-family: var(--font-mono);
-    font-size: 0.625rem;
+    font-size: 0.6875rem;
     color: var(--color-ink-faint);
   }
   .sch-col {
     position: relative;
-    background: var(--color-base-200);
-    margin-left: 2px;
-    border-radius: 6px;
     min-width: 0;
+    border-left: 1px solid var(--color-line);
   }
+  /* Today's column is faintly lighter; days that are over are dimmed. */
   .sch-col.is-today {
-    background: color-mix(in oklab, var(--color-primary) 5%, var(--color-base-200));
+    background: color-mix(in oklab, var(--color-base-content) 4%, transparent);
+  }
+  .sch-col.is-past {
+    opacity: 0.55;
   }
   .sch-hour-line {
     position: absolute;
     left: 0;
     right: 0;
     height: 1px;
-    background: color-mix(in oklab, var(--color-base-content) 6%, transparent);
+    background: color-mix(in oklab, var(--color-base-content) 7%, transparent);
   }
+  /* The free window: a faint band. */
   .sch-window {
     position: absolute;
     left: 0;
     right: 0;
-    border-radius: 6px;
-    background: color-mix(in oklab, var(--color-base-300) 85%, transparent);
+    background: color-mix(in oklab, var(--color-base-content) 4%, transparent);
   }
   .sch-now {
     position: absolute;
@@ -2116,7 +2145,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     right: 0;
     height: 2px;
     z-index: 3;
-    background: var(--color-error);
+    background: var(--color-base-content);
   }
   .sch-slot {
     --sch-c: var(--color-ink-dim);
@@ -2124,11 +2153,10 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     left: 3px;
     right: 3px;
     z-index: 2;
-    padding: 0.3rem 0.4rem 0.3rem 0.5rem;
-    border-radius: 8px;
-    border-left: 3px solid var(--sch-c);
-    background: var(--color-base-300);
-    box-shadow: 0 1px 0 rgb(var(--shadow-rgb) / 0.25);
+    padding: 0.3rem 0.4rem;
+    border-radius: 4px;
+    border-top: 2px solid var(--sch-c);
+    background: color-mix(in oklab, var(--color-base-content) 6%, var(--color-base-100));
     overflow: hidden;
     font-size: 0.75rem;
     line-height: 1.25;
@@ -2137,7 +2165,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .sch-slot[data-kind="tv"] { --sch-c: var(--color-tv); }
   .sch-slot[data-kind="anime"] { --sch-c: var(--color-anime); }
   .sch-slot.is-next {
-    outline: 1.5px solid var(--sch-c);
+    outline: 1px solid color-mix(in oklab, var(--color-base-content) 55%, transparent);
     outline-offset: -1px;
   }
   .sch-slot.is-done {
@@ -2150,8 +2178,8 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     opacity: 0.6;
     background: repeating-linear-gradient(
       135deg,
-      var(--color-base-300) 0 6px,
-      color-mix(in oklab, var(--color-base-content) 6%, var(--color-base-300)) 6px 12px
+      var(--color-base-100) 0 6px,
+      color-mix(in oklab, var(--color-base-content) 6%, var(--color-base-100)) 6px 12px
     );
   }
   .sch-tag {
@@ -2173,7 +2201,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   }
   .sch-slot-meta {
     font-family: var(--font-mono);
-    font-size: 0.625rem;
+    font-size: 0.6875rem;
     color: var(--color-ink-dim);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2190,7 +2218,9 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .sch-slot:focus-within .sch-slot-actions {
     display: flex;
   }
+  /* The button is small inside a slot but its tap area is 44px (::after). */
   .sch-act {
+    position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -2201,23 +2231,28 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     color: var(--color-ink-dim);
     cursor: pointer;
   }
+  .sch-act::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 2.75rem;
+    height: 2.75rem;
+    transform: translate(-50%, -50%);
+  }
   .sch-act:hover {
     color: var(--color-base-content);
     background: color-mix(in oklab, var(--color-base-content) 12%, var(--color-base-100));
   }
+  /* Tonight: rows split by hairlines, no boxes. */
   .sch-tonight-row {
     --sch-c: var(--color-ink-dim);
     display: flex;
     align-items: center;
-    gap: 0.65rem;
-    padding: 0.55rem 0.6rem;
-    border-radius: 10px;
-    background: var(--color-base-300);
-    border-left: 3px solid var(--sch-c);
+    gap: 0.75rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--color-line);
   }
-  .sch-tonight-row[data-kind="movie"] { --sch-c: var(--color-movie); }
-  .sch-tonight-row[data-kind="tv"] { --sch-c: var(--color-tv); }
-  .sch-tonight-row[data-kind="anime"] { --sch-c: var(--color-anime); }
   .sch-tonight-row.is-done {
     opacity: 0.55;
   }
@@ -2228,17 +2263,17 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     flex: none;
     white-space: nowrap;
     font-family: var(--font-mono);
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     line-height: 1.35;
   }
   .sch-tonight-poster {
     position: relative;
-    width: 2.25rem;
+    width: 2.5rem;
     flex: none;
     aspect-ratio: 2 / 3;
-    border-radius: 5px;
+    border-radius: 4px;
     overflow: hidden;
-    background: var(--color-base-100);
+    background: var(--color-base-200);
   }
   .sch-tonight-poster img {
     position: absolute;
@@ -2247,12 +2282,41 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     height: 100%;
     object-fit: cover;
   }
+  /* The two row buttons are real 44px squares. */
+  .sch-tonight-row .sch-act {
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--color-line);
+    background: color-mix(in oklab, var(--color-base-content) 5%, var(--color-base-100));
+  }
+  .sch-tonight-row .sch-act::after {
+    display: none;
+  }
+  /* The thin segmented bar: each planned slot's share of the free window,
+     in its media colour. */
+  .sch-bar {
+    display: flex;
+    gap: 2px;
+    height: 4px;
+    border-radius: 2px;
+    overflow: hidden;
+    background: var(--color-line);
+  }
+  .sch-bar span {
+    display: block;
+    height: 100%;
+    background: var(--color-ink-dim);
+  }
+  .sch-bar span[data-kind="movie"] { background: var(--color-movie); }
+  .sch-bar span[data-kind="tv"] { background: var(--color-tv); }
+  .sch-bar span[data-kind="anime"] { background: var(--color-anime); }
   .sch-open {
     padding: 0.7rem 0.75rem;
-    border-radius: 10px;
+    border-radius: 6px;
     text-align: center;
     font-family: var(--font-mono);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     line-height: 1.45;
     color: var(--color-ink-faint);
     background: repeating-linear-gradient(
@@ -2261,53 +2325,73 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
       color-mix(in oklab, var(--color-base-content) 4%, transparent) 6px 12px
     );
   }
+  /* Chips (Pull from, Who's watching): neutral raised grey with a check when on. */
   .sch-pill-face {
     display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
-    height: 1.7rem;
-    padding: 0 0.65rem;
+    gap: 0.4rem;
+    min-height: 2.75rem;
+    padding: 0 1rem;
     border-radius: 999px;
-    font-size: 0.75rem;
+    font-size: 0.8125rem;
     font-weight: 500;
-    background: var(--color-base-300);
+    border: 1px solid var(--color-line);
+    background: transparent;
     color: var(--color-ink-dim);
   }
   .sch-pill-count {
     font-family: var(--font-mono);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--color-ink-faint);
   }
   .sch-pill:hover .sch-pill-face {
     color: var(--color-base-content);
   }
   .sch-pill input:checked + .sch-pill-face {
-    background: color-mix(in oklab, var(--color-primary) 16%, transparent);
-    color: var(--color-primary);
+    background: var(--color-selected);
+    border-color: transparent;
+    color: var(--color-white);
+  }
+  .sch-pill input:checked + .sch-pill-face::before {
+    content: "\2713";
+    font-weight: 700;
+  }
+  .sch-pill input:checked + .sch-pill-face .sch-pill-count {
+    color: var(--color-ink-dim);
+  }
+  .sch-pill input:focus-visible + .sch-pill-face,
+  .sch-daybox-input:focus-visible + .sch-daybox {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
   }
   .sch-daybox {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 2rem;
-    height: 2rem;
+    width: 100%;
+    height: 2.75rem;
     border-radius: 8px;
-    font-size: 0.75rem;
+    font-size: 0.8125rem;
     font-weight: 600;
-    background: var(--color-base-300);
-    color: var(--color-ink-faint);
+    background: color-mix(in oklab, var(--color-base-content) 5%, var(--color-base-100));
+    color: var(--color-ink-dim);
   }
   input:checked + .sch-daybox {
-    background: color-mix(in oklab, var(--color-primary) 16%, transparent);
-    color: var(--color-primary);
+    background: var(--color-selected);
+    color: var(--color-white);
+  }
+  input:focus-visible + .sch-daybox {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
   }
   .sch-time {
-    height: 2rem;
-    padding: 0 0.5rem;
+    height: 2.75rem;
+    padding: 0 0.625rem;
     border-radius: 8px;
-    background: var(--color-base-300);
+    border: 1px solid var(--color-line);
+    background: transparent;
     font-family: var(--font-mono);
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     color: var(--color-base-content);
     color-scheme: dark;
   }
@@ -2353,7 +2437,6 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     align-items: flex-start;
     justify-content: center;
     padding-top: 6rem;
-    border-radius: var(--radius-2xl);
     background: color-mix(in oklab, var(--color-base-100) 62%, transparent);
     cursor: progress;
   }
@@ -2380,17 +2463,18 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     gap: 0.2rem;
     height: 100%;
     padding: 0.8rem 0.9rem;
-    border-radius: 12px;
-    background: var(--color-base-300);
-    outline: 2px solid transparent;
-    outline-offset: -2px;
+    min-height: 2.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--color-line);
+    background: transparent;
   }
   .sch-mode:hover .sch-mode-face {
-    background: color-mix(in oklab, var(--color-base-content) 6%, var(--color-base-300));
+    background: color-mix(in oklab, var(--color-base-content) 5%, transparent);
   }
   .sch-mode input:checked + .sch-mode-face {
-    outline-color: var(--color-primary);
-    background: color-mix(in oklab, var(--color-primary) 8%, var(--color-base-300));
+    border-color: transparent;
+    background: var(--color-selected);
+    color: var(--color-white);
   }
 }
 

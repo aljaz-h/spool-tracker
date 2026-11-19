@@ -1,13 +1,18 @@
 {% load icons tracker_extras %}
-{# context: plan, tonight (dict or None), time_format_str, target ("pane" re-renders the whole schedule pane, "tonight" just this card - the Dashboard). #}
+{# context: plan, tonight (dict or None), time_format_str, target ("pane" re-renders the whole schedule pane, "tonight" just this block - the Dashboard). No card: the caller supplies the surroundings. #}
 <div id="schedule-tonight-body">
   {% if tonight %}
     <div class="sch-eyebrow">{{ tonight.day|date:"l j M" }}</div>
-    <div class="sch-big">{% if tonight.is_today %}Tonight{% elif tonight.is_tomorrow %}Tomorrow{% else %}{{ tonight.day|date:"l" }}{% endif %}</div>
-    <div class="text-[12px] text-ink-dim mt-1">
-      {% if tonight.window %}{{ tonight.window.0|time:time_format_str }} to {{ tonight.window.1|time:time_format_str }} free{% if tonight.planned_label %}, {{ tonight.planned_label }} planned{% endif %}{% elif tonight.planned_label %}{{ tonight.planned_label }} planned{% endif %}
+    <div class="sch-big mt-1">{% if tonight.is_today %}Tonight{% elif tonight.is_tomorrow %}Tomorrow{% else %}{{ tonight.day|date:"l" }}{% endif %}</div>
+    <div class="text-[12.5px] text-ink-dim mt-1.5">
+      {% if tonight.window %}{{ tonight.window.0|time:time_format_str }} to {{ tonight.window.1|time:time_format_str }} free{% if tonight.planned_label %} &middot; {{ tonight.planned_label }} planned{% endif %}{% elif tonight.planned_label %}{{ tonight.planned_label }} planned{% endif %}
     </div>
-    <div class="flex flex-col gap-2 mt-3.5">
+    {% if tonight.bar %}
+      <div class="sch-bar mt-3" role="img" aria-label="{{ tonight.planned_label }} planned">
+        {% for seg in tonight.bar %}<span data-kind="{{ seg.kind }}" style="width: {{ seg.pct }}%"></span>{% endfor %}
+      </div>
+    {% endif %}
+    <div class="flex flex-col mt-2">
       {% for slot in tonight.slots %}
         <div class="sch-tonight-row {% if slot.status == 'done' %}is-done{% endif %}" data-kind="{{ slot.kind }}">
           <div class="sch-tonight-times">
@@ -19,41 +24,42 @@
           </a>
           <div class="min-w-0 flex-1">
             <a href="{% url 'title_detail' slot.title.pk %}" class="block text-[14px] font-semibold truncate hover:text-white {% if slot.status == 'done' %}line-through{% endif %}">{{ slot.title.name }}</a>
-            <div class="flex items-center gap-1.5 mt-1 text-[11.5px] text-ink-dim">
-              <span class="chip chip-{{ slot.kind }}">{% if slot.kind == "movie" %}Movie{% elif slot.kind == "anime" %}Anime{% else %}TV{% endif %}</span>
+            <div class="flex items-center gap-1.5 mt-1 text-[12px] text-ink-dim">
+              <span class="w-2 h-2 rounded-full flex-none bg-{{ slot.kind }}" title="{% if slot.kind == 'movie' %}Movie{% elif slot.kind == 'anime' %}Anime{% else %}TV{% endif %}"></span>
+              <span class="sr-only">{% if slot.kind == "movie" %}Movie{% elif slot.kind == "anime" %}Anime{% else %}TV{% endif %}</span>
               <span class="font-mono truncate">{{ slot.label }}</span>
             </div>
           </div>
           {% if slot.status == "done" %}
-            <span class="text-success flex-none" title="Watched">{% icon "check" "w-4 h-4" %}</span>
+            <span class="text-success flex-none px-2" title="Watched">{% icon "check" "w-4 h-4" %}</span>
           {% else %}
             <div class="flex flex-col gap-1 flex-none">
               <button type="button" class="sch-act is-static" title="Mark as watched" aria-label="Mark {{ slot.title.name }} as watched"
                 hx-post="{% url 'schedule_slot_action' slot.id 'watched' %}" hx-vals='{"target": "{{ target }}"}'
-                {% if target == "tonight" %}hx-target="#schedule-tonight-body" hx-swap="outerHTML"{% else %}hx-target="#schedule-pane" hx-swap="outerHTML"{% endif %}>{% icon "check" "w-3.5 h-3.5" %}</button>
+                {% if target == "tonight" %}hx-target="#schedule-tonight-body" hx-swap="outerHTML"{% else %}hx-target="#schedule-pane" hx-swap="outerHTML"{% endif %}>{% icon "check" "w-4 h-4" %}</button>
               <button type="button" class="sch-act is-static" title="{% if plan.mode == 'manual' %}Remove from the schedule{% else %}Skip - plan it into a later slot{% endif %}" aria-label="{% if plan.mode == 'manual' %}Remove{% else %}Skip{% endif %} {{ slot.title.name }}"
                 hx-post="{% url 'schedule_slot_action' slot.id 'skip' %}" hx-vals='{"target": "{{ target }}"}'
-                {% if target == "tonight" %}hx-target="#schedule-tonight-body" hx-swap="outerHTML"{% else %}hx-target="#schedule-pane" hx-swap="outerHTML"{% endif %}>{% if plan.mode == "manual" %}{% icon "x" "w-3.5 h-3.5" %}{% else %}{% icon "arrow-left-right" "w-3.5 h-3.5" %}{% endif %}</button>
+                {% if target == "tonight" %}hx-target="#schedule-tonight-body" hx-swap="outerHTML"{% else %}hx-target="#schedule-pane" hx-swap="outerHTML"{% endif %}>{% if plan.mode == "manual" %}{% icon "x" "w-4 h-4" %}{% else %}{% icon "arrow-left-right" "w-4 h-4" %}{% endif %}</button>
             </div>
           {% endif %}
         </div>
       {% endfor %}
       {% if tonight.open %}
-        <div class="sch-open">{{ tonight.open.start|time:time_format_str }} to {{ tonight.open.end|time:time_format_str }} open, nothing left in your lists that fits</div>
+        <div class="sch-open mt-3">{{ tonight.open.start|time:time_format_str }} to {{ tonight.open.end|time:time_format_str }} open, nothing left in your lists that fits</div>
       {% endif %}
     </div>
   {% else %}
     <div class="sch-eyebrow">Tonight</div>
-    <div class="sch-big text-ink-faint">Nothing planned</div>
+    <div class="sch-big mt-1 text-ink-faint">Nothing planned</div>
     <p class="text-[12.5px] text-ink-dim mt-2 leading-snug">
       {% if plan.enabled and plan.mode == "manual" %}Nothing is scheduled yet. Add something from the schedule tab.{% elif plan.enabled %}No free time with something releasable to watch in the next two weeks. Check the free days, or add titles to a source list.{% else %}Turn on My schedule to plan your evenings.{% endif %}
     </p>
   {% endif %}
   {% if together_possible and plan.enabled %}
     {# Watching with others? Loads when opened; the people picked are only used for this look. #}
-    <details class="mt-4 pt-3 border-t border-line" id="together-details">
-      <summary class="cursor-pointer text-[13px] text-ink-dim hover:text-base-content w-fit"
-        hx-get="{% url 'schedule_together' %}" hx-trigger="click once" hx-target="#together-body" hx-swap="outerHTML">Who&rsquo;s watching tonight?</summary>
+    <details class="mt-3 pt-1 border-t border-line" id="together-details">
+      <summary class="cursor-pointer text-[13px] text-ink-dim hover:text-base-content min-h-11 flex items-center gap-1.5"
+        hx-get="{% url 'schedule_together' %}" hx-trigger="click once" hx-target="#together-body" hx-swap="outerHTML">Who&rsquo;s watching tonight? {% icon "chevron-down" "w-3.5 h-3.5" %}</summary>
       <div id="together-body" class="mt-3 text-[12.5px] text-ink-faint">Loading&hellip;</div>
     </details>
   {% endif %}

@@ -33,7 +33,7 @@
     {% else %}
       <div class="seg w-full">
         {% for value, label in settings.mode_choices %}
-          <label class="seg-item flex-1 justify-center cursor-pointer">
+          <label class="seg-item flex-1 justify-center cursor-pointer min-h-11">
             <input type="radio" name="mode" value="{{ value }}" class="hidden" x-model="mode" {% if plan.mode == value %}checked{% endif %}>{{ label }}
           </label>
         {% endfor %}
@@ -47,7 +47,7 @@
       <div class="sch-eyebrow mb-1.5">Media</div>
       <div class="seg w-full">
         {% for value, label in settings.media_choices %}
-          <label class="seg-item flex-1 justify-center cursor-pointer">
+          <label class="seg-item flex-1 justify-center cursor-pointer min-h-11">
             <input type="radio" name="media" value="{{ value }}" class="hidden" {% if plan.media == value %}checked{% endif %}>{{ label }}
           </label>
         {% endfor %}
@@ -58,7 +58,7 @@
   {% if not setup %}
     <div x-show="mode === 'auto'">
       <label class="sch-eyebrow mb-1.5 block" for="sch-focus">Focus on one show</label>
-      <select id="sch-focus" name="focus_title" class="select select-sm bg-base-200 border-line w-full">
+      <select id="sch-focus" name="focus_title" class="select bg-base-200 border-line w-full min-h-11">
         <option value="">Off, use my lists</option>
         {% for t in settings.focus_choices %}
           <option value="{{ t.pk }}"{% if plan.focus_title_id == t.pk %} selected{% endif %}>{{ t.name }}</option>
@@ -70,9 +70,9 @@
 
   <div>
     <div class="sch-eyebrow mb-1.5">Free days</div>
-    <div class="flex gap-1.5">
+    <div class="flex gap-1">
       {% for row in settings.weekday_rows %}
-        <label class="cursor-pointer" title="{{ row.name }}">
+        <label class="cursor-pointer flex-1 min-w-[2.75rem]" title="{{ row.name }}">
           <input type="checkbox" name="free_days" value="{{ row.index }}" class="hidden peer" {% if row.free %}checked{% endif %}>
           <span class="sch-daybox">{{ row.name|slice:":1" }}</span>
         </label>
@@ -89,7 +89,7 @@
     </div>
     {% if not setup %}
       <details class="mt-2 group">
-        <summary class="text-[12px] text-ink-dim cursor-pointer hover:text-base-content select-none">Different times on some days</summary>
+        <summary class="text-[13px] text-ink-dim cursor-pointer hover:text-base-content select-none min-h-11 flex items-center">Different times on some days</summary>
         <div class="mt-2 flex flex-col gap-1.5">
           {% for row in settings.weekday_rows %}
             {% if row.free %}
@@ -112,7 +112,7 @@
       <div class="sch-eyebrow mb-1.5">Order</div>
       <div class="seg w-full">
         {% for value, label in settings.order_choices %}
-          <label class="seg-item flex-1 justify-center cursor-pointer">
+          <label class="seg-item flex-1 justify-center cursor-pointer min-h-11">
             <input type="radio" name="order" value="{{ value }}" class="hidden" {% if plan.order == value %}checked{% endif %}>{{ label }}
           </label>
         {% endfor %}

@@ -1,0 +1,24 @@
+{# context: summary (schedule_views._summary), days, plan. The strip above the week grid: planned tonight, finish line (loaded after the page - it needs TMDB's episode counts), this week. Three columns split by vertical hairlines, stacked on narrow widths. #}
+<div class="grid md:grid-cols-3 border-b border-line mb-6 max-md:divide-y md:divide-x divide-line" aria-label="Summary">
+  <div class="py-4 md:pr-6 min-w-0">
+    <div class="sch-eyebrow">{{ summary.tonight.label }}</div>
+    {% if summary.tonight.planned %}
+      <div class="sch-big mt-1">{{ summary.tonight.planned }}</div>
+      <div class="text-[12.5px] text-ink-dim mt-1.5">{{ summary.tonight.titles }} title{{ summary.tonight.titles|pluralize }}{% if summary.tonight.window %} &middot; {{ summary.tonight.window.0|time:time_format_str }} to {{ summary.tonight.window.1|time:time_format_str }} free{% endif %}</div>
+    {% else %}
+      <div class="sch-big mt-1 text-ink-faint">Nothing</div>
+      <div class="text-[12.5px] text-ink-dim mt-1.5">{% if summary.tonight.window %}{{ summary.tonight.window.0|time:time_format_str }} to {{ summary.tonight.window.1|time:time_format_str }} free{% else %}No free time planned{% endif %}</div>
+    {% endif %}
+  </div>
+  <div class="py-4 md:px-6 min-w-0">
+    <div class="sch-eyebrow">Finish line</div>
+    <div class="mt-1" hx-get="{% url 'schedule_estimate' %}" hx-trigger="load" hx-swap="innerHTML">
+      {% include "tracker/partials/skeleton_estimate.html" %}
+    </div>
+  </div>
+  <div class="py-4 md:pl-6 min-w-0">
+    <div class="sch-eyebrow">{{ summary.week.label }}</div>
+    <div class="sch-big mt-1">{{ summary.week.slots }} slot{{ summary.week.slots|pluralize }}</div>
+    <div class="text-[12.5px] text-ink-dim mt-1.5">{{ summary.week.on_track }} on track{% if summary.week.moved %} &middot; {{ summary.week.moved }} moved to next slot{% endif %}</div>
+  </div>
+</div>

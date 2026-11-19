@@ -1,11 +1,11 @@
 {% load icons %}
-{# context: plan, week/tonight (when plan.enabled), settings, days, start, prev_start/next_start/home_start/is_home, sync_sources, time_format_str. Calendar -> My schedule: swaps itself (outerHTML) on every navigation and settings change. #}
+{# context: plan, week/tonight/summary (when plan.enabled), settings, days, start, prev_start/next_start/home_start/is_home, sync_sources, time_format_str. Calendar -> My schedule: swaps itself (outerHTML) on every navigation and settings change. No cards: hairlines only, like Stats. #}
 <div id="schedule-pane" class="relative" hx-indicator="#schedule-pane">
   {# Shown while any request from this pane is in flight, so nothing is clicked twice and it is clear something is happening. #}
   <div class="sch-veil" role="status" aria-live="polite"><span class="sch-veil-pill"><span class="spool-spinner" aria-hidden="true"></span>Updating your schedule&hellip;</span></div>
   {% if not plan.enabled %}
     <form
-      class="surface p-6 sm:p-8 max-w-2xl" method="post" action="{% url 'schedule_toggle' %}"
+      class="max-w-2xl border-t border-line pt-6 sm:pt-8" method="post" action="{% url 'schedule_toggle' %}"
       hx-post="{% url 'schedule_toggle' %}" hx-target="#schedule-pane" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]"
     >
       {% csrf_token %}
@@ -21,11 +21,13 @@
       <div class="mt-5">
         {% include "tracker/partials/schedule_fields.html" with setup=True %}
       </div>
-      <button type="submit" class="btn btn-primary btn-sm mt-6">Turn on My schedule</button>
+      <button type="submit" class="btn btn-primary btn-sm min-h-11 mt-6">Turn on My schedule</button>
     </form>
   {% else %}
-    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] items-stretch">
-      <section class="surface p-4 sm:p-5 min-w-0 flex flex-col">
+    <div class="grid gap-x-8 gap-y-8 lg:grid-cols-[minmax(0,1fr)_23.5rem] items-stretch border-t border-line">
+      <section class="min-w-0 flex flex-col pt-6">
+        {% include "tracker/partials/schedule_summary.html" %}
+
         <div class="flex flex-wrap items-center justify-between gap-3">
           <h2 class="sch-heading">
             {% if days == 7 %}Week of {{ week.start_day|date:"j M" }}{% elif days == 1 %}{{ week.start_day|date:"l j M" }}{% else %}{{ week.start_day|date:"j M" }} &ndash; {{ week.end_day|date:"j M" }}{% endif %}
@@ -34,74 +36,67 @@
             <div class="seg" role="group" aria-label="Days shown">
               {% for value, label in day_options %}
                 <button
-                  type="button" class="seg-item {% if days|stringformat:'s' == value %}is-active{% endif %}"
+                  type="button" class="seg-item min-h-11 {% if days|stringformat:'s' == value %}is-active{% endif %}"
                   hx-get="{% url 'schedule_pane' %}?days={{ value }}&start={{ home_start|date:'Y-m-d' }}" hx-target="#schedule-pane" hx-swap="outerHTML"
-                  @click="try { localStorage.setItem('spool-schedule-days', '{{ value }}') } catch (e) {}"
+                  @click="(() => { try { localStorage.setItem('spool-schedule-days', '{{ value }}') } catch (e) {} })()"
                 >{{ label }}</button>
               {% endfor %}
             </div>
             <div class="flex items-center gap-1">
-              <button type="button" class="btn btn-sm btn-ghost btn-square" aria-label="Previous"
+              <button type="button" class="btn btn-sm btn-ghost btn-square min-h-11 min-w-11" aria-label="Previous"
                 hx-get="{% url 'schedule_pane' %}?days={{ days }}&start={{ prev_start|date:'Y-m-d' }}" hx-target="#schedule-pane" hx-swap="outerHTML">{% icon "chevron-left" "w-4 h-4" %}</button>
-              <button type="button" class="btn btn-sm btn-soft {% if is_home %}pointer-events-none opacity-70{% endif %}"
+              <button type="button" class="btn btn-sm btn-soft min-h-11 {% if is_home %}pointer-events-none opacity-70{% endif %}"
                 hx-get="{% url 'schedule_pane' %}?days={{ days }}&start={{ home_start|date:'Y-m-d' }}" hx-target="#schedule-pane" hx-swap="outerHTML">{% if days == 7 %}This week{% else %}Today{% endif %}</button>
-              <button type="button" class="btn btn-sm btn-ghost btn-square" aria-label="Next"
+              <button type="button" class="btn btn-sm btn-ghost btn-square min-h-11 min-w-11" aria-label="Next"
                 hx-get="{% url 'schedule_pane' %}?days={{ days }}&start={{ next_start|date:'Y-m-d' }}" hx-target="#schedule-pane" hx-swap="outerHTML">{% icon "chevron-right" "w-4 h-4" %}</button>
             </div>
             {% if plan.mode == "auto" %}
-              <button type="button" class="btn btn-sm btn-primary" title="Throw away the planned slots that have not started and plan them again"
-                hx-post="{% url 'schedule_rebuild' %}" hx-vals='{"days": "{{ days }}", "start": "{{ start|date:"Y-m-d" }}"}' hx-target="#schedule-pane" hx-swap="outerHTML" hx-disabled-elt="this">Rebuild {% if days == 7 %}week{% else %}plan{% endif %}</button>
+              <button type="button" class="btn btn-sm btn-soft min-h-11" title="Throw away the planned slots that have not started and plan them again"
+                hx-post="{% url 'schedule_rebuild' %}" hx-vals='{"days": "{{ days }}", "start": "{{ start|date:"Y-m-d" }}"}' hx-target="#schedule-pane" hx-swap="outerHTML" hx-disabled-elt="this">{% icon "refresh-cw" "w-4 h-4" %}Rebuild {% if days == 7 %}week{% else %}plan{% endif %}</button>
             {% endif %}
           </div>
         </div>
 
-        <div class="flex flex-wrap items-center justify-between gap-x-5 gap-y-1 mt-3 mb-3 text-[11.5px] text-ink-dim">
+        <div class="flex flex-wrap items-center justify-between gap-x-5 gap-y-1 mt-3 mb-3 text-[12px] text-ink-dim">
           <div class="flex items-center gap-3.5">
             <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-movie"></span>Movie</span>
             <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-tv"></span>TV</span>
             <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-anime"></span>Anime</span>
           </div>
-          <div class="flex items-center gap-3 font-mono text-[10.5px]">
+          <div class="flex items-center gap-3 font-mono text-[11px]">
             <span><span class="text-success">Done</span> synced</span>
             <span><span class="text-info">Waiting</span> for sync</span>
-            <span><span class="text-primary">Moved</span> to next slot</span>
+            <span><span class="text-ink-dim">Moved</span> to next slot</span>
           </div>
         </div>
 
         {% include "tracker/partials/schedule_week.html" %}
       </section>
 
-      <aside class="flex flex-col gap-5 min-w-0">
-        <div class="surface p-5" id="schedule-tonight-card">
+      <aside class="min-w-0 flex flex-col lg:border-l lg:border-line lg:pl-8 divide-y divide-line [&>*]:py-6">
+        <div id="schedule-tonight-card">
           {% include "tracker/partials/schedule_tonight.html" with target="pane" %}
         </div>
 
         {% if plan.mode == "manual" %}
-          <div class="surface p-5">
+          <div>
             <h3 class="sch-eyebrow mb-3">Add to schedule</h3>
             {% include "tracker/partials/schedule_add.html" %}
           </div>
         {% endif %}
 
-        <div class="surface p-5">
-          <h3 class="sch-eyebrow mb-2.5">Finish line</h3>
-          <div hx-get="{% url 'schedule_estimate' %}" hx-trigger="load" hx-swap="innerHTML">
-            {% include "tracker/partials/skeleton_estimate.html" %}
-          </div>
-        </div>
-
-        <div class="surface p-5">
-          <h3 class="sch-eyebrow mb-3">Plan settings</h3>
+        <div>
+          <h3 class="sch-block-title mb-4">Plan settings</h3>
           {% include "tracker/partials/schedule_settings.html" with variant="sidebar" %}
         </div>
 
-        <div class="surface p-5">
-          <h3 class="sch-eyebrow mb-3">Watch sync</h3>
+        <div>
+          <h3 class="sch-eyebrow mb-2.5">Watch sync</h3>
           {% if sync_sources %}
             <ul class="flex flex-col gap-1.5 text-[13px]">
               {% for source in sync_sources %}
                 <li class="flex items-center justify-between gap-3">
-                  <span>{{ source.name }}</span>
+                  <span class="font-semibold">{{ source.name }}</span>
                   <span class="text-ink-dim text-[12px] flex items-center gap-1.5">
                     <span class="w-1.5 h-1.5 rounded-full {% if source.live %}bg-success{% else %}bg-ink-faint{% endif %}"></span>{{ source.detail }}
                   </span>

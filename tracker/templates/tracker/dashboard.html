@@ -126,7 +126,7 @@
             <h2 class="section-title">My Schedule</h2>
             <a href="{% url 'calendar' %}?tab=schedule" class="section-link">Plan &rarr;</a>
           </div>
-          <div class="surface p-5" hx-get="{% url 'schedule_tonight' %}" hx-trigger="load" hx-swap="innerHTML">
+          <div hx-get="{% url 'schedule_tonight' %}" hx-trigger="load" hx-swap="innerHTML">
             {% include "tracker/partials/skeleton_tonight.html" %}
           </div>
         </section>

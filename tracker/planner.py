@@ -753,9 +753,8 @@ def week_context(profile, plan, start_day, days, now=None):
         (v["id"] for v in sorted(views, key=lambda v: v["start"]) if v["status"] == ScheduledSlot.Status.PLANNED and v["end"] > now.astimezone(tz)),
         None,
     )
-    # The whole day is drawn; the card is as tall as the sidebar beside it
-    # and opens on the free time (focus_top/focus_bottom), so the space is
-    # filled with the hours around it instead of stretching the slots.
+    # Only the hours around the planned window are drawn (see first_hour below);
+    # the grid opens on the free time (focus_top/focus_bottom).
     marks = []
     for day in day_list:
         window = window_for(plan, day.weekday())
@@ -763,9 +762,9 @@ def week_context(profile, plan, start_day, days, now=None):
             marks += [window[0].hour * 60 + window[0].minute, window[1].hour * 60 + window[1].minute]
     for v in views:
         marks += [v["start"].hour * 60 + v["start"].minute, v["end"].hour * 60 + v["end"].minute or 24 * 60]
-    # From early morning to midnight - the dead small hours only if
-    # something is actually planned in them.
-    first_hour = min(DAY_STARTS_AT, max(0, min(marks) // 60 - 1)) if marks else DAY_STARTS_AT
+    # Trimmed to the planned window: from two hours before the earliest free
+    # time or slot (16:00 for an 18:00 evening) to midnight.
+    first_hour = max(0, min(marks) // 60 - 2) if marks else DAY_STARTS_AT
     last_hour = 24
     range_minutes = (last_hour - first_hour) * 60
 

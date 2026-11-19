@@ -1,6 +1,6 @@
 {% load icons tracker_extras %}
 {# context: week (columns/hours/grid_height/now_top/focus_top/focus_bottom/days), days, start, time_format_str. The TV-guide timeline: one column per day, the free window shaded, slots placed by time. Columns share the width (min 5.25rem each) so the whole week fits without a sideways scrollbar; only a screen too narrow for that scrolls, and the Week / 3 days / Day switch is there for it. The whole day is drawn inside a scroller laid over a card that is as tall as the sidebar, opened on the free time, so the card is full without stretching anything; the other hours are a scroll away (no scrollbar drawn). #}
-<div class="sch-fill">
+<div class="sch-fill" style="--sch-h: {{ week.grid_height }}px">
 <div
   class="sch-scroll" style="--sch-days: {{ week.days }}" tabindex="0" aria-label="Schedule, scroll for other hours"
   x-data x-init="$nextTick(() => {
@@ -14,7 +14,7 @@
     <div class="sch-head">
       <div class="sch-axis-head"></div>
       {% for col in week.columns %}
-        <div class="sch-day {% if col.is_today %}is-today{% endif %}">
+        <div class="sch-day {% if col.is_today %}is-today{% elif col.date < week.now_day %}is-past{% endif %}">
           <div class="sch-day-name">{{ col.date|date:"D" }}</div>
           <div class="sch-day-num">{{ col.date|date:"j" }}{% if col.date.day == 1 %} <span class="sch-day-month">{{ col.date|date:"M" }}</span>{% endif %}</div>
           <div class="sch-day-window">{% if col.window %}{{ col.window.0|time:time_format_str }} to {{ col.window.1|time:time_format_str }}{% else %}Not free{% endif %}</div>
@@ -29,7 +29,7 @@
         {% endfor %}
       </div>
       {% for col in week.columns %}
-        <div class="sch-col {% if col.is_today %}is-today{% endif %}">
+        <div class="sch-col {% if col.is_today %}is-today{% elif col.date < week.now_day %}is-past{% endif %}">
           {% for h in week.hours %}<div class="sch-hour-line" style="top: {{ h.top }}px"></div>{% endfor %}
           {% if col.window %}
             <div class="sch-window" style="top: {{ col.window_top }}px; height: {{ col.window_height }}px"></div>
@@ -47,9 +47,9 @@
               {% endif %}
               <div class="min-w-0 flex-1">
                 {% if slot.status == "done" %}<span class="sch-tag text-success">Done</span>
-                {% elif slot.status == "moved" %}<span class="sch-tag text-primary">Moved</span>
+                {% elif slot.status == "moved" %}<span class="sch-tag text-ink-dim">Moved</span>
                 {% elif slot.waiting %}<span class="sch-tag text-info">Waiting</span>
-                {% elif slot.is_next %}<span class="sch-tag text-primary">Next</span>{% endif %}
+                {% elif slot.is_next %}<span class="sch-tag text-base-content">Next</span>{% endif %}
                 <a href="{% url 'title_detail' slot.title.pk %}" class="sch-slot-title">{{ slot.title.name }}</a>
                 <div class="sch-slot-meta">{{ slot.start|time:time_format_str }} &middot; {{ slot.label }}{% if slot.height > 70 %} &middot; {{ slot.duration }}{% endif %}</div>
               </div>

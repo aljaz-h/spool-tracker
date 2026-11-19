@@ -489,7 +489,7 @@ DISCOVER_SORT_LABELS = {
 
 
 def _discover_hero(tmdb_media_type, is_anime, api_key):
-    """The hero's rotating top titles (see tmdb.hero_titles): the most popular
+    """The hero's rotating top ten titles (see tmdb.hero_titles): the most popular
     ones for the page's type, whatever filters are active - the hero is
     "what's trending", not a result of the filters."""
     filters = {"genre_ids": [tmdb.ANIMATION_GENRE_ID], "origin_country": "JP"} if is_anime else {}

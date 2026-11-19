@@ -8,6 +8,22 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.199.1] - 2026-11-19
+
+### Changed
+- The hero on Discover (Movies, TV shows, Anime) now goes through the top 10 trending titles instead of the top 4.
+
+## [0.199.0] - 2026-11-19
+
+### Changed
+- Calendar, My schedule is restyled to match the rest of the site: no cards or boxed panels (thin hairlines like Stats), neutral raised-grey selected states with a check on chips, white Public Sans figures instead of amber Bebas Neue, and amber only on Apply, toggles that are on, focus rings and the nav underline. "Moved to next slot" is grey; done stays green and waiting blue. Controls are 44px or more.
+- New summary strip above the week grid: planned tonight (time, titles, free window), the finish line (date, titles, time left, released only) and this week (slots, on track, moved). The finish line is no longer in the rail; Watch sync stays as the small block at the bottom of it.
+- The week grid is trimmed to the planned window (two hours before your earliest free time to midnight), with the free window as a faint band, a lighter today column with a white now line, past days dimmed, and today's date as a white circle. Slots have a 2px media-colour top line.
+- Tonight (also on the Home dashboard) has a thin segmented bar of the planned slots in their media colours, hairline-separated rows and 44px check and skip buttons.
+
+### Fixed
+- The Week / 3 days / Day buttons threw a script error and never remembered your choice.
+
 ## [0.198.1] - 2026-11-17
 
 ### Fixed

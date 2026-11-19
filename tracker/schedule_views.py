@@ -102,6 +102,52 @@ def _add_form_context(profile, plan, tz, now):
     }
 
 
+def _decorate_tonight(tonight):
+    """What the Tonight block draws on top of the planner's own output: how many
+    different titles are in it, and the thin bar of media-coloured segments
+    (each planned slot's share of the free window, or of the planned time when
+    there is no window)."""
+    if not tonight:
+        return tonight
+    live = [s for s in tonight["slots"] if s["status"] != ScheduledSlot.Status.MOVED]
+    minutes = [(s["kind"], int((s["end"] - s["start"]).total_seconds() // 60)) for s in live]
+    window = tonight.get("window")
+    span = (window[1].hour * 60 + window[1].minute) - (window[0].hour * 60 + window[0].minute) if window else 0
+    total = max(span, sum(m for _kind, m in minutes), 1)
+    tonight["titles"] = len({s["title"].pk for s in live})
+    tonight["bar"] = [{"kind": kind, "pct": round(m / total * 100, 1)} for kind, m in minutes if m > 0]
+    return tonight
+
+
+def _summary(week, tonight, days, now_day):
+    """The strip above the week grid: planned tonight, and this week's slots.
+    (The finish line loads after the page, from the estimate view.)"""
+    slots = [s for col in week["columns"] for s in col["slots"]]
+    moved = sum(1 for s in slots if s["status"] == ScheduledSlot.Status.MOVED)
+    if tonight and tonight["is_today"]:
+        label = "Planned tonight"
+    elif tonight and tonight["is_tomorrow"]:
+        label = "Planned tomorrow"
+    elif tonight:
+        label = f"Planned {tonight['day']:%A}"
+    else:
+        label = "Planned tonight"
+    return {
+        "tonight": {
+            "label": label,
+            "planned": tonight["planned_label"] if tonight else "",
+            "titles": tonight["titles"] if tonight else 0,
+            "window": tonight["window"] if tonight else None,
+        },
+        "week": {
+            "label": "This week" if days == 7 else "In view",
+            "slots": len(slots),
+            "on_track": len(slots) - moved,
+            "moved": moved,
+        },
+    }
+
+
 def _pane_context(request, profile, error=""):
     days = DAY_CHOICES.get(request.GET.get("days") or request.POST.get("days") or "7", 7)
     now = timezone.now()
@@ -127,7 +173,8 @@ def _pane_context(request, profile, error=""):
     }
     if plan.enabled:
         context["week"] = planner.week_context(profile, plan, start, days, now)
-        context["tonight"] = planner.tonight_context(profile, plan, now)
+        context["tonight"] = _decorate_tonight(planner.tonight_context(profile, plan, now))
+        context["summary"] = _summary(context["week"], context["tonight"], days, today)
         context["together_possible"] = Profile.objects.count() > 1
         if plan.mode == SchedulePlan.Mode.MANUAL:
             context["add_form"] = _add_form_context(profile, plan, tz, now)
@@ -267,7 +314,7 @@ def _tonight_response(request, profile):
     plan = planner.ensure_plan(profile, now)
     context = {
         "plan": plan,
-        "tonight": planner.tonight_context(profile, plan, now) if plan.enabled else None,
+        "tonight": _decorate_tonight(planner.tonight_context(profile, plan, now)) if plan.enabled else None,
         "together_possible": Profile.objects.count() > 1,
         "time_format_str": _time_format_str(profile),
         "target": "tonight",

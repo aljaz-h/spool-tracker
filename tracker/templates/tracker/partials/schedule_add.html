@@ -12,7 +12,7 @@
   {% if add_form.titles %}
     <label class="block">
       <span class="sch-eyebrow block mb-1">Title</span>
-      <select name="title" required class="select select-sm w-full bg-base-300" @change="kind = $event.target.selectedOptions[0].dataset.kind">
+      <select name="title" required class="select w-full bg-base-300 min-h-11" @change="kind = $event.target.selectedOptions[0].dataset.kind">
         <option value="" data-kind="">Choose&hellip;</option>
         {% for t in add_form.titles %}<option value="{{ t.id }}" data-kind="{{ t.kind }}">{{ t.name }}</option>{% endfor %}
       </select>
@@ -29,11 +29,11 @@
     </div>
     <label class="block" x-show="kind === 'tv' || kind === 'anime'" x-cloak>
       <span class="sch-eyebrow block mb-1">Episodes</span>
-      <select name="count" class="select select-sm bg-base-300">
+      <select name="count" class="select bg-base-300 min-h-11">
         {% for n in "123456" %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
       </select>
     </label>
-    <button type="submit" class="btn btn-primary btn-sm self-start">Add</button>
+    <button type="submit" class="btn btn-soft btn-sm min-h-11 self-start">Add</button>
   {% else %}
     <p class="text-[12.5px] text-ink-dim leading-snug">Nothing to pick from yet. Add titles to one of the lists above, or choose other lists in Plan settings.</p>
   {% endif %}

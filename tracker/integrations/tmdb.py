@@ -1040,7 +1040,10 @@ def discover_by_decades(media_type, category="popular", page=1, decades=None, pa
     return {"results": results, "page": page, "total_pages": total_pages_estimate}
 
 
-def hero_titles(media_type, limit=4, api_key=None, **filters):
+HERO_TITLES = 10
+
+
+def hero_titles(media_type, limit=HERO_TITLES, api_key=None, **filters):
     """The top `limit` most popular titles that have a backdrop, for the
     Movies/TV/Anime pages' hero: normalized results plus "runtime_minutes"
     (movies), "seasons"/"episodes" (TV) and "trailer_key". Built from
