@@ -26518,6 +26518,26 @@ class HistoryTilePosterLazyLoadingTests(TestCase):
         self.assertNotContains(resp, "background-image:url('https://image.tmdb.org/t/p/w500/abc.jpg')")
 
 
+class HistoryPaginationScrollTests(TestCase):
+    def test_page_buttons_scroll_back_to_the_top_after_loading(self):
+        from datetime import timedelta
+        from django.utils import timezone
+
+        user = User.objects.create_user("histscrolluser", password="pass12345")
+        profile = Profile.objects.create(user=user, display_name="HistScroll")
+        self.client.login(username="histscrolluser", password="pass12345")
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        from tracker.views import HISTORY_DATES_PER_PAGE
+
+        for day in range(HISTORY_DATES_PER_PAGE * 3):
+            WatchEvent.objects.create(profile=profile, title=title, watched_at=timezone.now() - timedelta(days=day))
+        html = self.client.get(reverse("history"), {"page": 2}).content.decode()
+        links = [line for line in html.splitlines() if "hx-get" in line and "&page=" in line and "hx-push-url" in line]
+        self.assertGreaterEqual(len(links), 3)  # Prev, a page number, Next
+        for line in links:
+            self.assertIn('hx-swap="innerHTML show:window:top"', line)
+
+
 class HistoryTitleFilterTests(TestCase):
     """The poster card watched-button popover's "View history plays" link
     (?title=<pk>) narrows the History page down to just that one title."""

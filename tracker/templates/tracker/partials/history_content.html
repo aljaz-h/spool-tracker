@@ -46,19 +46,19 @@
     <span class="text-[13px] text-ink-dim">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }} · {{ page_obj.paginator.count }} {% if grouped_by_watch_count %}title{{ page_obj.paginator.count|pluralize }}{% else %}day{{ page_obj.paginator.count|pluralize }}{% endif %}</span>
     <div class="flex gap-1.5">
       {% if page_obj.has_previous %}
-        <a href="?{{ base_query }}&page={{ page_obj.previous_page_number }}" hx-get="?{{ base_query }}&page={{ page_obj.previous_page_number }}" hx-target="#history-content" hx-push-url="true"
+        <a href="?{{ base_query }}&page={{ page_obj.previous_page_number }}" hx-get="?{{ base_query }}&page={{ page_obj.previous_page_number }}" hx-target="#history-content" hx-push-url="true" hx-swap="innerHTML show:window:top"
            class="btn btn-sm btn-ghost text-ink-dim">&larr; Prev</a>
       {% endif %}
       {% for num in page_obj.paginator.page_range %}
         {% if num == page_obj.number %}
           <span class="btn btn-sm btn-square bg-selected border-transparent text-white" aria-current="page">{{ num }}</span>
         {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}
-          <a href="?{{ base_query }}&page={{ num }}" hx-get="?{{ base_query }}&page={{ num }}" hx-target="#history-content" hx-push-url="true"
+          <a href="?{{ base_query }}&page={{ num }}" hx-get="?{{ base_query }}&page={{ num }}" hx-target="#history-content" hx-push-url="true" hx-swap="innerHTML show:window:top"
              class="btn btn-sm btn-square btn-ghost text-ink-dim">{{ num }}</a>
         {% endif %}
       {% endfor %}
       {% if page_obj.has_next %}
-        <a href="?{{ base_query }}&page={{ page_obj.next_page_number }}" hx-get="?{{ base_query }}&page={{ page_obj.next_page_number }}" hx-target="#history-content" hx-push-url="true"
+        <a href="?{{ base_query }}&page={{ page_obj.next_page_number }}" hx-get="?{{ base_query }}&page={{ page_obj.next_page_number }}" hx-target="#history-content" hx-push-url="true" hx-swap="innerHTML show:window:top"
            class="btn btn-sm btn-ghost text-ink-dim">Next &rarr;</a>
       {% endif %}
     </div>

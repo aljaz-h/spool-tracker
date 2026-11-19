@@ -8,6 +8,11 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.200.1] - 2026-11-19
+
+### Fixed
+- History, the Prev, page number and Next buttons now scroll back to the top of the page after loading the new page, so you no longer have to scroll up from the bottom every time.
+
 ## [0.200.0] - 2026-11-19
 
 ### Changed
