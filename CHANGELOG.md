@@ -8,6 +8,11 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.200.3] - 2026-11-24
+
+### Fixed
+- Accessibility, round two (from a scan of the live site and a crawl of 40 pages at desktop and phone width): poster cards no longer repeat the same DOM ids when a title appears in two rows on the Dashboard; the Continue Watching footer button's accessible name now includes the visible "19E left 59% - 10m" text; small links and buttons raised to at least 24px (section links, card titles, footer attribution, Activity "View List", list visibility and tags, Stats badge links, title country links, Refresh ratings, Wrapped back arrow); trailer and gallery thumbnails have names; the title details block is a plain grid instead of an invalid description list; the Profile settings heading order; contrast on badge progress, locked level names, past schedule days and list type counts.
+
 ## [0.200.2] - 2026-11-24
 
 ### Fixed

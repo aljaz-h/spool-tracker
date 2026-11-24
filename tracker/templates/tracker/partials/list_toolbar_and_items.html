@@ -10,16 +10,16 @@
 >
   <div class="seg">
     <label class="seg-item cursor-pointer">
-      <input type="radio" name="type" value="all" class="hidden" {% if type_filter == "all" %}checked{% endif %}>All <span class="ml-1.5 text-ink-faint tabular-nums">{{ total_count }}</span>
+      <input type="radio" name="type" value="all" class="hidden" {% if type_filter == "all" %}checked{% endif %}>All <span class="ml-1.5 text-ink-dim tabular-nums">{{ total_count }}</span>
     </label>
     <label class="seg-item cursor-pointer">
-      <input type="radio" name="type" value="movie" class="hidden" {% if type_filter == "movie" %}checked{% endif %}>Movies <span class="ml-1.5 text-ink-faint tabular-nums">{{ type_counts.movie }}</span>
+      <input type="radio" name="type" value="movie" class="hidden" {% if type_filter == "movie" %}checked{% endif %}>Movies <span class="ml-1.5 text-ink-dim tabular-nums">{{ type_counts.movie }}</span>
     </label>
     <label class="seg-item cursor-pointer">
-      <input type="radio" name="type" value="tv" class="hidden" {% if type_filter == "tv" %}checked{% endif %}>TV <span class="ml-1.5 text-ink-faint tabular-nums">{{ type_counts.tv }}</span>
+      <input type="radio" name="type" value="tv" class="hidden" {% if type_filter == "tv" %}checked{% endif %}>TV <span class="ml-1.5 text-ink-dim tabular-nums">{{ type_counts.tv }}</span>
     </label>
     <label class="seg-item cursor-pointer">
-      <input type="radio" name="type" value="anime" class="hidden" {% if type_filter == "anime" %}checked{% endif %}>Anime <span class="ml-1.5 text-ink-faint tabular-nums">{{ type_counts.anime }}</span>
+      <input type="radio" name="type" value="anime" class="hidden" {% if type_filter == "anime" %}checked{% endif %}>Anime <span class="ml-1.5 text-ink-dim tabular-nums">{{ type_counts.anime }}</span>
     </label>
   </div>
   <div class="flex items-center gap-3 flex-wrap">

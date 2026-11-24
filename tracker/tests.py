@@ -16834,7 +16834,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         self.assertContains(resp, "S1E130")
         self.assertContains(resp, "cw-art")
         self.assertContains(resp, f"ep-watched-btn-{show.pk}-1-130")
-        self.assertContains(resp, 'aria-label="Mark next episode watched"')
+        self.assertContains(resp, 'aria-label="Mark next episode watched: ')  # the name also holds the visible text
 
     @patch("tracker.integrations.tmdb.get_season_details")
     def test_watching_a_shows_season_finale_gets_the_finale_badge(self, mock_season):
@@ -16960,7 +16960,7 @@ class DashboardWatchingWatchlistTests(TestCase):
         self.assertIn("In progress", window)
         self.assertIn("30%", window)
         self.assertIn("1h 10m", window)
-        self.assertIn('aria-label="Mark next episode watched"', window)
+        self.assertIn('aria-label="Mark next episode watched: ', window)
 
     def test_the_movie_cards_watched_button_matches_the_show_cards_solid_pill(self):
         # Reported live: the movie card's button (portrait action-bar
@@ -25306,6 +25306,43 @@ class PersonDetailViewTests(TestCase):
         self.assertNotContains(resp, "Add unwatched to a list")
 
 
+class PosterCardUniqueIdTests(TestCase):
+    """The same title can sit in two rails on one page (the dashboard): the
+    ids on its card must not repeat, or the page is invalid HTML and a
+    label/target lookup by id picks the wrong one."""
+
+    def test_two_renders_of_the_same_card_get_different_ids(self):
+        import re
+        from django.template.loader import render_to_string
+
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        profile = Profile.objects.create(user=User.objects.create_user("uidr", password="pass12345"), display_name="R")
+        base = {"title": title, "my_lists": [], "in_list_ids": set(), "watched": False, "watch_count": 0, "active_profile": profile}
+        ids = []
+        for _ in range(2):
+            html = render_to_string("tracker/partials/poster_card_list_popover.html", base)
+            html += render_to_string("tracker/partials/poster_card_watched_button.html", base)
+            ids += [
+                i
+                for i in re.findall(r'id="([^"]+)"', html)
+                if i.startswith((f"list-popover-{title.pk}-", f"watched-btn-{title.pk}-"))
+            ]
+        self.assertEqual(len(ids), 4)
+        self.assertEqual(len(set(ids)), 4)
+
+    def test_the_popover_swap_finds_its_own_root_instead_of_a_fixed_id(self):
+        from django.template.loader import render_to_string
+
+        title = Title.objects.create(media_type=MediaType.MOVIE, name="Fathom", year=2020)
+        profile = Profile.objects.create(user=User.objects.create_user("uidu", password="pass12345"), display_name="U")
+        wl = ensure_watchlist(profile)
+        html = render_to_string(
+            "tracker/partials/poster_card_list_popover.html",
+            {"title": title, "my_lists": [wl], "in_list_ids": set(), "active_profile": profile},
+        )
+        self.assertIn("hx-target=\"closest div[id^='list-popover-']\"", html)
+
+
 class PosterCardListPopoverHtmxBranchTests(TestCase):
     """add_to_list/remove_from_list are reused by both the Lists detail
     page (swaps the whole #list-items grid) and the new poster-card list
@@ -26099,7 +26136,7 @@ class ListStatsTests(TestCase):
         self._title("A1", MediaType.ANIME)
         resp = self.client.get(reverse("list_detail", args=[self.wl.id]))
         self.assertEqual(resp.context["type_counts"], {"movie": 2, "tv": 1, "anime": 1})
-        self.assertContains(resp, '>All <span class="ml-1.5 text-ink-faint tabular-nums">4</span>')
+        self.assertContains(resp, '>All <span class="ml-1.5 text-ink-dim tabular-nums">4</span>')
 
     def test_shortest_to_watch_sorts_by_time_left_with_finished_titles_last(self):
         long_, short, done = self._title("Long", runtime=180), self._title("Short", runtime=80), self._title("Done", runtime=10)

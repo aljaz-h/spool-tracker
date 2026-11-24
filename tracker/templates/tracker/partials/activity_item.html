@@ -145,7 +145,7 @@
           <span>Added to List</span>
           {% if item.watchlist.is_shared %}<span>Public List</span>{% endif %}
           {% if item.watchlist.profile_id != item.profile.id %}<span>{{ item.watchlist.profile.display_name }}&rsquo;s list</span>{% endif %}
-          <a href="{% url 'list_detail' item.watchlist.id %}" class="text-ink-dim hover:text-primary">View List &rarr;</a>
+          <a href="{% url 'list_detail' item.watchlist.id %}" class="text-ink-dim hover:text-primary inline-flex items-center min-h-6">View List &rarr;</a>
         </div>
       </div>
     {% endif %}

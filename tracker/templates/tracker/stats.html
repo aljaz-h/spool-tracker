@@ -216,19 +216,19 @@
         <div class="flex items-center justify-center flex-wrap gap-x-4 gap-y-1.5 text-[12.5px] text-ink-dim">
           <button
             type="button"
-            class="flex items-center gap-1.5 cursor-pointer select-none bg-transparent border-0 p-0"
+            class="flex items-center gap-1.5 cursor-pointer select-none bg-transparent border-0 p-0 min-h-6"
             :class="active === 'movie' && 'text-base-content font-semibold'"
             @mouseenter="hovered = 'movie'" @mouseleave="hovered = null" @click="toggle('movie')"
           ><span class="w-2.5 h-2.5 rounded-sm bg-movie flex-none"></span>Movies — {{ split.movie_pct }}%</button>
           <button
             type="button"
-            class="flex items-center gap-1.5 cursor-pointer select-none bg-transparent border-0 p-0"
+            class="flex items-center gap-1.5 cursor-pointer select-none bg-transparent border-0 p-0 min-h-6"
             :class="active === 'tv' && 'text-base-content font-semibold'"
             @mouseenter="hovered = 'tv'" @mouseleave="hovered = null" @click="toggle('tv')"
           ><span class="w-2.5 h-2.5 rounded-sm bg-tv flex-none"></span>TV shows — {{ split.tv_pct }}%</button>
           <button
             type="button"
-            class="flex items-center gap-1.5 cursor-pointer select-none bg-transparent border-0 p-0"
+            class="flex items-center gap-1.5 cursor-pointer select-none bg-transparent border-0 p-0 min-h-6"
             :class="active === 'anime' && 'text-base-content font-semibold'"
             @mouseenter="hovered = 'anime'" @mouseleave="hovered = null" @click="toggle('anime')"
           ><span class="w-2.5 h-2.5 rounded-sm bg-anime flex-none"></span>Anime — {{ split.anime_pct }}%</button>
@@ -302,7 +302,7 @@
           <h2 class="section-title">Badges</h2>
           <p class="text-xs text-ink-faint mt-1">{{ badge_summary.badges_earned }} earned &middot; Level {{ badge_summary.level.level }} {{ badge_summary.level.name }}</p>
         </div>
-        <a href="{% url 'badges' %}" class="text-sm text-ink-dim hover:text-primary">All badges</a>
+        <a href="{% url 'badges' %}" class="text-sm text-ink-dim hover:text-primary inline-flex items-center min-h-6">All badges</a>
       </div>
       <div class="max-w-md">{% include "tracker/badges/progress_block.html" with b=badge_summary.level_block %}</div>
     </section>

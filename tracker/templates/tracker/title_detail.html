@@ -344,7 +344,7 @@
               {% if details.overview %}
                 <p class="text-[14.5px] sm:text-[15px] leading-relaxed text-[#d3d6de]" :class="more ? '' : 'line-clamp-4'">{{ details.overview }}</p>
                 {% if details.overview|length > 320 %}
-                  <button type="button" @click="more = !more" class="mt-1 text-[13px] font-medium text-ink-dim hover:text-primary" x-text="more ? 'Show less' : 'Read more'">Read more</button>
+                  <button type="button" @click="more = !more" class="mt-1 text-[13px] font-medium text-ink-dim hover:text-primary min-h-6" x-text="more ? 'Show less' : 'Read more'">Read more</button>
                 {% endif %}
               {% endif %}
             </div>
@@ -418,7 +418,7 @@
                 about it, via the shared chip_color_class filter.
               {% endcomment %}
               {% firstof preview_media_type title.media_type as details_media_type %}
-              <dl class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-x-8 gap-y-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-x-8 gap-y-4">
                 {% if status_badge %}
                   <div>
                     <div class="text-xs text-ink-faint mb-1">Status</div>
@@ -462,12 +462,12 @@
                     <div class="text-xs text-ink-faint mb-0.5">Country</div>
                     <div class="text-[13.5px] flex flex-wrap gap-x-1.5">
                       {% for country in details.countries_display %}
-                        <a href="{% url details_media_type|discover_url_name 'popular' %}?origin_country={{ country.code }}" class="font-medium hover:text-primary">{% if country.flag %}{{ country.flag }} {% endif %}{{ country.name }}</a>{% if not forloop.last %}<span class="text-ink-faint">,</span>{% endif %}
+                        <a href="{% url details_media_type|discover_url_name 'popular' %}?origin_country={{ country.code }}" class="font-medium hover:text-primary inline-block py-0.5">{% if country.flag %}{{ country.flag }} {% endif %}{{ country.name }}</a>{% if not forloop.last %}<span class="text-ink-faint">,</span>{% endif %}
                       {% endfor %}
                     </div>
                   </div>
                 {% endif %}
-              </dl>
+              </div>
             </div>
             </section>
           {% endif %}

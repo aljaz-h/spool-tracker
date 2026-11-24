@@ -9,6 +9,8 @@ does not restyle its own. /ui-kit/ renders every one of them.
 user input.
 """
 
+import itertools
+
 from django import template
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
@@ -237,3 +239,16 @@ def ui_toast(text, tone="success"):
 def ui_skeleton(lines=2, thumb=True, label="Loading"):
     """A loading block. It is replaced by the content or by an empty state."""
     return {"lines": range(int(lines)), "thumb": thumb, "label": label}
+
+
+_UID = itertools.count(1)
+
+
+@register.simple_tag
+def uid():
+    """A token that is unique within this process, for DOM ids that would
+    otherwise repeat when the same title shows up twice on one page (two
+    rails on the dashboard): "watched-btn-12-7". A page-wide-unique id keeps
+    the markup valid; the pieces that need to find their own root use
+    `closest` instead of the id."""
+    return next(_UID)

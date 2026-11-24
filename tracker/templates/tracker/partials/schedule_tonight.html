@@ -23,7 +23,7 @@
             {% if slot.title.poster_url %}<img src="{{ slot.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy">{% endif %}
           </a>
           <div class="min-w-0 flex-1">
-            <a href="{% url 'title_detail' slot.title.pk %}" class="block text-[14px] font-semibold truncate hover:text-white {% if slot.status == 'done' %}line-through{% endif %}">{{ slot.title.name }}</a>
+            <a href="{% url 'title_detail' slot.title.pk %}" class="block text-[14px] font-semibold truncate hover:text-white py-0.5 {% if slot.status == 'done' %}line-through{% endif %}">{{ slot.title.name }}</a>
             <div class="flex items-center gap-1.5 mt-1 text-[12px] text-ink-dim">
               <span class="w-2 h-2 rounded-full flex-none bg-{{ slot.kind }}" title="{% if slot.kind == 'movie' %}Movie{% elif slot.kind == 'anime' %}Anime{% else %}TV{% endif %}"></span>
               <span class="sr-only">{% if slot.kind == "movie" %}Movie{% elif slot.kind == "anime" %}Anime{% else %}TV{% endif %}</span>

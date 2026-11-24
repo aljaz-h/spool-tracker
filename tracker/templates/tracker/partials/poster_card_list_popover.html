@@ -1,4 +1,4 @@
-{% load icons tracker_extras %}
+{% load icons tracker_extras ui %}{% uid as uid %}
 {# context: title (Title), my_lists (list of WatchList), in_list_ids (set of watchlist pk) #}
 {% comment %}
 The panel is position:fixed, placed via getBoundingClientRect() on open,
@@ -12,7 +12,7 @@ Same header+icon-row layout as watched_menu_panel.html (title/close bar,
 each row an icon circle + label + status line) instead of the old plain
 chip list, so the two popovers read as the same component family.
 {% endcomment %}
-<div class="relative flex-1" id="list-popover-{{ title.pk }}" x-data="{
+<div class="relative flex-1" id="list-popover-{{ title.pk }}-{{ uid }}" x-data="{
   open: false,
   togglePanel(button) {
     this.open = !this.open;
@@ -47,7 +47,7 @@ chip list, so the two popovers read as the same component family.
           type="button"
           hx-post="{% if list.id in in_list_ids %}{% url 'remove_from_list' list.id %}{% else %}{% url 'add_to_list' list.id %}{% endif %}"
           hx-vals='{"title_id": "{{ title.pk }}"}'
-          hx-target="#list-popover-{{ title.pk }}"
+          hx-target="closest div[id^='list-popover-']"
           hx-swap="{{ "outerHTML"|animated_swap:active_profile.animations_enabled }}"
           class="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-base-300 text-left w-full"
         >

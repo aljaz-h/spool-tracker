@@ -25,7 +25,7 @@
           {% if s.title.poster_url %}<img src="{{ s.title.poster_url|poster_size:"w185" }}" alt="" loading="lazy">{% endif %}
         </a>
         <div class="min-w-0 flex-1">
-          <a href="{% url 'title_detail' s.title.pk %}" class="block text-[14px] font-semibold truncate hover:text-white">{{ s.title.name }}</a>
+          <a href="{% url 'title_detail' s.title.pk %}" class="block text-[14px] font-semibold truncate hover:text-white py-0.5">{{ s.title.name }}</a>
           <div class="flex items-center gap-1.5 mt-1 text-[11.5px] text-ink-dim flex-wrap">
             <span class="chip chip-{{ s.kind }}">{% if s.kind == "movie" %}Movie{% elif s.kind == "anime" %}Anime{% else %}TV{% endif %}</span>
             <span class="font-mono">{{ s.runtime_label }}{% if s.kind != "movie" %} / episode{% endif %}</span>

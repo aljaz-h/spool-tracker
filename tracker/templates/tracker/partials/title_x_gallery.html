@@ -56,6 +56,7 @@
             {% else %}
               @click="openLightbox({{ item.index }})"
             {% endif %}
+            aria-label="{% if item.kind == "trailer" %}Play trailer{% else %}View image {{ forloop.counter }}{% endif %}"
             class="relative w-44 sm:w-60 aspect-video flex-none rounded-lg overflow-hidden bg-base-300 group"
           >
             <img src="{{ item.thumbnail_url }}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover group-hover:brightness-110">

@@ -16,7 +16,7 @@
 </head>
 <body class="wp-body" data-animations="off">
   <header class="wp-bar">
-    <a href="{% url 'stats' %}" class="wp-back" aria-label="Back to Stats">&larr;<span>Stats</span></a>
+    <a href="{% url 'stats' %}" class="wp-back min-h-6 min-w-6 justify-center inline-flex items-center" aria-label="Back to Stats">&larr;<span>Stats</span></a>
     <a href="{% url 'wrapped' %}" class="wp-mark" aria-label="Wrapped home">Spool <b>Wrapped</b></a>
     <div class="wp-bar-controls">{% block bar %}{% endblock %}</div>
   </header>

@@ -203,7 +203,7 @@ def goal_text(badge, tier):
 LevelInfo = namedtuple("LevelInfo", "level name floor next_floor next_name xp percent to_next")
 
 # The filled progress block's colours: teal like a list's progress, blue for a level.
-TEAL_FILL = "color-mix(in oklab, var(--color-anime) 82%, var(--color-base-100))"
+TEAL_FILL = "color-mix(in oklab, var(--color-anime) 66%, var(--color-base-100))"
 LEVEL_FILL = "color-mix(in oklab, var(--color-level) 80%, var(--color-base-100))"
 
 

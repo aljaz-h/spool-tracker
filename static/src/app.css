@@ -325,6 +325,9 @@
     color: var(--color-ink-faint);
   }
   .section-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.5rem;
     flex: none;
     font-size: 0.875rem;
     font-weight: 500;
@@ -2094,7 +2097,10 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     color: var(--color-base-100);
   }
   .sch-day.is-past {
-    opacity: 0.55;
+    opacity: 1;
+  }
+  .sch-day.is-past .sch-day-window {
+    color: var(--color-ink-faint);
   }
   .sch-day-window {
     font-family: var(--font-mono);
@@ -5717,9 +5723,9 @@ html[data-theme] {
   .level-dot-lg .medal { width: 2.5rem; }
   .level-dot-lg { right: -0.75rem; bottom: -0.75rem; }
   /* The Badges page strip: levels not reached yet are dimmed. */
-  .level-strip-item { opacity: 0.4; }
+  .level-strip-item:not(.is-reached) .medal { opacity: 0.4; }
   .level-strip-item .medal { width: 3rem; }
-  .level-strip-item.is-reached { opacity: 1; }
+  .level-strip-item.is-reached .medal { opacity: 1; }
   .tier-mark {
     display: inline-flex;
     align-items: center;

@@ -69,7 +69,7 @@
           <div class="flex items-baseline gap-4 min-w-0">
             <h2 class="section-title">Watchlist Queue{% if watchlist_count %}<span class="section-count">{{ watchlist_count }}</span>{% endif %}</h2>
             {% if watchlist_items %}
-              <a href="{% url 'surprise_me' %}?next={{ request.path|urlencode }}" class="max-sm:hidden text-[13.5px] text-ink-dim hover:text-base-content inline-flex items-center gap-1.5">{% icon "sparkles" "w-3.5 h-3.5" %} Surprise me</a>
+              <a href="{% url 'surprise_me' %}?next={{ request.path|urlencode }}" class="max-sm:hidden text-[13.5px] text-ink-dim hover:text-base-content inline-flex items-center gap-1.5 min-h-6">{% icon "sparkles" "w-3.5 h-3.5" %} Surprise me</a>
             {% endif %}
           </div>
           {% if watchlist_items %}<a href="{% url 'lists' %}" class="section-link">All lists &rarr;</a>{% endif %}

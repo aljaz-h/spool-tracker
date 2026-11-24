@@ -26,7 +26,7 @@
               {% csrf_token %}
               <button
                 type="submit"
-                class="inline-flex items-center gap-1 hover:text-base-content underline decoration-dotted underline-offset-2 cursor-pointer"
+                class="inline-flex items-center gap-1 hover:text-base-content underline decoration-dotted underline-offset-2 cursor-pointer min-h-6"
                 title="{% if watchlist.is_shared %}Make private{% else %}Share with household{% endif %}"
               >
                 {% if watchlist.is_shared %}{% icon "users" "w-3.5 h-3.5" %} shared{% else %}{% icon "eye-off" "w-3.5 h-3.5" %} private{% endif %}
@@ -63,7 +63,7 @@
           {% if can_manage %}
             <button
               type="button" @click="editingTags = true" x-show="!editingTags"
-              class="text-[12px] text-ink-faint hover:text-base-content underline decoration-dotted underline-offset-2"
+              class="text-[12px] text-ink-faint hover:text-base-content underline decoration-dotted underline-offset-2 min-h-6"
             >{% if watchlist.tags %}edit tags{% else %}+ add tags{% endif %}</button>
             <form
               method="post" action="{% url 'update_list_tags' watchlist.id %}"
