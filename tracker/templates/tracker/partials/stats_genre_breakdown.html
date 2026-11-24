@@ -64,7 +64,7 @@ real navigation.
       <div class="flex w-full h-8 rounded-md overflow-hidden gap-0.5">
         {% for g in genre_breakdown %}
           <div
-            tabindex="0" aria-label="{{ g.name }} · {{ g.display }}"
+            role="img" tabindex="0" aria-label="{{ g.name }} · {{ g.display }}"
             class="h-full flex items-center justify-center text-[12px] font-semibold text-black/75 min-w-0 spool-tooltip"
             style="flex-grow:{{ g.pct }};flex-basis:0;background:{{ forloop.counter0|color_at_index }}"
             data-tooltip="{{ g.name }} · {{ g.display }}"

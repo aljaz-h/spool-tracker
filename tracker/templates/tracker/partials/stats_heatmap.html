@@ -35,7 +35,7 @@
   usually has room to show it all without scrolling, this doesn't need
   its own breakpoint for that.
   {% endcomment %}
-  <div class="overflow-x-auto scroll-row pb-1">
+  <div class="overflow-x-auto scroll-row pb-1" role="region" tabindex="0" aria-label="Watch activity by day, scroll for earlier weeks">
     <div class="flex flex-col gap-1 w-max">
       <div class="grid gap-[3px]" style="grid-template-columns: repeat({{ heatmap_weeks|length }}, 11px);">
         {% for label in heatmap_months %}

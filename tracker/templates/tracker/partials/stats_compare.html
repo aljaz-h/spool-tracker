@@ -147,11 +147,11 @@
             <div class="flex items-end justify-between gap-1 sm:gap-2 h-[11rem] border-b border-line pt-6">
               {% for d in compare.decades %}
                 <div class="flex-1 min-w-0 h-full flex items-end justify-center gap-[3px] sm:gap-1">
-                  <div class="h-full flex flex-col items-center justify-end flex-1 max-w-[1.5rem] spool-tooltip" tabindex="0" aria-label="{{ d.label }}, {{ compare.a.profile.display_name }}: {{ d.a_share|floatformat:"-1" }}% of titles ({{ d.a }})" data-tooltip="{{ compare.a.profile.display_name }}: {{ d.a_share|floatformat:"-1" }}% ({{ d.a }})">
+                  <div class="h-full flex flex-col items-center justify-end flex-1 max-w-[1.5rem] spool-tooltip" role="img" tabindex="0" aria-label="{{ d.label }}, {{ compare.a.profile.display_name }}: {{ d.a_share|floatformat:"-1" }}% of titles ({{ d.a }})" data-tooltip="{{ compare.a.profile.display_name }}: {{ d.a_share|floatformat:"-1" }}% ({{ d.a }})">
                     <span class="hidden sm:block font-mono text-[11px] text-ink-dim mb-1 whitespace-nowrap">{{ d.a_share|floatformat:"-1" }}</span>
                     <span class="w-full rounded-t cmp-a" style="height: {{ d.a_h }}%"></span>
                   </div>
-                  <div class="h-full flex flex-col items-center justify-end flex-1 max-w-[1.5rem] spool-tooltip" tabindex="0" aria-label="{{ d.label }}, {{ compare.b.profile.display_name }}: {{ d.b_share|floatformat:"-1" }}% of titles ({{ d.b }})" data-tooltip="{{ compare.b.profile.display_name }}: {{ d.b_share|floatformat:"-1" }}% ({{ d.b }})">
+                  <div class="h-full flex flex-col items-center justify-end flex-1 max-w-[1.5rem] spool-tooltip" role="img" tabindex="0" aria-label="{{ d.label }}, {{ compare.b.profile.display_name }}: {{ d.b_share|floatformat:"-1" }}% of titles ({{ d.b }})" data-tooltip="{{ compare.b.profile.display_name }}: {{ d.b_share|floatformat:"-1" }}% ({{ d.b }})">
                     <span class="hidden sm:block font-mono text-[11px] text-ink-dim mb-1 whitespace-nowrap">{{ d.b_share|floatformat:"-1" }}</span>
                     <span class="w-full rounded-t cmp-b" style="height: {{ d.b_h }}%"></span>
                   </div>

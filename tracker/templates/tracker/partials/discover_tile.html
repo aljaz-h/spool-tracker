@@ -32,7 +32,7 @@ opacity until hovered/focused (discover-tile-dim, see app.css).
 {% url 'title_preview' item|preview_media_type item.tmdb_id as preview_url %}
 <div class="discover-tile media-card {% if item.display_mode == "dim" %}discover-tile-dim opacity-25 transition-opacity{% endif %}">
   <div class="media-card-art">
-    <a href="{{ preview_url }}" class="poster block" tabindex="-1" aria-hidden="true">
+    <a href="{{ preview_url }}" class="poster block" tabindex="-1" aria-hidden="true" aria-label="{{ item.name }}">
       {% if item.poster_url %}
         <img src="{{ item.poster_url|poster_size:"w342" }}" srcset="{{ item.poster_url|poster_srcset }}" alt="" {% if eager %}fetchpriority="high"{% else %}loading="lazy"{% endif %} class="discover-tile-zoom absolute inset-0">
       {% else %}

@@ -81,7 +81,7 @@
           <div class="flex items-baseline gap-2">
             <span class="figure !text-[2.5rem]">{{ watched_total }}</span>
             <span class="text-ink-dim text-sm">of {{ credit_total }} watched</span>
-            {% if credit_total >= credit_cap %}<span tabindex="0" aria-label="Limited to their {{ credit_cap }} most notable credits per department." data-tooltip="Limited to their {{ credit_cap }} most notable credits per department." class="text-ink-faint text-[12px] cursor-help spool-tooltip">&#9432;</span>{% endif %}
+            {% if credit_total >= credit_cap %}<span role="img" tabindex="0" aria-label="Limited to their {{ credit_cap }} most notable credits per department." data-tooltip="Limited to their {{ credit_cap }} most notable credits per department." class="text-ink-faint text-[12px] cursor-help spool-tooltip">&#9432;</span>{% endif %}
           </div>
           <div class="progress-track mt-2.5"><div class="progress-fill progress-fill-success" style="width:{{ watched_pct }}%"></div></div>
           {% if stats.total_watch_time %}<div class="text-[13px] text-ink-dim mt-2">{{ stats.total_watch_time }} watched in total</div>{% endif %}

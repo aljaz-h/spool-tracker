@@ -8,6 +8,11 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.200.2] - 2026-11-24
+
+### Fixed
+- Accessibility pass from an axe-core and WCAG 2.2 check: the focusable chart bars and heatmap cells on Stats (and the Compare decade columns, the genre bar, Person page credit note) now have an image role so their labels are read; the watch-activity heatmap and the weekly schedule are labelled scroll regions you can reach with the keyboard; text contrast raised on progress blocks (white instead of 85% white), the out-of-month days in the Calendar and the Settings sign-out/delete button; the 404 and 500 pages have a main landmark; the hidden duplicate poster links (poster cards, Discover tiles, the schedule) now carry the title as their name, so link checkers no longer see empty links.
+
 ## [0.200.1] - 2026-11-19
 
 ### Fixed

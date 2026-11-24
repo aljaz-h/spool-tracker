@@ -4,7 +4,7 @@
   type="button" @click="setTab('{{ key }}')"
   class="flex items-center gap-2.5 text-left px-3 h-9 rounded-lg text-[13.5px] font-medium whitespace-nowrap"
   {% if key == "danger" %}
-  :class="tab === '{{ key }}' ? 'bg-error/10 text-error [&>svg]:text-error' : 'text-error/70 [&>svg]:text-error/70 hover:bg-error/5 hover:text-error hover:[&>svg]:text-error'"
+  :class="tab === '{{ key }}' ? 'bg-error/10 text-error [&>svg]:text-error' : 'text-error [&>svg]:text-error hover:bg-error/5'"
   {% else %}
   :class="tab === '{{ key }}' ? 'bg-primary/10 text-base-content [&>svg]:text-primary' : 'text-ink-dim hover:bg-white/[0.04] hover:text-base-content'"
   {% endif %}

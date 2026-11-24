@@ -43,7 +43,7 @@ to avoid triggering navigation.
           <img src="{{ progress.still_url|poster_size:"w342" }}" alt="" {% if eager %}fetchpriority="high"{% else %}loading="lazy"{% endif %} class="absolute inset-0{% if progress.season %} spoiler-still{% endif %}">
         {% endif %}
         <div class="art-scrim"></div>
-        <a href="{{ detail_url }}" class="absolute inset-0 z-0" tabindex="-1" aria-hidden="true"></a>
+        <a href="{{ detail_url }}" class="absolute inset-0 z-0" tabindex="-1" aria-hidden="true" aria-label="{{ title.name }}"></a>
         {% if progress.is_season_finale %}
           <span class="absolute top-2 left-2 z-10 chip chip-primary !bg-primary !text-primary-content pointer-events-none">Season Finale</span>
         {% endif %}
@@ -99,7 +99,7 @@ to avoid triggering navigation.
   {% with w=watched_by_title|get_item:title.pk ip=in_progress_by_title|get_item:title.pk wc=watch_count_by_title|get_item:title.pk %}
   <div class="{{ width_class|default:"w-[168px] flex-none" }} discover-tile media-card">
     <div class="media-card-art">
-      <a href="{{ detail_url }}" class="poster block {% if not title.poster_url %}{{ title.pk|gradient_class }}{% endif %}" tabindex="-1" aria-hidden="true">
+      <a href="{{ detail_url }}" class="poster block {% if not title.poster_url %}{{ title.pk|gradient_class }}{% endif %}" tabindex="-1" aria-hidden="true" aria-label="{{ title.name }}">
         {% if title.poster_url %}
           <img src="{{ title.poster_url|poster_size:"w342" }}" srcset="{{ title.poster_url|poster_srcset }}" alt="" {% if eager %}fetchpriority="high"{% else %}loading="lazy"{% endif %} class="absolute inset-0">
         {% endif %}
