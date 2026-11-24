@@ -26,6 +26,7 @@ from . import (
     update_check,
     version,
     watching,
+    web_push,
     wetrakr_push,
 )
 from .integrations import animelist, fanart, mdblist, myanimelist, nuvio, simkl, tmdb, tmdb_account, trakt, tvmaze, wetrakr
@@ -1140,11 +1141,20 @@ def send_push_notification(notification_id):
     except Notification.DoesNotExist:
         return
     profile = note.profile
-    if not notifications.push_wanted(profile, note.kind):
-        return
-    ok = push.send(profile, title=note.get_kind_display(), message=note.message, url=note.link or None)
-    if not ok:
-        logger.warning("send_push_notification: delivery failed for notification %s", notification_id)
+    # Two independent channels behind the same Push tick-box: Apprise
+    # (Discord/Telegram/...) and the browsers/apps the profile subscribed.
+    # One failing never skips the other.
+    if notifications.push_wanted(profile, note.kind):
+        ok = push.send(profile, title=note.get_kind_display(), message=note.message, url=note.link or None)
+        if not ok:
+            logger.warning("send_push_notification: delivery failed for notification %s", notification_id)
+    if notifications.web_push_wanted(profile, note.kind):
+        try:
+            web_push.send_to_profile(
+                profile, note.get_kind_display(), note.message, url=note.link or None, tag=f"n{note.id}"
+            )
+        except Exception:
+            logger.warning("send_push_notification: web push failed for notification %s", notification_id, exc_info=True)
 
 
 @shared_task

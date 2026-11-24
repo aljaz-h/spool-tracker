@@ -63,11 +63,21 @@ def push_wanted(profile, kind):
     return notification_prefs.channels(profile, kind)[1]
 
 
+def web_push_wanted(profile, kind):
+    """The profile has at least one browser/app subscribed (Settings >
+    Notifications > This device) and wants this kind pushed. Independent of
+    Apprise: either channel alone is enough."""
+    return notification_prefs.channels(profile, kind)[1] and profile.push_subscriptions.exists()
+
+
 def dispatch_push(notification):
-    """Queues the Apprise delivery for a notification whose final text is
-    already saved - the explicit call for the kinds the post_save receiver
-    skips (see push.PUSH_ELIGIBLE_KINDS)."""
-    if not push_wanted(notification.profile, notification.kind):
+    """Queues the push delivery (Apprise and/or browser) for a notification
+    whose final text is already saved - the explicit call for the kinds the
+    post_save receiver skips (see push.PUSH_ELIGIBLE_KINDS)."""
+    if not (
+        push_wanted(notification.profile, notification.kind)
+        or web_push_wanted(notification.profile, notification.kind)
+    ):
         return
     from . import tasks
 

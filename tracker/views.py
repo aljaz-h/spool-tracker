@@ -5282,11 +5282,15 @@ def _settings_page_context(request, profile):
     external_accounts = {a.provider: a for a in ExternalAccount.objects.filter(profile=profile)}
     nuvio_connection_row = NuvioConnection.objects.filter(profile=profile).first()
     other_owner_exists = Profile.objects.filter(user__is_superuser=True).exclude(pk=profile.pk).exists()
+    push_devices = list(profile.push_subscriptions.all())
     context = {
         "profile": profile,
         "notification_table": notification_prefs.table(profile),
         "schedule_settings": schedule_views._settings_context(profile, planner.get_plan(profile)),
-        "push_ready": bool(profile.push_notifications_enabled and profile.get_push_notification_urls().strip()),
+        "push_devices": push_devices,
+        "push_ready": bool(
+            (profile.push_notifications_enabled and profile.get_push_notification_urls().strip()) or push_devices
+        ),
         "connected_providers": set(external_accounts.keys()),
         "external_accounts": external_accounts,
         # Nuvio's connect status is per-viewer, same as Trakt/Simkl's own

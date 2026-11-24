@@ -59,7 +59,7 @@ account.
 - Trakt / Simkl / WeTrakr OAuth connect, Nuvio email/password connect, + a daily background sync job - a large first WeTrakr import that outlasts the free plan's daily quota pauses and resumes automatically, never gets stuck or fails
 - [Automatic backups](docs/BACKUPS.md) per profile, on a schedule, to WebDAV (Nextcloud/NAS), Google Drive, or Dropbox - plus a one-off full export/import
 - A generic [Scrobble API](docs/SCROBBLE_API.md) for any player/script, and a read-only [Reports API](docs/REPORTS_API.md) for external services like spool-wrapped
-- [Push notifications](docs/NOTIFICATIONS.md) to Discord/Slack/Telegram/Pushover/Teams/Webex via Apprise, self-service per profile, mirroring a subset of the in-app bell
+- [Push notifications](docs/NOTIFICATIONS.md) to your phone or computer (browser and installed-app push), and to Discord/Slack/Telegram/Pushover/Teams/Webex via Apprise, self-service per profile, mirroring a subset of the in-app bell
 
 ## Get started
 

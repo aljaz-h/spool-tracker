@@ -23,6 +23,7 @@ django-timezone-field==7.2.2
 gprof2dot==2025.4.14
 greenlet==3.5.6
 gunicorn==26.2.0
+http_ece==1.2.1
 idna==3.20
 itsdangerous==2.2.0
 Jinja2==3.1.6
@@ -36,10 +37,12 @@ playwright==1.62.0
 prompt_toolkit==3.0.53
 psycopg==3.3.6
 psycopg-binary==3.3.6
+py-vapid==1.9.6
 Pygments==2.21.0
 pydantic==2.14.2
 pydantic_core==2.50.2
 pyee==13.0.1
+pywebpush==1.14.1
 pyotp==2.10.0
 pyspellchecker==0.9.1
 python-crontab==3.4.0

@@ -8,6 +8,14 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.201.0] - 2026-11-24
+
+### Added
+- Push notifications to the device you are using, through the browser's own push service: Settings > Notifications > "Notifications on this device" (Turn on, Send test, Turn off, and a list of your devices with Remove). It works in the browser and in the installed Spool app, with Spool closed. It uses the same Push tick-boxes as the Discord/Slack/Telegram services, so you choose what you hear about once, and the two ways of receiving are independent. Each profile can have up to 10 devices. On an iPhone or iPad it needs Spool added to the Home Screen first. It needs HTTPS, and nothing to set up on the server: Spool makes its own signing key the first time someone turns it on (optional `WEB_PUSH_VAPID_PRIVATE_KEY` / `WEB_PUSH_SUBJECT` in `.env` to pin it). New dependencies: pywebpush, py-vapid and http_ece (rebuild the image). Only browser vendors' own push hosts over https are accepted as a device address, redirects are never followed, and a device the push service reports as gone is removed automatically. See docs/NOTIFICATIONS.md.
+
+### Changed
+- The Apprise block in Settings > Notifications is now called "Push to Discord, Slack and more", to tell it apart from push on this device.
+
 ## [0.200.3] - 2026-11-24
 
 ### Fixed

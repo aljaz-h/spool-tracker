@@ -1,0 +1,20 @@
+{# The devices this profile gets browser/app push on. context: devices (PushSubscription list). Swapped into #push-devices by the Notifications card; Remove asks the server and gets this list back. #}
+{% if devices %}
+  <ul class="list-none m-0 p-0" aria-label="Devices that get push notifications">
+    {% for device in devices %}
+      <li class="s-row">
+        <div class="s-row-text">
+          <div class="s-row-title">{{ device.label }}</div>
+          <p class="s-row-help">Added {{ device.created_at|date:"j M Y" }}{% if device.last_used_at %}, last notified {{ device.last_used_at|date:"j M Y" }}{% endif %}</p>
+        </div>
+        <div class="s-row-control">
+          <button type="button" class="s-btn px-3"
+            hx-post="{% url 'push_device_remove' device.pk %}" hx-target="#push-devices" hx-swap="innerHTML"
+            aria-label="Remove {{ device.label }}">Remove</button>
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <p class="s-help px-5 py-3 m-0">No devices yet. Turn notifications on from the device you want them on.</p>
+{% endif %}

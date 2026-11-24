@@ -56,8 +56,36 @@
     {% endsettings_card %}
   </section>
 
+  <section class="s-section" id="webpush"
+    data-webpush data-key-url="{% url 'push_key' %}" data-subscribe-url="{% url 'push_subscribe' %}"
+    data-unsubscribe-url="{% url 'push_unsubscribe' %}" data-status-url="{% url 'push_status' %}"
+    data-test-url="{% url 'push_test' %}" data-devices-url="{% url 'push_devices' %}">
+    <h3 class="s-section-title">Notifications on this device</h3>
+    <p class="s-section-desc">
+      Get the alerts you ticked Push for as a notification from this browser or the installed Spool app, even when Spool isn't open.
+      Nothing to set up on the server. On an iPhone or iPad, add Spool to your Home Screen first and turn this on from there.
+    </p>
+    {% settings_card %}
+      <div class="s-row">
+        <div class="s-row-text">
+          <div class="s-row-title">This device</div>
+          <p class="s-row-help" data-wp-status role="status" aria-live="polite">Checking&hellip;</p>
+        </div>
+        <div class="s-row-control flex gap-2">
+          <button type="button" class="s-btn px-4" data-wp-enable hidden>Turn on</button>
+          <button type="button" class="s-btn px-4" data-wp-test hidden>Send test</button>
+          <button type="button" class="s-btn px-4" data-wp-disable hidden>Turn off</button>
+        </div>
+      </div>
+      <div class="s-row !block" data-wp-hint hidden>
+        <p class="s-help m-0" data-wp-hint-text></p>
+      </div>
+      <div id="push-devices">{% include "tracker/partials/push_devices.html" with devices=push_devices %}</div>
+    {% endsettings_card %}
+  </section>
+
   <section class="s-section">
-    <h3 class="s-section-title">Push notifications</h3>
+    <h3 class="s-section-title">Push to Discord, Slack and more</h3>
     <p class="s-section-desc">
       Send the alerts you ticked Push for to Discord, Slack, Telegram, Pushover, Microsoft Teams or Webex Teams through
       <a href="https://github.com/caronc/apprise" target="_blank" rel="noopener" class="s-link">Apprise</a>. Paste a URL, no server setup needed.

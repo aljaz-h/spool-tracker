@@ -38976,3 +38976,345 @@ class HeroTopTenTests(TestCase):
             hero = tmdb_api.hero_titles("movie", api_key="k")
         self.assertEqual(tmdb_api.HERO_TITLES, 10)
         self.assertEqual([h["tmdb_id"] for h in hero], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])  # trending order, 99 skipped
+
+
+from pathlib import Path  # noqa: E402
+from tracker import web_push  # noqa: E402
+from tracker.models import PushSubscription  # noqa: E402
+
+
+class WebPushEndpointTests(TestCase):
+    """The endpoint is a client-supplied URL the server POSTs to, so only the
+    browser vendors' own push hosts over https are accepted."""
+
+    def test_known_push_services_are_accepted(self):
+        for endpoint in (
+            "https://fcm.googleapis.com/fcm/send/abc",
+            "https://updates.push.services.mozilla.com/wpush/v2/abc",
+            "https://db5p.notify.windows.com/w/?token=abc",
+            "https://web.push.apple.com/QAbc",
+            "https://api.push.apple.com/3/device/abc",
+        ):
+            self.assertTrue(web_push.endpoint_allowed(endpoint), endpoint)
+
+    def test_everything_else_is_refused(self):
+        for endpoint in (
+            "http://fcm.googleapis.com/fcm/send/abc",
+            "https://fcm.googleapis.com:8443/fcm/send/abc",
+            "https://user:pw@fcm.googleapis.com/fcm/send/abc",
+            "https://fcm.googleapis.com.evil.example/fcm/send/abc",
+            "https://evilfcm.googleapis.com/x",
+            "https://notify.windows.com.evil.example/x",
+            "https://169.254.169.254/latest/meta-data/",
+            "https://localhost/x",
+            "https://127.0.0.1/x",
+            "ftp://fcm.googleapis.com/x",
+            "",
+            None,
+            12,
+            "https://fcm.googleapis.com/" + "a" * 1100,
+        ):
+            self.assertFalse(web_push.endpoint_allowed(endpoint), endpoint)
+
+    def test_click_urls_stay_on_this_site(self):
+        self.assertEqual(web_push.safe_click_url("/titles/4/"), "/titles/4/")
+        for bad in ("https://evil.example/", "//evil.example/", "javascript:alert(1)", "/\\evil", None, ""):
+            self.assertEqual(web_push.safe_click_url(bad), "/")
+
+    def test_payload_is_clipped_and_carries_a_same_site_url(self):
+        payload = web_push.build_payload("T" * 500, "B" * 2000, url="//evil.example", tag="n1")
+        self.assertLessEqual(len(payload["title"]), web_push.TITLE_LIMIT)
+        self.assertLessEqual(len(payload["body"]), web_push.BODY_LIMIT)
+        self.assertEqual(payload["url"], "/")
+        self.assertEqual(payload["tag"], "n1")
+        self.assertTrue(payload["icon"].endswith(".png"))
+
+
+class WebPushKeyTests(TestCase):
+    def test_the_public_key_is_a_raw_p256_point_made_once_and_kept(self):
+        import base64
+
+        from tracker.models import InstanceConfig
+
+        key = web_push.public_key()
+        raw = base64.urlsafe_b64decode(key + "=" * (-len(key) % 4))
+        self.assertEqual((len(raw), raw[0]), (65, 4))  # uncompressed point
+        self.assertNotIn("=", key)
+        self.assertEqual(web_push.public_key(), key)
+        config = InstanceConfig.objects.get(pk=1)
+        self.assertEqual(config.vapid_public_key, key)
+        self.assertNotIn("BEGIN", config.encrypted_vapid_private_key)  # stored encrypted
+
+    def test_a_second_writer_does_not_replace_an_existing_pair(self):
+        from tracker.models import InstanceConfig
+
+        first = web_push.public_key()
+        # Simulates another process that read the row while it was still empty.
+        InstanceConfig.objects.filter(pk=1, vapid_public_key="").update(vapid_public_key="other")
+        self.assertEqual(InstanceConfig.objects.get(pk=1).vapid_public_key, first)
+
+    def test_an_environment_key_wins(self):
+        from py_vapid import Vapid
+
+        vapid = Vapid()
+        vapid.generate_keys()
+        pem = vapid.private_pem().decode()
+        with self.settings(WEB_PUSH_VAPID_PRIVATE_KEY=pem):
+            self.assertEqual(web_push.public_key(), web_push._public_key_of(Vapid.from_pem(pem.encode())))
+            self.assertNotEqual(web_push.public_key(), "")
+
+    def test_subject_defaults_to_the_sites_https_address(self):
+        with self.settings(WEB_PUSH_SUBJECT="", CSRF_TRUSTED_ORIGINS=["https://spool.example"], ALLOWED_HOSTS=["spool.example"]):
+            self.assertEqual(web_push.subject(), "https://spool.example")
+        with self.settings(WEB_PUSH_SUBJECT="", CSRF_TRUSTED_ORIGINS=[], ALLOWED_HOSTS=["media.example", "localhost"]):
+            self.assertEqual(web_push.subject(), "https://media.example")
+        with self.settings(WEB_PUSH_SUBJECT="mailto:me@example.com"):
+            self.assertEqual(web_push.subject(), "mailto:me@example.com")
+
+
+class WebPushSendTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user("wpsend", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="WPSend")
+
+    def sub(self, n=1, host="fcm.googleapis.com"):
+        return PushSubscription.objects.create(
+            profile=self.profile, endpoint=f"https://{host}/fcm/send/{n}", p256dh="p", auth="a", user_agent="Mozilla/5.0 (Windows NT 10.0) Chrome/120 Safari/537"
+        )
+
+    def exc(self, status):
+        from pywebpush import WebPushException
+
+        response = MagicMock()
+        response.status_code = status
+        return WebPushException("gone", response=response)
+
+    def test_delivers_to_every_device_and_stamps_last_used(self):
+        a, b = self.sub(1), self.sub(2)
+        with patch("pywebpush.webpush") as mock_send:
+            self.assertEqual(web_push.send_to_profile(self.profile, "Hi", "Body", url="/x/"), 2)
+        self.assertEqual(mock_send.call_count, 2)
+        sent = mock_send.call_args_list[0]
+        self.assertEqual(json.loads(sent.args[1])["url"], "/x/")
+        self.assertIn("sub", sent.kwargs["vapid_claims"])
+        a.refresh_from_db()
+        self.assertIsNotNone(a.last_used_at)
+
+    def test_a_gone_device_is_removed_and_the_others_still_get_it(self):
+        gone, ok = self.sub(1), self.sub(2)
+
+        def respond(info, *args, **kwargs):
+            if info["endpoint"] == gone.endpoint:
+                raise self.exc(410)
+
+        with patch("pywebpush.webpush", side_effect=respond):
+            self.assertEqual(web_push.send_to_profile(self.profile, "Hi", "Body"), 1)
+        self.assertFalse(PushSubscription.objects.filter(pk=gone.pk).exists())
+        self.assertTrue(PushSubscription.objects.filter(pk=ok.pk).exists())
+
+    def test_a_404_is_removed_but_a_server_error_is_kept(self):
+        a, b = self.sub(1), self.sub(2)
+        def respond(info, *args, **kwargs):
+            raise self.exc(404 if info["endpoint"] == a.endpoint else 500)
+
+        with patch("pywebpush.webpush", side_effect=respond):
+            self.assertEqual(web_push.send_to_profile(self.profile, "Hi", "Body"), 0)
+        self.assertFalse(PushSubscription.objects.filter(pk=a.pk).exists())
+        self.assertTrue(PushSubscription.objects.filter(pk=b.pk).exists())
+
+    def test_an_unexpected_error_never_raises(self):
+        self.sub(1)
+        with patch("pywebpush.webpush", side_effect=RuntimeError("boom")):
+            self.assertEqual(web_push.send_to_profile(self.profile, "Hi", "Body"), 0)
+
+    def test_a_stored_endpoint_off_the_allowlist_is_dropped_not_contacted(self):
+        bad = PushSubscription.objects.create(profile=self.profile, endpoint="https://169.254.169.254/x", p256dh="p", auth="a")
+        with patch("pywebpush.webpush") as mock_send:
+            self.assertEqual(web_push.send_to_profile(self.profile, "Hi", "Body"), 0)
+        mock_send.assert_not_called()
+        self.assertFalse(PushSubscription.objects.filter(pk=bad.pk).exists())
+
+    def test_redirects_are_never_followed(self):
+        self.sub(1)
+        with patch("pywebpush.webpush") as mock_send:
+            web_push.send_to_profile(self.profile, "Hi", "Body")
+        self.assertEqual(mock_send.call_args.kwargs["requests_session"].max_redirects, 0)
+
+    def test_the_device_label_reads_the_user_agent(self):
+        self.assertEqual(self.sub(1).label, "Chrome on Windows")
+        self.assertEqual(PushSubscription(user_agent="").label, "Browser")
+
+
+class WebPushDeliveryTests(TestCase):
+    """Browser push is a second channel behind the same Push tick-boxes,
+    independent of Apprise."""
+
+    def setUp(self):
+        user = User.objects.create_user("wpdeliver", password="pass12345")
+        self.profile = Profile.objects.create(user=user, display_name="WPDeliver")
+
+    def subscribe(self):
+        return PushSubscription.objects.create(profile=self.profile, endpoint="https://fcm.googleapis.com/fcm/send/1", p256dh="p", auth="a")
+
+    def test_dispatches_with_only_a_browser_device_and_no_apprise(self):
+        self.subscribe()
+        with patch("tracker.tasks.send_push_notification.delay") as mock_delay:
+            note = Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="failed")
+        mock_delay.assert_called_once_with(note.id)
+
+    def test_no_device_and_no_apprise_means_no_dispatch(self):
+        with patch("tracker.tasks.send_push_notification.delay") as mock_delay:
+            Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="failed")
+        mock_delay.assert_not_called()
+
+    def test_the_push_tickbox_for_that_kind_off_stops_it(self):
+        self.subscribe()
+        self.profile.notification_prefs = {"sync_failed": {"push": False}}
+        self.profile.save(update_fields=["notification_prefs"])
+        self.assertFalse(notifications.web_push_wanted(self.profile, Notification.Kind.SYNC_FAILED))
+        with patch("tracker.tasks.send_push_notification.delay") as mock_delay:
+            Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="failed")
+        mock_delay.assert_not_called()
+
+    def test_the_task_sends_web_push_without_touching_apprise(self):
+        self.subscribe()
+        with patch("tracker.tasks.send_push_notification.delay"):
+            note = Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="Sync failed", link="/settings/")
+        with patch("tracker.tasks.push.send") as apprise, patch("tracker.tasks.web_push.send_to_profile", return_value=1) as web:
+            tasks.send_push_notification(note.id)
+        apprise.assert_not_called()
+        web.assert_called_once_with(self.profile, note.get_kind_display(), "Sync failed", url="/settings/", tag=f"n{note.id}")
+
+    def test_both_channels_run_and_one_failing_does_not_skip_the_other(self):
+        self.subscribe()
+        self.profile.push_notifications_enabled = True
+        self.profile.set_push_notification_urls("json://a.example.com/hook")
+        self.profile.save()
+        with patch("tracker.tasks.send_push_notification.delay"):
+            note = Notification.objects.create(profile=self.profile, kind=Notification.Kind.SYNC_FAILED, message="Sync failed")
+        with patch("tracker.tasks.push.send", return_value=False) as apprise, patch(
+            "tracker.tasks.web_push.send_to_profile", side_effect=RuntimeError("boom")
+        ) as web:
+            tasks.send_push_notification(note.id)  # must not raise
+        apprise.assert_called_once()
+        web.assert_called_once()
+
+
+class WebPushViewTests(TestCase):
+    ENDPOINT = "https://fcm.googleapis.com/fcm/send/device-1"
+
+    def setUp(self):
+        self.user = User.objects.create_user("wpview", password="pass12345")
+        self.profile = Profile.objects.create(user=self.user, display_name="WPView")
+        self.client.login(username="wpview", password="pass12345")
+
+    def post(self, name, body, **kwargs):
+        return self.client.post(reverse(name, **kwargs), data=json.dumps(body), content_type="application/json")
+
+    def good(self, endpoint=None):
+        return {"endpoint": endpoint or self.ENDPOINT, "keys": {"p256dh": "BPkey", "auth": "authkey"}}
+
+    def test_every_endpoint_needs_a_login(self):
+        self.client.logout()
+        for name in ("push_key", "push_devices"):
+            self.assertEqual(self.client.get(reverse(name)).status_code, 302)
+        for name in ("push_subscribe", "push_unsubscribe", "push_status", "push_test"):
+            self.assertEqual(self.client.post(reverse(name)).status_code, 302)
+
+    def test_the_key_endpoint_returns_the_public_key(self):
+        self.assertEqual(self.client.get(reverse("push_key")).json()["key"], web_push.public_key())
+
+    def test_subscribing_saves_the_device(self):
+        resp = self.post("push_subscribe", self.good())
+        self.assertEqual(resp.json(), {"ok": True})
+        sub = PushSubscription.objects.get()
+        self.assertEqual((sub.profile, sub.endpoint, sub.p256dh, sub.auth), (self.profile, self.ENDPOINT, "BPkey", "authkey"))
+
+    def test_subscribing_twice_does_not_duplicate(self):
+        self.post("push_subscribe", self.good())
+        self.post("push_subscribe", self.good())
+        self.assertEqual(PushSubscription.objects.count(), 1)
+
+    def test_bad_input_is_refused(self):
+        for body in (
+            self.good("https://evil.example/x"),
+            self.good("http://fcm.googleapis.com/x"),
+            {"endpoint": self.ENDPOINT},
+            {"endpoint": self.ENDPOINT, "keys": {"p256dh": "", "auth": "a"}},
+            {"endpoint": self.ENDPOINT, "keys": {"p256dh": "x" * 200, "auth": "a"}},
+            {"endpoint": self.ENDPOINT, "keys": "nope"},
+            ["not", "a", "dict"],
+        ):
+            self.assertEqual(self.post("push_subscribe", body).status_code, 400, body)
+        self.assertEqual(self.client.post(reverse("push_subscribe"), data="{nope", content_type="application/json").status_code, 400)
+        self.assertEqual(PushSubscription.objects.count(), 0)
+
+    def test_an_oversized_body_is_refused(self):
+        body = self.good()
+        body["pad"] = "x" * 9000
+        self.assertEqual(self.post("push_subscribe", body).status_code, 400)
+
+    def test_a_browser_signing_in_as_someone_else_moves_the_device(self):
+        other = Profile.objects.create(user=User.objects.create_user("wpother", password="pass12345"), display_name="Other")
+        PushSubscription.objects.create(profile=other, endpoint=self.ENDPOINT, p256dh="p", auth="a")
+        self.post("push_subscribe", self.good())
+        self.assertEqual(PushSubscription.objects.get().profile, self.profile)
+
+    def test_the_device_cap_is_enforced_but_an_existing_device_can_refresh(self):
+        for n in range(PushSubscription.MAX_PER_PROFILE):
+            PushSubscription.objects.create(profile=self.profile, endpoint=f"https://fcm.googleapis.com/fcm/send/{n}", p256dh="p", auth="a")
+        self.assertEqual(self.post("push_subscribe", self.good()).status_code, 409)
+        self.assertEqual(self.post("push_subscribe", self.good("https://fcm.googleapis.com/fcm/send/0")).status_code, 200)
+
+    def test_unsubscribe_only_removes_your_own_device(self):
+        other = Profile.objects.create(user=User.objects.create_user("wpother2", password="pass12345"), display_name="Other2")
+        theirs = PushSubscription.objects.create(profile=other, endpoint="https://fcm.googleapis.com/fcm/send/theirs", p256dh="p", auth="a")
+        self.post("push_subscribe", self.good())
+        self.post("push_unsubscribe", {"endpoint": theirs.endpoint})
+        self.assertTrue(PushSubscription.objects.filter(pk=theirs.pk).exists())
+        self.post("push_unsubscribe", {"endpoint": self.ENDPOINT})
+        self.assertFalse(PushSubscription.objects.filter(endpoint=self.ENDPOINT).exists())
+
+    def test_status_says_whether_this_browser_belongs_to_this_profile(self):
+        self.assertFalse(self.post("push_status", {"endpoint": self.ENDPOINT}).json()["subscribed"])
+        self.post("push_subscribe", self.good())
+        self.assertTrue(self.post("push_status", {"endpoint": self.ENDPOINT}).json()["subscribed"])
+
+    def test_the_test_button_needs_a_device_then_sends(self):
+        self.assertEqual(self.post("push_test", {}).status_code, 409)
+        self.post("push_subscribe", self.good())
+        with patch("tracker.webpush_views.web_push.send_to_profile", return_value=1) as send:
+            resp = self.post("push_test", {})
+        self.assertEqual(resp.json(), {"ok": True, "sent": 1})
+        self.assertEqual(send.call_args.args[0], self.profile)
+
+    def test_the_device_list_and_removal(self):
+        self.post("push_subscribe", self.good())
+        sub = PushSubscription.objects.get()
+        listing = self.client.get(reverse("push_devices"))
+        self.assertContains(listing, sub.label)
+        self.assertContains(listing, f'aria-label="Remove {sub.label}"')
+        other = Profile.objects.create(user=User.objects.create_user("wpother3", password="pass12345"), display_name="Other3")
+        theirs = PushSubscription.objects.create(profile=other, endpoint="https://fcm.googleapis.com/fcm/send/t", p256dh="p", auth="a")
+        self.client.post(reverse("push_device_remove", args=[theirs.pk]))
+        self.assertTrue(PushSubscription.objects.filter(pk=theirs.pk).exists())  # not yours
+        resp = self.client.post(reverse("push_device_remove", args=[sub.pk]))
+        self.assertContains(resp, "No devices yet")
+        self.assertEqual(PushSubscription.objects.filter(profile=self.profile).count(), 0)
+
+    def test_settings_shows_the_card_and_counts_a_device_as_push_set_up(self):
+        resp = self.client.get(reverse("settings"))
+        self.assertContains(resp, "Notifications on this device")
+        self.assertContains(resp, "data-wp-enable")
+        self.assertFalse(resp.context["push_ready"])
+        self.post("push_subscribe", self.good())
+        self.assertTrue(self.client.get(reverse("settings")).context["push_ready"])
+
+
+class ServiceWorkerPushTests(TestCase):
+    def test_the_worker_shows_a_notification_and_handles_clicks(self):
+        source = (Path(__file__).resolve().parent / "templates" / "sw.js").read_text(encoding="utf-8")
+        self.assertIn('addEventListener("push"', source)
+        self.assertIn("showNotification", source)  # required for a userVisibleOnly subscription
+        self.assertIn('addEventListener("notificationclick"', source)
+        self.assertIn("self.location.origin", source)  # clicks only open this site

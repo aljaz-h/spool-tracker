@@ -354,6 +354,11 @@ MAL_CLIENT_SECRET = env("MAL_CLIENT_SECRET", default="")
 TMDB_API_KEY = env("TMDB_API_KEY", default="")
 MDBLIST_API_KEY = env("MDBLIST_API_KEY", default="")
 FANART_API_KEY = env("FANART_API_KEY", default="")
+# Browser/app push (tracker/web_push.py). Both optional: the VAPID key pair is
+# made and stored on first use, and the subject defaults to this site's own
+# https address. Set the private key only to pin it across a fresh database.
+WEB_PUSH_VAPID_PRIVATE_KEY = env("WEB_PUSH_VAPID_PRIVATE_KEY", default="")
+WEB_PUSH_SUBJECT = env("WEB_PUSH_SUBJECT", default="")
 
 # How long a TitleFanartCache row is trusted before re-fetching (see
 # tasks.fetch_fanart_images) - Fanart.tv artwork is near-static once

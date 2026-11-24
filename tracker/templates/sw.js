@@ -42,3 +42,42 @@ self.addEventListener("fetch", (event) => {
     )
   );
 });
+
+// Web push (tracker/web_push.py sends, Settings > Notifications turns it on).
+// Every push MUST end in showNotification - the subscription is made with
+// userVisibleOnly, and a push that shows nothing gets the subscription
+// revoked by the browser. The payload is JSON {title, body, url, icon, tag};
+// url is always a same-site path (the server only sends one).
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (e) {
+    data = { body: event.data ? event.data.text() : "" };
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || "Spool", {
+      body: data.body || "",
+      icon: data.icon || undefined,
+      tag: data.tag || undefined,
+      data: { url: data.url || "/" },
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const path = (event.notification.data && event.notification.data.url) || "/";
+  const target = new URL(path, self.location.origin);
+  if (target.origin !== self.location.origin) return;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
+      for (const client of windows) {
+        if (new URL(client.url).origin === target.origin && "focus" in client) {
+          return client.focus().then((focused) => ("navigate" in focused ? focused.navigate(target.href) : focused));
+        }
+      }
+      return self.clients.openWindow(target.href);
+    })
+  );
+});

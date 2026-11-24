@@ -1,7 +1,7 @@
 from django.contrib.auth import views as auth_views
 from django.urls import path
 
-from . import badge_views, schedule_views, views, wrapped_views
+from . import badge_views, schedule_views, views, webpush_views, wrapped_views
 
 urlpatterns = [
     path("sw.js", views.service_worker, name="service_worker"),
@@ -162,6 +162,13 @@ urlpatterns = [
     path("calendar/subscribe/regenerate/", views.calendar_feed_regenerate, name="calendar_feed_regenerate"),
     path("calendar/feed/<str:token>.ics", views.calendar_feed, name="calendar_feed"),
     path("ui-kit/", views.ui_kit, name="ui_kit"),
+    path("push/key/", webpush_views.push_key, name="push_key"),
+    path("push/subscribe/", webpush_views.push_subscribe, name="push_subscribe"),
+    path("push/status/", webpush_views.push_status, name="push_status"),
+    path("push/unsubscribe/", webpush_views.push_unsubscribe, name="push_unsubscribe"),
+    path("push/test/", webpush_views.push_test, name="push_test"),
+    path("push/devices/", webpush_views.push_devices, name="push_devices"),
+    path("push/devices/<int:pk>/remove/", webpush_views.push_device_remove, name="push_device_remove"),
     path("badges/", badge_views.badges_page, name="badges"),
     path("badges/<slug:key>/", badge_views.badge_detail, name="badge_detail"),
     path("badges/<slug:key>/pin/", badge_views.badge_pin, name="badge_pin"),

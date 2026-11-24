@@ -1460,6 +1460,13 @@ class InstanceConfig(models.Model):
     dropbox_app_key = models.CharField(max_length=255, blank=True)
     encrypted_dropbox_app_secret = models.TextField(blank=True, default="")
 
+    # Web push (tracker/web_push.py): the server's VAPID key pair, made on
+    # first use. The public key is what a browser subscribes against; the
+    # private key signs every push, so it is stored encrypted like the other
+    # secrets. WEB_PUSH_VAPID_PRIVATE_KEY in .env overrides both.
+    vapid_public_key = models.CharField(max_length=128, blank=True)
+    encrypted_vapid_private_key = models.TextField(blank=True, default="")
+
     # Every caller needing a Trakt/Simkl/TMDB credential goes through
     # this (instance_config.py's own get_*_credentials/get_tmdb_api_key)
     # with zero caching until this - confirmed via a real query-count
@@ -2248,3 +2255,38 @@ class SeasonRating(models.Model):
 
     def __str__(self):
         return f"{self.profile} rated {self.title} S{self.season}: {self.rating}"
+
+
+class PushSubscription(models.Model):
+    """One browser or installed-app install that said yes to push for a
+    profile (tracker/web_push.py sends to these). The endpoint is the push
+    service's URL for that one install - unique, so the same browser signing
+    in as someone else moves the row rather than doubling it."""
+
+    MAX_PER_PROFILE = 10
+
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="push_subscriptions")
+    endpoint = models.CharField(max_length=1000, unique=True)
+    p256dh = models.CharField(max_length=128)
+    auth = models.CharField(max_length=64)
+    user_agent = models.CharField(max_length=300, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.profile_id}: {self.label}"
+
+    @property
+    def label(self):
+        """"Chrome on Windows" from the user agent - only for the device list."""
+        ua = self.user_agent or ""
+        browser = next((n for k, n in (("Edg/", "Edge"), ("OPR/", "Opera"), ("Firefox/", "Firefox"), ("Chrome/", "Chrome"), ("Safari/", "Safari")) if k in ua), "Browser")
+        system = next(
+            (n for k, n in (("iPhone", "iPhone"), ("iPad", "iPad"), ("Android", "Android"), ("Windows", "Windows"), ("Mac OS X", "Mac"), ("Linux", "Linux")) if k in ua),
+            "",
+        )
+        return f"{browser} on {system}" if system else browser
+
