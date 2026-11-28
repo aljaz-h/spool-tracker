@@ -25,13 +25,13 @@ any failure - no match found, network error, a proxy outage (observed
 live against Jikan: the search endpoint occasionally 504s, unlike the
 DB-backed episode endpoints, which were reliable) - so a lookup failure
 never blocks the page it's attached to, same philosophy as tmdb.py. No
-API key needed for Tenrai's public tier (120 RPM/4 RPS/40,000 RPD, no
-credentials), so unlike tmdb._api_key() there's nothing to gate on
-except the request itself succeeding - though every outbound request
-does go through _get/_throttle below, which paces batch-style callers
-(a cold filler-map fetch, a Sequel-chain walk, reconcile_episode_seasons
-looping either across many episodes) so they stay comfortably under
-that 4 RPS ceiling on their own, without needing a server key.
+API key needed for Tenrai's public tier (120 requests a minute and 4 a
+second per IP, no daily limit, no credentials), so unlike tmdb._api_key()
+there's nothing to gate on except the request itself succeeding - though
+every outbound request does go through _get/_throttle below, which paces
+batch-style callers (a cold filler-map fetch, a Sequel-chain walk,
+reconcile_episode_seasons looping either across many episodes) so they
+stay under both ceilings on their own, without needing a server key.
 """
 
 import hashlib
@@ -48,31 +48,59 @@ API_BASE = "https://api.tenrai.org/v1"
 # A few requests/second, tens/minute is fine for Spool's actual load (a
 # handful of household profiles, results cached well past any single
 # session's needs) but real: the episodes endpoint is paginated at
-# ~100/episode/page, so a long-running show like Bleach (366 episodes)
+# 100 episodes a page, so a long-running show like Bleach (366 episodes)
 # needs a handful of sequential requests per cold cache miss.
 # _FILLER_TTL is a week (not tmdb.py's 6h _CACHE_TTL) since, unlike
 # trending lists, an aired episode's filler status never changes.
 _FILLER_TTL = 7 * 24 * 3600
-_MAX_EPISODE_PAGES = 10  # guards against an unbounded loop on a malformed response
+# A map cut short by a failed page is only kept briefly: long enough that an
+# outage isn't re-hit on every page load, short enough to fill in once it
+# clears.
+_PARTIAL_FILLER_TTL = 3600
+# Guards against an unbounded loop on a malformed response. Room for the
+# longest shows with plenty to spare (One Piece is 12 pages, Detective Conan
+# 13) - the old cap of 10 silently dropped everything past episode 1000.
+_MAX_EPISODE_PAGES = 30
 
-# A safety margin under Tenrai's public-tier ceiling (120 RPM/4 RPS, no
-# credentials needed) - see _throttle. Once an X-Server-Key is configured
-# (300 RPM/5 RPS) this stays conservative rather than needing to track
-# which tier is active; the cap only matters for batch-style call
-# patterns (reconcile_episode_seasons, a cold filler-map fetch) that
-# don't exist on this codebase's actual request-volume scale otherwise.
+# A safety margin under Tenrai's public-tier ceilings (120 a minute and 4 a
+# second, no credentials needed) - see _throttle. The per-second cap alone
+# would allow 180 a minute, so both are enforced.
 _MAX_REQUESTS_PER_SECOND = 3
+_MAX_REQUESTS_PER_MINUTE = 110
 
 
 def _cache_key(prefix, value):
     return f"tenrai:{prefix}:" + hashlib.sha1(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
+def _wait_for_slot(cache, prefix, window_seconds, limit):
+    """Counts this request against one fixed window and waits (about 3s at
+    most) while that window is full. False means the cache is unusable and
+    pacing should be skipped altogether."""
+    for _ in range(60):  # ~3s worst case - never blocks indefinitely on a stuck window
+        key = f"tenrai:throttle:{prefix}{int(time.time() // window_seconds)}"
+        try:
+            try:
+                count = cache.incr(key)
+            except ValueError:
+                # incr() raises when the key doesn't exist yet - the normal
+                # "first request in a new window" path, not a real failure.
+                cache.set(key, 1, timeout=window_seconds * 2)
+                return True
+        except Exception:
+            logger.warning("Tenrai throttle cache access failed, continuing unpaced", exc_info=True)
+            return False
+        if count <= limit:
+            return True
+        time.sleep(0.05)
+    return True
+
+
 def _throttle():
     """Blocks briefly if needed so this process - and, since CACHES is
     shared Redis in production, every gunicorn worker/Celery task
-    together - doesn't send more than _MAX_REQUESTS_PER_SECOND requests
-    to Tenrai within any given wall-clock second. A single interactive
+    together - stays under _MAX_REQUESTS_PER_MINUTE in any wall-clock
+    minute and _MAX_REQUESTS_PER_SECOND in any second. A single interactive
     page load never comes close to this; it exists for the loops that
     can: get_episode_filler_map's pagination (up to _MAX_EPISODE_PAGES
     sequential requests on a cold cache miss), get_season_episode_offset's
@@ -80,35 +108,24 @@ def _throttle():
     reconcile_episode_seasons looping either of those across many
     episodes/titles in one run with no pacing of its own.
 
-    Fixed-window against a shared cache counter, same approach as
+    Fixed windows against shared cache counters, same approach as
     ratelimit.is_rate_limited - simple over precise, since this only
-    needs to keep a burst under Tenrai's ceiling, not account requests
-    exactly. A down/unreachable cache backend degrades to unpaced rather
-    than blocking forever - losing pacing during a cache outage is
-    better than every Tenrai-backed page hanging."""
+    needs to keep a burst under Tenrai's ceilings, not account requests
+    exactly. No single wait is longer than a few seconds, so once the
+    minute is full a batch job slows to a trickle instead of a page load
+    hanging for the rest of the minute (_get's 429 retry covers the odd
+    request that still lands over). A down/unreachable cache backend
+    degrades to unpaced rather than blocking forever - losing pacing
+    during a cache outage is better than every Tenrai-backed page
+    hanging."""
     from django.conf import settings
     from django.core.cache import cache
 
     if not getattr(settings, "TENRAI_THROTTLE_ENABLED", True):
         return
 
-    for _ in range(60):  # ~3s worst case - never blocks indefinitely on a stuck window
-        window = int(time.time())
-        key = f"tenrai:throttle:{window}"
-        try:
-            try:
-                count = cache.incr(key)
-            except ValueError:
-                # incr() raises when the key doesn't exist yet - the normal
-                # "first request in a new window" path, not a real failure.
-                cache.set(key, 1, timeout=2)
-                return
-        except Exception:
-            logger.warning("Tenrai throttle cache access failed, continuing unpaced", exc_info=True)
-            return
-        if count <= _MAX_REQUESTS_PER_SECOND:
-            return
-        time.sleep(0.05)
+    if _wait_for_slot(cache, "m", 60, _MAX_REQUESTS_PER_MINUTE):
+        _wait_for_slot(cache, "s", 1, _MAX_REQUESTS_PER_SECOND)
 
 
 def _get(url, params=None):
@@ -166,7 +183,8 @@ def get_episode_filler_map(mal_id):
     """Returns {episode_number: {"filler": bool, "recap": bool}} for every
     episode Tenrai knows about for this anime, or {} on failure. Cached as
     a whole (not per-page) since callers only ever want the full map for
-    one absolute episode number lookup at a time."""
+    one absolute episode number lookup at a time. A map cut short by a
+    failed page is still returned, but only cached briefly."""
     from django.core.cache import cache
 
     key = _cache_key("episodes", mal_id)
@@ -181,14 +199,16 @@ def get_episode_filler_map(mal_id):
     filler_map = {}
     page = 1
     has_next = True
+    complete = True
     while has_next and page <= _MAX_EPISODE_PAGES:
         try:
             resp = _get(f"{API_BASE}/anime/{mal_id}/episodes", params={"page": page})
             resp.raise_for_status()
-        except requests.RequestException:
+            payload = resp.json()
+        except (requests.RequestException, ValueError):
             logger.warning("Tenrai episodes request failed for mal_id=%s page=%s", mal_id, page, exc_info=True)
+            complete = False
             break
-        payload = resp.json()
         for ep in payload.get("data") or []:
             episode_number = ep.get("mal_id")
             if episode_number is not None:
@@ -196,9 +216,11 @@ def get_episode_filler_map(mal_id):
         has_next = bool((payload.get("pagination") or {}).get("has_next_page"))
         page += 1
 
+    if has_next and complete:
+        logger.warning("Tenrai episodes for mal_id=%s run past %s pages, the rest is left out", mal_id, _MAX_EPISODE_PAGES)
     if filler_map:
         try:
-            cache.set(key, filler_map, _FILLER_TTL)
+            cache.set(key, filler_map, _FILLER_TTL if complete else _PARTIAL_FILLER_TTL)
         except Exception:
             logger.warning("Tenrai filler-map cache write failed, continuing without cache", exc_info=True)
     return filler_map
@@ -263,21 +285,56 @@ def get_anime_details(mal_id):
     }
 
 
-def _next_sequel_mal_id(data):
-    """The first "Sequel" relation entry's own mal_id, or None - a split-
-    cour anime's MAL entries link to each other this way (e.g. "Hell's
+def _sequels(data):
+    """Every anime "Sequel" relation entry, in the order MAL lists them - a
+    split-cour anime's entries link to each other this way (e.g. "Hell's
     Paradise" -> Sequel -> "Hell's Paradise Season 2"), each with its
     own accurate `episodes` count get_season_episode_offset below walks."""
-    for rel in data.get("relations") or []:
-        if rel.get("relation") != "Sequel":
-            continue
-        for entry in rel.get("entry") or []:
-            if entry.get("type") == "anime" and entry.get("mal_id"):
-                return entry["mal_id"]
+    return [
+        entry
+        for rel in data.get("relations") or []
+        if rel.get("relation") == "Sequel"
+        for entry in rel.get("entry") or []
+        if entry.get("type") == "anime" and entry.get("mal_id")
+    ]
+
+
+# The relation media types that are a season of a show. A sequel that is a
+# Movie, OVA or Special sits between seasons without being one. An entry with
+# no media type at all counts as a season.
+_SEASON_MEDIA_TYPES = {"TV", "ONA"}
+
+
+def _is_season(entry):
+    media_type = entry.get("media_type")
+    return not media_type or media_type in _SEASON_MEDIA_TYPES
+
+
+def _next_season(data):
+    """(mal_id, data) of the next season after the entry `data` describes, or
+    None. MAL often lists a movie first among the sequels (Demon Slayer), so a
+    series entry wins; when there is only a movie or special, the walk passes
+    through it, without counting its episodes, to the series after it."""
+    seen = set()
+    for _ in range(_MAX_PASS_THROUGH + 1):
+        entries = _sequels(data)
+        if not entries:
+            return None
+        season = next((e for e in entries if _is_season(e)), None)
+        target = (season or entries[0])["mal_id"]
+        if target in seen:
+            return None
+        seen.add(target)
+        data = _get_raw_details(target)
+        if not data:
+            return None
+        if season is not None:
+            return target, data
     return None
 
 
 _MAX_SEQUEL_HOPS = 6  # a real cour/part chain is never long; guards a malformed/cyclic relation graph
+_MAX_PASS_THROUGH = 3  # movies/specials in a row between two seasons
 
 
 def get_season_episode_offset(mal_id, virtual_season):
@@ -295,24 +352,32 @@ def get_season_episode_offset(mal_id, virtual_season):
     would drift depending on the order episodes happen to arrive in -
     out-of-order/rewatch scrobbles included).
 
+    Only series entries count as seasons (see _next_season): a movie between
+    two seasons adds nothing to the offset.
+
     Returns None - not a guess - when the chain doesn't reach that far
     (no further Sequel relation, a request failure, or more hops than
     _MAX_SEQUEL_HOPS) - resolve_episode_season leaves the episode as
     reported rather than act on a partial/wrong offset."""
     if virtual_season <= 1:
         return 0
+    hops = virtual_season - 1
+    if hops > _MAX_SEQUEL_HOPS:
+        return None
+    data = _get_raw_details(mal_id)
     offset = 0
-    current_id = mal_id
-    for _ in range(min(virtual_season - 1, _MAX_SEQUEL_HOPS)):
-        data = _get_raw_details(current_id)
+    for hop in range(hops):
         if not data:
             return None
         offset += data.get("episodes") or 0
-        next_id = _next_sequel_mal_id(data)
-        if next_id is None:
+        if hop == hops - 1:
+            # The asked-for season only has to exist; its length isn't needed.
+            return offset if _sequels(data) else None
+        following = _next_season(data)
+        if following is None:
             return None
-        current_id = next_id
-    return offset
+        data = following[1]
+    return None
 
 
 _NO_MATCH_TTL = 3600  # 1 hour - short enough to retry once an outage clears, long enough that a

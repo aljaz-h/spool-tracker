@@ -8,6 +8,15 @@ migration/env step or breaking an existing workflow.
 
 ## [Unreleased]
 
+## [0.201.1] - 2026-11-28
+
+### Fixed
+- Anime with more than 1,000 episodes (One Piece, Detective Conan) now get filler and recap flags for all of them. Spool stopped reading Tenrai's episode list after 10 pages, so later episodes had no flags from it, in the episode list and in the filler-skipping progress.
+- Working out which episode a player's "season 3" means no longer counts a movie as a season. Spool followed the first sequel MyAnimeList lists, which can be a film; it now follows the series, and passes through a movie or special without counting it. This applies to shows TMDB lists as a single season.
+- Long background jobs stay under Tenrai's limit of 120 requests a minute. Only the per-second limit was enforced, which allowed 180 a minute.
+- A failed request part-way through an anime's episode list no longer saves the partial list for a week; it is retried after an hour.
+- The footer credits Tenrai (MyAnimeList) instead of Jikan, which Spool no longer uses.
+
 ## [0.201.0] - 2026-11-24
 
 ### Added

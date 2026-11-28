@@ -19432,6 +19432,37 @@ class TenraiThrottleTests(TestCase):
     def test_degrades_to_unpaced_when_the_cache_backend_is_unreachable(self, mock_incr):
         tenrai._throttle()  # must not raise
 
+    def test_the_caps_stay_under_both_public_limits(self):
+        self.assertLess(tenrai._MAX_REQUESTS_PER_SECOND, 4)
+        self.assertLess(tenrai._MAX_REQUESTS_PER_MINUTE, 120)
+
+    @patch("tracker.integrations.tenrai.time.sleep")
+    @patch("tracker.integrations.tenrai.time.time")
+    def test_waits_once_the_minute_is_full_even_at_a_slow_pace(self, mock_time, mock_sleep):
+        # One request in each of many different seconds of the same minute:
+        # the per-second cap never trips, the per-minute one has to.
+        clock = [1200.0]  # the start of a minute
+        mock_time.side_effect = lambda: clock[0]
+        for n in range(tenrai._MAX_REQUESTS_PER_MINUTE):
+            clock[0] = 1200.0 + n * 0.5
+            tenrai._throttle()
+        mock_sleep.assert_not_called()
+        tenrai._throttle()
+        self.assertTrue(mock_sleep.called)
+        self.assertLessEqual(mock_sleep.call_count, 60)  # never more than a few seconds
+
+    @patch("tracker.integrations.tenrai.time.sleep")
+    @patch("tracker.integrations.tenrai.time.time")
+    def test_the_next_minute_starts_with_a_clean_count(self, mock_time, mock_sleep):
+        clock = [1200.0]
+        mock_time.side_effect = lambda: clock[0]
+        for n in range(tenrai._MAX_REQUESTS_PER_MINUTE):
+            clock[0] = 1200.0 + n * 0.5
+            tenrai._throttle()
+        clock[0] = 1260.0
+        tenrai._throttle()
+        mock_sleep.assert_not_called()
+
 
 class TenraiThrottleDisabledInTestsTests(TestCase):
     """Confirms settings.TENRAI_THROTTLE_ENABLED actually does what its own
@@ -19602,6 +19633,44 @@ class TenraiEpisodeFillerMapTests(TestCase):
     def test_request_exception_returns_empty_map_not_an_error(self, mock_get):
         mock_get.side_effect = requests.RequestException("boom")
         self.assertEqual(tenrai.get_episode_filler_map(272), {})
+
+    @patch("tracker.integrations.tenrai.requests.get")
+    def test_a_long_show_is_read_past_ten_pages(self, mock_get):
+        # One Piece is 12 pages, Detective Conan 13.
+        mock_get.side_effect = [self._page([(n, n == 13, False)], has_next=n < 13) for n in range(1, 14)]
+        result = tenrai.get_episode_filler_map(273)
+        self.assertEqual(len(result), 13)
+        self.assertTrue(result[13]["filler"])
+
+    @patch("tracker.integrations.tenrai.requests.get")
+    def test_paging_still_stops_at_the_cap(self, mock_get):
+        mock_get.return_value = self._page([(1, False, False)], has_next=True)
+        tenrai.get_episode_filler_map(274)
+        self.assertEqual(mock_get.call_count, tenrai._MAX_EPISODE_PAGES)
+
+    @patch("django.core.cache.cache.set")
+    @patch("django.core.cache.cache.get", return_value=None)
+    @patch("tracker.integrations.tenrai.requests.get")
+    def test_a_map_cut_short_by_a_failed_page_is_only_cached_briefly(self, mock_get, _cache_get, cache_set):
+        mock_get.side_effect = [self._page([(1, True, False)], has_next=True), requests.RequestException("boom")]
+        self.assertEqual(set(tenrai.get_episode_filler_map(275)), {1})
+        self.assertEqual(cache_set.call_args.args[2], tenrai._PARTIAL_FILLER_TTL)
+
+    @patch("django.core.cache.cache.set")
+    @patch("django.core.cache.cache.get", return_value=None)
+    @patch("tracker.integrations.tenrai.requests.get")
+    def test_a_complete_map_is_cached_for_the_full_week(self, mock_get, _cache_get, cache_set):
+        mock_get.return_value = self._page([(1, True, False)], has_next=False)
+        tenrai.get_episode_filler_map(276)
+        self.assertEqual(cache_set.call_args.args[2], tenrai._FILLER_TTL)
+
+    @patch("tracker.integrations.tenrai.requests.get")
+    def test_a_page_that_is_not_json_does_not_raise(self, mock_get):
+        broken = Mock()
+        broken.raise_for_status = Mock()
+        broken.json.side_effect = ValueError("not json")
+        mock_get.return_value = broken
+        self.assertEqual(tenrai.get_episode_filler_map(277), {})
 
 
 class AnimeFillerBadgeTests(TestCase):
@@ -20040,6 +20109,59 @@ class TenraiSeasonEpisodeOffsetTests(TestCase):
             {"episodes": 13, "relations": [{"relation": "Prequel", "entry": [{"mal_id": 99, "type": "anime"}]}]}
         )
         self.assertIsNone(tenrai.get_season_episode_offset(1, 2))
+
+    def _chain(self, entries):
+        """requests.get side effect for {mal_id: (episodes, [(sequel_id, media_type)])}."""
+
+        def respond(url, params=None, timeout=None):
+            mal_id = int(url.rstrip("/").split("/")[-2])
+            episodes, sequels = entries[mal_id]
+            relations = [
+                {"relation": "Sequel", "entry": [{"mal_id": i, "type": "anime", "media_type": kind} for i, kind in sequels]}
+            ] if sequels else []
+            return self._response({"episodes": episodes, "relations": relations})
+
+        return respond
+
+    @patch("tracker.integrations.tenrai.requests.get")
+    def test_a_series_sequel_wins_over_a_movie_listed_first(self, mock_get):
+        # Demon Slayer's shape: the movie is the first "Sequel" of season 1.
+        mock_get.side_effect = self._chain(
+            {
+                9100: (26, [(9101, "Movie"), (9102, "TV")]),
+                9101: (1, [(9103, "TV")]),
+                9102: (7, [(9103, "TV")]),
+                9103: (11, [(9104, "TV")]),
+                9104: (11, []),
+            }
+        )
+        self.assertEqual(tenrai.get_season_episode_offset(9100, 2), 26)
+        self.assertEqual(tenrai.get_season_episode_offset(9100, 3), 33)
+        self.assertEqual(tenrai.get_season_episode_offset(9100, 4), 44)
+
+    @patch("tracker.integrations.tenrai.requests.get")
+    def test_a_movie_between_two_seasons_adds_nothing(self, mock_get):
+        mock_get.side_effect = self._chain(
+            {9200: (12, [(9201, "Movie")]), 9201: (1, [(9202, "ONA")]), 9202: (10, [(9203, "TV")])}
+        )
+        self.assertEqual(tenrai.get_season_episode_offset(9200, 3), 22)
+
+    @patch("tracker.integrations.tenrai.requests.get")
+    def test_only_movies_after_a_season_means_no_further_season(self, mock_get):
+        mock_get.side_effect = self._chain({9300: (12, [(9301, "Movie")]), 9301: (1, [])})
+        self.assertIsNone(tenrai.get_season_episode_offset(9300, 3))
+
+    @patch("tracker.integrations.tenrai.requests.get")
+    def test_a_loop_of_movies_ends(self, mock_get):
+        mock_get.side_effect = self._chain(
+            {9400: (12, [(9401, "Movie")]), 9401: (1, [(9402, "Movie")]), 9402: (1, [(9401, "Movie")])}
+        )
+        self.assertIsNone(tenrai.get_season_episode_offset(9400, 3))
+
+    @patch("tracker.integrations.tenrai.requests.get")
+    def test_a_season_past_the_hop_limit_is_not_guessed(self, mock_get):
+        self.assertIsNone(tenrai.get_season_episode_offset(9500, tenrai._MAX_SEQUEL_HOPS + 2))
+        mock_get.assert_not_called()
 
     @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
     @patch("tracker.integrations.tenrai.requests.get")
